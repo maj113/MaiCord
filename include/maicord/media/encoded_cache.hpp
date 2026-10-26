@@ -115,23 +115,23 @@ u64 encoded_media_new_content_identity() noexcept;
 bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMediaCacheEntry> entries,
                                     Slice<u16> page_owners, Slice<u8> storage,
                                     Slice<u32> index_buckets = {}) noexcept;
-EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, MediaAssetKey key,
+EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, const MediaAssetKey& key,
                                                  u64 now_seconds) noexcept;
-EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, MediaAssetKey key,
+EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, const MediaAssetKey& key,
                                                    u64 now_seconds) noexcept;
 bool encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLease* lease) noexcept;
-EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache, MediaAssetKey key,
-                                                       ConstSlice<u8> encoded,
+EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache, const MediaAssetKey& key,
+                                                       const ConstSlice<u8>& encoded,
                                                        EncodedMediaCachePolicy policy) noexcept;
 // A nonzero generation fences freshness/ETag updates to that exact lifetime.
-bool encoded_media_cache_refresh(EncodedMediaCache* cache, MediaAssetKey key, u64 expires_at_seconds,
-                                 bool must_revalidate, ConstSlice<u8> etag = {},
+bool encoded_media_cache_refresh(EncodedMediaCache* cache, const MediaAssetKey& key, u64 expires_at_seconds,
+                                 bool must_revalidate, const ConstSlice<u8>& etag = {},
                                  u16 expected_generation = 0) noexcept;
-bool encoded_media_cache_erase(EncodedMediaCache* cache, MediaAssetKey key) noexcept;
+bool encoded_media_cache_erase(EncodedMediaCache* cache, const MediaAssetKey& key) noexcept;
 // Immediately hides a source from find/acquire/content reuse. Existing leases
 // remain immutable and release its pages after their final joined reader exits.
 // A nonzero generation restricts retirement to that exact entry lifetime.
-bool encoded_media_cache_retire(EncodedMediaCache*, MediaAssetKey, u16 expected_generation = 0) noexcept;
+bool encoded_media_cache_retire(EncodedMediaCache*, const MediaAssetKey&, u16 expected_generation = 0) noexcept;
 
 static_assert(sizeof(EncodedMediaCacheEntry) == 160);
 static_assert(sizeof(EncodedMediaCache) <= 192);

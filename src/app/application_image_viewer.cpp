@@ -483,7 +483,7 @@ void application_image_viewer_dismiss() noexcept {
     application_video_cancel_pointer();
     application_request_frame();
 }
-bool application_image_viewer_video_geometry(MediaAssetKey key, UiRect* preview, UiRect* clip) noexcept {
+bool application_image_viewer_video_geometry(const MediaAssetKey& key, UiRect* preview, UiRect* clip) noexcept {
     const auto& viewer = g_app.image_viewer;
     if (!viewer.scene.active || !current_video() || !media_asset_key_valid(viewer.key) ||
         !media_asset_key_equal(key, viewer.key))
@@ -492,7 +492,7 @@ bool application_image_viewer_video_geometry(MediaAssetKey key, UiRect* preview,
     *clip = viewer.scene.viewport;
     return true;
 }
-void application_image_viewer_request_failed(MediaAssetKey key) noexcept {
+void application_image_viewer_request_failed(const MediaAssetKey& key) noexcept {
     auto& viewer = g_app.image_viewer;
     if (!viewer.scene.active || !media_asset_key_valid(key) || !media_asset_key_equal(key, viewer.key) ||
         media_asset_key_equal(key, viewer.failed_key))
@@ -526,7 +526,7 @@ u32 application_image_viewer_request_keys(MediaAssetKey* keys, u32 capacity) noe
     }
     return count;
 }
-bool application_image_viewer_key_current(MediaAssetKey key) noexcept {
+bool application_image_viewer_key_current(const MediaAssetKey& key) noexcept {
     MediaAssetKey keys[3]{};
     const u32 count = application_image_viewer_request_keys(keys, 3);
     for (u32 i = 0; i < count; ++i)
@@ -680,14 +680,6 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
                                                       message_rich_attachment_spoiler(store, attachment),
                                                       message_rich_attachment_explicit(attachment)))
                 return true;
-            auto& viewer = g_app.image_viewer;
-            if (!ui_image_viewer_open(
-                    &viewer.scene, viewport(),
-                    attachment.width && attachment.height ? UiSize{static_cast<float>(attachment.width), static_cast<float>(attachment.height)}
-                                                          : UiSize{width, height}))
-                return true;
-            reset_value(&viewer.search_source); viewer.search_result = false;
-            record_identity(*message, row.message, content_scope != 0);
             OpenRequest request{preview, MessageSceneRichItemKind::attachment, index, MediaEmbedResource::none,
                                 row.forwarded_snapshot};
             // Keep the clicked preview's exact painted tier as the fallback.
@@ -697,6 +689,14 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
                                                                          media_preview_extent_cap(format)));
             if (!attachment.width || !attachment.height)
                 request.pixels = {width, height};
+            auto& viewer = g_app.image_viewer;
+            if (!ui_image_viewer_open(
+                    &viewer.scene, viewport(),
+                    attachment.width && attachment.height ? UiSize{static_cast<float>(attachment.width), static_cast<float>(attachment.height)}
+                                                          : UiSize{width, height}))
+                return true;
+            reset_value(&viewer.search_source); viewer.search_result = false;
+            record_identity(*message, row.message, content_scope != 0);
             if (!begin(request))
                 application_image_viewer_close();
             return true;
@@ -733,14 +733,6 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
             if (application_media_activation_consumed(g_app.message_scene, owner, message->id, key, false,
                                                       message_rich_embed_explicit(rich->embeds[member])))
                 return true;
-            auto& viewer = g_app.image_viewer;
-            if (!ui_image_viewer_open(&viewer.scene, viewport(),
-                                      selected.media->width && selected.media->height
-                                          ? UiSize{static_cast<float>(selected.media->width), static_cast<float>(selected.media->height)}
-                                          : UiSize{width, height}))
-                return true;
-            reset_value(&viewer.search_source); viewer.search_result = false;
-            record_identity(*message, row.message, content_scope != 0);
             OpenRequest request{preview, MessageSceneRichItemKind::embed, member, MediaEmbedResource::none,
                                 row.forwarded_snapshot};
             const auto tier = media_resolution_tier_for_display(width, height, g_app.renderer.dpi,
@@ -750,6 +742,14 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
                                   selected.format, selected.animated, tier, row.forwarded_snapshot);
             if (!selected.media->width || !selected.media->height)
                 request.pixels = {width, height};
+            auto& viewer = g_app.image_viewer;
+            if (!ui_image_viewer_open(&viewer.scene, viewport(),
+                                      selected.media->width && selected.media->height
+                                          ? UiSize{static_cast<float>(selected.media->width), static_cast<float>(selected.media->height)}
+                                          : UiSize{width, height}))
+                return true;
+            reset_value(&viewer.search_source); viewer.search_result = false;
+            record_identity(*message, row.message, content_scope != 0);
             if (!begin(request))
                 application_image_viewer_close();
             return true;
@@ -759,7 +759,7 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
     return false;
 }
 bool application_image_viewer_open_search(const ApplicationSearchSourceTicket& ticket,
-    MessageSceneRichItemKind kind, u32 index, bool snapshot, UiRect painted_preview, MediaEmbedResource resource) noexcept {
+    MessageSceneRichItemKind kind, u32 index, bool snapshot, const UiRect& painted_preview, MediaEmbedResource resource) noexcept {
     if (!g_app.account_ui || g_app.login.visible || g_app.popup_scene.active || application_downloads_active() ||
         g_app.reaction_viewer.active || !ui_rect_has_area(painted_preview) ||
         (g_app.renderer.text_form && g_app.renderer.text_form->scene && g_app.renderer.text_form->scene->active)) return false;
@@ -839,8 +839,8 @@ bool application_image_viewer_open_search(const ApplicationSearchSourceTicket& t
     return true;
 }
 bool application_image_viewer_open_video(u64 message_id, u32 revision, bool embed, u8 index, bool snapshot,
-                                         const ApplicationSearchSourceTicket* search, MediaAssetKey key,
-                                         UiRect origin) noexcept {
+                                         const ApplicationSearchSourceTicket* search, const MediaAssetKey& key,
+                                         const UiRect& origin) noexcept {
     if (!g_app.account_ui || g_app.login.visible || g_app.popup_scene.active || application_downloads_active() ||
         g_app.reaction_viewer.active || !media_asset_key_valid(key))
         return false;

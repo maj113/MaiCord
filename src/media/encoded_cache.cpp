@@ -76,7 +76,8 @@ void insert_index_locked(EncodedMediaCache* cache, u32 index) noexcept {
     rebuild_index_locked(cache);
 }
 
-void remove_index_locked(EncodedMediaCache* cache, MediaAssetKey key, u32 index) noexcept {
+void remove_index_locked(EncodedMediaCache* cache, const MediaAssetKey& key_view, u32 index) noexcept {
+    const MediaAssetKey key = key_view; // the index is rewritten below
     if (!cache->index_buckets || cache->index_bucket_capacity == 0) {
         return;
     }
@@ -102,7 +103,7 @@ void maintain_index_locked(EncodedMediaCache* cache) noexcept {
     }
 }
 
-u32 find_entry_locked(const EncodedMediaCache& cache, MediaAssetKey key) noexcept {
+u32 find_entry_locked(const EncodedMediaCache& cache, const MediaAssetKey& key) noexcept {
     if (cache.index_buckets && cache.index_bucket_capacity != 0) {
         const u32 mask = cache.index_bucket_capacity - 1;
         u32 bucket = static_cast<u32>(media_asset_hash(key)) & mask;
@@ -199,7 +200,7 @@ u32 find_page_run_locked(const EncodedMediaCache& cache, u32 required_pages) noe
     return kInvalidIndex;
 }
 
-EncodedMediaCacheLookup lookup_locked(EncodedMediaCache* cache, MediaAssetKey key, u64 now_seconds,
+EncodedMediaCacheLookup lookup_locked(EncodedMediaCache* cache, const MediaAssetKey& key, u64 now_seconds,
                                       u32* entry_index) noexcept {
     const u32 index = find_entry_locked(*cache, key);
     if (entry_index) {
@@ -261,8 +262,9 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
     return true;
 }
 
-EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, MediaAssetKey key,
+EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, const MediaAssetKey& key_view,
                                                  u64 now_seconds) noexcept {
+    const MediaAssetKey key = key_view; // the cache is rewritten while it is searched
     if (!cache || !cache->entries || !cache->storage || !media_asset_key_valid(key)) {
         return EncodedMediaCacheLookup{{}, {}, 0, 0, EncodedMediaCacheLookupState::invalid};
     }
@@ -272,8 +274,9 @@ EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, Media
     return result;
 }
 
-EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, MediaAssetKey key,
+EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, const MediaAssetKey& key_view,
                                                    u64 now_seconds) noexcept {
+    const MediaAssetKey key = key_view; // the cache is rewritten while it is searched
     EncodedMediaCacheLease lease{};
     lease.entry_index = kInvalidIndex;
     if (!cache || !cache->entries || !cache->storage || !media_asset_key_valid(key)) {
@@ -323,9 +326,11 @@ bool encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLeas
     return valid;
 }
 
-EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache, MediaAssetKey key,
-                                                       ConstSlice<u8> encoded,
+EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache, const MediaAssetKey& key_view,
+                                                       const ConstSlice<u8>& encoded_view,
                                                        EncodedMediaCachePolicy policy) noexcept {
+    const MediaAssetKey key = key_view; // the cache is rewritten while the source is read
+    const ConstSlice<u8> encoded = encoded_view;
     if (!cache || !cache->entries || !cache->page_owners || !cache->storage ||
         !media_asset_key_valid(key) || !encoded.data || encoded.count == 0 || !etag_valid(policy.etag)) {
         return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::invalid, 0};
@@ -435,9 +440,11 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
     return result;
 }
 
-bool encoded_media_cache_refresh(EncodedMediaCache* cache, MediaAssetKey key, u64 expires_at_seconds,
-                                 bool must_revalidate, ConstSlice<u8> etag,
+bool encoded_media_cache_refresh(EncodedMediaCache* cache, const MediaAssetKey& key_view, u64 expires_at_seconds,
+                                 bool must_revalidate, const ConstSlice<u8>& etag_view,
                                  u16 expected_generation) noexcept {
+    const MediaAssetKey key = key_view; // the cache is rewritten below
+    const ConstSlice<u8> etag = etag_view;
     if (!cache || !cache->entries || !media_asset_key_valid(key) || !etag_valid(etag)) {
         return false;
     }
@@ -465,7 +472,8 @@ bool encoded_media_cache_refresh(EncodedMediaCache* cache, MediaAssetKey key, u6
     return true;
 }
 
-bool encoded_media_cache_erase(EncodedMediaCache* cache, MediaAssetKey key) noexcept {
+bool encoded_media_cache_erase(EncodedMediaCache* cache, const MediaAssetKey& key_view) noexcept {
+    const MediaAssetKey key = key_view; // the cache is rewritten below
     if (!cache || !cache->entries || !media_asset_key_valid(key)) {
         return false;
     }
@@ -481,8 +489,9 @@ bool encoded_media_cache_erase(EncodedMediaCache* cache, MediaAssetKey key) noex
     return true;
 }
 
-bool encoded_media_cache_retire(EncodedMediaCache* cache, MediaAssetKey key,
+bool encoded_media_cache_retire(EncodedMediaCache* cache, const MediaAssetKey& key_view,
                                 u16 expected_generation) noexcept {
+    const MediaAssetKey key = key_view; // the cache is rewritten below
     if (!cache || !cache->entries || !media_asset_key_valid(key))
         return false;
     AcquireSRWLockExclusive(cache->lock.native());

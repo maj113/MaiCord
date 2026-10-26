@@ -346,7 +346,7 @@ __declspec(noinline) ApplicationMediaPump::MediaFrameUploadResult ApplicationMed
 }
 
 __declspec(noinline) AnimationVisualState* ApplicationMediaPump::find_animation_visual(
-    MediaAssetKey key, u32 generation) noexcept {
+    const MediaAssetKey& key, u32 generation) noexcept {
     const AnimationTimelineResult found = animation_timeline_find(&application.animations.timeline, key);
     if (!found.ok() || found.slot >= application.animations.timeline.capacity ||
         !application.animations.visuals) {
@@ -374,7 +374,7 @@ __declspec(noinline) void ApplicationMediaPump::release_animation_visual(MediaAs
     }
 }
 
-void ApplicationMediaPump::retire_stale_message_animation(MediaAssetKey key, u64 source_message_id,
+void ApplicationMediaPump::retire_stale_message_animation(const MediaAssetKey& key, u64 source_message_id,
                                                           u32 source_message_revision) noexcept {
     const auto found = animation_timeline_find(&application.animations.timeline, key);
     if (!found.ok() || found.slot >= application.animations.timeline.capacity)

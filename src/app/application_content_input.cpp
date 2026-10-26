@@ -205,7 +205,7 @@ bool open_thread_starter(u64 parent_id, u64 thread_id) noexcept {
     return navigate_content_message(thread_id, 0) || application_thread_browser_open(parent_id);
 }
 
-bool navigate_content_message_link(Utf8View url) noexcept {
+bool navigate_content_message_link(const Utf8View& url) noexcept {
     MessageLink link{};
     if (!message_markdown_message_link(url, &link))
         return false;
@@ -221,7 +221,7 @@ bool navigate_content_message_link(Utf8View url) noexcept {
     return true;
 }
 
-bool open_content_url_impl(Utf8View url, const ReceivedAttachmentOpenIdentity* attachment = nullptr,
+bool open_content_url_impl(const Utf8View& url, const ReceivedAttachmentOpenIdentity* attachment = nullptr,
                            u64 attachment_source_fingerprint = 0, bool trusted_text = false) noexcept {
     if (navigate_content_message_link(url)) {
         return true;
@@ -246,7 +246,7 @@ bool open_content_url_impl(Utf8View url, const ReceivedAttachmentOpenIdentity* a
 // Markdown link rule: a link is trusted when its text is its URL,
 // unless it is in a DM with someone who is not a friend. Embed titles, authors
 // and providers are named links, never their URL text.
-bool content_link_trusted_text(const MessageTextHit& hit, Utf8View url) noexcept {
+bool content_link_trusted_text(const MessageTextHit& hit, const Utf8View& url) noexcept {
     if (!g_app.account_ui || !url.bytes)
         return false;
     const auto* message = application_message_record(hit.message_id);

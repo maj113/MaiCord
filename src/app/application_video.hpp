@@ -11,9 +11,9 @@ struct UiSearchTarget;
 namespace maicord::app_detail {
 struct ApplicationVideo;
 struct ApplicationSearchSourceTicket;
-bool application_video_ordinary(MediaAssetKey) noexcept;
+bool application_video_ordinary(const MediaAssetKey&) noexcept;
 bool application_video_search_active() noexcept;
-bool application_video_open_search(UiSearchTarget) noexcept;
+bool application_video_open_search(const UiSearchTarget&) noexcept;
 // Existing message attachment focus routes audio activation through the same
 // playback owner before generic file-open handling.
 bool application_video_open_focused() noexcept;
@@ -45,6 +45,6 @@ bool application_video_cursor(UiPoint, UiCursor*) noexcept;
 bool application_video_viewer_cursor(UiPoint, UiCursor*) noexcept;
 // Reuses the current session when it already plays this item.
 bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed, u8 index, bool snapshot,
-                                        const ApplicationSearchSourceTicket* search, UiRect preview,
+                                        const ApplicationSearchSourceTicket* search, const UiRect& preview,
                                         MediaAssetKey* key) noexcept;
 } // namespace maicord::app_detail

@@ -125,12 +125,12 @@ u32 application_image_viewer_request_keys(MediaAssetKey* keys, u32 capacity) noe
     keys[0] = g_app.image_viewer.key;
     return 1;
 }
-bool application_image_viewer_key_current(MediaAssetKey key) noexcept {
+bool application_image_viewer_key_current(const MediaAssetKey& key) noexcept {
     return g_app.image_viewer.scene.active && media_asset_key_equal(key, g_app.image_viewer.key);
 }
-void application_image_viewer_request_failed(MediaAssetKey) noexcept {}
+void application_image_viewer_request_failed(const MediaAssetKey&) noexcept {}
 // The fixture does not select native video or submit a frame to the GPU.
-bool application_video_ordinary(MediaAssetKey) noexcept {
+bool application_video_ordinary(const MediaAssetKey&) noexcept {
     return false;
 }
 MediaAssetKey fixture_catalog_owner_key{};

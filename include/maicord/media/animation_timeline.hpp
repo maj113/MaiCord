@@ -134,19 +134,19 @@ AnimationTimelineResult animation_timeline_publish(AnimationTimeline* timeline,
                                                    const AnimationTimelineDescriptor& descriptor,
                                                    u64 monotonic_now_us) noexcept;
 AnimationTimelineResult animation_timeline_find(const AnimationTimeline* timeline,
-                                                MediaAssetKey key) noexcept;
-AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, MediaAssetKey key,
+                                                const MediaAssetKey& key) noexcept;
+AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, const MediaAssetKey& key,
                                                    u32 generation) noexcept;
 // Rewinds the entry to its first frame once per distinct nonzero playback epoch. False for an unknown
 // key or while an advance is pending.
-bool animation_timeline_restart(AnimationTimeline* timeline, MediaAssetKey key, u64 epoch,
+bool animation_timeline_restart(AnimationTimeline* timeline, const MediaAssetKey& key, u64 epoch,
                                 u64 now_us) noexcept;
 
 // A visibility epoch is committed only by end_visibility. Callers that abort a
 // partial visible-range scan can omit end_visibility, leaving prior state
 // untouched for entries not yet observed.
 void animation_timeline_begin_visibility(AnimationTimeline* timeline) noexcept;
-bool animation_timeline_observe_visible(AnimationTimeline* timeline, MediaAssetKey key,
+bool animation_timeline_observe_visible(AnimationTimeline* timeline, const MediaAssetKey& key,
                                         u64 monotonic_now_us) noexcept;
 void animation_timeline_end_visibility(AnimationTimeline* timeline, u64 monotonic_now_us) noexcept;
 

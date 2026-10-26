@@ -164,7 +164,7 @@ bool unbind_playback_scenes() noexcept {
     g_app.renderer.video_scene_viewer = false;
     return had_scene;
 }
-UiRect clip_video_panel(UiRect clip, UiRect panel) noexcept {
+UiRect clip_video_panel(const UiRect& clip, const UiRect& panel) noexcept {
     if (!ui_rect_has_area(ui_rect_intersection(clip, panel)))
         return clip;
     // The results pane occupies the right edge. Preserve the visible portion
@@ -972,8 +972,40 @@ void dispatch_audio_event(ApplicationVideo& video, const UiAudioSceneResult& eve
     }
     application_request_frame();
 }
+// A search-hosted player is valid only while its typed rich target still resolves to the same media;
+// otherwise the session closes.
+bool search_video_still_current(const ApplicationVideo& video) noexcept {
+    if (!media_asset_search(video.source.key))
+        return true;
+    InlineMediaSource current{};
+    if (resolve_search_video_source(video.source.search_source, video.source.embed, video.source.index,
+                                    video.source.snapshot, &current) &&
+        media_asset_key_equal(current.key, video.source.key))
+        return true;
+    application_video_close();
+    return false;
+}
+// Routes one pointer message into the video scene; true when a control handled it.
+bool video_scene_pointer_event(ApplicationVideo& video, UINT message, UiPoint point) noexcept {
+    auto& scene = video.ui.video;
+    const auto before = ui_video_scene_paint_revision(scene);
+    note_video_pointer(video, message, point);
+    const auto kind = message == WM_LBUTTONDOWN ? UiVideoPointerEvent::down
+                      : message == WM_LBUTTONUP ? UiVideoPointerEvent::up
+                                                : UiVideoPointerEvent::move;
+    const auto result = ui_video_scene_pointer(&scene, kind, point);
+    track_video_pointer(video);
+    if (before != ui_video_scene_paint_revision(scene))
+        application_request_frame();
+    if (!result.handled)
+        return false;
+    if (message == WM_LBUTTONDOWN)
+        acquire_video_focus(video);
+    dispatch_video_event(video, result);
+    return true;
+}
 } // namespace
-bool application_video_ordinary(MediaAssetKey key) noexcept {
+bool application_video_ordinary(const MediaAssetKey& key) noexcept {
     if (key.kind == MediaAssetKind::attachment)
         return media_asset_attachment_format(key) == MediaAttachmentFormat::mp4 ||
                media_attachment_format_audio_supported(media_asset_attachment_format(key));
@@ -996,7 +1028,7 @@ bool application_video_ordinary(MediaAssetKey key) noexcept {
 bool application_video_search_active() noexcept {
     return g_app.video && media_asset_search(g_app.video->source.key);
 }
-bool application_video_open_search(UiSearchTarget target) noexcept {
+bool application_video_open_search(const UiSearchTarget& target) noexcept {
     if (!video_surface_available() || !d3d11_renderer_search_visible(g_app.renderer) ||
         target.action != UiSearchAction::rich_item || target.save || target.rich_index > 255 ||
         (target.rich_kind != MessageSceneRichItemKind::attachment &&
@@ -1150,7 +1182,7 @@ void application_video_viewer_detach() noexcept {
     application_request_frame();
 }
 bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed, u8 index, bool snapshot,
-                                        const ApplicationSearchSourceTicket* search, UiRect preview,
+                                        const ApplicationSearchSourceTicket* search, const UiRect& preview,
                                         MediaAssetKey* key) noexcept {
     if (!key || !video_session_available() || !ui_rect_has_area(preview))
         return false;
@@ -1679,15 +1711,8 @@ bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
     const UiPoint point{static_cast<float>(static_cast<i16>(LOWORD(lparam))) * scale,
                         static_cast<float>(static_cast<i16>(HIWORD(lparam))) * scale};
     auto* video = g_app.video;
-    if (video && media_asset_search(video->source.key)) {
-        InlineMediaSource current{};
-        if (!resolve_search_video_source(video->source.search_source, video->source.embed,
-                                         video->source.index, video->source.snapshot, &current) ||
-            !media_asset_key_equal(current.key, video->source.key)) {
-            application_video_close();
-            return false;
-        }
-    }
+    if (video && !search_video_still_current(*video))
+        return false;
     if (video && video->source.audio && video->ui.audio.active) {
         InlineMediaSource current{};
         if (!resolve_visible_video_source(video->source.message_id, video->source.revision, false,
@@ -1712,24 +1737,8 @@ bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
             return true;
         }
     }
-    if (video && !video->source.audio && video->ui.video.active) {
-        const auto before = ui_video_scene_paint_revision(video->ui.video);
-        note_video_pointer(*video, message, point);
-        const auto kind = message == WM_LBUTTONDOWN ? UiVideoPointerEvent::down
-                          : message == WM_LBUTTONUP ? UiVideoPointerEvent::up
-                                                    : UiVideoPointerEvent::move;
-        const auto result = ui_video_scene_pointer(&video->ui.video, kind, point);
-        track_video_pointer(*video);
-        if (before != ui_video_scene_paint_revision(video->ui.video))
-            application_request_frame();
-        if (result.handled) {
-            if (message == WM_LBUTTONDOWN) {
-                acquire_video_focus(*video);
-            }
-            dispatch_video_event(*video, result);
-            return true;
-        }
-    }
+    if (video && !video->source.audio && video->ui.video.active && video_scene_pointer_event(*video, message, point))
+        return true;
     if (message != WM_LBUTTONDOWN)
         return false;
     // Search's typed rich target owns preview activation. A miss on its player
@@ -1807,21 +1816,8 @@ bool application_video_viewer_pointer(UINT message, UiPoint point) noexcept {
         !video->ui.video.active)
         return false;
     auto& scene = video->ui.video;
-    const auto before = ui_video_scene_paint_revision(scene);
-    note_video_pointer(*video, message, point);
-    const auto kind = message == WM_LBUTTONDOWN ? UiVideoPointerEvent::down
-                      : message == WM_LBUTTONUP ? UiVideoPointerEvent::up
-                                                : UiVideoPointerEvent::move;
-    const auto result = ui_video_scene_pointer(&scene, kind, point);
-    track_video_pointer(*video);
-    if (before != ui_video_scene_paint_revision(scene))
-        application_request_frame();
-    if (result.handled) {
-        if (message == WM_LBUTTONDOWN)
-            acquire_video_focus(*video);
-        dispatch_video_event(*video, result);
+    if (video_scene_pointer_event(*video, message, point))
         return true;
-    }
     // A click on the picture itself toggles playback, as in the official client's viewer.
     if (message == WM_LBUTTONDOWN && ui_rect_contains(ui_rect_intersection(scene.preview, scene.clip), point.x,
                                                       point.y)) {
@@ -1929,15 +1925,8 @@ bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
     if (content_surface_covers_video())
         return false;
     auto* video = g_app.video;
-    if (video && media_asset_search(video->source.key)) {
-        InlineMediaSource current{};
-        if (!resolve_search_video_source(video->source.search_source, video->source.embed,
-                                         video->source.index, video->source.snapshot, &current) ||
-            !media_asset_key_equal(current.key, video->source.key)) {
-            application_video_close();
-            return false;
-        }
-    }
+    if (video && !search_video_still_current(*video))
+        return false;
     if (!video || !(video->source.audio ? video->ui.audio.active : video->ui.video.active) ||
         !video_surface_available())
         return false;

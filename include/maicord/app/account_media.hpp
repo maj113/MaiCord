@@ -338,12 +338,12 @@ inline constexpr u32 kAccountMediaCatalogVideoMaximumBytes = 16u * 1024u * 1024u
 AccountMediaRequestResult account_media_initialize(AccountMedia* media) noexcept;
 // Strong image signatures distinguish a proxy poster from malformed MP4
 // without exposing bytes or weakening the decoder's format validation.
-AccountMediaVideoFailure account_media_video_body_failure(ConstSlice<u8> body) noexcept;
+AccountMediaVideoFailure account_media_video_body_failure(const ConstSlice<u8>& body) noexcept;
 AccountMediaRequestResult account_media_initialize_shared(AccountMedia* media,
                                                           EncodedMediaCache* shared_cache) noexcept;
-AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media, MediaAssetKey key,
+AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media, const MediaAssetKey& key,
                                                              u64 monotonic_now_ms, u64 unix_now_seconds,
-                                                             Utf8View guild_icon_hash = {},
+                                                             const Utf8View& guild_icon_hash = {},
                                                              u32 identity_size = 0) noexcept;
 // Hash-addressed guild icon, user avatar or group DM icon. reserved[0] is the
 // CDN size (a power of two from 16 through 4096, zero selects 128); the
@@ -363,7 +363,7 @@ AccountMediaRequestResult account_media_request_catalog_preview(
 // and shared encoded cache. This never submits CDN traffic.
 AccountMediaRequestResult account_media_decode_local_preview(AccountMedia*,
                                                              const AccountMediaLocalPreviewRequest&,
-                                                             ConstSlice<u8> encoded) noexcept;
+                                                             const ConstSlice<u8>& encoded) noexcept;
 // Worker-only composer MP4/MOV poster. The file is read through `read` (exact
 // reads; false cancels) into a sparse lane-owned source: the movie header and
 // the first samples only. The first frame is published as a GPU NV12 frame;
@@ -376,7 +376,7 @@ AccountMediaRequestResult account_media_decode_local_video_preview(AccountMedia*
                                                                    void* context) noexcept;
 // True while the lane's decoder holds a local draft preview poster.
 bool account_media_local_video_resident(const AccountMedia*) noexcept;
-AccountMediaRequestResult account_media_advance_animation(AccountMedia* media, MediaAssetKey key,
+AccountMediaRequestResult account_media_advance_animation(AccountMedia* media, const MediaAssetKey& key,
                                                           u16 cache_generation, u32 frame_index,
                                                           u64 unix_now_seconds) noexcept;
 bool account_media_pump(AccountMedia* media, u64 monotonic_now_ms, u64 unix_now_seconds) noexcept;
@@ -384,7 +384,7 @@ bool account_media_take_frame(AccountMedia* media, AccountMediaFrame* frame) noe
 // Returns scanline storage a large decode grew past the lane's own, once its
 // frame is taken; the next decode grows again if it needs to.
 bool account_media_trim_scanlines(AccountMedia* media) noexcept;
-bool account_media_video_matches(const AccountMedia* media, MediaAssetKey key,
+bool account_media_video_matches(const AccountMedia* media, const MediaAssetKey& key,
                                  u16 cache_generation = 0) noexcept;
 // Only a ready collection source publishes a count / one-based selected track.
 struct AccountMediaCollectionState { u16 count{}, track{}; bool more{}; };
@@ -401,21 +401,21 @@ bool account_media_collection_title(AccountMedia*, const AccountMediaCollectionT
 bool account_media_collection_title_batch(AccountMedia*, const AccountMediaCollectionTitleRequest&, SoundcloudTitleBatch*) noexcept;
 bool account_media_collection_title_store(AccountMedia*, const AccountMediaCollectionTitleRequest&, const MediaTrackId& track_id,
     const MediaTrackTitle&, u64 retry_at_ms) noexcept;
-AccountMediaCollectionState account_media_collection_state(const AccountMedia*, MediaAssetKey, bool ready = true) noexcept;
-bool account_media_audio_matches(const AccountMedia*, MediaAssetKey, u16 cache_generation = 0) noexcept;
+AccountMediaCollectionState account_media_collection_state(const AccountMedia*, const MediaAssetKey&, bool ready = true) noexcept;
+bool account_media_audio_matches(const AccountMedia*, const MediaAssetKey&, u16 cache_generation = 0) noexcept;
 // Worker only, after joined playback releases its borrowed demux/source.
 void account_media_release_audio_source(AccountMedia*) noexcept;
 // Worker only: releases the MP4 decoder, then the progressive source it borrows.
 void account_media_release_video(AccountMedia*) noexcept;
 // Worker only: stores a complete, small progressive source once.
-void account_media_cache_progressive(AccountMedia*, MediaAssetKey) noexcept;
+void account_media_cache_progressive(AccountMedia*, const MediaAssetKey&) noexcept;
 // Worker only: submits one range of the lane's progressive source.
 bool account_media_submit_progressive(AccountMedia*, CdnByteRange, bool audio = false) noexcept;
 struct ProgressiveVideoNext;
 enum class ProgressiveVideoAccept : u8;
 ProgressiveVideoNext account_media_progressive_next(AccountMedia*, bool read_ahead, u64 now_seconds,
                                                     ProgressiveVideoFetch** selected) noexcept;
-ProgressiveVideoAccept account_media_accept_progressive(AccountMedia*, const CdnClientResponse&, ConstSlice<u8>) noexcept;
+ProgressiveVideoAccept account_media_accept_progressive(AccountMedia*, const CdnClientResponse&, const ConstSlice<u8>&) noexcept;
 void account_media_cancel_provider(AccountMedia*) noexcept;
 HANDLE account_media_notification_handle(const AccountMedia* media) noexcept;
 bool account_media_stop(AccountMedia* media, u32 timeout_ms) noexcept;

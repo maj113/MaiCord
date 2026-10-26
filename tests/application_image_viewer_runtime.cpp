@@ -519,7 +519,7 @@ bool application_open_content_url(Utf8View url) noexcept {
     copy_bytes(opened_url, url.data, opened_bytes);
     return true;
 }
-bool application_video_open_viewer_item(u64, u32, bool, u8, bool, const ApplicationSearchSourceTicket*, UiRect,
+bool application_video_open_viewer_item(u64, u32, bool, u8, bool, const ApplicationSearchSourceTicket*, const UiRect&,
                                         MediaAssetKey* key) noexcept {
     if (!key || !media_asset_key_valid(image_viewer_runtime_test::hosted_video_key)) return false;
     *key = image_viewer_runtime_test::hosted_video_key;

@@ -4,7 +4,7 @@
 #include "../src/app/application_guild_banner.hpp"
 
 namespace maicord::app_detail {
-bool application_stream_preview_key_current(MediaAssetKey) noexcept {
+bool application_stream_preview_key_current(const MediaAssetKey&) noexcept {
     return false;
 }
 u32 application_stream_preview_media(StreamPreviewMedia*, u32) noexcept {

@@ -66,7 +66,7 @@ bool viewer_available() noexcept {
            !IsIconic(g_app.window);
 }
 bool widget_target(const UiWidgetManager& manager, UiWidgetHandle handle, u64 scope, u64 identity,
-                   u64 revision, u32 action, Utf8View label, UiTooltipTarget* target) noexcept {
+                   u64 revision, u32 action, const Utf8View& label, UiTooltipTarget* target) noexcept {
     if (!target || !label.bytes || !ui_widget_manager_input_enabled(manager, handle))
         return false;
     const auto* node = ui_widget_manager_layout_node(manager, handle);

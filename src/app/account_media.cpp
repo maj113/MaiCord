@@ -25,6 +25,13 @@
 
 
 namespace maicord {
+// A committed private allocation; null on failure.
+static __declspec(noinline) void* commit_pages(usize bytes) noexcept {
+    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+}
+static ProgressiveVideoFetch* allocate_fetch() noexcept {
+    return static_cast<ProgressiveVideoFetch*>(commit_pages(sizeof(ProgressiveVideoFetch)));
+}
 // Exact ordered records and a compact UTF-8 pool. Names are retained for the
 // queue lifetime; neither hovering nor returning to a track refetches them.
 struct CollectionText { char* data{}; u32 bytes{}, capacity{}; };
@@ -33,7 +40,7 @@ static bool collection_text_reserve(CollectionText& text, u32 required) noexcept
     if (required <= text.capacity) return true;
     u32 capacity = text.capacity ? text.capacity : 4096;
     while (capacity < required) capacity *= 2;
-    auto* data = static_cast<char*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* data = static_cast<char*>(commit_pages(capacity));
     if (!data) return false;
     copy_bytes(data, text.data, text.bytes);
     if (text.data) VirtualFree(text.data, 0, MEM_RELEASE);
@@ -75,7 +82,7 @@ AccountMediaRequestResult result(AccountMediaRequestState state,
 
 #include "account_media_classify.inc"
 
-bool png_animation_body(ConstSlice<u8> body) noexcept {
+bool png_animation_body(const ConstSlice<u8>& body) noexcept {
     static constexpr u8 signature[] = {137, 80, 78, 71, 13, 10, 26, 10};
     if (!body.data || body.count < sizeof(signature))
         return false;
@@ -98,7 +105,7 @@ bool png_animation_body(ConstSlice<u8> body) noexcept {
     return false;
 }
 
-bool catalog_png_cached_animation(AccountMedia* media, MediaAssetKey key, u64 now_seconds) noexcept {
+bool catalog_png_cached_animation(AccountMedia* media, const MediaAssetKey& key, u64 now_seconds) noexcept {
     if (!catalog_png_key(key))
         return false;
     auto lease = encoded_media_cache_acquire(media->pipeline.cache, key, now_seconds);
@@ -119,7 +126,7 @@ void refresh_next_wake(AccountMedia* media) noexcept {
     }
 }
 
-AccountMediaFailure* find_failure(AccountMedia* media, MediaAssetKey key) noexcept {
+AccountMediaFailure* find_failure(AccountMedia* media, const MediaAssetKey& key) noexcept {
     static_assert(kAccountMediaFailureCapacity % kAccountMediaFailureWays == 0);
     constexpr u32 bucket_count = kAccountMediaFailureCapacity / kAccountMediaFailureWays;
     static_assert((bucket_count & (bucket_count - 1)) == 0);
@@ -133,7 +140,7 @@ AccountMediaFailure* find_failure(AccountMedia* media, MediaAssetKey key) noexce
     return nullptr;
 }
 
-void clear_failure(AccountMedia* media, MediaAssetKey key) noexcept {
+void clear_failure(AccountMedia* media, const MediaAssetKey& key) noexcept {
     AccountMediaFailure* failed = find_failure(media, key);
     if (failed) {
         reset_value<AccountMediaFailure>(failed);
@@ -142,8 +149,10 @@ void clear_failure(AccountMedia* media, MediaAssetKey key) noexcept {
 }
 
 // Records the failure with its retry deadline and returns it.
-AccountMediaRequestResult remember_failure(AccountMedia* media, MediaAssetKey key, u64 now_ms,
-                                           AccountMediaRequestResult failure) noexcept {
+AccountMediaRequestResult remember_failure(AccountMedia* media, const MediaAssetKey& key_view, u64 now_ms,
+                                           const AccountMediaRequestResult& failure_view) noexcept {
+    const MediaAssetKey key = key_view; // the media state is rewritten below
+    AccountMediaRequestResult failure = failure_view;
     AccountMediaFailure* slot = find_failure(media, key);
     if (!slot) {
         constexpr u32 bucket_count = kAccountMediaFailureCapacity / kAccountMediaFailureWays;
@@ -185,7 +194,8 @@ AccountMediaRequestResult remember_failure(AccountMedia* media, MediaAssetKey ke
 }
 
 // Publishes the staged frame; a zero request id is a cache hit rather than an admitted request.
-void mark_frame_ready(AccountMedia* media, MediaAssetKey key, u64 request_id) noexcept {
+void mark_frame_ready(AccountMedia* media, const MediaAssetKey& key_view, u64 request_id) noexcept {
+    const MediaAssetKey key = key_view; // the media state is rewritten below
     media->frame_ready = true;
     reset_value<AccountMediaRequestResult>(&media->last_failure);
     clear_failure(media, key);
@@ -195,7 +205,8 @@ void mark_frame_ready(AccountMedia* media, MediaAssetKey key, u64 request_id) no
         ++media->cache_ready;
 }
 
-void capture_catalog_source(AccountMedia* media, MediaAssetKey key) noexcept {
+void capture_catalog_source(AccountMedia* media, const MediaAssetKey& key_view) noexcept {
+    const MediaAssetKey key = key_view; // the media state is rewritten below
     media->frame_catalog_scope =
         key.kind == MediaAssetKind::catalog_preview || key.kind == MediaAssetKind::local_draft_preview
             ? media->active_catalog_scope
@@ -206,41 +217,45 @@ void capture_catalog_source(AccountMedia* media, MediaAssetKey key) noexcept {
             : 0;
 }
 
-void publish_png_frame(AccountMedia* media, MediaAssetKey key, const CdnStaticPngResult& decoded,
-                       u64 request_id, u64 source_message_id = 0,
-                       u32 source_message_revision = 0) noexcept {
-    media->frame_image = decoded.image;
+// The identity every published frame carries. The caller sets the frame kind
+// and animation fields, then marks the frame ready.
+void stage_frame(AccountMedia* media, const MediaAssetKey& key_view, u32 bytes, u64 request_id,
+                 u64 source_message_id, u32 source_message_revision) noexcept {
+    const MediaAssetKey key = key_view; // the media state is rewritten below
     media->frame_key = key;
-    media->frame_bytes = decoded.scanlines.count;
+    media->frame_bytes = bytes;
     media->frame_request_id = request_id;
     media->frame_source_message_id = source_message_id;
     media->frame_source_message_revision = source_message_revision;
     capture_catalog_source(media, key);
+}
+
+void publish_png_frame(AccountMedia* media, const MediaAssetKey& key, const CdnStaticPngResult& decoded,
+                       u64 request_id, u64 source_message_id = 0,
+                       u32 source_message_revision = 0) noexcept {
+    media->frame_image = decoded.image;
+    stage_frame(media, key, decoded.scanlines.count, request_id, source_message_id,
+                source_message_revision);
     media->frame_kind = AccountMediaFrameKind::png_scanlines;
     mark_frame_ready(media, key, request_id);
 }
 
-void publish_webp_frame(AccountMedia* media, MediaAssetKey key, const CdnStaticWebpResult& decoded,
+void publish_webp_frame(AccountMedia* media, const MediaAssetKey& key, const CdnStaticWebpResult& decoded,
                         u64 request_id, u64 source_message_id = 0,
                         u32 source_message_revision = 0) noexcept {
     copy_value(&media->frame_webp_image, decoded.image);
-    if (decoded.image.codec == WebpCodec::vp8_lossy) {
+    const bool lossy = decoded.image.codec == WebpCodec::vp8_lossy;
+    if (lossy) {
         copy_value(&media->frame_vp8, decoded.vp8_frame);
         media->frame_vp8_header = decoded.vp8_header;
     }
-    media->frame_key = key;
-    media->frame_bytes =
-        decoded.image.codec == WebpCodec::vp8_lossy ? decoded.alpha.count : decoded.rgba8.count;
-    media->frame_request_id = request_id;
-    media->frame_source_message_id = source_message_id;
-    media->frame_source_message_revision = source_message_revision;
-    capture_catalog_source(media, key);
-    media->frame_kind = decoded.image.codec == WebpCodec::vp8_lossy ? AccountMediaFrameKind::vp8_keyframe
-                                                                    : AccountMediaFrameKind::straight_rgba8;
+    stage_frame(media, key, lossy ? decoded.alpha.count : decoded.rgba8.count, request_id,
+                source_message_id, source_message_revision);
+    media->frame_kind = lossy ? AccountMediaFrameKind::vp8_keyframe : AccountMediaFrameKind::straight_rgba8;
     mark_frame_ready(media, key, request_id);
 }
 
-void publish_jpeg_frame(AccountMedia* media, MediaAssetKey key, const CdnStaticJpegResult& decoded,
+void publish_jpeg_frame(AccountMedia* media, const MediaAssetKey& key, const CdnStaticJpegResult& decoded,
                         u64 request_id, u64 source_message_id, u32 source_message_revision) noexcept {
     const bool reduced = decoded.rgba8.count != 0;
     media->frame_jpeg_image = decoded.image;
@@ -249,32 +264,24 @@ void publish_jpeg_frame(AccountMedia* media, MediaAssetKey key, const CdnStaticJ
         media->frame_webp_image.width = decoded.rgba_width;
         media->frame_webp_image.height = decoded.rgba_height;
     }
-    media->frame_key = key;
-    media->frame_bytes = reduced ? decoded.rgba8.count : 0;
-    media->frame_request_id = request_id;
-    media->frame_source_message_id = source_message_id;
-    media->frame_source_message_revision = source_message_revision;
-    capture_catalog_source(media, key);
+    stage_frame(media, key, reduced ? decoded.rgba8.count : 0, request_id, source_message_id,
+                source_message_revision);
     media->frame_kind =
         reduced ? AccountMediaFrameKind::straight_rgba8 : AccountMediaFrameKind::jpeg_coefficients;
     mark_frame_ready(media, key, request_id);
 }
 
-void publish_animated_webp_frame(AccountMedia* media, MediaAssetKey key,
+void publish_animated_webp_frame(AccountMedia* media, const MediaAssetKey& key,
                                  const CdnAnimatedWebpResult& decoded, u64 request_id) noexcept {
-    media->frame_source_message_id = media->active_source_message_id;
-    media->frame_source_message_revision = media->active_source_message_revision;
-    capture_catalog_source(media, key);
+    const bool lossy = decoded.decode.frame.codec == AnimatedWebpCodec::vp8_lossy;
     media->frame_webp_image = decoded.decode.frame_image;
     media->frame_animated_webp = decoded.decode.frame;
-    if (decoded.decode.frame.codec == AnimatedWebpCodec::vp8_lossy) {
+    if (lossy) {
         copy_value(&media->frame_vp8, decoded.vp8_frame);
         media->frame_vp8_header = decoded.vp8_header;
     }
-    media->frame_key = key;
-    media->frame_bytes = decoded.decode.frame.codec == AnimatedWebpCodec::vp8_lossy ? decoded.alpha.count
-                                                                                    : decoded.rgba8.count;
-    media->frame_request_id = request_id;
+    stage_frame(media, key, lossy ? decoded.alpha.count : decoded.rgba8.count, request_id,
+                media->active_source_message_id, media->active_source_message_revision);
     media->frame_duration_us = decoded.decode.duration_us;
     media->frame_index = decoded.decode.frame_index;
     media->frame_count = decoded.frame_count;
@@ -282,22 +289,17 @@ void publish_animated_webp_frame(AccountMedia* media, MediaAssetKey key,
     media->frame_cache_generation = decoded.cache_generation;
     media->frame_canvas_width = decoded.canvas_width;
     media->frame_canvas_height = decoded.canvas_height;
-    media->frame_kind = decoded.decode.frame.codec == AnimatedWebpCodec::vp8_lossy
-                            ? AccountMediaFrameKind::animated_webp_vp8
-                            : AccountMediaFrameKind::animated_webp_rgba8;
+    media->frame_kind =
+        lossy ? AccountMediaFrameKind::animated_webp_vp8 : AccountMediaFrameKind::animated_webp_rgba8;
     mark_frame_ready(media, key, request_id);
 }
 
-void publish_apng_frame(AccountMedia* media, MediaAssetKey key, const CdnApngResult& decoded,
+void publish_apng_frame(AccountMedia* media, const MediaAssetKey& key, const CdnApngResult& decoded,
                         u64 request_id) noexcept {
-    media->frame_source_message_id = media->active_source_message_id;
-    media->frame_source_message_revision = media->active_source_message_revision;
-    capture_catalog_source(media, key);
     media->frame_image = decoded.image;
     media->frame_apng = decoded.decode.frame;
-    media->frame_key = key;
-    media->frame_bytes = decoded.scanlines.count;
-    media->frame_request_id = request_id;
+    stage_frame(media, key, decoded.scanlines.count, request_id, media->active_source_message_id,
+                media->active_source_message_revision);
     media->frame_duration_us = decoded.decode.duration_us;
     media->frame_index = decoded.decode.frame_index;
     media->frame_count = decoded.frame_count;
@@ -309,16 +311,12 @@ void publish_apng_frame(AccountMedia* media, MediaAssetKey key, const CdnApngRes
     mark_frame_ready(media, key, request_id);
 }
 
-void publish_gif_frame(AccountMedia* media, MediaAssetKey key, const CdnGifResult& decoded,
+void publish_gif_frame(AccountMedia* media, const MediaAssetKey& key, const CdnGifResult& decoded,
                        u64 request_id) noexcept {
-    media->frame_source_message_id = media->active_source_message_id;
-    media->frame_source_message_revision = media->active_source_message_revision;
-    capture_catalog_source(media, key);
     copy_value(&media->frame_gif, decoded.decode.frame);
     media->frame_gif_palette = decoded.decode.palette;
-    media->frame_key = key;
-    media->frame_bytes = decoded.indices.count;
-    media->frame_request_id = request_id;
+    stage_frame(media, key, decoded.indices.count, request_id, media->active_source_message_id,
+                media->active_source_message_revision);
     media->frame_duration_us = decoded.decode.duration_us;
     media->frame_index = decoded.decode.frame_index;
     media->frame_count = decoded.frame_count;
@@ -330,15 +328,11 @@ void publish_gif_frame(AccountMedia* media, MediaAssetKey key, const CdnGifResul
     mark_frame_ready(media, key, request_id);
 }
 
-void publish_mp4_frame(AccountMedia* media, MediaAssetKey key, const Mp4DecodedFrame& decoded,
+void publish_mp4_frame(AccountMedia* media, const MediaAssetKey& key_view, const Mp4DecodedFrame& decoded,
                        u64 request_id, u64 source_message_id, u32 source_message_revision,
                        u32 frame_index) noexcept {
-    media->frame_key = key;
-    media->frame_bytes = 0;
-    media->frame_request_id = request_id;
-    media->frame_source_message_id = source_message_id;
-    media->frame_source_message_revision = source_message_revision;
-    capture_catalog_source(media, key);
+    const MediaAssetKey key = key_view; // the media state is rewritten below
+    stage_frame(media, key, 0, request_id, source_message_id, source_message_revision);
     media->frame_duration_us = decoded.duration_us;
     media->frame_index = frame_index;
     media->frame_count = kAnimationTimelineFrameMaximum;
@@ -356,7 +350,7 @@ bool audio_image_type(CdnImageType type) noexcept {
            type == CdnImageType::wav || type == CdnImageType::m4a;
 }
 
-bool publish_audio_frame(AccountMedia* media, MediaAssetKey key, u64 request_id) noexcept {
+bool publish_audio_frame(AccountMedia* media, const MediaAssetKey& key, u64 request_id) noexcept {
     const auto& source = media->audio_source;
     media->frame_key = key;
     media->frame_bytes = 0;
@@ -377,7 +371,7 @@ bool publish_audio_frame(AccountMedia* media, MediaAssetKey key, u64 request_id)
     return true;
 }
 
-bool publish_audio_source(AccountMedia* media, MediaAssetKey key, CdnEncodedAudioResult* decoded,
+bool publish_audio_source(AccountMedia* media, const MediaAssetKey& key, CdnEncodedAudioResult* decoded,
                           u64 request_id) noexcept {
     if (!decoded->ready())
         return false;
@@ -389,7 +383,7 @@ bool publish_audio_source(AccountMedia* media, MediaAssetKey key, CdnEncodedAudi
         if (decoded->lease.acquired)
             encoded_media_cache_retire(media->pipeline.cache, key, decoded->lease.generation);
         source.transient_allocation =
-            VirtualAlloc(nullptr, source.bytes.count, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+            commit_pages(source.bytes.count);
         if (!source.transient_allocation) {
             if (decoded->lease.acquired)
                 encoded_media_cache_release(media->pipeline.cache, &decoded->lease);
@@ -428,7 +422,7 @@ bool publish_audio_source(AccountMedia* media, MediaAssetKey key, CdnEncodedAudi
 template <typename Workspace, typename Bind> bool ensure_workspace(Workspace*& slot, Bind bind) noexcept {
     if (slot)
         return true;
-    void* allocation = VirtualAlloc(nullptr, sizeof(Workspace), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* allocation = commit_pages(sizeof(Workspace));
     if (!allocation)
         return false;
     slot = static_cast<Workspace*>(allocation);
@@ -455,7 +449,7 @@ void* allocate_image_workspace(void* existing, usize bytes) noexcept {
     if (existing)
         return VirtualAlloc(existing, bytes, MEM_COMMIT, PAGE_READWRITE);
     if (bytes == sizeof(JpegWorkspace))
-        return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        return commit_pages(bytes);
     void* allocation = VirtualAlloc(nullptr, sizeof(JpegWorkspace), MEM_RESERVE, PAGE_READWRITE);
     if (allocation && !VirtualAlloc(allocation, bytes, MEM_COMMIT, PAGE_READWRITE)) {
         VirtualFree(allocation, 0, MEM_RELEASE);
@@ -511,8 +505,7 @@ bool ensure_animated_webp_workspace(AccountMedia* media) noexcept {
     if (media->animated_webp_workspace) {
         return true;
     }
-    void* allocation = VirtualAlloc(nullptr, sizeof(AccountAnimatedWebpWorkspace), MEM_RESERVE | MEM_COMMIT,
-                                    PAGE_READWRITE);
+    void* allocation = commit_pages(sizeof(AccountAnimatedWebpWorkspace));
     if (!allocation) {
         return false;
     }
@@ -754,6 +747,17 @@ bool continue_progressive(AccountMedia* media, u64 now_ms, u64 unix_now_seconds)
     return failure(result(AccountMediaRequestState::failed, AccountMediaError::decode));
 }
 
+// The failure of a response whose body went through a codec's admission.
+// A missing codec workspace outranks a decode error, which outranks the HTTP status.
+AccountMediaRequestResult admit_failure(const CdnResponseResult& policy, bool workspace_failed = false) noexcept {
+    auto failure = result(AccountMediaRequestState::failed,
+                          workspace_failed ? AccountMediaError::memory
+                          : policy.ok()    ? AccountMediaError::decode
+                                           : AccountMediaError::http);
+    failure.http_error = policy.error;
+    return failure;
+}
+
 struct ConsumeContext {
     AccountMedia* media;
     u64 now_ms;
@@ -762,8 +766,10 @@ struct ConsumeContext {
 // Lottie stickers and regional flags publish one worker-compiled paint
 // program from a single lazily reserved workspace; the encoded bytes stay
 // with the caller (response body or cache lease).
-bool publish_vector(AccountMedia* media, MediaAssetKey key, ConstSlice<u8> encoded, u64 request_id,
+bool publish_vector(AccountMedia* media, const MediaAssetKey& key_view, const ConstSlice<u8>& encoded_view, u64 request_id,
                     u32 frame_index = 0) noexcept {
+    const MediaAssetKey key = key_view; // the media state is rewritten below
+    const ConstSlice<u8> encoded = encoded_view;
     const bool lottie = lottie_asset(key);
     if (!supported_key(key) || (!lottie && key.kind != MediaAssetKind::regional_flag) || !encoded.data ||
         encoded.count > (lottie ? kLottieMaximumBytes : kRegionalFlagSvgMaximumBytes))
@@ -774,7 +780,7 @@ bool publish_vector(AccountMedia* media, MediaAssetKey key, ConstSlice<u8> encod
         auto* media = static_cast<AccountMedia*>(context);
         if (!media->lottie_workspace)
             media->lottie_workspace =
-                VirtualAlloc(nullptr, sizeof(ColrPaintProgram), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+                commit_pages(sizeof(ColrPaintProgram));
         return static_cast<ColrPaintProgram*>(media->lottie_workspace);
     };
     LottieTiming timing{};
@@ -788,12 +794,7 @@ bool publish_vector(AccountMedia* media, MediaAssetKey key, ConstSlice<u8> encod
             !regional_flag_svg_compile(image, program, kRegionalFlagPixelsPerUnit))
             return false;
     }
-    media->frame_key = key;
-    media->frame_bytes = sizeof(ColrPaintProgram);
-    media->frame_request_id = request_id;
-    media->frame_source_message_id = 0;
-    media->frame_source_message_revision = 0;
-    capture_catalog_source(media, key);
+    stage_frame(media, key, static_cast<u32>(sizeof(ColrPaintProgram)), request_id, 0, 0);
     media->frame_duration_us = timing.duration_us;
     media->frame_index = frame_index;
     media->frame_count = lottie ? timing.frames : 0;
@@ -956,12 +957,8 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
                                                  body, conditional_etag);
         }
         if (!decoded.decoded()) {
-            const bool workspace_failed = decoded.state == CdnStaticJpegState::jpeg_workspace_required;
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, workspace_failed ? AccountMediaError::memory
-                                                         : policy.ok()    ? AccountMediaError::decode
-                                                                          : AccountMediaError::http);
-            failure.http_error = policy.error;
+            auto failure =
+                admit_failure(policy, decoded.state == CdnStaticJpegState::jpeg_workspace_required);
             failure.jpeg_error = decoded.decode.error;
             return fail(failure);
         }
@@ -977,12 +974,8 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
                                                    body, conditional_etag);
         }
         if (!decoded.decoded()) {
-            const bool workspace_failed = decoded.state == CdnAnimatedWebpState::lossy_workspace_required;
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, workspace_failed ? AccountMediaError::memory
-                                                         : policy.ok()    ? AccountMediaError::decode
-                                                                          : AccountMediaError::http);
-            failure.http_error = policy.error;
+            auto failure =
+                admit_failure(policy, decoded.state == CdnAnimatedWebpState::lossy_workspace_required);
             failure.webp_error = decoded.decode.frame_decode.error;
             failure.animated_webp_error = decoded.decode.error;
             failure.lossy_webp_error = decoded.decode.lossy_decode.error;
@@ -1003,12 +996,8 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
                                                  body, conditional_etag);
         }
         if (!decoded.decoded()) {
-            const bool workspace_failed = decoded.state == CdnStaticWebpState::lossy_workspace_required;
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, workspace_failed ? AccountMediaError::memory
-                                                         : policy.ok()    ? AccountMediaError::decode
-                                                                          : AccountMediaError::http);
-            failure.http_error = policy.error;
+            auto failure =
+                admit_failure(policy, decoded.state == CdnStaticWebpState::lossy_workspace_required);
             failure.webp_error = decoded.decode.error;
             failure.lossy_webp_error = decoded.lossy_decode.error;
             return fail(failure);
@@ -1026,10 +1015,7 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
         cdn_media_pipeline_admit_apng(&decoded, &media->pipeline, media->active_key, policy, body,
                                       conditional_etag);
         if (!decoded.decoded()) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed,
-                       policy.ok() ? AccountMediaError::decode : AccountMediaError::http);
-            failure.http_error = policy.error;
+            auto failure = admit_failure(policy);
             copy_value(&failure.apng_error, decoded.decode.error);
             return fail(failure);
         }
@@ -1039,10 +1025,7 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
         cdn_media_pipeline_admit_gif(&decoded, &media->pipeline, media->active_key, policy, body,
                                      conditional_etag);
         if (!decoded.decoded()) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed,
-                       policy.ok() ? AccountMediaError::decode : AccountMediaError::http);
-            failure.http_error = policy.error;
+            auto failure = admit_failure(policy);
             failure.gif_error = decoded.decode.error;
             return fail(failure);
         }
@@ -1052,10 +1035,7 @@ bool consume_response(void* opaque, const CdnClientResponse& response,
         cdn_media_pipeline_admit_static_png(&decoded, &media->pipeline, media->active_key, policy, body,
                                             conditional_etag);
         if (!decoded.decoded()) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed,
-                       policy.ok() ? AccountMediaError::decode : AccountMediaError::http);
-            failure.http_error = policy.error;
+            auto failure = admit_failure(policy);
             failure.png_error = decoded.decode.error;
             return fail(failure);
         }
@@ -1071,7 +1051,7 @@ Slice<u8> grow_scanlines(void* owner, u32 bytes) noexcept {
         return {};
     const u32 capacity = (bytes + 4095u) & ~4095u;
     auto* replacement =
-        static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        static_cast<u8*>(commit_pages(capacity));
     if (!replacement)
         return {};
     void* previous = media->expanded_scanlines;
@@ -1102,7 +1082,7 @@ u8* base_scanlines(AccountMedia* media) noexcept {
         return VirtualAlloc(base, kScanlineStorageBytes, MEM_COMMIT, PAGE_READWRITE) ? base : nullptr;
     }
     if (!media->allocation)
-        media->allocation = VirtualAlloc(nullptr, kScanlineStorageBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        media->allocation = commit_pages(kScanlineStorageBytes);
     return static_cast<u8*>(media->allocation);
 }
 
@@ -1112,7 +1092,7 @@ AccountMediaRequestResult initialize_media(AccountMedia* media, EncodedMediaCach
     }
     SecureZeroMemory(media, sizeof(*media));
     const u32 allocation_bytes = shared_cache ? kScanlineStorageBytes : kOwnedAllocationBytes;
-    media->allocation = VirtualAlloc(nullptr, allocation_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    media->allocation = commit_pages(allocation_bytes);
     if (!media->allocation) {
         return result(AccountMediaRequestState::failed, AccountMediaError::memory);
     }
@@ -1150,6 +1130,143 @@ AccountMediaRequestResult initialize_media(AccountMedia* media, EncodedMediaCach
     return result(AccountMediaRequestState::ready);
 }
 
+// One codec's encoded-cache probe for a request that may need a fetch. A
+// decoded hit publishes; a decode failure is remembered and an unavailable
+// workspace fails unremembered. Either settles the request into *settled and
+// returns true. Otherwise the cache holds nothing usable: probe->etag carries
+// the validator for the fetch and the result is false.
+struct CacheProbe {
+    MediaAssetKey key;
+    u64 now_ms, unix_seconds, source_message_id;
+    u32 source_message_revision;
+    ConstSlice<u8> etag;
+};
+
+bool probe_static_jpeg(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
+    CdnStaticJpegResult cached;
+    cdn_media_pipeline_lookup_static_jpeg(&cached, &media->pipeline, probe->key, probe->unix_seconds);
+    if (cached.state == CdnStaticJpegState::jpeg_workspace_required) {
+        if (!ensure_jpeg_workspace(media)) {
+            *settled = result(AccountMediaRequestState::failed, AccountMediaError::memory);
+            return true;
+        }
+        cdn_media_pipeline_lookup_static_jpeg(&cached, &media->pipeline, probe->key, probe->unix_seconds);
+    }
+    if (cached.decoded()) {
+        publish_jpeg_frame(media, probe->key, cached, 0, probe->source_message_id,
+                           probe->source_message_revision);
+        *settled = result(AccountMediaRequestState::ready);
+        return true;
+    }
+    if (cached.state != CdnStaticJpegState::cache_miss && cached.state != CdnStaticJpegState::fetch_required) {
+        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
+        failure.jpeg_error = cached.decode.error;
+        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
+        return true;
+    }
+    probe->etag = cached.etag;
+    return false;
+}
+
+bool probe_static_webp(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
+    CdnStaticWebpResult cached;
+    cdn_media_pipeline_lookup_static_webp(&cached, &media->pipeline, probe->key, probe->unix_seconds);
+    if (cached.state == CdnStaticWebpState::lossy_workspace_required) {
+        if (!ensure_lossy_webp_workspace(media)) {
+            *settled = result(AccountMediaRequestState::failed, AccountMediaError::memory);
+            return true;
+        }
+        cdn_media_pipeline_lookup_static_webp(&cached, &media->pipeline, probe->key, probe->unix_seconds);
+    }
+    if (cached.decoded()) {
+        publish_webp_frame(media, probe->key, cached, 0, probe->source_message_id,
+                           probe->source_message_revision);
+        *settled = result(AccountMediaRequestState::ready);
+        return true;
+    }
+    if (cached.state != CdnStaticWebpState::cache_miss && cached.state != CdnStaticWebpState::fetch_required) {
+        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
+        failure.webp_error = cached.decode.error;
+        failure.lossy_webp_error = cached.lossy_decode.error;
+        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
+        return true;
+    }
+    probe->etag = cached.etag;
+    return false;
+}
+
+bool probe_apng(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
+    CdnApngResult cached;
+    cdn_media_pipeline_lookup_apng(&cached, &media->pipeline, probe->key, probe->unix_seconds);
+    if (cached.decoded()) {
+        publish_apng_frame(media, probe->key, cached, 0);
+        *settled = result(AccountMediaRequestState::ready);
+        return true;
+    }
+    if (cached.state != CdnApngState::cache_miss && cached.state != CdnApngState::fetch_required) {
+        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
+        failure.apng_error = cached.decode.error;
+        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
+        return true;
+    }
+    probe->etag = cached.etag;
+    return false;
+}
+
+bool probe_gif(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
+    CdnGifResult cached;
+    cdn_media_pipeline_lookup_gif(&cached, &media->pipeline, probe->key, probe->unix_seconds);
+    if (cached.decoded()) {
+        publish_gif_frame(media, probe->key, cached, 0);
+        *settled = result(AccountMediaRequestState::ready);
+        return true;
+    }
+    if (cached.state != CdnGifState::cache_miss && cached.state != CdnGifState::fetch_required) {
+        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
+        failure.gif_error = cached.decode.error;
+        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
+        return true;
+    }
+    probe->etag = cached.etag;
+    return false;
+}
+
+bool probe_static_png(AccountMedia* media, CacheProbe* probe, AccountMediaRequestResult* settled) noexcept {
+    CdnStaticPngResult cached;
+    cdn_media_pipeline_lookup_static_png(&cached, &media->pipeline, probe->key, probe->unix_seconds);
+    if (cached.decoded()) {
+        publish_png_frame(media, probe->key, cached, 0, probe->source_message_id,
+                          probe->source_message_revision);
+        *settled = result(AccountMediaRequestState::ready);
+        return true;
+    }
+    if (cached.state != CdnStaticPngState::cache_miss && cached.state != CdnStaticPngState::fetch_required) {
+        auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
+        failure.png_error = cached.decode.error;
+        *settled = remember_failure(media, probe->key, probe->now_ms, failure);
+        return true;
+    }
+    probe->etag = cached.etag;
+    return false;
+}
+
+// Queues the client request for `key` and marks it active; a refused
+// submission is remembered.
+AccountMediaRequestResult submit_fetch(AccountMedia* media, const MediaAssetKey& key_view, u64 now_ms,
+                                       CdnClientRequest request) noexcept {
+    const MediaAssetKey key = key_view; // the media state is rewritten below
+    if (++media->request_id == 0)
+        ++media->request_id;
+    request.request_id = media->request_id;
+    if (!cdn_client_submit(&media->client, request).ok())
+        return remember_failure(media, key, now_ms,
+                                result(AccountMediaRequestState::failed, AccountMediaError::client));
+    media->active_key = key;
+    media->active_request_id = media->request_id;
+    media->active = true;
+    return result(AccountMediaRequestState::queued);
+}
+
 } // namespace
 
 bool account_media_trim_scanlines(AccountMedia* media) noexcept {
@@ -1165,7 +1282,7 @@ bool account_media_trim_scanlines(AccountMedia* media) noexcept {
     return true;
 }
 
-bool account_media_video_matches(const AccountMedia* media, MediaAssetKey key,
+bool account_media_video_matches(const AccountMedia* media, const MediaAssetKey& key,
                                  u16 cache_generation) noexcept {
     return media && media->mp4_decoder && media->mp4_decoder->ready && video_asset(key) &&
            (!media->progressive || media->progressive->state != ProgressiveVideoFetchState::failed) &&
@@ -1173,7 +1290,7 @@ bool account_media_video_matches(const AccountMedia* media, MediaAssetKey key,
            (cache_generation == 0 || media->mp4_generation == cache_generation);
 }
 
-bool account_media_audio_matches(const AccountMedia* media, MediaAssetKey key,
+bool account_media_audio_matches(const AccountMedia* media, const MediaAssetKey& key,
                                  u16 cache_generation) noexcept {
     const bool streaming = media && media->progressive &&
         media->progressive->kind == ProgressiveVideoKind::fragmented_audio &&
@@ -1185,7 +1302,7 @@ bool account_media_audio_matches(const AccountMedia* media, MediaAssetKey key,
            (!cache_generation || media->audio_source.cache_generation == cache_generation);
 }
 
-AccountMediaCollectionState account_media_collection_state(const AccountMedia* media, MediaAssetKey key, bool ready) noexcept {
+AccountMediaCollectionState account_media_collection_state(const AccountMedia* media, const MediaAssetKey& key, bool ready) noexcept {
     if (!media || !media->collection || !media_asset_key_equal(media->collection->key, key) ||
         (ready && !account_media_audio_matches(media, key, 0) && !account_media_video_matches(media, key, 0))) return {};
     const auto& collection = *media->collection;
@@ -1244,7 +1361,7 @@ void account_media_release_audio_source(AccountMedia* media) noexcept {
     reset_value(&media->audio_source);
 }
 
-AccountMediaVideoFailure account_media_video_body_failure(ConstSlice<u8> body) noexcept {
+AccountMediaVideoFailure account_media_video_body_failure(const ConstSlice<u8>& body) noexcept {
     if (!body.data)
         return AccountMediaVideoFailure::none;
     if (body.count >= 6 && body[0] == 'G' && body[1] == 'I' && body[2] == 'F' && body[3] == '8' &&
@@ -1273,9 +1390,9 @@ AccountMediaRequestResult account_media_initialize_shared(AccountMedia* media,
     return initialize_media(media, shared_cache);
 }
 
-AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media, MediaAssetKey key,
+AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media, const MediaAssetKey& key,
                                                              u64 monotonic_now_ms, u64 unix_now_seconds,
-                                                             Utf8View guild_icon_hash, u32 identity_size) noexcept {
+                                                             const Utf8View& guild_icon_hash, u32 identity_size) noexcept {
     if (!media || !media->started || monotonic_now_ms == 0 || unix_now_seconds == 0 ||
         !media_asset_key_valid(key) || key.kind == MediaAssetKind::catalog_preview) {
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
@@ -1341,7 +1458,8 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
         return publish_bundled_flag(media, key)
                    ? result(AccountMediaRequestState::ready)
                    : result(AccountMediaRequestState::failed, AccountMediaError::decode);
-    ConstSlice<u8> etag{};
+    CacheProbe probe{key, monotonic_now_ms, unix_now_seconds, 0, 0, {}};
+    AccountMediaRequestResult settled;
     if (lottie_asset(key)) {
         auto lease = encoded_media_cache_acquire(media->pipeline.cache, key, unix_now_seconds);
         const bool fresh = lease.acquired && lease.lookup.state == EncodedMediaCacheLookupState::fresh;
@@ -1351,7 +1469,7 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
         if (lease.acquired && !fresh && lease.lookup.etag.count <= sizeof(media->pipeline.result_etag)) {
             media->pipeline.result_etag_bytes = lease.lookup.etag.count;
             copy_bytes(media->pipeline.result_etag, lease.lookup.etag.data, lease.lookup.etag.count);
-            etag = {media->pipeline.result_etag, media->pipeline.result_etag_bytes};
+            probe.etag = {media->pipeline.result_etag, media->pipeline.result_etag_bytes};
         }
         if (lease.acquired)
             encoded_media_cache_release(media->pipeline.cache, &lease);
@@ -1363,25 +1481,8 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
                                     result(AccountMediaRequestState::failed, AccountMediaError::decode));
         }
     } else if (key.kind == MediaAssetKind::attachment) {
-        CdnStaticJpegResult cached;
-        cdn_media_pipeline_lookup_static_jpeg(&cached, &media->pipeline, key, unix_now_seconds);
-        if (cached.state == CdnStaticJpegState::jpeg_workspace_required) {
-            if (!ensure_jpeg_workspace(media)) {
-                return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-            }
-            cdn_media_pipeline_lookup_static_jpeg(&cached, &media->pipeline, key, unix_now_seconds);
-        }
-        if (cached.decoded()) {
-            publish_jpeg_frame(media, key, cached, 0, 0, 0);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnStaticJpegState::cache_miss &&
-            cached.state != CdnStaticJpegState::fetch_required) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.jpeg_error = cached.decode.error;
-            return remember_failure(media, key, monotonic_now_ms, failure);
-        }
+        if (probe_static_jpeg(media, &probe, &settled))
+            return settled;
         // Attachment downloads use the signed URL from the message payload.
         // MediaAssetKey contains identity only, so a cache miss cannot be turned
         // into a CDN URL here.
@@ -1408,72 +1509,19 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
             failure.lossy_webp_error = cached.decode.lossy_decode.error;
             return remember_failure(media, key, monotonic_now_ms, failure);
         }
-        etag = cached.etag;
+        probe.etag = cached.etag;
     } else if (webp_asset(key)) {
-        CdnStaticWebpResult cached;
-        cdn_media_pipeline_lookup_static_webp(&cached, &media->pipeline, key, unix_now_seconds);
-        if (cached.state == CdnStaticWebpState::lossy_workspace_required) {
-            if (!ensure_lossy_webp_workspace(media)) {
-                return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-            }
-            cdn_media_pipeline_lookup_static_webp(&cached, &media->pipeline, key, unix_now_seconds);
-        }
-        if (cached.decoded()) {
-            publish_webp_frame(media, key, cached, 0);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnStaticWebpState::cache_miss &&
-            cached.state != CdnStaticWebpState::fetch_required) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.webp_error = cached.decode.error;
-            failure.lossy_webp_error = cached.lossy_decode.error;
-            return remember_failure(media, key, monotonic_now_ms, failure);
-        }
-        etag = cached.etag;
+        if (probe_static_webp(media, &probe, &settled))
+            return settled;
     } else if (key.variant == 2) {
-        CdnApngResult cached;
-        cdn_media_pipeline_lookup_apng(&cached, &media->pipeline, key, unix_now_seconds);
-        if (cached.decoded()) {
-            publish_apng_frame(media, key, cached, 0);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnApngState::cache_miss && cached.state != CdnApngState::fetch_required) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.apng_error = cached.decode.error;
-            return remember_failure(media, key, monotonic_now_ms, failure);
-        }
-        etag = cached.etag;
+        if (probe_apng(media, &probe, &settled))
+            return settled;
     } else if (key.variant == 4) {
-        CdnGifResult cached;
-        cdn_media_pipeline_lookup_gif(&cached, &media->pipeline, key, unix_now_seconds);
-        if (cached.decoded()) {
-            publish_gif_frame(media, key, cached, 0);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnGifState::cache_miss && cached.state != CdnGifState::fetch_required) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.gif_error = cached.decode.error;
-            return remember_failure(media, key, monotonic_now_ms, failure);
-        }
-        etag = cached.etag;
+        if (probe_gif(media, &probe, &settled))
+            return settled;
     } else {
-        CdnStaticPngResult cached;
-        cdn_media_pipeline_lookup_static_png(&cached, &media->pipeline, key, unix_now_seconds);
-        if (cached.decoded()) {
-            publish_png_frame(media, key, cached, 0);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnStaticPngState::cache_miss &&
-            cached.state != CdnStaticPngState::fetch_required) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.png_error = cached.decode.error;
-            return remember_failure(media, key, monotonic_now_ms, failure);
-        }
-        etag = cached.etag;
+        if (probe_static_png(media, &probe, &settled))
+            return settled;
     }
     u8 target[kCdnMaximumTargetBytes]{};
     CdnTargetResult written{};
@@ -1494,26 +1542,13 @@ AccountMediaRequestResult account_media_request_static_asset(AccountMedia* media
     if (!client.ok()) {
         return remember_failure(media, key, monotonic_now_ms, client);
     }
-    if (++media->request_id == 0) {
-        ++media->request_id;
-    }
-    const CdnClientSubmitResult submitted = cdn_client_submit(
-        &media->client,
-        CdnClientRequest{ConstSlice<u8>{target, written.bytes}, etag, media->request_id,
-                         kCdnClientDefaultTimeoutMs, written.host,
-                         lottie_asset(key) ? CdnImageType::lottie_json
-                         : webp_asset(key)   ? CdnImageType::webp
-                         : key.variant == 4  ? CdnImageType::gif
-                                                    : CdnImageType::png});
-    if (!submitted.ok()) {
-        AccountMediaRequestResult failure =
-            result(AccountMediaRequestState::failed, AccountMediaError::client);
-        return remember_failure(media, key, monotonic_now_ms, failure);
-    }
-    media->active_key = key;
-    media->active_request_id = media->request_id;
-    media->active = true;
-    return result(AccountMediaRequestState::queued);
+    return submit_fetch(media, key, monotonic_now_ms,
+                        CdnClientRequest{ConstSlice<u8>{target, written.bytes}, probe.etag, 0,
+                                         kCdnClientDefaultTimeoutMs, written.host,
+                                         lottie_asset(key) ? CdnImageType::lottie_json
+                                         : webp_asset(key)   ? CdnImageType::webp
+                                         : key.variant == 4  ? CdnImageType::gif
+                                                             : CdnImageType::png});
 }
 
 AccountMediaRequestResult account_media_request_guild_icon(AccountMedia* media,
@@ -1601,8 +1636,8 @@ static EmbedResolveResult load_collection(AccountMedia* media, const AccountMedi
     const u32 count = youtube ? old_count + page.count - overlap : metadata.count;
     if (count > kMediaCollectionTracks) return {EmbedPlayerError::capacity};
     if (request.collection_track > count) return {EmbedPlayerError::invalid_input};
-    auto* collection = static_cast<AccountMediaCollection*>(VirtualAlloc(nullptr,
-        sizeof(AccountMediaCollection) + count * sizeof(CollectionTrack) + (youtube ? page.continuation_bytes : 0), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* collection = static_cast<AccountMediaCollection*>(commit_pages(
+        sizeof(AccountMediaCollection) + count * sizeof(CollectionTrack) + (youtube ? page.continuation_bytes : 0)));
     if (!collection) return {EmbedPlayerError::capacity};
     if (previous) *collection = *previous;
     collection->key = request.key;
@@ -1689,20 +1724,18 @@ static AccountMediaRequestResult queue_progressive(AccountMedia* media, const Ac
 }
 // Inline MP4s start with a head range; continue_progressive drives the rest.
 static AccountMediaRequestResult request_progressive(AccountMedia* media, const AccountMediaUrlRequest& request,
-                                                     ConstSlice<u8> target, CdnHost host,
+                                                     const ConstSlice<u8>& target, CdnHost host,
                                                      u64 expires_at_seconds, u64 monotonic_now_ms,
                                                      u64 unix_now_seconds) noexcept {
     if (!media->collection && !request.companion_url.bytes && decode_cached_mp4(media, request, unix_now_seconds))
         return result(AccountMediaRequestState::ready);
     account_media_release_video(media);
-    media->progressive = static_cast<ProgressiveVideoFetch*>(
-        VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    media->progressive = allocate_fetch();
     if (!media->progressive || !progressive_video_fetch_begin(media->progressive, target, host, expires_at_seconds,
             request.companion_url.bytes ? ProgressiveVideoKind::fragmented_video : ProgressiveVideoKind::movie))
         return result(AccountMediaRequestState::failed, AccountMediaError::memory);
     if (request.companion_url.bytes) {
-        media->progressive_audio = static_cast<ProgressiveVideoFetch*>(
-            VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        media->progressive_audio = allocate_fetch();
         if (!media->progressive_audio || !progressive_video_fetch_begin(media->progressive_audio,
                 {reinterpret_cast<const u8*>(request.companion_url.data), request.companion_url.bytes}, host,
                 expires_at_seconds, ProgressiveVideoKind::fragmented_audio)) {
@@ -1716,11 +1749,11 @@ static AccountMediaRequestResult request_progressive(AccountMedia* media, const 
 
 // Spotify album art for activity cards: exactly https://i.scdn.co/image/<id>.
 constexpr char kActivityArtOrigin[] = "https://i.scdn.co/";
-static bool activity_art_url(Utf8View url) noexcept {
+static bool activity_art_url(const Utf8View& url) noexcept {
     constexpr u32 bytes = sizeof(kActivityArtOrigin) - 1;
     return url.data && url.bytes > bytes && bytes_equal(url.data, kActivityArtOrigin, bytes);
 }
-static MediaUrlResult parse_activity_art_url(Utf8View url, Slice<u8> target_output) noexcept {
+static MediaUrlResult parse_activity_art_url(const Utf8View& url, const Slice<u8>& target_output) noexcept {
     constexpr u32 origin_bytes = sizeof(kActivityArtOrigin) - 2;
     if (!activity_art_url(url))
         return {0, CdnHost::none, MediaUrlError::invalid_host};
@@ -1733,6 +1766,20 @@ static MediaUrlResult parse_activity_art_url(Utf8View url, Slice<u8> target_outp
     return {target.count, CdnHost::activity_art, MediaUrlError::none};
 }
 
+// Drops the previous video and reserves the video and audio fetches of a split-stream source.
+static bool reserve_stream_fetches(AccountMedia* media) noexcept {
+    account_media_release_video(media);
+    media->progressive = allocate_fetch();
+    media->progressive_audio = allocate_fetch();
+    return media->progressive && media->progressive_audio;
+}
+// Applies a provider's retry-after wait to a failure, else `fallback_ms` (none when 0).
+static void provider_retry(AccountMediaRequestResult* failure, u64 now_ms, u32 retry_after_seconds,
+                           u64 fallback_ms) noexcept {
+    const u64 wait = retry_after_seconds ? u64{retry_after_seconds} * 1000 : fallback_ms;
+    if (wait)
+        failure->retry_at_ms = deadline_after(now_ms, wait);
+}
 static AccountMediaRequestResult request_provider_media(AccountMedia*, const AccountMediaUrlRequest&,
                                                         u64, u64) noexcept;
 static AccountMediaRequestResult request_url_media(AccountMedia* media,
@@ -1875,7 +1922,9 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
     media->active_source_message_revision = request.source_message_revision;
     media->active_catalog_scope = request.catalog_scope;
     media->active_catalog_generation = request.catalog_generation;
-    ConstSlice<u8> etag{};
+    CacheProbe probe{request.key, monotonic_now_ms, unix_now_seconds, request.source_message_id,
+                     request.source_message_revision, {}};
+    AccountMediaRequestResult settled;
     if (audio_image_type(request.image_type)) {
         CdnEncodedAudioResult cached;
         cdn_media_pipeline_lookup_audio(&cached, &media->pipeline, request.key, unix_now_seconds,
@@ -1890,7 +1939,7 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
             auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
             return remember_failure(media, request.key, monotonic_now_ms, failure);
         }
-        etag = embed_audio_preview_limit(target_host) ? ConstSlice<u8>{} : cached.etag;
+        probe.etag = embed_audio_preview_limit(target_host) ? ConstSlice<u8>{} : cached.etag;
     } else if (lottie_asset(request.key)) {
         auto lease = encoded_media_cache_acquire(media->pipeline.cache, request.key, unix_now_seconds);
         const bool fresh = lease.acquired && lease.lookup.state == EncodedMediaCacheLookupState::fresh;
@@ -1900,7 +1949,7 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
         if (lease.acquired && !fresh && lease.lookup.etag.count <= sizeof(media->pipeline.result_etag)) {
             media->pipeline.result_etag_bytes = lease.lookup.etag.count;
             copy_bytes(media->pipeline.result_etag, lease.lookup.etag.data, lease.lookup.etag.count);
-            etag = {media->pipeline.result_etag, media->pipeline.result_etag_bytes};
+            probe.etag = {media->pipeline.result_etag, media->pipeline.result_etag_bytes};
         }
         if (lease.acquired)
             encoded_media_cache_release(media->pipeline.cache, &lease);
@@ -1929,39 +1978,19 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
             failure.animated_webp_error = cached.decode.error;
             return remember_failure(media, request.key, monotonic_now_ms, failure);
         }
-        etag = cached.etag;
+        probe.etag = cached.etag;
     } else if (apng_asset(request.key) ||
                catalog_png_cached_animation(media, request.key, unix_now_seconds)) {
         if (!ensure_apng_workspace(media))
             return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-        CdnApngResult cached;
-        cdn_media_pipeline_lookup_apng(&cached, &media->pipeline, request.key, unix_now_seconds);
-        if (cached.decoded()) {
-            publish_apng_frame(media, request.key, cached, 0);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnApngState::cache_miss && cached.state != CdnApngState::fetch_required) {
-            auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.apng_error = cached.decode.error;
-            return remember_failure(media, request.key, monotonic_now_ms, failure);
-        }
-        etag = cached.etag;
+        if (probe_apng(media, &probe, &settled))
+            return settled;
     } else if (gif_asset(request.key)) {
         if (!ensure_gif_workspace(media)) {
             return result(AccountMediaRequestState::failed, AccountMediaError::memory);
         }
-        CdnGifResult cached;
-        cdn_media_pipeline_lookup_gif(&cached, &media->pipeline, request.key, unix_now_seconds);
-        if (cached.decoded()) {
-            publish_gif_frame(media, request.key, cached, 0);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnGifState::cache_miss && cached.state != CdnGifState::fetch_required) {
-            auto failure = result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.gif_error = cached.decode.error;
-            return remember_failure(media, request.key, monotonic_now_ms, failure);
-        }
-        etag = cached.etag;
+        if (probe_gif(media, &probe, &settled))
+            return settled;
     } else if (request.image_type == CdnImageType::mp4) {
         if (!video_asset(request.key)) {
             return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
@@ -1971,69 +2000,17 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
         if (catalog_key && decode_cached_mp4(media, request, unix_now_seconds))
             return result(AccountMediaRequestState::ready);
     } else if (request.image_type == CdnImageType::jpeg) {
-        CdnStaticJpegResult cached;
-        cdn_media_pipeline_lookup_static_jpeg(&cached, &media->pipeline, request.key, unix_now_seconds);
-        if (cached.state == CdnStaticJpegState::jpeg_workspace_required) {
-            if (!ensure_jpeg_workspace(media)) {
-                return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-            }
-            cdn_media_pipeline_lookup_static_jpeg(&cached, &media->pipeline, request.key, unix_now_seconds);
-        }
-        if (cached.decoded()) {
-            publish_jpeg_frame(media, request.key, cached, 0, request.source_message_id,
-                               request.source_message_revision);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnStaticJpegState::cache_miss &&
-            cached.state != CdnStaticJpegState::fetch_required) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.jpeg_error = cached.decode.error;
-            return remember_failure(media, request.key, monotonic_now_ms, failure);
-        }
-        copy_value(&etag, cached.etag);
+        if (probe_static_jpeg(media, &probe, &settled))
+            return settled;
     } else if (request.image_type == CdnImageType::webp) {
         if (!ensure_webp_workspace(media)) {
             return result(AccountMediaRequestState::failed, AccountMediaError::memory);
         }
-        CdnStaticWebpResult cached;
-        cdn_media_pipeline_lookup_static_webp(&cached, &media->pipeline, request.key, unix_now_seconds);
-        if (cached.state == CdnStaticWebpState::lossy_workspace_required) {
-            if (!ensure_lossy_webp_workspace(media)) {
-                return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-            }
-            cdn_media_pipeline_lookup_static_webp(&cached, &media->pipeline, request.key, unix_now_seconds);
-        }
-        if (cached.decoded()) {
-            publish_webp_frame(media, request.key, cached, 0, request.source_message_id,
-                               request.source_message_revision);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnStaticWebpState::cache_miss &&
-            cached.state != CdnStaticWebpState::fetch_required) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.webp_error = cached.decode.error;
-            failure.lossy_webp_error = cached.lossy_decode.error;
-            return remember_failure(media, request.key, monotonic_now_ms, failure);
-        }
-        etag = cached.etag;
+        if (probe_static_webp(media, &probe, &settled))
+            return settled;
     } else {
-        CdnStaticPngResult cached;
-        cdn_media_pipeline_lookup_static_png(&cached, &media->pipeline, request.key, unix_now_seconds);
-        if (cached.decoded()) {
-            publish_png_frame(media, request.key, cached, 0, request.source_message_id,
-                              request.source_message_revision);
-            return result(AccountMediaRequestState::ready);
-        }
-        if (cached.state != CdnStaticPngState::cache_miss &&
-            cached.state != CdnStaticPngState::fetch_required) {
-            AccountMediaRequestResult failure =
-                result(AccountMediaRequestState::failed, AccountMediaError::decode);
-            failure.png_error = cached.decode.error;
-            return remember_failure(media, request.key, monotonic_now_ms, failure);
-        }
-        etag = cached.etag;
+        if (probe_static_png(media, &probe, &settled))
+            return settled;
     }
     if (expires_at_seconds <= unix_now_seconds) {
         return result(AccountMediaRequestState::refresh_required);
@@ -2046,27 +2023,18 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
     if ((attachment_key || request.progressive) && request.image_type == CdnImageType::mp4)
         return request_progressive(media, request, request_target, target_host, expires_at_seconds,
                                    monotonic_now_ms, unix_now_seconds);
-    if (++media->request_id == 0) {
-        ++media->request_id;
+    const auto queued = submit_fetch(
+        media, request.key, monotonic_now_ms,
+        CdnClientRequest{request_target, probe.etag, 0, kCdnClientDefaultTimeoutMs, target_host,
+                         request.image_type});
+    if (queued.state == AccountMediaRequestState::queued) {
+        media->active_source_message_id = request.source_message_id;
+        media->active_source_message_revision = request.source_message_revision;
+        media->active_proxy_width = request.proxy_width;
+        media->active_proxy_height = request.proxy_height;
+        media->active_image_type = request.image_type;
     }
-    const CdnClientSubmitResult submitted = cdn_client_submit(
-        &media->client,
-        CdnClientRequest{request_target, etag, media->request_id, kCdnClientDefaultTimeoutMs,
-                         target_host, request.image_type});
-    if (!submitted.ok()) {
-        AccountMediaRequestResult failure =
-            result(AccountMediaRequestState::failed, AccountMediaError::client);
-        return remember_failure(media, request.key, monotonic_now_ms, failure);
-    }
-    media->active_key = request.key;
-    media->active_request_id = media->request_id;
-    media->active_source_message_id = request.source_message_id;
-    media->active_source_message_revision = request.source_message_revision;
-    media->active_proxy_width = request.proxy_width;
-    media->active_proxy_height = request.proxy_height;
-    media->active_image_type = request.image_type;
-    media->active = true;
-    return result(AccountMediaRequestState::queued);
+    return queued;
 }
 
 static AccountMediaRequestResult request_provider_media(AccountMedia* media, const AccountMediaUrlRequest& request,
@@ -2087,8 +2055,7 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
     auto locator = embed_video_locator(request.url);
     auto* resolver = media->provider_resolver;
     if (!resolver && locator.provider != EmbedProvider::imgur) {
-        resolver = static_cast<EmbedResolver*>(VirtualAlloc(nullptr, sizeof(EmbedResolver),
-            MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        resolver = static_cast<EmbedResolver*>(commit_pages(sizeof(EmbedResolver)));
         if (!resolver) return result(AccountMediaRequestState::failed, AccountMediaError::memory);
         InterlockedExchangePointer(reinterpret_cast<void* volatile*>(&media->provider_resolver), resolver);
     }
@@ -2110,7 +2077,7 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
             if (!loaded.ok()) {
                 auto failure = result(loaded.error == EmbedPlayerError::invalid_input ? AccountMediaRequestState::invalid :
                     AccountMediaRequestState::failed, AccountMediaError::http);
-                failure.retry_at_ms = deadline_after(now_ms, loaded.retry_after_seconds ? u64{loaded.retry_after_seconds} * 1000 : kAccountMediaFailureRetryMs);
+                provider_retry(&failure, now_ms, loaded.retry_after_seconds, kAccountMediaFailureRetryMs);
                 return failure;
             }
             auto& queue = *media->collection;
@@ -2128,14 +2095,14 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         account_media_release_audio_source(media);
         account_media_release_video(media);
         if (collection) media->collection->selected = 0;
-        media->progressive = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        media->progressive = allocate_fetch();
         if (!media->progressive) return result(AccountMediaRequestState::failed, AccountMediaError::memory);
         const auto resolved = soundcloud_resolve(resolver, page, media->progressive);
         if (!resolved.ok()) {
             account_media_release_video(media);
             auto failure = result(resolved.error == EmbedPlayerError::unsupported || resolved.error == EmbedPlayerError::not_embeddable
                 ? AccountMediaRequestState::unsupported : AccountMediaRequestState::failed, AccountMediaError::http);
-            if (resolved.retry_after_seconds) failure.retry_at_ms = deadline_after(now_ms, u64{resolved.retry_after_seconds} * 1000);
+            provider_retry(&failure, now_ms, resolved.retry_after_seconds, 0);
             if (collection) {
                 media->collection->failed_track = selected;
                 media->collection->retry_at_ms = failure.retry_at_ms ? failure.retry_at_ms : deadline_after(now_ms, kAccountMediaFailureRetryMs);
@@ -2151,7 +2118,7 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         const auto loaded = load_collection(media, request);
         if (!loaded.ok()) {
             auto failure = result(AccountMediaRequestState::failed, AccountMediaError::http);
-            failure.retry_at_ms = deadline_after(now_ms, loaded.retry_after_seconds ? u64{loaded.retry_after_seconds} * 1000 : kAccountMediaFailureRetryMs);
+            provider_retry(&failure, now_ms, loaded.retry_after_seconds, kAccountMediaFailureRetryMs);
             return failure;
         }
         const u16 wanted = request.collection_track ? request.collection_track : media->collection->initial;
@@ -2160,7 +2127,8 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
             const auto next = load_collection(media, extend);
             if (!next.ok()) {
                 auto failed = result(AccountMediaRequestState::failed, AccountMediaError::http);
-                failed.retry_at_ms = deadline_after(now_ms, next.retry_after_seconds ? u64{next.retry_after_seconds} * 1000 : kAccountMediaFailureRetryMs); return failed;
+                provider_retry(&failed, now_ms, next.retry_after_seconds, kAccountMediaFailureRetryMs);
+                return failed;
             }
         }
         auto& queue = *media->collection;
@@ -2190,10 +2158,7 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         const auto steam = steam_video_locator(request.url);
         if (!request.progressive || request.image_type != CdnImageType::mp4 || !(vod || vimeo ? locator.id.bytes : steam.app.bytes))
             return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);
-        account_media_release_video(media);
-        media->progressive = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        media->progressive_audio = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (!media->progressive || !media->progressive_audio) {
+        if (!reserve_stream_fetches(media)) {
             account_media_release_video(media); return result(AccountMediaRequestState::failed, AccountMediaError::memory);
         }
         const u16 height = request.proxy_height ? minimum<u16>(1080, maximum<u16>(request.proxy_height, 144)) : 480;
@@ -2204,7 +2169,7 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
             account_media_release_video(media);
             auto failure = result(resolved.error == EmbedPlayerError::unsupported ? AccountMediaRequestState::unsupported
                                                                                 : AccountMediaRequestState::failed, AccountMediaError::http);
-            if (resolved.retry_after_seconds) failure.retry_at_ms = deadline_after(now_ms, u64{resolved.retry_after_seconds} * 1000);
+            provider_retry(&failure, now_ms, resolved.retry_after_seconds, 0);
             return remember_failure(media, request.key, now_ms, failure);
         }
         if (media->progressive_audio->state == ProgressiveVideoFetchState::empty) {
@@ -2240,10 +2205,8 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
         if(!request.progressive || request.image_type!=CdnImageType::mp4) {
             secure_clear_bytes(&streams,sizeof(streams));return result(AccountMediaRequestState::unsupported,AccountMediaError::invalid_input);
         }
-        account_media_release_video(media);
-        media->progressive=static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr,sizeof(ProgressiveVideoFetch),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
-        media->progressive_audio=static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr,sizeof(ProgressiveVideoFetch),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
-        const auto live=media->progressive && media->progressive_audio
+        const bool reserved = reserve_stream_fetches(media);
+        const auto live=reserved
             ? youtube_hls_resolve(resolver,{streams.video.url,streams.video.url_bytes},height,unix_seconds,media->progressive,media->progressive_audio)
             : EmbedResolveResult{EmbedPlayerError::capacity};
         secure_clear_bytes(&streams,sizeof(streams));
@@ -2251,7 +2214,7 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
             account_media_release_video(media);
             auto failure=result(live.error==EmbedPlayerError::unsupported?AccountMediaRequestState::unsupported:AccountMediaRequestState::failed,
                 live.error==EmbedPlayerError::capacity?AccountMediaError::memory:AccountMediaError::http);
-            if(live.retry_after_seconds) failure.retry_at_ms=deadline_after(now_ms,u64{live.retry_after_seconds}*1000);
+            provider_retry(&failure, now_ms, live.retry_after_seconds, 0);
             return remember_failure(media,request.key,now_ms,failure);
         }
         return queue_progressive(media,request,now_ms,unix_seconds);
@@ -2263,7 +2226,7 @@ static AccountMediaRequestResult request_provider_media(AccountMedia* media, con
                               resolved.error == EmbedPlayerError::unsupported ? AccountMediaRequestState::unsupported
                                                                                  : AccountMediaRequestState::failed,
                               AccountMediaError::http);
-        if (resolved.retry_after_seconds) failure.retry_at_ms = deadline_after(now_ms, u64{resolved.retry_after_seconds} * 1000);
+        provider_retry(&failure, now_ms, resolved.retry_after_seconds, 0);
         secure_clear_bytes(&streams, sizeof(streams));
         return remember_failure(media, request.key, now_ms, failure);
     }
@@ -2344,7 +2307,7 @@ AccountMediaRequestResult account_media_request_catalog_preview(
     return request_url_media(media, source, monotonic_now_ms, unix_now_seconds);
 }
 
-AccountMediaRequestResult account_media_advance_animation(AccountMedia* media, MediaAssetKey key,
+AccountMediaRequestResult account_media_advance_animation(AccountMedia* media, const MediaAssetKey& key,
                                                           u16 cache_generation, u32 frame_index,
                                                           u64 unix_now_seconds) noexcept {
     const bool animated_webp = webp_asset(key) && animated_asset(key);
@@ -2510,8 +2473,7 @@ struct ThumbnailMemory {
     u8* allocate(u64 bytes) noexcept {
         if (!bytes || bytes > 0x7fffffffull)
             return nullptr;
-        base = static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(bytes), MEM_RESERVE | MEM_COMMIT,
-                                             PAGE_READWRITE));
+        base = static_cast<u8*>(commit_pages(static_cast<SIZE_T>(bytes)));
         return base;
     }
 };
@@ -2534,7 +2496,7 @@ struct ThumbnailTarget {
         return true;
     }
 };
-AccountMediaRequestResult publish_local_thumbnail(AccountMedia* media, MediaAssetKey key, const u8* rgba, u32 width,
+AccountMediaRequestResult publish_local_thumbnail(AccountMedia* media, const MediaAssetKey& key, const u8* rgba, u32 width,
                                                   u32 height) noexcept {
     const u32 bytes = width * height * 4u;
     if (!width || !height || bytes > media->pipeline.scanline_capacity || !media->pipeline.scanline_storage)
@@ -2558,9 +2520,127 @@ AccountMediaRequestResult publish_local_thumbnail(AccountMedia* media, MediaAsse
     media->frame_play_count = 1;
     return result(AccountMediaRequestState::ready);
 }
+enum class ThumbnailStep : u8 { decoded, legacy, memory, decode };
+
+// Streams the decoded rows of `encoded` into `sink` (the box filter reduces them as they arrive)
+// and reports the source orientation. Legacy sends the request to the ordinary GPU preview path.
+ThumbnailStep decode_thumbnail_rows(AccountMedia* media, MediaAttachmentFormat format, const ConstSlice<u8>& encoded,
+                                    LocalThumbnailSink* sink, ThumbnailTarget* target, u8* orientation) noexcept {
+    auto& pipeline = media->pipeline;
+    if (format == MediaAttachmentFormat::png) {
+        // Every PNG thumbnail streams: rows are inflated through a sliding
+        // window, reconstructed against the previous row and box-filtered at
+        // once, so dimensions past the 2048 px GPU path need no scanline copy.
+        PngImage image{};
+        PngStreamLayout layout{};
+        const auto parsed = png_stream_parse(encoded, &image, &layout);
+        // Adam7 is decoded whole by the GPU preview path (<= 2048 px).
+        if (parsed.error == PngError::unsupported_interlace)
+            return ThumbnailStep::legacy;
+        if (!parsed.ok())
+            return ThumbnailStep::decode;
+        const u64 span_bytes = (static_cast<u64>(layout.idat_chunks) * sizeof(DeflateInputSpan) + 15u) & ~15ull;
+        ThumbnailMemory stream;
+        u8* base = stream.allocate(span_bytes + kPngStreamWindowBytes + layout.row_buffer_bytes);
+        if (!base || !target->allocate(image.width) ||
+            !local_thumbnail_begin(sink, image.width, image.height, kLocalPreviewThumbnailExtent, target->output,
+                                   target->sums))
+            return ThumbnailStep::memory;
+        struct Rows {
+            const PngImage* image;
+            LocalThumbnailSink* sink;
+            u8* rgba;
+        } rows{&image, sink, target->row.data};
+        const auto decoded = png_stream_decode(
+            encoded, image, layout, {reinterpret_cast<DeflateInputSpan*>(base), layout.idat_chunks},
+            {base + span_bytes, kPngStreamWindowBytes}, {base + span_bytes + kPngStreamWindowBytes, layout.row_buffer_bytes},
+            [](void* context, u32, const u8* row) noexcept {
+                auto& r = *static_cast<Rows*>(context);
+                // Reconstructed RGBA8 already has the sink's byte format.
+                // The sink consumes the row before the stream reuses it.
+                if (r.image->color_type == 6 && r.image->bit_depth == 8)
+                    return local_thumbnail_push_row(r.sink, row);
+                return local_thumbnail_png_row(*r.image, row, r.rgba) && local_thumbnail_push_row(r.sink, r.rgba);
+            },
+            &rows, &pipeline.workspace);
+        return decoded.ok() ? ThumbnailStep::decoded : ThumbnailStep::decode;
+    }
+    if (format == MediaAttachmentFormat::webp) {
+        WebpThumbnailLayout layout{};
+        if (webp_thumbnail_parse(encoded, &layout) != WebpThumbnailError::none || layout.alpha_chunk.data)
+            return ThumbnailStep::decode;
+        ThumbnailMemory scratch;
+        u8* base = scratch.allocate(layout.workspace_bytes);
+        if (!base || !target->allocate(layout.width) ||
+            !local_thumbnail_begin(sink, layout.width, layout.height, kLocalPreviewThumbnailExtent, target->output,
+                                   target->sums))
+            return ThumbnailStep::memory;
+        const auto decoded = webp_thumbnail_decode(
+            layout, {base, layout.workspace_bytes},
+            [](void* context, u32, const u8* rgba) noexcept {
+                return local_thumbnail_push_row(static_cast<LocalThumbnailSink*>(context), rgba);
+            },
+            sink);
+        return decoded == WebpThumbnailError::none ? ThumbnailStep::decoded : ThumbnailStep::decode;
+    }
+    if (format == MediaAttachmentFormat::gif) {
+        if (!ensure_gif_workspace(media))
+            return ThumbnailStep::memory;
+        GifImage animation{};
+        pipeline.gif_content_identity = 0;
+        const auto parsed = gif_parse(encoded, &animation, media->gif_workspace);
+        if (!parsed.ok() || !animation.frame_count)
+            return ThumbnailStep::decode;
+        // The first frame, like the official static preview; the strip adds a GIF tag.
+        GifDecodeResult decoded;
+        gif_decode_parsed_frame(&decoded, encoded, animation, 0, media->gif_workspace,
+                                {pipeline.scanline_storage, pipeline.scanline_capacity});
+        if (!decoded.ok() || !target->allocate(animation.canvas_width) ||
+            !local_thumbnail_begin(sink, animation.canvas_width, animation.canvas_height,
+                                   kLocalPreviewThumbnailExtent, target->output, target->sums))
+            return decoded.ok() ? ThumbnailStep::memory : ThumbnailStep::decode;
+        const ConstSlice<u8> indices{pipeline.scanline_storage, decoded.pixels};
+        for (u32 y = 0; y < animation.canvas_height; ++y)
+            if (!local_thumbnail_gif_row(decoded.frame, decoded.palette, indices, animation.canvas_width, y,
+                                         target->row.data) ||
+                !local_thumbnail_push_row(sink, target->row.data))
+                return ThumbnailStep::decode;
+        return ThumbnailStep::decoded;
+    }
+    if (format == MediaAttachmentFormat::jpeg) {
+        if (!ensure_jpeg_workspace(media))
+            return ThumbnailStep::memory;
+        JpegImage image{};
+        // Small baseline/progressive files keep the exact GPU IDCT path.
+        if (encoded.count <= kJpegEncodedMaximumBytes && jpeg_parse(encoded, &image, media->jpeg_workspace).ok())
+            return ThumbnailStep::legacy;
+        JpegThumbnailLayout layout{};
+        if (!jpeg_thumbnail_parse(encoded, kLocalPreviewThumbnailExtent, &image, media->jpeg_workspace, &layout).ok())
+            return ThumbnailStep::decode;
+        ThumbnailMemory scratch;
+        u8* scratch_base = scratch.allocate(layout.coefficient_bytes + layout.plane_bytes);
+        if (!scratch_base || !target->allocate(layout.width) ||
+            !local_thumbnail_begin(sink, layout.width, layout.height, kLocalPreviewThumbnailExtent, target->output,
+                                   target->sums))
+            return ThumbnailStep::memory;
+        const auto decoded = jpeg_thumbnail_decode_rows(
+            encoded, image, layout, {scratch_base, static_cast<u32>(layout.coefficient_bytes + layout.plane_bytes)},
+            target->row,
+            [](void* context, u32, const u8* rgba) noexcept {
+                return local_thumbnail_push_row(static_cast<LocalThumbnailSink*>(context), rgba);
+            },
+            sink);
+        if (!decoded.ok())
+            return ThumbnailStep::decode;
+        *orientation = static_cast<u8>(image.orientation);
+        return ThumbnailStep::decoded;
+    }
+    return ThumbnailStep::decode;
+}
+
 // Unsupported: the caller continues with the ordinary GPU preview path.
 AccountMediaRequestResult decode_local_thumbnail(AccountMedia* media, const AccountMediaLocalPreviewRequest& request,
-                                                 ConstSlice<u8> encoded) noexcept {
+                                                 const ConstSlice<u8>& encoded) noexcept {
     const auto key = request.key;
     const auto format = media_asset_catalog_format(key);
     const auto legacy = [&]() noexcept {
@@ -2591,113 +2671,15 @@ AccountMediaRequestResult decode_local_thumbnail(AccountMedia* media, const Acco
     LocalThumbnailSink sink{};
     ThumbnailTarget target{};
     u8 orientation = 1;
-    auto& pipeline = media->pipeline;
-    if (format == MediaAttachmentFormat::png) {
-        // Every PNG thumbnail streams: rows are inflated through a sliding
-        // window, reconstructed against the previous row and box-filtered at
-        // once, so dimensions past the 2048 px GPU path need no scanline copy.
-        PngImage image{};
-        PngStreamLayout layout{};
-        const auto parsed = png_stream_parse(encoded, &image, &layout);
-        // Adam7 is decoded whole by the GPU preview path (<= 2048 px).
-        if (parsed.error == PngError::unsupported_interlace)
-            return legacy();
-        if (!parsed.ok())
-            return result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        const u64 span_bytes = (static_cast<u64>(layout.idat_chunks) * sizeof(DeflateInputSpan) + 15u) & ~15ull;
-        ThumbnailMemory stream;
-        u8* base = stream.allocate(span_bytes + kPngStreamWindowBytes + layout.row_buffer_bytes);
-        if (!base || !target.allocate(image.width) ||
-            !local_thumbnail_begin(&sink, image.width, image.height, kLocalPreviewThumbnailExtent, target.output,
-                                   target.sums))
-            return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-        struct Rows {
-            const PngImage* image;
-            LocalThumbnailSink* sink;
-            u8* rgba;
-        } rows{&image, &sink, target.row.data};
-        const auto decoded = png_stream_decode(
-            encoded, image, layout, {reinterpret_cast<DeflateInputSpan*>(base), layout.idat_chunks},
-            {base + span_bytes, kPngStreamWindowBytes}, {base + span_bytes + kPngStreamWindowBytes, layout.row_buffer_bytes},
-            [](void* context, u32, const u8* row) noexcept {
-                auto& r = *static_cast<Rows*>(context);
-                // Reconstructed RGBA8 already has the sink's byte format.
-                // The sink consumes the row before the stream reuses it.
-                if (r.image->color_type == 6 && r.image->bit_depth == 8)
-                    return local_thumbnail_push_row(r.sink, row);
-                return local_thumbnail_png_row(*r.image, row, r.rgba) && local_thumbnail_push_row(r.sink, r.rgba);
-            },
-            &rows, &pipeline.workspace);
-        if (!decoded.ok())
-            return result(AccountMediaRequestState::failed, AccountMediaError::decode);
-    } else if (format == MediaAttachmentFormat::webp) {
-        WebpThumbnailLayout layout{};
-        if (webp_thumbnail_parse(encoded, &layout) != WebpThumbnailError::none || layout.alpha_chunk.data)
-            return result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        ThumbnailMemory scratch;
-        u8* base = scratch.allocate(layout.workspace_bytes);
-        if (!base || !target.allocate(layout.width) ||
-            !local_thumbnail_begin(&sink, layout.width, layout.height, kLocalPreviewThumbnailExtent, target.output,
-                                   target.sums))
-            return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-        const auto decoded = webp_thumbnail_decode(
-            layout, {base, layout.workspace_bytes},
-            [](void* context, u32, const u8* rgba) noexcept {
-                return local_thumbnail_push_row(static_cast<LocalThumbnailSink*>(context), rgba);
-            },
-            &sink);
-        if (decoded != WebpThumbnailError::none)
-            return result(AccountMediaRequestState::failed, AccountMediaError::decode);
-    } else if (format == MediaAttachmentFormat::gif) {
-        if (!ensure_gif_workspace(media))
-            return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-        GifImage animation{};
-        pipeline.gif_content_identity = 0;
-        const auto parsed = gif_parse(encoded, &animation, media->gif_workspace);
-        if (!parsed.ok() || !animation.frame_count)
-            return result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        // The first frame, like the official static preview; the strip adds a GIF tag.
-        GifDecodeResult decoded;
-        gif_decode_parsed_frame(&decoded, encoded, animation, 0, media->gif_workspace,
-                                {pipeline.scanline_storage, pipeline.scanline_capacity});
-        if (!decoded.ok() || !target.allocate(animation.canvas_width) ||
-            !local_thumbnail_begin(&sink, animation.canvas_width, animation.canvas_height, kLocalPreviewThumbnailExtent,
-                                   target.output, target.sums))
-            return result(AccountMediaRequestState::failed, decoded.ok() ? AccountMediaError::memory : AccountMediaError::decode);
-        const ConstSlice<u8> indices{pipeline.scanline_storage, decoded.pixels};
-        for (u32 y = 0; y < animation.canvas_height; ++y)
-            if (!local_thumbnail_gif_row(decoded.frame, decoded.palette, indices, animation.canvas_width, y,
-                                         target.row.data) ||
-                !local_thumbnail_push_row(&sink, target.row.data))
-                return result(AccountMediaRequestState::failed, AccountMediaError::decode);
-    } else if (format == MediaAttachmentFormat::jpeg) {
-        if (!ensure_jpeg_workspace(media))
-            return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-        JpegImage image{};
-        // Small baseline/progressive files keep the exact GPU IDCT path.
-        if (encoded.count <= kJpegEncodedMaximumBytes && jpeg_parse(encoded, &image, media->jpeg_workspace).ok())
-            return legacy();
-        JpegThumbnailLayout layout{};
-        if (!jpeg_thumbnail_parse(encoded, kLocalPreviewThumbnailExtent, &image, media->jpeg_workspace, &layout).ok())
-            return result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        ThumbnailMemory scratch;
-        u8* scratch_base = scratch.allocate(layout.coefficient_bytes + layout.plane_bytes);
-        if (!scratch_base || !target.allocate(layout.width) ||
-            !local_thumbnail_begin(&sink, layout.width, layout.height, kLocalPreviewThumbnailExtent, target.output,
-                                   target.sums))
-            return result(AccountMediaRequestState::failed, AccountMediaError::memory);
-        const auto decoded = jpeg_thumbnail_decode_rows(
-            encoded, image, layout, {scratch_base, static_cast<u32>(layout.coefficient_bytes + layout.plane_bytes)},
-            target.row,
-            [](void* context, u32, const u8* rgba) noexcept {
-                return local_thumbnail_push_row(static_cast<LocalThumbnailSink*>(context), rgba);
-            },
-            &sink);
-        if (!decoded.ok())
-            return result(AccountMediaRequestState::failed, AccountMediaError::decode);
-        orientation = static_cast<u8>(image.orientation);
-    } else {
+    switch (decode_thumbnail_rows(media, format, encoded, &sink, &target, &orientation)) {
+    case ThumbnailStep::legacy:
+        return legacy();
+    case ThumbnailStep::memory:
+        return result(AccountMediaRequestState::failed, AccountMediaError::memory);
+    case ThumbnailStep::decode:
         return result(AccountMediaRequestState::failed, AccountMediaError::decode);
+    case ThumbnailStep::decoded:
+        break;
     }
     u32 width = sink.width, height = sink.height;
     if (!local_thumbnail_complete(sink) ||
@@ -2709,7 +2691,7 @@ AccountMediaRequestResult decode_local_thumbnail(AccountMedia* media, const Acco
 
 AccountMediaRequestResult account_media_decode_local_preview(AccountMedia* media,
                                                              const AccountMediaLocalPreviewRequest& request,
-                                                             ConstSlice<u8> encoded) noexcept {
+                                                             const ConstSlice<u8>& encoded) noexcept {
     if (!media || !media->started || media->active || media->frame_ready ||
         !local_draft_preview_request_valid(request) ||
         ((encoded.data || encoded.count) && (!encoded.data || encoded.count != request.snapshot.bytes)))
@@ -2815,10 +2797,8 @@ AccountMediaRequestResult account_media_decode_local_video_preview(AccountMedia*
     if (!request.video_device)
         return poster_failure(LocalVideoPosterStep::unsupported);
     account_media_release_video(media);
-    media->progressive = static_cast<ProgressiveVideoFetch*>(
-        VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    auto* scratch = static_cast<u8*>(
-        VirtualAlloc(nullptr, kLocalVideoPosterScratchBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    media->progressive = allocate_fetch();
+    auto* scratch = static_cast<u8*>(commit_pages(kLocalVideoPosterScratchBytes));
     if (!media->progressive || !scratch ||
         !progressive_source_initialize(&media->progressive->source, static_cast<u32>(request.snapshot.bytes))) {
         if (scratch)
@@ -3078,7 +3058,7 @@ bool account_media_submit_progressive(AccountMedia* media, CdnByteRange range, b
     return fetch && media->client_started && submit_progressive(media, range, fetch);
 }
 ProgressiveVideoAccept account_media_accept_progressive(AccountMedia* media, const CdnClientResponse& response,
-                                                         ConstSlice<u8> body) noexcept {
+                                                         const ConstSlice<u8>& body) noexcept {
     if (!media || !response.request_id) return ProgressiveVideoAccept::ignored;
     ProgressiveVideoFetch* sources[]{media->progressive, media->progressive_audio};
     for (auto* fetch : sources)
@@ -3150,7 +3130,7 @@ void account_media_cancel_provider(AccountMedia* media) noexcept {
     if (resolver) embed_resolver_cancel(resolver);
 }
 
-void account_media_cache_progressive(AccountMedia* media, MediaAssetKey key) noexcept {
+void account_media_cache_progressive(AccountMedia* media, const MediaAssetKey& key) noexcept {
     auto* fetch = media ? media->progressive : nullptr;
     if (!fetch || fetch->kind != ProgressiveVideoKind::movie || fetch->cached || !progressive_source_complete(fetch->source) ||
         fetch->source.total_bytes > kAccountMediaProgressiveCacheMaximumBytes)

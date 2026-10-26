@@ -1976,14 +1976,14 @@ void application_user_settings_request_content_confirmation() noexcept {
     ++video_focus_runtime_test::confirmations;
 }
 bool application_image_viewer_open_video(u64, u32, bool, u8, bool, const ApplicationSearchSourceTicket*,
-                                         MediaAssetKey, UiRect) noexcept {
+                                         const MediaAssetKey&, const UiRect&) noexcept {
     if (!video_focus_runtime_test::viewer_allowed)
         return false;
     ++video_focus_runtime_test::viewer_opens;
     g_app.image_viewer.scene.active = true;
     return true;
 }
-bool application_image_viewer_video_geometry(MediaAssetKey, UiRect* preview, UiRect* clip) noexcept {
+bool application_image_viewer_video_geometry(const MediaAssetKey&, UiRect* preview, UiRect* clip) noexcept {
     if (!g_app.image_viewer.scene.active || !preview || !clip)
         return false;
     *preview = video_focus_runtime_test::viewer_preview;

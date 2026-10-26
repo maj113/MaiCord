@@ -276,7 +276,7 @@ bool application_stream_set_volume(u32 percent) noexcept {
     return true;
 }
 
-bool application_stream_menu_open(u64 tile_id, UiRect anchor, bool fullscreen) noexcept {
+bool application_stream_menu_open(u64 tile_id, const UiRect& anchor, bool fullscreen) noexcept {
     if (!watching(stream.view) || application_stream_tile(stream.view.key.owner_id) != tile_id)
         return false;
     const u32 volume = stream.volume ? stream.volume : stream.view.volume_percent;
@@ -602,7 +602,7 @@ u64 application_stream_preview_next_wake() noexcept {
     return stream_preview_next_wake(stream.previews, now_ms());
 }
 
-bool application_stream_preview_key_current(MediaAssetKey key) noexcept {
+bool application_stream_preview_key_current(const MediaAssetKey& key) noexcept {
     if (key.kind != MediaAssetKind::embed || !media_asset_key_valid(key))
         return false;
     if (stream.card.active && media_asset_key_equal(stream.card.preview, key))

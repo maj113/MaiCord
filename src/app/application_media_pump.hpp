@@ -48,17 +48,17 @@ struct ApplicationMediaPump {
     bool request_inline_flags(u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint) noexcept;
     bool request_catalog_previews(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
                                   bool* repaint) noexcept;
-    bool media_key_is_current(MediaAssetKey key) noexcept;
+    bool media_key_is_current(const MediaAssetKey& key) noexcept;
     // An image of the open profile card that found the atlas full unpins the
     // visible member rows' nameplates and avatar decorations; returns how many
     // (zero for any other key). The caller retries its upload when nonzero.
-    u32 yield_decorative_media(MediaAssetKey key) noexcept;
+    u32 yield_decorative_media(const MediaAssetKey& key) noexcept;
     // True when an animated key is resident and its timeline is observed (play) or merely present (held
     // frame). Otherwise force_request says whether the request must bypass its residency check.
-    bool animation_resident(MediaAssetKey key, u64 now_us, bool* force_request, bool play = true) noexcept;
-    bool avatar_key_is_current(MediaAssetKey key) noexcept;
+    bool animation_resident(const MediaAssetKey& key, u64 now_us, bool* force_request, bool play = true) noexcept;
+    bool avatar_key_is_current(const MediaAssetKey& key) noexcept;
     // Custom group DM icons on visible conversation rows or the DM header.
-    bool channel_icon_key_is_current(MediaAssetKey key) noexcept;
+    bool channel_icon_key_is_current(const MediaAssetKey& key) noexcept;
     bool request_pinned_messages_avatars(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
                                          bool* repaint, bool* stop) noexcept;
     bool request_forum_avatars(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads, bool* repaint,
@@ -69,7 +69,7 @@ struct ApplicationMediaPump {
     // Forward-destination tiles: server icons (the rail's key) and DM avatars.
     bool request_forward_identities(u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint, bool* stop) noexcept;
     // Opaque Settings: avatar rows (My account card) share the user-avatar cache.
-    bool settings_avatar_is_current(MediaAssetKey key) const noexcept;
+    bool settings_avatar_is_current(const MediaAssetKey& key) const noexcept;
     bool request_settings_avatars(u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint) noexcept;
 
     __declspec(noinline) bool animated_webp_frame_kind(AccountMediaFrameKind kind) noexcept;
@@ -81,7 +81,7 @@ struct ApplicationMediaPump {
                                                               AccountMediaFrameKind right) noexcept;
     __declspec(noinline) MediaFrameUploadResult
     upload_account_media_frame(const AccountMediaFrame& frame) noexcept;
-    __declspec(noinline) AnimationVisualState* find_animation_visual(MediaAssetKey key,
+    __declspec(noinline) AnimationVisualState* find_animation_visual(const MediaAssetKey& key,
                                                                      u32 generation) noexcept;
     __declspec(noinline) void release_animation_visual(MediaAssetKey key, u32 generation) noexcept;
     __declspec(noinline) bool apply_animation_frame(const AnimationFrameAdvance& advance,
@@ -90,7 +90,7 @@ struct ApplicationMediaPump {
                                     const AnimationVisualState& visual) noexcept;
     bool animation_advance_is_current(const AnimationFrameAdvance& advance,
                                       const AnimationVisualState& visual) noexcept;
-    void retire_stale_message_animation(MediaAssetKey key, u64 source_message_id,
+    void retire_stale_message_animation(const MediaAssetKey& key, u64 source_message_id,
                                         u32 source_message_revision) noexcept;
     __declspec(noinline) bool restore_cached_animation_frame(const AnimationFrameAdvance& advance,
                                                              AnimationVisualState* visual,
@@ -104,7 +104,7 @@ struct ApplicationMediaPump {
                                                               bool* consumed) noexcept;
     __declspec(noinline) bool pump_due_animations(bool* repaint) noexcept;
 
-    __declspec(noinline) bool request_visible_static_media(MediaAssetKey key, u64 now_ms, u64 now_seconds,
+    __declspec(noinline) bool request_visible_static_media(const MediaAssetKey& key, u64 now_ms, u64 now_seconds,
                                                            u32* uploads, bool* repaint, bool* stop_scan,
                                                            bool force_request = false,
                                                            bool continue_on_busy = false) noexcept;
@@ -115,14 +115,14 @@ struct ApplicationMediaPump {
                                                          bool* stop_scan,
                                                          bool force_request = false,
                                                          bool animate = true) noexcept;
-    __declspec(noinline) bool request_visible_user_avatar_value(u64 user_id, Utf8View avatar_hash,
+    __declspec(noinline) bool request_visible_user_avatar_value(u64 user_id, const Utf8View& avatar_hash,
                                                                 u64 now_ms, u64 now_seconds, u32* uploads,
                                                                 bool* repaint, bool* stop_scan,
                                                                 bool force_request = false) noexcept;
     // Shared request path for hash-addressed user avatars and group DM icons.
-    __declspec(noinline) bool request_visible_hashed_identity(MediaAssetKey key, Utf8View hash, u64 now_ms,
-                                                              u64 now_seconds, u32* uploads, bool* repaint,
-                                                              bool* stop_scan,
+    __declspec(noinline) bool request_visible_hashed_identity(const MediaAssetKey& key, const Utf8View& hash,
+                                                              u64 now_ms, u64 now_seconds, u32* uploads,
+                                                              bool* repaint, bool* stop_scan,
                                                               bool force_request = false) noexcept;
     // CDN ?size= for shared avatar/icon identities at the renderer DPI.
     u32 identity_cdn_size() const noexcept;
@@ -134,22 +134,22 @@ struct ApplicationMediaPump {
     // the upload budget) and records the retry time of anything else. A busy lane stops the scan if
     // stop_on_busy.
     __declspec(noinline) bool settle_media_request(const AccountMediaRequestResult& requested,
-                                                   MediaAssetKey key, u32* uploads, bool* repaint,
+                                                   const MediaAssetKey& key, u32* uploads, bool* repaint,
                                                    bool* stop_scan, bool stop_on_busy) noexcept;
     // The same for message attachments and embeds, whose frames must belong to the shown message.
     __declspec(noinline) bool settle_message_media(const AccountMediaRequestResult& requested,
-                                                   MediaAssetKey key, u64 message_id, u32* uploads,
+                                                   const MediaAssetKey& key, u64 message_id, u32* uploads,
                                                    bool* repaint, bool* stop_scan) noexcept;
     __declspec(noinline) void log_message_media_failure(const char* item,
                                                         const AccountMediaRequestResult& failure,
-                                                        MediaAssetKey key) noexcept;
+                                                        const MediaAssetKey& key) noexcept;
     __declspec(noinline) void record_media_request_queued() noexcept;
     __declspec(noinline) void record_media_animation_advance(MediaAssetKind kind) noexcept;
     __declspec(noinline) void record_media_frame_uploaded() noexcept;
     __declspec(noinline) void flush_media_success_diagnostics(u64 now_ms) noexcept;
     __declspec(noinline) CdnImageType cdn_image_type(MediaAttachmentFormat format) noexcept;
     __declspec(noinline) bool message_image_frame_is_current(const AccountMediaFrame& frame) noexcept;
-    bool message_image_source_is_current(MediaAssetKey key, u64 source_message_id,
+    bool message_image_source_is_current(const MediaAssetKey& key, u64 source_message_id,
                                          u32 source_message_revision) noexcept;
     __declspec(noinline) bool embed_media_dimensions_supported(
         const MessageRichEmbedMediaSelection& selected) noexcept;

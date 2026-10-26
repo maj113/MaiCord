@@ -28,7 +28,7 @@ u64 presentation_time(const AnimationTimeline& timeline, u64 now_us) noexcept {
     return timeline.suspended ? timeline.suspended_at_us : now_us;
 }
 
-u32 key_bucket(MediaAssetKey key, u32 capacity) noexcept {
+u32 key_bucket(const MediaAssetKey& key, u32 capacity) noexcept {
     return static_cast<u32>(media_asset_hash(key) % capacity);
 }
 
@@ -42,7 +42,7 @@ bool descriptor_valid(const AnimationTimelineDescriptor& descriptor) noexcept {
 inline constexpr u32 kEmptyBucket = 0;
 inline constexpr u32 kTombstoneBucket = 0xFFFFFFFFu;
 
-u32 find_bucket(const AnimationTimeline* timeline, MediaAssetKey key) noexcept {
+u32 find_bucket(const AnimationTimeline* timeline, const MediaAssetKey& key) noexcept {
     if (!timeline || !timeline->entries || !timeline->buckets || timeline->capacity == 0 ||
         timeline->bucket_capacity == 0 || !media_asset_key_valid(key)) {
         return 0xFFFFFFFFu;
@@ -66,7 +66,7 @@ u32 find_bucket(const AnimationTimeline* timeline, MediaAssetKey key) noexcept {
     return 0xFFFFFFFFu;
 }
 
-u32 find_slot(const AnimationTimeline* timeline, MediaAssetKey key) noexcept {
+u32 find_slot(const AnimationTimeline* timeline, const MediaAssetKey& key) noexcept {
     const u32 bucket = find_bucket(timeline, key);
     return bucket == 0xFFFFFFFFu ? 0xFFFFFFFFu : timeline->buckets[bucket] - 1;
 }
@@ -155,8 +155,9 @@ bool next_position(const AnimationTimelineEntry& entry, u32* frame_index, u32* p
 
 } // namespace
 
-bool animation_timeline_restart(AnimationTimeline* timeline, MediaAssetKey key, u64 epoch,
+bool animation_timeline_restart(AnimationTimeline* timeline, const MediaAssetKey& key_view, u64 epoch,
                                 u64 now) noexcept {
+    const MediaAssetKey key = key_view; // the timeline is rewritten below
     if (!timeline || !epoch)
         return false;
     now = presentation_time(*timeline, now);
@@ -302,7 +303,7 @@ AnimationTimelineResult animation_timeline_publish(AnimationTimeline* timeline,
 }
 
 AnimationTimelineResult animation_timeline_find(const AnimationTimeline* timeline,
-                                                MediaAssetKey key) noexcept {
+                                                const MediaAssetKey& key) noexcept {
     if (!timeline || !timeline->entries || !timeline->buckets) {
         return {AnimationTimelineError::invalid_argument, 0};
     }
@@ -314,8 +315,9 @@ AnimationTimelineResult animation_timeline_find(const AnimationTimeline* timelin
                                : AnimationTimelineResult{AnimationTimelineError::none, slot};
 }
 
-AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, MediaAssetKey key,
+AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, const MediaAssetKey& key_view,
                                                    u32 generation) noexcept {
+    const MediaAssetKey key = key_view; // the timeline is rewritten below
     if (!timeline || !timeline->entries || !timeline->buckets) {
         return {AnimationTimelineError::invalid_argument, 0};
     }
@@ -349,8 +351,9 @@ void animation_timeline_begin_visibility(AnimationTimeline* timeline) noexcept {
     }
 }
 
-bool animation_timeline_observe_visible(AnimationTimeline* timeline, MediaAssetKey key,
+bool animation_timeline_observe_visible(AnimationTimeline* timeline, const MediaAssetKey& key_view,
                                         u64 monotonic_now_us) noexcept {
+    const MediaAssetKey key = key_view; // the timeline is rewritten below
     const u32 slot = find_slot(timeline, key);
     if (slot == 0xFFFFFFFFu) {
         return false;

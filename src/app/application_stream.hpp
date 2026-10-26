@@ -30,7 +30,7 @@ MediaAssetKey application_stream_preview(const GatewayStreamKey& key, bool* load
 bool application_stream_set_volume(u32 percent) noexcept;
 
 // Stream tile menu: volume slider (0-200 %), full screen, stop watching.
-bool application_stream_menu_open(u64 tile_id, UiRect anchor, bool fullscreen) noexcept;
+bool application_stream_menu_open(u64 tile_id, const UiRect& anchor, bool fullscreen) noexcept;
 bool application_stream_menu_action(u32 action) noexcept;
 bool application_stream_menu_activate(u32 action) noexcept;
 bool application_stream_menu_pointer(float x, float y, bool press) noexcept;
@@ -48,7 +48,7 @@ bool application_stream_preview_pending(u64 now_ms) noexcept;
 bool application_stream_preview_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_stream_preview_response(const RestClientResponse& response, Utf8View body) noexcept;
 u64 application_stream_preview_next_wake() noexcept;
-bool application_stream_preview_key_current(MediaAssetKey key) noexcept;
+bool application_stream_preview_key_current(const MediaAssetKey& key) noexcept;
 struct StreamPreviewMedia {
     Utf8View url; // Borrowed until the next stream call; never log it.
     MediaAssetKey key;

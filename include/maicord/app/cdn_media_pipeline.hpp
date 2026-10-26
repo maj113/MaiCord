@@ -273,10 +273,10 @@ struct CdnEncodedAudioResult {
                state == CdnEncodedAudioState::ready_transient;
     }
 };
-CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline*, MediaAssetKey, u64 now_seconds,
+CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline*, const MediaAssetKey&, u64 now_seconds,
                                                       OggOpusCancelled cancelled = nullptr,
                                                       void* context = nullptr) noexcept;
-CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline*, MediaAssetKey,
+CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline*, const MediaAssetKey&,
                                                      const CdnResponseResult&, ConstSlice<u8> body,
                                                      ConstSlice<u8> conditional_etag = {},
                                                      OggOpusCancelled cancelled = nullptr,
@@ -292,109 +292,109 @@ bool cdn_media_pipeline_bind_gif_workspace(CdnMediaPipeline* pipeline, GifWorksp
 
 // A stale result carries the cached ETag for a conditional request but does
 // not spend decode CPU. Fresh hits are fully parsed, inflated, and filtered.
-CdnStaticPngResult cdn_media_pipeline_lookup_static_png(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticPngResult cdn_media_pipeline_lookup_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                         u64 now_seconds) noexcept;
 
 // Consumes only PNG metadata produced by validate_static_image_response.
 // A 200 body is decoded before it is published into the encoded cache. A 304
 // must correlate to an existing ETag-bearing entry.
-CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                        const CdnResponseResult& response,
                                                        ConstSlice<u8> decoded_body,
                                                        ConstSlice<u8> conditional_etag = {}) noexcept;
 
-CdnStaticWebpResult cdn_media_pipeline_lookup_static_webp(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticWebpResult cdn_media_pipeline_lookup_static_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                           u64 now_seconds) noexcept;
-CdnStaticWebpResult cdn_media_pipeline_admit_static_webp(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticWebpResult cdn_media_pipeline_admit_static_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                          const CdnResponseResult& response,
                                                          ConstSlice<u8> decoded_body,
                                                          ConstSlice<u8> conditional_etag = {}) noexcept;
 
-CdnStaticJpegResult cdn_media_pipeline_lookup_static_jpeg(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticJpegResult cdn_media_pipeline_lookup_static_jpeg(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                           u64 now_seconds) noexcept;
-CdnStaticJpegResult cdn_media_pipeline_admit_static_jpeg(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticJpegResult cdn_media_pipeline_admit_static_jpeg(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                          const CdnResponseResult& response,
                                                          ConstSlice<u8> decoded_body,
                                                          ConstSlice<u8> conditional_etag = {}) noexcept;
 
-CdnApngResult cdn_media_pipeline_lookup_apng(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnApngResult cdn_media_pipeline_lookup_apng(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                              u64 now_seconds) noexcept;
-CdnApngResult cdn_media_pipeline_admit_apng(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnApngResult cdn_media_pipeline_admit_apng(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                             const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                             ConstSlice<u8> conditional_etag = {}) noexcept;
-CdnApngResult cdn_media_pipeline_decode_apng_frame(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnApngResult cdn_media_pipeline_decode_apng_frame(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                    u16 cache_generation, u32 frame_index,
                                                    u64 now_seconds) noexcept;
 
-CdnGifResult cdn_media_pipeline_lookup_gif(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnGifResult cdn_media_pipeline_lookup_gif(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                            u64 now_seconds) noexcept;
-CdnGifResult cdn_media_pipeline_admit_gif(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnGifResult cdn_media_pipeline_admit_gif(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                           const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                           ConstSlice<u8> conditional_etag = {}) noexcept;
-CdnGifResult cdn_media_pipeline_decode_gif_frame(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnGifResult cdn_media_pipeline_decode_gif_frame(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                  u16 cache_generation, u32 frame_index,
                                                  u64 now_seconds) noexcept;
 
-CdnAnimatedWebpResult cdn_media_pipeline_lookup_animated_webp(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnAnimatedWebpResult cdn_media_pipeline_lookup_animated_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                               u64 now_seconds) noexcept;
-CdnAnimatedWebpResult cdn_media_pipeline_admit_animated_webp(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnAnimatedWebpResult cdn_media_pipeline_admit_animated_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                              const CdnResponseResult& response,
                                                              ConstSlice<u8> decoded_body,
                                                              ConstSlice<u8> conditional_etag = {}) noexcept;
 CdnAnimatedWebpResult cdn_media_pipeline_decode_animated_webp_frame(CdnMediaPipeline* pipeline,
-                                                                    MediaAssetKey key, u16 cache_generation,
+                                                                    const MediaAssetKey& key, u16 cache_generation,
                                                                     u32 frame_index,
                                                                     u64 now_seconds) noexcept;
 
 // The same operations filling a caller-owned result in place: MSVC copies a
 // returned result into the caller at every call.
-void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipeline*, MediaAssetKey,
+void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipeline*, const MediaAssetKey&,
                                      u64 now_seconds, OggOpusCancelled cancelled = nullptr,
                                      void* context = nullptr) noexcept;
-void cdn_media_pipeline_admit_audio(CdnEncodedAudioResult* out, CdnMediaPipeline*, MediaAssetKey,
+void cdn_media_pipeline_admit_audio(CdnEncodedAudioResult* out, CdnMediaPipeline*, const MediaAssetKey&,
                                     const CdnResponseResult&, ConstSlice<u8> body,
                                     ConstSlice<u8> conditional_etag = {},
                                     OggOpusCancelled cancelled = nullptr, void* context = nullptr) noexcept;
 void cdn_media_pipeline_lookup_static_png(CdnStaticPngResult* out, CdnMediaPipeline* pipeline,
-                                          MediaAssetKey key, u64 now_seconds) noexcept;
+                                          const MediaAssetKey& key, u64 now_seconds) noexcept;
 void cdn_media_pipeline_admit_static_png(CdnStaticPngResult* out, CdnMediaPipeline* pipeline,
-                                         MediaAssetKey key, const CdnResponseResult& response,
+                                         const MediaAssetKey& key, const CdnResponseResult& response,
                                          ConstSlice<u8> decoded_body,
                                          ConstSlice<u8> conditional_etag = {}) noexcept;
 void cdn_media_pipeline_lookup_static_webp(CdnStaticWebpResult* out, CdnMediaPipeline* pipeline,
-                                           MediaAssetKey key, u64 now_seconds) noexcept;
+                                           const MediaAssetKey& key, u64 now_seconds) noexcept;
 void cdn_media_pipeline_admit_static_webp(CdnStaticWebpResult* out, CdnMediaPipeline* pipeline,
-                                          MediaAssetKey key, const CdnResponseResult& response,
+                                          const MediaAssetKey& key, const CdnResponseResult& response,
                                           ConstSlice<u8> decoded_body,
                                           ConstSlice<u8> conditional_etag = {}) noexcept;
 void cdn_media_pipeline_lookup_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipeline* pipeline,
-                                           MediaAssetKey key, u64 now_seconds) noexcept;
+                                           const MediaAssetKey& key, u64 now_seconds) noexcept;
 void cdn_media_pipeline_admit_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipeline* pipeline,
-                                          MediaAssetKey key, const CdnResponseResult& response,
+                                          const MediaAssetKey& key, const CdnResponseResult& response,
                                           ConstSlice<u8> decoded_body,
                                           ConstSlice<u8> conditional_etag = {}) noexcept;
-void cdn_media_pipeline_lookup_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_lookup_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                     u64 now_seconds) noexcept;
-void cdn_media_pipeline_admit_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_admit_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                    const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                    ConstSlice<u8> conditional_etag = {}) noexcept;
-void cdn_media_pipeline_decode_apng_frame(CdnApngResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_decode_apng_frame(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                           u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept;
-void cdn_media_pipeline_lookup_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_lookup_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                    u64 now_seconds) noexcept;
-void cdn_media_pipeline_admit_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_admit_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                   const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                   ConstSlice<u8> conditional_etag = {}) noexcept;
-void cdn_media_pipeline_decode_gif_frame(CdnGifResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_decode_gif_frame(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                          u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept;
 void cdn_media_pipeline_lookup_animated_webp(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
-                                             MediaAssetKey key, u64 now_seconds) noexcept;
+                                             const MediaAssetKey& key, u64 now_seconds) noexcept;
 void cdn_media_pipeline_admit_animated_webp(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
-                                            MediaAssetKey key, const CdnResponseResult& response,
+                                            const MediaAssetKey& key, const CdnResponseResult& response,
                                             ConstSlice<u8> decoded_body,
                                             ConstSlice<u8> conditional_etag = {}) noexcept;
 void cdn_media_pipeline_decode_animated_webp_frame(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
-                                                   MediaAssetKey key, u16 cache_generation, u32 frame_index,
+                                                   const MediaAssetKey& key, u16 cache_generation, u32 frame_index,
                                                    u64 now_seconds) noexcept;
 
 static_assert(sizeof(CdnMediaPipeline) <= 1'600);

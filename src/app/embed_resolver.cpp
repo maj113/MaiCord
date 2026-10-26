@@ -12,6 +12,12 @@ namespace maicord {
 namespace {
 constexpr u32 kResponseLimit = 2u * 1024u * 1024u;
 constexpr auto kAgent = kYoutubeNativeUserAgent;
+// The first entry alone is the plain browser agent. The client ID is a public
+// application identifier observed in the Twitch embed client; not a user
+// credential, OAuth token or application secret.
+constexpr HttpsHeader kBrowserHeaders[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
+    {utf8_literal("Content-Type"), utf8_literal("application/json")},
+    {utf8_literal("Client-ID"), utf8_literal("b31o4btkqth5bzbvr9ub2ovr79umhh")}};
 bool bootstrap_sink(void* context, ConstSlice<u8> bytes) noexcept {
     return youtube_bootstrap_feed(static_cast<YoutubeBootstrap*>(context), bytes);
 }
@@ -43,17 +49,67 @@ UpdateTransportError transport_for(EmbedResolver& r, EmbedResolveTransport& tran
     transport = {&r.https, native_exchange};
     return UpdateTransportError::none;
 }
+// Player responses can contain signed URLs: erase committed pages, return them
+// to the system and retain only the address reservation. Out of line, so the
+// early returns of a resolver share one copy.
+__declspec(noinline) void release_scratch(EmbedResolver* r) noexcept {
+    if (r->response.committed) secure_clear_bytes(r->response.base, r->response.committed);
+    reserved_bytes_decommit(&r->response);
+    reserved_bytes_decommit(&r->structurals);
+    r->response_bytes = 0;
+}
+__declspec(noinline) void wipe(void* bytes, usize size) noexcept { secure_clear_bytes(bytes, size); }
 struct ScratchLifetime {
     EmbedResolver* r;
-    ~ScratchLifetime() noexcept {
-        // Player responses can contain signed URLs: erase committed pages,
-        // return them to the system and retain only the address reservation.
-        if (r->response.committed) secure_clear_bytes(r->response.base, r->response.committed);
-        reserved_bytes_decommit(&r->response);
-        reserved_bytes_decommit(&r->structurals);
-        r->response_bytes = 0;
-    }
+    ~ScratchLifetime() noexcept { release_scratch(r); }
 };
+// The scratch ranges are reserved once per resolver and committed per response.
+bool reserve_scratch(EmbedResolver* r) noexcept {
+    return (r->response.base || reserved_bytes_initialize(&r->response, kResponseLimit)) &&
+        (r->structurals.base || reserved_bytes_initialize(&r->structurals, 512u * 1024u));
+}
+// Two bytes, returned in a register; converts to the failing result.
+struct Prepared {
+    EmbedPlayerError error;
+    UpdateTransportError transport;
+    bool ok() const noexcept { return error == EmbedPlayerError::none; }
+    operator EmbedResolveResult() const noexcept { return {error, transport}; }
+};
+Prepared prepare(EmbedResolver* r, EmbedResolveTransport& transport) noexcept {
+    const auto prepared = transport_for(*r, transport);
+    if (prepared != UpdateTransportError::none) return {EmbedPlayerError::unavailable, prepared};
+    if (!reserve_scratch(r)) return {EmbedPlayerError::capacity, UpdateTransportError::none};
+    return {EmbedPlayerError::none, UpdateTransportError::none};
+}
+// Commits the structural index for the current response; false when it cannot be backed.
+bool index_scratch(EmbedResolver* r, u32 maximum_entries, Slice<u32>* out) noexcept {
+    const u32 entries = minimum(r->response_bytes, maximum_entries);
+    *out = {reinterpret_cast<u32*>(r->structurals.base), entries};
+    return reserved_bytes_commit(&r->structurals, entries * sizeof(u32));
+}
+Utf8View response_text(const EmbedResolver* r) noexcept {
+    return {reinterpret_cast<const char*>(r->response.base), r->response_bytes};
+}
+EmbedResolveResult http_result(EmbedPlayerError error, UpdateTransportError transport_error,
+    const UpdateHttpResponse& response) noexcept {
+    return {error, transport_error, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
+}
+// One bounded GET or POST into the response buffer; `headers` receives the full response when requested.
+EmbedResolveResult fetch(EmbedResolver* r, const EmbedResolveTransport& transport, const Utf8View& host, const Utf8View& target,
+    u32 limit, const HttpsExchangeOptions& options, UpdateHttpResponse* headers = nullptr) noexcept {
+    r->response_bytes = 0;
+    const UpdateHttpRequest request{UpdateHost::provider, host, {target.data, target.bytes}, limit, response_sink, r};
+    UpdateHttpResponse response{};
+    const auto error = transport.exchange(transport.context, request, options, &response);
+    if (headers) *headers = response;
+    return http_result(error == UpdateTransportError::none && response.status == 200 ? EmbedPlayerError::none
+                                                                                    : EmbedPlayerError::unavailable,
+        error, response);
+}
+EmbedResolveResult public_metadata_exchange(EmbedResolver* r, const EmbedResolveTransport& transport,
+    const Utf8View& host, const Utf8View& target, u32 limit, UpdateHttpResponse* headers = nullptr) noexcept {
+    return fetch(r, transport, host, target, limit, {{kBrowserHeaders, 1}}, headers);
+}
 } // namespace
 bool youtube_bootstrap_feed(YoutubeBootstrap* s, ConstSlice<u8> input) noexcept {
     if (!s || s->complete || s->failed || (!input.data && input.count)) return false;
@@ -82,8 +138,9 @@ bool youtube_bootstrap_feed(YoutubeBootstrap* s, ConstSlice<u8> input) noexcept 
     }
     return true;
 }
-static EmbedResolveResult resolve(EmbedResolver* r, Utf8View id, u16 height,
-    EmbedStreams* out, EmbedResolveTransport transport, CdnHost provider, u64 now, Utf8View country = {}, u8 media_index = 0, bool episode = false) noexcept {
+static EmbedResolveResult resolve(EmbedResolver* r, const Utf8View& id, u16 height,
+    EmbedStreams* out, const EmbedResolveTransport& caller_transport, CdnHost provider, u64 now, const Utf8View& country = {}, u8 media_index = 0, bool episode = false) noexcept {
+    EmbedResolveTransport transport = caller_transport;
     const bool tiktok = provider == CdnHost::tiktok_video, twitch = provider == CdnHost::twitch_video;
     const bool youtube = provider == CdnHost::google_video;
     const bool spotify = provider == CdnHost::spotify_preview;
@@ -107,7 +164,7 @@ static EmbedResolveResult resolve(EmbedResolver* r, Utf8View id, u16 height,
     if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
     if (youtube && !r->bootstrap.complete) {
         reset_value(&r->bootstrap);
-        const HttpsHeader headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
+        static constexpr HttpsHeader headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
             {utf8_literal("Cookie"), utf8_literal("SOCS=CAI")}};
         const UpdateHttpRequest request{UpdateHost::provider, utf8_literal("www.youtube.com"),
             {"/", 1}, kResponseLimit, bootstrap_sink, &r->bootstrap};
@@ -117,15 +174,13 @@ static EmbedResolveResult resolve(EmbedResolver* r, Utf8View id, u16 height,
         // the homepage after visitorData. No other network error is ignored.
         if (response.status != 200 || !r->bootstrap.complete ||
             (fetched != UpdateTransportError::none && fetched != UpdateTransportError::sink))
-            return {E::unavailable, fetched, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
+            return http_result(E::unavailable, fetched, response);
     }
     const Utf8View visitor{r->bootstrap.visitor, r->bootstrap.bytes};
     if (youtube) request_bytes = youtube_player_body(id, visitor, {body, sizeof(body)});
     if (!request_bytes) return {E::invalid_input};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response, kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals, 512u * 1024u))) return {E::capacity};
+    if (!reserve_scratch(r)) return {E::capacity};
     ScratchLifetime lifetime{r};
-    r->response_bytes = 0;
     const HttpsHeader headers[]{
         {utf8_literal("User-Agent"), kAgent}, {utf8_literal("Cookie"), utf8_literal("SOCS=CAI")},
         {utf8_literal("Content-Type"), utf8_literal("application/json")},
@@ -133,35 +188,27 @@ static EmbedResolveResult resolve(EmbedResolver* r, Utf8View id, u16 height,
         {utf8_literal("X-YouTube-Client-Name"), utf8_literal("101")},
         {utf8_literal("X-YouTube-Client-Version"), utf8_literal("1.02")},
         {utf8_literal("X-Goog-Visitor-Id"), visitor}};
-    const HttpsHeader clip_headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
+    static constexpr HttpsHeader clip_headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
         {utf8_literal("Referer"), utf8_literal("https://www.tiktok.com/")}};
-    // Public application identifier observed in the embed client; not a user
-    // credential, OAuth token or application secret.
-    const HttpsHeader twitch_headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
-        {utf8_literal("Content-Type"), utf8_literal("application/json")},
-        {utf8_literal("Client-ID"), utf8_literal("b31o4btkqth5bzbvr9ub2ovr79umhh")}};
-    static constexpr char path[] = "/youtubei/v1/player?prettyPrint=false";
-    const UpdateHttpRequest request{UpdateHost::provider, tiktok ? utf8_literal("www.tiktok.com")
+    // Public metadata clients: the Referer pair is for TikTok, the rest of the table for Twitch.
+    const auto fetched = fetch(r, transport,
+        tiktok ? utf8_literal("www.tiktok.com")
             : twitch ? utf8_literal("gql.twitch.tv") : spotify ? utf8_literal("open.spotify.com")
             : streamable ? utf8_literal("api.streamable.com") : twitter ? utf8_literal("cdn.syndication.twimg.com")
             : apple ? utf8_literal("itunes.apple.com") : utf8_literal("www.youtube.com"),
-        get ? ConstSlice<char>{reinterpret_cast<const char*>(body), request_bytes}
-            : twitch ? ConstSlice<char>{"/gql", 4} : ConstSlice<char>{path, sizeof(path) - 1},
+        get ? Utf8View{reinterpret_cast<const char*>(body), request_bytes}
+            : twitch ? utf8_literal("/gql") : utf8_literal("/youtubei/v1/player?prettyPrint=false"),
         spotify ? kSpotifyEmbedMaximumBytes : streamable ? kStreamableMetadataMaximumBytes
             : twitter ? kTwitterMetadataMaximumBytes
-            : apple ? kAppleMusicMetadataMaximumBytes : kResponseLimit, response_sink, r};
-    UpdateHttpResponse response{};
-    const auto fetched = transport.exchange(transport.context, request,
-        {get ? ConstSlice<HttpsHeader>{clip_headers, tiktok ? 2u : 1u} : twitch ? ConstSlice<HttpsHeader>{twitch_headers, 3}
-            : ConstSlice<HttpsHeader>{headers, 7}, {body, get ? 0 : request_bytes}}, &response);
-    if (fetched != UpdateTransportError::none || response.status != 200)
-        return {E::unavailable, fetched, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
+            : apple ? kAppleMusicMetadataMaximumBytes : kResponseLimit,
+        {get ? ConstSlice<HttpsHeader>{clip_headers, tiktok ? 2u : 1u} : twitch ? ConstSlice<HttpsHeader>{kBrowserHeaders, 3}
+            : ConstSlice<HttpsHeader>{headers, 7}, {body, get ? 0 : request_bytes}});
+    if (!fetched.ok()) return fetched;
     // At most one structural per input byte; reserve a tighter ordinary
     // response prefix, with the fixed 128K-entry ceiling enforced by scanning.
-    const u32 entries = minimum(r->response_bytes, 128u * 1024u);
-    if (!reserved_bytes_commit(&r->structurals, entries * sizeof(u32))) return {E::capacity};
-    const Utf8View json{reinterpret_cast<const char*>(r->response.base), r->response_bytes};
-    const Slice<u32> scratch{reinterpret_cast<u32*>(r->structurals.base), entries};
+    Slice<u32> scratch{};
+    if (!index_scratch(r, 128u * 1024u, &scratch)) return {E::capacity};
+    const Utf8View json = response_text(r);
     if (spotify || apple) {
         EmbedStreams staged{};
         const auto error = apple ? apple_music_track_preview(json, id, country, scratch,
@@ -173,14 +220,14 @@ static EmbedResolveResult resolve(EmbedResolver* r, Utf8View id, u16 height,
             *out = staged;
         }
         secure_clear_bytes(&staged, sizeof(staged));
-        return {error, UpdateTransportError::none, 0, response.status};
+        return {error, UpdateTransportError::none, 0, fetched.status};
     }
     const auto error = tiktok ? tiktok_player_streams(json, id, height, now, scratch, out)
                               : twitch ? twitch_clip_streams(json, id, height, now, scratch, out)
                               : streamable ? streamable_video_streams(json, id, height, now, scratch, out)
                               : twitter ? twitter_video_streams(json, id, height, media_index, scratch, out)
                                        : youtube_player_streams(json, id, height, scratch, out);
-    return {error, UpdateTransportError::none, 0, response.status};
+    return {error, UpdateTransportError::none, 0, fetched.status};
 }
 EmbedResolveResult pornhub_resolve(EmbedResolver* r, Utf8View id, u16 height, u64 now, EmbedStreams* out,
     EmbedResolveTransport transport) noexcept {
@@ -188,30 +235,21 @@ EmbedResolveResult pornhub_resolve(EmbedResolver* r, Utf8View id, u16 height, u6
     u8 target[64];
     const u32 bytes = pornhub_embed_target(id, {target, sizeof(target)});
     if (!r || !out || !bytes || !now || !height || height > 2048) return {E::invalid_input};
-    const auto prepared = transport_for(*r, transport);
-    if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response, kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals, 512u * 1024u))) return {E::capacity};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
-    struct Metadata { EmbedStream stream{}; ~Metadata() noexcept { secure_clear_bytes(this, sizeof(*this)); } } metadata;
+    struct Metadata { EmbedStream stream{}; ~Metadata() noexcept { wipe(this, sizeof(*this)); } } metadata;
     EmbedStreamLocation location{utf8_literal("www.pornhub.com"), {reinterpret_cast<char*>(target), bytes}};
-    const HttpsHeader headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
+    static constexpr HttpsHeader headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
         {utf8_literal("Referer"), utf8_literal("https://www.pornhub.com/")}};
     for (u32 step = 0; step < 2; ++step) {
-        r->response_bytes = 0;
-        const UpdateHttpRequest request{UpdateHost::provider, location.host, {location.target.data, location.target.bytes},
-            kPornhubMetadataMaximumBytes, response_sink, r};
-        UpdateHttpResponse response{};
-        const auto fetched = transport.exchange(transport.context, request, {{headers, 2}}, &response);
-        if (fetched != UpdateTransportError::none || response.status != 200)
-            return {E::unavailable, fetched, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
-        const u32 index_bytes = minimum(r->response_bytes * 4u, 512u * 1024u);
-        if (!reserved_bytes_commit(&r->structurals, index_bytes)) return {E::capacity};
-        const Slice<u32> scratch{reinterpret_cast<u32*>(r->structurals.base), index_bytes / 4};
-        const Utf8View body{reinterpret_cast<char*>(r->response.base), r->response_bytes};
+        const auto fetched = fetch(r, transport, location.host, location.target, kPornhubMetadataMaximumBytes, {{headers, 2}});
+        if (!fetched.ok()) return fetched;
+        Slice<u32> scratch{};
+        if (!index_scratch(r, 128u * 1024u, &scratch)) return {E::capacity};
+        const Utf8View body = response_text(r);
         const auto error = step ? pornhub_video_streams(body, height, now, scratch, out)
                                : pornhub_embed_metadata(body, id, scratch, &metadata.stream);
-        if (error != E::none || step) return {error, {}, 0, response.status};
+        if (error != E::none || step) return {error, {}, 0, fetched.status};
         if (!pornhub_metadata_location({metadata.stream.url, metadata.stream.url_bytes}, &location)) return {E::malformed};
     }
     return {E::unavailable};
@@ -242,7 +280,7 @@ EmbedResolveResult amazon_music_preview_resolve(EmbedResolver* r,Utf8View page,u
     char target[64];constexpr auto path=utf8_literal("/getSampleTrack/");
     copy_bytes(target,path.data,path.bytes);copy_bytes(target+path.bytes,track.id.data,track.id.bytes);
     u32 bytes=path.bytes+track.id.bytes;auto host=track.host;
-    const HttpsHeader headers[]{{utf8_literal("User-Agent"),utf8_literal("Mozilla/5.0")}};
+    const HttpsHeader* const headers = kBrowserHeaders;
     // Two known redirects, never a generic redirect follower. No metadata body,
     // JSON index, cookies or account tokens are needed for these public previews.
     for(u32 hop=0;hop<2;++hop) {
@@ -285,35 +323,23 @@ EmbedResolveResult steam_resolve(EmbedResolver* r, Utf8View app, Utf8View movie,
     if (!r || !video || !audio || video == audio || video->state != ProgressiveVideoFetchState::empty ||
         audio->state != ProgressiveVideoFetchState::empty || !bytes || (movie.bytes && !steam_id(movie)) || !height || height > 2048)
         return {E::invalid_input};
-    const auto prepared = transport_for(*r, transport);
-    if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response, kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals, 512 * 1024))) return {E::capacity};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
-    const HttpsHeader headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")}};
-    const auto get = [&](Utf8View host, Utf8View path, u32 limit) noexcept {
-        r->response_bytes = 0;
-        const UpdateHttpRequest request{UpdateHost::provider, host, {path.data, path.bytes}, limit, response_sink, r};
-        UpdateHttpResponse response{};
-        const auto error = transport.exchange(transport.context, request, {{headers, 1}}, &response);
-        return EmbedResolveResult{error == UpdateTransportError::none && response.status == 200 ? E::none : E::unavailable,
-            error, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
-    };
-    auto result = get(utf8_literal("store.steampowered.com"), {reinterpret_cast<const char*>(target), bytes}, 128 * 1024);
+    auto result = public_metadata_exchange(r, transport, utf8_literal("store.steampowered.com"),
+        {reinterpret_cast<const char*>(target), bytes}, 128 * 1024);
     if (!result.ok()) return result;
-    const u32 entries = minimum(r->response_bytes, 128u * 1024u);
-    if (!reserved_bytes_commit(&r->structurals, entries * sizeof(u32))) return {E::capacity};
+    Slice<u32> scratch{};
+    if (!index_scratch(r, 128u * 1024u, &scratch)) return {E::capacity};
     EmbedStream manifest{};
-    result.error = steam_video_manifest({reinterpret_cast<const char*>(r->response.base), r->response_bytes}, app, movie,
-        {reinterpret_cast<u32*>(r->structurals.base), entries}, &manifest);
+    result.error = steam_video_manifest(response_text(r), app, movie, scratch, &manifest);
     if (!result.ok()) return result;
     EmbedStreamLocation location{};
     const Utf8View url{manifest.url, manifest.url_bytes};
     if (!steam_manifest_location(url, app, &location)) return {E::malformed};
-    result = get(location.host, location.target, 64 * 1024);
+    result = public_metadata_exchange(r, transport, location.host, location.target, 64 * 1024);
     if (!result.ok()) return result;
     DashManifest selected{};
-    const auto parsed = dash_manifest_parse({reinterpret_cast<const char*>(r->response.base), r->response_bytes}, height, &selected);
+    const auto parsed = dash_manifest_parse(response_text(r), height, &selected);
     if (parsed != DashManifestError::none) { result.error = parsed == DashManifestError::unsupported ? E::unsupported : E::malformed; return result; }
     if (!progressive_video_fetch_begin_segments(video, url, selected.video, false) ||
         (selected.audio.id.bytes && !progressive_video_fetch_begin_segments(audio, url, selected.audio, true))) {
@@ -331,24 +357,19 @@ void embed_resolver_release(EmbedResolver* r) noexcept {
     r->response_bytes = 0;
 }
 static EmbedResolveResult hls_media_resolve(EmbedResolver* r,u16 height,u64 now,
-    ProgressiveVideoFetch* video,ProgressiveVideoFetch* audio,EmbedResolveTransport transport,bool live,bool youtube,Utf8View base = {}) noexcept {
+    ProgressiveVideoFetch* video,ProgressiveVideoFetch* audio,const EmbedResolveTransport& transport,bool live,bool youtube,const Utf8View& base = {}) noexcept {
     using E=EmbedPlayerError;
     const bool vimeo = base.bytes != 0;
-    struct Urls { EmbedStream video{},audio{}; ~Urls() noexcept {secure_clear_bytes(this,sizeof(*this));} } urls;
+    struct Urls { EmbedStream video{},audio{}; ~Urls() noexcept {wipe(this,sizeof(*this));} } urls;
     EmbedResolveResult result{E::none,UpdateTransportError::none,0,200};
-    const auto locate=[&](Utf8View url,EmbedStreamLocation* out) noexcept {
+    const auto locate=[&](const Utf8View& url,EmbedStreamLocation* out) noexcept {
         if (vimeo) return vimeo_location(url, true, out);
         return youtube ? embed_stream_location(CdnHost::youtube_playlist,url,out) :
             live ? twitch_live_location(url,true,out) : twitch_vod_location(url,true,out);
     };
-    const auto exchange=[&](Utf8View host,Utf8View path,u32 limit) noexcept {
-        r->response_bytes=0;
-        const UpdateHttpRequest request{UpdateHost::provider,host,{path.data,path.bytes},limit,response_sink,r};
+    const auto exchange=[&](const Utf8View& host,const Utf8View& path,u32 limit) noexcept {
         const HttpsHeader header{utf8_literal("User-Agent"),youtube?kAgent:utf8_literal("Mozilla/5.0")};
-        UpdateHttpResponse response{};
-        const auto error=transport.exchange(transport.context,request,{{&header,1}},&response);
-        return EmbedResolveResult{error==UpdateTransportError::none && response.status==200?E::none:E::unavailable,
-            error,static_cast<u32>(minimum<u64>(response.retry_after_seconds,86400)),response.status};
+        return fetch(r,transport,host,path,limit,{{&header,1}});
     };
     // Reuse retired JSON scratch to retain this small master during bounded
     // quality fallback. It never needs another request or allocation.
@@ -415,20 +436,9 @@ static EmbedResolveResult hls_media_resolve(EmbedResolver* r,u16 height,u64 now,
     return result;
 }
 namespace {
-EmbedResolveResult public_metadata_exchange(EmbedResolver* r, EmbedResolveTransport transport,
-    Utf8View host, Utf8View target, u32 limit, UpdateHttpResponse* headers = nullptr) noexcept {
-    r->response_bytes = 0;
-    const UpdateHttpRequest request{UpdateHost::provider, host, {target.data, target.bytes}, limit, response_sink, r};
-    const HttpsHeader agent{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")};
-    UpdateHttpResponse response{};
-    const auto error = transport.exchange(transport.context, request, {{&agent, 1}}, &response);
-    if (headers) *headers=response;
-    return {error == UpdateTransportError::none && response.status == 200 ? EmbedPlayerError::none : EmbedPlayerError::unavailable,
-        error, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
-}
 // Leaves one bounded metadata response for parsing. Numeric widgets must bind
 // the discovered canonical page back to their numeric identity in the parser.
-EmbedResolveResult soundcloud_page(EmbedResolver* r, Utf8View page, bool collection, Slice<char> decoded,
+EmbedResolveResult soundcloud_page(EmbedResolver* r, const Utf8View& page, bool collection, const Slice<char>& decoded,
     SoundcloudCollectionLocator* out, EmbedResolveTransport& transport) noexcept {
     using E = EmbedPlayerError;
     SoundcloudCollectionLocator locator{};
@@ -438,10 +448,7 @@ EmbedResolveResult soundcloud_page(EmbedResolver* r, Utf8View page, bool collect
         locator = {track.path, track.id};
     }
     if (!locator.path.bytes && !locator.id) return {E::invalid_input};
-    const auto prepared = transport_for(*r, transport);
-    if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response, kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals, 512 * 1024))) return {E::capacity};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     if (locator.id) {
         char widget[128]; ProtocolWriter writer{{reinterpret_cast<u8*>(widget), sizeof(widget)}, 0};
         if (!protocol_writer_append_literal(&writer, "/player/?url=https%3A%2F%2Fapi.soundcloud.com%2F") ||
@@ -450,7 +457,7 @@ EmbedResolveResult soundcloud_page(EmbedResolver* r, Utf8View page, bool collect
         auto result = public_metadata_exchange(r, transport, utf8_literal("w.soundcloud.com"), {widget, writer.used}, 65536);
         if (!result.ok()) return result;
         EmbedStream canonical{};
-        result.error = soundcloud_widget_page({reinterpret_cast<const char*>(r->response.base), r->response_bytes}, &canonical, collection);
+        result.error = soundcloud_widget_page(response_text(r), &canonical, collection);
         if (!result.ok()) return result;
         const auto path = collection ? soundcloud_collection_path({canonical.url, canonical.url_bytes}) :
             soundcloud_track_path({canonical.url, canonical.url_bytes});
@@ -461,14 +468,12 @@ EmbedResolveResult soundcloud_page(EmbedResolver* r, Utf8View page, bool collect
     return public_metadata_exchange(r, transport, utf8_literal("soundcloud.com"), locator.path, 512 * 1024);
 }
 } // namespace
-EmbedResolveResult track_title_resolve(EmbedResolver* r, u64 track, Utf8View video, MediaTrackTitle* out,
-    EmbedResolveTransport transport) noexcept {
+static EmbedResolveResult track_title_resolve(EmbedResolver* r, u64 track, const Utf8View& video, MediaTrackTitle* out,
+    const EmbedResolveTransport& caller_transport) noexcept {
+    EmbedResolveTransport transport = caller_transport;
     using E = EmbedPlayerError;
     if (!r || !out || (!track && video.bytes != 11)) return {E::invalid_input};
-    const auto prepared = transport_for(*r, transport);
-    if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response, kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals, 512 * 1024))) return {E::capacity};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     char path[160]; ProtocolWriter writer{{reinterpret_cast<u8*>(path), sizeof(path)}, 0};
     if (video.bytes) {
@@ -476,10 +481,9 @@ EmbedResolveResult track_title_resolve(EmbedResolver* r, u64 track, Utf8View vid
     } else if (!protocol_writer_append_literal(&writer, "/oembed?format=json&url=https%3A%2F%2Fapi.soundcloud.com%2Ftracks%2F") || !protocol_writer_append_u64(&writer, track)) return {E::capacity};
     auto result = public_metadata_exchange(r, transport, video.bytes ? utf8_literal("www.youtube.com") : utf8_literal("soundcloud.com"), {path, writer.used}, 32768);
     if (!result.ok()) return result;
-    const u32 entries = minimum(r->response_bytes, 8192u);
-    if (!reserved_bytes_commit(&r->structurals, entries * sizeof(u32))) return {E::capacity};
-    const Utf8View json{reinterpret_cast<const char*>(r->response.base), r->response_bytes};
-    const Slice<u32> scratch{reinterpret_cast<u32*>(r->structurals.base), entries};
+    Slice<u32> scratch{};
+    if (!index_scratch(r, 8192u, &scratch)) return {E::capacity};
+    const Utf8View json = response_text(r);
     result.error = video.bytes ? youtube_track_title(json, video, scratch, out) : soundcloud_track_title(json, track, scratch, out);
     return result;
 }
@@ -491,19 +495,14 @@ EmbedResolveResult youtube_collection_resolve(EmbedResolver* r, Utf8View page, U
     using E = EmbedPlayerError;
     const auto locator = youtube_collection_locator(page);
     if (!r || !out || !locator.list.bytes || continuation.bytes > 16384) return {E::invalid_input};
-    const auto prepared = transport_for(*r, transport);
-    if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response, kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals, 512 * 1024))) return {E::capacity};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     constexpr auto host = utf8_literal("music.youtube.com");
     const HttpsHeader headers[]{{utf8_literal("User-Agent"), kAgent}, {utf8_literal("Cookie"), utf8_literal("SOCS=CAI")},
         {utf8_literal("Content-Type"), utf8_literal("application/json")}, {utf8_literal("Origin"), utf8_literal("https://music.youtube.com")}};
     if (!r->music_version_bytes) {
-        r->response_bytes = 0; UpdateHttpResponse response{};
-        const UpdateHttpRequest request{UpdateHost::provider, host, {"/", 1}, kResponseLimit, response_sink, r};
-        const auto fetched = transport.exchange(transport.context, request, {{headers, 2}}, &response);
-        if (fetched != UpdateTransportError::none || response.status != 200) return {E::unavailable, fetched, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
+        const auto fetched = fetch(r, transport, host, utf8_literal("/"), kResponseLimit, {{headers, 2}});
+        if (!fetched.ok()) return fetched;
         constexpr auto marker = utf8_literal("\"INNERTUBE_CLIENT_VERSION\":\"");
         const auto* data = reinterpret_cast<const char*>(r->response.base);
         for (u32 i = 0; i + marker.bytes < r->response_bytes; ++i) {
@@ -538,19 +537,15 @@ EmbedResolveResult youtube_collection_resolve(EmbedResolver* r, Utf8View page, U
         protocol_writer_append_percent_encoded(&path, queue_fields);
     if (continuation.bytes) ok = ok && protocol_writer_append_literal(&path, "&continuation=") && protocol_writer_append_percent_encoded(&path, continuation);
     if (!ok) return {E::capacity};
-    r->response_bytes = 0; UpdateHttpResponse response{};
-    const UpdateHttpRequest request{UpdateHost::provider, host, {reinterpret_cast<const char*>(target), path.used}, kResponseLimit, response_sink, r};
     HttpsExchangeOptions options{{headers, 4}}; options.body = {body, writer.used};
-    const auto fetched = transport.exchange(transport.context, request, options, &response);
-    EmbedResolveResult result{E::unavailable, fetched, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
-    if (fetched != UpdateTransportError::none || response.status != 200) {
-        if (response.status == 400) r->music_version_bytes = 0;
+    auto result = fetch(r, transport, host, {reinterpret_cast<const char*>(target), path.used}, kResponseLimit, options);
+    if (!result.ok()) {
+        if (result.status == 400) r->music_version_bytes = 0;
         return result;
     }
-    const u32 entries = minimum(r->response_bytes, 128u * 1024u);
-    if (!reserved_bytes_commit(&r->structurals, entries * sizeof(u32))) return {E::capacity};
-    result.error = youtube_collection_page({reinterpret_cast<const char*>(r->response.base), r->response_bytes}, locator.list,
-        {reinterpret_cast<u32*>(r->structurals.base), entries}, out, sink);
+    Slice<u32> scratch{};
+    if (!index_scratch(r, 128u * 1024u, &scratch)) return {E::capacity};
+    result.error = youtube_collection_page(response_text(r), locator.list, scratch, out, sink);
     return result;
 }
 
@@ -569,31 +564,22 @@ EmbedResolveResult soundcloud_batch_titles_resolve(EmbedResolver* r, const Sound
     }
     ok = ok && protocol_writer_append_literal(&path,"&client_id=") && protocol_writer_append_bytes(&path,reinterpret_cast<const u8*>(batch.client),32);
     if (!ok) return {E::invalid_input};
-    const auto prepared=transport_for(*r,transport);
-    if (prepared!=UpdateTransportError::none) return {E::unavailable,prepared};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response,kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals,512*1024))) return {E::capacity};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
     auto result=public_metadata_exchange(r,transport,utf8_literal("api-v2.soundcloud.com"),{target,path.used},512*1024);
     if (!result.ok()) return result;
-    const u32 entries=minimum(r->response_bytes,128u*1024u);
-    if (!reserved_bytes_commit(&r->structurals,entries*sizeof(u32))) return {E::capacity};
-    result.error=soundcloud_batch_titles({reinterpret_cast<const char*>(r->response.base),r->response_bytes},batch,preferred,
-        {reinterpret_cast<u32*>(r->structurals.base),entries},sink);
+    Slice<u32> scratch{};
+    if (!index_scratch(r,128u*1024u,&scratch)) return {E::capacity};
+    result.error=soundcloud_batch_titles(response_text(r),batch,preferred,scratch,sink);
     return result;
 }
 EmbedResolveResult apple_music_collection_resolve(EmbedResolver* r, Utf8View page, u16* count, AppleMusicCollectionSink sink, EmbedResolveTransport transport) noexcept {
     using E=EmbedPlayerError;
     const auto collection=apple_music_collection_locator(page);
     if (!r || !count || !sink.write || !collection.id.bytes) return {E::invalid_input};
-    const auto prepared=transport_for(*r,transport);
-    if (prepared!=UpdateTransportError::none) return {E::unavailable,prepared};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response,kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals,512*1024))) return {E::capacity};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
-    const auto index=[&]() noexcept { return reserved_bytes_commit(&r->structurals,minimum(r->response_bytes,128u*1024u)*sizeof(u32)); };
-    const auto scratch=[&]() noexcept { return Slice<u32>{reinterpret_cast<u32*>(r->structurals.base),minimum(r->response_bytes,128u*1024u)}; };
-    const auto body=[&]() noexcept { return Utf8View{reinterpret_cast<char*>(r->response.base),r->response_bytes}; };
+    Slice<u32> scratch{};
     u8 target[2048];
     if (!collection.playlist) {
         const u32 start=apple_music_track_target(collection.id,collection.country,{target,sizeof(target)});
@@ -601,8 +587,8 @@ EmbedResolveResult apple_music_collection_resolve(EmbedResolver* r, Utf8View pag
         if (!start || !protocol_writer_append_literal(&path,"&entity=song&limit=200")) return {E::invalid_input};
         auto result=public_metadata_exchange(r,transport,utf8_literal("itunes.apple.com"),{reinterpret_cast<char*>(target),path.used},512*1024);
         if (!result.ok()) return result;
-        if (!index()) return {E::capacity};
-        result.error=apple_music_album(body(),collection.id,collection.country,scratch(),count,sink); return result;
+        if (!index_scratch(r,128u*1024u,&scratch)) return {E::capacity};
+        result.error=apple_music_album(response_text(r),collection.id,collection.country,scratch,count,sink); return result;
     }
     if (collection.path.bytes>sizeof(target)) return {E::invalid_input};
     copy_bytes(target,collection.path.data,collection.path.bytes); u32 target_bytes=collection.path.bytes;
@@ -617,9 +603,10 @@ EmbedResolveResult apple_music_collection_resolve(EmbedResolver* r, Utf8View pag
         if (!next.playlist || !utf8_equal(next.id,collection.id) || !ascii_equal_ignore_case(next.country,collection.country) || next.path.bytes>sizeof(target)) return {E::malformed};
         copy_bytes(target,next.path.data,next.path.bytes); target_bytes=next.path.bytes;
     }
-    if (!result.ok() || !index()) return result.ok()?EmbedResolveResult{E::capacity}:result;
+    if (!result.ok()) return result;
+    if (!index_scratch(r,128u*1024u,&scratch)) return {E::capacity};
     AppleMusicPlaylist playlist{};
-    result.error=apple_music_playlist(body(),collection.id,collection.country,scratch(),&playlist,sink);
+    result.error=apple_music_playlist(response_text(r),collection.id,collection.country,scratch,&playlist,sink);
     if (!result.ok()) return result;
     for (u32 first=0;first<playlist.count;first+=50) {
         const u32 size=minimum<u32>(50,playlist.count-first); const ConstSlice<u64> ids{playlist.tracks+first,size};
@@ -635,8 +622,8 @@ EmbedResolveResult apple_music_collection_resolve(EmbedResolver* r, Utf8View pag
         if (!ok) return {E::capacity};
         result=public_metadata_exchange(r,transport,utf8_literal("itunes.apple.com"),{reinterpret_cast<char*>(target),path.used},512*1024);
         if (!result.ok()) return result;
-        if (!index()) return {E::capacity};
-        result.error=apple_music_preview_batch(body(),ids,static_cast<u16>(first),collection.country,scratch(),sink);
+        if (!index_scratch(r,128u*1024u,&scratch)) return {E::capacity};
+        result.error=apple_music_preview_batch(response_text(r),ids,static_cast<u16>(first),collection.country,scratch,sink);
         if (!result.ok()) return result;
     }
     *count=playlist.count; return result;
@@ -649,10 +636,10 @@ EmbedResolveResult soundcloud_collection_resolve(EmbedResolver* r, Utf8View page
     char decoded[1024]; SoundcloudCollectionLocator locator{};
     auto result = soundcloud_page(r, page, true, {decoded, sizeof(decoded)}, &locator, transport);
     if (!result.ok()) return result;
-    const u32 entries = minimum(r->response_bytes, 128u * 1024u);
-    if (!reserved_bytes_commit(&r->structurals, entries * sizeof(u32))) return {E::capacity};
-    result.error = soundcloud_collection({reinterpret_cast<const char*>(r->response.base), r->response_bytes},
-        locator.path, locator.id, locator.start_track, {reinterpret_cast<u32*>(r->structurals.base), entries}, tracks, out, sink);
+    Slice<u32> scratch{};
+    if (!index_scratch(r, 128u * 1024u, &scratch)) return {E::capacity};
+    result.error = soundcloud_collection(response_text(r),
+        locator.path, locator.id, locator.start_track, scratch, tracks, out, sink);
     return result;
 }
 EmbedResolveResult soundcloud_resolve(EmbedResolver* r, Utf8View page, ProgressiveVideoFetch* audio,
@@ -663,23 +650,23 @@ EmbedResolveResult soundcloud_resolve(EmbedResolver* r, Utf8View page, Progressi
     char decoded[1024]; SoundcloudCollectionLocator locator{};
     auto result = soundcloud_page(r, page, false, {decoded, sizeof(decoded)}, &locator, transport);
     if (!result.ok()) return result;
-    struct Url { EmbedStream value{}; ~Url() noexcept { secure_clear_bytes(this, sizeof(*this)); } } url;
-    const u32 entries = minimum(r->response_bytes, 128u * 1024u);
-    if (!reserved_bytes_commit(&r->structurals, entries * sizeof(u32))) return {E::capacity};
-    result.error = soundcloud_track_request({reinterpret_cast<const char*>(r->response.base), r->response_bytes}, locator.path,
-        {reinterpret_cast<u32*>(r->structurals.base), entries}, &url.value, locator.id);
+    struct Url { EmbedStream value{}; ~Url() noexcept { wipe(this, sizeof(*this)); } } url;
+    Slice<u32> scratch{};
+    if (!index_scratch(r, 128u * 1024u, &scratch)) return {E::capacity};
+    result.error = soundcloud_track_request(response_text(r), locator.path,
+        scratch, &url.value, locator.id);
     if (!result.ok()) return result;
     constexpr u32 origin = sizeof("https://api-v2.soundcloud.com") - 1;
     result = public_metadata_exchange(r, transport, utf8_literal("api-v2.soundcloud.com"), {url.value.url + origin, url.value.url_bytes - origin}, 8192);
     if (!result.ok()) return result;
-    result.error = soundcloud_manifest({reinterpret_cast<const char*>(r->response.base), r->response_bytes},
-        {reinterpret_cast<u32*>(r->structurals.base), entries}, &url.value);
+    result.error = soundcloud_manifest(response_text(r),
+        scratch, &url.value);
     if (!result.ok()) return result;
     EmbedStreamLocation location{};
     if (!soundcloud_location({url.value.url, url.value.url_bytes}, true, &location)) return {E::malformed};
     result = public_metadata_exchange(r, transport, location.host, location.target, 65536);
     if (result.ok() && !progressive_video_fetch_begin_hls(audio, {url.value.url, url.value.url_bytes},
-        {reinterpret_cast<const char*>(r->response.base), r->response_bytes}, true)) result.error = E::unsupported;
+        response_text(r), true)) result.error = E::unsupported;
     return result;
 }
 EmbedResolveResult vimeo_resolve(EmbedResolver* r, Utf8View id, u16 height, u64 now,
@@ -689,20 +676,8 @@ EmbedResolveResult vimeo_resolve(EmbedResolver* r, Utf8View id, u16 height, u64 
         (privacy_hash.bytes && !vimeo_privacy_hash(privacy_hash)) ||
         video->state != ProgressiveVideoFetchState::empty || audio->state != ProgressiveVideoFetchState::empty)
         return {E::invalid_input};
-    const auto prepared = transport_for(*r, transport);
-    if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response, kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals, 512 * 1024))) return {E::capacity};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
-    const auto exchange = [&](Utf8View host, Utf8View path, u32 limit) noexcept {
-        r->response_bytes = 0;
-        const UpdateHttpRequest request{UpdateHost::provider, host, {path.data, path.bytes}, limit, response_sink, r};
-        const HttpsHeader agent{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")};
-        UpdateHttpResponse response{};
-        const auto error = transport.exchange(transport.context, request, {{&agent, 1}}, &response);
-        return EmbedResolveResult{error == UpdateTransportError::none && response.status == 200 ? E::none : E::unavailable,
-            error, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
-    };
     char path[32] = "/video/";
     copy_bytes(path + 7, id.data, id.bytes);
     u32 path_bytes = 7 + id.bytes;
@@ -711,17 +686,17 @@ EmbedResolveResult vimeo_resolve(EmbedResolver* r, Utf8View id, u16 height, u64 
         copy_bytes(path + path_bytes + 3, privacy_hash.data, privacy_hash.bytes);
         path_bytes += 3 + privacy_hash.bytes;
     }
-    auto result = exchange(utf8_literal("player.vimeo.com"), {path, path_bytes}, 128 * 1024);
+    auto result = public_metadata_exchange(r, transport, utf8_literal("player.vimeo.com"), {path, path_bytes}, 128 * 1024);
     if (!result.ok()) return result;
-    if (!reserved_bytes_commit(&r->structurals, r->response_bytes * sizeof(u32))) return {E::capacity};
-    struct Manifest { EmbedStream value{}; ~Manifest() noexcept { secure_clear_bytes(this, sizeof(*this)); } } manifest;
-    result.error = vimeo_video_manifest({reinterpret_cast<const char*>(r->response.base), r->response_bytes}, id,
-        {reinterpret_cast<u32*>(r->structurals.base), r->response_bytes}, &manifest.value, privacy_hash);
+    Slice<u32> scratch{};
+    if (!index_scratch(r, ~u32{0}, &scratch)) return {E::capacity};
+    struct Manifest { EmbedStream value{}; ~Manifest() noexcept { wipe(this, sizeof(*this)); } } manifest;
+    result.error = vimeo_video_manifest(response_text(r), id, scratch, &manifest.value, privacy_hash);
     if (!result.ok()) return result;
     const Utf8View url{manifest.value.url, manifest.value.url_bytes};
     EmbedStreamLocation location{};
     if (!vimeo_location(url, true, &location)) return {E::unsupported};
-    result = exchange(location.host, location.target, 64 * 1024);
+    result = public_metadata_exchange(r, transport, location.host, location.target, 64 * 1024);
     if (!result.ok()) return result;
     return hls_media_resolve(r, height, now, video, audio, transport, false, false, url);
 }
@@ -731,30 +706,18 @@ EmbedResolveResult twitch_hls_resolve(EmbedResolver* r, Utf8View id, u16 height,
     u8 body[512]; const u32 bytes = twitch_playback_body(id, {body, sizeof(body)}, live);
     if (!r || !video || !audio || video == audio || !bytes || !now || !height || height > 2048 ||
         video->state != ProgressiveVideoFetchState::empty || audio->state != ProgressiveVideoFetchState::empty) return {E::invalid_input};
-    const auto prepared = transport_for(*r, transport);
-    if (prepared != UpdateTransportError::none) return {E::unavailable, prepared};
-    if ((!r->response.base && !reserved_bytes_initialize(&r->response, kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals, 512 * 1024))) return {E::capacity};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
     ScratchLifetime lifetime{r};
-    const HttpsHeader headers[]{{utf8_literal("User-Agent"), utf8_literal("Mozilla/5.0")},
-        {utf8_literal("Content-Type"), utf8_literal("application/json")},
-        {utf8_literal("Client-ID"), utf8_literal("b31o4btkqth5bzbvr9ub2ovr79umhh")}};
-    const auto exchange = [&](Utf8View host, Utf8View path, u32 limit, bool token = false) noexcept {
-        r->response_bytes = 0;
-        const UpdateHttpRequest request{UpdateHost::provider, host, {path.data, path.bytes}, limit, response_sink, r};
-        UpdateHttpResponse response{};
-        const auto error = transport.exchange(transport.context, request,
-            {{headers, token ? 3u : 1u}, {body, token ? bytes : 0u}}, &response);
-        return EmbedResolveResult{error == UpdateTransportError::none && response.status == 200 ? E::none : E::unavailable,
-            error, static_cast<u32>(minimum<u64>(response.retry_after_seconds, 86400)), response.status};
+    const auto exchange = [&](const Utf8View& host, const Utf8View& path, u32 limit, bool token = false) noexcept {
+        return fetch(r, transport, host, path, limit, {{kBrowserHeaders, token ? 3u : 1u}, {body, token ? bytes : 0u}});
     };
     auto result = exchange(utf8_literal("gql.twitch.tv"), utf8_literal("/gql"), 64 * 1024, true);
     if (!result.ok()) return result;
-    const u32 entries = minimum(r->response_bytes, 64u * 1024u);
-    if (!reserved_bytes_commit(&r->structurals, entries * sizeof(u32))) return {E::capacity};
-    struct Urls { EmbedStream manifest{}, video{}, audio{}; ~Urls() noexcept { secure_clear_bytes(this, sizeof(*this)); } } urls;
-    result.error = twitch_playback_manifest({reinterpret_cast<const char*>(r->response.base), r->response_bytes}, id, now,
-        {reinterpret_cast<u32*>(r->structurals.base), entries}, &urls.manifest, live);
+    Slice<u32> scratch{};
+    if (!index_scratch(r, 64u * 1024u, &scratch)) return {E::capacity};
+    struct Urls { EmbedStream manifest{}, video{}, audio{}; ~Urls() noexcept { wipe(this, sizeof(*this)); } } urls;
+    result.error = twitch_playback_manifest(response_text(r), id, now,
+        scratch, &urls.manifest, live);
     if (!result.ok()) return result;
     constexpr u32 usher_origin = sizeof("https://usher.ttvnw.net") - 1;
     result = exchange(utf8_literal("usher.ttvnw.net"), {urls.manifest.url + usher_origin, urls.manifest.url_bytes - usher_origin}, 64 * 1024);
@@ -772,16 +735,11 @@ EmbedResolveResult youtube_hls_resolve(EmbedResolver* r,Utf8View manifest,u16 he
         video->state!=ProgressiveVideoFetchState::empty || audio->state!=ProgressiveVideoFetchState::empty ||
         !embed_stream_location(CdnHost::youtube_playlist,manifest,&location) ||
         !utf8_starts_with(location.target,utf8_literal("/api/manifest/hls_variant/"))) return {E::invalid_input};
-    const auto prepared=transport_for(*r,transport);
-    if(prepared!=UpdateTransportError::none) return {E::unavailable,prepared};
-    if((!r->response.base && !reserved_bytes_initialize(&r->response,kResponseLimit)) ||
-        (!r->structurals.base && !reserved_bytes_initialize(&r->structurals,512*1024))) return {E::capacity};
-    ScratchLifetime lifetime{r};r->response_bytes=0;
-    const HttpsHeader header{utf8_literal("User-Agent"),kAgent};
-    const UpdateHttpRequest request{UpdateHost::provider,location.host,{location.target.data,location.target.bytes},65536,response_sink,r};
-    UpdateHttpResponse response{};
-    const auto error=transport.exchange(transport.context,request,{{&header,1}},&response);
-    if(error!=UpdateTransportError::none || response.status!=200) return {E::unavailable,error,0,response.status};
+    if (const auto ready = prepare(r, transport); !ready.ok()) return ready;
+    ScratchLifetime lifetime{r};
+    static constexpr HttpsHeader header{utf8_literal("User-Agent"), kAgent};
+    auto fetched = fetch(r, transport, location.host, location.target, 65536, {{&header, 1}});
+    if (!fetched.ok()) { fetched.retry_after_seconds = 0; return fetched; }
     return hls_media_resolve(r,height,now,video,audio,transport,true,true);
 }
 } // namespace maicord

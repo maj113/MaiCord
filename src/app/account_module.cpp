@@ -156,6 +156,14 @@ AccountModuleStatus module_failure(AccountModuleError error, u32 native_error = 
     return status;
 }
 
+// A media request that never reached the worker.
+__declspec(noinline) AccountMediaRequestResult rejected_media_request() noexcept {
+    AccountMediaRequestResult value{};
+    value.state = AccountMediaRequestState::invalid;
+    value.error = AccountMediaError::invalid_input;
+    return value;
+}
+
 AccountLoginStatus module_login_start_mode(void** instance, const wchar_t* profile_path,
                                            bool reset) noexcept {
     if (!instance || *instance || !profile_path)
@@ -568,6 +576,25 @@ AccountModuleStatus build_status(AccountModuleRuntime* runtime) noexcept {
     return status;
 }
 
+AccountModuleStatus stop_failure(AccountModuleRuntime* runtime, AccountModuleError error) noexcept {
+    AccountModuleStatus status = build_status(runtime);
+    status.error = error;
+    status.failed = true;
+    return status;
+}
+
+// Drops a runtime whose start failed: stops the media worker and releases the profile when they
+// were started, and wipes the runtime before it is freed.
+__declspec(noinline) void discard_runtime(AccountModuleRuntime* runtime, AccountProfile* profile = nullptr,
+                                          bool stop_media = false) noexcept {
+    if (stop_media)
+        account_media_worker_stop(&runtime->media, 5'000);
+    if (profile)
+        account_profile_release(profile);
+    SecureZeroMemory(runtime, sizeof(*runtime));
+    VirtualFree(runtime, 0, MEM_RELEASE);
+}
+
 AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const wchar_t* session_path,
                                              u64 monotonic_now_ms, u64 unix_now_ms) noexcept {
     AccountModuleStartResult result{};
@@ -586,8 +613,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     account_soundboard_initialize(&runtime->soundboard);
     account_voice_message_initialize(&runtime->voice_message);
     if (!copy_path(session_path, runtime->session_path)) {
-        SecureZeroMemory(runtime, sizeof(*runtime));
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        discard_runtime(runtime);
         result.error = AccountModuleError::invalid_input;
         return result;
     }
@@ -595,8 +621,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     AccountProfile profile{};
     const AccountProfileResult loaded = account_profile_load(profile_path, &profile);
     if (!loaded.ok()) {
-        SecureZeroMemory(runtime, sizeof(*runtime));
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        discard_runtime(runtime);
         result.error = AccountModuleError::profile;
         result.profile_error = static_cast<u8>(loaded.error);
         result.native_error = loaded.native_error;
@@ -622,9 +647,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
 
     const AccountMediaRequestResult media_started = account_media_worker_initialize(&runtime->media);
     if (!media_started.ok()) {
-        account_profile_release(&profile);
-        SecureZeroMemory(runtime, sizeof(*runtime));
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        discard_runtime(runtime, &profile);
         result.error = AccountModuleError::media_start;
         return result;
     }
@@ -632,10 +655,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     UserClientConfigurationStorage& configuration = runtime->client_configuration;
     const UserClientConfigurationResult configured = user_client_configuration_initialize(&configuration);
     if (!configured.ok()) {
-        account_media_worker_stop(&runtime->media, 5'000);
-        account_profile_release(&profile);
-        SecureZeroMemory(runtime, sizeof(*runtime));
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        discard_runtime(runtime, &profile, true);
         result.error = AccountModuleError::coordinator_start;
         result.native_error = configured.native_error;
         return result;
@@ -647,10 +667,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
     if (!client_session_metadata_initialize(
             &runtime->client_metadata, configuration.configuration.properties,
             {configuration.discord_locale, configuration.discord_locale_bytes}, heartbeat, false)) {
-        account_media_worker_stop(&runtime->media, 5'000);
-        account_profile_release(&profile);
-        SecureZeroMemory(runtime, sizeof(*runtime));
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        discard_runtime(runtime, &profile, true);
         result.error = AccountModuleError::coordinator_start;
         return result;
     }
@@ -666,10 +683,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
         nullptr, {configuration.timezone, configuration.timezone_bytes},
         {configuration.accept_language, configuration.accept_language_bytes});
     if (!started.ok()) {
-        account_media_worker_stop(&runtime->media, 5'000);
-        account_profile_release(&profile);
-        SecureZeroMemory(runtime, sizeof(*runtime));
-        VirtualFree(runtime, 0, MEM_RELEASE);
+        discard_runtime(runtime, &profile, true);
         result.error = AccountModuleError::coordinator_start;
         result.native_error = started.native_error;
         return result;
@@ -1162,24 +1176,21 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
     auto* rest = module_rest(instance, true);
     if (!rest || !user || !request_id)
         return invalid;
+    u8 target[256], body[6200];
+    ConstSlice<u8> path{target, 0}, payload{};
+    u32 route = 0x5052464c;
+    RestMethod method = RestMethod::get;
     if (operation == 4) {
-        u8 target[96];
-        ProtocolWriter writer{{target, sizeof(target)}, 0};
+        ProtocolWriter writer{{target, 96}, 0};
         if (!protocol_writer_append_literal(&writer, "/api/v10/collectibles-products/") ||
             !protocol_writer_append_u64(&writer, user))
             return invalid;
-        return rest_client_submit(
-            rest, {target, writer.used},
-            {},
-            {0x50524546, 0, RestMethod::get, RestMajorParameter::none},
-            request_id,
-            false);
-    }
-    if (operation == 5 || operation == 6) {
+        path.count = writer.used;
+        route = 0x50524546;
+    } else if (operation == 5 || operation == 6) {
         // 5: the public applications whose icons stand in for missing activity
         // art (value: comma-separated IDs). 6: an activity's metadata (value:
         // its session; guild: its application, 0 for none).
-        u8 target[256];
         u32 bytes = 0;
         if (operation == 5) {
             u64 ids[kUserActivityMaximum];
@@ -1197,15 +1208,11 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
             bytes = user_activity_metadata_target(user, value, guild, {target, sizeof(target)});
         if (!bytes)
             return invalid;
-        return rest_client_submit(rest, {target, bytes}, {},
-                                  {operation == 5 ? 0x41505053u : 0x414d4554u, 0, RestMethod::get,
-                                   RestMajorParameter::none},
-                                  request_id, false);
-    }
-    if (operation) {
+        path.count = bytes;
+        route = operation == 5 ? 0x41505053u : 0x414d4554u;
+    } else if (operation) {
         if (operation > 3 || !utf8_validate(value).valid || value.bytes > (operation == 1 ? 1024u : 128u))
             return invalid;
-        u8 body[6200];
         ProtocolWriter writer{{body, sizeof(body)}, 0};
         const char* field = operation == 1   ? "{\"bio\":"
                             : operation == 2 ? "{\"pronouns\":"
@@ -1214,31 +1221,26 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
             !protocol_writer_append_json_string(&writer, value) ||
             !protocol_writer_append_byte(&writer, '}'))
             return invalid;
-        const auto target = operation == 3 ? utf8_literal("/api/v10/users/@me")
-                                           : utf8_literal("/api/v10/users/@me/profile");
-        return rest_client_submit(
-            rest, {reinterpret_cast<const u8*>(target.data), target.bytes},
-            {body, writer.used},
-            {0x5052464d, 0, RestMethod::patch, RestMajorParameter::none},
-            request_id,
-            false);
+        const auto patch_target = operation == 3 ? utf8_literal("/api/v10/users/@me")
+                                                 : utf8_literal("/api/v10/users/@me/profile");
+        path = {reinterpret_cast<const u8*>(patch_target.data), patch_target.bytes};
+        payload = {body, writer.used};
+        route = 0x5052464d;
+        method = RestMethod::patch;
+    } else {
+        ProtocolWriter writer{{target, sizeof(target)}, 0};
+        if (!protocol_writer_append_literal(&writer, "/api/v10/users/") ||
+            !protocol_writer_append_u64(&writer, user) ||
+            !protocol_writer_append_literal(&writer, "/profile?with_mutual_guilds=true&with_mutual_friends=true"
+                                                     "&with_mutual_friends_count=true"))
+            return invalid;
+        if (guild && (!protocol_writer_append_literal(&writer, "&guild_id=") ||
+                      !protocol_writer_append_u64(&writer, guild)))
+            return invalid;
+        path.count = writer.used;
     }
-    u8 target[256];
-    ProtocolWriter writer{{target, sizeof(target)}, 0};
-    if (!protocol_writer_append_literal(&writer, "/api/v10/users/") ||
-        !protocol_writer_append_u64(&writer, user) ||
-        !protocol_writer_append_literal(&writer, "/profile?with_mutual_guilds=true&with_mutual_friends=true"
-                                                 "&with_mutual_friends_count=true"))
-        return invalid;
-    if (guild && (!protocol_writer_append_literal(&writer, "&guild_id=") ||
-                  !protocol_writer_append_u64(&writer, guild)))
-        return invalid;
-    return rest_client_submit(
-        rest, {target, writer.used},
-        {},
-        {0x5052464c, 0, RestMethod::get, RestMajorParameter::none},
-        request_id,
-        false);
+    return rest_client_submit(rest, path, payload, {route, 0, method, RestMajorParameter::none}, request_id,
+                              false);
 }
 
 RestClientSubmitResult WINAPI module_reaction_users(void* instance, u64 channel_id, u64 message_id,
@@ -1754,7 +1756,7 @@ bool WINAPI module_voice_audio_status(void* instance, VoiceAudioStatus* output) 
 AccountMediaRequestResult WINAPI module_collection_title(void* instance, const AccountMediaCollectionTitleRequest* request, MediaTrackTitle* title) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request || !title) {
-        AccountMediaRequestResult invalid{}; invalid.error = AccountMediaError::invalid_input; return invalid;
+        return rejected_media_request();
     }
     return account_media_worker_collection_title(&runtime->media, *request, title);
 }
@@ -1763,9 +1765,7 @@ module_catalog_preview_request(void* instance, const AccountMediaCatalogPreviewR
                                u64 now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request) {
-        AccountMediaRequestResult invalid{};
-        invalid.error = AccountMediaError::invalid_input;
-        return invalid;
+        return rejected_media_request();
     }
     return account_media_worker_request_catalog_preview(&runtime->media, *request, now_ms, now_seconds);
 }
@@ -1781,9 +1781,7 @@ AccountMediaRequestResult WINAPI module_media_local_preview(void* instance,
          operation != AccountLocalPreviewOperation::presented) ||
         (operation == AccountLocalPreviewOperation::presented ? request != nullptr : request == nullptr) ||
         (operation != AccountLocalPreviewOperation::request && (now_ms || now_seconds))) {
-        AccountMediaRequestResult invalid{};
-        invalid.error = AccountMediaError::invalid_input;
-        return invalid;
+        return rejected_media_request();
     }
     if (operation == AccountLocalPreviewOperation::presented)
         return account_media_worker_local_previews_presented(&runtime->media);
@@ -1862,10 +1860,7 @@ AccountMediaRequestResult WINAPI module_media_request(void* instance, MediaAsset
                                                       u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime) {
-        AccountMediaRequestResult invalid{};
-        invalid.state = AccountMediaRequestState::invalid;
-        invalid.error = AccountMediaError::invalid_input;
-        return invalid;
+        return rejected_media_request();
     }
     return account_media_worker_request_static_asset(&runtime->media, key, monotonic_now_ms,
                                                      unix_now_seconds);
@@ -1876,10 +1871,7 @@ module_media_guild_icon_request(void* instance, const AccountMediaGuildIconReque
                                 u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request) {
-        AccountMediaRequestResult invalid{};
-        invalid.state = AccountMediaRequestState::invalid;
-        invalid.error = AccountMediaError::invalid_input;
-        return invalid;
+        return rejected_media_request();
     }
     return account_media_worker_request_guild_icon(&runtime->media, *request, monotonic_now_ms,
                                                    unix_now_seconds);
@@ -1890,10 +1882,7 @@ module_media_attachment_request(void* instance, const AccountMediaAttachmentRequ
                                 u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request) {
-        AccountMediaRequestResult invalid{};
-        invalid.state = AccountMediaRequestState::invalid;
-        invalid.error = AccountMediaError::invalid_input;
-        return invalid;
+        return rejected_media_request();
     }
     return account_media_worker_request_attachment(&runtime->media, *request, monotonic_now_ms,
                                                    unix_now_seconds);
@@ -1904,10 +1893,7 @@ AccountMediaRequestResult WINAPI module_media_advance(void* instance, MediaAsset
                                                       u64 unix_now_seconds) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime) {
-        AccountMediaRequestResult invalid{};
-        invalid.state = AccountMediaRequestState::invalid;
-        invalid.error = AccountMediaError::invalid_input;
-        return invalid;
+        return rejected_media_request();
     }
     return account_media_worker_advance_animation(&runtime->media, key, cache_generation, frame_index,
                                                   unix_now_seconds);
@@ -1953,34 +1939,22 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
     auto* runtime = static_cast<AccountModuleRuntime*>(*instance);
     if (runtime->download) {
         if (!https_file_download_release(&runtime->download->transfer, timeout_ms)) {
-            AccountModuleStatus status = build_status(runtime);
-            status.error = AccountModuleError::download;
-            status.failed = true;
-            return status;
+            return stop_failure(runtime, AccountModuleError::download);
         }
         VirtualFree(runtime->download, 0, MEM_RELEASE);
         runtime->download = nullptr;
     }
     if (!https_file_upload_release(&runtime->upload, timeout_ms)) {
-        AccountModuleStatus status = build_status(runtime);
-        status.error = AccountModuleError::upload;
-        status.failed = true;
-        return status;
+        return stop_failure(runtime, AccountModuleError::upload);
     }
     runtime->upload_id = 0;
     account_voice_message_release(&runtime->voice_message);
     if (!account_soundboard_stop(&runtime->soundboard, user_account_coordinator_gateway(&runtime->coordinator),
                                  timeout_ms)) {
-        AccountModuleStatus status = build_status(runtime);
-        status.error = AccountModuleError::media;
-        status.failed = true;
-        return status;
+        return stop_failure(runtime, AccountModuleError::media);
     }
     if (!account_media_worker_stop(&runtime->media, timeout_ms)) {
-        AccountModuleStatus status = build_status(runtime);
-        status.error = AccountModuleError::media;
-        status.failed = true;
-        return status;
+        return stop_failure(runtime, AccountModuleError::media);
     }
     account_action_captcha_release(&runtime->action_captcha, user_account_coordinator_rest(&runtime->coordinator),
                                    user_account_coordinator_rest(&runtime->coordinator, true));

@@ -2070,13 +2070,13 @@ bool application_downloads_begin_search(const ApplicationSearchSourceTicket& tic
     return true;
 }
 bool application_image_viewer_open_search(const ApplicationSearchSourceTicket&, MessageSceneRichItemKind,
-                                          u32 index, bool, UiRect origin, MediaEmbedResource) noexcept {
+                                          u32 index, bool, const UiRect& origin, MediaEmbedResource) noexcept {
     ++search_runtime_test::viewer_opens;
     search_runtime_test::viewer_index = index;
     search_runtime_test::viewer_origin = origin;
     return false;
 }
-bool application_video_open_search(UiSearchTarget) noexcept {
+bool application_video_open_search(const UiSearchTarget&) noexcept {
     return false;
 }
 bool application_search_content_activate(const ApplicationSearchSourceTicket&, UiSearchTarget) noexcept {

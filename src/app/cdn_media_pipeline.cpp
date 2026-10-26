@@ -19,7 +19,7 @@ struct CacheLeaseScope {
     EncodedMediaCache* cache;
     EncodedMediaCacheLease lease;
 
-    __declspec(noinline) CacheLeaseScope(EncodedMediaCache* source, MediaAssetKey key,
+    __declspec(noinline) CacheLeaseScope(EncodedMediaCache* source, const MediaAssetKey& key,
                                          u64 now_seconds) noexcept
         : cache(source), lease(encoded_media_cache_acquire(source, key, now_seconds)) {
     }
@@ -76,7 +76,7 @@ void unfresh_lookup(CdnMediaPipeline* pipeline, const EncodedMediaCacheLookup& c
     }
 }
 
-bool static_image_key_valid(MediaAssetKey key, MediaAttachmentFormat format) noexcept {
+bool static_image_key_valid(const MediaAssetKey& key, MediaAttachmentFormat format) noexcept {
     if (!media_asset_key_valid(key)) {
         return false;
     }
@@ -117,7 +117,7 @@ bool static_image_key_valid(MediaAssetKey key, MediaAttachmentFormat format) noe
                 : key.flags == media_asset_flag_none);
 }
 
-bool animated_webp_key_valid(MediaAssetKey key) noexcept {
+bool animated_webp_key_valid(const MediaAssetKey& key) noexcept {
     return media_asset_key_valid(key) &&
            ((key.kind == MediaAssetKind::custom_emoji && key.variant == 0) ||
             (key.kind == MediaAssetKind::catalog_preview &&
@@ -132,7 +132,7 @@ bool animated_webp_key_valid(MediaAssetKey key) noexcept {
            (key.flags & media_asset_flag_animated) != 0;
 }
 
-bool apng_key_valid(MediaAssetKey key) noexcept {
+bool apng_key_valid(const MediaAssetKey& key) noexcept {
     return media_asset_key_valid(key) &&
            ((key.kind == MediaAssetKind::sticker && key.variant == 2) ||
             (key.kind == MediaAssetKind::catalog_preview &&
@@ -142,7 +142,7 @@ bool apng_key_valid(MediaAssetKey key) noexcept {
            ((key.flags & media_asset_flag_animated) != 0 || key.kind == MediaAssetKind::catalog_preview);
 }
 
-bool gif_key_valid(MediaAssetKey key) noexcept {
+bool gif_key_valid(const MediaAssetKey& key) noexcept {
     return media_asset_key_valid(key) &&
            ((key.kind == MediaAssetKind::local_draft_preview &&
              media_asset_catalog_format(key) == MediaAttachmentFormat::gif) ||
@@ -463,7 +463,7 @@ void reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 t
     out->state = success_state;
 }
 
-void decode_jpeg_bytes(CdnMediaPipeline* pipeline, MediaAssetKey key, ConstSlice<u8> encoded,
+void decode_jpeg_bytes(CdnMediaPipeline* pipeline, const MediaAssetKey& key, ConstSlice<u8> encoded,
                        CdnStaticJpegState success_state, CdnStaticJpegResult* out) noexcept {
     reset(out);
     if (!pipeline->jpeg_workspace) {
@@ -820,7 +820,7 @@ __declspec(noinline) bool not_modified_valid(const CdnResponseResult& response, 
 }
 
 __declspec(noinline) EncodedMediaCacheStoreResult
-store_decoded_response(CdnMediaPipeline* pipeline, MediaAssetKey key, ConstSlice<u8> body,
+store_decoded_response(CdnMediaPipeline* pipeline, const MediaAssetKey& key, ConstSlice<u8> body,
                        const CdnResponseResult& response) noexcept {
     return encoded_media_cache_store(
         pipeline->cache, key, body,
@@ -828,7 +828,7 @@ store_decoded_response(CdnMediaPipeline* pipeline, MediaAssetKey key, ConstSlice
                                 response.must_revalidate});
 }
 
-__declspec(noinline) void finish_not_modified(CdnMediaPipeline* pipeline, MediaAssetKey key,
+__declspec(noinline) void finish_not_modified(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                               CacheLeaseScope* cache_lease,
                                               const CdnResponseResult& response) noexcept {
     cache_lease->release();
@@ -893,7 +893,7 @@ bool cdn_media_pipeline_bind_gif_workspace(CdnMediaPipeline* pipeline, GifWorksp
 }
 
 void cdn_media_pipeline_lookup_static_png(CdnStaticPngResult* out, CdnMediaPipeline* pipeline,
-                                          MediaAssetKey key, u64 now_seconds) noexcept {
+                                          const MediaAssetKey& key, u64 now_seconds) noexcept {
     reset(out);
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage ||
         !static_image_key_valid(key, MediaAttachmentFormat::png)) {
@@ -913,7 +913,7 @@ void cdn_media_pipeline_lookup_static_png(CdnStaticPngResult* out, CdnMediaPipel
     out->etag = copy_result_etag(pipeline, cached.etag);
 }
 
-CdnStaticPngResult cdn_media_pipeline_lookup_static_png(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticPngResult cdn_media_pipeline_lookup_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                         u64 now_seconds) noexcept {
     CdnStaticPngResult result;
     cdn_media_pipeline_lookup_static_png(&result, pipeline, key, now_seconds);
@@ -921,7 +921,7 @@ CdnStaticPngResult cdn_media_pipeline_lookup_static_png(CdnMediaPipeline* pipeli
 }
 
 void cdn_media_pipeline_admit_static_png(CdnStaticPngResult* out, CdnMediaPipeline* pipeline,
-                                         MediaAssetKey key, const CdnResponseResult& response,
+                                         const MediaAssetKey& key, const CdnResponseResult& response,
                                          ConstSlice<u8> decoded_body,
                                          ConstSlice<u8> conditional_etag) noexcept {
     reset(out);
@@ -972,7 +972,7 @@ void cdn_media_pipeline_admit_static_png(CdnStaticPngResult* out, CdnMediaPipeli
     return set_state(out, CdnStaticPngState::http_rejected);
 }
 
-CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                        const CdnResponseResult& response,
                                                        ConstSlice<u8> decoded_body,
                                                        ConstSlice<u8> conditional_etag) noexcept {
@@ -982,7 +982,7 @@ CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipelin
 }
 
 void cdn_media_pipeline_lookup_static_webp(CdnStaticWebpResult* out, CdnMediaPipeline* pipeline,
-                                           MediaAssetKey key, u64 now_seconds) noexcept {
+                                           const MediaAssetKey& key, u64 now_seconds) noexcept {
     reset(out);
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->webp_workspace ||
         !static_image_key_valid(key, MediaAttachmentFormat::webp)) {
@@ -1002,7 +1002,7 @@ void cdn_media_pipeline_lookup_static_webp(CdnStaticWebpResult* out, CdnMediaPip
     out->etag = copy_result_etag(pipeline, cached.etag);
 }
 
-CdnStaticWebpResult cdn_media_pipeline_lookup_static_webp(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticWebpResult cdn_media_pipeline_lookup_static_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                           u64 now_seconds) noexcept {
     CdnStaticWebpResult result;
     cdn_media_pipeline_lookup_static_webp(&result, pipeline, key, now_seconds);
@@ -1010,7 +1010,7 @@ CdnStaticWebpResult cdn_media_pipeline_lookup_static_webp(CdnMediaPipeline* pipe
 }
 
 void cdn_media_pipeline_admit_static_webp(CdnStaticWebpResult* out, CdnMediaPipeline* pipeline,
-                                          MediaAssetKey key, const CdnResponseResult& response,
+                                          const MediaAssetKey& key, const CdnResponseResult& response,
                                           ConstSlice<u8> decoded_body,
                                           ConstSlice<u8> conditional_etag) noexcept {
     reset(out);
@@ -1060,7 +1060,7 @@ void cdn_media_pipeline_admit_static_webp(CdnStaticWebpResult* out, CdnMediaPipe
     return set_state(out, CdnStaticWebpState::http_rejected);
 }
 
-CdnStaticWebpResult cdn_media_pipeline_admit_static_webp(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticWebpResult cdn_media_pipeline_admit_static_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                          const CdnResponseResult& response,
                                                          ConstSlice<u8> decoded_body,
                                                          ConstSlice<u8> conditional_etag) noexcept {
@@ -1070,7 +1070,7 @@ CdnStaticWebpResult cdn_media_pipeline_admit_static_webp(CdnMediaPipeline* pipel
 }
 
 void cdn_media_pipeline_lookup_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipeline* pipeline,
-                                           MediaAssetKey key, u64 now_seconds) noexcept {
+                                           const MediaAssetKey& key, u64 now_seconds) noexcept {
     reset(out);
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage ||
         !static_image_key_valid(key, MediaAttachmentFormat::jpeg)) {
@@ -1090,7 +1090,7 @@ void cdn_media_pipeline_lookup_static_jpeg(CdnStaticJpegResult* out, CdnMediaPip
     out->etag = copy_result_etag(pipeline, cached.etag);
 }
 
-CdnStaticJpegResult cdn_media_pipeline_lookup_static_jpeg(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticJpegResult cdn_media_pipeline_lookup_static_jpeg(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                           u64 now_seconds) noexcept {
     CdnStaticJpegResult result;
     cdn_media_pipeline_lookup_static_jpeg(&result, pipeline, key, now_seconds);
@@ -1098,7 +1098,7 @@ CdnStaticJpegResult cdn_media_pipeline_lookup_static_jpeg(CdnMediaPipeline* pipe
 }
 
 void cdn_media_pipeline_admit_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipeline* pipeline,
-                                          MediaAssetKey key, const CdnResponseResult& response,
+                                          const MediaAssetKey& key, const CdnResponseResult& response,
                                           ConstSlice<u8> decoded_body,
                                           ConstSlice<u8> conditional_etag) noexcept {
     reset(out);
@@ -1150,7 +1150,7 @@ void cdn_media_pipeline_admit_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipe
     return set_state(out, CdnStaticJpegState::http_rejected);
 }
 
-CdnStaticJpegResult cdn_media_pipeline_admit_static_jpeg(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnStaticJpegResult cdn_media_pipeline_admit_static_jpeg(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                          const CdnResponseResult& response,
                                                          ConstSlice<u8> decoded_body,
                                                          ConstSlice<u8> conditional_etag) noexcept {
@@ -1159,7 +1159,7 @@ CdnStaticJpegResult cdn_media_pipeline_admit_static_jpeg(CdnMediaPipeline* pipel
     return result;
 }
 
-void cdn_media_pipeline_lookup_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_lookup_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                     u64 now_seconds) noexcept {
     reset(out);
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->apng_workspace ||
@@ -1181,14 +1181,14 @@ void cdn_media_pipeline_lookup_apng(CdnApngResult* out, CdnMediaPipeline* pipeli
     out->etag = copy_result_etag(pipeline, cached.etag);
 }
 
-CdnApngResult cdn_media_pipeline_lookup_apng(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnApngResult cdn_media_pipeline_lookup_apng(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                              u64 now_seconds) noexcept {
     CdnApngResult result;
     cdn_media_pipeline_lookup_apng(&result, pipeline, key, now_seconds);
     return result;
 }
 
-void cdn_media_pipeline_admit_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_admit_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                    const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                    ConstSlice<u8> conditional_etag) noexcept {
     reset(out);
@@ -1244,7 +1244,7 @@ void cdn_media_pipeline_admit_apng(CdnApngResult* out, CdnMediaPipeline* pipelin
     return set_state(out, CdnApngState::http_rejected);
 }
 
-CdnApngResult cdn_media_pipeline_admit_apng(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnApngResult cdn_media_pipeline_admit_apng(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                             const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                             ConstSlice<u8> conditional_etag) noexcept {
     CdnApngResult result;
@@ -1252,7 +1252,7 @@ CdnApngResult cdn_media_pipeline_admit_apng(CdnMediaPipeline* pipeline, MediaAss
     return result;
 }
 
-void cdn_media_pipeline_decode_apng_frame(CdnApngResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_decode_apng_frame(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                           u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept {
     reset(out);
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->apng_workspace ||
@@ -1275,7 +1275,7 @@ void cdn_media_pipeline_decode_apng_frame(CdnApngResult* out, CdnMediaPipeline* 
     }
 }
 
-CdnApngResult cdn_media_pipeline_decode_apng_frame(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnApngResult cdn_media_pipeline_decode_apng_frame(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                    u16 cache_generation, u32 frame_index,
                                                    u64 now_seconds) noexcept {
     CdnApngResult result;
@@ -1284,7 +1284,7 @@ CdnApngResult cdn_media_pipeline_decode_apng_frame(CdnMediaPipeline* pipeline, M
     return result;
 }
 
-void cdn_media_pipeline_lookup_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_lookup_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                    u64 now_seconds) noexcept {
     reset(out);
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->gif_workspace ||
@@ -1306,14 +1306,14 @@ void cdn_media_pipeline_lookup_gif(CdnGifResult* out, CdnMediaPipeline* pipeline
     out->etag = copy_result_etag(pipeline, cached.etag);
 }
 
-CdnGifResult cdn_media_pipeline_lookup_gif(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnGifResult cdn_media_pipeline_lookup_gif(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                            u64 now_seconds) noexcept {
     CdnGifResult result;
     cdn_media_pipeline_lookup_gif(&result, pipeline, key, now_seconds);
     return result;
 }
 
-void cdn_media_pipeline_admit_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_admit_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                   const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                   ConstSlice<u8> conditional_etag) noexcept {
     reset(out);
@@ -1369,7 +1369,7 @@ void cdn_media_pipeline_admit_gif(CdnGifResult* out, CdnMediaPipeline* pipeline,
     return set_state(out, CdnGifState::http_rejected);
 }
 
-CdnGifResult cdn_media_pipeline_admit_gif(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnGifResult cdn_media_pipeline_admit_gif(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                           const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                           ConstSlice<u8> conditional_etag) noexcept {
     CdnGifResult result;
@@ -1377,7 +1377,7 @@ CdnGifResult cdn_media_pipeline_admit_gif(CdnMediaPipeline* pipeline, MediaAsset
     return result;
 }
 
-void cdn_media_pipeline_decode_gif_frame(CdnGifResult* out, CdnMediaPipeline* pipeline, MediaAssetKey key,
+void cdn_media_pipeline_decode_gif_frame(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                          u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept {
     reset(out);
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->gif_workspace ||
@@ -1400,7 +1400,7 @@ void cdn_media_pipeline_decode_gif_frame(CdnGifResult* out, CdnMediaPipeline* pi
     }
 }
 
-CdnGifResult cdn_media_pipeline_decode_gif_frame(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnGifResult cdn_media_pipeline_decode_gif_frame(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                  u16 cache_generation, u32 frame_index,
                                                  u64 now_seconds) noexcept {
     CdnGifResult result;
@@ -1409,7 +1409,7 @@ CdnGifResult cdn_media_pipeline_decode_gif_frame(CdnMediaPipeline* pipeline, Med
 }
 
 void cdn_media_pipeline_lookup_animated_webp(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
-                                             MediaAssetKey key, u64 now_seconds) noexcept {
+                                             const MediaAssetKey& key, u64 now_seconds) noexcept {
     reset(out);
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->webp_workspace ||
         !pipeline->animated_webp_workspace || !animated_webp_key_valid(key)) {
@@ -1433,7 +1433,7 @@ void cdn_media_pipeline_lookup_animated_webp(CdnAnimatedWebpResult* out, CdnMedi
     out->etag = copy_result_etag(pipeline, cached.etag);
 }
 
-CdnAnimatedWebpResult cdn_media_pipeline_lookup_animated_webp(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnAnimatedWebpResult cdn_media_pipeline_lookup_animated_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                               u64 now_seconds) noexcept {
     CdnAnimatedWebpResult result;
     cdn_media_pipeline_lookup_animated_webp(&result, pipeline, key, now_seconds);
@@ -1441,7 +1441,7 @@ CdnAnimatedWebpResult cdn_media_pipeline_lookup_animated_webp(CdnMediaPipeline* 
 }
 
 void cdn_media_pipeline_admit_animated_webp(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
-                                            MediaAssetKey key, const CdnResponseResult& response,
+                                            const MediaAssetKey& key, const CdnResponseResult& response,
                                             ConstSlice<u8> decoded_body,
                                             ConstSlice<u8> conditional_etag) noexcept {
     reset(out);
@@ -1501,7 +1501,7 @@ void cdn_media_pipeline_admit_animated_webp(CdnAnimatedWebpResult* out, CdnMedia
     return set_state(out, CdnAnimatedWebpState::http_rejected);
 }
 
-CdnAnimatedWebpResult cdn_media_pipeline_admit_animated_webp(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnAnimatedWebpResult cdn_media_pipeline_admit_animated_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                              const CdnResponseResult& response,
                                                              ConstSlice<u8> decoded_body,
                                                              ConstSlice<u8> conditional_etag) noexcept {
@@ -1512,7 +1512,7 @@ CdnAnimatedWebpResult cdn_media_pipeline_admit_animated_webp(CdnMediaPipeline* p
 }
 
 void cdn_media_pipeline_decode_animated_webp_frame(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
-                                                   MediaAssetKey key, u16 cache_generation, u32 frame_index,
+                                                   const MediaAssetKey& key, u16 cache_generation, u32 frame_index,
                                                    u64 now_seconds) noexcept {
     reset(out);
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->webp_workspace ||
@@ -1536,7 +1536,7 @@ void cdn_media_pipeline_decode_animated_webp_frame(CdnAnimatedWebpResult* out, C
 }
 
 CdnAnimatedWebpResult cdn_media_pipeline_decode_animated_webp_frame(CdnMediaPipeline* pipeline,
-                                                                    MediaAssetKey key, u16 cache_generation,
+                                                                    const MediaAssetKey& key, u16 cache_generation,
                                                                     u32 frame_index,
                                                                     u64 now_seconds) noexcept {
     CdnAnimatedWebpResult result;
@@ -1546,7 +1546,7 @@ CdnAnimatedWebpResult cdn_media_pipeline_decode_animated_webp_frame(CdnMediaPipe
 }
 
 namespace {
-bool audio_key_valid(MediaAssetKey key) noexcept {
+bool audio_key_valid(const MediaAssetKey& key) noexcept {
     return media_asset_key_valid(key) &&
            media_attachment_format_audio_supported(media_asset_audio_format(key));
 }
@@ -1604,7 +1604,7 @@ EncodedAudioError audio_error(Mp3Error error) noexcept {
         return EncodedAudioError::malformed;
     }
 }
-CdnImageType audio_http_type(MediaAssetKey key) noexcept {
+CdnImageType audio_http_type(const MediaAssetKey& key) noexcept {
     const auto format = media_asset_audio_format(key);
     return format == MediaAttachmentFormat::mp3   ? CdnImageType::mp3
            : format == MediaAttachmentFormat::wav ? CdnImageType::wav
@@ -1674,7 +1674,7 @@ EncodedAudioError parse_audio(EncodedAudioMetadata* metadata, MediaAttachmentFor
 } // namespace
 
 void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipeline* pipeline,
-                                     MediaAssetKey key, u64 now_seconds, OggOpusCancelled cancelled,
+                                     const MediaAssetKey& key, u64 now_seconds, OggOpusCancelled cancelled,
                                      void* context) noexcept {
     reset_value(out);
     if (!pipeline || !pipeline->cache || !audio_key_valid(key)) {
@@ -1704,7 +1704,7 @@ void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipelin
     out->state = CdnEncodedAudioState::ready_cache_hit;
 }
 
-CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                       u64 now_seconds, OggOpusCancelled cancelled,
                                                       void* context) noexcept {
     CdnEncodedAudioResult result;
@@ -1713,7 +1713,7 @@ CdnEncodedAudioResult cdn_media_pipeline_lookup_audio(CdnMediaPipeline* pipeline
 }
 
 void cdn_media_pipeline_admit_audio(CdnEncodedAudioResult* out, CdnMediaPipeline* pipeline,
-                                    MediaAssetKey key, const CdnResponseResult& response,
+                                    const MediaAssetKey& key, const CdnResponseResult& response,
                                     ConstSlice<u8> body, ConstSlice<u8> conditional_etag,
                                     OggOpusCancelled cancelled, void* context) noexcept {
     reset_value(out);
@@ -1804,7 +1804,7 @@ void cdn_media_pipeline_admit_audio(CdnEncodedAudioResult* out, CdnMediaPipeline
     out->state = CdnEncodedAudioState::decode_rejected;
 }
 
-CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline* pipeline, MediaAssetKey key,
+CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                                      const CdnResponseResult& response, ConstSlice<u8> body,
                                                      ConstSlice<u8> conditional_etag,
                                                      OggOpusCancelled cancelled, void* context) noexcept {
