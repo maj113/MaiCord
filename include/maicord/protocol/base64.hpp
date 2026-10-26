@@ -31,7 +31,7 @@ constexpr u32 base64_encoded_size(u32 input_bytes) noexcept {
 // RFC 4648 section 4. Encoding always emits canonical padding. Decoding
 // requires canonical padded input, validates the complete input before
 // touching output, and supports a null/zero output size query.
-Base64Result base64_decode(Utf8View input, Slice<u8> output) noexcept;
-Base64Result base64_encode(ConstSlice<u8> input, Slice<char> output) noexcept;
+Base64Result base64_decode(const Utf8View& input, const Slice<u8>& output) noexcept;
+Base64Result base64_encode(const ConstSlice<u8>& input, const Slice<char>& output) noexcept;
 
 } // namespace maicord

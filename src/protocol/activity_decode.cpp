@@ -389,11 +389,11 @@ bool activity_member(void* opaque, JsonString key, JsonValue value) noexcept {
         }
     return true;
 }
-bool present(JsonValue v) noexcept {
+bool present(const JsonValue& v) noexcept {
     return v.source.data && v.kind != JsonValueKind::null_value;
 }
 // Numbers may arrive as JSON numbers or decimal strings (snowflakes).
-u64 number(JsonValue v) noexcept {
+u64 number(const JsonValue& v) noexcept {
     u64 n = 0;
     if (!present(v))
         return 0;
@@ -402,7 +402,7 @@ u64 number(JsonValue v) noexcept {
     return json_value_to_u64(v, &n) ? n : 0;
 }
 // Decoded, validated and bounded; oversized or malformed strings are empty.
-u32 decode(JsonValue v, char* output, u32 budget, bool whole) noexcept {
+u32 decode(const JsonValue& v, char* output, u32 budget, bool whole) noexcept {
     JsonString s{};
     if (!present(v) || v.kind != JsonValueKind::string || !json_value_as_string(v, &s))
         return 0;
@@ -428,7 +428,7 @@ struct Pending {
     char text[kUserActivityFieldCount][320];
     u16 bytes[kUserActivityFieldCount];
 };
-UserActivityPlatform platform(JsonValue v) noexcept {
+UserActivityPlatform platform(const JsonValue& v) noexcept {
     char text[16];
     const u32 bytes = decode(v, text, sizeof(text), true);
     static constexpr Utf8View names[] = {utf8_literal("desktop"),  utf8_literal("xbox"),     utf8_literal("ps4"),

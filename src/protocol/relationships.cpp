@@ -137,7 +137,7 @@ struct Snapshot {
 bool visit_snapshot(void* opaque, u32, JsonValue value) noexcept {
     auto& snapshot = *static_cast<Snapshot*>(opaque);
     if (snapshot.count >= snapshot.records.count) { snapshot.error = RelationshipsDecodeError::capacity; return false; }
-    RelationshipMutation decoded{};
+    RelationshipMutation decoded;
     snapshot.error = decode_record(*snapshot.document, value, RelationshipEvent::update, &decoded);
     if (snapshot.error != RelationshipsDecodeError::none) return false;
     if (const auto* old = relationship_store_find(*snapshot.store, decoded.record.user_id)) decoded.record.presence = old->presence;
@@ -215,7 +215,7 @@ RelationshipsDecodeResult relationship_decode_record(Utf8View input, Slice<u32> 
         return failure(RelationshipsDecodeError::invalid_input);
     JsonIndexedDocument document{};
     if (!scan_document(input, scratch, &document)) return failure(RelationshipsDecodeError::scan);
-    RelationshipMutation candidate{};
+    RelationshipMutation candidate;
     const auto error = decode_record(document, {input, 0, JsonValueKind::object}, event, &candidate);
     if (error != RelationshipsDecodeError::none) return failure(error);
     *output = candidate;

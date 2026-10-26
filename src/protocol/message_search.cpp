@@ -156,9 +156,9 @@ bool snapshot_excerpt(DecodeContext& context, const HitContext& hit,
         return true;
     // The scoped core validates all child scalars/named mentions without an
     // invented author. Only the bounded quote is copied into the result bank.
-    char temporary[32 * 1024]{};
-    GatewayMessageNamedUser mentions[kGatewayMessageMentionUserMaximum]{};
-    GatewayMessageEvent child{};
+    char temporary[32 * 1024];
+    GatewayMessageNamedUser mentions[kGatewayMessageMentionUserMaximum];
+    GatewayMessageEvent child;
     const auto decoded = gateway_decode_message_snapshot_core(
         body, context.message_structurals, context.maximum_depth, {temporary, sizeof(temporary)},
         {mentions, kGatewayMessageMentionUserMaximum}, &child);
@@ -264,9 +264,11 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
                                : hit.guild_id != 0)) {
         return reject(context, MessageSearchDecodeError::guild_mismatch, value.source_offset);
     }
-    GatewayMessageEvent message{};
-    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
-    GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum]{};
+    // Decoded in the result slot; it only counts once the message is kept.
+    MessageSearchMessage& item = context->messages[page.message_count];
+    GatewayMessageEvent& message = item.message;
+    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
+    GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum];
     const auto decoded =
         context->rich_scratch
             ? gateway_decode_message_create(
@@ -310,7 +312,11 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
         reset_value(&message.mention_roles);
         reset_value(&message.mention_users);
     }
-    MessageSearchMessage item{message, hit.guild_id, hit.hit, hit.guild_seen};
+    item.guild_id = hit.guild_id;
+    item.hit = hit.hit;
+    item.guild_known = hit.guild_seen;
+    item.snapshot_attachments = item.snapshot_embeds = item.snapshot_stickers = item.snapshot_components = 0;
+    item.forwarded = item.excerpt_truncated = false;
     // Ordinary cards borrow the already-owned message text. Only a forwarded
     // quote needs an additional bounded copy in the same arena.
     item.card_excerpt = message.content;
@@ -325,7 +331,7 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
         clear_borrowed_views(item);
     } else if (!snapshot_excerpt(*context, hit, item))
         return false;
-    copy_value(&context->messages[page.message_count++], item);
+    ++page.message_count;
     page.text_bytes += item.message.transient_bytes;
     ++group.message_count;
     group.hit_count += hit.hit ? 1 : 0;
@@ -478,10 +484,10 @@ bool term_valid(const char* text, u32 bytes, u32 capacity, bool hostname, bool e
     return true;
 }
 // The tab's preset applies only when the user did not choose that filter.
-u16 effective_has(const MessageSearchQuery& query) noexcept {
+u16 effective_has(const MessageSearchQuery& query, MessageSearchTab tab) noexcept {
     if (query.has || query.has_excluded)
         return query.has;
-    switch (query.tab) {
+    switch (tab) {
     case MessageSearchTab::media:
         return search_has_image | search_has_video;
     case MessageSearchTab::files:
@@ -492,8 +498,8 @@ u16 effective_has(const MessageSearchQuery& query) noexcept {
         return 0;
     }
 }
-MessageSearchPinned effective_pinned(const MessageSearchQuery& query) noexcept {
-    return query.pinned == MessageSearchPinned::any && query.tab == MessageSearchTab::pins
+MessageSearchPinned effective_pinned(const MessageSearchQuery& query, MessageSearchTab tab) noexcept {
+    return query.pinned == MessageSearchPinned::any && tab == MessageSearchTab::pins
                ? MessageSearchPinned::pinned
                : query.pinned;
 }
@@ -584,7 +590,7 @@ MessageSearchWriteResult write_message_search_target(const MessageSearchQuery& q
     written = written && append_ids(&writer, "author_id", query.author_ids, query.author_count) &&
               append_ids(&writer, "mentions", query.mention_ids, query.mention_count) &&
               append_ids(&writer, "channel_id", query.channel_ids, query.channel_count);
-    const u16 has = effective_has(query);
+    const u16 has = effective_has(query, query.tab);
     for (u32 bit = 0; bit < 9; ++bit)
         for (u32 excluded = 0; excluded < 2; ++excluded)
             if (((excluded ? query.has_excluded : has) >> bit) & 1u)
@@ -600,7 +606,7 @@ MessageSearchWriteResult write_message_search_target(const MessageSearchQuery& q
         written = written && append_parameter(&writer, "max_id") &&
                   protocol_writer_append_u64(&writer, query.max_id);
     }
-    const auto pinned = effective_pinned(query);
+    const auto pinned = effective_pinned(query, query.tab);
     if (pinned != MessageSearchPinned::any) {
         written = written && append_parameter(&writer, "pinned") &&
                   protocol_writer_append_c_string(
@@ -658,9 +664,8 @@ bool json_term(ProtocolWriter* writer, const char* name, const char* value, u8 b
                       protocol_writer_append_json_string(writer, {value, bytes}) &&
                       protocol_writer_append_byte(writer, ']'));
 }
-bool json_tab(ProtocolWriter* writer, MessageSearchQuery query, MessageSearchTab tab,
+bool json_tab(ProtocolWriter* writer, const MessageSearchQuery& query, MessageSearchTab tab,
               u32 offset, u32 limit) noexcept {
-    query.tab = tab;
     bool first = true;
     bool written = protocol_writer_append_byte(writer, '"') &&
                    protocol_writer_append_c_string(writer, kTabNames[static_cast<u8>(tab)]) &&
@@ -679,12 +684,12 @@ bool json_tab(ProtocolWriter* writer, MessageSearchQuery query, MessageSearchTab
         json_flags(writer, "author_type", query.author_types, query.author_types_excluded, kAuthorTypeNames,
                    3, &first) &&
         json_ids(writer, "mentions", query.mention_ids, query.mention_count, &first) &&
-        json_flags(writer, "has", effective_has(query), query.has_excluded, kHasNames, 9, &first) &&
+        json_flags(writer, "has", effective_has(query, tab), query.has_excluded, kHasNames, 9, &first) &&
         json_term(writer, "link_hostname", query.link_hostname, query.hostname_bytes, &first) &&
         json_term(writer, "attachment_extension", query.attachment_extension, query.extension_bytes,
                   &first) &&
         json_term(writer, "attachment_filename", query.attachment_filename, query.filename_bytes, &first);
-    const auto pinned = effective_pinned(query);
+    const auto pinned = effective_pinned(query, tab);
     if (pinned != MessageSearchPinned::any)
         written = written && json_key(writer, "pinned", &first) &&
                   protocol_writer_append_c_string(

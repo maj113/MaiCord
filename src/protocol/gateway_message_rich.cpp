@@ -110,8 +110,9 @@ bool duration_milliseconds(const JsonValue& value, u32* output) noexcept {
     return true;
 }
 
-bool bounded_string(JsonString source, u32 maximum_bytes, Slice<char> output, u32* used, Utf8View* value,
-                    u32* truncations) noexcept {
+bool bounded_string(const JsonString& source, u32 maximum_bytes, const Slice<char>& output_view, u32* used,
+                    Utf8View* value, u32* truncations) noexcept {
+    const Slice<char> output = output_view; // *value/*used are written before output is last read
     if (*used > output.count) {
         return false;
     }

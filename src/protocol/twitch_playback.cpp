@@ -112,7 +112,8 @@ EmbedPlayerError twitch_playback_manifest(Utf8View json, Utf8View id, u64 now, S
     if (!written) return E::capacity;
     s.result.url_bytes = w.used; *output = s.result; return E::none;
 }
-bool twitch_vod_location(Utf8View url, bool playlist, EmbedStreamLocation* output) noexcept {
+bool twitch_vod_location(const Utf8View& url_view, bool playlist, EmbedStreamLocation* output) noexcept {
+    const Utf8View url = url_view;
     constexpr auto origin = utf8_literal("https://d2nvs31859zcd8.cloudfront.net");
     if (!url.data || url.bytes > kEmbedStreamUrlBytes || !utf8_starts_with(url, origin) ||
         url.bytes <= origin.bytes || url.data[origin.bytes] != '/') return false;
@@ -129,7 +130,8 @@ bool twitch_vod_location(Utf8View url, bool playlist, EmbedStreamLocation* outpu
     if (output) *output = {{origin.data + 8, origin.bytes - 8}, {url.data + origin.bytes, url.bytes - origin.bytes}};
     return true;
 }
-bool twitch_live_location(Utf8View url, bool playlist, EmbedStreamLocation* output, bool transport) noexcept {
+bool twitch_live_location(const Utf8View& url_view, bool playlist, EmbedStreamLocation* output, bool transport) noexcept {
+    const Utf8View url = url_view;
     constexpr auto scheme = utf8_literal("https://");
     if (!url.data || url.bytes > kEmbedStreamUrlBytes || !utf8_starts_with(url, scheme)) return false;
     u32 end = scheme.bytes;

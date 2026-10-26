@@ -105,7 +105,7 @@ bool visit_packet(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
-bool string_equals(JsonString string, Utf8View expected) noexcept {
+bool string_equals(const JsonString& string, const Utf8View& expected) noexcept {
     return !string.has_escapes && json_string_equals_ascii(string, expected);
 }
 

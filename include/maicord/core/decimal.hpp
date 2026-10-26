@@ -47,7 +47,7 @@ template <typename Char> constexpr u32 decimal_write_grouped(Char* output, u64 v
 }
 
 // 1-20 ASCII digits (leading zeros allowed) that fit in a u64.
-constexpr bool decimal_parse(Utf8View text, u64* value) noexcept {
+constexpr bool decimal_parse(const Utf8View& text, u64* value) noexcept {
     if (text.bytes == 0 || text.bytes > 20)
         return false;
     u64 parsed = 0;
@@ -65,18 +65,18 @@ constexpr bool decimal_parse(Utf8View text, u64* value) noexcept {
 }
 
 // As decimal_parse, with any number of leading zeros.
-__declspec(noinline) constexpr bool decimal_parse_padded(Utf8View text, u64* value) noexcept {
+__declspec(noinline) constexpr bool decimal_parse_padded(const Utf8View& text, u64* value) noexcept {
     u32 zeros = 0;
     while (zeros + 1 < text.bytes && text.data[zeros] == '0')
         ++zeros;
     return decimal_parse({text.data + zeros, text.bytes - zeros}, value);
 }
-inline bool decimal_parse_padded(ConstSlice<u8> text, u64* value) noexcept {
+inline bool decimal_parse_padded(const ConstSlice<u8>& text, u64* value) noexcept {
     return decimal_parse_padded(Utf8View{reinterpret_cast<const char*>(text.data), text.count}, value);
 }
 
 // A canonical snowflake: nonzero decimal without leading zeros.
-constexpr bool snowflake_parse(Utf8View text, u64* value) noexcept {
+constexpr bool snowflake_parse(const Utf8View& text, u64* value) noexcept {
     return text.bytes != 0 && text.data[0] != '0' && decimal_parse(text, value);
 }
 

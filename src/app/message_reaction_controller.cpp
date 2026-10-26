@@ -146,12 +146,13 @@ void shared_authority(MessageReactionController& controller, const MessageReacti
 }
 
 MessageReactionProjection project_intent(const MessageReactionController& controller,
-                                         const MessageReactionIntent& intent) noexcept {
-    MessageReactionProjection projected{intent.authority, intent.authority.mine_normal,
-                                        intent.authority.mine_burst, false};
+                                         const MessageReactionTarget& target,
+                                         const MessageReactionSource& source,
+                                         const MessageReactionAuthority& authority) noexcept {
+    MessageReactionProjection projected{authority, authority.mine_normal, authority.mine_burst, false};
     for (u32 index = 0; index < controller.count; ++index) {
         const auto& entry = controller.entries[index];
-        if (!emoji_equal(entry.target, intent.target) || !source_equal(entry.source, intent.source))
+        if (!emoji_equal(entry.target, target) || !source_equal(entry.source, source))
             continue;
         if (entry.target.type == MessageReactionType::burst)
             projected.desired_burst = entry.desired_mine;
@@ -163,15 +164,37 @@ MessageReactionProjection project_intent(const MessageReactionController& contro
     return projected;
 }
 
-void make_outcome(MessageReactionOutcome* result, const MessageReactionController& controller,
-                  const MessageReactionIntent& intent, MessageReactionOutcomeKind kind) noexcept {
+MessageReactionProjection project_intent(const MessageReactionController& controller,
+                                         const MessageReactionIntent& intent) noexcept {
+    return project_intent(controller, intent.target, intent.source, intent.authority);
+}
+
+// The outcome keeps the intent's identity; its projection is taken separately
+// so an intent can be erased in between without being copied.
+void begin_outcome(MessageReactionOutcome* result, const MessageReactionIntent& intent,
+                   MessageReactionOutcomeKind kind) noexcept {
     reset_value(result);
     copy_value(&result->target, intent.target);
     result->source = intent.source;
     result->serial = intent.serial;
     result->kind = kind;
     result->project = true;
+}
+
+void make_outcome(MessageReactionOutcome* result, const MessageReactionController& controller,
+                  const MessageReactionIntent& intent, MessageReactionOutcomeKind kind) noexcept {
+    begin_outcome(result, intent, kind);
     result->projection = project_intent(controller, intent);
+}
+
+// Outcome for an intent that is erased: its projection no longer counts it.
+void erase_with_outcome(MessageReactionOutcome* result, MessageReactionController& controller, u32 index,
+                        MessageReactionOutcomeKind kind) noexcept {
+    const MessageReactionIntent& intent = controller.entries[index];
+    begin_outcome(result, intent, kind);
+    const MessageReactionAuthority authority = intent.authority;
+    erase_intent(controller, index);
+    result->projection = project_intent(controller, result->target, result->source, authority);
 }
 } // namespace
 bool message_reaction_target_equal(const MessageReactionTarget& left,
@@ -270,9 +293,7 @@ void message_reaction_controller_queue(MessageReactionOutcome* out, MessageReact
             intent.awaiting_echo = true;
             return make_outcome(out, *controller, intent, MessageReactionOutcomeKind::settled);
         }
-        const auto saved_intent = intent;
-        erase_intent(*controller, index);
-        return make_outcome(out, *controller, saved_intent, MessageReactionOutcomeKind::settled);
+        return erase_with_outcome(out, *controller, index, MessageReactionOutcomeKind::settled);
     }
     return make_outcome(out, *controller, intent, MessageReactionOutcomeKind::queued);
 }
@@ -355,28 +376,12 @@ bool message_reaction_controller_admit(MessageReactionController* controller,
     return true;
 }
 
-void message_reaction_controller_complete(MessageReactionOutcome* out, MessageReactionController* controller,
-                                          MessageReactionTicket ticket,
-                                                            MessageReactionCompletion completion,
-                                                            u64 now_ms, u64 retry_at_ms,
-                                                            MessageReactionRetryScope scope) noexcept {
-    if ((completion != MessageReactionCompletion::success &&
-         completion != MessageReactionCompletion::retry &&
-         completion != MessageReactionCompletion::terminal) ||
-        (scope != MessageReactionRetryScope::intent && scope != MessageReactionRetryScope::channel &&
-         scope != MessageReactionRetryScope::global)) {
-        reset_value(out);
-        out->error = MessageReactionError::invalid_input;
-        return;
-    }
-    if (!controller || !controller->flight.active || !ticket.request_id ||
-        ticket.request_id != controller->flight.ticket.request_id ||
-        ticket.generation != controller->flight.ticket.generation ||
-        ticket.serial != controller->flight.ticket.serial)
-        return reset_value(out);
-    const auto flight = controller->flight;
-    reset_value(&controller->flight);
-    ++controller->revision;
+namespace {
+// The flight stays in the controller while it is read here; the caller clears
+// it afterwards. Nothing below consults controller.flight.
+void complete_flight(MessageReactionOutcome* out, MessageReactionController* controller,
+                     const MessageReactionFlight& flight, MessageReactionCompletion completion, u64 now_ms,
+                     u64 retry_at_ms, MessageReactionRetryScope scope) noexcept {
     if (!actor_equal(controller->actor, flight.actor)) {
         make_outcome(out, *controller, flight.intent, MessageReactionOutcomeKind::retired);
         out->project = false;
@@ -402,13 +407,10 @@ void message_reaction_controller_complete(MessageReactionOutcome* out, MessageRe
     }
     auto& intent = controller->entries[index];
     if (now_ms >= intent.deadline_at_ms) {
-        const auto saved_intent = intent;
-        erase_intent(*controller, index);
-        const bool achieved =
-            mine(saved_intent.authority, saved_intent.target.type) == saved_intent.desired_mine;
-        return make_outcome(out, *controller, saved_intent,
-                            achieved ? MessageReactionOutcomeKind::settled
-                                     : MessageReactionOutcomeKind::expired);
+        const bool achieved = mine(intent.authority, intent.target.type) == intent.desired_mine;
+        return erase_with_outcome(out, *controller, index,
+                                  achieved ? MessageReactionOutcomeKind::settled
+                                           : MessageReactionOutcomeKind::expired);
     }
     bool authority_conflict = false;
     if (completion == MessageReactionCompletion::success) {
@@ -427,10 +429,10 @@ void message_reaction_controller_complete(MessageReactionOutcome* out, MessageRe
                 return;
             }
             intent.awaiting_echo = !intent.echo_matches;
-            const auto saved_intent = intent;
-            if (!intent.awaiting_echo)
-                erase_intent(*controller, index);
-            make_outcome(out, *controller, saved_intent, MessageReactionOutcomeKind::settled);
+            if (intent.awaiting_echo)
+                make_outcome(out, *controller, intent, MessageReactionOutcomeKind::settled);
+            else
+                erase_with_outcome(out, *controller, index, MessageReactionOutcomeKind::settled);
             out->authority_conflict = authority_conflict;
             return;
         }
@@ -439,11 +441,8 @@ void message_reaction_controller_complete(MessageReactionOutcome* out, MessageRe
         out->authority_conflict = authority_conflict;
         return;
     }
-    if (intent.echo_matches && mine(intent.authority, intent.target.type) == intent.desired_mine) {
-        const auto saved_intent = intent;
-        erase_intent(*controller, index);
-        return make_outcome(out, *controller, saved_intent, MessageReactionOutcomeKind::settled);
-    }
+    if (intent.echo_matches && mine(intent.authority, intent.target.type) == intent.desired_mine)
+        return erase_with_outcome(out, *controller, index, MessageReactionOutcomeKind::settled);
     if (completion == MessageReactionCompletion::retry && intent.retries < kMessageReactionMaximumRetries) {
         ++intent.retries;
         if (retry_at_ms > intent.due_at_ms)
@@ -454,9 +453,32 @@ void message_reaction_controller_complete(MessageReactionOutcome* out, MessageRe
         intent.due_at_ms = now_ms;
         return make_outcome(out, *controller, intent, MessageReactionOutcomeKind::retained);
     }
-    const auto saved_intent = intent;
-    erase_intent(*controller, index);
-    return make_outcome(out, *controller, saved_intent, MessageReactionOutcomeKind::failed);
+    erase_with_outcome(out, *controller, index, MessageReactionOutcomeKind::failed);
+}
+} // namespace
+
+void message_reaction_controller_complete(MessageReactionOutcome* out, MessageReactionController* controller,
+                                          MessageReactionTicket ticket,
+                                                            MessageReactionCompletion completion,
+                                                            u64 now_ms, u64 retry_at_ms,
+                                                            MessageReactionRetryScope scope) noexcept {
+    if ((completion != MessageReactionCompletion::success &&
+         completion != MessageReactionCompletion::retry &&
+         completion != MessageReactionCompletion::terminal) ||
+        (scope != MessageReactionRetryScope::intent && scope != MessageReactionRetryScope::channel &&
+         scope != MessageReactionRetryScope::global)) {
+        reset_value(out);
+        out->error = MessageReactionError::invalid_input;
+        return;
+    }
+    if (!controller || !controller->flight.active || !ticket.request_id ||
+        ticket.request_id != controller->flight.ticket.request_id ||
+        ticket.generation != controller->flight.ticket.generation ||
+        ticket.serial != controller->flight.ticket.serial)
+        return reset_value(out);
+    ++controller->revision;
+    complete_flight(out, controller, controller->flight, completion, now_ms, retry_at_ms, scope);
+    reset_value(&controller->flight);
 }
 
 bool message_reaction_controller_observe(MessageReactionController* controller,
@@ -553,11 +575,11 @@ bool message_reaction_controller_snapshot(MessageReactionController* controller,
         return false;
     for (u32 index = 0; index < controller->count; ++index)
         if (emoji_equal(controller->entries[index].target, target)) {
-            const auto saved_intent = controller->entries[index];
+            const MessageReactionSource source = controller->entries[index].source;
             const u64 revision = ++controller->mine_revision;
             for (u32 candidate = 0; candidate < controller->count;)
-                if (emoji_equal(controller->entries[candidate].target, saved_intent.target) &&
-                    source_equal(controller->entries[candidate].source, saved_intent.source)) {
+                if (emoji_equal(controller->entries[candidate].target, target) &&
+                    source_equal(controller->entries[candidate].source, source)) {
                     controller->entries[candidate].authority = authority;
                     controller->entries[candidate].mine_revision = revision;
                     controller->entries[candidate].echo_matches =
@@ -623,16 +645,15 @@ bool message_reaction_controller_expire(MessageReactionController* controller, u
         return false;
     for (u32 index = 0; index < controller->count; ++index)
         if (now_ms >= controller->entries[index].deadline_at_ms) {
-            const auto saved_intent = controller->entries[index];
-            if (flight_matches(*controller, saved_intent))
+            const MessageReactionIntent& expired = controller->entries[index];
+            if (flight_matches(*controller, expired))
                 controller->flight.retired = true;
-            erase_intent(*controller, index);
+            const bool achieved = mine(expired.authority, expired.target.type) == expired.desired_mine;
+            const bool settled = expired.awaiting_echo || achieved;
+            erase_with_outcome(output, *controller, index,
+                               settled ? MessageReactionOutcomeKind::settled
+                                       : MessageReactionOutcomeKind::expired);
             ++controller->revision;
-            const bool achieved =
-                mine(saved_intent.authority, saved_intent.target.type) == saved_intent.desired_mine;
-            make_outcome(output, *controller, saved_intent,
-                             saved_intent.awaiting_echo || achieved ? MessageReactionOutcomeKind::settled
-                                                                    : MessageReactionOutcomeKind::expired);
             return true;
         }
     return false;

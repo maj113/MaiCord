@@ -21,7 +21,7 @@ bool find_member(void* p, JsonString name, JsonValue value) noexcept {
     }
     return true;
 }
-JsonValue field(const JsonIndexedDocument& doc, JsonValue object, const char* name) noexcept {
+JsonValue field(const JsonIndexedDocument& doc, const JsonValue& object, const char* name) noexcept {
     u32 bytes = 0;
     while (name[bytes])
         ++bytes;
@@ -185,7 +185,7 @@ struct Decoder {
     u32 nodes, children, elements, options;
     bool failed;
 };
-Utf8View text(ReportMenu& menu, JsonValue value) noexcept {
+Utf8View text(ReportMenu& menu, const JsonValue& value) noexcept {
     JsonString string{};
     if (!json_value_as_string(value, &string))
         return {};
@@ -200,7 +200,7 @@ Utf8View text(ReportMenu& menu, JsonValue value) noexcept {
     const auto result = json_string_decode_utf8(string, {decoded, size.bytes});
     return result.ok() ? Utf8View{decoded, result.bytes} : Utf8View{};
 }
-Utf8View named(ReportMenu& menu, JsonValue object, const char* key) noexcept {
+Utf8View named(ReportMenu& menu, const JsonValue& object, const char* key) noexcept {
     return text(menu, field(menu.document, object, key));
 }
 // A JSON array of [a, b, c?] tuples; positions beyond two are optional.

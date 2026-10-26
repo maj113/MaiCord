@@ -461,7 +461,7 @@ bool visit_member(void* opaque, u32 index, JsonValue value) noexcept {
     ++page.member_count;
     return true;
 }
-template <typename T> ConstSlice<u8> bytes(Slice<T> span) noexcept {
+template <typename T> ConstSlice<u8> bytes(const Slice<T>& span) noexcept {
     return {reinterpret_cast<const u8*>(span.data), static_cast<u32>(u64{span.count} * sizeof(T))};
 }
 } // namespace

@@ -16,7 +16,7 @@ void compact(ByteQueue* queue) noexcept {
 
 } // namespace
 
-bool byte_queue_initialize(ByteQueue* queue, Slice<u8> storage) noexcept {
+bool byte_queue_initialize(ByteQueue* queue, const Slice<u8>& storage) noexcept {
     if (!queue || (!storage.data && storage.count != 0)) {
         return false;
     }
@@ -46,7 +46,7 @@ Slice<u8> byte_queue_writable(ByteQueue* queue) noexcept {
     return Slice<u8>{queue->data + queue->end, queue->capacity - queue->end};
 }
 
-bool byte_queue_append(ByteQueue* queue, ConstSlice<u8> input) noexcept {
+bool byte_queue_append(ByteQueue* queue, const ConstSlice<u8>& input) noexcept {
     if (!queue || (!input.data && input.count != 0) || input.count > byte_queue_available(*queue)) {
         return false;
     }

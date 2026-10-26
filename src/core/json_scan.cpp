@@ -142,7 +142,10 @@ __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, Sca
 // carry-less prefix XOR. Malformed input (a control character inside a string
 // or an unterminated string) is rescanned by the scalar reference so results
 // and error offsets match it exactly.
-JsonScanResult json_scan_structurals_avx1(Utf8View input, Slice<u32> output) noexcept {
+JsonScanResult json_scan_structurals_avx1(const Utf8View& input_view, const Slice<u32>& output_view) noexcept {
+    // Value copies: the structural stores below must not force reloads of the caller's views.
+    const Utf8View input = input_view;
+    const Slice<u32> output = output_view;
     if ((!input.data && input.bytes != 0) || (!output.data && output.count != 0)) {
         return JsonScanResult{0, 0, JsonScanError::invalid_input};
     }

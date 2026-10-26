@@ -91,8 +91,11 @@ CdnTargetResult publish_target(ConstSlice<u8> target, CdnHost host,
 
 } // namespace
 
-AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
-                                                Slice<u8> target_output) noexcept {
+AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 attachment_id,
+                                                const Slice<u8>& output_view) noexcept {
+    // Value copies: the target stores below must not force reloads of the caller's views.
+    const Utf8View url = url_view;
+    const Slice<u8> target_output = output_view;
     if (!url.data || url.bytes == 0 || attachment_id == 0 ||
         (!target_output.data && target_output.count != 0)) {
         return attachment_url_failure(AttachmentUrlError::invalid_input);
@@ -333,7 +336,9 @@ AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
     return result;
 }
 
-MediaUrlResult parse_media_url(Utf8View url, Slice<u8> target_output) noexcept {
+MediaUrlResult parse_media_url(const Utf8View& url_view, const Slice<u8>& output_view) noexcept {
+    const Utf8View url = url_view;
+    const Slice<u8> target_output = output_view;
     if (!url.data || url.bytes == 0 || (!target_output.data && target_output.count != 0)) {
         return media_url_failure(MediaUrlError::invalid_input);
     }
@@ -854,9 +859,11 @@ bool catalog_provider_target_valid(CdnHost host, ConstSlice<u8> target) noexcept
     }
 }
 
-MediaUrlResult parse_catalog_preview_url(Utf8View url, Slice<u8> target_output,
+MediaUrlResult parse_catalog_preview_url(const Utf8View& url_view, const Slice<u8>& output_view,
                                          MediaAttachmentFormat format, u32 width,
                                          u32 height) noexcept {
+    const Utf8View url = url_view;
+    const Slice<u8> target_output = output_view;
     const KlipyOrigin klipy = klipy_origin(url);
     if (!url.data || !url.bytes || (!target_output.data && target_output.count))
         return media_url_failure(MediaUrlError::invalid_input);

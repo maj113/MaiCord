@@ -10,10 +10,10 @@ struct EncodedString {
     u32 bytes;
 };
 
-bool measure_json_string(Utf8View source, u32* encoded_bytes) noexcept;
-void write_json_string(u8* output, Utf8View source) noexcept;
-bool encoded_string(Utf8View source, bool require_nonempty, EncodedString* output) noexcept;
-bool encoded_string(Utf8View source, u32 maximum_bytes, EncodedString* output) noexcept;
+bool measure_json_string(const Utf8View& source, u32* encoded_bytes) noexcept;
+void write_json_string(u8* output, const Utf8View& source) noexcept;
+bool encoded_string(const Utf8View& source, bool require_nonempty, EncodedString* output) noexcept;
+bool encoded_string(const Utf8View& source, u32 maximum_bytes, EncodedString* output) noexcept;
 void write_encoded(u8* output, u32* offset, const EncodedString& string) noexcept;
 
 template <usize Count>

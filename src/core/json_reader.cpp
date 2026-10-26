@@ -609,23 +609,23 @@ static JsonReadResult visit_array_range(Utf8View input, ConstSlice<u32> structur
     return JsonReadResult{item_count, reader.error_offset, reader.error};
 }
 
-JsonReadResult json_visit_root_object(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
-                                      JsonMemberVisitor visitor, void* context) noexcept {
+JsonReadResult json_visit_root_object(const Utf8View& input, const ConstSlice<u32>& structurals,
+                                      u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
     return visit_object_range(input, structurals, maximum_depth, visitor, context, 0, false);
 }
 
-JsonReadResult json_visit_root_array(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
-                                     JsonArrayVisitor visitor, void* context) noexcept {
+JsonReadResult json_visit_root_array(const Utf8View& input, const ConstSlice<u32>& structurals,
+                                     u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept {
     return visit_array_range(input, structurals, maximum_depth, visitor, context, 0, false);
 }
 
-JsonReadResult json_visit_value_object(const JsonValue& value, ConstSlice<u32> structurals, u32 maximum_depth,
-                                       JsonMemberVisitor visitor, void* context) noexcept {
+JsonReadResult json_visit_value_object(const JsonValue& value, const ConstSlice<u32>& structurals,
+                                       u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
     return visit_object_range(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
 }
 
-JsonReadResult json_visit_value_array(const JsonValue& value, ConstSlice<u32> structurals, u32 maximum_depth,
-                                      JsonArrayVisitor visitor, void* context) noexcept {
+JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u32>& structurals,
+                                      u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept {
     return visit_array_range(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
 }
 
@@ -713,7 +713,7 @@ bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, cons
     return source_offset == value.encoded.bytes;
 }
 
-bool json_string_equals_utf8(const JsonString& value, Utf8View text) noexcept {
+bool json_string_equals_utf8(const JsonString& value, const Utf8View& text) noexcept {
     if ((!value.encoded.data && value.encoded.bytes) || (!text.data && text.bytes)) return false;
     u32 source = 0, target = 0;
     while (source < value.encoded.bytes && target < text.bytes) {
@@ -750,7 +750,9 @@ bool json_string_to_u64(const JsonString& value, u64* output) noexcept {
     return true;
 }
 
-JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, Slice<char> output) noexcept {
+JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, const Slice<char>& output_view) noexcept {
+    // A value copy: the character stores below would otherwise force reloads of the caller's slice.
+    const Slice<char> output = output_view;
     if ((!value.encoded.data && value.encoded.bytes != 0) || (!output.data && output.count != 0)) {
         return JsonStringDecodeResult{0, JsonStringDecodeError::invalid_input};
     }

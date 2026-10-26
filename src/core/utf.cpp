@@ -59,7 +59,7 @@ Utf8DecodeResult utf8_decode_one(const char* input, u32 available) noexcept {
     return decode_utf8_scalar(input, available);
 }
 
-Utf8Validation utf8_validate(Utf8View input) noexcept {
+Utf8Validation utf8_validate(const Utf8View& input) noexcept {
     if (!input.data && input.bytes != 0) {
         return Utf8Validation{0, 0, false};
     }
@@ -243,11 +243,11 @@ bool word_range(Utf8View text, u32 position, bool selection, u32* first, u32* la
 }
 } // namespace
 
-bool utf8_word_range(Utf8View text, u32 position, u32* first, u32* last) noexcept {
+bool utf8_word_range(const Utf8View& text, u32 position, u32* first, u32* last) noexcept {
     return word_range(text, position, true, first, last);
 }
 
-bool utf8_word_range_near(Utf8View text, u32 position, u32* first, u32* last) noexcept {
+bool utf8_word_range_near(const Utf8View& text, u32 position, u32* first, u32* last) noexcept {
     if (!utf8_is_boundary(text, position) || !utf8_validate(text).valid) return false;
     if (position && text.bytes) {
         const WordText t{text};
@@ -263,7 +263,7 @@ bool utf8_word_range_near(Utf8View text, u32 position, u32* first, u32* last) no
     return word_range(text, position, true, first, last);
 }
 
-bool utf8_line_range(Utf8View text, u32 position, u32* first, u32* last) noexcept {
+bool utf8_line_range(const Utf8View& text, u32 position, u32* first, u32* last) noexcept {
     if (!first || !last || !utf8_is_boundary(text, position) || !utf8_validate(text).valid) return false;
     const WordText t{text};
     u32 begin = position, end = position;
@@ -274,7 +274,7 @@ bool utf8_line_range(Utf8View text, u32 position, u32* first, u32* last) noexcep
     return true;
 }
 
-bool utf8_word_boundary(Utf8View text, u32 position, bool forward, u32* boundary) noexcept {
+bool utf8_word_boundary(const Utf8View& text, u32 position, bool forward, u32* boundary) noexcept {
     u32 first = 0, last = 0;
     if (!boundary || !word_range(text, position, false, &first, &last)) return false;
     const auto space = [&text](u32 p) noexcept {
@@ -324,7 +324,7 @@ u8 utf8_encode(u32 codepoint, char output[4]) noexcept {
     return 4;
 }
 
-bool utf8_utf16_position_for_byte_offset(Utf8View text, u32 byte_offset,
+bool utf8_utf16_position_for_byte_offset(const Utf8View& text, u32 byte_offset,
                                          u32* utf16_position) noexcept {
     if (!utf16_position || byte_offset > text.bytes ||
         (!text.data && text.bytes != 0)) {
@@ -345,7 +345,7 @@ bool utf8_utf16_position_for_byte_offset(Utf8View text, u32 byte_offset,
     return true;
 }
 
-bool utf8_byte_offset_for_utf16_position(Utf8View text, u32 utf16_position,
+bool utf8_byte_offset_for_utf16_position(const Utf8View& text, u32 utf16_position,
                                          u32* byte_offset) noexcept {
     if (!byte_offset || (!text.data && text.bytes != 0)) {
         return false;
@@ -372,7 +372,7 @@ bool utf8_byte_offset_for_utf16_position(Utf8View text, u32 utf16_position,
     return true;
 }
 
-bool utf8_utf16_position_for_codepoint(Utf8View text, u32 codepoint_index,
+bool utf8_utf16_position_for_codepoint(const Utf8View& text, u32 codepoint_index,
                                        u32* utf16_position) noexcept {
     if (!utf16_position || (!text.data && text.bytes != 0)) {
         return false;
@@ -397,7 +397,7 @@ bool utf8_utf16_position_for_codepoint(Utf8View text, u32 codepoint_index,
     return true;
 }
 
-bool utf8_codepoint_for_utf16_position(Utf8View text, u32 utf16_position,
+bool utf8_codepoint_for_utf16_position(const Utf8View& text, u32 utf16_position,
                                        u32* codepoint_index) noexcept {
     if (!codepoint_index || (!text.data && text.bytes != 0)) {
         return false;
@@ -426,7 +426,7 @@ bool utf8_codepoint_for_utf16_position(Utf8View text, u32 utf16_position,
     return true;
 }
 
-u32 utf8_utf16_units(Utf8View text) noexcept {
+u32 utf8_utf16_units(const Utf8View& text) noexcept {
     u32 units = 0;
     for (u32 i = 0; i < text.bytes; ++i) {
         const u8 byte = static_cast<u8>(text.data[i]);
@@ -436,12 +436,16 @@ u32 utf8_utf16_units(Utf8View text) noexcept {
     return units;
 }
 
-bool utf8_is_boundary(Utf8View text, u32 offset) noexcept {
+bool utf8_is_boundary(const Utf8View& text, u32 offset) noexcept {
     return offset <= text.bytes &&
            (offset == 0 || offset == text.bytes || (static_cast<u8>(text.data[offset]) & 0xC0u) != 0x80u);
 }
 
-bool utf8_copy_utf16_range(Utf8View text, u32 start, u32 end, Slice<u16> output, u32* written, u32* next) noexcept {
+bool utf8_copy_utf16_range(const Utf8View& text_view, u32 start, u32 end, const Slice<u16>& output_view, u32* written,
+                           u32* next) noexcept {
+    // Value copies: the code unit stores below must not force reloads of the caller's views.
+    const Utf8View text = text_view;
+    const Slice<u16> output = output_view;
     if (!written || !next || (!output.data && output.count) || start > end) return false;
     u32 first = 0, last = 0;
     if (!utf8_byte_offset_for_utf16_position(text, start, &first) || !utf8_byte_offset_for_utf16_position(text, end, &last)) return false;

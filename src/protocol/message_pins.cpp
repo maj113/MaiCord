@@ -48,14 +48,11 @@ struct PageContext {
     Slice<char> text;
     Slice<MessagePin> items;
     Slice<GatewayMessageNamedUser> mentions;
-    MessageHistoryRichScratch rich;
+    MessageHistoryRichCursor rich;
     PinInstant previous;
     PinInstant before;
     u32 maximum_depth;
-    u32 mention_count, member_role_count, reaction_count, attachment_count, embed_count;
-    u32 embed_field_count, sticker_count, component_count;
-    u32 snapshot_attachment_count, snapshot_embed_count, snapshot_embed_field_count;
-    u32 snapshot_sticker_count, snapshot_component_count, snapshot_mention_count;
+    u32 mention_count;
     JsonValue item_array;
     u8 fields;
     bool capture_rich;
@@ -119,29 +116,16 @@ bool visit_item(void* opaque, u32 index, JsonValue value) noexcept {
         (context->query.before.bytes && !later(context->before, item.instant)))
         return reject(context, MessagePinsDecodeError::invalid_order, value.source_offset);
 
-    GatewayMessageEvent message{};
-    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
-    GatewayMessageNamedUser temporary_mentions[kGatewayMessageMentionUserMaximum]{};
-    const GatewayMessageRichScratch rich{
-        remaining(context->rich.reactions, context->reaction_count),
-        remaining(context->rich.attachments, context->attachment_count),
-        remaining(context->rich.embeds, context->embed_count),
-        remaining(context->rich.embed_fields, context->embed_field_count),
-        remaining(context->rich.stickers, context->sticker_count),
-        remaining(context->rich.components, context->component_count),
-        {remaining(context->rich.snapshot.attachments, context->snapshot_attachment_count),
-         remaining(context->rich.snapshot.embeds, context->snapshot_embed_count),
-         remaining(context->rich.snapshot.embed_fields, context->snapshot_embed_field_count),
-         remaining(context->rich.snapshot.stickers, context->snapshot_sticker_count),
-         remaining(context->rich.snapshot.components, context->snapshot_component_count),
-         remaining(context->rich.snapshot.mention_users, context->snapshot_mention_count)}};
+    GatewayMessageEvent message;
+    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
+    GatewayMessageNamedUser temporary_mentions[kGatewayMessageMentionUserMaximum];
     const auto text = remaining(context->text, context->result.page.text_bytes);
     const auto mentions = context->mentions.data ? remaining(context->mentions, context->mention_count)
         : Slice<GatewayMessageNamedUser>{temporary_mentions, kGatewayMessageMentionUserMaximum};
     const auto decoded = context->capture_rich
         ? gateway_decode_message_create(item.message, context->message_structurals, context->maximum_depth, text,
-              {mention_roles, kGatewayMessageMentionRoleMaximumIds},
-              remaining(context->rich.member_roles, context->member_role_count), mentions, rich, 0, &message)
+              {mention_roles, kGatewayMessageMentionRoleMaximumIds}, context->rich.remaining_member_roles(),
+              mentions, context->rich.remaining(), 0, &message)
         : gateway_decode_message_create(item.message, context->message_structurals, context->maximum_depth, text,
               {mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &message);
     if (!decoded.ok()) {
@@ -161,24 +145,15 @@ bool visit_item(void* opaque, u32 index, JsonValue value) noexcept {
     }
     reset_value(&message.mention_roles);
     if (!context->mentions.data) reset_value(&message.mention_users);
-    context->items[index] = {message, item.pinned_at, item.instant.milliseconds};
+    MessagePin& pin = context->items[index];
+    pin.message = message;
+    pin.pinned_at = item.pinned_at;
+    pin.pinned_at_ms = item.instant.milliseconds;
     context->result.page.next_before = item.pinned_at;
     context->result.page.count = index + 1;
     context->result.page.text_bytes += message.transient_bytes;
     context->mention_count += message.mention_users.count;
-    context->member_role_count += message.member_roles.count;
-    context->reaction_count += message.reactions.count;
-    context->attachment_count += message.attachments.count;
-    context->embed_count += message.embeds.count;
-    context->embed_field_count += message.embed_fields.count;
-    context->sticker_count += message.stickers.count;
-    context->component_count += message.components.count;
-    context->snapshot_attachment_count += message.snapshot.attachments.count;
-    context->snapshot_embed_count += message.snapshot.embeds.count;
-    context->snapshot_embed_field_count += message.snapshot.embed_fields.count;
-    context->snapshot_sticker_count += message.snapshot.stickers.count;
-    context->snapshot_component_count += message.snapshot.components.count;
-    context->snapshot_mention_count += message.snapshot.mention_users.count;
+    context->rich.advance(message);
     context->previous = item.instant;
     return true;
 }
@@ -240,16 +215,13 @@ MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePin
     Slice<u32> page_structurals, Slice<u32> message_structurals, u32 maximum_depth,
     Slice<char> text_output, Slice<MessagePin> items, Slice<GatewayMessageNamedUser> mention_users,
     const MessageHistoryRichScratch& rich_scratch) noexcept {
+    MessageHistoryRichCursor rich{rich_scratch};
+    rich.scratch.poll = {}; // Pinned polls are not decoded.
     u8 target[kMessagePinsMaximumTargetBytes];
     if (!write_message_pins_target(query, {target, sizeof(target)}).ok() || !body.data || !body.bytes ||
         !page_structurals.data || !page_structurals.count || !message_structurals.data || !message_structurals.count ||
         !maximum_depth || !valid_slice(text_output) || !valid_slice(items) || !valid_slice(mention_users) ||
-        !valid_slice(rich_scratch.reactions) || !valid_slice(rich_scratch.attachments) || !valid_slice(rich_scratch.embeds) ||
-        !valid_slice(rich_scratch.embed_fields) || !valid_slice(rich_scratch.stickers) || !valid_slice(rich_scratch.components) ||
-        !valid_slice(rich_scratch.member_roles) || !valid_slice(rich_scratch.snapshot.attachments) ||
-        !valid_slice(rich_scratch.snapshot.embeds) || !valid_slice(rich_scratch.snapshot.embed_fields) ||
-        !valid_slice(rich_scratch.snapshot.stickers) || !valid_slice(rich_scratch.snapshot.components) ||
-        !valid_slice(rich_scratch.snapshot.mention_users)) return {{}, 0, MessagePinsDecodeError::invalid_input};
+        !rich.valid()) return {{}, 0, MessagePinsDecodeError::invalid_input};
     const auto scan = json_scan_structurals_avx1(body, page_structurals);
     if (!scan.ok()) return {{}, scan.error_offset, MessagePinsDecodeError::scan_failed,
                             GatewayEventDecodeError::none, scan.error};
@@ -261,12 +233,9 @@ MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePin
     context.text = text_output;
     context.items = items;
     context.mentions = mention_users;
-    context.rich = rich_scratch;
+    context.rich = rich;
     context.maximum_depth = maximum_depth;
-    context.capture_rich = rich_scratch.reactions.data || rich_scratch.attachments.data || rich_scratch.embeds.data ||
-        rich_scratch.embed_fields.data || rich_scratch.stickers.data || rich_scratch.components.data || rich_scratch.member_roles.data ||
-        rich_scratch.snapshot.attachments.data || rich_scratch.snapshot.embeds.data || rich_scratch.snapshot.embed_fields.data ||
-        rich_scratch.snapshot.stickers.data || rich_scratch.snapshot.components.data || rich_scratch.snapshot.mention_users.data;
+    context.capture_rich = rich.present();
     if (query.before.bytes) cursor_instant(query.before, &context.before);
     auto read = json_visit_root_object(body, context.document.structurals, maximum_depth, visit_root, &context);
     if (read.ok() && context.fields != 3) context.result.error = MessagePinsDecodeError::missing_field;

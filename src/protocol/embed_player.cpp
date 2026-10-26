@@ -28,12 +28,12 @@ bool field(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 template <usize N>
-bool fields(const JsonIndexedDocument& doc, JsonValue value, Field (&out)[N]) noexcept {
+bool fields(const JsonIndexedDocument& doc, const JsonValue& value, Field (&out)[N]) noexcept {
     Fields list{out, static_cast<u32>(N)};
     return json_visit_indexed_object(doc, value, 24, field, &list).ok();
 }
 bool text(const Field& f, JsonString* out) noexcept { return f.seen && json_value_as_string(f.value, out); }
-bool equal(const Field& f, Utf8View value) noexcept {
+bool equal(const Field& f, const Utf8View& value) noexcept {
     JsonString string{};
     return text(f, &string) && json_string_equals_ascii(string, value);
 }
@@ -441,7 +441,8 @@ EmbedPlayerError tiktok_player_streams(Utf8View json, Utf8View id, u16 height, u
     secure_clear_bytes(&s.best, sizeof(s.best));
     return E::none;
 }
-bool embed_stream_location(CdnHost cdn, Utf8View url, EmbedStreamLocation* out) noexcept {
+bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLocation* out) noexcept {
+    const Utf8View url = url_view; // *out is written inside; keep the caller's view out of the aliasing set
     if (cdn == CdnHost::soundcloud_audio) return soundcloud_location(url, false, out);
     if (cdn == CdnHost::vimeo_video) return vimeo_location(url, false, out);
     if (cdn == CdnHost::twitch_live || cdn == CdnHost::twitch_playlist)
@@ -1047,7 +1048,7 @@ EmbedPlayerError streamable_video_streams(Utf8View json, Utf8View id, u16 height
     secure_clear_bytes(&staged, sizeof(staged));
     return error;
 }
-bool apple_music_track_id(Utf8View id) noexcept {
+bool apple_music_track_id(const Utf8View& id) noexcept {
     if (!id.data || !id.bytes || id.bytes > 20 || id.data[0] == '0') return false;
     u64 value = 0;
     for (u32 i = 0; i < id.bytes; ++i) {
@@ -1057,7 +1058,9 @@ bool apple_music_track_id(Utf8View id) noexcept {
     }
     return value != 0;
 }
-u32 apple_music_track_target(Utf8View id, Utf8View country, Slice<u8> output) noexcept {
+u32 apple_music_track_target(const Utf8View& id_view, const Utf8View& country_view, const Slice<u8>& output_view) noexcept {
+    const Utf8View id = id_view, country = country_view; // the output stores below must not force reloads
+    const Slice<u8> output = output_view;
     constexpr auto prefix = utf8_literal("/lookup?id="), suffix = utf8_literal("&country=");
     const u32 bytes = prefix.bytes + id.bytes + suffix.bytes + 2;
     if (!apple_music_track_id(id) || !country.data || country.bytes != 2 || !output.data || output.count < bytes) return 0;
@@ -1319,7 +1322,7 @@ static EmbedPlayerError track_title(Utf8View json, u64 track, Utf8View video, Sl
 }
 
 namespace {
-JsonValue queue_child(const JsonIndexedDocument& doc, JsonValue parent, Utf8View name) noexcept {
+JsonValue queue_child(const JsonIndexedDocument& doc, const JsonValue& parent, const Utf8View& name) noexcept {
     if (!parent.source.bytes || parent.kind != JsonValueKind::object) return {{}, 0, JsonValueKind::null_value};
     Field f[]{{name}};
     Fields selected{f, 1};
@@ -1462,14 +1465,14 @@ EmbedPlayerError playlist_json(Utf8View html, Utf8View* out) noexcept {
     }
     return out->bytes ? EmbedPlayerError::none : EmbedPlayerError::unsupported;
 }
-JsonValue single_item(const JsonIndexedDocument& doc,JsonValue array) noexcept {
+JsonValue single_item(const JsonIndexedDocument& doc,const JsonValue& array) noexcept {
     JsonValue item{{},0,JsonValueKind::null_value};
     if (!json_visit_indexed_array(doc,array,48,+[](void* opaque,u32 index,JsonValue value) noexcept {
         if (index) return false; *static_cast<JsonValue*>(opaque)=value; return true;
     },&item).ok()) return {{},0,JsonValueKind::null_value};
     return item;
 }
-bool playlist_identity(const JsonIndexedDocument& doc,JsonValue descriptor,Utf8View id,Utf8View country) noexcept {
+bool playlist_identity(const JsonIndexedDocument& doc,const JsonValue& descriptor,const Utf8View& id,const Utf8View& country) noexcept {
     Field f[]{{utf8_literal("kind")},{utf8_literal("identifiers")},{utf8_literal("url")}};
     JsonString identifier{},url{}; char buffer[1024];
     if (!fields(doc,descriptor,f) || !equal(f[0],utf8_literal("playlist")) || !text(f[2],&url) ||

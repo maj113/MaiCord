@@ -94,6 +94,23 @@ struct MessageHistoryRichScratch {
     GatewayMessagePollScratch poll;
 };
 
+// Walks the scratch across one page: every decoded message consumes a prefix of
+// each array and the next message decodes into what remains.
+struct MessageHistoryRichCursor {
+    MessageHistoryRichScratch scratch;
+    u32 member_roles, reactions, attachments, embeds, embed_fields, stickers, components;
+    u32 snapshot_attachments, snapshot_embeds, snapshot_embed_fields, snapshot_stickers;
+    u32 snapshot_components, snapshot_mentions, poll_answers, poll_counts;
+
+    // No array claims capacity without storage.
+    bool valid() const noexcept;
+    // Some array has storage: messages decode with rich capture.
+    bool present() const noexcept;
+    Slice<u64> remaining_member_roles() const noexcept;
+    GatewayMessageRichScratch remaining() const noexcept;
+    void advance(const GatewayMessageEvent& message) noexcept;
+};
+
 // Writes an origin-form API v10 request target. Rate-limit policy is not handled
 // here; it comes from the HTTP response headers.
 MessageHistoryTargetResult write_message_history_target(

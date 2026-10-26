@@ -28,9 +28,9 @@ struct Base64UrlResult {
 // unpadded input; encode always emits the WebAuthn/JOSE unpadded form. Both
 // operations validate and size the complete transaction before touching the
 // destination. A null, zero-sized destination is therefore a size query.
-Base64UrlResult base64url_decode(Utf8View input,
-                                 Slice<u8> output) noexcept;
-Base64UrlResult base64url_encode(ConstSlice<u8> input,
-                                 Slice<char> output) noexcept;
+Base64UrlResult base64url_decode(const Utf8View& input,
+                                 const Slice<u8>& output) noexcept;
+Base64UrlResult base64url_encode(const ConstSlice<u8>& input,
+                                 const Slice<char>& output) noexcept;
 
 } // namespace maicord

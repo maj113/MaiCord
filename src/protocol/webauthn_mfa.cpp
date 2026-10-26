@@ -73,7 +73,7 @@ bool reject(WebAuthnMfaError* error) noexcept {
     return false;
 }
 
-bool decode_string(JsonString string, Slice<char> output, u32* bytes) noexcept {
+bool decode_string(const JsonString& string, const Slice<char>& output, u32* bytes) noexcept {
     const JsonStringDecodeResult decoded = json_string_decode_utf8(string, output);
     if (!decoded.ok()) {
         return false;
@@ -254,12 +254,12 @@ u32 encoded_size(u32 bytes) noexcept {
     return (bytes / 3u) * 4u + (bytes % 3u == 0 ? 0u : bytes % 3u + 1u);
 }
 
-void write_literal(Slice<u8> output, u32* offset, Utf8View value) noexcept {
+void write_literal(const Slice<u8>& output, u32* offset, const Utf8View& value) noexcept {
     copy_bytes(output.data + *offset, value.data, value.bytes);
     *offset += value.bytes;
 }
 
-bool valid_binary(ConstSlice<u8> value, bool require_nonempty) noexcept {
+bool valid_binary(const ConstSlice<u8>& value, bool require_nonempty) noexcept {
     return (!require_nonempty || value.count != 0) && (value.data || value.count == 0);
 }
 

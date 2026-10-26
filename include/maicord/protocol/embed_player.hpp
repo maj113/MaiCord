@@ -30,7 +30,7 @@ EmbedPlayerError youtube_player_streams(Utf8View json, Utf8View expected_video_i
 // Does not authorize forwarding OAuth tokens or browser cookies to that CDN.
 bool youtube_stream_url(Utf8View url) noexcept;
 struct EmbedStreamLocation { Utf8View host, target; };
-bool embed_stream_location(CdnHost, Utf8View url, EmbedStreamLocation* = nullptr) noexcept;
+bool embed_stream_location(CdnHost, const Utf8View& url, EmbedStreamLocation* = nullptr) noexcept;
 constexpr bool embed_stream_host(CdnHost host) noexcept {
     return host == CdnHost::google_video || host == CdnHost::tiktok_video || host == CdnHost::twitch_video ||
            host == CdnHost::spotify_preview || host == CdnHost::streamable_video || host == CdnHost::apple_music_preview ||
@@ -117,8 +117,8 @@ constexpr u32 embed_audio_preview_limit(CdnHost host) noexcept {
 bool amazon_music_track_id(Utf8View) noexcept;
 bool amazon_music_redirect(Utf8View url, Utf8View id, EmbedStreamLocation*) noexcept;
 EmbedPlayerError amazon_music_preview_stream(Utf8View url, u64 now, EmbedStreams*) noexcept;
-bool apple_music_track_id(Utf8View) noexcept;
-u32 steam_id(Utf8View) noexcept;
+bool apple_music_track_id(const Utf8View&) noexcept;
+u32 steam_id(const Utf8View&) noexcept;
 u32 steam_video_target(Utf8View app, Slice<u8>) noexcept;
 bool steam_manifest_location(Utf8View url, Utf8View app = {}, EmbedStreamLocation* = nullptr) noexcept;
 bool steam_media_location(Utf8View url, EmbedStreamLocation* = nullptr) noexcept;
@@ -129,11 +129,11 @@ u32 twitch_playback_body(Utf8View id, Slice<u8>, bool live = false) noexcept;
 // authorization and expiry. Output contains a playback token; never log it.
 EmbedPlayerError twitch_playback_manifest(Utf8View json, Utf8View id, u64 now,
     Slice<u32> scratch, EmbedStream*, bool live = false) noexcept;
-bool twitch_vod_location(Utf8View url, bool playlist, EmbedStreamLocation* = nullptr) noexcept;
-bool twitch_live_location(Utf8View url, bool playlist, EmbedStreamLocation* = nullptr, bool transport = false) noexcept;
+bool twitch_vod_location(const Utf8View& url, bool playlist, EmbedStreamLocation* = nullptr) noexcept;
+bool twitch_live_location(const Utf8View& url, bool playlist, EmbedStreamLocation* = nullptr, bool transport = false) noexcept;
 EmbedPlayerError steam_video_manifest(Utf8View json, Utf8View app, Utf8View movie,
     Slice<u32> scratch, EmbedStream*) noexcept;
-u32 apple_music_track_target(Utf8View id, Utf8View country, Slice<u8>) noexcept;
+u32 apple_music_track_target(const Utf8View& id, const Utf8View& country, const Slice<u8>&) noexcept;
 inline constexpr u32 kAppleMusicMetadataMaximumBytes = 64 * 1024;
 // One matching track/storefront from the public lookup API. Selects only its
 // audio or music-video preview; decoded bytes still require clear codecs.

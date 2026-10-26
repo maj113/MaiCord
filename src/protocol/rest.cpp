@@ -560,7 +560,10 @@ bool audit_hex(u8 value) noexcept {
 }
 } // namespace
 
-RestAuditReasonResult rest_encode_audit_reason(Utf8View reason, Slice<u8> output) noexcept {
+RestAuditReasonResult rest_encode_audit_reason(const Utf8View& reason_view, const Slice<u8>& output_view) noexcept {
+    // Value copies: the output stores below must not force reloads of the caller's views.
+    const Utf8View reason = reason_view;
+    const Slice<u8> output = output_view;
     if ((!reason.data && reason.bytes) || (!output.data && output.count) ||
         reason.bytes > kRestAuditReasonMaximumBytes || !utf8_validate(reason).valid)
         return {0, false};
@@ -587,7 +590,7 @@ RestAuditReasonResult rest_encode_audit_reason(Utf8View reason, Slice<u8> output
     return {used, true};
 }
 
-bool rest_audit_reason_valid(ConstSlice<u8> encoded) noexcept {
+bool rest_audit_reason_valid(const ConstSlice<u8>& encoded) noexcept {
     if ((!encoded.data && encoded.count) || encoded.count > kRestAuditReasonMaximumEncodedBytes)
         return false;
     for (u32 i = 0; i < encoded.count; ++i) {
@@ -624,7 +627,7 @@ bool extra_header_value(const u8* data, u32 bytes) noexcept {
 }
 } // namespace
 
-bool rest_extra_headers_valid(ConstSlice<u8> headers) noexcept {
+bool rest_extra_headers_valid(const ConstSlice<u8>& headers) noexcept {
     if ((!headers.data && headers.count) || headers.count > kRestExtraHeadersMaximumBytes)
         return false;
     u32 at = 0;
@@ -664,7 +667,7 @@ u32 rest_append_extra_header(Slice<u8> output, u32 used, Utf8View name, ConstSli
     return used + bytes;
 }
 
-bool rest_multipart_boundary_valid(ConstSlice<u8> boundary) noexcept {
+bool rest_multipart_boundary_valid(const ConstSlice<u8>& boundary) noexcept {
     if (!boundary.data || !boundary.count || boundary.count > kRestMultipartBoundaryMaximumBytes)
         return false;
     for (u32 i = 0; i < boundary.count; ++i) {

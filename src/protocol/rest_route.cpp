@@ -23,7 +23,7 @@ bool route_append_byte(RouteWriter* writer, u8 value) noexcept {
     return true;
 }
 
-bool route_append(RouteWriter* writer, Utf8View value) noexcept {
+bool route_append(RouteWriter* writer, const Utf8View& value) noexcept {
     if (!writer->valid || (!value.data && value.bytes != 0) || writer->bytes > writer->output.count ||
         value.bytes > writer->output.count - writer->bytes) {
         writer->valid = false;

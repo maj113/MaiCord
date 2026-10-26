@@ -52,9 +52,12 @@ bool protocol_writer_append_snowflake(ProtocolWriter* writer, u64 id) noexcept {
            protocol_writer_append_byte(writer, '"');
 }
 
-bool protocol_writer_append_percent_encoded(ProtocolWriter* writer, Utf8View value) noexcept {
-    for (u32 index = 0; index < value.bytes; ++index) {
-        const u8 byte = static_cast<u8>(value.data[index]);
+bool protocol_writer_append_percent_encoded(ProtocolWriter* writer, const Utf8View& text) noexcept {
+    // Locals: the appends below write memory that could alias *text.
+    const char* const data = text.data;
+    const u32 bytes = text.bytes;
+    for (u32 index = 0; index < bytes; ++index) {
+        const u8 byte = static_cast<u8>(data[index]);
         if (url_unreserved(byte)) {
             if (!protocol_writer_append_byte(writer, byte)) {
                 return false;
@@ -68,7 +71,7 @@ bool protocol_writer_append_percent_encoded(ProtocolWriter* writer, Utf8View val
     return true;
 }
 
-bool protocol_writer_append_json_string(ProtocolWriter* writer, Utf8View value) noexcept {
+bool protocol_writer_append_json_string(ProtocolWriter* writer, const Utf8View& value) noexcept {
     u32 encoded_bytes = 0;
     if (!protocol_detail::measure_json_string(value, &encoded_bytes) || !writer->output.data ||
         writer->used > writer->output.count || encoded_bytes > writer->output.count - writer->used) {

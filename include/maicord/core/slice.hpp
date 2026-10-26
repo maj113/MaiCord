@@ -39,11 +39,11 @@ struct Utf8View {
     }
 };
 
-inline bool utf8_equal(Utf8View left, Utf8View right) noexcept {
+inline bool utf8_equal(const Utf8View& left, const Utf8View& right) noexcept {
     return left.bytes == right.bytes && bytes_equal(left.data, right.data, left.bytes);
 }
 
-inline bool utf8_starts_with(Utf8View text, Utf8View prefix) noexcept {
+inline bool utf8_starts_with(const Utf8View& text, const Utf8View& prefix) noexcept {
     return text.bytes >= prefix.bytes && bytes_equal(text.data, prefix.data, prefix.bytes);
 }
 

@@ -108,7 +108,7 @@ bool gateway_message_poll_valid(const GatewayMessagePoll& poll) noexcept {
     return true;
 }
 
-bool parse_iso_timestamp(JsonString value, u64* timestamp_ms) noexcept {
+bool parse_iso_timestamp(const JsonString& value, u64* timestamp_ms) noexcept {
     const JsonStringDecodeResult size = json_string_decode_utf8(value, Slice<char>{nullptr, 0});
     if (size.error != JsonStringDecodeError::output_too_small || size.bytes < 20 || size.bytes > 40) {
         return false;

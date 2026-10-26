@@ -57,7 +57,7 @@ bool compare_integer(Utf8View source) noexcept {
     }
     return true;
 }
-__declspec(noinline) bool reference_ascii(JsonString value, Utf8View ascii) noexcept {
+__declspec(noinline) bool reference_ascii(const JsonString& value, const Utf8View& ascii) noexcept {
     if ((!value.encoded.data && value.encoded.bytes != 0) || (!ascii.data && ascii.bytes != 0)) return false;
     u32 source_offset = 0, ascii_offset = 0;
     while (source_offset < value.encoded.bytes) {
@@ -333,7 +333,7 @@ extern "C" void maicord_json_ascii_entry() noexcept {
         {"escaped_unicode_miss", utf8_literal("\\ud83d\\ude00"), utf8_literal("e")},
         {"empty", {}, {}},
     };
-    using Compare = bool (*)(JsonString, Utf8View) noexcept;
+    using Compare = bool (*)(const JsonString&, const Utf8View&) noexcept;
     const Clock clock = clock_initialize();
     constexpr u32 calls = 2000000;
     for (const auto& fixture : cases) {

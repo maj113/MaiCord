@@ -60,7 +60,7 @@ constexpr bool ascii_is_alnum(char value) noexcept {
     return static_cast<u8>(value - '0') < 10 || static_cast<u8>((static_cast<u8>(value) | 0x20) - 'a') < 26;
 }
 
-__declspec(noinline) constexpr bool ascii_equal_ignore_case(Utf8View left, Utf8View right) noexcept {
+__declspec(noinline) constexpr bool ascii_equal_ignore_case(const Utf8View& left, const Utf8View& right) noexcept {
     if (left.bytes != right.bytes)
         return false;
     for (u32 index = 0; index < left.bytes; ++index)
@@ -70,14 +70,14 @@ __declspec(noinline) constexpr bool ascii_equal_ignore_case(Utf8View left, Utf8V
 }
 
 // True for an empty needle.
-constexpr bool ascii_contains_ignore_case(Utf8View text, Utf8View needle) noexcept {
+constexpr bool ascii_contains_ignore_case(const Utf8View& text, const Utf8View& needle) noexcept {
     for (u32 at = 0; at + needle.bytes <= text.bytes; ++at)
         if (ascii_equal_ignore_case({text.data + at, needle.bytes}, needle))
             return true;
     return false;
 }
 
-constexpr bool ascii_graphic_string(Utf8View value, u32 maximum_bytes,
+constexpr bool ascii_graphic_string(const Utf8View& value, u32 maximum_bytes,
                                     bool require_nonempty = false) noexcept {
     if ((!value.data && value.bytes != 0) || (require_nonempty && value.bytes == 0) ||
         value.bytes > maximum_bytes) {

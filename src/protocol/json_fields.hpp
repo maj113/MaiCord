@@ -32,14 +32,14 @@ __declspec(noinline) inline bool collect(void* opaque, JsonString key, JsonValue
 }
 // Fills fields from an object in one pass; a repeated named member fails.
 // An absent or null object leaves them empty.
-template <u32 N> __declspec(noinline) bool object(const JsonIndexedDocument& doc, JsonValue value, Field (&fields)[N]) noexcept {
+template <u32 N> __declspec(noinline) bool object(const JsonIndexedDocument& doc, const JsonValue& value, Field (&fields)[N]) noexcept {
     if (!filled(value))
         return true;
     Fields context{fields, N};
     return json_visit_indexed_object(doc, value, 64, collect, &context).ok();
 }
 // An integer sent as a JSON number or as a snowflake string; absent or null is 0.
-__declspec(noinline) inline bool number(JsonValue v, u64* n) noexcept {
+__declspec(noinline) inline bool number(const JsonValue& v, u64* n) noexcept {
     *n = 0;
     if (!filled(v))
         return true;

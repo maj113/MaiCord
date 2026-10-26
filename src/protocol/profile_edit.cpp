@@ -14,7 +14,7 @@ bool data_uri(Utf8View value) noexcept {
     constexpr auto prefix = utf8_literal("data:image/");
     return value.bytes > prefix.bytes && bytes_equal(value.data, prefix.data, prefix.bytes);
 }
-bool text_within(Utf8View value, u32 codepoints, u32 bytes) noexcept {
+bool text_within(const Utf8View& value, u32 codepoints, u32 bytes) noexcept {
     const auto checked = utf8_validate(value);
     return checked.valid && checked.codepoints <= codepoints && value.bytes <= bytes;
 }
@@ -153,7 +153,7 @@ using namespace protocol_detail;
 // Copies a string, cut at a code point boundary when it is too long. One body
 // for every ProfileString<N>: object is the whole string (data first), cleared
 // like `*s = {}` before at most capacity bytes are copied into it.
-__declspec(noinline) bool string_into(JsonValue v, char* object, u32 object_bytes, u32 capacity,
+__declspec(noinline) bool string_into(const JsonValue& v, char* object, u32 object_bytes, u32 capacity,
                                       u16* stored) noexcept {
     clear_bytes(object, object_bytes);
     if (!filled(v))
@@ -172,7 +172,7 @@ __declspec(noinline) bool string_into(JsonValue v, char* object, u32 object_byte
     *stored = static_cast<u16>(bytes);
     return true;
 }
-template <u32 N> bool string(JsonValue v, ProfileString<N>* s) noexcept {
+template <u32 N> bool string(const JsonValue& v, ProfileString<N>* s) noexcept {
     return string_into(v, s->data, sizeof(*s), N, &s->bytes);
 }
 struct Colors {
@@ -431,7 +431,9 @@ bool owned_item(void* opaque, u32, JsonValue value) noexcept {
         return false;
     if (type > 1 || c.count >= c.out.count)
         return true;
-    ProfileCollectible item{};
+    // Built in the next free slot; it only counts once it is kept.
+    ProfileCollectible& item = c.out[c.count];
+    reset_value(&item);
     item.sku = sku ? sku : c.purchase_sku;
     item.type = static_cast<ProfileCollectibleType>(type);
     if (!string(type ? f[4].value : f[3].value, &item.label) || !string(type ? f[5].value : f[2].value, &item.asset))
@@ -444,7 +446,7 @@ bool owned_item(void* opaque, u32, JsonValue value) noexcept {
     for (u32 i = 0; i < c.count; ++i)
         if (c.out[i].sku == item.sku && c.out[i].type == item.type)
             return true;
-    c.out[c.count++] = item;
+    ++c.count;
     return true;
 }
 bool owned_purchase(void* opaque, u32, JsonValue value) noexcept;

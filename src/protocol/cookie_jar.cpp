@@ -52,7 +52,7 @@ bool cookie_octets(Utf8View text) noexcept {
     return http_field_value_valid({reinterpret_cast<const u8*>(text.data), text.bytes});
 }
 
-bool equal_ignore_case(Utf8View text, const char* literal) noexcept {
+bool equal_ignore_case(const Utf8View& text, const char* literal) noexcept {
     u32 i = 0;
     for (; literal[i]; ++i)
         if (i >= text.bytes || ascii_lower(text.data[i]) != literal[i])

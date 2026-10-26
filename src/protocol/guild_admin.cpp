@@ -22,7 +22,7 @@ constexpr u64 kTimestampLimitSeconds = 253'402'300'800ull;
 constexpr u64 kTimestampLimitMs = kTimestampLimitSeconds * 1000;
 
 // Single-line or multi-line UTF-8 text with a codepoint range and no NULs.
-bool text_valid(Utf8View text, u32 minimum_codepoints, u32 maximum_codepoints, bool single_line) noexcept {
+bool text_valid(const Utf8View& text, u32 minimum_codepoints, u32 maximum_codepoints, bool single_line) noexcept {
     if (!view_valid(text) || text.bytes > maximum_codepoints * 4)
         return false;
     const auto validation = utf8_validate(text);

@@ -13,7 +13,7 @@ struct RouteWriter {
 bool route_writer_initialize(RouteWriter* writer,
                              Slice<u8> output) noexcept;
 bool route_append(RouteWriter* writer,
-                  Utf8View value) noexcept;
+                  const Utf8View& value) noexcept;
 bool route_append_byte(RouteWriter* writer, u8 value) noexcept;
 bool route_append_u64(RouteWriter* writer, u64 value) noexcept;
 bool route_append_path_component(RouteWriter* writer,

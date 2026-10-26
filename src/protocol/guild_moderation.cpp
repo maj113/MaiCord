@@ -21,7 +21,7 @@ constexpr u32 kSearchPieces = 64;
 bool space(char c) noexcept {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
 }
-Utf8View trim(Utf8View text) noexcept {
+Utf8View trim(const Utf8View& text) noexcept {
     u32 start = 0, end = text.bytes;
     while (start < end && space(text.data[start]))
         ++start;

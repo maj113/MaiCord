@@ -7,9 +7,9 @@
 
 namespace maicord {
 namespace {
-
+// Every member of a session event defaults to zero, so one fill replaces the member-wise value-initialization.
 void event(GatewaySessionEvent* result, GatewaySessionEventKind kind) noexcept {
-    reset_value(result);
+    clear_bytes(result, sizeof(*result));
     result->kind = kind;
 }
 
@@ -24,7 +24,7 @@ bool event_decode_failed(GatewaySessionEvent& result, const GatewayEventDecodeRe
 }
 
 void session_error(GatewaySessionEvent* result, GatewaySessionError error) noexcept {
-    reset_value(result);
+    clear_bytes(result, sizeof(*result));
     result->error = error;
     result->kind = GatewaySessionEventKind::error;
 }
@@ -97,7 +97,7 @@ void consume_compressed(GatewaySession* session, u32 bytes) noexcept {
 
 void process_gateway_message(GatewaySession* session, Utf8View message, u32 heartbeat_jitter,
                              u64 now_ms, GatewaySessionEvent* out) noexcept {
-    reset_value(out);
+    clear_bytes(out, sizeof(*out));
     GatewaySessionEvent& result = *out;
     GatewayDecodeResult decoded =
         gateway_decode_envelope(message, session->structural_scratch, 64, &result.envelope);
@@ -114,7 +114,7 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
             backed.data != session->structural_scratch.data || backed.count < required ||
             backed.count > kGatewaySessionMaximumStructuralCount) break;
         session->structural_scratch = backed;
-        reset_value(&result.envelope);
+        clear_bytes(&result.envelope, sizeof(result.envelope));
         decoded = gateway_decode_envelope(message, backed, 64, &result.envelope);
     }
     if (!decoded.ok()) {
@@ -406,7 +406,7 @@ void gateway_session_next(GatewaySessionEvent* out, GatewaySession* session, u32
             return;
         }
         if (packet.state == WebSocketReadState::control) {
-            reset_value(out);
+            clear_bytes(out, sizeof(*out));
             GatewaySessionEvent& result = *out;
             result.control_payload = packet.payload;
             if (packet.opcode == WebSocketOpcode::ping) result.kind = GatewaySessionEventKind::ping;

@@ -485,7 +485,7 @@ GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<
 // Decodes the API's RFC 3339/ISO 8601 timestamp representation to Unix
 // milliseconds. Fractional precision beyond milliseconds is validated and
 // truncated, matching the model's storage precision.
-bool parse_iso_timestamp(JsonString value, u64* timestamp_ms) noexcept;
+bool parse_iso_timestamp(const JsonString& value, u64* timestamp_ms) noexcept;
 
 // Content is unescaped into caller storage; the returned view is valid only
 // while that storage is. The fields mask distinguishes an absent MESSAGE_UPDATE

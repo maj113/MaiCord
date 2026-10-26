@@ -226,16 +226,9 @@ PollControllerResult poll_controller_submit_failed(PollController* c,u64 now) no
     else c->refresh_required=false;
     return result(*c,PollControllerError::transport,true);
 }
-PollControllerResult poll_controller_complete(PollController* c,PollControllerTicket ticket,
-    const RestClientResponse& response,u64 now,u64 unix_now,bool body_valid,
-    ConstSlice<ReactionUser> voters) noexcept {
-    if (!c || !c->initialized || !c->flight.active || !ticket.request_id ||
-        response.request_id!=ticket.request_id || c->flight.ticket.request_id!=ticket.request_id ||
-        c->flight.ticket.epoch!=ticket.epoch) return {PollControllerError::stale,false,true};
-    const auto command=c->flight.command;
-    const bool stale=c->flight.retired || !flight_current(*c,command,unix_now);
-    reset_value(&c->flight);
-    if (stale) return result(*c,PollControllerError::none,false,true);
+namespace {
+PollControllerResult complete_flight(PollController* c,const PollControllerCommand& command,
+    const RestClientResponse& response,u64 now,bool body_valid,ConstSlice<ReactionUser> voters) noexcept {
     const bool vote=command.kind==PollControllerWorkKind::vote;
     if (response.transport_ok() && response.status_code==429 && response.retry_at_ms &&
         command.retries<kPollControllerMaximumRetries && !c->pending_ready &&
@@ -306,6 +299,20 @@ PollControllerResult poll_controller_complete(PollController* c,PollControllerTi
     c->after_user_id=cursor; c->voter_answer_id=command.answer_id;
     c->voters_more=voters.count==command.limit; c->voters_failed=false;
     return result(*c,PollControllerError::none,true,false,true);
+}
+}
+PollControllerResult poll_controller_complete(PollController* c,PollControllerTicket ticket,
+    const RestClientResponse& response,u64 now,u64 unix_now,bool body_valid,
+    ConstSlice<ReactionUser> voters) noexcept {
+    if (!c || !c->initialized || !c->flight.active || !ticket.request_id ||
+        response.request_id!=ticket.request_id || c->flight.ticket.request_id!=ticket.request_id ||
+        c->flight.ticket.epoch!=ticket.epoch) return {PollControllerError::stale,false,true};
+    const bool stale=c->flight.retired || !flight_current(*c,c->flight.command,unix_now);
+    // The command is read from the flight, which nothing below consults.
+    const PollControllerResult done = stale ? result(*c,PollControllerError::none,false,true)
+                                            : complete_flight(c,c->flight.command,response,now,body_valid,voters);
+    reset_value(&c->flight);
+    return done;
 }
 u64 poll_controller_next_wake(const PollController& c) noexcept {
     return c.pending_ready && !c.flight.active ? c.pending.due_at_ms : 0;

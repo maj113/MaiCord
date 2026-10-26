@@ -81,7 +81,7 @@ struct RestRequestHead {
 
 // RFC 2046 boundary restricted to [A-Za-z0-9_-], 1..70 bytes.
 inline constexpr u32 kRestMultipartBoundaryMaximumBytes = 70;
-bool rest_multipart_boundary_valid(ConstSlice<u8> boundary) noexcept;
+bool rest_multipart_boundary_valid(const ConstSlice<u8>& boundary) noexcept;
 
 enum class RestRequestError : u8 {
     none,
@@ -112,11 +112,11 @@ struct RestAuditReasonResult {
 // reason query parameter. Empty input yields zero bytes. Rejects invalid
 // UTF-8, control characters and reasons over the byte bound; output is
 // untouched on failure.
-RestAuditReasonResult rest_encode_audit_reason(Utf8View reason, Slice<u8> output) noexcept;
+RestAuditReasonResult rest_encode_audit_reason(const Utf8View& reason, const Slice<u8>& output) noexcept;
 // Accepts only output shaped like rest_encode_audit_reason's.
-bool rest_audit_reason_valid(ConstSlice<u8> encoded) noexcept;
+bool rest_audit_reason_valid(const ConstSlice<u8>& encoded) noexcept;
 // Only the allowlisted names; values are visible ASCII without CR/LF.
-bool rest_extra_headers_valid(ConstSlice<u8> headers) noexcept;
+bool rest_extra_headers_valid(const ConstSlice<u8>& headers) noexcept;
 // Appends one allowlisted header line; returns the new length, or ~0u when it
 // does not fit or the value is invalid. The output is unchanged on failure.
 u32 rest_append_extra_header(Slice<u8> output, u32 used, Utf8View name, ConstSlice<u8> value) noexcept;

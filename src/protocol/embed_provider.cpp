@@ -5,10 +5,10 @@
 
 namespace maicord {
 namespace {
-bool equal(Utf8View a, Utf8View b) noexcept {
+bool equal(const Utf8View& a, const Utf8View& b) noexcept {
     return a.bytes == b.bytes && (!a.bytes || bytes_equal(a.data, b.data, a.bytes));
 }
-bool prefix(Utf8View a, Utf8View b) noexcept {
+bool prefix(const Utf8View& a, const Utf8View& b) noexcept {
     return a.bytes >= b.bytes && bytes_equal(a.data, b.data, b.bytes);
 }
 struct Url { Utf8View host, path, query, fragment; };
@@ -88,7 +88,8 @@ bool id_valid(Utf8View id) noexcept {
 }
 // Duplicate playback parameters are rejected instead of choosing a different
 // video from the page/player. Unrelated parameters remain opaque.
-bool parameter(Utf8View query, Utf8View key, Utf8View* value) noexcept {
+bool parameter(const Utf8View& query_view, const Utf8View& key, Utf8View* value) noexcept {
+    const Utf8View query = query_view; // *value is stored inside the loop
     bool found = false;
     for (u32 begin = 0; begin < query.bytes;) {
         u32 end = begin, equals = begin;

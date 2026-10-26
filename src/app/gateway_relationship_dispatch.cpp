@@ -259,7 +259,7 @@ bool gateway_client_relationship_record(ConstSlice<u8> payload, u32* cursor, Rel
     const u8* bytes = payload.data + *cursor;
     // Check raw bool representations before materializing the owned ABI object.
     if (bytes[10] > 1 || bytes[11] > 1 || bytes[12] > 1 || bytes[13] > 1 || bytes[157] > 1 || bytes[448] > 1) return false;
-    RelationshipMutation candidate{};
+    RelationshipMutation candidate;
     copy_bytes(&candidate, bytes, sizeof(candidate));
     const auto& record = candidate.record;
     const auto& user = candidate.user;
@@ -287,7 +287,7 @@ GatewayClientDispatchRouteResult gateway_route_relationship(const GatewayEnvelop
     *handled = add || update || remove;
     if (!*handled) return {};
     if (!event || !payload || !output.data || output.count < sizeof(RelationshipMutation)) return fail(GatewayClientDispatchRouteError::payload_capacity);
-    RelationshipMutation mutation{};
+    RelationshipMutation mutation;
     const auto decoded = relationship_decode_record(envelope.data.source, scratch,
         remove ? RelationshipEvent::remove : update ? RelationshipEvent::update : RelationshipEvent::add, &mutation);
     if (!decoded.ok()) return fail(GatewayClientDispatchRouteError::decode);

@@ -174,13 +174,13 @@ struct MediaUrlResult {
 // origin-form target. This validates the documented origin, attachment path
 // identity, timestamps, and hexadecimal signature representation. The hm
 // value is authenticated by Discord's CDN, not by the client.
-AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
-                                                Slice<u8> target_output) noexcept;
+AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url, u64 attachment_id,
+                                                const Slice<u8>& target_output) noexcept;
 
 // Extracts an origin-form target only from Discord's current CDN and media
 // proxy origins. This path is used for embed proxy resources that do not use
 // the signed /attachments URL shape. Arbitrary external hosts are rejected.
-MediaUrlResult parse_media_url(Utf8View url, Slice<u8> target_output) noexcept;
+MediaUrlResult parse_media_url(const Utf8View& url, const Slice<u8>& target_output) noexcept;
 // Exact origin-form target for a catalog provider host: Klipy .webp/.gif/.mp4
 // assets, Tenor /<id>AAAA1/<slug>.webp, Giphy /media/<id>/200w.webp.
 bool catalog_provider_target_valid(CdnHost host, ConstSlice<u8> target) noexcept;
@@ -203,7 +203,7 @@ bool soundboard_target_valid(ConstSlice<u8> target) noexcept;
 // mp4 (muted looping tiles): a Klipy .mp4 asset, a Discord attachment .mp4 or
 // an .mp4 behind the proxy; Tenor/Giphy videos use their WebP rendition.
 MediaUrlResult parse_catalog_preview_url(
-    Utf8View url, Slice<u8> target_output,
+    const Utf8View& url, const Slice<u8>& target_output,
     MediaAttachmentFormat format = MediaAttachmentFormat::webp, u32 width = 0, u32 height = 0) noexcept;
 // The preview format for a stored GIF favourite src: a direct Klipy .gif is
 // fetched as GIF, an MP4 the mp4 format admits plays as video, and every

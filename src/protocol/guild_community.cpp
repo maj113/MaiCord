@@ -14,7 +14,7 @@ namespace {
 constexpr u32 kDepth = 32;
 
 // Decodes a JSON string into output, truncated at a code point boundary.
-u32 decode_text(JsonValue value, char* output, u32 capacity) noexcept {
+u32 decode_text(const JsonValue& value, char* output, u32 capacity) noexcept {
     return protocol_detail::copy_text_truncated<4096>(value, output, capacity);
 }
 // A bounded text bank: decoded strings are appended and addressed by offset.

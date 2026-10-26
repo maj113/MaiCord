@@ -4,7 +4,7 @@
 #include "maicord/core/byte_range.hpp"
 
 namespace maicord {
-u32 steam_id(Utf8View value) noexcept {
+u32 steam_id(const Utf8View& value) noexcept {
     if (!value.data || !value.bytes || value.bytes > 10 || value.data[0] == '0') return 0;
     u32 result = 0;
     for (u32 i = 0; i < value.bytes; ++i) {

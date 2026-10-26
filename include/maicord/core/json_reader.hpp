@@ -82,15 +82,15 @@ using JsonArrayVisitor = bool (*)(void* context, u32 index, JsonValue value) noe
 
 // Validates one complete RFC 8259 object and visits each root member without
 // allocating a DOM. The structural index must come from the same input.
-JsonReadResult json_visit_root_object(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
-                                      JsonMemberVisitor visitor, void* context) noexcept;
-JsonReadResult json_visit_root_array(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
-                                     JsonArrayVisitor visitor, void* context) noexcept;
+JsonReadResult json_visit_root_object(const Utf8View& input, const ConstSlice<u32>& structurals,
+                                      u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept;
+JsonReadResult json_visit_root_array(const Utf8View& input, const ConstSlice<u32>& structurals,
+                                     u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept;
 // json_visit_root_* over value.source with an index of exactly that source.
-JsonReadResult json_visit_value_object(const JsonValue& value, ConstSlice<u32> structurals, u32 maximum_depth,
-                                       JsonMemberVisitor visitor, void* context) noexcept;
-JsonReadResult json_visit_value_array(const JsonValue& value, ConstSlice<u32> structurals, u32 maximum_depth,
-                                      JsonArrayVisitor visitor, void* context) noexcept;
+JsonReadResult json_visit_value_object(const JsonValue& value, const ConstSlice<u32>& structurals,
+                                       u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept;
+JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u32>& structurals,
+                                      u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept;
 
 // Nested visitors borrow the immutable index of the complete document. They do
 // not rescan, copy/rebase offsets, allocate, or overwrite an active parent's index.
@@ -107,22 +107,22 @@ bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, cons
                                     u32 ascii_bytes) noexcept;
 // Decodes escapes in value (has_escapes is only a hint). The inline forwarder
 // passes scalars so field-name chains do not copy both views to the stack.
-inline bool json_string_equals_ascii(JsonString value, Utf8View ascii) noexcept {
+inline bool json_string_equals_ascii(const JsonString& value, const Utf8View& ascii) noexcept {
     return json_string_equals_ascii_bytes(value.encoded.data, value.encoded.bytes, ascii.data, ascii.bytes);
 }
 // The same comparison for long field-name chains: a name whose first byte
 // differs is rejected without a call.
-inline bool json_name_is(JsonString name, Utf8View ascii) noexcept {
+inline bool json_name_is(const JsonString& name, const Utf8View& ascii) noexcept {
     if (name.encoded.data && name.encoded.bytes && ascii.bytes && name.encoded.data[0] != ascii.data[0] &&
         name.encoded.data[0] != '\\')
         return false;
     return json_string_equals_ascii_bytes(name.encoded.data, name.encoded.bytes, ascii.data, ascii.bytes);
 }
-bool json_string_equals_utf8(const JsonString& value, Utf8View text) noexcept;
+bool json_string_equals_utf8(const JsonString& value, const Utf8View& text) noexcept;
 bool json_string_to_u64(const JsonString& value, u64* output) noexcept;
 // Reports the complete decoded byte count without touching output on error or
 // insufficient capacity. A null, zero-sized output is a valid size query.
-JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, Slice<char> output) noexcept;
+JsonStringDecodeResult json_string_decode_utf8(const JsonString& value, const Slice<char>& output) noexcept;
 bool json_value_as_string(const JsonValue& value, JsonString* output) noexcept;
 bool json_value_to_u64(const JsonValue& value, u64* output) noexcept;
 bool json_value_to_bool(const JsonValue& value, bool* output) noexcept;

@@ -38,13 +38,13 @@ Utf8View text(ConstSlice<u8> payload) noexcept {
 }
 
 // Copies a JSON string, truncating at a code point boundary.
-u32 copy_text(JsonValue value, char* output, u32 capacity) noexcept {
+u32 copy_text(const JsonValue& value, char* output, u32 capacity) noexcept {
     return protocol_detail::copy_text_truncated<1024>(value, output, capacity);
 }
-template <typename T> u8 copy_small(JsonValue value, T (&output)) noexcept {
+template <typename T> u8 copy_small(const JsonValue& value, T (&output)) noexcept {
     return static_cast<u8>(copy_text(value, output, sizeof(output)));
 }
-bool scan(Utf8View body, Slice<u32> structurals, JsonIndexedDocument* document) noexcept {
+bool scan(const Utf8View& body, const Slice<u32>& structurals, JsonIndexedDocument* document) noexcept {
     if (!body.data || !body.bytes || !structurals.data)
         return false;
     const auto scanned = json_scan_structurals_avx1(body, structurals);

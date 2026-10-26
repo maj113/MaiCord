@@ -7,10 +7,10 @@
 namespace maicord {
 namespace {
 using namespace protocol_detail;
-bool present(JsonValue v) noexcept {
+bool present(const JsonValue& v) noexcept {
     return v.source.data != nullptr;
 }
-bool boolean(JsonValue v, bool* b) noexcept {
+bool boolean(const JsonValue& v, bool* b) noexcept {
     if (!filled(v)) {
         *b = false;
         return true;
@@ -19,7 +19,7 @@ bool boolean(JsonValue v, bool* b) noexcept {
 }
 // One body for every ProfileString<N>: object is the whole string (data first),
 // cleared like `*s = {}` before decoding into its first capacity bytes.
-__declspec(noinline) bool string_into(JsonValue v, char* object, u32 object_bytes, u32 capacity,
+__declspec(noinline) bool string_into(const JsonValue& v, char* object, u32 object_bytes, u32 capacity,
                                       u16* bytes) noexcept {
     clear_bytes(object, object_bytes);
     if (!filled(v))
@@ -33,7 +33,7 @@ __declspec(noinline) bool string_into(JsonValue v, char* object, u32 object_byte
     *bytes = static_cast<u16>(result.bytes);
     return true;
 }
-template <u32 N> bool string(JsonValue v, ProfileString<N>* s) noexcept {
+template <u32 N> bool string(const JsonValue& v, ProfileString<N>* s) noexcept {
     return string_into(v, s->data, sizeof(*s), N, &s->bytes);
 }
 struct Colors {
@@ -48,7 +48,7 @@ bool color_item(void* opaque, u32, JsonValue value) noexcept {
     c.values[c.count++] = static_cast<u32>(n);
     return true;
 }
-bool colors(const JsonIndexedDocument& doc, JsonValue v, u32* out, u32 capacity, u32* count) noexcept {
+bool colors(const JsonIndexedDocument& doc, const JsonValue& v, u32* out, u32 capacity, u32* count) noexcept {
     *count = 0;
     if (!filled(v))
         return true;
@@ -58,7 +58,7 @@ bool colors(const JsonIndexedDocument& doc, JsonValue v, u32* out, u32 capacity,
     *count = c.count;
     return true;
 }
-bool style(const JsonIndexedDocument& doc, JsonValue v, NameStyle* out) noexcept {
+bool style(const JsonIndexedDocument& doc, const JsonValue& v, NameStyle* out) noexcept {
     Field f[] = {{utf8_literal("font_id")}, {utf8_literal("effect_id")}, {utf8_literal("colors")}};
     if (!object(doc, v, f))
         return false;
@@ -203,7 +203,7 @@ struct EffectLayerContext {
     const JsonIndexedDocument* doc;
     ProfileEffect* output;
 };
-bool signed_number(JsonValue value, i32* output) noexcept {
+bool signed_number(const JsonValue& value, i32* output) noexcept {
     if (!filled(value))
         return true;
     const auto raw = value.source;
@@ -277,7 +277,7 @@ bool effect_item(void* opaque, u32, JsonValue v) noexcept {
         *e.sku = sku;
     return true;
 }
-bool profile_details(const JsonIndexedDocument& doc, JsonValue value, UserProfile* p,
+bool profile_details(const JsonIndexedDocument& doc, const JsonValue& value, UserProfile* p,
                      bool guild) noexcept {
     Field f[] = {{utf8_literal("banner")},       {utf8_literal("bio")},
                  {utf8_literal("pronouns")},     {utf8_literal("theme_colors")},

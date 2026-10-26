@@ -24,6 +24,6 @@ struct JsonScanResult {
 
 // Emits the offsets of unescaped quotes and of {}[]:, punctuation outside
 // strings. The caller owns the bounded output buffer; no allocation occurs.
-JsonScanResult json_scan_structurals_avx1(Utf8View input, Slice<u32> output) noexcept;
+JsonScanResult json_scan_structurals_avx1(const Utf8View& input, const Slice<u32>& output) noexcept;
 
 } // namespace maicord

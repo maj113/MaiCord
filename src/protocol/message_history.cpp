@@ -10,20 +10,10 @@ struct PageContext {
     Slice<char> content;
     Slice<GatewayMessageEvent> messages;
     Slice<GatewayMessageNamedUser> mention_users;
-    MessageHistoryRichScratch rich;
+    MessageHistoryRichCursor rich;
     MessageHistoryPage page;
     u32 transient_bytes;
     u32 mention_user_count;
-    u32 member_role_count;
-    u32 reaction_count;
-    u32 attachment_count;
-    u32 embed_count;
-    u32 embed_field_count;
-    u32 sticker_count;
-    u32 component_count;
-    u32 poll_answer_count, poll_count_count;
-    u32 snapshot_attachment_count, snapshot_embed_count, snapshot_embed_field_count;
-    u32 snapshot_sticker_count, snapshot_component_count, snapshot_mention_count;
     u32 maximum_depth;
     u32 error_offset;
     u32 degraded;
@@ -49,6 +39,14 @@ template <typename T> Slice<T> remaining(Slice<T> slice, u32 used) noexcept {
     return {slice.data ? slice.data + used : nullptr, slice.count - used};
 }
 
+template <typename T> bool has_storage(Slice<T> slice) noexcept {
+    return slice.data || !slice.count;
+}
+
+template <typename T> bool is_present(Slice<T> slice) noexcept {
+    return slice.data;
+}
+
 bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
     auto* context = static_cast<PageContext*>(opaque);
     if (index >= kMessageHistoryMaximumMessages || index >= context->messages.count) {
@@ -56,55 +54,28 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
         context->error_offset = value.source_offset;
         return false;
     }
-    GatewayMessageEvent message{};
+    GatewayMessageEvent message;
     const Slice<char> content = remaining(context->content, context->transient_bytes);
     const Slice<GatewayMessageNamedUser> mentions = remaining(context->mention_users, context->mention_user_count);
-    const Slice<u64> member_roles = remaining(context->rich.member_roles, context->member_role_count);
-    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
-    const auto& snapshot = context->rich.snapshot;
-    auto poll_answers = remaining(context->rich.poll.answers, context->poll_answer_count);
-    auto poll_counts = remaining(context->rich.poll.answer_counts, context->poll_count_count);
-    poll_answers.count = minimum<u32>(kGatewayMessagePollMaximumAnswers, poll_answers.count);
-    poll_counts.count = minimum<u32>(kGatewayMessagePollMaximumAnswers, poll_counts.count);
-    const GatewayMessageRichScratch rich{
-        remaining(context->rich.reactions, context->reaction_count),
-        remaining(context->rich.attachments, context->attachment_count),
-        remaining(context->rich.embeds, context->embed_count),
-        remaining(context->rich.embed_fields, context->embed_field_count),
-        remaining(context->rich.stickers, context->sticker_count),
-        remaining(context->rich.components, context->component_count),
-        GatewayMessageSnapshotScratch{remaining(snapshot.attachments, context->snapshot_attachment_count),
-                                      remaining(snapshot.embeds, context->snapshot_embed_count),
-                                      remaining(snapshot.embed_fields, context->snapshot_embed_field_count),
-                                      remaining(snapshot.stickers, context->snapshot_sticker_count),
-                                      remaining(snapshot.components, context->snapshot_component_count),
-                                      remaining(snapshot.mention_users, context->snapshot_mention_count)},
-        GatewayMessagePollScratch{poll_answers, poll_counts}};
+    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
     GatewayEventDecodeResult decoded =
         context->capture_rich
             ? gateway_decode_message_create(
                   value, context->message_structurals, context->maximum_depth, content,
-                  Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, member_roles, mentions, rich, 0,
-                  &message)
-            : (context->mention_users.data
-                   ? gateway_decode_message_create(
-                         value, context->message_structurals, context->maximum_depth, content,
-                         Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &message)
-                   : gateway_decode_message_create(
-                         value, context->message_structurals, context->maximum_depth, content, &message));
+                  Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds},
+                  context->rich.remaining_member_roles(), mentions, context->rich.remaining(), 0, &message)
+            : gateway_decode_message_create(
+                  value, context->message_structurals, context->maximum_depth, content,
+                  Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &message);
     if (!decoded.ok() && context->capture_rich) {
         // Rich decoding (cards, embeds, threads, polls, ...) is presentation
         // detail: an unexpected nested shape degrades only that message to its
         // core text. Core failures still fail the page. A failed attempt commits
         // nothing; pool cursors advance only after a successful message.
-        GatewayMessageEvent core{};
-        const GatewayEventDecodeResult fallback =
-            context->mention_users.data
-                ? gateway_decode_message_create(
-                      value, context->message_structurals, context->maximum_depth,
-                      content, Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &core)
-                : gateway_decode_message_create(value, context->message_structurals, context->maximum_depth,
-                                                content, &core);
+        GatewayMessageEvent core;
+        const GatewayEventDecodeResult fallback = gateway_decode_message_create(
+            value, context->message_structurals, context->maximum_depth, content,
+            Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &core);
         if (fallback.ok()) {
             core.fields &= ~kMessageHistoryRichFieldMask;
             core.forwarding_features &= static_cast<u8>(~gateway_message_forwarding_poll);
@@ -147,25 +118,74 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
     context->page.content_bytes += message.content.bytes;
     context->transient_bytes += message.transient_bytes;
     context->mention_user_count += message.mention_users.count;
-    context->member_role_count += message.member_roles.count;
-    context->reaction_count += message.reactions.count;
-    context->attachment_count += message.attachments.count;
-    context->embed_count += message.embeds.count;
-    context->embed_field_count += message.embed_fields.count;
-    context->sticker_count += message.stickers.count;
-    context->component_count += message.components.count;
-    context->poll_answer_count += message.poll.answers.count;
-    context->poll_count_count += message.poll.answer_counts.count;
-    context->snapshot_attachment_count += message.snapshot.attachments.count;
-    context->snapshot_embed_count += message.snapshot.embeds.count;
-    context->snapshot_embed_field_count += message.snapshot.embed_fields.count;
-    context->snapshot_sticker_count += message.snapshot.stickers.count;
-    context->snapshot_component_count += message.snapshot.components.count;
-    context->snapshot_mention_count += message.snapshot.mention_users.count;
+    context->rich.advance(message);
     return true;
 }
 
 } // namespace
+
+bool MessageHistoryRichCursor::valid() const noexcept {
+    return has_storage(scratch.reactions) && has_storage(scratch.attachments) && has_storage(scratch.embeds) &&
+           has_storage(scratch.embed_fields) && has_storage(scratch.stickers) && has_storage(scratch.components) &&
+           has_storage(scratch.member_roles) && has_storage(scratch.snapshot.attachments) &&
+           has_storage(scratch.snapshot.embeds) && has_storage(scratch.snapshot.embed_fields) &&
+           has_storage(scratch.snapshot.stickers) && has_storage(scratch.snapshot.components) &&
+           has_storage(scratch.snapshot.mention_users) && has_storage(scratch.poll.answers) &&
+           has_storage(scratch.poll.answer_counts);
+}
+
+bool MessageHistoryRichCursor::present() const noexcept {
+    return is_present(scratch.reactions) || is_present(scratch.attachments) || is_present(scratch.embeds) ||
+           is_present(scratch.embed_fields) || is_present(scratch.stickers) || is_present(scratch.components) ||
+           is_present(scratch.member_roles) || is_present(scratch.snapshot.attachments) ||
+           is_present(scratch.snapshot.embeds) || is_present(scratch.snapshot.embed_fields) ||
+           is_present(scratch.snapshot.stickers) || is_present(scratch.snapshot.components) ||
+           is_present(scratch.snapshot.mention_users) || is_present(scratch.poll.answers) ||
+           is_present(scratch.poll.answer_counts);
+}
+
+Slice<u64> MessageHistoryRichCursor::remaining_member_roles() const noexcept {
+    return ::maicord::remaining(scratch.member_roles, member_roles);
+}
+
+GatewayMessageRichScratch MessageHistoryRichCursor::remaining() const noexcept {
+    auto answers = ::maicord::remaining(scratch.poll.answers, poll_answers);
+    auto counts = ::maicord::remaining(scratch.poll.answer_counts, poll_counts);
+    answers.count = minimum<u32>(kGatewayMessagePollMaximumAnswers, answers.count);
+    counts.count = minimum<u32>(kGatewayMessagePollMaximumAnswers, counts.count);
+    const auto& child = scratch.snapshot;
+    return {::maicord::remaining(scratch.reactions, reactions),
+            ::maicord::remaining(scratch.attachments, attachments),
+            ::maicord::remaining(scratch.embeds, embeds),
+            ::maicord::remaining(scratch.embed_fields, embed_fields),
+            ::maicord::remaining(scratch.stickers, stickers),
+            ::maicord::remaining(scratch.components, components),
+            {::maicord::remaining(child.attachments, snapshot_attachments),
+             ::maicord::remaining(child.embeds, snapshot_embeds),
+             ::maicord::remaining(child.embed_fields, snapshot_embed_fields),
+             ::maicord::remaining(child.stickers, snapshot_stickers),
+             ::maicord::remaining(child.components, snapshot_components),
+             ::maicord::remaining(child.mention_users, snapshot_mentions)},
+            {answers, counts}};
+}
+
+void MessageHistoryRichCursor::advance(const GatewayMessageEvent& message) noexcept {
+    member_roles += message.member_roles.count;
+    reactions += message.reactions.count;
+    attachments += message.attachments.count;
+    embeds += message.embeds.count;
+    embed_fields += message.embed_fields.count;
+    stickers += message.stickers.count;
+    components += message.components.count;
+    poll_answers += message.poll.answers.count;
+    poll_counts += message.poll.answer_counts.count;
+    snapshot_attachments += message.snapshot.attachments.count;
+    snapshot_embeds += message.snapshot.embeds.count;
+    snapshot_embed_fields += message.snapshot.embed_fields.count;
+    snapshot_stickers += message.snapshot.stickers.count;
+    snapshot_components += message.snapshot.components.count;
+    snapshot_mentions += message.snapshot.mention_users.count;
+}
 
 MessageHistoryTargetResult write_message_history_target(
     u64 channel_id, const MessageHistoryQuery& query, Slice<u8> output) noexcept {
@@ -229,26 +249,12 @@ MessageHistoryDecodeResult decode_page(
     u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages,
     Slice<GatewayMessageNamedUser> mention_users, const MessageHistoryRichScratch& rich_scratch,
     bool mixed_channels) noexcept {
+    const MessageHistoryRichCursor rich{rich_scratch};
     if (!body.data || body.bytes == 0 || !page_structural_scratch.data ||
         page_structural_scratch.count == 0 || !message_structural_scratch.data ||
         message_structural_scratch.count == 0 || maximum_depth == 0 ||
         (!content_output.data && content_output.count != 0) || (!messages.data && messages.count != 0) ||
-        (!mention_users.data && mention_users.count != 0) ||
-        (!rich_scratch.reactions.data && rich_scratch.reactions.count != 0) ||
-        (!rich_scratch.attachments.data && rich_scratch.attachments.count != 0) ||
-        (!rich_scratch.embeds.data && rich_scratch.embeds.count != 0) ||
-        (!rich_scratch.embed_fields.data && rich_scratch.embed_fields.count != 0) ||
-        (!rich_scratch.stickers.data && rich_scratch.stickers.count != 0) ||
-        (!rich_scratch.components.data && rich_scratch.components.count != 0) ||
-        (!rich_scratch.member_roles.data && rich_scratch.member_roles.count != 0) ||
-        (!rich_scratch.snapshot.attachments.data && rich_scratch.snapshot.attachments.count) ||
-        (!rich_scratch.snapshot.embeds.data && rich_scratch.snapshot.embeds.count) ||
-        (!rich_scratch.snapshot.embed_fields.data && rich_scratch.snapshot.embed_fields.count) ||
-        (!rich_scratch.snapshot.stickers.data && rich_scratch.snapshot.stickers.count) ||
-        (!rich_scratch.snapshot.components.data && rich_scratch.snapshot.components.count) ||
-        (!rich_scratch.snapshot.mention_users.data && rich_scratch.snapshot.mention_users.count) ||
-        (!rich_scratch.poll.answers.data && rich_scratch.poll.answers.count) ||
-        (!rich_scratch.poll.answer_counts.data && rich_scratch.poll.answer_counts.count)) {
+        (!mention_users.data && mention_users.count != 0) || !rich.valid()) {
         return decode_failure(MessageHistoryDecodeError::invalid_input);
     }
     const JsonScanResult scan = json_scan_structurals_avx1(body, page_structural_scratch);
@@ -261,15 +267,8 @@ MessageHistoryDecodeResult decode_page(
     context.content = content_output;
     context.messages = messages;
     context.mention_users = mention_users;
-    context.rich = rich_scratch;
-    context.capture_rich = rich_scratch.reactions.data || rich_scratch.attachments.data ||
-                           rich_scratch.embeds.data || rich_scratch.embed_fields.data ||
-                           rich_scratch.stickers.data || rich_scratch.components.data ||
-                           rich_scratch.member_roles.data || rich_scratch.snapshot.attachments.data ||
-                           rich_scratch.snapshot.embeds.data || rich_scratch.snapshot.embed_fields.data ||
-                           rich_scratch.snapshot.stickers.data || rich_scratch.snapshot.components.data ||
-                           rich_scratch.snapshot.mention_users.data || rich_scratch.poll.answers.data ||
-                           rich_scratch.poll.answer_counts.data;
+    context.rich = rich;
+    context.capture_rich = rich.present();
     context.maximum_depth = maximum_depth;
     context.mixed_channels = mixed_channels;
     context.error = MessageHistoryDecodeError::none;

@@ -401,7 +401,7 @@ UserAuthDecodeResult classify_response(u16 status_code, Utf8View body, Slice<u32
     return decode_failure(UserAuthDecodeError::none);
 }
 
-UserAuthDecodeError preflight_field(DecodedField* field, Slice<char> destination,
+UserAuthDecodeError preflight_field(DecodedField* field, const Slice<char>& destination,
                                     bool require_nonempty) noexcept {
     if (!field->present) {
         return UserAuthDecodeError::none;
@@ -418,7 +418,7 @@ UserAuthDecodeError preflight_field(DecodedField* field, Slice<char> destination
                : UserAuthDecodeError::output_too_small;
 }
 
-void decode_field(const DecodedField& field, Slice<char> destination) noexcept {
+void decode_field(const DecodedField& field, const Slice<char>& destination) noexcept {
     if (field.present) {
         json_string_decode_utf8(field.value, destination);
     }
