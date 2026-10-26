@@ -21,6 +21,10 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
 // The recorded frame is on screen (or provably needs no present).
 void renderer_paint_diff_commit(D3D11Renderer* renderer) noexcept;
 void renderer_paint_diff_release(D3D11Renderer* renderer) noexcept;
+// Copies the built paint stream and media into `copy`, creating its storage on
+// first use. False leaves the copy's counts stale: the caller must not use it.
+bool renderer_frame_copy_record(RendererFrameCopy* copy, const D3D11Renderer& renderer) noexcept;
+void renderer_frame_copy_release(RendererFrameCopy* copy) noexcept;
 // Typing dots (RendererTypingDots): where the last build painted them, whether
 // the composer's phase has moved since, and the step that patches the retained
 // stream and damages only the dots. A false step leaves everything as it was

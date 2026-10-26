@@ -42,13 +42,13 @@ MediaAtlasGpuResult reject_media_request(D3D11Renderer* renderer) noexcept {
     return MediaAtlasGpuResult{{}, E_INVALIDARG, MediaAtlasGpuError::invalid_input};
 }
 
-bool media_request_ready(const D3D11Renderer* renderer, MediaAssetKey key) noexcept {
+bool media_request_ready(const D3D11Renderer* renderer, const MediaAssetKey& key) noexcept {
     return renderer && renderer->graphics.device && renderer->graphics.context1 && renderer->media_atlas &&
            media_asset_key_valid(key);
 }
 
 // Large previews below the original tier use the preview atlas once it is bound.
-bool uses_preview_atlas(const D3D11Renderer* renderer, MediaAssetKey key) noexcept {
+bool uses_preview_atlas(const D3D11Renderer* renderer, const MediaAssetKey& key) noexcept {
     return media_asset_large_preview(key) && media_asset_resolution_tier(key) != MediaResolutionTier::original &&
            renderer && renderer->preview_media_atlas;
 }
@@ -98,7 +98,7 @@ MediaAtlasGpuResult ensure_upload_preview_gpu(D3D11Renderer* renderer, bool prev
 // its existing rows copied. A failed resize reverts the allocator, so the
 // upload fails like any other capacity miss.
 MediaAtlasGpuResult prepare_media_surface(D3D11Renderer* renderer, MediaAtlas* atlas, bool preview,
-                                          MediaAssetKey key, u32 width, u32 height) noexcept {
+                                          const MediaAssetKey& key, u32 width, u32 height) noexcept {
     const MediaAtlasGpuResult ready{{}, S_OK, MediaAtlasGpuError::none};
     if (!atlas || width == 0 || height == 0 || width > 0xFFFFu || height > 0xFFFFu)
         return ready;
@@ -144,7 +144,7 @@ public:
     MediaAtlasGpuResult initialized;
     // A nonzero extent (new animations) makes room before the slots swap, so
     // a resize always targets the surface slot that owns this atlas.
-    AnimationAtlasTarget(D3D11Renderer* renderer, MediaAssetKey key, u32 width = 0, u32 height = 0) noexcept
+    AnimationAtlasTarget(D3D11Renderer* renderer, const MediaAssetKey& key, u32 width = 0, u32 height = 0) noexcept
         : renderer_(renderer) {
         preview = media_asset_large_preview(key) && renderer->preview_media_atlas;
         atlas = preview ? renderer->preview_media_atlas : renderer->media_atlas;
@@ -165,18 +165,32 @@ public:
     AnimationAtlasTarget& operator=(const AnimationAtlasTarget&) = delete;
 };
 
+// An upload run on the chosen atlas: a context and the function that runs it, so
+// one non-template path serves every codec.
+struct AtlasUpload {
+    void* context;
+    MediaAtlasGpuResult (*run)(void*, MediaAtlas*) noexcept;
+};
+
+template <class F>
+AtlasUpload atlas_upload(F* function) noexcept {
+    return {function, [](void* context, MediaAtlas* atlas) noexcept {
+                return (*static_cast<F*>(context))(atlas);
+            }};
+}
+
 // Shared tail of the still-image uploads: both surfaces up, room made, the
 // upload run on the chosen atlas, failure and damage accounted.
-template <class Upload>
-MediaAtlasGpuResult upload_to_atlas(D3D11Renderer* renderer, MediaAssetKey key, bool preview, MediaAtlas* atlas,
-                                    u32 width, u32 height, const char* failure_event, Upload upload) noexcept {
+MediaAtlasGpuResult run_atlas_upload(D3D11Renderer* renderer, const MediaAssetKey& key, bool preview,
+                                     MediaAtlas* atlas, u32 width, u32 height, const char* failure_event,
+                                     const AtlasUpload& upload) noexcept {
     const MediaAtlasGpuResult initialized = ensure_primary_media_gpu(renderer);
     if (!initialized.ok()) return initialized;
     const MediaAtlasGpuResult preview_initialized = ensure_upload_preview_gpu(renderer, preview, atlas);
     if (!preview_initialized.ok()) return preview_initialized;
     const MediaAtlasGpuResult prepared = prepare_media_surface(renderer, atlas, preview, key, width, height);
     if (!prepared.ok()) return prepared;
-    const MediaAtlasGpuResult uploaded = upload();
+    const MediaAtlasGpuResult uploaded = upload.run(upload.context, atlas);
     if (!uploaded.ok()) {
         ++renderer->media_rejected;
         log_media_upload_failure(uploaded, failure_event);
@@ -189,18 +203,31 @@ MediaAtlasGpuResult upload_to_atlas(D3D11Renderer* renderer, MediaAssetKey key, 
 }
 
 // Animation entry points: the surface owning `key` is borrowed for `upload`.
-template <class Upload>
-MediaAtlasGpuResult upload_animation(D3D11Renderer* renderer, MediaAssetKey key, u32 canvas_width,
-                                     u32 canvas_height, const char* failure_event, Upload upload) noexcept {
+MediaAtlasGpuResult run_animation_upload(D3D11Renderer* renderer, const MediaAssetKey& key, u32 canvas_width,
+                                         u32 canvas_height, const char* failure_event,
+                                         const AtlasUpload& upload) noexcept {
     AnimationAtlasTarget target(renderer, key, canvas_width, canvas_height);
     if (!target.initialized.ok()) return target.initialized;
-    const MediaAtlasGpuResult uploaded = upload(target.atlas);
+    const MediaAtlasGpuResult uploaded = upload.run(upload.context, target.atlas);
     if (!uploaded.ok()) {
         ++renderer->media_rejected;
         log_media_upload_failure(uploaded, failure_event);
     }
     note_media_mutation(renderer, uploaded, target.preview ? 1 : 0);
     return uploaded;
+}
+
+template <class Upload>
+MediaAtlasGpuResult upload_to_atlas(D3D11Renderer* renderer, const MediaAssetKey& key, bool preview, MediaAtlas* atlas,
+                                    u32 width, u32 height, const char* failure_event, Upload&& upload) noexcept {
+    auto run = [&](MediaAtlas*) noexcept { return upload(); };
+    return run_atlas_upload(renderer, key, preview, atlas, width, height, failure_event, atlas_upload(&run));
+}
+
+template <class Upload>
+MediaAtlasGpuResult upload_animation(D3D11Renderer* renderer, const MediaAssetKey& key, u32 canvas_width,
+                                     u32 canvas_height, const char* failure_event, Upload&& upload) noexcept {
+    return run_animation_upload(renderer, key, canvas_width, canvas_height, failure_event, atlas_upload(&upload));
 }
 
 } // namespace

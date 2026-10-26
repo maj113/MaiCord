@@ -223,9 +223,9 @@ struct RendererLayerOpacity {
 };
 static_assert(sizeof(RendererLayerOpacity) == 28);
 
-// The previous built frame, kept to turn a rebuild whose draw structure is
-// unchanged into damage covering only the quads that differ.
-struct RendererPaintDiff {
+// A built frame's retained copy: paint quads, clips and batches, and the media
+// quads with their handles, domains and batches (renderer_frame_copy_record).
+struct RendererFrameCopy {
     StableStorage paint_quads;
     StableStorage media_quads;
     StableStorage media_handles;
@@ -233,10 +233,16 @@ struct RendererPaintDiff {
     StableStorage media_batches;
     PaintClip clips[kMaxPaintClips];
     PaintBatch batches[kMaxPaintBatches];
+    u32 paint_count, clip_count, batch_count, media_count, media_batch_count;
+};
+
+// The previous built frame, kept to turn a rebuild whose draw structure is
+// unchanged into damage covering only the quads that differ.
+struct RendererPaintDiff {
+    RendererFrameCopy frame;
     RendererPresentationStamp structure;
     u64 text_signature;
     u64 layout_signature;
-    u32 paint_count, clip_count, batch_count, media_count, media_batch_count;
     u32 partial_rebuilds;
     // Diagnostic: the first failed condition of the last comparison (0 = partial).
     u8 reject_reason;
@@ -251,16 +257,9 @@ struct RendererPaintDiff {
 // the timeline alone (a scroll, new history) replays it instead of building it
 // again; an invalidated stamp (an unhashed input moved) builds it afresh.
 struct RendererShellSegment {
-    StableStorage paint_quads;
-    StableStorage media_quads;
-    StableStorage media_handles;
-    StableStorage media_domains;
-    StableStorage media_batches;
-    PaintClip clips[kMaxPaintClips];
-    PaintBatch batches[kMaxPaintBatches];
+    RendererFrameCopy frame;
     UiRect message_view, member_sidebar;
     u64 key;
-    u32 paint_count, clip_count, batch_count, media_count, media_batch_count;
     u32 builds, replays;
     bool member_sidebar_visible;
     bool valid;
@@ -642,7 +641,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120744);
+static_assert(sizeof(D3D11Renderer) == 120752);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

@@ -19,6 +19,20 @@ struct Builder {
     float scale;
     u32 mask_buckets[256]{};
 };
+static_assert(offsetof(ColrPaintElement, paint.linearGradient.x0) ==
+                  offsetof(ColrPaintElement, paint.linearGradient.extendMode) + 2 * sizeof(u32) &&
+              offsetof(ColrPaintElement, paint.radialGradient.x0) ==
+                  offsetof(ColrPaintElement, paint.linearGradient.x0) &&
+              offsetof(ColrPaintElement, paint.sweepGradient.centerX) ==
+                  offsetof(ColrPaintElement, paint.linearGradient.x0) &&
+              offsetof(ColrPaintElement, paint.radialGradient.extendMode) ==
+                  offsetof(ColrPaintElement, paint.linearGradient.extendMode) &&
+              offsetof(ColrPaintElement, paint.sweepGradient.extendMode) ==
+                  offsetof(ColrPaintElement, paint.linearGradient.extendMode) &&
+              offsetof(ColrPaintElement, paint.radialGradient.gradientStopCount) ==
+                  offsetof(ColrPaintElement, paint.linearGradient.gradientStopCount) &&
+              offsetof(ColrPaintElement, paint.sweepGradient.gradientStopCount) ==
+                  offsetof(ColrPaintElement, paint.linearGradient.gradientStopCount));
 Point transform(const ColrMatrix& m, Point p) noexcept {
     return {p.x * m.m11 + p.y * m.m21 + m.dx, p.x * m.m12 + p.y * m.m22 + m.dy};
 }
@@ -377,34 +391,21 @@ bool tree(Builder& b, const ColrPaintElement& e, const ColrMatrix& m, u32 depth)
         auto* n = static_cast<ColrPaintNode*>(emit(b, static_cast<u32>(e.kind) - 3, &m, sizeof(ColrPaintNode)));
         if (!n)
             return false;
-        if (e.kind == ColrPaintKind::linear_gradient) {
-            const auto& g = p.linearGradient;
-            n->mode = g.extendMode;
-            n->count = g.gradientStopCount;
-            n->values[0] = g.x0;
-            n->values[1] = g.y0;
-            n->values[2] = g.x1;
-            n->values[3] = g.y1;
-            n->values[4] = g.x2;
-            n->values[5] = g.y2;
-        } else if (e.kind == ColrPaintKind::radial_gradient) {
-            const auto& g = p.radialGradient;
-            n->mode = g.extendMode;
-            n->count = g.gradientStopCount;
-            n->values[0] = g.x0;
-            n->values[1] = g.y0;
-            n->values[2] = g.x1;
-            n->values[3] = g.y1;
-            n->values[4] = g.radius0;
-            n->values[5] = g.radius1;
-        } else {
-            const auto& g = p.sweepGradient;
-            n->mode = g.extendMode;
-            n->count = g.gradientStopCount;
-            n->values[0] = g.centerX;
-            n->values[1] = g.centerY;
-            n->values[2] = g.startAngle;
-            n->values[3] = g.endAngle;
+        // Every gradient starts with {extendMode, stopCount}, then floats in node order, except a
+        // radial gradient's radii; a sweep gradient carries four of the six.
+        const auto& g = p.linearGradient;
+        n->mode = g.extendMode;
+        n->count = g.gradientStopCount;
+        if (e.kind == ColrPaintKind::sweep_gradient)
+            copy_bytes(n->values, &g.x0, 4 * sizeof(float));
+        else {
+            copy_bytes(n->values, &g.x0, 6 * sizeof(float));
+            if (e.kind == ColrPaintKind::radial_gradient) {
+                const float radius0 = n->values[2];
+                n->values[2] = n->values[3];
+                n->values[3] = n->values[4];
+                n->values[4] = radius0;
+            }
         }
         if (!n->count || n->count > 65536)
             return false;

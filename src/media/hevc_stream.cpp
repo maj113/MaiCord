@@ -273,7 +273,9 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
     const HevcPictureHeader& header = picture.header;
     const HevcSps& sps = state->sets.active.sps;
     const u8 type = header.nal_type;
-    HevcStreamDecode next{};
+    // Callers read *decode only after a decode action; it is built in place.
+    reset_value(decode);
+    HevcStreamDecode& next = *decode;
     if (header.irap) {
         if (!stream_supported(sps)) {
             state->unsupported = true;
@@ -309,12 +311,18 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
     const u32 busy =
         (next.restart ? 0u : hevc_reference_surfaces(references)) | (next.reinitialize ? 0u : state->held);
     // Prior pictures are discarded, or drained before new surfaces replace theirs.
-    H264OutputQueue pending = state->output;
     const bool discard = next.restart && header.no_output_prior && (header.idr || type <= 18);
-    if (discard || next.reinitialize)
-        reset_value(&pending);
-    pending.leased = 255;
-    const u8 surface = h264_free_surface(pending, busy, capacity);
+    u8 surface;
+    if (discard || next.reinitialize) {
+        const H264OutputQueue emptied{};
+        surface = h264_free_surface(emptied, busy, capacity);
+    } else {
+        // The lease only matters to the output path; ignore it while choosing.
+        const u8 leased = state->output.leased;
+        state->output.leased = 255;
+        surface = h264_free_surface(state->output, busy, capacity);
+        state->output.leased = leased;
+    }
     if (surface == 255) {
         hevc_stream_reset(state);
         return HevcStreamAction::request_keyframe;
@@ -337,7 +345,6 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
             state->drain = true;
     }
     next.surface = surface;
-    *decode = next;
     return HevcStreamAction::decode;
 }
 

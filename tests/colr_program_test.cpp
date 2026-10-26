@@ -159,6 +159,33 @@ bool matrix_validation_cases() noexcept {
     return colr_program_build(&program,callbacks,root,{},32)&&visits==0&&program.nodes==1&&
         reinterpret_cast<const ColrPaintOp*>(program.storage.base+program.first)->kind==7;
 }
+// Each gradient's geometry reaches the program node in the layout the shader reads.
+bool gradient_value_cases() noexcept {
+    ColrPaintElement element{};
+    const ColrPaintSource callbacks{&element,
+        +[](void* context,ColrPaintElement* output) noexcept {*output=*static_cast<ColrPaintElement*>(context);return true;},
+        +[](void*,ColrPaintElement*) noexcept {return false;},
+        +[](void*) noexcept {return true;},
+        +[](void*,Slice<ColrGradientStop>) noexcept {return true;},
+        +[](void*,u16,GlyphOutline*) noexcept {return false;}};
+    ColrPaintProgram program{};
+    struct Release {ColrPaintProgram& program;~Release() noexcept {arena_release(&program.storage);}} release{program};
+    const auto node=[&]() noexcept {
+        return colr_program_build(&program,callbacks,element,{},32)&&program.nodes==1?
+            reinterpret_cast<const ColrPaintNode*>(program.storage.base+program.first):nullptr;
+    };
+    const auto matches=[](const ColrPaintNode* n,u32 kind,u32 mode,const float (&values)[6]) noexcept {
+        if(!n||n->kind!=kind||n->mode!=mode||n->count!=2)return false;
+        for(u32 i=0;i<6;++i)if(n->values[i]!=values[i])return false;
+        return true;
+    };
+    element.kind=ColrPaintKind::linear_gradient;element.paint.linearGradient={1,2,1,2,3,4,5,6};
+    if(!matches(node(),1,1,{1,2,3,4,5,6}))return false;
+    element.kind=ColrPaintKind::radial_gradient;element.paint.radialGradient={2,2,1,2,3,4,5,6};
+    if(!matches(node(),2,2,{1,2,4,5,3,6}))return false;
+    element.kind=ColrPaintKind::sweep_gradient;element.paint.sweepGradient={0,2,1,2,3,4};
+    return matches(node(),3,0,{1,2,3,4,0,0});
+}
 bool segment_capacity_cases() noexcept {
     Source source{};ColrPaintSource callbacks{&source,first,next,parent,stops,outline};
     ColrPaintElement root{};solid(source,&root);
@@ -400,7 +427,7 @@ bool colr_program_tests() noexcept {
     root.paint.linearGradient.gradientStopCount=0;
     ok=ok && !colr_program_build(&program,callbacks,root,{},32);
     callbacks.stops=nullptr;ok=ok && !colr_program_build(&program,callbacks,root,{},32);
-    arena_release(&program.storage);return vector_ok && ok && segment_capacity_cases() && row_bin_cases() && outline_capacity_cases() && packed_bounds_cases() && matrix_validation_cases() && closing_edge_cases();
+    arena_release(&program.storage);return vector_ok && ok && segment_capacity_cases() && row_bin_cases() && outline_capacity_cases() && packed_bounds_cases() && matrix_validation_cases() && gradient_value_cases() && closing_edge_cases();
 }
 bool colr_source_tests() noexcept;
 } // namespace maicord

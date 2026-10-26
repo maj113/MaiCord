@@ -217,13 +217,14 @@ E fill(Mp4SegmentStore& s,u32 number,ConstSlice<u8> body,u64 duration_us,u64 ini
     auto& fragment=media.fragment; fragment.metadata={data,table}; fragment.defaults=s.track.defaults;
     fragment.first_time=first; fragment.duration=duration; fragment.count=count; fragment.run_count=1;
     fragment.runs[0]={table,0,count,s.track.audio?0x200u:0x01000f00u,0}; mp4_fragment_reset(&fragment);
-    auto cursor=fragment; Mp4FragmentSample sample{};
-    while(mp4_fragment_next(&cursor,&sample)==E::none) {
+    Mp4FragmentSample sample{};
+    while(mp4_fragment_next(&fragment,&sample)==E::none) {
         if(sample.offset>used || sample.bytes>used-sample.offset || sample.presentation_time<0 ||
             sample.presentation_time>0x7fffffffffffffffll-sample.duration) return E::malformed;
         media.presentation_end=maximum(media.presentation_end,static_cast<u64>(sample.presentation_time)+sample.duration);
     }
-    if(cursor.index!=count || cursor.decode_time!=first+duration) return E::malformed;
+    if(fragment.index!=count || fragment.decode_time!=first+duration) return E::malformed;
+    mp4_fragment_reset(&fragment);
     for(const auto& prior:s.slots) if(prior.bytes && prior.number!=number) {
         const auto& a=prior.number<number?prior.media.range:media.range;
         const auto& b=prior.number<number?media.range:prior.media.range;

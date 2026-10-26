@@ -309,7 +309,9 @@ void h264_stream_lost(H264StreamState* state) noexcept {
 H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPicture& picture,
                                      H264StreamDecode* decode) noexcept {
     if (!state || !decode || !picture.slice_count) return H264StreamAction::request_keyframe;
-    H264StreamDecode next{};
+    // Callers read *decode only after a decode action; it is built in place.
+    reset_value(decode);
+    H264StreamDecode& next = *decode;
     const H264Slice& first = picture.first;
     const H264Sps& sps = picture.sps;
     bool reset = first.idr;
@@ -350,11 +352,12 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
     const u8 capacity = next.reinitialize ? next.surfaces_needed : state->surfaces;
     state->output.leased = 255;
     const u32 busy = (first.idr ? 0u : reference_mask(state->references)) | (next.reinitialize ? 0u : state->held);
-    H264OutputQueue pending = state->output;
-    if (next.reinitialize)
-        reset_value(&pending); // Drained before new surfaces replace theirs.
-    pending.leased = 255;
-    const u8 surface = h264_free_surface(pending, busy, capacity);
+    u8 surface;
+    if (next.reinitialize) {
+        const H264OutputQueue drained{}; // Drained before new surfaces replace theirs.
+        surface = h264_free_surface(drained, busy, capacity);
+    } else
+        surface = h264_free_surface(state->output, busy, capacity);
     if (surface == 255) {
         h264_stream_reset(state);
         return H264StreamAction::request_keyframe;
@@ -374,7 +377,6 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
         } else state->drain = true;
     }
     next.surface = surface;
-    *decode = next;
     return H264StreamAction::decode;
 }
 

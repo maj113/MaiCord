@@ -702,39 +702,6 @@ namespace {
 // Covers icon pixel snapping at upload and edge antialiasing.
 constexpr float kPaintDiffFringe = 2.f;
 
-void release_paint_diff_storage(RendererPaintDiff* diff) noexcept {
-    stable_storage_release(&diff->paint_quads);
-    stable_storage_release(&diff->media_quads);
-    stable_storage_release(&diff->media_handles);
-    stable_storage_release(&diff->media_domains);
-    stable_storage_release(&diff->media_batches);
-}
-
-bool paint_diff_storage(RendererPaintDiff* diff) noexcept {
-    if (diff->paint_quads.arena.base)
-        return true;
-    if (stable_storage_initialize(&diff->paint_quads, kMaxPaintQuads, 0, sizeof(PaintQuad), alignof(PaintQuad)) &&
-        stable_storage_initialize(&diff->media_quads, kRendererMediaQuadCapacity, 0, sizeof(MediaQuad),
-                                  alignof(MediaQuad)) &&
-        stable_storage_initialize(&diff->media_handles, kRendererMediaQuadCapacity, 0, sizeof(MediaAtlasHandle),
-                                  alignof(MediaAtlasHandle)) &&
-        stable_storage_initialize(&diff->media_domains, kRendererMediaQuadCapacity, 0, 1, 1) &&
-        stable_storage_initialize(&diff->media_batches, kRendererMediaBatchCapacity, 0, sizeof(MediaDrawBatch),
-                                  alignof(MediaDrawBatch)))
-        return true;
-    release_paint_diff_storage(diff);
-    return false;
-}
-
-bool bytes_equal(const void* left, const void* right, usize count) noexcept {
-    const u8* a = static_cast<const u8*>(left);
-    const u8* b = static_cast<const u8*>(right);
-    for (usize index = 0; index < count; ++index)
-        if (a[index] != b[index])
-            return false;
-    return true;
-}
-
 u64 text_signature(const D3D11Renderer& renderer) noexcept {
     if (!renderer.content_text)
         return 0;
@@ -775,7 +742,7 @@ bool add_quad_damage(PresentationDamageTracker* tracker, float left, float top, 
 
 // Adds old/new bounds of the quads between the common prefix and suffix of
 // each batch. False means the structures differ and nothing was added.
-bool add_paint_damage(D3D11Renderer* renderer, const RendererPaintDiff& diff) noexcept {
+bool add_paint_damage(D3D11Renderer* renderer, const RendererFrameCopy& diff) noexcept {
     const PaintStream& paint = renderer->paint_stream;
     const auto* previous = stable_storage_data<PaintQuad>(diff.paint_quads);
     for (u32 batch = 0; batch < paint.batch_count; ++batch) {
@@ -820,7 +787,7 @@ bool add_paint_damage(D3D11Renderer* renderer, const RendererPaintDiff& diff) no
 
 // Media batches, handles and domains must match exactly; changed sources and
 // pending atlas writes for visible handles become damage, as on a retained frame.
-bool add_media_damage(D3D11Renderer* renderer, const RendererPaintDiff& diff) noexcept {
+bool add_media_damage(D3D11Renderer* renderer, const RendererFrameCopy& diff) noexcept {
     const u32 count = renderer->media_quad_count;
     const RendererMediaDrawStorage& media = renderer->media_draw;
     if (count != diff.media_count || renderer->media_batch_count != diff.media_batch_count ||
@@ -867,6 +834,47 @@ bool record_array(StableStorage* storage, const T* source, u32 count) noexcept {
 
 } // namespace
 
+void renderer_frame_copy_release(RendererFrameCopy* copy) noexcept {
+    stable_storage_release(&copy->paint_quads);
+    stable_storage_release(&copy->media_quads);
+    stable_storage_release(&copy->media_handles);
+    stable_storage_release(&copy->media_domains);
+    stable_storage_release(&copy->media_batches);
+}
+
+bool renderer_frame_copy_record(RendererFrameCopy* copy, const D3D11Renderer& renderer) noexcept {
+    const PaintStream& paint = renderer.paint_stream;
+    const RendererMediaDrawStorage& media = renderer.media_draw;
+    const u32 count = renderer.media_quad_count, batches = renderer.media_batch_count;
+    if (!copy->paint_quads.arena.base &&
+        !(stable_storage_initialize(&copy->paint_quads, kMaxPaintQuads, 0, sizeof(PaintQuad), alignof(PaintQuad)) &&
+          stable_storage_initialize(&copy->media_quads, kRendererMediaQuadCapacity, 0, sizeof(MediaQuad),
+                                    alignof(MediaQuad)) &&
+          stable_storage_initialize(&copy->media_handles, kRendererMediaQuadCapacity, 0, sizeof(MediaAtlasHandle),
+                                    alignof(MediaAtlasHandle)) &&
+          stable_storage_initialize(&copy->media_domains, kRendererMediaQuadCapacity, 0, 1, 1) &&
+          stable_storage_initialize(&copy->media_batches, kRendererMediaBatchCapacity, 0, sizeof(MediaDrawBatch),
+                                    alignof(MediaDrawBatch)))) {
+        renderer_frame_copy_release(copy);
+        return false;
+    }
+    if (paint.batch_count > kMaxPaintBatches || paint.clip_count > kMaxPaintClips ||
+        !record_array(&copy->paint_quads, paint.quads, paint.count) ||
+        !record_array(&copy->media_quads, media.quad_data, count) ||
+        !record_array(&copy->media_handles, media.handle_data, count) ||
+        !record_array(&copy->media_domains, media.domain_data, count) ||
+        !record_array(&copy->media_batches, media.batch_data, batches))
+        return false;
+    CopyMemory(copy->clips, paint.clips, static_cast<usize>(paint.clip_count) * sizeof(PaintClip));
+    CopyMemory(copy->batches, paint.batches, static_cast<usize>(paint.batch_count) * sizeof(PaintBatch));
+    copy->paint_count = paint.count;
+    copy->clip_count = paint.clip_count;
+    copy->batch_count = paint.batch_count;
+    copy->media_count = count;
+    copy->media_batch_count = batches;
+    return true;
+}
+
 bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noexcept {
     if (!renderer)
         return false;
@@ -882,41 +890,28 @@ bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noe
                 : !renderer_presentation_stamp_equal(structure, diff.structure) ? 3
                 : text != diff.text_signature                                  ? 4
                 : layout != diff.layout_signature                              ? 5
-                : paint.clip_count != diff.clip_count || paint.batch_count != diff.batch_count ||
-                        !bytes_equal(paint.clips, diff.clips,
+                : paint.clip_count != diff.frame.clip_count || paint.batch_count != diff.frame.batch_count ||
+                        !bytes_equal(paint.clips, diff.frame.clips,
                                      static_cast<usize>(paint.clip_count) * sizeof(PaintClip))
                     ? 6
                     : 0;
     // Damage is staged on a copy so a rejected comparison leaves the tracker
     // exactly as it was (the caller then invalidates the whole frame).
     const PresentationDamageTracker staged = renderer->presentation_damage;
-    if (!reject && !add_paint_damage(renderer, diff))
+    if (!reject && !add_paint_damage(renderer, diff.frame))
         reject = 7;
-    if (!reject && !add_media_damage(renderer, diff))
+    if (!reject && !add_media_damage(renderer, diff.frame))
         reject = 8;
     const bool partial = reject == 0;
     diff.reject_reason = reject;
     if (!partial)
         copy_value(&renderer->presentation_damage, staged);
     diff.valid = false;
-    diff.pending = paint_diff_storage(&diff) && paint.batch_count <= kMaxPaintBatches &&
-                   paint.clip_count <= kMaxPaintClips &&
-                   record_array(&diff.paint_quads, paint.quads, paint.count) &&
-                   record_array(&diff.media_quads, renderer->media_draw.quad_data, renderer->media_quad_count) &&
-                   record_array(&diff.media_handles, renderer->media_draw.handle_data, renderer->media_quad_count) &&
-                   record_array(&diff.media_domains, renderer->media_draw.domain_data, renderer->media_quad_count) &&
-                   record_array(&diff.media_batches, renderer->media_draw.batch_data, renderer->media_batch_count);
+    diff.pending = renderer_frame_copy_record(&diff.frame, *renderer);
     if (diff.pending) {
-        CopyMemory(diff.clips, paint.clips, static_cast<usize>(paint.clip_count) * sizeof(PaintClip));
-        CopyMemory(diff.batches, paint.batches, static_cast<usize>(paint.batch_count) * sizeof(PaintBatch));
         diff.structure = structure;
         diff.text_signature = text;
         diff.layout_signature = layout;
-        diff.paint_count = paint.count;
-        diff.clip_count = paint.clip_count;
-        diff.batch_count = paint.batch_count;
-        diff.media_count = renderer->media_quad_count;
-        diff.media_batch_count = renderer->media_batch_count;
     }
     if (partial)
         ++diff.partial_rebuilds;
@@ -965,8 +960,8 @@ bool renderer_step_typing_dots(D3D11Renderer* renderer) noexcept {
     CopyMemory(quads, after, sizeof(after));
     // The diff record mirrors the built stream: keep it equal to the screen.
     RendererPaintDiff& diff = renderer->paint_diff;
-    if ((diff.valid || diff.pending) && diff.paint_count == stream.count)
-        CopyMemory(stable_storage_data<PaintQuad>(diff.paint_quads) + p.first_quad, after, sizeof(after));
+    if ((diff.valid || diff.pending) && diff.frame.paint_count == stream.count)
+        CopyMemory(stable_storage_data<PaintQuad>(diff.frame.paint_quads) + p.first_quad, after, sizeof(after));
     dots.paint.phase = phase;
     dots.upload_pending = true;
     ++dots.steps;
@@ -983,7 +978,7 @@ void renderer_paint_diff_commit(D3D11Renderer* renderer) noexcept {
 void renderer_paint_diff_release(D3D11Renderer* renderer) noexcept {
     if (!renderer)
         return;
-    release_paint_diff_storage(&renderer->paint_diff);
+    renderer_frame_copy_release(&renderer->paint_diff.frame);
     reset_value<RendererPaintDiff>(&renderer->paint_diff);
 }
 

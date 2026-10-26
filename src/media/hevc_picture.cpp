@@ -39,8 +39,9 @@ HevcError hevc_parse_slice(const HevcNal& n, const HevcConfiguration& c, const H
                            HevcSlice* output) noexcept {
     if (!output)
         return HevcError::invalid_input;
-    HevcSlice parsed{};
-    auto& out = parsed;
+    // Both callers read *output only after success: parse in place.
+    reset_value(output);
+    HevcSlice& out = *output;
     const auto& s = c.sps;
     const auto& p = c.pps;
     auto b = hevc_payload(n.bytes, n.type);
@@ -215,8 +216,6 @@ HevcError hevc_parse_slice(const HevcNal& n, const HevcConfiguration& c, const H
             b.error = HevcError::malformed;
     if (b.error == HevcError::none && b.cursor >= b.source.count)
         b.error = HevcError::truncated;
-    if (b.error == HevcError::none)
-        *output = parsed;
     return b.error;
 }
 bool hevc_picture_header_same(const HevcPictureHeader& a, const HevcPictureHeader& b) noexcept {

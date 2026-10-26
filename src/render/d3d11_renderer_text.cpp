@@ -353,6 +353,20 @@ void release_typography_owner(RendererTypographyOwner* owner) noexcept {
 u64 typography_source_identity(const TextSystem& system) noexcept {
     return native_text_format_identity(system);
 }
+// The renderer's body-weight format for one family, in the scope its font file registered.
+bool create_face_format(const TextSystem& system, const wchar_t* family, u32 scope, u32* format) noexcept {
+    u32 units = 0;
+    while (family[units])
+        ++units;
+    return native_text_format_create(system.native_text,
+                                     {{reinterpret_cast<const u16*>(family), units},
+                                      scope,
+                                      {400, 5, 0},
+                                      system.em_size,
+                                      system.em_size * 4,
+                                      true},
+                                     format);
+}
 bool prepare_typography_face(RendererTypographyOwner& owner, UiTextFace face, u32* native_format) noexcept {
     const u32 index = static_cast<u32>(face);
     auto& system = owner.system;
@@ -364,18 +378,9 @@ bool prepare_typography_face(RendererTypographyOwner& owner, UiTextFace face, u3
         return false;
     if (!system.native_text)
         return false;
-    u32 scope{}, units{};
-    while (asset.family[units])
-        ++units;
+    u32 scope{};
     return (!private_font || native_text_register_font_path(system.native_text, path, &scope)) &&
-           native_text_format_create(system.native_text,
-                                     {{reinterpret_cast<const u16*>(asset.family), units},
-                                      scope,
-                                      {400, 5, 0},
-                                      system.em_size,
-                                      system.em_size * 4,
-                                      true},
-                                     native_format);
+           create_face_format(system, asset.family, scope, native_format);
 }
 TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcept {
     auto system = renderer->glyph_text.system;
@@ -394,22 +399,12 @@ TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcep
     if (!system.native_format && system.native_text) {
         wchar_t path[1024];
         const bool private_path = profile_font_path(index, path);
-        u32 scope = 0, units = 0;
-        const auto* family = text_fonts[index].family;
-        while (family[units])
-            ++units;
+        u32 scope = 0;
         // Missing optional assets retain system-family fallback; existing files
         // are registered directly.
         const bool available = private_path && GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
         if ((!available || native_text_register_font_path(system.native_text, path, &scope)) &&
-            native_text_format_create(system.native_text,
-                                      {{reinterpret_cast<const u16*>(family), units},
-                                       scope,
-                                       {400, 5, 0},
-                                       system.em_size,
-                                       system.em_size * 4,
-                                       true},
-                                      &system.native_format))
+            create_face_format(system, text_fonts[index].family, scope, &system.native_format))
             renderer->native_text_faces[index] = system.native_format;
     }
     system.tracking = text_fonts[index].tracking;
@@ -417,20 +412,52 @@ TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcep
     return system;
 }
 
-bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_width, float maximum_height,
-                         float origin_x, float origin_y, const UiRect& clip, const UiRect* batch_clip,
-                         const Color& color, ConstSlice<TextStyleSpan> styles, const Theme* style_theme,
-                         const Color* inline_role_color, float* shaped_height, bool* atlas_invalidated,
-                         ConstSlice<MessageMarkdownSemantic> semantics = {}, u64 message_id = 0,
-                         u32 message_revision = 0,
-                         UiWidgetReference layout_owner = ui_widget_invalid_reference(),
-                         UiTextAlignment horizontal_alignment = UiTextAlignment::start,
-                         UiTextAlignment vertical_alignment = UiTextAlignment::start,
-                         UiTextWrapping wrapping = UiTextWrapping::wrap,
-                         UiTextOverflow overflow = UiTextOverflow::clip, bool force_new_batch = false,
-                         bool selection_active = false, u32 selection_anchor = 0, u32 selection_caret = 0,
-                         UiTextFace face = UiTextFace::normal, bool cluster_effect = false,
-                         bool plain_flags = false, bool publish_semantics = true) noexcept {
+// Everything append_content_text shapes and places for one text run.
+struct ContentTextRequest {
+    Utf8View input;
+    float maximum_width, maximum_height, origin_x, origin_y;
+    const UiRect* clip;
+    const UiRect* batch_clip;
+    const Color* color;
+    ConstSlice<TextStyleSpan> styles;
+    const Theme* style_theme;
+    const Color* inline_role_color;
+    ConstSlice<MessageMarkdownSemantic> semantics;
+    UiWidgetReference layout_owner;
+    u64 message_id;
+    u32 message_revision, selection_anchor, selection_caret;
+    UiTextAlignment horizontal_alignment, vertical_alignment;
+    UiTextWrapping wrapping;
+    UiTextOverflow overflow;
+    UiTextFace face;
+    bool force_new_batch, selection_active, cluster_effect, plain_flags, publish_semantics;
+};
+
+bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& request, float* shaped_height,
+                         bool* atlas_invalidated) noexcept {
+    const Utf8View& input = request.input;
+    const float maximum_width = request.maximum_width, maximum_height = request.maximum_height;
+    float origin_x = request.origin_x, origin_y = request.origin_y;
+    const UiRect& clip = *request.clip;
+    const UiRect* batch_clip = request.batch_clip;
+    const Color& color = *request.color;
+    ConstSlice<TextStyleSpan> styles = request.styles;
+    const Theme* style_theme = request.style_theme;
+    const Color* inline_role_color = request.inline_role_color;
+    const ConstSlice<MessageMarkdownSemantic>& semantics = request.semantics;
+    const UiWidgetReference& layout_owner = request.layout_owner;
+    const u64 message_id = request.message_id;
+    const u32 message_revision = request.message_revision;
+    const UiTextAlignment horizontal_alignment = request.horizontal_alignment,
+                          vertical_alignment = request.vertical_alignment;
+    const UiTextWrapping wrapping = request.wrapping;
+    const UiTextOverflow overflow = request.overflow;
+    const bool force_new_batch = request.force_new_batch;
+    bool selection_active = request.selection_active;
+    const u32 selection_anchor = request.selection_anchor, selection_caret = request.selection_caret;
+    const UiTextFace face = request.face;
+    const bool cluster_effect = request.cluster_effect, plain_flags = request.plain_flags,
+               publish_semantics = request.publish_semantics;
     auto text_system = command_text_system(renderer, face);
     text_system.independent_letters = cluster_effect;
     RendererTextStorage* storage = renderer->content_text;
@@ -769,7 +796,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
             const float x = origin_x + (hit.left + hit.right) * .5f;
             const float y = origin_y + (hit.top + hit.bottom) * .5f;
             const UiRect rectangle{x - extent * .5f, y - extent * .5f, x + extent * .5f, y + extent * .5f};
-            if (!ui_rect_has_area(ui_rect_intersection(rectangle, clip)))
+            if (!ui_rect_intersects(rectangle, clip))
                 continue;
             if (renderer->inline_media.count == kRendererInlineFlagCapacity) {
                 saturating_increment(renderer->inline_media.rejected);
@@ -849,7 +876,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
     return true;
 }
 
-Color profile_tone(Color c, float light_scale, float floor = 0, float saturation_scale = 1,
+Color profile_tone(const Color& c, float light_scale, float floor = 0, float saturation_scale = 1,
                    float light_add = 0, float ceiling = 1) noexcept {
     const float hi = maximum(c.red, maximum(c.green, c.blue)),
                 lo = minimum(c.red, minimum(c.green, c.blue));
@@ -869,7 +896,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
     // A partially visible virtual row can have a label wholly outside the
     // scroll clip; skip it rather than shape it or pass an empty intersection
     // to glyph clipping.
-    if (!ui_rect_has_area(ui_rect_intersection(command.rectangle, command.clip)))
+    if (!ui_rect_intersects(command.rectangle, command.clip))
         return true;
     const TextStyleSpan span{0, command.text.bytes, command.style_flags};
     const auto* composer = renderer->message_composer_scene;
@@ -911,16 +938,16 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
     if (!batch_clip && renderer->ui_scene)
         batch_clip = &window_clip;
     // Name effects can expand or animate their quads after batching.
-    const bool appended = append_content_text(
-        renderer, command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
-        command.rectangle.left, command.rectangle.top, command.clip,
-        command.effect.kind ? nullptr : batch_clip, command.color, styles,
-        composer_edit || bio ? &theme : nullptr, nullptr, &shaped_height, atlas_invalidated, bio_semantics,
-        0, 0, command.owner, command.horizontal_alignment, command.vertical_alignment, command.wrapping,
-        command.overflow, force_new_batch,
-        composer_edit && composer->model->focused && composer->display_anchor != composer->display_caret,
+    const ContentTextRequest request{
+        command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
+        command.rectangle.left, command.rectangle.top, &command.clip,
+        command.effect.kind ? nullptr : batch_clip, &command.color, styles,
+        composer_edit || bio ? &theme : nullptr, nullptr, bio_semantics, command.owner, 0, 0,
         composer_edit ? composer->display_anchor : 0, composer_edit ? composer->display_caret : 0,
-        command.face, command.effect.kind == 8,
+        command.horizontal_alignment, command.vertical_alignment, command.wrapping, command.overflow,
+        command.face, force_new_batch,
+        composer_edit && composer->model->focused && composer->display_anchor != composer->display_caret,
+        command.effect.kind == 8,
         !composer_edit && !bio &&
             !(renderer->text_form && renderer->text_form->scene &&
               command.owner.manager == &renderer->text_form->scene->widgets) &&
@@ -931,7 +958,8 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
             !(renderer->media_picker_scene &&
               command.owner.manager == &renderer->media_picker_scene->widgets &&
               command.owner.handle.slot == renderer->media_picker_scene->edit.slot),
-        !composer_edit);
+        !composer_edit};
+    const bool appended = append_content_text(renderer, request, &shaped_height, atlas_invalidated);
     if (appended && profile && profile->active && command.owner.manager == &profile->widgets) {
         UiRect ink{};
         bool have_ink = false;
@@ -1135,14 +1163,15 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
         renderer->message_text_selection_revision == command.message_revision &&
         renderer->message_text_selection_command_index == command_index;
     const u32 first_semantic = renderer->content_text->content_semantic_count;
-    if (!append_content_text(
-            renderer, command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
-            command.rectangle.left, command.rectangle.top, command.clip, batch_clip, command.color,
-            command.styles, command.themed_styles ? &theme : nullptr, &command.inline_role_color, &shaped_height,
-            atlas_invalidated, command.semantics, command.message_id, command.message_revision,
-            command.owner, command.horizontal_alignment, command.vertical_alignment, command.wrapping,
-            command.overflow, force_new_batch, selected, renderer->message_text_selection_anchor,
-            renderer->message_text_selection_caret)) {
+    const ContentTextRequest request{
+        command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
+        command.rectangle.left, command.rectangle.top, &command.clip, batch_clip, &command.color,
+        command.styles, command.themed_styles ? &theme : nullptr, &command.inline_role_color,
+        command.semantics, command.owner, command.message_id, command.message_revision,
+        renderer->message_text_selection_anchor, renderer->message_text_selection_caret,
+        command.horizontal_alignment, command.vertical_alignment, command.wrapping, command.overflow,
+        UiTextFace::normal, force_new_batch, selected, false, false, true};
+    if (!append_content_text(renderer, request, &shaped_height, atlas_invalidated)) {
         return false;
     }
     {
@@ -1168,26 +1197,9 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
     return true;
 }
 
-ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, const Theme& theme,
-                                                   u64 shell_signature, u64 popup_signature,
-                                                   bool include_messages) noexcept {
-    if (d3d11_renderer_login_form_text(renderer))
-        return {shell_signature,
-                0,
-                popup_signature,
-                hash64_mix(content_text_theme_signature(theme),
-                           typography_source_identity(renderer.glyph_text.system)),
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                renderer.dpi,
-                renderer.glyph_text.allocator.evicted_entries,
-                renderer.glyph_text.allocator.full_resets,
-                false};
-    const MessageTextPresentation* presentation = renderer.message_text;
+// Glyph inputs beyond the projection (appearance and thread header revisions,
+// a hovered name effect, composer styles and selection) key the shell exactly.
+u64 retention_shell_signature(const D3D11Renderer& renderer, u64 shell_signature) noexcept {
     const bool settings_active = renderer_settings_page_visible(renderer);
     const bool friends_active =
         !settings_active && d3d11_renderer_active(renderer.friends_scene);
@@ -1232,6 +1244,17 @@ ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer
         shell_signature = hash64_mix(shell_signature, composer->display_anchor);
         shell_signature = hash64_mix(shell_signature, composer->display_caret);
     }
+    return shell_signature;
+}
+
+ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, const Theme& theme,
+                                                   u64 shell_signature, u64 popup_signature,
+                                                   bool include_messages) noexcept {
+    const bool login_form = d3d11_renderer_login_form_text(renderer);
+    if (!login_form)
+        shell_signature = retention_shell_signature(renderer, shell_signature);
+    include_messages = include_messages && !login_form;
+    const MessageTextPresentation* presentation = renderer.message_text;
     return ContentTextRetentionKey{
         shell_signature,
         include_messages && presentation ? presentation->projection_signature : 0,
@@ -1540,8 +1563,6 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         !settings && d3d11_renderer_active(renderer->friends_requests_scene);
     const bool form = d3d11_renderer_text_form_active(*renderer);
     const bool forum = d3d11_renderer_forum_form_active(*renderer);
-    const auto popup_edit = settings ? UiEditGeometry{} : d3d11_renderer_popup_edit_geometry(*renderer);
-    const auto profile_edit = settings ? UiEditGeometry{} : d3d11_renderer_profile_edit_geometry(*renderer);
     UiTextOutput output{nullptr, emitter};
     if (settings) {
         boundaries->friends_end = boundaries->menu_start = 0;
@@ -1624,19 +1645,23 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         !message_action_bar_text_presentation_build_output(*renderer->message_action_bar, theme, &output))
         return false;
     boundaries->profile_start = emitter->count;
-    if (!settings && renderer->profile_scene &&
-        !profile_scene_text_output(*renderer->profile_scene, theme, &output, &profile_edit))
-        return false;
+    if (!settings && renderer->profile_scene) {
+        const auto profile_edit = d3d11_renderer_profile_edit_geometry(*renderer);
+        if (!profile_scene_text_output(*renderer->profile_scene, theme, &output, &profile_edit))
+            return false;
+    }
     boundaries->profile_end = emitter->count;
     boundaries->menu_start = emitter->count;
     boundaries->popup_start = emitter->count;
     if (d3d11_renderer_download_visible(*renderer) &&
         !ui_download_scene_text_output(*renderer->download_scene, theme, &output))
         return false;
-    if (d3d11_renderer_message_forward_visible(*renderer) &&
-        !ui_message_forward_scene_text_output(*renderer->message_forward_scene, theme, &output,
-                                              &renderer->media_picker_edit_geometry, &popup_edit))
-        return false;
+    if (d3d11_renderer_message_forward_visible(*renderer)) {
+        const auto popup_edit = d3d11_renderer_popup_edit_geometry(*renderer);
+        if (!ui_message_forward_scene_text_output(*renderer->message_forward_scene, theme, &output,
+                                                  &renderer->media_picker_edit_geometry, &popup_edit))
+            return false;
+    }
     boundaries->audio_start = emitter->count;
     if (d3d11_renderer_audio_scene_visible(*renderer) &&
         !ui_audio_scene_text_output(*renderer->audio_scene, &output))
@@ -1759,7 +1784,7 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
                 continue;
             // The emitter validates every command but omits fully clipped labels.
             // Advance this source cursor over the same omitted commands.
-            if (!ui_rect_has_area(ui_rect_intersection(neutral.rectangle, neutral.clip)))
+            if (!ui_rect_intersects(neutral.rectangle, neutral.clip))
                 continue;
             // The hashing and raster visitors walk the same immutable projection.
             if (neutral.text.data != command.text.data || neutral.text.bytes != command.text.bytes ||
@@ -1802,21 +1827,24 @@ u32 float_word(float value) noexcept {
     return bits.word;
 }
 
+// The widget manager state the shell text depends on.
+__declspec(noinline) u64 mix_widget_state(u64 hash, const UiWidgetManager& manager) noexcept {
+    hash = hash64_mix(hash, manager.hovered.slot);
+    hash = hash64_mix(hash, manager.hovered.generation);
+    hash = hash64_mix(hash, manager.hover_started_ms);
+    hash = hash64_mix(hash, manager.focused.slot);
+    hash = hash64_mix(hash, manager.focused.generation);
+    hash = hash64_mix(hash, manager.count);
+    return hash64_mix(hash, manager.generation);
+}
+
 // Revisions and positions of every scene and store the shell projection
 // reads. The host only offers a scroll_hint when no account source changed;
 // this stamp still catches pointer, layout and composer changes in between.
 u64 shell_scene_stamp(const D3D11Renderer& renderer) noexcept {
     u64 hash = kHash64Seed;
     const auto mix = [&hash](u64 value) noexcept { hash = hash64_mix(hash, value); };
-    const auto widgets = [&mix](const UiWidgetManager& manager) noexcept {
-        mix(manager.hovered.slot);
-        mix(manager.hovered.generation);
-        mix(manager.hover_started_ms);
-        mix(manager.focused.slot);
-        mix(manager.focused.generation);
-        mix(manager.count);
-        mix(manager.generation);
-    };
+    const auto widgets = [&hash](const UiWidgetManager& manager) noexcept { hash = mix_widget_state(hash, manager); };
     const auto scroll = [&mix](float value) noexcept { mix(float_word(value)); };
     if (const auto* scene = renderer.ui_scene) {
         mix(reinterpret_cast<usize>(scene));
@@ -2321,7 +2349,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
             const u32 effects = renderer->text_effect_count;
             for (u32 index = 0; index < presentation->command_count; ++index) {
                 const MessageTextCommand& command = presentation->commands[index];
-                if (renderer->message_scene && !ui_rect_has_area(ui_rect_intersection(command.clip, band)))
+                if (renderer->message_scene && !ui_rect_intersects(command.clip, band))
                     continue;
                 if (!append_message_text_command(renderer, presentation, command, index, theme,
                                                  atlas_invalidated) ||
@@ -2447,6 +2475,148 @@ void discard_retained_overlay_text(D3D11Renderer* renderer) noexcept {
 }
 
 } // namespace
+
+namespace {
+// The fields holding the committed revision of each interaction text source,
+// in the order interaction_text_source_values computes them.
+constexpr u32 kInteractionTextSourceOffsets[]{
+    offsetof(D3D11Renderer, interaction_text_forum_form_revision),
+    offsetof(D3D11Renderer, interaction_text_theme_editor_revision),
+    offsetof(D3D11Renderer, interaction_text_settings_revision),
+    offsetof(D3D11Renderer, interaction_text_active_mask),
+    offsetof(D3D11Renderer, interaction_text_thread_browser_revision),
+    offsetof(D3D11Renderer, interaction_text_thread_browser_publication),
+    offsetof(D3D11Renderer, interaction_text_video_revision),
+    offsetof(D3D11Renderer, interaction_text_audio_revision),
+    offsetof(D3D11Renderer, interaction_text_poll_revision),
+    offsetof(D3D11Renderer, interaction_text_poll_voters_revision),
+    offsetof(D3D11Renderer, interaction_text_tooltip_revision),
+    offsetof(D3D11Renderer, interaction_text_unread_banner_revision),
+    offsetof(D3D11Renderer, interaction_text_toast_revision),
+    offsetof(D3D11Renderer, interaction_text_search_revision),
+    offsetof(D3D11Renderer, interaction_text_pinned_messages_revision),
+    offsetof(D3D11Renderer, interaction_text_quick_switcher_revision),
+    offsetof(D3D11Renderer, interaction_text_inbox_revision),
+    offsetof(D3D11Renderer, interaction_text_message_forward_revision),
+    offsetof(D3D11Renderer, interaction_text_download_revision),
+    offsetof(D3D11Renderer, interaction_text_shortcuts_revision),
+    offsetof(D3D11Renderer, interaction_text_call_revision),
+    offsetof(D3D11Renderer, interaction_text_stream_card_revision),
+    offsetof(D3D11Renderer, interaction_text_guild_card_revision),
+    offsetof(D3D11Renderer, interaction_text_media_picker_revision),
+};
+constexpr u32 kInteractionTextSourceCount = sizeof(kInteractionTextSourceOffsets) / sizeof(u32);
+// Sources 5 to 9 are 64-bit fields; the rest are 32-bit.
+constexpr u32 kInteractionTextWideSources = 0x3E0u;
+static_assert(sizeof(D3D11Renderer::interaction_text_thread_browser_publication) == sizeof(u64) &&
+              sizeof(D3D11Renderer::interaction_text_video_revision) == sizeof(u64) &&
+              sizeof(D3D11Renderer::interaction_text_audio_revision) == sizeof(u64) &&
+              sizeof(D3D11Renderer::interaction_text_poll_revision) == sizeof(u64) &&
+              sizeof(D3D11Renderer::interaction_text_poll_voters_revision) == sizeof(u64) &&
+              sizeof(D3D11Renderer::interaction_text_media_picker_revision) == sizeof(u32));
+
+void interaction_text_source_values(const D3D11Renderer& renderer, u64* values) noexcept {
+    const bool thread_browser = d3d11_renderer_thread_browser_visible(renderer);
+    values[0] = renderer.forum_form && renderer.forum_form->scene ? renderer.forum_form->scene->revision : 0;
+    values[1] = renderer_theme_editor_visible(renderer) ? renderer.theme_editor_scene->revision : 0;
+    values[2] = renderer.settings_scene ? renderer.settings_scene->revision : 0;
+    values[3] = d3d11_renderer_interaction_text_active_mask(renderer);
+    values[4] = thread_browser ? renderer.thread_browser_scene->revision : 0;
+    values[5] = thread_browser ? renderer.thread_browser_scene->source_publication : 0;
+    values[6] = d3d11_renderer_video_text_revision(renderer);
+    values[7] = d3d11_renderer_audio_text_revision(renderer);
+    values[8] = d3d11_renderer_poll_text_revision(renderer);
+    values[9] = d3d11_renderer_poll_voters_text_revision(renderer);
+    values[10] = d3d11_renderer_tooltip_revision(renderer);
+    values[11] = d3d11_renderer_unread_banner_revision(renderer);
+    values[12] = d3d11_renderer_toast_revision(renderer);
+    values[13] = d3d11_renderer_search_visible(renderer) ? renderer.search_scene->revision : 0;
+    values[14] = d3d11_renderer_pinned_messages_visible(renderer) ? renderer.pinned_messages_scene->revision : 0;
+    values[15] = d3d11_renderer_quick_switcher_visible(renderer) ? renderer.quick_switcher_scene->revision : 0;
+    values[16] = d3d11_renderer_inbox_visible(renderer) ? renderer.inbox_scene->revision : 0;
+    values[17] = d3d11_renderer_message_forward_visible(renderer) ? renderer.message_forward_scene->revision : 0;
+    values[18] = d3d11_renderer_download_visible(renderer) ? renderer.download_scene->revision : 0;
+    values[19] = d3d11_renderer_shortcuts_visible(renderer) ? renderer.shortcuts_scene->revision : 0;
+    values[20] = d3d11_renderer_call_visible(renderer) ? renderer.call_scene->revision : 0;
+    values[21] = d3d11_renderer_stream_card_visible(renderer) ? renderer.stream_card_scene->revision : 0;
+    values[22] = d3d11_renderer_guild_card_visible(renderer) ? renderer.guild_card_scene->revision : 0;
+    values[23] = d3d11_renderer_media_picker_visible(renderer) ? renderer.media_picker_scene->revision : 0;
+}
+} // namespace
+
+void d3d11_renderer_commit_interaction_text_state(D3D11Renderer* renderer) noexcept {
+    u64 values[kInteractionTextSourceCount];
+    interaction_text_source_values(*renderer, values);
+    for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
+        u8* field = reinterpret_cast<u8*>(renderer) + kInteractionTextSourceOffsets[i];
+        if (kInteractionTextWideSources >> i & 1u)
+            *reinterpret_cast<u64*>(field) = values[i];
+        else
+            *reinterpret_cast<u32*>(field) = static_cast<u32>(values[i]);
+    }
+    if (renderer_settings_page_visible(*renderer)) {
+        const auto* popup = d3d11_renderer_settings_popup(*renderer);
+        renderer->interaction_text_popup_revision = popup ? popup->revision : 0;
+        renderer->interaction_text_profile_revision = d3d11_renderer_settings_overlay_revision(*renderer);
+        renderer->interaction_text_form_revision =
+            renderer->text_form && renderer->text_form->scene ? renderer->text_form->scene->revision : 0;
+        return;
+    }
+    renderer->interaction_text_friends_revision =
+        renderer->friends_scene ? renderer->friends_scene->revision : 0;
+    renderer->interaction_text_friends_requests_revision =
+        renderer->friends_requests_scene ? renderer->friends_requests_scene->revision : 0;
+    renderer->interaction_text_profile_revision =
+        renderer->profile_scene ? renderer->profile_scene->revision : 0;
+    renderer->interaction_text_image_viewer_revision =
+        renderer->image_viewer ? renderer->image_viewer->revision : 0;
+    renderer->interaction_text_action_bar_revision =
+        renderer->message_action_bar ? renderer->message_action_bar->revision : 0;
+    renderer->interaction_text_popup_revision = renderer->popup_scene ? renderer->popup_scene->revision : 0;
+    renderer->interaction_text_reaction_viewer_revision =
+        renderer->reaction_viewer ? renderer->reaction_viewer->revision : 0;
+    renderer->interaction_text_form_revision =
+        renderer->text_form && renderer->text_form->scene ? renderer->text_form->scene->revision : 0;
+}
+
+bool d3d11_renderer_interaction_text_state_current(const D3D11Renderer& renderer) noexcept {
+    u64 values[kInteractionTextSourceCount];
+    interaction_text_source_values(renderer, values);
+    for (u32 i = 0; i < kInteractionTextSourceCount; ++i) {
+        const u8* field = reinterpret_cast<const u8*>(&renderer) + kInteractionTextSourceOffsets[i];
+        if ((kInteractionTextWideSources >> i & 1u ? *reinterpret_cast<const u64*>(field)
+                                                    : *reinterpret_cast<const u32*>(field)) != values[i])
+            return false;
+    }
+    if (renderer_settings_page_visible(renderer)) {
+        const auto* popup = d3d11_renderer_settings_popup(renderer);
+        return renderer.interaction_text_popup_revision == (popup ? popup->revision : 0) &&
+               renderer.interaction_text_profile_revision == d3d11_renderer_settings_overlay_revision(renderer) &&
+               renderer.interaction_text_form_revision == (renderer.text_form && renderer.text_form->scene
+                                                               ? renderer.text_form->scene->revision
+                                                               : 0);
+    }
+    if (renderer.interaction_text_friends_revision !=
+        (renderer.friends_scene ? renderer.friends_scene->revision : 0))
+        return false;
+    if (renderer.interaction_text_friends_requests_revision !=
+        (renderer.friends_requests_scene ? renderer.friends_requests_scene->revision : 0))
+        return false;
+    return renderer.interaction_text_profile_revision ==
+               (renderer.profile_scene ? renderer.profile_scene->revision : 0) &&
+           renderer.interaction_text_image_viewer_revision ==
+               (renderer.image_viewer ? renderer.image_viewer->revision : 0) &&
+           (d3d11_renderer_active(renderer.friends_scene) ||
+            d3d11_renderer_thread_browser_visible(renderer) ||
+            renderer.interaction_text_action_bar_revision ==
+                (renderer.message_action_bar ? renderer.message_action_bar->revision : 0)) &&
+           renderer.interaction_text_popup_revision ==
+               (renderer.popup_scene ? renderer.popup_scene->revision : 0) &&
+           renderer.interaction_text_reaction_viewer_revision ==
+               (renderer.reaction_viewer ? renderer.reaction_viewer->revision : 0) &&
+           renderer.interaction_text_form_revision ==
+               (renderer.text_form && renderer.text_form->scene ? renderer.text_form->scene->revision : 0);
+}
 
 bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& theme, UiTextConsumeFunction consume,
                                       void* context) noexcept {

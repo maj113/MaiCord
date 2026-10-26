@@ -14,7 +14,7 @@ struct RasterClipRect {
 // All paint, text, media and damage clips must use the same conservative
 // DIP-to-pixel conversion. Truncating right/bottom loses the last touched
 // pixel at fractional DPI, and makes text disagree with its background.
-inline RasterClipRect raster_clip_rectangle(UiRect rectangle, float pixel_scale, u32 width,
+inline RasterClipRect raster_clip_rectangle(const UiRect& rectangle, float pixel_scale, u32 width,
                                             u32 height) noexcept {
     if (!ui_coordinate_valid(rectangle.left) || !ui_coordinate_valid(rectangle.top) ||
         !ui_coordinate_valid(rectangle.right) || !ui_coordinate_valid(rectangle.bottom) ||

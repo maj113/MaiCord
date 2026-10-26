@@ -151,12 +151,12 @@ struct Document {
             const JsonString key{{json.input.data+start,end-start},start,false};
             token+=3;u32 at=json.structurals[token-1]+1;
             const auto entry=value(at,token);
-            if(json_string_equals_ascii(key,{name,n})) {if(found)return {};result=entry;found=true;}
+            if(json_name_is(key,{name,n})) {if(found)return {};result=entry;found=true;}
             if(json.input.data[json.structurals[token]]==',')++token;
         }
         return result;
     }
-    bool array(JsonValue input,Slice<JsonValue> output,u32* count) noexcept {
+    bool array(const JsonValue& input,Slice<JsonValue> output,u32* count) noexcept {
         *count=0;if(input.kind!=JsonValueKind::array || !input.source.bytes)return false;
         u32 token=locate(input.source_offset)+1,at=input.source_offset+1;
         while(json.input.data[json.structurals[token]]!=']' || at<json.structurals[token]) {
@@ -168,17 +168,28 @@ struct Document {
         }
         return true;
     }
-    bool type(const JsonValue& value, const char* name) noexcept {
+    enum class Shape : u8 { other, group, path, ellipse, rectangle, fill, stroke, gradient_fill, gradient_stroke,
+                            transform, trim, repeater, merge };
+    // The item's "ty" code, decoded once instead of compared name by name.
+    __declspec(noinline) Shape shape_kind(const JsonValue& value) noexcept {
+        static constexpr u16 codes[]{'g' << 8 | 'r', 's' << 8 | 'h', 'e' << 8 | 'l', 'r' << 8 | 'c',
+                                     'f' << 8 | 'l', 's' << 8 | 't', 'g' << 8 | 'f', 'g' << 8 | 's',
+                                     't' << 8 | 'r', 't' << 8 | 'm', 'r' << 8 | 'p', 'm' << 8 | 'm'};
         JsonString text{};
-        u32 n = 0;
-        while (name[n])
-            ++n;
-        return json_value_as_string(get(value, "ty"), &text) && json_string_equals_ascii(text, {name, n});
+        char name[3]{};
+        if (!string_field(value, "ty", &text))
+            return Shape::other;
+        const auto decoded = json_string_decode_utf8(text, {name, 3});
+        if (!decoded.ok() || decoded.bytes != 2)
+            return Shape::other;
+        const u16 code = static_cast<u16>(static_cast<u8>(name[0]) << 8 | static_cast<u8>(name[1]));
+        for (u32 i = 0; i < sizeof(codes) / sizeof(codes[0]); ++i)
+            if (codes[i] == code)
+                return static_cast<Shape>(i + 1);
+        return Shape::other;
     }
     bool hidden(const JsonValue& value) noexcept {
-        bool hd = false;
-        json_value_to_bool(get(value, "hd"), &hd);
-        return hd;
+        return flag_field(value, "hd");
     }
     struct Sample { JsonValue start,end,key; float progress=0; };
     Sample sampled(JsonValue property) noexcept {
@@ -189,13 +200,13 @@ struct Document {
         if(!array(property,{values,512},&count)||!count)return {};
         if(values[0].kind!=JsonValueKind::object || !get(values[0],"t").source.bytes)return result;
         u32 selected=0;
-        while(selected+1<count && number(get(values[selected+1],"t"))<=frame)++selected;
+        while(selected+1<count && field(values[selected+1],"t")<=frame)++selected;
         result.key=values[selected];result.start=get(result.key,"s");
         if(!result.start.source.bytes && selected)result.start=get(values[selected-1],"e");
         if(!result.start.source.bytes && selected)result.start=get(values[selected-1],"s");
         result.end=result.start;
-        if(selected+1<count && number(get(result.key,"h"))!=1){
-            const float begin=number(get(result.key,"t")),end=number(get(values[selected+1],"t"));
+        if(selected+1<count && field(result.key,"h")!=1){
+            const float begin=field(result.key,"t"),end=field(values[selected+1],"t");
             result.end=get(result.key,"e");
             if(!result.end.source.bytes)result.end=get(values[selected+1],"s");
             if(!result.end.source.bytes)result.end=result.start;
@@ -215,12 +226,12 @@ struct Document {
         if(value.progress==0 || value.progress==1)return value.progress;
         const auto in=get(value.key,"i"),out=get(value.key,"o");
         if(!in.source.bytes||!out.source.bytes)return value.progress;
-        const float x1=clamped(component(get(out,"x"),dimension),0,1),
-                    x2=clamped(component(get(in,"x"),dimension,1),0,1);
+        const float x1=clamped(component_field(out,"x",dimension),0,1),
+                    x2=clamped(component_field(in,"x",dimension,1),0,1);
         float low=0,high=1,t=value.progress;
         for(u32 i=0;i<16;++i){t=(low+high)*.5f;
             if(bezier(t,x1,x2)<value.progress)low=t;else high=t;}
-        return bezier(t,component(get(out,"y"),dimension),component(get(in,"y"),dimension,1));
+        return bezier(t,component_field(out,"y",dimension),component_field(in,"y",dimension,1));
     }
     float interpolated(const Sample& value,u32 dimension,float fallback=0) noexcept {
         const float a=component(value.start,dimension,fallback),b=component(value.end,dimension,a);
@@ -254,19 +265,47 @@ struct Document {
         return a + (b - a) * progress(value, dimension);
     }
     float scalar(const JsonValue& property,float fallback=0) noexcept {return interpolated(sampled(property),0,fallback);}
-    __declspec(noinline) D2D1_POINT_2F point_array_components(JsonValue value, D2D1_POINT_2F fallback) noexcept {
+    // An object member read as a number, constant or animated at the current frame.
+    __declspec(noinline) float field(const JsonValue& object, const char* key, float fallback = 0) noexcept {
+        return number(get(object, key), fallback);
+    }
+    __declspec(noinline) float animated_field(const JsonValue& object, const char* key, float fallback = 0) noexcept {
+        return scalar(get(object, key), fallback);
+    }
+    __declspec(noinline) bool flag_field(const JsonValue& object, const char* key) noexcept {
+        bool flag = false;
+        json_value_to_bool(get(object, key), &flag);
+        return flag;
+    }
+    __declspec(noinline) bool string_field(const JsonValue& object, const char* key, JsonString* output) noexcept {
+        return json_value_as_string(get(object, key), output);
+    }
+    __declspec(noinline) bool array_field(const JsonValue& object, const char* key, JsonValue* output, u32 capacity,
+                                          u32* count) noexcept {
+        return array(get(object, key), {output, capacity}, count);
+    }
+    __declspec(noinline) float component_field(const JsonValue& object, const char* key, u32 index,
+                                               float fallback = 0) noexcept {
+        return component(get(object, key), index, fallback);
+    }
+    __declspec(noinline) D2D1_POINT_2F point_field(const JsonValue& object, const char* key,
+                                                   D2D1_POINT_2F fallback = {}) noexcept {
+        return point(get(object, key), fallback);
+    }
+    __declspec(noinline) D2D1_POINT_2F point_array_components(const JsonValue& value, D2D1_POINT_2F fallback) noexcept {
         ValueScratch<256> components; u32 count = 0;
         if (!array(value, {components, 256}, &count) || !count)
             return fallback;
         return {number(components[0], fallback.x), number(components[minimum(1u, count - 1)], fallback.y)};
     }
-    D2D1_POINT_2F point_components(JsonValue value, D2D1_POINT_2F fallback) noexcept {
+    D2D1_POINT_2F point_components(const JsonValue& value, D2D1_POINT_2F fallback) noexcept {
         if (value.kind != JsonValueKind::array)
             return {number(value, fallback.x), number(value, fallback.y)};
         return point_array_components(value, fallback);
     }
     D2D1_POINT_2F point(const JsonValue& property,D2D1_POINT_2F fallback={}) noexcept {
-        if(get(property,"x").source.bytes)return {scalar(get(property,"x")),scalar(get(property,"y"))};
+        const auto x=get(property,"x");
+        if(x.source.bytes)return {scalar(x),animated_field(property,"y")};
         const auto value=sampled(property);
         const auto start = point_components(value.start, fallback);
         const auto end = point_components(value.end, start);
@@ -278,9 +317,9 @@ struct Document {
                 start.y + (end.y - start.y) * progress(value, 1)};
     }
     Matrix transform(const JsonValue& value) noexcept {
-        const auto p = point(get(value, "p")), anchor = point(get(value, "a")),
-                   scale = point(get(value, "s"), {100, 100});
-        float angle = scalar(get(value, "r")) * 3.14159265358979323846f / 180;
+        const auto p = point_field(value, "p"), anchor = point_field(value, "a"),
+                   scale = point_field(value, "s", {100, 100});
+        float angle = animated_field(value, "r") * 3.14159265358979323846f / 180;
         angle -= static_cast<i32>(angle / (2 * 3.14159265358979323846f)) * (2 * 3.14159265358979323846f);
         if (angle > 3.14159265358979323846f)
             angle -= 2 * 3.14159265358979323846f;
@@ -305,7 +344,7 @@ struct Document {
         return m;
     }
     ColrColor color(const JsonValue& style, float opacity) noexcept {
-        ColrColor c{0,0,0,opacity*scalar(get(style,"o"),100)*.01f};
+        ColrColor c{0,0,0,opacity*animated_field(style,"o",100)*.01f};
         const auto value=sampled(get(style,"c"));
         c.r=interpolated(value,0);c.g=interpolated(value,1);c.b=interpolated(value,2);
         c.r = clamped(c.r, 0.f, 1.f);
@@ -314,13 +353,14 @@ struct Document {
         c.a = clamped(c.a, 0.f, 1.f);
         return c;
     }
-    bool append(ID2D1Geometry* geometry, Matrix m, ColrColor c, bool gradient = false) noexcept {
+    bool append(ID2D1Geometry* geometry, const Matrix& m, const ColrColor& c, bool gradient = false) noexcept {
         if (!geometry)
             return false;
         if (c.a <= 0) {
             geometry->Release();
             return true;
         }
+        const Matrix* placement = &m;
         if (clip) {
             // Mattes and masks clip in world space; the leaf keeps world coordinates.
             ID2D1TransformedGeometry* placed = nullptr;
@@ -335,10 +375,10 @@ struct Document {
             if (!okay)
                 return false;
             geometry = clipped;
-            m = identity;
+            placement = &identity;
         }
         float area = 0;
-        if (FAILED(geometry->ComputeArea(&m, .0001f, &area))) {
+        if (FAILED(geometry->ComputeArea(placement, .0001f, &area))) {
             geometry->Release();
             return false;
         }
@@ -354,7 +394,7 @@ struct Document {
         auto* storage = leaf_pool + leaf_offset(leaf_count);
         auto& leaf = *new (storage) Leaf;
         leaf.geometry = geometry;
-        leaf.transform = m;
+        leaf.transform = *placement;
         leaf.color = c;
         if (gradient) {
             new (storage + sizeof(Leaf)) Gradient;
@@ -363,17 +403,18 @@ struct Document {
         ++leaf_count;
         return true;
     }
-    bool append_style(ID2D1Geometry* geometry, const Matrix& m, JsonValue style, float opacity) noexcept {
-        if (!type(style, "gf") && !type(style, "gs"))
+    bool append_style(ID2D1Geometry* geometry, const Matrix& m, const JsonValue& style, float opacity) noexcept {
+        const Shape kind = shape_kind(style);
+        if (kind != Shape::gradient_fill && kind != Shape::gradient_stroke)
             return append(geometry, m, color(style, opacity));
         const u32 previous = leaf_count;
-        if (!append(geometry, m, {1, 1, 1, opacity * scalar(get(style, "o"), 100) * .01f}, true))
+        if (!append(geometry, m, {1, 1, 1, opacity * animated_field(style, "o", 100) * .01f}, true))
             return false;
         if (previous == leaf_count)
             return true;
         auto& leaf = get_leaf(previous);
         const auto gradient = get(style, "g");
-        const u32 colors = static_cast<u32>(number(get(gradient, "p")));
+        const u32 colors = static_cast<u32>(field(gradient, "p"));
         const auto animated=sampled(get(gradient,"k"));
         GradientComponents components;
         if (!colors || colors > 32 || !gradient_components(animated, &components) || components.count < colors * 4)
@@ -404,9 +445,9 @@ struct Document {
         const auto transform_point = [m](D2D1_POINT_2F p) noexcept {
             return D2D1_POINT_2F{p.x * m._11 + p.y * m._21 + m._31, p.x * m._12 + p.y * m._22 + m._32};
         };
-        const auto a0 = point(get(style, "s")), b0 = point(get(style, "e"));
+        const auto a0 = point_field(style, "s"), b0 = point_field(style, "e");
         const auto start = transform_point(a0), end = transform_point(b0);
-        if (number(get(style, "t"), 1) == 1) {
+        if (field(style, "t", 1) == 1) {
             const auto perpendicular = transform_point({a0.x - (b0.y - a0.y), a0.y + (b0.x - a0.x)});
             data.paint.kind = ColrPaintKind::linear_gradient;
             data.paint.paint.linearGradient = {0,     colors, start.x,         start.y,
@@ -422,7 +463,28 @@ struct Document {
         }
         return true;
     }
-    bool path(JsonValue shape, ID2D1Geometry** output, const char* key = "ks") noexcept {
+    // A new path geometry with its sink open; null on failure.
+    __declspec(noinline) ID2D1PathGeometry* open_path(ID2D1GeometrySink** sink) noexcept {
+        ID2D1PathGeometry* geometry = nullptr;
+        if (FAILED(factory->CreatePathGeometry(&geometry)) || FAILED(geometry->Open(sink))) {
+            if (geometry)
+                geometry->Release();
+            return nullptr;
+        }
+        return geometry;
+    }
+    // Closes and releases the sink; a failed build or close also releases the geometry.
+    __declspec(noinline) static bool finish_path(ID2D1PathGeometry* geometry, ID2D1GeometrySink* sink,
+                                                 HRESULT built = S_OK) noexcept {
+        const HRESULT closed = sink->Close();
+        sink->Release();
+        if (FAILED(built) || FAILED(closed)) {
+            geometry->Release();
+            return false;
+        }
+        return true;
+    }
+    bool path(const JsonValue& shape, ID2D1Geometry** output, const char* key = "ks") noexcept {
         *output = nullptr;
         const auto animated=sampled(get(shape,key));
         auto value=animated.start,end=animated.end;
@@ -432,23 +494,19 @@ struct Document {
             if(!array(end,{a,2},&n)||!n)return false;end=a[0];}
         ValueScratch<512> v,in,out,v_end,in_end,out_end;
         u32 nv=0,ni=0,no=0,nve=0,nie=0,noe=0;
-        if(!array(get(value,"v"),{v,512},&nv)||!array(get(value,"i"),{in,512},&ni)||
-            !array(get(value,"o"),{out,512},&no)||!nv||nv!=ni||nv!=no)return false;
+        if(!array_field(value,"v",v,512,&nv)||!array_field(value,"i",in,512,&ni)||
+            !array_field(value,"o",out,512,&no)||!nv||nv!=ni||nv!=no)return false;
         const float blend=progress(animated);
-        if(blend && (!array(get(end,"v"),{v_end,512},&nve)||!array(get(end,"i"),{in_end,512},&nie)||
-            !array(get(end,"o"),{out_end,512},&noe)||nve!=nv||nie!=nv||noe!=nv))return false;
+        if(blend && (!array_field(end,"v",v_end,512,&nve)||!array_field(end,"i",in_end,512,&nie)||
+            !array_field(end,"o",out_end,512,&noe)||nve!=nv||nie!=nv||noe!=nv))return false;
         // Borrow the end entry: it is assigned and read only when blending.
         const auto morph=[this,blend](const JsonValue& a,const JsonValue& b) noexcept {const auto p=point(a),q=blend?point(b):p;
             return D2D1_POINT_2F{p.x+(q.x-p.x)*blend,p.y+(q.y-p.y)*blend};};
-        ID2D1PathGeometry* geometry = nullptr;
         ID2D1GeometrySink* sink = nullptr;
-        if (FAILED(factory->CreatePathGeometry(&geometry)) || FAILED(geometry->Open(&sink))) {
-            if (geometry)
-                geometry->Release();
+        ID2D1PathGeometry* geometry = open_path(&sink);
+        if (!geometry)
             return false;
-        }
-        bool closed = false;
-        json_value_to_bool(get(value, "c"), &closed);
+        const bool closed = flag_field(value, "c");
         sink->SetFillMode(D2D1_FILL_MODE_WINDING);
         sink->BeginFigure(morph(v[0],v_end[0]), D2D1_FIGURE_BEGIN_FILLED);
         for (u32 i = 0; i < (closed ? nv : nv - 1); ++i) {
@@ -458,18 +516,62 @@ struct Document {
             sink->AddBezier(segment);
         }
         sink->EndFigure(closed ? D2D1_FIGURE_END_CLOSED : D2D1_FIGURE_END_OPEN);
-        const HRESULT result = sink->Close();
-        sink->Release();
-        if (FAILED(result)) {
-            geometry->Release();
+        if (!finish_path(geometry, sink))
             return false;
-        }
         *output = geometry;
         return true;
     }
-    bool groups(JsonValue items, Matrix world, float opacity, u32 depth, bool repeated = false,
-                Matrix repetition = identity, JsonValue inherited_fill = {},
-                JsonValue inherited_stroke = {}) noexcept {
+    // Creates the ellipse or rounded-rectangle geometry of a primitive shape item.
+    bool primitive(const JsonValue& shape, Shape kind, ID2D1Geometry** output) noexcept {
+        const auto p = point_field(shape, "p"), s = point_field(shape, "s");
+        if (kind == Shape::ellipse) {
+            ID2D1EllipseGeometry* ellipse = nullptr;
+            if (FAILED(factory->CreateEllipseGeometry({p, s.x * .5f, s.y * .5f}, &ellipse)))
+                return false;
+            *output = ellipse;
+            return true;
+        }
+        const float r = animated_field(shape, "r");
+        ID2D1RoundedRectangleGeometry* rectangle = nullptr;
+        if (FAILED(factory->CreateRoundedRectangleGeometry(
+                {{p.x - s.x * .5f, p.y - s.y * .5f, p.x + s.x * .5f, p.y + s.y * .5f}, r, r}, &rectangle)))
+            return false;
+        *output = rectangle;
+        return true;
+    }
+    // Appends the outline of `geometry` widened by the stroke item's width and caps.
+    bool stroked(ID2D1Geometry* geometry, const Matrix& world, const JsonValue& stroke, float opacity) noexcept {
+        ID2D1GeometrySink* sink = nullptr;
+        ID2D1PathGeometry* widened = open_path(&sink);
+        if (!widened)
+            return false;
+        D2D1_STROKE_STYLE_PROPERTIES style{};
+        const u32 cap = static_cast<u32>(field(stroke, "lc", 1)),
+                  join = static_cast<u32>(field(stroke, "lj", 1));
+        style.startCap = style.endCap = style.dashCap = cap == 2   ? D2D1_CAP_STYLE_ROUND
+                                                        : cap == 3 ? D2D1_CAP_STYLE_SQUARE
+                                                                   : D2D1_CAP_STYLE_FLAT;
+        style.lineJoin = join == 2   ? D2D1_LINE_JOIN_ROUND
+                         : join == 3 ? D2D1_LINE_JOIN_BEVEL
+                                     : D2D1_LINE_JOIN_MITER;
+        style.miterLimit = maximum(1.f, field(stroke, "ml", 4));
+        ID2D1StrokeStyle* native_style = nullptr;
+        const HRESULT created = factory->CreateStrokeStyle(style, nullptr, 0, &native_style);
+        const HRESULT hr = SUCCEEDED(created)
+                               ? geometry->Widen(animated_field(stroke, "w"), native_style, nullptr, .1f, sink)
+                               : created;
+        if (native_style)
+            native_style->Release();
+        return finish_path(widened, sink, hr) && append_style(widened, world, stroke, opacity);
+    }
+    // Appends a second reference to `geometry` painted with a fill item.
+    bool filled(ID2D1Geometry* geometry, const Matrix& world, const JsonValue& fill, float opacity) noexcept {
+        geometry->AddRef();
+        return append_style(geometry, world, fill, opacity);
+    }
+    bool groups(const JsonValue& items, Matrix world, float opacity, u32 depth, bool repeated = false,
+                const Matrix& repetition = identity, const JsonValue& inherited_fill = {},
+                const JsonValue& inherited_stroke = {}) noexcept {
         if (depth > 24)
             return false;
         ValueScratch<512> shapes;
@@ -483,18 +585,19 @@ struct Document {
         bool merged = false;
         for (u32 i = 0; i < count; ++i)
             if (!hidden(shapes[i])) {
-                if (type(shapes[i], "tr")) {
+                const Shape kind = shape_kind(shapes[i]);
+                if (kind == Shape::transform) {
                     world = compose(transform(shapes[i]), world);
-                    opacity *= scalar(get(shapes[i], "o"), 100) * .01f;
-                } else if (type(shapes[i], "fl") || type(shapes[i], "gf")) {
+                    opacity *= animated_field(shapes[i], "o", 100) * .01f;
+                } else if (kind == Shape::fill || kind == Shape::gradient_fill) {
                     fill = shapes[i];
                     fill_index = i;
-                } else if (type(shapes[i], "st") || type(shapes[i], "gs")) {
+                } else if (kind == Shape::stroke || kind == Shape::gradient_stroke) {
                     stroke = shapes[i];
                     stroke_index = i;
-                } else if (type(shapes[i], "mm"))
+                } else if (kind == Shape::merge)
                     merged = true;
-                else if (type(shapes[i], "rp"))
+                else if (kind == Shape::repeater)
                     repeater = shapes[i];
             }
         world = compose(repetition, world);
@@ -502,94 +605,41 @@ struct Document {
             const auto shape = shapes[i];
             if (hidden(shape))
                 continue;
-            if (type(shape, "gr") && !merged) {
-                if (!groups(get(shape, "it"), world, opacity, depth + 1, false, identity, fill, stroke))
-                    return false;
-                continue;
-            }
+            const Shape kind = merged ? Shape::other : shape_kind(shape);
             ID2D1Geometry* geometry = nullptr;
             if (merged) {
                 if (i != count - 1)
                     continue;
                 if (!geometry_scope(items, &geometry, depth, false))
                     return false;
-            } else if (type(shape, "sh")) {
+            } else if (kind == Shape::group) {
+                if (!groups(get(shape, "it"), world, opacity, depth + 1, false, identity, fill, stroke))
+                    return false;
+                continue;
+            } else if (kind == Shape::path) {
                 if (!path(shape, &geometry))
                     return false;
-            } else if (type(shape, "el")) {
-                const auto p = point(get(shape, "p")), s = point(get(shape, "s"));
-                ID2D1EllipseGeometry* ellipse = nullptr;
-                if (FAILED(factory->CreateEllipseGeometry({p, s.x * .5f, s.y * .5f}, &ellipse)))
+            } else if (kind == Shape::ellipse || kind == Shape::rectangle) {
+                if (!primitive(shape, kind, &geometry))
                     return false;
-                geometry = ellipse;
-            } else if (type(shape, "rc")) {
-                const auto p = point(get(shape, "p")), s = point(get(shape, "s"));
-                const float r = scalar(get(shape, "r"));
-                ID2D1RoundedRectangleGeometry* rectangle = nullptr;
-                if (FAILED(factory->CreateRoundedRectangleGeometry(
-                        {{p.x - s.x * .5f, p.y - s.y * .5f, p.x + s.x * .5f, p.y + s.y * .5f}, r, r},
-                        &rectangle)))
-                    return false;
-                geometry = rectangle;
-            } else if (type(shape, "fl") || type(shape, "st") || type(shape, "gf") || type(shape, "gs") ||
-                       type(shape, "tr") || type(shape, "tm") || type(shape, "rp"))
+            } else if (kind >= Shape::fill && kind <= Shape::repeater)
                 continue;
             else
                 return false;
-            if (fill.source.bytes && (!stroke.source.bytes || fill_index > stroke_index)) {
-                geometry->AddRef();
-                if (!append_style(geometry, world, fill, opacity)) {
-                    geometry->Release();
-                    return false;
-                }
-            }
-            if (stroke.source.bytes && scalar(get(stroke, "w")) > 0) {
-                ID2D1PathGeometry* widened = nullptr;
-                ID2D1GeometrySink* sink = nullptr;
-                if (FAILED(factory->CreatePathGeometry(&widened)) || FAILED(widened->Open(&sink))) {
-                    if (widened)
-                        widened->Release();
-                    geometry->Release();
-                    return false;
-                }
-                D2D1_STROKE_STYLE_PROPERTIES style{};
-                const u32 cap = static_cast<u32>(number(get(stroke, "lc"), 1)),
-                          join = static_cast<u32>(number(get(stroke, "lj"), 1));
-                style.startCap = style.endCap = style.dashCap = cap == 2   ? D2D1_CAP_STYLE_ROUND
-                                                                : cap == 3 ? D2D1_CAP_STYLE_SQUARE
-                                                                           : D2D1_CAP_STYLE_FLAT;
-                style.lineJoin = join == 2   ? D2D1_LINE_JOIN_ROUND
-                                 : join == 3 ? D2D1_LINE_JOIN_BEVEL
-                                             : D2D1_LINE_JOIN_MITER;
-                style.miterLimit = maximum(1.f, number(get(stroke, "ml"), 4));
-                ID2D1StrokeStyle* native_style = nullptr;
-                const HRESULT created = factory->CreateStrokeStyle(style, nullptr, 0, &native_style);
-                const HRESULT hr = SUCCEEDED(created) ? geometry->Widen(scalar(get(stroke, "w")),
-                                                                        native_style, nullptr, .1f, sink)
-                                                      : created;
-                if (native_style)
-                    native_style->Release();
-                const HRESULT end = sink->Close();
-                sink->Release();
-                if (FAILED(hr) || FAILED(end) || !append_style(widened, world, stroke, opacity)) {
-                    if (FAILED(hr) || FAILED(end))
-                        widened->Release();
-                    geometry->Release();
-                    return false;
-                }
-            }
-            if (fill.source.bytes && stroke.source.bytes && fill_index <= stroke_index) {
-                geometry->AddRef();
-                if (!append_style(geometry, world, fill, opacity)) {
-                    geometry->Release();
-                    return false;
-                }
-            }
+            const bool has_fill = fill.source.bytes != 0,
+                       fill_first = has_fill && (!stroke.source.bytes || fill_index > stroke_index);
+            bool okay = !fill_first || filled(geometry, world, fill, opacity);
+            if (okay && stroke.source.bytes && animated_field(stroke, "w") > 0)
+                okay = stroked(geometry, world, stroke, opacity);
+            if (okay && has_fill && !fill_first)
+                okay = filled(geometry, world, fill, opacity);
             geometry->Release();
+            if (!okay)
+                return false;
         }
         if (!repeated && repeater.source.bytes) {
-            const float copies = scalar(get(repeater, "c"));
-            if (!(copies >= 0 && copies <= 32) || scalar(get(repeater, "o")) != 0)
+            const float copies = animated_field(repeater, "c");
+            if (!(copies >= 0 && copies <= 32) || animated_field(repeater, "o") != 0)
                 return false;
             const auto tr = get(repeater, "tr");
             const Matrix step = transform(tr);
@@ -598,7 +648,7 @@ struct Document {
                 m = compose(m, step);
                 const float t = static_cast<float>(copy) / maximum(1.f, copies - 1);
                 const float alpha =
-                    (scalar(get(tr, "so"), 100) * (1 - t) + scalar(get(tr, "eo"), 100) * t) * .01f;
+                    (animated_field(tr, "so", 100) * (1 - t) + animated_field(tr, "eo", 100) * t) * .01f;
                 if (!groups(items, inherited_world, inherited_opacity * alpha, depth + 1, true, m,
                             inherited_fill, inherited_stroke))
                     return false;
@@ -608,24 +658,17 @@ struct Document {
     }
     bool combine(ID2D1Geometry* a, ID2D1Geometry* b, D2D1_COMBINE_MODE mode, ID2D1Geometry** output,
                  float flattening = .1f) noexcept {
-        ID2D1PathGeometry* merged = nullptr;
         ID2D1GeometrySink* sink = nullptr;
-        if (FAILED(factory->CreatePathGeometry(&merged)) || FAILED(merged->Open(&sink))) {
-            if (merged)
-                merged->Release();
+        ID2D1PathGeometry* merged = open_path(&sink);
+        if (!merged)
             return false;
-        }
-        const HRESULT hr = a->CombineWithGeometry(b, mode, nullptr, flattening, sink), end = sink->Close();
-        sink->Release();
-        if (FAILED(hr) || FAILED(end)) {
-            merged->Release();
+        if (!finish_path(merged, sink, a->CombineWithGeometry(b, mode, nullptr, flattening, sink)))
             return false;
-        }
         *output = merged;
         return true;
     }
     // Shape modifiers consume geometry, including otherwise unstyled child groups.
-    bool geometry_scope(JsonValue items, ID2D1Geometry** output, u32 depth,
+    bool geometry_scope(const JsonValue& items, ID2D1Geometry** output, u32 depth,
                         bool apply_transform = true, bool* has_shapes = nullptr) noexcept {
         *output = nullptr;
         if(has_shapes)*has_shapes=false;
@@ -640,10 +683,11 @@ struct Document {
         for (u32 i = 0; i < n; ++i) {
             if (hidden(shapes[i]))
                 continue;
-            if (type(shapes[i], "tr"))
+            const Shape kind = shape_kind(shapes[i]);
+            if (kind == Shape::transform)
                 matrix = transform(shapes[i]);
-            if (type(shapes[i], "mm")) {
-                const auto mm = static_cast<u32>(number(get(shapes[i], "mm"), 1));
+            if (kind == Shape::merge) {
+                const auto mm = static_cast<u32>(field(shapes[i], "mm", 1));
                 mode = mm == 4   ? D2D1_COMBINE_MODE_INTERSECT
                        : mm == 3 ? D2D1_COMBINE_MODE_EXCLUDE
                        : mm == 5 ? D2D1_COMBINE_MODE_XOR
@@ -664,31 +708,20 @@ struct Document {
             if (hidden(shape))
                 continue;
             ID2D1Geometry* part = nullptr;
-            if (type(shape, "sh")) {
+            const Shape kind = shape_kind(shape);
+            if (kind == Shape::path) {
                 if (!path(shape, &part))
                     return false;
-            } else if (type(shape, "gr")) {
+            } else if (kind == Shape::group) {
                 bool child_shapes=false;
                 if (!geometry_scope(get(shape, "it"), &part, depth + 1, true, &child_shapes))
                     return false;
                 // A transform-only group has no path operand. A real operand
                 // whose boolean result is empty still participates in merges.
                 if(!child_shapes){part->Release();continue;}
-            } else if (type(shape, "el")) {
-                const auto p = point(get(shape, "p")), s = point(get(shape, "s"));
-                ID2D1EllipseGeometry* ellipse = nullptr;
-                if (FAILED(factory->CreateEllipseGeometry({p, s.x * .5f, s.y * .5f}, &ellipse)))
+            } else if (kind == Shape::ellipse || kind == Shape::rectangle) {
+                if (!primitive(shape, kind, &part))
                     return false;
-                part = ellipse;
-            } else if (type(shape, "rc")) {
-                const auto p = point(get(shape, "p")), s = point(get(shape, "s"));
-                const float r = scalar(get(shape, "r"));
-                ID2D1RoundedRectangleGeometry* rect = nullptr;
-                if (FAILED(factory->CreateRoundedRectangleGeometry(
-                        {{p.x - s.x * .5f, p.y - s.y * .5f, p.x + s.x * .5f, p.y + s.y * .5f}, r, r},
-                        &rect)))
-                    return false;
-                part = rect;
             } else
                 continue;
             any_shapes=true;
@@ -704,22 +737,8 @@ struct Document {
             collected->Release();
             collected = joined;
         }
-        if (!collected) {
-            ID2D1PathGeometry* empty = nullptr;
-            ID2D1GeometrySink* sink = nullptr;
-            if (FAILED(factory->CreatePathGeometry(&empty)) || FAILED(empty->Open(&sink))) {
-                if (empty)
-                    empty->Release();
-                return false;
-            }
-            const HRESULT hr = sink->Close();
-            sink->Release();
-            if (FAILED(hr)) {
-                empty->Release();
-                return false;
-            }
-            collected = empty;
-        }
+        if (!collected && !empty_geometry(&collected))
+            return false;
         ID2D1TransformedGeometry* transformed = nullptr;
         if (!apply_transform)
             matrix = identity;
@@ -729,7 +748,7 @@ struct Document {
         if(has_shapes)*has_shapes=any_shapes;
         return true;
     }
-    Matrix parent_transform(JsonValue layer, ConstSlice<JsonValue> layers, u32 depth) noexcept {
+    Matrix parent_transform(const JsonValue& layer, const ConstSlice<JsonValue>& layers, u32 depth) noexcept {
         Matrix own = transform(get(layer, "ks"));
         const auto parent = get(layer, "parent");
         if (!parent.source.bytes)
@@ -740,22 +759,22 @@ struct Document {
         }
         const float index = number(parent, -1);
         for (u32 i = 0; i < layers.count; ++i)
-            if (number(get(layers[i], "ind"), -2) == index)
+            if (field(layers[i], "ind", -2) == index)
                 return compose(own, parent_transform(layers[i], layers, depth + 1));
         invalid_parent = true;
         return own;
     }
     // One layer's leaves. A matte source draws even when hidden.
-    bool layer(JsonValue value, ConstSlice<JsonValue> siblings, const Matrix& world, float opacity, u32 depth,
+    bool layer(const JsonValue& value, const ConstSlice<JsonValue>& siblings, const Matrix& world, float opacity, u32 depth,
                bool matte = false) noexcept {
-        if ((!matte && hidden(value)) || frame < number(get(value, "ip"), -100000) ||
-            frame >= number(get(value, "op"), 100000))
+        if ((!matte && hidden(value)) || frame < field(value, "ip", -100000) ||
+            frame >= field(value, "op", 100000))
             return true;
-        const float ty = number(get(value, "ty"), -1);
+        const float ty = field(value, "ty", -1);
         if (ty == 3)
             return true;
         const Matrix local = compose(parent_transform(value, siblings, 0), world);
-        const float alpha = opacity * scalar(get(get(value, "ks"), "o"), 100) * .01f;
+        const float alpha = opacity * animated_field(get(value, "ks"), "o", 100) * .01f;
         if (alpha <= 0)
             return true;
         ID2D1Geometry* masked = nullptr;
@@ -770,7 +789,7 @@ struct Document {
             okay = groups(get(value, "shapes"), local, alpha, 0);
         } else if (ty == 1) {
             // Solid layer: a filled sw x sh rectangle in layer space.
-            const D2D1_RECT_F bounds{0, 0, number(get(value, "sw")), number(get(value, "sh"))};
+            const D2D1_RECT_F bounds{0, 0, field(value, "sw"), field(value, "sh")};
             ID2D1RectangleGeometry* rectangle = nullptr;
             ColrColor c{0, 0, 0, alpha};
             okay = solid_color(get(value, "sc"), &c) &&
@@ -779,15 +798,15 @@ struct Document {
             JsonString reference{};
             ValueScratch<256> a;
             u32 n = 0;
-            okay = json_value_as_string(get(value, "refId"), &reference) && array(assets, {a, 256}, &n);
+            okay = string_field(value, "refId", &reference) && array(assets, {a, 256}, &n);
             bool found = false;
             for (u32 j = 0; okay && j < n; ++j) {
                 JsonString name{};
-                if (json_value_as_string(get(a[j], "id"), &name) && name.encoded.bytes == reference.encoded.bytes &&
+                if (string_field(a[j], "id", &name) && name.encoded.bytes == reference.encoded.bytes &&
                     bytes_equal(name.encoded.data, reference.encoded.data, name.encoded.bytes)) {
                     found = true;
                     const float previous = frame;
-                    frame = (frame - number(get(value, "st"))) / maximum(.0001f, number(get(value, "sr"), 1));
+                    frame = (frame - field(value, "st")) / maximum(.0001f, field(value, "sr", 1));
                     okay = layers(get(a[j], "layers"), local, alpha, depth + 1);
                     frame = previous;
                     break;
@@ -804,24 +823,15 @@ struct Document {
         return okay;
     }
     bool empty_geometry(ID2D1Geometry** output) noexcept {
-        ID2D1PathGeometry* empty = nullptr;
         ID2D1GeometrySink* sink = nullptr;
-        if (FAILED(factory->CreatePathGeometry(&empty)) || FAILED(empty->Open(&sink))) {
-            if (empty)
-                empty->Release();
+        ID2D1PathGeometry* empty = open_path(&sink);
+        if (!empty || !finish_path(empty, sink))
             return false;
-        }
-        const HRESULT hr = sink->Close();
-        sink->Release();
-        if (FAILED(hr)) {
-            empty->Release();
-            return false;
-        }
         *output = empty;
         return true;
     }
     // The world-space union of a matte source's painted geometry.
-    bool matte_region(JsonValue source, ConstSlice<JsonValue> siblings, const Matrix& world, float opacity, u32 depth,
+    bool matte_region(const JsonValue& source, const ConstSlice<JsonValue>& siblings, const Matrix& world, float opacity, u32 depth,
                       ID2D1Geometry** output) noexcept {
         *output = nullptr;
         const u32 mark = leaf_count;
@@ -863,32 +873,16 @@ struct Document {
     // `operand` is consumed; the result replaces *region.
     bool region_combine(ID2D1Geometry** region, bool* outside, ID2D1Geometry* operand, bool operand_outside,
                         char op) noexcept {
-        // op: 'a' union, 's' subtract, 'i' intersect.
-        D2D1_COMBINE_MODE mode = D2D1_COMBINE_MODE_UNION;
-        bool swap = false, result_outside = false;
-        if (!*outside && !operand_outside) {
-            mode = op == 'a' ? D2D1_COMBINE_MODE_UNION
-                   : op == 's' ? D2D1_COMBINE_MODE_EXCLUDE
-                               : D2D1_COMBINE_MODE_INTERSECT;
-        } else if (!*outside) {
-            // R op (all - M)
-            mode = op == 'a' ? D2D1_COMBINE_MODE_EXCLUDE : op == 's' ? D2D1_COMBINE_MODE_INTERSECT
-                                                                     : D2D1_COMBINE_MODE_EXCLUDE;
-            swap = op == 'a';
-            result_outside = op == 'a';
-        } else if (!operand_outside) {
-            // (all - R) op M
-            mode = op == 'a' ? D2D1_COMBINE_MODE_EXCLUDE : op == 's' ? D2D1_COMBINE_MODE_UNION
-                                                                     : D2D1_COMBINE_MODE_EXCLUDE;
-            swap = op == 'i';
-            result_outside = op != 'i';
-        } else {
-            // (all - R) op (all - M)
-            mode = op == 'a' ? D2D1_COMBINE_MODE_INTERSECT : op == 's' ? D2D1_COMBINE_MODE_EXCLUDE
-                                                                       : D2D1_COMBINE_MODE_UNION;
-            swap = op == 's';
-            result_outside = op != 's';
-        }
+        // op: 'a' union, 's' subtract, 'i' intersect. Rows: region and operand each inside or outside;
+        // an entry holds the combine mode (bits 0-1), whether the operands swap (bit 2) and whether
+        // the result stays an outside (bit 3).
+        static_assert(D2D1_COMBINE_MODE_UNION == 0 && D2D1_COMBINE_MODE_INTERSECT == 1 &&
+                      D2D1_COMBINE_MODE_EXCLUDE == 3);
+        static constexpr u8 plan[]{0, 3, 1, 15, 1, 3, 11, 8, 7, 9, 7, 8};
+        const u32 step = plan[((*outside ? 2u : 0u) + (operand_outside ? 1u : 0u)) * 3 +
+                              (op == 'a' ? 0u : op == 's' ? 1u : 2u)];
+        const auto mode = static_cast<D2D1_COMBINE_MODE>(step & 3);
+        const bool swap = (step & 4) != 0, result_outside = (step & 8) != 0;
         ID2D1Geometry* next = nullptr;
         const bool okay = swap ? combine(operand, *region, mode, &next, tolerance)
                                : combine(*region, operand, mode, &next, tolerance);
@@ -920,7 +914,7 @@ struct Document {
         return true;
     }
     // Layer masks (masksProperties) as one world-space region; null when none apply.
-    bool mask(JsonValue owner, const Matrix& local, ID2D1Geometry** output, bool* outside) noexcept {
+    bool mask(const JsonValue& owner, const Matrix& local, ID2D1Geometry** output, bool* outside) noexcept {
         *output = nullptr;
         *outside = false;
         const auto property = get(owner, "masksProperties");
@@ -934,7 +928,7 @@ struct Document {
         bool region_outside = false, okay = true;
         for (u32 i = 0; okay && i < count; ++i) {
             JsonString mode{};
-            const char op = json_value_as_string(get(masks[i], "mode"), &mode) && mode.encoded.bytes == 1
+            const char op = string_field(masks[i], "mode", &mode) && mode.encoded.bytes == 1
                                 ? mode.encoded.data[0]
                                 : 'a';
             if (op != 'a' && op != 's' && op != 'i')
@@ -946,8 +940,7 @@ struct Document {
                 shape->Release();
             if (!okay)
                 break;
-            bool inverted = false;
-            json_value_to_bool(get(masks[i], "inv"), &inverted);
+            const bool inverted = flag_field(masks[i], "inv");
             // Adding starts from nothing; subtracting or intersecting from everything.
             if (!region) {
                 okay = empty_geometry(&region);
@@ -975,7 +968,7 @@ struct Document {
                                         : 16u;
         return *value < 16;
     }
-    bool solid_color(JsonValue value, ColrColor* c) noexcept {
+    bool solid_color(const JsonValue& value, ColrColor* c) noexcept {
         JsonString text{};
         if (!json_value_as_string(value, &text) || text.encoded.bytes != 7 || text.encoded.data[0] != '#')
             return false;
@@ -988,7 +981,7 @@ struct Document {
         }
         return true;
     }
-    bool layers(JsonValue array_value, const Matrix& world, float opacity, u32 depth) noexcept {
+    bool layers(const JsonValue& array_value, const Matrix& world, float opacity, u32 depth) noexcept {
         if (depth > 16)
             return false;
         ValueScratch<512> values;
@@ -999,9 +992,9 @@ struct Document {
         for (u32 i = count; i--;) {
             const auto current = values[i];
             // A track matte source only shapes the layer bound to it.
-            if (number(get(current, "td")) != 0)
+            if (field(current, "td") != 0)
                 continue;
-            const u32 matte_type = static_cast<u32>(number(get(current, "tt")));
+            const u32 matte_type = static_cast<u32>(field(current, "tt"));
             if (matte_type < 1 || matte_type > 4) {
                 if (!layer(current, siblings, world, opacity, depth))
                     return false;
@@ -1013,7 +1006,7 @@ struct Document {
             if (bound.source.bytes) {
                 const float index = number(bound, -1);
                 for (u32 j = 0; j < count; ++j)
-                    if (number(get(values[j], "ind"), -2) == index)
+                    if (field(values[j], "ind", -2) == index)
                         source = values[j];
             } else if (i)
                 source = values[i - 1];

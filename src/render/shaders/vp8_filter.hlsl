@@ -206,104 +206,35 @@ void vp8_filter(uint3 group_thread_id : SV_GroupThreadID) {
         const uint chroma_x = macroblock_x * 8u;
         const uint chroma_y = macroblock_y * 8u;
 
-        if (valid && level != 0 && macroblock_x != 0u) {
-            filter_segment(0u, luma_stride, int(luma_x),
-                           int(luma_y + lane), 1, 0, macroblock_limit,
-                           interior_limit, hev_threshold, true,
-                           simple_filter != 0u);
-            if (simple_filter == 0u && lane < 8u) {
-                filter_segment(u_plane_offset, chroma_stride,
-                               int(chroma_x), int(chroma_y + lane),
-                               1, 0, macroblock_limit, interior_limit,
-                               hev_threshold, true, false);
-                filter_segment(v_plane_offset, chroma_stride,
-                               int(chroma_x), int(chroma_y + lane),
-                               1, 0, macroblock_limit, interior_limit,
-                               hev_threshold, true, false);
+        // Eight edge passes in order: the macroblock edge then three inner
+        // edges between columns, then the same between rows. Each pass reads
+        // what the previous one wrote, so a barrier follows every pass.
+        [loop] for (uint pass_index = 0u; pass_index < 8u; ++pass_index) {
+            const bool across = pass_index < 4u;
+            const uint edge_index = pass_index & 3u;
+            const bool macroblock_edge = edge_index == 0u;
+            const bool wanted = macroblock_edge ? (across ? macroblock_x : macroblock_y) != 0u
+                                                : inner_edges;
+            if (valid && level != 0 && wanted) {
+                const int limit = macroblock_edge ? macroblock_limit : subblock_limit;
+                // Luma, then (outside the simple filter, on the first two
+                // edges, for eight lanes) the U and V planes.
+                [loop] for (uint plane = 0u; plane < 3u; ++plane) {
+                    if (plane != 0u && (simple_filter != 0u || lane >= 8u || edge_index >= 2u))
+                        break;
+                    const uint offset = plane == 0u ? 0u : plane == 1u ? u_plane_offset : v_plane_offset;
+                    const uint stride = plane == 0u ? luma_stride : chroma_stride;
+                    const uint origin_x = plane == 0u ? luma_x : chroma_x;
+                    const uint origin_y = plane == 0u ? luma_y : chroma_y;
+                    const uint along = edge_index * 4u;
+                    filter_segment(offset, stride,
+                                   int(across ? origin_x + along : origin_x + lane),
+                                   int(across ? origin_y + lane : origin_y + along),
+                                   across ? 1 : 0, across ? 0 : 1, limit, interior_limit,
+                                   hev_threshold, macroblock_edge, simple_filter != 0u);
+                }
             }
+            AllMemoryBarrierWithGroupSync();
         }
-        AllMemoryBarrierWithGroupSync();
-
-        if (valid && level != 0 && inner_edges) {
-            filter_segment(0u, luma_stride, int(luma_x + 4u),
-                           int(luma_y + lane), 1, 0, subblock_limit,
-                           interior_limit, hev_threshold, false,
-                           simple_filter != 0u);
-            if (simple_filter == 0u && lane < 8u) {
-                filter_segment(u_plane_offset, chroma_stride,
-                               int(chroma_x + 4u), int(chroma_y + lane),
-                               1, 0, subblock_limit, interior_limit,
-                               hev_threshold, false, false);
-                filter_segment(v_plane_offset, chroma_stride,
-                               int(chroma_x + 4u), int(chroma_y + lane),
-                               1, 0, subblock_limit, interior_limit,
-                               hev_threshold, false, false);
-            }
-        }
-        AllMemoryBarrierWithGroupSync();
-        if (valid && level != 0 && inner_edges) {
-            filter_segment(0u, luma_stride, int(luma_x + 8u),
-                           int(luma_y + lane), 1, 0, subblock_limit,
-                           interior_limit, hev_threshold, false,
-                           simple_filter != 0u);
-        }
-        AllMemoryBarrierWithGroupSync();
-        if (valid && level != 0 && inner_edges) {
-            filter_segment(0u, luma_stride, int(luma_x + 12u),
-                           int(luma_y + lane), 1, 0, subblock_limit,
-                           interior_limit, hev_threshold, false,
-                           simple_filter != 0u);
-        }
-        AllMemoryBarrierWithGroupSync();
-
-        if (valid && level != 0 && macroblock_y != 0u) {
-            filter_segment(0u, luma_stride, int(luma_x + lane),
-                           int(luma_y), 0, 1, macroblock_limit,
-                           interior_limit, hev_threshold, true,
-                           simple_filter != 0u);
-            if (simple_filter == 0u && lane < 8u) {
-                filter_segment(u_plane_offset, chroma_stride,
-                               int(chroma_x + lane), int(chroma_y),
-                               0, 1, macroblock_limit, interior_limit,
-                               hev_threshold, true, false);
-                filter_segment(v_plane_offset, chroma_stride,
-                               int(chroma_x + lane), int(chroma_y),
-                               0, 1, macroblock_limit, interior_limit,
-                               hev_threshold, true, false);
-            }
-        }
-        AllMemoryBarrierWithGroupSync();
-
-        if (valid && level != 0 && inner_edges) {
-            filter_segment(0u, luma_stride, int(luma_x + lane),
-                           int(luma_y + 4u), 0, 1, subblock_limit,
-                           interior_limit, hev_threshold, false,
-                           simple_filter != 0u);
-            if (simple_filter == 0u && lane < 8u) {
-                filter_segment(u_plane_offset, chroma_stride,
-                               int(chroma_x + lane), int(chroma_y + 4u),
-                               0, 1, subblock_limit, interior_limit,
-                               hev_threshold, false, false);
-                filter_segment(v_plane_offset, chroma_stride,
-                               int(chroma_x + lane), int(chroma_y + 4u),
-                               0, 1, subblock_limit, interior_limit,
-                               hev_threshold, false, false);
-            }
-        }
-        AllMemoryBarrierWithGroupSync();
-        if (valid && level != 0 && inner_edges) {
-            filter_segment(0u, luma_stride, int(luma_x + lane),
-                           int(luma_y + 8u), 0, 1, subblock_limit,
-                           interior_limit, hev_threshold, false,
-                           simple_filter != 0u);
-        }
-        AllMemoryBarrierWithGroupSync();
-        if (valid && level != 0 && inner_edges) {
-            filter_segment(0u, luma_stride, int(luma_x + lane),
-                           int(luma_y + 12u), 0, 1, subblock_limit,
-                           interior_limit, hev_threshold, false,
-                           simple_filter != 0u);
-        }
-        AllMemoryBarrierWithGroupSync();
     }
 }

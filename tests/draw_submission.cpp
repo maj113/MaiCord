@@ -15,6 +15,7 @@ void check(bool passed, const char* label) noexcept {
 struct Batch {
     u32 first, count;
     RasterClipRect clip;
+    bool whole = false;
 };
 
 // The renderer's pass loop over synthetic batches: a batch whose clip misses
@@ -38,11 +39,13 @@ Pass submit_pass(DrawSubmissionState* state, DrawPipeline pipeline, const Batch*
         pass.instances += next.end - next.first;
     };
     for (u32 i = 0; i < count; ++i) {
-        const RasterClipRect clip{maximum(batches[i].clip.left, damage.left), maximum(batches[i].clip.top, damage.top),
-                                  minimum(batches[i].clip.right, damage.right),
-                                  minimum(batches[i].clip.bottom, damage.bottom)};
+        RasterClipRect clip{maximum(batches[i].clip.left, damage.left), maximum(batches[i].clip.top, damage.top),
+                            minimum(batches[i].clip.right, damage.right),
+                            minimum(batches[i].clip.bottom, damage.bottom)};
         if (clip.left >= clip.right || clip.top >= clip.bottom || !batches[i].count)
             continue;
+        if (batches[i].whole)
+            clip = damage;
         if (!draw_run_extend(&run, clip, batches[i].first, batches[i].count)) {
             draw(run);
             run = {clip, batches[i].first, batches[i].first + batches[i].count};
@@ -152,6 +155,36 @@ void test_frame() noexcept {
     p = submit_pass(&state, DrawPipeline::paint, paint, 7, split, &pipelines);
     check(p.draws == 3 && p.instances == 341 && p.scissor_calls == 3,
           "split damage: the chat and the member list keep their own scissors");
+
+    // Scrolling media rows: batches split per row clip. Rows whose quads lie
+    // inside their clip share the target scissor and draw as one call; a row
+    // with a quad crossing its clip keeps the row scissor.
+    const UiRect row_clip[]{{312, 60, 1040, 100}, {312, 100, 1040, 140}, {312, 140, 1040, 180}, {312, 180, 1040, 220}};
+    const MediaQuad quads[]{
+        {320, 64, 360, 96},  {400, 64, 440, 96},  {320, 104, 360, 136}, {400, 104, 440, 136},
+        {320, 144, 360, 176}, {400, 144, 440, 176}, {320, 170, 360, 230},
+    };
+    check(draw_quads_inside(quads, 2, row_clip[0]) && draw_quads_inside(quads + 4, 2, row_clip[2]) &&
+              !draw_quads_inside(quads + 6, 1, row_clip[3]) && !draw_quads_inside(quads, 2, row_clip[1]) &&
+              !draw_quads_inside(quads, 0, row_clip[0]),
+          "rows: a batch is inside its clip only when every quad is");
+    Batch rows_media[]{{0, 2, {312, 60, 1040, 100}}, {2, 2, {312, 100, 1040, 140}}, {4, 2, {312, 140, 1040, 180}},
+                       {6, 1, {312, 180, 1040, 220}}};
+    draw_submission_begin(&state);
+    pipelines = 0;
+    p = submit_pass(&state, DrawPipeline::media, rows_media, 4, full, &pipelines);
+    check(p.draws == 4 && p.instances == 7 && p.scissor_calls == 4, "rows: row scissors draw once per row");
+    for (u32 i = 0; i < 3; ++i)
+        rows_media[i].whole = draw_quads_inside(quads + rows_media[i].first, rows_media[i].count, row_clip[i]);
+    rows_media[3].whole = draw_quads_inside(quads + 6, 1, row_clip[3]);
+    draw_submission_begin(&state);
+    pipelines = 0;
+    p = submit_pass(&state, DrawPipeline::media, rows_media, 4, full, &pipelines);
+    check(p.draws == 2 && p.instances == 7 && p.scissor_calls == 2,
+          "rows: rows inside their clips share the target scissor and draw as one call");
+    p = submit_pass(&state, DrawPipeline::media, rows_media, 4, {0, 100, 1280, 140}, &pipelines);
+    check(p.draws == 1 && p.instances == 2 && p.scissor_calls == 1,
+          "rows: damage skips rows whose clip misses it");
 }
 } // namespace
 } // namespace maicord::draw_submission_test

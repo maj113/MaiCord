@@ -21,13 +21,22 @@ inline bool copy_bytes(void* destination, u32 capacity, const void* source, u32 
     return true;
 }
 
-__declspec(noinline) inline bool bytes_equal(const void* left, const void* right, u32 bytes) noexcept {
+// Eight bytes per step, then a byte tail; the damage diff compares whole quad
+// ranges with it.
+__declspec(noinline) inline bool bytes_equal(const void* left, const void* right, usize bytes) noexcept {
     if ((!left || !right) && bytes != 0) {
         return false;
     }
     const auto* left_bytes = static_cast<const u8*>(left);
     const auto* right_bytes = static_cast<const u8*>(right);
-    for (u32 index = 0; index < bytes; ++index) {
+    usize index = 0;
+    for (; bytes - index >= 8; index += 8) {
+        if (*reinterpret_cast<const u64 __unaligned*>(left_bytes + index) !=
+            *reinterpret_cast<const u64 __unaligned*>(right_bytes + index)) {
+            return false;
+        }
+    }
+    for (; index < bytes; ++index) {
         if (left_bytes[index] != right_bytes[index]) {
             return false;
         }

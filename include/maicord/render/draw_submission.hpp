@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/render/raster_clip.hpp"
+#include "maicord/render/renderer_media_draw_storage.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -108,6 +109,20 @@ inline bool draw_run_extend(DrawRun* run, const RasterClipRect& scissor, u32 fir
         !raster_clip_equal(run->scissor, scissor))
         return false;
     run->end = first + count;
+    return true;
+}
+
+// True when `count` > 0 quads all lie inside `clip`. The scissor of such a batch
+// only duplicates what the geometry already bounds, so it may use the whole
+// target (and merge with its neighbours) without changing a pixel.
+inline bool draw_quads_inside(const MediaQuad* quads, u32 count, const UiRect& clip) noexcept {
+    if (!count)
+        return false;
+    for (u32 i = 0; i < count; ++i) {
+        const MediaQuad& q = quads[i];
+        if (!(q.left >= clip.left && q.top >= clip.top && q.right <= clip.right && q.bottom <= clip.bottom))
+            return false;
+    }
     return true;
 }
 

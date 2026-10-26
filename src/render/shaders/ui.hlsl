@@ -29,7 +29,6 @@ struct VertexOutput {
     nointerpolation float4 border : COLOR1;
     float4 local_and_half_size : TEXCOORD0;
     nointerpolation float4 parameters : TEXCOORD1;
-    nointerpolation float primitive_opacity : TEXCOORD2;
     float2 dip_position : TEXCOORD3;
 };
 
@@ -46,7 +45,6 @@ VertexOutput ui_vertex(VertexInput input, uint vertex_id : SV_VertexID) {
     output.dip_position = position;
     output.fill = input.fill;
     output.border = input.border;
-    output.primitive_opacity = group_opacity;
     if (input.parameters.y != -6.0f) {
         output.fill.a *= group_opacity;
         output.border.a *= group_opacity;
@@ -176,7 +174,7 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
         const float3 color =
             lerp(input.fill.rgb, input.border.rgb,
                  saturate((position - input.fill.a) / max(input.border.a - input.fill.a, 0.0001f)));
-        const float alpha = input.primitive_opacity * outer_coverage;
+        const float alpha = group_opacity * outer_coverage;
         return float4(color * alpha, alpha);
     }
     if (input.parameters.y == -2.0f) {

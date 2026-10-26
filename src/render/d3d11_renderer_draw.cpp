@@ -42,19 +42,33 @@ bool bind_layer(D3D11Renderer* renderer, float& current_opacity, float opacity, 
     renderer->draw_layer_origin_y = origin_y;
     return true;
 }
+// A batch-range draw callback: a context pointer and the function that draws
+// [first, end) with it, so one non-template splitter serves paint, text and
+// media.
+struct BatchDraw {
+    void* context;
+    bool (*call)(void*, u32, u32) noexcept;
+};
+
+template <class F>
+BatchDraw batch_draw(F* function) noexcept {
+    return {function, [](void* context, u32 first, u32 end) noexcept {
+                return (*static_cast<F*>(context))(first, end);
+            }};
+}
+
 // Split only at a moving surface's existing batch boundaries. Geometry and
 // instance buffers remain retained; one existing frame constant serves paint,
 // glyphs and media. Identity layers use the original draw ranges directly.
-template <usize Count, class Draw>
-bool draw_opacity_batches(D3D11Renderer* renderer, u32 first, u32 end,
-                          const LayerBatchRange (&layers)[Count], float& current_opacity,
-                          Draw draw) noexcept {
+bool draw_opacity_batches(D3D11Renderer* renderer, u32 first, u32 end, const LayerBatchRange* layers,
+                          u32 layer_count, float& current_opacity, BatchDraw draw) noexcept {
     if (first == end)
-        return draw(first, end);
+        return draw.call(draw.context, first, end);
     while (first < end) {
         u32 next = end;
         float opacity = 1, scale = 1, origin_x = 0, origin_y = 0;
-        for (const auto& layer : layers) {
+        for (u32 index = 0; index < layer_count; ++index) {
+            const LayerBatchRange& layer = layers[index];
             const float value = layer.opacity >= 0 && layer.opacity <= 1 ? layer.opacity : 1;
             const float factor = layer.scale > 0 && layer.scale <= 2 ? layer.scale : 1;
             if ((value == 1 && factor == 1) || layer.first >= layer.end)
@@ -69,7 +83,7 @@ bool draw_opacity_batches(D3D11Renderer* renderer, u32 first, u32 end,
             }
         }
         if (!bind_layer(renderer, current_opacity, opacity, scale, origin_x, origin_y) ||
-            !draw(first, next))
+            !draw.call(draw.context, first, next))
             return false;
         first = next;
     }
@@ -77,7 +91,7 @@ bool draw_opacity_batches(D3D11Renderer* renderer, u32 first, u32 end,
 }
 
 // Scissors of a scaled layer follow its geometry.
-UiRect layer_clip(const D3D11Renderer& renderer, UiRect rect) noexcept {
+UiRect layer_clip(const D3D11Renderer& renderer, const UiRect& rect) noexcept {
     const float s = renderer.draw_layer_scale;
     if (s == 1)
         return rect;
@@ -176,7 +190,7 @@ void set_scissor(D3D11Renderer* renderer, DrawSubmissionState* submission, const
 }
 
 // A batch's clip in target pixels, limited to the damage; false when empty.
-bool batch_scissor(const D3D11Renderer& renderer, UiRect clip, float pixel_scale, const D3D11_RECT* damage,
+bool batch_scissor(const D3D11Renderer& renderer, const UiRect& clip, float pixel_scale, const D3D11_RECT* damage,
                    RasterClipRect* scissor) noexcept {
     const RasterClipRect pixels =
         raster_clip_rectangle(layer_clip(renderer, clip), pixel_scale, renderer.width, renderer.height);
@@ -291,6 +305,14 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
         const MediaDrawBatch& batch = renderer->media_draw.batch_data[index];
         RasterClipRect scissor{};
         if (batch_scissor(*renderer, batch.clip, pixel_scale, damage, &scissor)) {
+            // Quads wholly inside their row clip need no row scissor: one
+            // target-wide scissor lets neighbouring rows draw as one call.
+            if (renderer->draw_layer_scale == 1 &&
+                draw_quads_inside(renderer->media_draw.quad_data + batch.first_quad, batch.quad_count, batch.clip)) {
+                D3D11_RECT whole{0, 0, static_cast<LONG>(renderer->width), static_cast<LONG>(renderer->height)};
+                if (intersect_scissor(&whole, damage))
+                    scissor = {whole.left, whole.top, whole.right, whole.bottom};
+            }
             append_run(target, &run, scissor, batch.first_quad, batch.first_quad + batch.quad_count);
             renderer->media_draws_last_frame += batch.quad_count;
         }
@@ -763,10 +785,9 @@ void renderer_pin_settings_backdrop_media(D3D11Renderer* renderer) noexcept {
     }
 }
 
-bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer || !renderer->graphics.target || !renderer->login_visible ||
-        !d3d11_renderer_build_paint(renderer, theme) || !create_backdrop_target(renderer))
-        return false;
+namespace {
+// Draws the whole stream into the backdrop target, cleared to the theme's base.
+bool draw_stream_to_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept {
     const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
     ID3D11RenderTargetView* presented = renderer->graphics.target;
     const u32 origin = renderer->target_origin_y;
@@ -776,6 +797,15 @@ bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme& theme)
     const bool drawn = d3d11_renderer_draw_stream(renderer, theme, true, true, nullptr);
     renderer->graphics.target = presented;
     renderer_bind_target_origin(renderer, origin);
+    return drawn;
+}
+} // namespace
+
+bool renderer_freeze_login_backdrop(D3D11Renderer* renderer, const Theme& theme) noexcept {
+    if (!renderer || !renderer->graphics.target || !renderer->login_visible ||
+        !d3d11_renderer_build_paint(renderer, theme) || !create_backdrop_target(renderer))
+        return false;
+    const bool drawn = draw_stream_to_backdrop(renderer, theme);
     renderer->graphics.context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
     renderer->settings_backdrop_media_count = 0;
     renderer->settings_backdrop_valid = renderer->settings_backdrop_frozen = drawn;
@@ -805,15 +835,7 @@ bool renderer_refresh_settings_backdrop(D3D11Renderer* renderer, const Theme& th
             (d3d11_renderer_rebuild_text_mode(renderer, theme, true) ||
              d3d11_renderer_rebuild_text_mode(renderer, theme, false)) &&
             d3d11_renderer_build_paint(renderer, theme) && create_backdrop_target(renderer)) {
-            const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-            ID3D11RenderTargetView* presented = renderer->graphics.target;
-            const u32 origin = renderer->target_origin_y;
-            renderer->graphics.target = renderer->settings_backdrop_target;
-            renderer_bind_target_origin(renderer, 0);
-            renderer->graphics.context->ClearRenderTargetView(renderer->graphics.target, color);
-            drawn = d3d11_renderer_draw_stream(renderer, theme, true, true, nullptr);
-            renderer->graphics.target = presented;
-            renderer_bind_target_origin(renderer, origin);
+            drawn = draw_stream_to_backdrop(renderer, theme);
             const u32 media = drawn ? minimum(renderer->media_quad_count, kRendererMediaQuadCapacity) : 0;
             for (u32 i = 0; i < media; ++i) {
                 renderer->settings_backdrop_media[i] = renderer->media_draw.handle_data[i];
@@ -1241,25 +1263,24 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
          renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::form)], 1}};
     float current_opacity = 1;
     const auto paint = [&, renderer](u32 first, u32 end) noexcept {
-        return draw_opacity_batches(
-            renderer, first, end, paint_layers, current_opacity, [&, renderer](u32 begin, u32 limit) noexcept {
-                return draw_paint_batches(renderer, &submission, begin, limit, pixel_scale, damage);
-            });
+        auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
+            return draw_paint_batches(renderer, &submission, begin, limit, pixel_scale, damage);
+        };
+        return draw_opacity_batches(renderer, first, end, paint_layers, 10, current_opacity, batch_draw(&draw));
     };
     const auto text = [&, renderer](u32 first, u32 end, bool upload) noexcept {
-        return draw_opacity_batches(renderer, first, end, text_layers, current_opacity,
-                                    [&, renderer](u32 begin, u32 limit) noexcept {
-                                        return draw_gpu_text(renderer, &submission, theme, begin, limit, upload,
-                                                             damage);
-                                    });
+        auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
+            return draw_gpu_text(renderer, &submission, theme, begin, limit, upload, damage);
+        };
+        return draw_opacity_batches(renderer, first, end, text_layers, 8, current_opacity, batch_draw(&draw));
     };
     const auto media = [&, renderer](u32 first, u32 end, bool upload) noexcept {
-        return draw_opacity_batches(
-            renderer, first, end, media_layers, current_opacity, [&, renderer](u32 begin, u32 limit) noexcept {
-                const bool ok = draw_gpu_media(renderer, &submission, begin, limit, upload, damage);
-                upload = false;
-                return ok;
-            });
+        auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
+            const bool ok = draw_gpu_media(renderer, &submission, begin, limit, upload, damage);
+            upload = false;
+            return ok;
+        };
+        return draw_opacity_batches(renderer, first, end, media_layers, 14, current_opacity, batch_draw(&draw));
     };
     const auto inline_media = [&, renderer](RendererInlineMediaLayer layer) noexcept {
         if (!inline_tail ||
