@@ -88,18 +88,27 @@ maicord_library(maicord_voice_encoder src/media/opus_encoder.cpp LIBS maicord_co
 maicord_library(maicord_cdn_media src/app/cdn_media_pipeline.cpp
     LIBS maicord_core maicord_media_core maicord_media_codec maicord_protocol)
 
-# The combase.dll exports the toast path calls, imported by name from combase
-# itself rather than through runtimeobject.lib's api-ms-win-core-winrt API sets.
-set(maicord_combase_import_library "${MAICORD_GENERATED_DIRECTORY}/maicord_combase.lib")
-add_custom_command(OUTPUT "${maicord_combase_import_library}"
-    COMMAND "${CMAKE_AR}" /NOLOGO /MACHINE:X64 "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/src/platform/combase.def"
-        "/OUT:${maicord_combase_import_library}"
-    DEPENDS src/platform/combase.def
-    VERBATIM)
-add_custom_target(maicord_combase_import_library DEPENDS "${maicord_combase_import_library}")
-add_library(maicord_combase INTERFACE)
-target_link_libraries(maicord_combase INTERFACE "${maicord_combase_import_library}")
-add_dependencies(maicord_combase maicord_combase_import_library)
+# maicord_import_library(<target> <def>): an import library built from a .def
+# under src/platform, so MaiCord.exe imports those functions by name from the
+# DLL that implements them instead of a forwarding or API-set DLL.
+# combase: the toast path's Windows Runtime activation and string calls, rather
+# than runtimeobject.lib's api-ms-win-core-winrt API sets. sspicli: the TLS
+# stream's Schannel calls, which secur32.dll only forwards to SspiCli.dll.
+function(maicord_import_library target def)
+    set(library "${MAICORD_GENERATED_DIRECTORY}/${target}.lib")
+    add_custom_command(OUTPUT "${library}"
+        COMMAND "${CMAKE_AR}" /NOLOGO /MACHINE:X64 "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/src/platform/${def}"
+            "/OUT:${library}"
+        DEPENDS "src/platform/${def}"
+        VERBATIM)
+    add_custom_target(${target}_import_library DEPENDS "${library}")
+    add_library(${target} INTERFACE)
+    target_link_libraries(${target} INTERFACE "${library}")
+    add_dependencies(${target} ${target}_import_library)
+    set(${target}_import_library "${library}" PARENT_SCOPE)
+endfunction()
+maicord_import_library(maicord_combase combase.def)
+maicord_import_library(maicord_sspicli sspicli.def)
 
 maicord_library(maicord_platform
     src/platform/staged_file.cpp src/platform/browser_sign_in_launcher.cpp src/platform/aac_decoder.cpp
@@ -117,7 +126,7 @@ maicord_library(maicord_platform
     # Used by the application core and client preferences, which both link this
     # library: one compile for every image.
     src/app/file_persistence.cpp
-    LIBS maicord_core ws2_32 secur32 bcrypt crypt32 ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
+    LIBS maicord_core ws2_32 maicord_sspicli bcrypt crypt32 ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
 
 maicord_library(maicord_notification_pcm src/media/notification_pcm.cpp
     LIBS maicord_core maicord_compression maicord_media_codec)

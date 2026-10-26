@@ -13,7 +13,7 @@ maicord_library(maicord_account_module
     LIBS maicord_core maicord_platform maicord_protocol
     maicord_app_core maicord_model maicord_account_media maicord_media_core
     maicord_media_codec maicord_cdn_media
-    kernel32 ws2_32 secur32 bcrypt crypt32 maicord_voice_encoder)
+    kernel32 ws2_32 maicord_sspicli bcrypt crypt32 maicord_voice_encoder)
 
 maicord_program(MaiCord WIN32 ENTRY maicord_entry
     SOURCES src/app/application_poll.cpp config/maicord.manifest config/maicord.rc
@@ -107,7 +107,7 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_plugin_manager maicord_ui_input
     maicord_message_runtime maicord_message_media maicord_account_paths maicord_account_host
     maicord_render_core maicord_atlas_gpu maicord_renderer maicord_media_core maicord_webauthn
-    kernel32 user32 shell32 d3d11 dxgi dcomp maicord_uia maicord_app_core ws2_32 secur32 bcrypt
+    kernel32 user32 shell32 d3d11 dxgi dcomp maicord_uia maicord_app_core ws2_32 maicord_sspicli bcrypt
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 if(MAICORD_STARTUP_PROBE)
@@ -131,7 +131,7 @@ endif()
 # thread while the worker creates the device; the rest load when first used.
 # dloadhelper resolves through kernel32's ResolveDelayLoadedAPI (no CRT).
 # tools/audit_pe.ps1 (-DelayLoad) and maicord_client_imports check the list.
-set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll secur32.dll ole32.dll advapi32.dll
+set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll sspicli.dll ole32.dll advapi32.dll
     combase.dll d2d1.dll bcrypt.dll crypt32.dll)
 list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
 target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})

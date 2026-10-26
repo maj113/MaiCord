@@ -9,14 +9,14 @@ set(maicord_app_test_libs maicord_core maicord_platform maicord_protocol maicord
 maicord_test(MaiCordRemoteAuthCancellationTests ENTRY maicord_remote_auth_cancellation_entry
     SOURCES tests/remote_auth_ticket_exchange_cancellation.cpp src/app/remote_auth_ticket_exchange.cpp
         src/app/remote_auth_handshake.cpp src/app/captcha_challenge.cpp
-    LIBS maicord_core maicord_platform maicord_protocol kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_core maicord_platform maicord_protocol kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     TIMEOUT 15
     TEST maicord_remote_auth_cancellation)
 maicord_test(MaiCordAccountLoginHandoffTests ENTRY maicord_account_login_handoff_entry
     SOURCES tests/account_login_handoff.cpp tests/account_login_remote_fixture.cpp
         src/app/account_profile_promotion.cpp src/app/remote_auth_ticket_exchange.cpp
         src/app/captcha_challenge.cpp src/app/remote_auth_handshake.cpp src/app/captcha_bridge.cpp src/app/loopback_server.cpp
-    LIBS maicord_core maicord_platform maicord_protocol kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_core maicord_platform maicord_protocol kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     INCLUDES src/app
     TIMEOUT 15
     TEST maicord_account_login_handoff)
@@ -147,7 +147,7 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
     LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_plugin_host
         maicord_client_preferences maicord_account_host maicord_account_paths maicord_account_media
         maicord_plugin_modules maicord_message_media maicord_ui_input maicord_text maicord_render_core
-        maicord_model kernel32 user32 bcrypt crypt32 ws2_32 secur32 ole32 ntdll
+        maicord_model kernel32 user32 bcrypt crypt32 ws2_32 maicord_sspicli ole32 ntdll
     INCLUDES src/app third_party/opus/include
     DEFINES MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE=1
         "MAICORD_UPDATE_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
@@ -208,7 +208,7 @@ maicord_test(MaiCordUpdateHandoffTests ENTRY maicord_update_handoff_tests_entry
 maicord_test(MaiCordUpdateClientTests ENTRY maicord_update_client_tests_entry
     SOURCES tests/update_client.cpp src/app/application_updates.cpp src/app/settings_catalog.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_client_preferences kernel32 bcrypt
-        ws2_32 secur32
+        ws2_32 maicord_sspicli
     INCLUDES src/app
     DEFINES "MAICORD_UPDATE_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
     USES_CLIENT MaiCord
@@ -260,7 +260,7 @@ maicord_test(MaiCordPluginManagerTests ENTRY maicord_plugin_manager_tests_entry
 maicord_test(MaiCordPluginRuntimeTests ENTRY maicord_plugin_runtime_tests_entry
     SOURCES tests/plugin_manager_runtime.cpp src/app/application_plugin_browser_worker.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_manager maicord_plugin_modules kernel32 bcrypt
-        ws2_32 secur32 crypt32
+        ws2_32 maicord_sspicli crypt32
     INCLUDES src/app
     DEFINES "MAICORD_PLUGIN_INDEX_FIXTURES=L\"${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/plugin_index\""
     DEPENDS MaiCordPluginFixture
@@ -311,7 +311,7 @@ maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
         src/app/application_keybinds_settings.cpp src/app/application_activity.cpp src/app/game_detection.cpp
         src/app/application_plugin_browser.cpp src/app/application_plugin_browser_worker.cpp
         src/app/application_plugin_browser_entry.cpp src/app/application_plugin_browser_projection.cpp
-    LIBS bcrypt ws2_32 secur32 maicord_compile_contract maicord_core maicord_platform maicord_app_core
+    LIBS bcrypt ws2_32 maicord_sspicli maicord_compile_contract maicord_core maicord_platform maicord_app_core
         maicord_ui maicord_client_preferences maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
         maicord_message_media maicord_ui_input kernel32 user32 shell32 ole32
     INCLUDES src/app
@@ -489,7 +489,7 @@ maicord_test(MaiCordVoiceTests ENTRY maicord_voice_tests_entry
         tests/gateway_stream.cpp tests/voice_send.cpp tests/voice_preferences.cpp
         src/app/voice_settings_binding.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_app_core maicord_model kernel32 crypt32 ws2_32
-        secur32 bcrypt maicord_ui maicord_media_codec ole32 maicord_client_preferences user32
+        maicord_sspicli bcrypt maicord_ui maicord_media_codec ole32 maicord_client_preferences user32
     INCLUDES src/app
     TEST maicord_voice_setup)
 maicord_test(MaiCordTests ENTRY maicord_tests_entry
@@ -536,7 +536,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_webauthn maicord_account_paths
         maicord_account_host maicord_text maicord_ui maicord_ui_input maicord_model maicord_message_runtime
         maicord_message_media maicord_render_core maicord_media_core maicord_media_codec maicord_cdn_media
-        maicord_account_media kernel32 user32 ws2_32 secur32 bcrypt crypt32 dwrite
+        maicord_account_media kernel32 user32 ws2_32 maicord_sspicli bcrypt crypt32 dwrite
     INCLUDES src/app
     TEST maicord_core)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
@@ -547,7 +547,7 @@ maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
         tests/application_invite_retry.cpp
         src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_text maicord_ui
-        maicord_ui_input maicord_model maicord_message_runtime kernel32 user32 ws2_32 secur32 bcrypt crypt32
+        maicord_ui_input maicord_model maicord_message_runtime kernel32 user32 ws2_32 maicord_sspicli bcrypt crypt32
     INCLUDES src/app
     TEST maicord_command_ui)
 maicord_test(MaiCordMediaVisibilityTests ENTRY maicord_media_visibility_tests_entry
@@ -557,7 +557,7 @@ maicord_test(MaiCordMediaVisibilityTests ENTRY maicord_media_visibility_tests_en
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_text maicord_ui
         maicord_ui_input maicord_model maicord_message_runtime maicord_message_media maicord_render_core
         maicord_media_core maicord_account_media maicord_atlas_gpu maicord_renderer kernel32 user32 ws2_32
-        secur32 bcrypt crypt32 d3d11 dxgi dcomp
+        maicord_sspicli bcrypt crypt32 d3d11 dxgi dcomp
     INCLUDES src/app
     TEST maicord_media_visibility)
 add_executable(MaiCordAccountPumpTests tests/application_account_pump.cpp
@@ -570,7 +570,7 @@ add_executable(MaiCordAccountPumpTests tests/application_account_pump.cpp
 target_link_libraries(MaiCordAccountPumpTests PRIVATE
     maicord_compile_contract maicord_core maicord_platform maicord_protocol maicord_app_core
     maicord_text maicord_ui maicord_ui_input maicord_model maicord_message_runtime maicord_media_core
-    kernel32 user32 ws2_32 secur32 bcrypt crypt32)
+    kernel32 user32 ws2_32 maicord_sspicli bcrypt crypt32)
 target_link_options(MaiCordAccountPumpTests PRIVATE
     /ENTRY:maicord_account_pump_tests_entry /SUBSYSTEM:CONSOLE,6.02)
 maicord_add_tests(MaiCordAccountPumpTests TEST maicord_account_pump)
@@ -866,7 +866,7 @@ maicord_add_tests(MaiCordApplicationThreadActionsRuntimeTests TIMEOUT 15
 maicord_test(MaiCordMessagePinnedStateTests ENTRY maicord_message_pinned_state_entry
     SOURCES tests/message_pinned_state.cpp
     LIBS maicord_core maicord_protocol maicord_model maicord_ui maicord_message_runtime maicord_app_core
-        maicord_platform kernel32 ws2_32 secur32 bcrypt crypt32
+        maicord_platform kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     BUNDLE MaiCordAppUnitTests
     TIMEOUT 15
     TEST maicord_message_pinned_state)
@@ -895,7 +895,7 @@ maicord_test(MaiCordMessageMutationNoticeTests ENTRY maicord_message_mutation_no
 maicord_test(MaiCordGatewaySelfStatusRuntimeTests ENTRY maicord_gateway_self_status_runtime_entry
     SOURCES tests/gateway_self_status_runtime.cpp src/app/gateway_client.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model kernel32 user32 ws2_32
-        secur32 bcrypt crypt32
+        maicord_sspicli bcrypt crypt32
     INCLUDES src/app
     DEFINES MAICORD_GATEWAY_SELF_STATUS_TEST=1
     TIMEOUT 10
@@ -979,7 +979,7 @@ maicord_test(MaiCordInviteCopyRuntimeTests ENTRY maicord_invite_copy_runtime_ent
     TEST maicord_invite_copy_runtime)
 maicord_test(MaiCordTlsStreamTailTests ENTRY maicord_tls_stream_tail_entry
     SOURCES tests/tls_stream_tail_entry.cpp src/platform/tls_stream.cpp
-    LIBS maicord_core maicord_platform kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_core maicord_platform kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     TIMEOUT 15
     TEST maicord_tls_stream_tail)
 maicord_test(MaiCordPinnedMessagesRuntimeTests ENTRY maicord_application_pinned_messages_runtime_entry
@@ -1013,7 +1013,7 @@ maicord_test(MaiCordLoginCancelRuntimeTests ENTRY maicord_login_cancel_runtime_e
         src/app/application_captcha_auth.cpp src/app/application_login_auth.cpp src/app/application_state.cpp
         src/app/account_host.cpp src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_text maicord_ui
-        maicord_ui_input maicord_model maicord_account_paths kernel32 user32 ws2_32 secur32 bcrypt crypt32
+        maicord_ui_input maicord_model maicord_account_paths kernel32 user32 ws2_32 maicord_sspicli bcrypt crypt32
     INCLUDES src/app
     BUNDLE MaiCordAppUnitTests)
 maicord_test(MaiCordNotificationTests ENTRY maicord_notifications_tests_entry
@@ -1047,23 +1047,23 @@ maicord_test(MaiCordApplicationNotificationTests ENTRY maicord_application_notif
 maicord_add_tests(MaiCordLoginCancelRuntimeTests TEST maicord_login_cancel_runtime)
 maicord_test(MaiCordPasswordRecoveryCoordinatorTests ENTRY maicord_password_recovery_coordinator_entry
     SOURCES tests/password_recovery_coordinator.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_app_core kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_core maicord_platform maicord_protocol maicord_app_core kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     TEST maicord_password_recovery_coordinator)
 maicord_test(MaiCordCaptchaBridgeTests ENTRY maicord_captcha_bridge_tests_entry
     SOURCES tests/captcha_bridge_login.cpp tests/captcha_bridge_runtime.cpp tests/captcha_bridge_protocol.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_ui kernel32 user32 ws2_32
-        secur32 bcrypt crypt32 shell32
+        maicord_sspicli bcrypt crypt32 shell32
     INCLUDES src/app
     TIMEOUT 15
     TEST maicord_captcha_bridge)
 maicord_test(MaiCordBrowserHandoffExchangeTests ENTRY maicord_browser_handoff_exchange_coordinator_entry
     SOURCES tests/browser_handoff_exchange_coordinator.cpp tests/browser_handoff_exchange_protocol.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_app_core kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_core maicord_platform maicord_protocol maicord_app_core kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     TIMEOUT 15
     TEST maicord_browser_handoff_exchange)
 maicord_test(MaiCordPhoneRecoveryCoordinatorTests ENTRY maicord_phone_recovery_coordinator_entry
     SOURCES tests/phone_recovery_coordinator.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_app_core kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_core maicord_platform maicord_protocol maicord_app_core kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     TIMEOUT 15
     TEST maicord_phone_recovery_coordinator)
 maicord_test(MaiCordPasswordResetProtocolTests ENTRY maicord_password_reset_protocol_entry
@@ -1074,7 +1074,7 @@ maicord_test(MaiCordPasswordResetProtocolTests ENTRY maicord_password_reset_prot
 maicord_test(MaiCordPasswordResetCoordinatorTests ENTRY maicord_password_reset_coordinator_entry
     SOURCES tests/password_reset_coordinator.cpp src/app/account_profile.cpp src/app/login_mfa_policy.cpp
         src/app/file_persistence.cpp src/app/captcha_challenge.cpp
-    LIBS maicord_core maicord_platform maicord_protocol kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_core maicord_platform maicord_protocol kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     TEST maicord_password_reset_coordinator)
 # Offline fixtures over the shipping REST owner share one translation unit, so
 # the owner implementation they include compiles once; each case runs one.
@@ -1082,7 +1082,7 @@ maicord_test(MaiCordRestClientFixtureTests ENTRY maicord_rest_client_fixtures_en
     SOURCES tests/rest_client_fixtures.cpp src/app/account_bulk_message_ack.cpp src/app/account_logout.cpp
         src/app/account_host.cpp src/media/png_common.cpp src/app/user_client_configuration.cpp
         src/app/client_session_metadata.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
+    LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 maicord_sspicli bcrypt
         crypt32 ntdll
     TIMEOUT 15
     TEST maicord_reset_rest_storage reset-storage
@@ -1836,7 +1836,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         maicord_plugin_modules maicord_plugin_manager maicord_message_runtime maicord_render_core maicord_media_codec
         maicord_atlas_gpu
         maicord_renderer maicord_platform maicord_protocol maicord_app_core maicord_message_media
-        maicord_account_media kernel32 user32 ws2_32 secur32 bcrypt crypt32 d3d11 dxgi dcomp dwrite dwmapi
+        maicord_account_media kernel32 user32 ws2_32 maicord_sspicli bcrypt crypt32 d3d11 dxgi dcomp dwrite dwmapi
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}" src/app
     DEFINES MAICORD_CLIPBOARD_UI_FIXTURE=1 MAICORD_LOG_STDOUT=1
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
@@ -1850,7 +1850,7 @@ add_dependencies(MaiCordUiProbe maicord_app_icon)
 set(maicord_scene_probe_libs maicord_core maicord_text maicord_ui maicord_ui_input maicord_model
     maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu maicord_renderer
     maicord_platform maicord_protocol maicord_app_core maicord_message_media maicord_account_media)
-set(maicord_scene_probe_system_libs kernel32 user32 ws2_32 secur32 bcrypt crypt32 d3d11 dxgi dcomp shell32)
+set(maicord_scene_probe_system_libs kernel32 user32 ws2_32 maicord_sspicli bcrypt crypt32 d3d11 dxgi dcomp shell32)
 maicord_test(MaiCordMessageLinkUiProbe WIN32 ENTRY maicord_message_link_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/message_link_ui_probe.cpp
         src/app/application_content_input.cpp src/app/application_search_navigation.cpp
@@ -2079,7 +2079,7 @@ maicord_test(MaiCordEmbedResolverTests ENTRY maicord_youtube_resolver_entry
         tests/soundcloud_collection.cpp tests/youtube_collection.cpp tests/apple_music_album.cpp
         tests/apple_music_playlist.cpp tests/native_player_perf.cpp src/app/update_https.cpp
     LIBS maicord_account_media maicord_app_core maicord_protocol maicord_platform maicord_core
-        d3d11 dxgi ole32 user32 kernel32 ws2_32 secur32 bcrypt
+        d3d11 dxgi ole32 user32 kernel32 ws2_32 maicord_sspicli bcrypt
     TIMEOUT 20 TEST maicord_youtube_resolver)
 
 maicord_test(MaiCordTikTokPlayerTests ENTRY maicord_tiktok_player_entry
@@ -2138,25 +2138,25 @@ maicord_test(MaiCordOAuthProtocolTests ENTRY maicord_oauth_protocol_entry
 
 maicord_test(MaiCordSpotifyOAuthTests ENTRY maicord_spotify_oauth_entry
     SOURCES tests/spotify_oauth.cpp
-    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     BUNDLE MaiCordOAuthTests
     TIMEOUT 5 TEST maicord_spotify_oauth)
 
 maicord_test(MaiCordOAuthAuthorizationTests ENTRY maicord_oauth_authorization_entry
     SOURCES tests/oauth_authorization.cpp
-    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     BUNDLE MaiCordOAuthTests
     TIMEOUT 5 TEST maicord_oauth_authorization)
 
 maicord_test(MaiCordOAuthSignInTests ENTRY maicord_oauth_sign_in_entry
     SOURCES tests/oauth_sign_in.cpp
-    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     BUNDLE MaiCordOAuthTests
     TIMEOUT 8 TEST maicord_oauth_sign_in)
 
 maicord_test(MaiCordOAuthAccountTests ENTRY maicord_oauth_account_entry
     SOURCES tests/oauth_account.cpp
-    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 secur32 bcrypt crypt32
+    LIBS maicord_app_core maicord_protocol maicord_platform maicord_core kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     BUNDLE MaiCordOAuthTests
     TIMEOUT 5 TEST maicord_oauth_account)
 

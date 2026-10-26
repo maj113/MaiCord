@@ -49,7 +49,8 @@ void enable_dark_window_frame(HWND window) noexcept {
             set_attribute(window, kImmersiveDarkModeBefore20H1, &enabled, sizeof(enabled));
         }
     }
-    FreeLibrary(dwm);
+    // Stays mapped: the caption measures the frame through the same module, so
+    // releasing it here only made the loader map and unmap it twice.
 }
 
 } // namespace

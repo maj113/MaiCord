@@ -47,7 +47,7 @@ maicord_collect_build_outputs("${CMAKE_BINARY_DIR}")
 foreach(output IN ITEMS "${MAICORD_APP_ICON}" "${MAICORD_EMOJI_CATALOG_INCLUDE}"
         "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_ICON_PACK_INCLUDE}"
         "${MAICORD_REGIONAL_FLAG_BUNDLE}" "${MAICORD_SHADER_PACK_INCLUDE}"
-        "${maicord_combase_import_library}" ${MAICORD_PACKED_SHADER_HEADERS})
+        "${maicord_combase_import_library}" "${maicord_sspicli_import_library}" ${MAICORD_PACKED_SHADER_HEADERS})
     cmake_path(IS_PREFIX CMAKE_BINARY_DIR "${output}" NORMALIZE contained)
     if(NOT contained)
         message(FATAL_ERROR "Generated build output is outside the Release directory: ${output}")

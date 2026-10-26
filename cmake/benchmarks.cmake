@@ -61,21 +61,21 @@ endforeach()
 maicord_program(MaiCordReadyUsersBenchmark ENTRY maicord_ready_users_entry
     SOURCES tests/gateway_ready_users.cpp src/model/user_profile.cpp
     LIBS maicord_app_core maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_model
-        kernel32 ws2_32 secur32 bcrypt crypt32
+        kernel32 ws2_32 maicord_sspicli bcrypt crypt32
     DEFINES MAICORD_READY_USERS_BENCHMARK=1)
 maicord_program(MaiCordGatewayPipelineBenchmark ENTRY maicord_gateway_pipeline_benchmark_entry
     SOURCES benchmarks/gateway_pipeline_benchmark.cpp src/model/user_profile.cpp
     LIBS maicord_app_core maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_model
-        kernel32 shell32 ws2_32 secur32 bcrypt crypt32
+        kernel32 shell32 ws2_32 maicord_sspicli bcrypt crypt32
     LINK_OPTIONS "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordGatewayPipelineBenchmark.map")
 maicord_program(MaiCordRestWorkerStorageBenchmark ENTRY maicord_rest_worker_storage_entry
     SOURCES benchmarks/rest_worker_storage.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_media_codec maicord_app_core kernel32 ws2_32
-        secur32 bcrypt crypt32)
+        maicord_sspicli bcrypt crypt32)
 maicord_program(MaiCordRestStorageBenchmark ENTRY maicord_rest_storage_entry
     SOURCES tests/rest_response_storage.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_media_codec maicord_app_core kernel32 ws2_32
-        secur32 bcrypt crypt32
+        maicord_sspicli bcrypt crypt32
     DEFINES MAICORD_REST_STORAGE_BENCHMARK=1)
 maicord_program(MaiCordArenaBenchmark ENTRY maicord_arena_benchmark_entry
     SOURCES benchmarks/arena_strategies.cpp
@@ -85,7 +85,7 @@ maicord_program(MaiCordHttpCompressionBenchmark ENTRY maicord_http_compression_e
     LIBS maicord_core maicord_media_codec maicord_protocol kernel32)
 maicord_program(MaiCordTransportBenchmark ENTRY maicord_transport_benchmark_entry
     SOURCES benchmarks/transport_benchmark.cpp
-    LIBS maicord_core maicord_protocol maicord_platform maicord_app_core kernel32 ws2_32 secur32 bcrypt crypt32)
+    LIBS maicord_core maicord_protocol maicord_platform maicord_app_core kernel32 ws2_32 maicord_sspicli bcrypt crypt32)
 maicord_program(MaiCordGcm64Stages ENTRY maicord_gcm64_stages_entry
     SOURCES benchmarks/gcm64_stages.cpp
     LIBS maicord_core maicord_platform kernel32 bcrypt crypt32)
@@ -192,7 +192,7 @@ maicord_program(MaiCordRestBenchmark ENTRY maicord_rest_benchmark_entry
 maicord_program(MaiCordAccountBenchmark ENTRY maicord_account_benchmark_entry
     SOURCES src/model/user_profile.cpp benchmarks/account_benchmark.cpp
     LIBS maicord_account_host maicord_account_paths maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model
-        kernel32 ws2_32 secur32 bcrypt crypt32)
+        kernel32 ws2_32 maicord_sspicli bcrypt crypt32)
 # Fresh-process glyph atlas and repeated-render observations
 # (tools/measure_glyph_cache.py --side native|reference).
 maicord_program(MaiCordGlyphCacheProbe WIN32 ENTRY maicord_glyph_cache_probe_entry

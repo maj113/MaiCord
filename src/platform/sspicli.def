@@ -1,0 +1,16 @@
+; SspiCli.dll exports that MaiCord.exe imports by name: the Schannel calls of
+; the TLS stream (include/maicord/sys/sspi.hpp). secur32.dll only forwards
+; these to SspiCli.dll, so importing them from there leaves secur32.dll
+; unloaded. cmake/libraries.cmake builds the import library from this file.
+LIBRARY SspiCli.dll
+EXPORTS
+    AcquireCredentialsHandleW
+    CompleteAuthToken
+    DecryptMessage
+    DeleteSecurityContext
+    EncryptMessage
+    FreeContextBuffer
+    FreeCredentialsHandle
+    InitializeSecurityContextW
+    QueryContextAttributesW
+    QuerySecurityPackageInfoW
