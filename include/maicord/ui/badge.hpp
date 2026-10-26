@@ -9,7 +9,7 @@ struct UiBadgeLayout {
     UiRect outer, text, icon, remove;
     bool clipped;
 };
-inline UiBadgeLayout ui_badge_layout(UiTextMeasureCache* cache, Utf8View label, UiRect line, bool icon,
+inline UiBadgeLayout ui_badge_layout(UiTextMeasureCache* cache, const Utf8View& label, const UiRect& line, bool icon,
                                      u32 flags = text_style_subtext | text_style_bold,
                                      bool removable = false) noexcept {
     UiTextMeasureValue value{};

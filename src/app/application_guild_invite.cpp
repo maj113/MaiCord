@@ -76,7 +76,7 @@ void publish(InviteState state) noexcept {
     switch (state) {
     case InviteState::resolve_queued:
     case InviteState::resolving:
-        status.add(utf8_literal("Resolving invite\xE2\x80\xA6"));
+        status.add("Resolving invite\xE2\x80\xA6");
         break;
     case InviteState::resolved:
     case InviteState::accept_queued:
@@ -84,19 +84,19 @@ void publish(InviteState state) noexcept {
     case InviteState::awaiting_guild:
         status.add({invite.name, invite.name_bytes});
         if (invite.counts_known) {
-            status.add(utf8_literal("\n"));
+            status.add("\n");
             add_count(status, invite.presence_count);
-            status.add(utf8_literal(" online \xC2\xB7 "));
+            status.add(" online \xC2\xB7 ");
             add_count(status, invite.member_count);
             status.add(invite.member_count == 1 ? utf8_literal(" member") : utf8_literal(" members"));
         }
         if (state == InviteState::accepting || state == InviteState::accept_queued)
-            status.add(utf8_literal("\nJoining\xE2\x80\xA6"));
+            status.add("\nJoining\xE2\x80\xA6");
         else if (state == InviteState::awaiting_guild)
-            status.add(utf8_literal("\nJoined. Opening the server\xE2\x80\xA6"));
+            status.add("\nJoined. Opening the server\xE2\x80\xA6");
         break;
     case InviteState::unknown:
-        status.add(utf8_literal("Invalid invite. It may have expired. Ask for a new invite."));
+        status.add("Invalid invite. It may have expired. Ask for a new invite.");
         break;
     case InviteState::captcha: {
         const auto phase = invite_captcha_phase();
@@ -107,10 +107,10 @@ void publish(InviteState state) noexcept {
         break;
     }
     case InviteState::banned:
-        status.add(utf8_literal("You're banned from this server."));
+        status.add("You're banned from this server.");
         break;
     case InviteState::failed:
-        status.add(utf8_literal("Couldn't load this invite. Try again."));
+        status.add("Couldn't load this invite. Try again.");
         break;
     case InviteState::idle:
         break;

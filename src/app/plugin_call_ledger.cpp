@@ -139,7 +139,8 @@ PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCa
     return ticket;
 }
 
-bool plugin_call_end(PluginCallLedger* ledger, PluginCallTicket ticket) noexcept {
+bool plugin_call_end(PluginCallLedger* ledger, const PluginCallTicket& ticket_view) noexcept {
+    const PluginCallTicket ticket = ticket_view; // the ledger is written below
     if (!ledger) return false;
     Win32LargeInteger now{};
     QueryPerformanceCounter(now.native());

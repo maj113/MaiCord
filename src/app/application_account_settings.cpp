@@ -94,7 +94,7 @@ void scope() noexcept {
     g_owner.profile_id = profile;
     g_owner.self_user_id = self;
 }
-void set_status(SettingsPanel panel, Utf8View text, bool error) noexcept {
+void set_status(SettingsPanel panel, const Utf8View& text, bool error) noexcept {
     g_owner.status = text;
     g_owner.status_error = error;
     g_owner.status_panel = panel;

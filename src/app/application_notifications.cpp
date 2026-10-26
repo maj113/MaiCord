@@ -22,6 +22,7 @@
 #include "maicord/ui/message_markdown.hpp"
 #include "account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "application_log_fields.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/com.hpp"
 #include <stddef.h>
@@ -183,8 +184,7 @@ bool audio_capacity(const ApplicationNotifications& n,u32 needed) noexcept {
 }
 void audio_error(ApplicationNotifications& n,NotificationAudioResult result) noexcept {
     if(result.ok()) return;
-    log_u64(LogLevel::warning,"notifications","audio_error",static_cast<u32>(result.error));
-    log_u64(LogLevel::warning,"notifications","audio_native_error",result.native_error);
+    log_u64_pair(LogLevel::warning,"notifications","audio_error\0audio_native_error",static_cast<u32>(result.error),result.native_error);
     // Terminal backend/launch failures disable only audio, never the Gateway.
     n.audio_failed=true;
     notification_sound_throttle_cancel(&n.sound_throttle);
@@ -199,8 +199,7 @@ void audio_observe(ApplicationNotifications& n) noexcept {
     // A request can fail on the worker after submit accepted it.
     if(state.failed>n.audio_failures_logged) {
         n.audio_failures_logged=state.failed;
-        log_u64(LogLevel::warning,"notifications","audio_worker_error",static_cast<u32>(state.error));
-        log_u64(LogLevel::warning,"notifications","audio_worker_native_error",state.native_error);
+        log_u64_pair(LogLevel::warning,"notifications","audio_worker_error\0audio_worker_native_error",static_cast<u32>(state.error),state.native_error);
     }
     if(state.worker_exited || state.stopping) audio_error(n,{NotificationAudioError::stopped,state.native_error});
 }
@@ -447,6 +446,19 @@ Utf8View preview(Application& a,Utf8View source,char* output,u32 capacity) noexc
     }
     return {output,used};
 }
+// Mentioned role ids of a message and those of them the user holds; false when the payload lacks one.
+bool collect_mention_roles(const ChatStateStore& state,u64 guild_id,const GatewayClientEvent& event,const ConstSlice<u8>& payload,u64* mentioned,u64* held,u32* held_count) noexcept {
+    for(u32 i=0;i<event.message.mention_role_count;++i) {
+        if(!gateway_client_event_message_mention_role_at(event,payload,i,mentioned+i)) return false;
+        if(chat_state_store_self_has_role(state,guild_id,mentioned[i])) held[(*held_count)++]=mentioned[i];
+    }
+    return true;
+}
+u64 category_of(const ChannelRecord* parent) noexcept { return parent?(parent->type==4?parent->id:parent->parent_id):0; }
+void mention_flags(MessageNotificationPolicyInput& input,const GatewayClientEvent& event) noexcept {
+    input.direct_mention=(event.message.mention_flags&gateway_client_message_mention_current_user)!=0;
+    input.everyone_mention=(event.message.mention_flags&gateway_client_message_mention_everyone)!=0;
+}
 }
 namespace {
 ApplicationNotificationAvatarFunction g_notification_avatar{};
@@ -525,9 +537,8 @@ bool application_notifications_setup(Application* a) noexcept {
         default:
             n->status=utf8_literal("Windows didn't accept MaiCord's notification registration. Try again."); break;
         }
-        log_u64(LogLevel::warning,"notifications","identity_error",static_cast<u32>(checked.error));
-        log_u64(LogLevel::warning,"notifications","identity_native_error",checked.native_error);
-        log_u64(LogLevel::warning,"notifications","identity_registry_created",checked.registry_created);
+        const u64 failed[] = {static_cast<u32>(checked.error), checked.native_error, checked.registry_created};
+        log_u64_fields(LogLevel::warning,"notifications","identity_error\0identity_native_error\0identity_registry_created",failed);
         return false;
     }
     log_u64(LogLevel::info,"notifications","identity_ready",checked.registry_created);
@@ -915,6 +926,37 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     return metrics;
 }
 #endif
+static bool invalidates_previews(GatewayClientDispatchKind kind) noexcept {
+    switch(kind) {
+    case GatewayClientDispatchKind::notification_snapshot_begin:
+    case GatewayClientDispatchKind::notification_settings_entry:
+    case GatewayClientDispatchKind::notification_snapshot_complete:
+    case GatewayClientDispatchKind::notification_global:
+    case GatewayClientDispatchKind::notification_thread:
+    case GatewayClientDispatchKind::notification_incomplete:
+    case GatewayClientDispatchKind::relationship_add:
+    case GatewayClientDispatchKind::relationship_update:
+    case GatewayClientDispatchKind::relationship_remove:
+    case GatewayClientDispatchKind::relationship_snapshot_begin:
+    case GatewayClientDispatchKind::relationship_state_incomplete:
+    case GatewayClientDispatchKind::account_required_action:
+    case GatewayClientDispatchKind::guild_role_create:
+    case GatewayClientDispatchKind::guild_role_update:
+    case GatewayClientDispatchKind::guild_role_delete:
+    case GatewayClientDispatchKind::guild_member_update:
+    case GatewayClientDispatchKind::private_state_incomplete:
+    case GatewayClientDispatchKind::channel_recipient_remove:
+    case GatewayClientDispatchKind::guild_update:
+    case GatewayClientDispatchKind::guild_delete:
+    case GatewayClientDispatchKind::channel_update:
+    case GatewayClientDispatchKind::thread_self_update:
+    case GatewayClientDispatchKind::thread_list_sync:
+    case GatewayClientDispatchKind::thread_members_update:
+        return true;
+    default:
+        return false;
+    }
+}
 void application_notifications_gateway(Application* a,const GatewayClientEvent& event,ConstSlice<u8> payload) noexcept {
     if(!a || event.dispatch_payload_bytes!=payload.count) return;
     auto* n=a->notifications;
@@ -961,19 +1003,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
     // Pending previews have already passed the policy at their event boundary.
     // Replacing the server-confirmed state invalidates those intents; never display stale text
     // under a new mute/privacy/relationship state without its original facts.
-    if((kind>=GatewayClientDispatchKind::notification_snapshot_begin && kind<=GatewayClientDispatchKind::notification_incomplete) ||
-        event.notification_payload_bytes || kind==GatewayClientDispatchKind::relationship_add ||
-        kind==GatewayClientDispatchKind::relationship_update || kind==GatewayClientDispatchKind::relationship_remove ||
-        kind==GatewayClientDispatchKind::relationship_snapshot_begin || kind==GatewayClientDispatchKind::relationship_state_incomplete ||
-        kind==GatewayClientDispatchKind::account_required_action || kind==GatewayClientDispatchKind::guild_role_create ||
-        kind==GatewayClientDispatchKind::guild_role_update || kind==GatewayClientDispatchKind::guild_role_delete ||
-        kind==GatewayClientDispatchKind::guild_member_update || kind==GatewayClientDispatchKind::private_state_incomplete ||
-        kind==GatewayClientDispatchKind::channel_recipient_remove ||
-        kind==GatewayClientDispatchKind::guild_update || kind==GatewayClientDispatchKind::guild_delete ||
-        kind==GatewayClientDispatchKind::channel_update ||
-        kind==GatewayClientDispatchKind::thread_self_update ||
-        kind==GatewayClientDispatchKind::thread_list_sync ||
-        kind==GatewayClientDispatchKind::thread_members_update) purge_display(*n);
+    if(event.notification_payload_bytes || invalidates_previews(kind)) purge_display(*n);
     if(event.notification_payload_bytes==~u32{0} &&
         (kind==GatewayClientDispatchKind::guild_create || kind==GatewayClientDispatchKind::guild_update ||
          kind==GatewayClientDispatchKind::channel_create || kind==GatewayClientDispatchKind::channel_update ||
@@ -1136,17 +1166,13 @@ MessageReadBadge application_notifications_read_badge(void* context,const Gatewa
     const auto* guild=channel->guild_id?chat_state_store_find_guild(state,channel->guild_id):nullptr;
     u64 mentioned_roles[kGatewayMessageMentionRoleMaximumIds],self_roles[kGatewayMessageMentionRoleMaximumIds];
     u32 role_count=0;
-    for(u32 i=0;i<event.message.mention_role_count;++i){
-        if(!gateway_client_event_message_mention_role_at(event,payload,i,mentioned_roles+i))return MessageReadBadge::none;
-        if(chat_state_store_self_has_role(state,channel->guild_id,mentioned_roles[i]))self_roles[role_count++]=mentioned_roles[i];
-    }
+    if(!collect_mention_roles(state,channel->guild_id,event,payload,mentioned_roles,self_roles,&role_count))return MessageReadBadge::none;
     MessageNotificationPolicyInput input{};
     input.settings=&n.settings;input.self_id=state.self_user_id;input.author_id=event.message.author_id;
     input.guild_id=channel->guild_id;input.channel_id=channel->id;input.parent_id=channel->parent_id;
-    input.category_id=parent?(parent->type==4?parent->id:parent->parent_id):0;
+    input.category_id=category_of(parent);
     input.channel_type=channel->type;input.message_type=event.message.type;input.now_ms=clock_unix_milliseconds();
-    input.direct_mention=(event.message.mention_flags&gateway_client_message_mention_current_user)!=0;
-    input.everyone_mention=(event.message.mention_flags&gateway_client_message_mention_everyone)!=0;
+    mention_flags(input,event);
     input.roles_known=guild&&guild->member_roles_known;
     input.mention_roles={mentioned_roles,event.message.mention_role_count};input.self_roles={self_roles,role_count};
     input.guild_default_known=!guild||(guild->settings.known&guild_settings_default_notifications);
@@ -1180,11 +1206,8 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     GatewayMessageEvent message{};
     if(!gateway_client_event_as_message(event,payload,&message)) return;
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds], self_roles[kGatewayMessageMentionRoleMaximumIds];
-    for(u32 i=0;i<event.message.mention_role_count;++i)
-        if(!gateway_client_event_message_mention_role_at(event,payload,i,mention_roles+i)) return;
     u32 roles{};
-    for(u32 i=0;i<event.message.mention_role_count;++i)
-        if(chat_state_store_self_has_role(state,channel->guild_id,mention_roles[i])) self_roles[roles++]=mention_roles[i];
+    if(!collect_mention_roles(state,channel->guild_id,event,payload,mention_roles,self_roles,&roles)) return;
     MessageNotificationPolicyInput input{};
     input.settings=&n.settings; input.global=n.global;
     // The account's own Do Not Disturb choice silences this client at once,
@@ -1196,7 +1219,7 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     }
     input.self_id=state.self_user_id; input.author_id=message.author_id; input.guild_id=channel->guild_id;
     input.channel_id=policy_channel->id; input.parent_id=policy_channel->parent_id;
-    input.category_id=policy_parent?(policy_parent->type==4?policy_parent->id:policy_parent->parent_id):0;
+    input.category_id=category_of(policy_parent);
     input.now_ms=clock_unix_milliseconds();
     input.mention_roles={mention_roles,event.message.mention_role_count}; input.self_roles={self_roles,roles};
     input.message_flags=message.flags; input.message_type=event.message.type; input.channel_type=policy_channel->type;
@@ -1207,8 +1230,7 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     input.self_mentionable_system=input.message_type==46;
     input.guild_default_known=!channel->guild_id || (gs && (gs->flags&gateway_notification_guild_default_known));
     input.guild_default=gs && (gs->flags&gateway_notification_guild_default_mentions)?MessageNotificationLevel::mentions:MessageNotificationLevel::all;
-    input.direct_mention=(event.message.mention_flags&gateway_client_message_mention_current_user)!=0;
-    input.everyone_mention=(event.message.mention_flags&gateway_client_message_mention_everyone)!=0;
+    mention_flags(input,event);
     input.focused=focused(*a,n);
     input.selected=policy_channel->id==state.selected_channel_id;
     // This process's own call; a voice state from another client never counts.

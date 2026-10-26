@@ -316,7 +316,7 @@ bool application_message_forward_open(u64) noexcept {
 bool application_guild_card_open(u64, UiRect) noexcept {
     return false;
 }
-bool application_profile_open(u64, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     return false;
 }
 bool application_plugins_slot_action(u64, NativePluginSdkSlotTarget, u64) noexcept {

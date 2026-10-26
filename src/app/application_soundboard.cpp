@@ -215,6 +215,16 @@ void want_defaults() noexcept {
     if (board.defaults == LoadState::none || (board.defaults == LoadState::failed && now_ms() >= board.defaults_retry_ms))
         board.defaults = LoadState::wanted;
 }
+// A list request failed: the default list, or the guild's load when it exists, retries after a delay.
+void list_failed(bool defaults, GuildLoad* load, u64 now) noexcept {
+    if (defaults) {
+        board.defaults = LoadState::failed;
+        board.defaults_retry_ms = now + kLoadRetryMs;
+    } else if (load) {
+        load->state = LoadState::failed;
+        load->retry_at_ms = now + kLoadRetryMs;
+    }
+}
 
 // Effects -----------------------------------------------------------------------
 u32 effect_text(char* output, u32 capacity, Utf8View emoji, bool custom_emoji, Utf8View name) noexcept {
@@ -813,12 +823,9 @@ bool application_soundboard_submit(u64 request_id, u64 now) noexcept {
             if (request.operation != SoundboardOperation::send)
                 set_notice(request.guild_id, utf8_literal("That change couldn't be sent."));
             drop_head();
-        } else if (request.operation == SoundboardOperation::default_list) {
-            board.defaults = LoadState::failed;
-            board.defaults_retry_ms = now + kLoadRetryMs;
-        } else if (auto* l = load_of(request.guild_id, false)) {
-            l->state = LoadState::failed;
-            l->retry_at_ms = now + kLoadRetryMs;
+        } else {
+            list_failed(request.operation == SoundboardOperation::default_list, load_of(request.guild_id, false),
+                        now);
         }
         return false;
     }
@@ -861,15 +868,9 @@ bool application_soundboard_response(const RestClientResponse& response, Utf8Vie
                 load->state = LoadState::loaded;
         } else {
             log_u64(LogLevel::warning, "soundboard", "list_failed", response.status_code);
-            if (operation == SoundboardOperation::default_list) {
-                board.defaults = LoadState::failed;
-                board.defaults_retry_ms = now + kLoadRetryMs;
-            } else if (load) {
-                load->state = LoadState::failed;
-                load->retry_at_ms = now + kLoadRetryMs;
-                if (response.status_code != 403)
-                    set_notice(guild_id, utf8_literal("Couldn't load this server's sounds."));
-            }
+            list_failed(operation == SoundboardOperation::default_list, load, now);
+            if (operation != SoundboardOperation::default_list && load && response.status_code != 403)
+                set_notice(guild_id, utf8_literal("Couldn't load this server's sounds."));
         }
         break;
     }

@@ -12,6 +12,7 @@
 #include "application_voice_settings.hpp"
 #include "maicord/app/voice_connection.hpp"
 #include "maicord/core/log.hpp"
+#include "application_log_fields.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
@@ -156,10 +157,10 @@ void refresh_view() noexcept {
         log_u64(next.state == UiVoicePanelState::failed ? LogLevel::error : LogLevel::info, "voice", "panel_state",
                 static_cast<u64>(next.state));
         if (next.state == UiVoicePanelState::failed && s) {
-            log_u64(LogLevel::error, "voice", "gateway_voice_error", static_cast<u64>(s->error));
-            log_u64(LogLevel::error, "voice", "connection_error", static_cast<u64>(s->connection_error));
-            log_u64(LogLevel::error, "voice", "close_code", s->voice_close_code);
-            log_u64(LogLevel::error, "voice", "udp_error", static_cast<u64>(s->udp_error));
+            const u64 failed[] = {static_cast<u64>(s->error), static_cast<u64>(s->connection_error), s->voice_close_code,
+                                  static_cast<u64>(s->udp_error)};
+            log_u64_fields(LogLevel::error, "voice", "gateway_voice_error\0connection_error\0close_code\0udp_error",
+                           failed);
         }
     }
     const bool layout = next.state != voice.view.state &&
@@ -196,9 +197,9 @@ void set_user(u64 user_id, u32 gain, bool muted) noexcept {
 }
 void format_label(u32 gain) noexcept {
     TextBank label{voice.menu_label, sizeof(voice.menu_label), 0};
-    label.add(utf8_literal("User volume · "));
+    label.add("User volume · ");
     label.number(gain);
-    label.add(utf8_literal("%"));
+    label.add("%");
     voice.menu_label_bytes = label.used;
 }
 bool menu_open() noexcept {

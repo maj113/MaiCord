@@ -820,7 +820,7 @@ bool application_preferences_dm_profile_visibility(bool) noexcept {
 bool application_downloads_open() noexcept {
     return unexpected();
 }
-bool application_profile_open(u64, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     return unexpected();
 }
 bool application_profile_open_edit(u64, UiRect, ProfileAnchor) noexcept {

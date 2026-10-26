@@ -843,7 +843,7 @@ bool plugin_index_display_text_valid(Utf8View text, u32 maximum, bool required) 
     return display_text(text, maximum, required);
 }
 
-JsonStringDecodeResult plugin_index_text_decode(Utf8View document, PluginIndexText text, Slice<char> output) noexcept {
+JsonStringDecodeResult plugin_index_text_decode(const Utf8View& document, PluginIndexText text, const Slice<char>& output) noexcept {
     if (!document.data || text.offset > document.bytes || text.bytes > document.bytes - text.offset)
         return {0, JsonStringDecodeError::invalid_input};
     return json_string_decode_utf8({{document.data + text.offset, text.bytes}, text.offset, true}, output);

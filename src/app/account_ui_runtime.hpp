@@ -400,7 +400,7 @@ inline bool application_message_body_may_have_snapshot(Utf8View body) noexcept {
 }
 
 inline bool application_message_decode_scratch(AccountUiRuntime& ui, MessageHistoryDecodeScratch* output,
-                                               Utf8View body = {}) noexcept {
+                                               const Utf8View& body = {}) noexcept {
     const u8 optional = application_message_body_optional_fields(body);
     const bool snapshot = (optional & 2) != 0;
     const bool polls = (optional & 1) != 0;

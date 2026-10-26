@@ -33,7 +33,7 @@ struct MlsExternalSender {
     const u8* signature_key;
     ConstSlice<u8> identity;
 };
-MlsStatus mls_external_sender_parse(ConstSlice<u8> input, MlsExternalSender* sender) noexcept;
+MlsStatus mls_external_sender_parse(const ConstSlice<u8>& input, MlsExternalSender* sender) noexcept;
 
 // DAVE GroupContext: eight-byte big-endian group id (the channel snowflake)
 // and exactly one ExternalSenders extension equal to the gateway package.
@@ -47,7 +47,7 @@ struct MlsGroupContext {
 MlsStatus mls_group_context_write(u64 group_id, u64 epoch, const u8* tree_hash,
                                   const u8* confirmed_transcript_hash, ConstSlice<u8> external_sender,
                                   Slice<u8> output, u32* written) noexcept;
-MlsStatus mls_group_context_parse(ConstSlice<u8> input, ConstSlice<u8> external_sender,
+MlsStatus mls_group_context_parse(const ConstSlice<u8>& input, const ConstSlice<u8>& external_sender,
                                   MlsGroupContext* context, u32* consumed) noexcept;
 
 // GroupInfo with the mandatory inline RatchetTree; parse verifies the root tree

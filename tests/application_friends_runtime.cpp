@@ -949,7 +949,7 @@ void set_popup_owner(PopupOwnerKind owner) noexcept {g_app.popup_owner_kind=owne
 UiRect application_viewport_dips() noexcept {return {0,0,1280,700};}
 bool application_profile_close() noexcept { return true; }
 void application_image_viewer_close() noexcept {}
-bool application_profile_open(u64 user, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open(u64 user, const UiRect&, ProfileAnchor) noexcept {
     friends_runtime_test::seen.profile_user = user;return true;
 }
 bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<PopupItem>,

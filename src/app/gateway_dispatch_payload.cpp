@@ -10,7 +10,7 @@ namespace maicord {
 namespace {
 
 template <typename Value>
-bool read_packed(ConstSlice<u8> payload, u32 limit, u32* cursor, Value* value) noexcept {
+bool read_packed(const ConstSlice<u8>& payload, u32 limit, u32* cursor, Value* value) noexcept {
     if (!cursor || !value || limit > payload.count || *cursor > limit || sizeof(Value) > limit - *cursor) {
         return false;
     }
@@ -19,8 +19,9 @@ bool read_packed(ConstSlice<u8> payload, u32 limit, u32* cursor, Value* value) n
     return true;
 }
 
-bool unpack_text_range(ConstSlice<u8> payload, u32 transient_bytes, GatewayClientMessageTextRange range,
+bool unpack_text_range(const ConstSlice<u8>& payload_view, u32 transient_bytes, GatewayClientMessageTextRange range,
                        Utf8View* value) noexcept {
+    const ConstSlice<u8> payload = payload_view; // *value is written below
     if (range.reserved != 0 || transient_bytes > payload.count) {
         return false;
     }
@@ -66,7 +67,7 @@ bool unpack_embed_media(ConstSlice<u8> payload, u32 text_limit,
            unpack_text_range(payload, text_limit, source.description, &destination->description);
 }
 
-bool message_payload_offsets(const GatewayClientEvent& event, ConstSlice<u8> payload, u32* role_offset,
+bool message_payload_offsets(const GatewayClientEvent& event, const ConstSlice<u8>& payload, u32* role_offset,
                              u32* user_offset, u32* rich_offset) noexcept {
     const u32 transient_bytes = event.message.transient_bytes == 0 && event.message.content_bytes != 0 &&
                                         event.message.author_name_bytes == 0 &&
@@ -103,7 +104,7 @@ bool message_payload_offsets(const GatewayClientEvent& event, ConstSlice<u8> pay
 
 // A message create/update event whose descriptor matches its payload; reports the roles and users
 // offsets.
-bool message_event_offsets(const GatewayClientEvent& event, ConstSlice<u8> payload, u32* role_offset = nullptr,
+bool message_event_offsets(const GatewayClientEvent& event, const ConstSlice<u8>& payload, u32* role_offset = nullptr,
                            u32* user_offset = nullptr) noexcept {
     u32 roles = 0, users = 0, rich = 0;
     if (event.kind != GatewayClientEventKind::dispatch ||
@@ -256,8 +257,9 @@ bool gateway_client_event_as_message_poll_vote(const GatewayClientEvent& event, 
     return true;
 }
 
-bool gateway_client_event_as_message(const GatewayClientEvent& event, ConstSlice<u8> payload,
+bool gateway_client_event_as_message(const GatewayClientEvent& event, const ConstSlice<u8>& payload_view,
                                      GatewayMessageEvent* message) noexcept {
+    const ConstSlice<u8> payload = payload_view; // *message is written throughout
     if (!message || event.kind != GatewayClientEventKind::dispatch ||
         (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
          event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
@@ -676,7 +678,7 @@ static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset
     return true;
 }
 
-bool gateway_client_event_as_message(const GatewayClientEvent& event, ConstSlice<u8> payload,
+bool gateway_client_event_as_message(const GatewayClientEvent& event, const ConstSlice<u8>& payload,
                                      const GatewayMessageRichScratch& scratch,
                                      GatewayMessageEvent* message) noexcept {
     if (!message || !gateway_client_event_as_message(event, payload, message))
@@ -893,9 +895,11 @@ bool gateway_client_event_as_message_delete(const GatewayClientEvent& event, Con
     return event.message.id != 0 && event.message.channel_id != 0;
 }
 
-bool gateway_client_event_as_message_bulk_delete(const GatewayClientEvent& event, ConstSlice<u8> payload,
-                                                 Slice<u64> ids,
+bool gateway_client_event_as_message_bulk_delete(const GatewayClientEvent& event, const ConstSlice<u8>& payload_view,
+                                                 const Slice<u64>& ids_view,
                                                  GatewayMessageBulkDeleteEvent* message) noexcept {
+    const ConstSlice<u8> payload = payload_view; // *message is written throughout
+    const Slice<u64> ids = ids_view;
     if (!message || event.kind != GatewayClientEventKind::dispatch ||
         event.dispatch_kind != GatewayClientDispatchKind::message_bulk_delete ||
         event.message.id_count == 0 || event.message.id_count > kGatewayBulkDeleteMaximumIds ||

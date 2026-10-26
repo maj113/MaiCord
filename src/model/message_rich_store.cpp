@@ -242,7 +242,7 @@ bool compact_excluding(MessageRichStore* store, u16 target_slot, bool has_target
     return true;
 }
 
-bool add_bytes(u64* total, Utf8View value) noexcept {
+bool add_bytes(u64* total, const Utf8View& value) noexcept {
     if ((!value.data && value.bytes != 0) || value.bytes > 0xFFFFu ||
         !utf8_validate(value).valid || *total > ~0ull - value.bytes) {
         return false;
@@ -362,7 +362,8 @@ bool validate_input(const GatewayMessageEvent& input, u32 fields, u64* desired_b
     return true;
 }
 
-MessageRichString store_string(MessageRichStore* store, Utf8View value, bool* truncated) noexcept {
+MessageRichString store_string(MessageRichStore* store, const Utf8View& value_view, bool* truncated) noexcept {
+    const Utf8View value = value_view; // the store is written below
     if (value.bytes == 0) {
         return MessageRichString{};
     }

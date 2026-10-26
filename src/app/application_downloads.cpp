@@ -166,6 +166,25 @@ const MessageRichRecord* rich_of(const MessageRichStore& store, u64 message_id, 
     return snapshot ? message_rich_store_snapshot(store, message_id)
                     : message_rich_store_find(store, message_id);
 }
+// The outer rich record of a message and the one a source reads (its forwarded
+// snapshot's when `snapshot`), both current for the message's revision.
+bool rich_current(const MessageRichStore& store, const MessageRecord& message, bool snapshot,
+                  const MessageRichRecord** outer, const MessageRichRecord** rich) noexcept {
+    *outer = message_rich_store_find(store, message.id);
+    *rich = snapshot ? message_rich_store_snapshot(store, message.id) : *outer;
+    return *outer && *rich && (*rich)->message_revision == message.revision &&
+           (*outer)->message_revision == message.revision;
+}
+// The active channel's message with this ID.
+const MessageRecord* active_message(u64 message_id, MessageHandle* handle) noexcept {
+    const auto found = message_store_find(g_app.message_view.store, message_id);
+    const auto* message =
+        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    if (!message || message->channel_id != g_app.account_ui->active_channel_id)
+        return nullptr;
+    *handle = found.handle;
+    return message;
+}
 // The identity and scope fields every source shares.
 void bind_message(DownloadSource* source, const MessageRecord& message) noexcept {
     source->scope = g_app.plugin_account_scope_serial;
@@ -180,10 +199,8 @@ bool capture_payload(const MessageRecord& message, MessageHandle handle, const M
     if (!account_ready() || !attachment_id ||
         message.delivery != MessageDeliveryState::authoritative || !channel_current(message.channel_id))
         return false;
-    const auto* outer = message_rich_store_find(store, message.id);
-    const auto* rich = snapshot ? message_rich_store_snapshot(store, message.id) : outer;
-    if (!outer || !rich || rich->message_revision != message.revision ||
-        outer->message_revision != message.revision ||
+    const MessageRichRecord *outer = nullptr, *rich = nullptr;
+    if (!rich_current(store, message, snapshot, &outer, &rich) ||
         (snapshot &&
          (outer->reference.type != 1 || !outer->reference.channel_id || !outer->reference.message_id)))
         return false;
@@ -221,12 +238,10 @@ bool capture_payload(const MessageRecord& message, MessageHandle handle, const M
 bool capture(u64 message_id, u64 attachment_id, bool snapshot, DownloadSource* out) noexcept {
     if (!account_ready() || !message_id || !attachment_id)
         return false;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* message =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
-    return message && message->channel_id == g_app.account_ui->active_channel_id &&
-           capture_payload(*message, found.handle, g_app.account_ui->message_rich_store, attachment_id,
-                           snapshot, out);
+    MessageHandle handle{};
+    const auto* message = active_message(message_id, &handle);
+    return message && capture_payload(*message, handle, g_app.account_ui->message_rich_store, attachment_id,
+                                      snapshot, out);
 }
 bool capture_search(const ApplicationSearchSourceTicket& ticket, u64 attachment_id, bool snapshot,
                     DownloadSource* out) noexcept {
@@ -297,11 +312,9 @@ bool capture_embed_payload(const MessageRecord& record, MessageHandle handle, co
     if (record.delivery != MessageDeliveryState::authoritative ||
         !channel_current(record.channel_id) || embed_index > 0xFF)
         return false;
-    const auto* outer = message_rich_store_find(store, record.id);
-    const auto* rich = snapshot ? message_rich_store_snapshot(store, record.id) : outer;
+    const MessageRichRecord *outer = nullptr, *rich = nullptr;
     MessageRichEmbedMediaSelection selected{};
-    if (!outer || !rich || rich->message_revision != record.revision ||
-        outer->message_revision != record.revision || embed_index >= rich->embed_count ||
+    if (!rich_current(store, record, snapshot, &outer, &rich) || embed_index >= rich->embed_count ||
         !embed_media(store, *rich, embed_index, &selected) || !selected.media)
         return false;
     // The media proxy serves any embed media; a raw third-party URL is never fetched.
@@ -333,12 +346,10 @@ bool capture_embed_payload(const MessageRecord& record, MessageHandle handle, co
 bool capture_embed(u64 message_id, u32 embed_index, bool snapshot, DownloadSource* out) noexcept {
     if (!account_ready() || !message_id)
         return false;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* message =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
-    return message && message->channel_id == g_app.account_ui->active_channel_id &&
-           capture_embed_payload(*message, found.handle, g_app.account_ui->message_rich_store, embed_index,
-                                 snapshot, out);
+    MessageHandle handle{};
+    const auto* message = active_message(message_id, &handle);
+    return message && capture_embed_payload(*message, handle, g_app.account_ui->message_rich_store,
+                                            embed_index, snapshot, out);
 }
 bool source_current(const DownloadSource& s) noexcept {
     if (!account_ready() || s.scope != g_app.plugin_account_scope_serial ||
@@ -503,6 +514,11 @@ Utf8View job_status(const DownloadJob& j) noexcept {
     }
     return {};
 }
+// The name the save will use: the picked one, else the attachment's.
+Utf8View job_name(const DownloadJob& j) noexcept {
+    return j.chosen_name_bytes ? Utf8View{j.chosen_name, j.chosen_name_bytes}
+                               : Utf8View{j.source.filename, j.source.filename_bytes};
+}
 bool scene_current(void* opaque) noexcept {
     const auto* q = static_cast<const ApplicationDownloads*>(opaque);
     return q && q == g_app.downloads && q->active && account_current(*q) && !q->closing &&
@@ -536,8 +552,7 @@ bool resolve_row(void* opaque, u32 index, UiDownloadRow* out) noexcept {
                                                                                : UiDownloadPhase::failed)
                     : phase;
             *out = {j.id,
-                    j.chosen_name_bytes ? Utf8View{j.chosen_name, j.chosen_name_bytes}
-                                        : Utf8View{j.source.filename, j.source.filename_bytes},
+                    job_name(j),
                     j.source.embed           ? utf8_literal("Embedded media")
                     : j.source.snapshot      ? utf8_literal("Forwarded attachment")
                     : j.source.search_result ? utf8_literal("Search attachment")
@@ -566,6 +581,10 @@ void revoke_capture(ApplicationDownloads& q) noexcept {
     if (owned && GetCapture() == g_app.window)
         ReleaseCapture();
 }
+void page_step(ApplicationDownloads& q, bool previous) noexcept {
+    revoke_capture(q);
+    ui_download_scene_page(&q.scene, previous ? (q.scene.page ? q.scene.page - 1 : 0) : q.scene.page + 1);
+}
 // Why a save failed, without its path or URL.
 void log_failure(const HttpsFileDownloadResult& transfer) noexcept {
     log_u64(LogLevel::warning, "download", "failed_error", static_cast<u64>(transfer.error));
@@ -576,8 +595,7 @@ void log_failure(const HttpsFileDownloadResult& transfer) noexcept {
 }
 // Pictures confirm as images, by the saved name's extension.
 bool image_file(const DownloadJob& j) noexcept {
-    const Utf8View name = j.chosen_name_bytes ? Utf8View{j.chosen_name, j.chosen_name_bytes}
-                                              : Utf8View{j.source.filename, j.source.filename_bytes};
+    const Utf8View name = job_name(j);
     static constexpr Utf8View kImages[]{utf8_literal(".png"), utf8_literal(".jpg"), utf8_literal(".jpeg"),
                                  utf8_literal(".gif"), utf8_literal(".webp"), utf8_literal(".avif")};
     for (const auto extension : kImages)
@@ -765,9 +783,7 @@ bool application_downloads_synchronize() noexcept {
         if (j && j->phase == JobPhase::warning) {
             q->content.mode = UiDownloadMode::confirmation;
             q->content.confirmation_id = j->id;
-            q->content.filename = j->chosen_name_bytes
-                                      ? Utf8View{j->chosen_name, j->chosen_name_bytes}
-                                      : Utf8View{j->source.filename, j->source.filename_bytes};
+            q->content.filename = job_name(*j);
             q->content.warning =
                 utf8_literal("This file type can harm your computer. Only save it if you trust the sender.");
         } else
@@ -859,10 +875,7 @@ void activate(ApplicationDownloads& q, UiDownloadTarget target) noexcept {
         return;
     }
     if (target.action == UiDownloadAction::previous || target.action == UiDownloadAction::next) {
-        revoke_capture(q);
-        ui_download_scene_page(&q.scene, target.action == UiDownloadAction::previous
-                                             ? (q.scene.page ? q.scene.page - 1 : 0)
-                                             : q.scene.page + 1);
+        page_step(q, target.action == UiDownloadAction::previous);
         application_request_frame();
         return;
     }
@@ -914,6 +927,24 @@ void activate(ApplicationDownloads& q, UiDownloadTarget target) noexcept {
     }
     application_downloads_synchronize();
 }
+struct SceneRich {
+    const MessageSceneRowWidget* row;
+    const MessageRecord* message;
+    const MessageRichRecord* rich;
+};
+// The row of the message scene (or its forwarded snapshot's) with a current rich record.
+bool scene_rich(const MessageScene& scene, u32 r, u32 s, bool active_channel, SceneRich* out) noexcept {
+    out->row = s ? message_scene_snapshot_row(scene, scene.rows[r]) : &scene.rows[r];
+    out->message = out->row ? message_store_resolve(g_app.message_view.store, out->row->message) : nullptr;
+    out->rich = out->message ? rich_of(g_app.account_ui->message_rich_store, out->message->id, s != 0)
+                             : nullptr;
+    return out->rich && out->rich->message_revision == out->message->revision &&
+           (!active_channel || out->message->channel_id == g_app.account_ui->active_channel_id);
+}
+UiRect visible_rect(const UiRect& rectangle, const UiRect& node_clip, const UiRect& row,
+                    const UiRect& viewport) noexcept {
+    return ui_rect_intersection(rectangle, ui_rect_intersection(node_clip, ui_rect_intersection(row, viewport)));
+}
 bool attachment_at(float x, float y, bool save_only, DownloadSource* out, UiWidgetHandle focused = {},
                    UiRect* bounds = nullptr, UiWidgetHandle* handle = nullptr) noexcept {
     if (!g_app.account_ui || !g_app.message_scene.active)
@@ -922,13 +953,12 @@ bool attachment_at(float x, float y, bool save_only, DownloadSource* out, UiWidg
     const auto& store = g_app.account_ui->message_rich_store;
     for (u32 r = 0; r < scene.count; ++r)
         for (u32 s = 0; s < 2; ++s) {
-            const auto* row = s ? message_scene_snapshot_row(scene, scene.rows[r]) : &scene.rows[r];
-            if (!row)
+            SceneRich found{};
+            if (!scene_rich(scene, r, s, false, &found))
                 continue;
-            const auto* message = message_store_resolve(g_app.message_view.store, row->message);
-            const auto* rich = message ? rich_of(store, message->id, s != 0) : nullptr;
-            if (!rich || rich->message_revision != message->revision)
-                continue;
+            const auto* row = found.row;
+            const auto* message = found.message;
+            const auto* rich = found.rich;
             for (u32 a = 0; a < rich->attachment_count; ++a) {
                 const auto widget =
                     message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, a);
@@ -953,10 +983,8 @@ bool attachment_at(float x, float y, bool save_only, DownloadSource* out, UiWidg
                     if (!ui_audio_card_geometry(node->content_rectangle, kDefaultUiAudioControlsStyle,
                                                 &card, message_rich_record_voice(*rich)))
                         continue;
-                    const auto rectangle = ui_rect_intersection(
-                        card.bounds,
-                        ui_rect_intersection(node->clip_rectangle,
-                                             ui_rect_intersection(row_node->rectangle, scene.viewport)));
+                    const auto rectangle =
+                        visible_rect(card.bounds, node->clip_rectangle, row_node->rectangle, scene.viewport);
                     if (ui_widget_manager_input_enabled(scene.widgets, widget) &&
                         ui_rect_contains(rectangle, x, y) &&
                         capture(message->id, attachment.id, s != 0, out)) {
@@ -983,10 +1011,7 @@ bool attachment_at(float x, float y, bool save_only, DownloadSource* out, UiWidg
                     rectangle = ui_attachment_save_rectangle(rectangle, file);
                 if (!ui_widget_manager_input_enabled(scene.widgets, widget))
                     continue;
-                rectangle = ui_rect_intersection(
-                    rectangle,
-                    ui_rect_intersection(node->clip_rectangle,
-                                         ui_rect_intersection(row_node->rectangle, scene.viewport)));
+                rectangle = visible_rect(rectangle, node->clip_rectangle, row_node->rectangle, scene.viewport);
                 if (ui_rect_contains(rectangle, x, y) && capture(message->id, attachment.id, s != 0, out)) {
                     if (bounds)
                         *bounds = rectangle;
@@ -1032,7 +1057,7 @@ ReceivedAttachmentKind source_kind(const DownloadSource& source, MediaAttachment
     }
 }
 // The official client's attachment groups merged into the message menu, before Copy ID.
-bool open_context(DownloadSource source, UiRect anchor) noexcept {
+bool open_context(const DownloadSource& source, UiRect anchor) noexcept {
     auto* q = ensure_owner();
     if (!q || !source_current(source) || !dismiss_popup())
         return false;
@@ -1068,16 +1093,14 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
     if (!g_app.account_ui || !g_app.message_scene.active)
         return false;
     const auto& scene = g_app.message_scene;
-    const auto& store = g_app.account_ui->message_rich_store;
     for (u32 r = 0; r < scene.count; ++r)
         for (u32 s = 0; s < 2; ++s) {
-            const auto* row = s ? message_scene_snapshot_row(scene, scene.rows[r]) : &scene.rows[r];
-            const auto* message =
-                row ? message_store_resolve(g_app.message_view.store, row->message) : nullptr;
-            const auto* rich = message ? rich_of(store, message->id, s != 0) : nullptr;
-            if (!rich || rich->message_revision != message->revision ||
-                message->channel_id != g_app.account_ui->active_channel_id)
+            SceneRich found{};
+            if (!scene_rich(scene, r, s, true, &found))
                 continue;
+            const auto* row = found.row;
+            const auto* message = found.message;
+            const auto* rich = found.rich;
             const auto* row_node = message_scene_layout_node(scene, row->widget);
             for (u32 i = 0; row_node && i < rich->sticker_count; ++i) {
                 const auto widget =
@@ -1086,10 +1109,8 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
                     message_scene_rich_item_layout_node(scene, *row, MessageSceneRichItemKind::sticker, i);
                 if (!node || !ui_widget_manager_input_enabled(scene.widgets, widget))
                     continue;
-                const UiRect visible = ui_rect_intersection(
-                    node->rectangle,
-                    ui_rect_intersection(node->clip_rectangle,
-                                         ui_rect_intersection(row_node->rectangle, scene.viewport)));
+                const UiRect visible =
+                    visible_rect(node->rectangle, node->clip_rectangle, row_node->rectangle, scene.viewport);
                 const bool hit = focused.generation ? ui_widget_handle_equal(widget, focused)
                                                     : ui_rect_contains(visible, x, y);
                 if (!hit)
@@ -1127,13 +1148,14 @@ bool embed_image_at(float x, float y, DownloadSource* out, u32* embed_index = nu
     const auto& store = g_app.account_ui->message_rich_store;
     for (u32 r = 0; r < scene.count; ++r)
         for (u32 s = 0; s < 2; ++s) {
-            const auto* row = s ? message_scene_snapshot_row(scene, scene.rows[r]) : &scene.rows[r];
-            const auto* message =
-                row ? message_store_resolve(g_app.message_view.store, row->message) : nullptr;
-            const auto* rich = message ? rich_of(store, message->id, s != 0) : nullptr;
-            const auto* row_node = row ? message_scene_layout_node(scene, row->widget) : nullptr;
-            if (!rich || !row_node || rich->message_revision != message->revision ||
-                message->channel_id != g_app.account_ui->active_channel_id)
+            SceneRich found{};
+            if (!scene_rich(scene, r, s, true, &found))
+                continue;
+            const auto* row = found.row;
+            const auto* message = found.message;
+            const auto* rich = found.rich;
+            const auto* row_node = message_scene_layout_node(scene, row->widget);
+            if (!row_node)
                 continue;
             for (u32 i = 0; i < rich->embed_count; ++i) {
                 MessageRichEmbedGalleryPlace place{};
@@ -1152,9 +1174,8 @@ bool embed_image_at(float x, float y, DownloadSource* out, u32* embed_index = nu
                     message_rich_embed_media_only(rich->embeds[host]));
                 if (tile)
                     preview = message_rich_embed_gallery_tile(preview, place.count, place.ordinal);
-                const UiRect visible = ui_rect_intersection(
-                    preview, ui_rect_intersection(node->clip_rectangle,
-                                                  ui_rect_intersection(row_node->rectangle, scene.viewport)));
+                const UiRect visible =
+                    visible_rect(preview, node->clip_rectangle, row_node->rectangle, scene.viewport);
                 if (!ui_rect_contains(visible, x, y))
                     continue;
                 Utf8View url = message_rich_store_string(store, selected.media->url);
@@ -1266,6 +1287,10 @@ bool copy_image(const DownloadSource& source, MediaAttachmentFormat format) noex
         log_write(LogLevel::warning, "downloads",
                   read ? "copy_image_clipboard_failed" : "copy_image_not_resident");
     return copied;
+}
+void copy_link(Utf8View link) noexcept {
+    if (!application_copy_text(link, kToastLinkCopied, kToastLinkCopyFailed))
+        log_write(LogLevel::warning, "downloads", "copy_link_failed");
 }
 } // namespace
 bool application_downloads_pump() noexcept {
@@ -1500,9 +1525,8 @@ bool application_downloads_context_action(u32 action) noexcept {
             found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
         if (!message || message->revision != source.revision)
             return true;
-        if (action == kReceivedAttachmentActionCopyLink &&
-            !application_copy_text(url, kToastLinkCopied, kToastLinkCopyFailed))
-            log_write(LogLevel::warning, "downloads", "copy_link_failed");
+        if (action == kReceivedAttachmentActionCopyLink)
+            copy_link(url);
         if (action == kReceivedAttachmentActionOpenLink)
             application_open_content_url(url);
         return true;
@@ -1513,9 +1537,8 @@ bool application_downloads_context_action(u32 action) noexcept {
         const Utf8View link{q->menu_link, q->menu_link_bytes};
         if (action == kReceivedAttachmentActionSave)
             return begin_source(source);
-        if (action == kReceivedAttachmentActionCopyLink &&
-            !application_copy_text(link, kToastLinkCopied, kToastLinkCopyFailed))
-            log_write(LogLevel::warning, "downloads", "copy_link_failed");
+        if (action == kReceivedAttachmentActionCopyLink)
+            copy_link(link);
         if (action == kReceivedAttachmentActionOpenLink)
             application_open_content_url(link);
         return true;
@@ -1528,8 +1551,7 @@ bool application_downloads_context_action(u32 action) noexcept {
             copy_image(source, q->menu_format);
         return true;
     case kReceivedAttachmentActionCopyLink:
-        if (!application_copy_text(url, kToastLinkCopied, kToastLinkCopyFailed))
-            log_write(LogLevel::warning, "downloads", "copy_link_failed");
+        copy_link(url);
         return true;
     case kReceivedAttachmentActionOpenLink:
         application_received_attachment_open(source.message, source.attachment,
@@ -1680,10 +1702,7 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
         return true;
     }
     if (message == WM_MOUSEWHEEL) {
-        revoke_capture(*q);
-        ui_download_scene_page(&q->scene, static_cast<short>(HIWORD(wparam)) > 0
-                                              ? (q->scene.page ? q->scene.page - 1 : 0)
-                                              : q->scene.page + 1);
+        page_step(*q, static_cast<short>(HIWORD(wparam)) > 0);
         application_request_frame();
         return true;
     }

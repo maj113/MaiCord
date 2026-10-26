@@ -34,7 +34,7 @@ SettingsLayer* application_profile_editor_settings_layer() noexcept;
 bool application_profile_editor_window_message(UINT, WPARAM, LPARAM) noexcept;
 bool application_profile_editor_submit(u64 now) noexcept;
 bool application_profile_editor_owns_response(u64 request_id) noexcept;
-bool application_profile_editor_response(const RestClientResponse&, Utf8View) noexcept;
+bool application_profile_editor_response(const RestClientResponse&, const Utf8View&) noexcept;
 u64 application_profile_editor_next_wake() noexcept;
 u64 application_profile_editor_caret_wake() noexcept;
 void application_profile_editor_tick(u64 now) noexcept;

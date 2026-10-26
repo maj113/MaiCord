@@ -249,7 +249,7 @@ inline bool identity_matches(const NativePluginPreference& identity, const Nativ
     for (u32 i = 0; i < identity.dll_bytes; ++i) if (identity.dll[i] != ascii_lower(manifest.dll[i])) return false;
     return true;
 }
-inline void append_text(ApplicationPluginCatalogText& output, Utf8View value) noexcept {
+inline __declspec(noinline) void append_text(ApplicationPluginCatalogText& output, Utf8View value) noexcept {
     if (output.bytes >= sizeof(output.text) - 3) return;
     for (u32 i = 0; i < value.bytes;) {
         const auto decoded = utf8_decode_one(value.data + i, value.bytes - i);
@@ -302,7 +302,7 @@ inline Utf8View entry_error(NativePluginCatalogError error) noexcept {
     return utf8_literal("Couldn't read this plugin's manifest.");
 }
 }
-inline u32 application_plugins_catalog_project(const NativePluginCatalog* catalog, u32 first,
+inline __declspec(noinline) u32 application_plugins_catalog_project(const NativePluginCatalog* catalog, u32 first,
     bool discovered, bool busy, ConstSlice<ApplicationPluginCatalogLoaded> loaded,
     Slice<UiSettingsControl> controls, Slice<ApplicationPluginCatalogText> text, u32 remembered,
     const NativePluginPreferences* preferences) noexcept {

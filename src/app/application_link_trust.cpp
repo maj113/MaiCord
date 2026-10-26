@@ -123,12 +123,12 @@ bool application_link_open(Utf8View url, bool trusted_text) noexcept {
                         : utf8_literal("This link is trying to open an application on your device\n\n"));
     context.add({shown, shown_bytes});
     if (shown_bytes < full_bytes)
-        context.add(utf8_literal("\xE2\x80\xA6"));
+        context.add("\xE2\x80\xA6");
     char option_text[64 + kLinkTrustHostBytes]{};
     TextBank option{option_text, sizeof(option_text), 0};
-    option.add(utf8_literal("Trust "));
+    option.add("Trust ");
     option.add(website ? link_target_host(target) : link_target_protocol(target));
-    option.add(utf8_literal(" links from now on"));
+    option.add(" links from now on");
 
     copy_bytes(pending.url, url.data, url.bytes);
     pending.bytes = url.bytes;

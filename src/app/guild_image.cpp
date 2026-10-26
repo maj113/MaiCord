@@ -3,6 +3,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/platform/clipboard_image.hpp"
 #include "maicord/media/png.hpp"
 #include "../media/png_common.hpp"
 
@@ -258,73 +259,6 @@ void resample(const PngImage& image, const u8* scanlines, u32 cx, u32 cy, u32 cw
     }
 }
 
-constexpr u32 kStoredBlock = 65'535;
-
-u64 stored_png_bytes(u32 width, u32 height) noexcept {
-    const u64 raw = static_cast<u64>(height) * (1ull + static_cast<u64>(width) * 4);
-    const u64 zlib = 2 + raw + 5 * ((raw + kStoredBlock - 1) / kStoredBlock) + 4;
-    return 8 + 25 + 12 + zlib + 12;
-}
-
-// RGBA8 PNG with stored (uncompressed) deflate blocks.
-u64 encode_stored_png(const u8* rgba, u32 width, u32 height, u8* out) noexcept {
-    const u64 total = stored_png_bytes(width, height);
-    const u64 raw = static_cast<u64>(height) * (1ull + static_cast<u64>(width) * 4);
-    const u64 zlib = 2 + raw + 5 * ((raw + kStoredBlock - 1) / kStoredBlock) + 4;
-    copy_bytes(out, kPngSignature, 8);
-    u8* ihdr = out + 8;
-    byte_store_be32(ihdr, 13);
-    copy_bytes(ihdr + 4, "IHDR", 4);
-    byte_store_be32(ihdr + 8, width);
-    byte_store_be32(ihdr + 12, height);
-    ihdr[16] = 8;
-    ihdr[17] = 6;
-    ihdr[18] = ihdr[19] = ihdr[20] = 0;
-    byte_store_be32(ihdr + 21, png_crc32(ihdr + 4, 17));
-    u8* idat = ihdr + 25;
-    byte_store_be32(idat, static_cast<u32>(zlib));
-    copy_bytes(idat + 4, "IDAT", 4);
-    u8* z = idat + 8;
-    z[0] = 0x78;
-    z[1] = 0x01;
-    u64 cursor = 2, emitted = 0;
-    u32 adler_a = 1, adler_b = 0, row = 0, column = 0;
-    const u32 row_bytes = 1 + width * 4;
-    while (emitted < raw) {
-        const u32 block = static_cast<u32>(minimum<u64>(kStoredBlock, raw - emitted));
-        z[cursor++] = emitted + block == raw ? 1 : 0;
-        z[cursor++] = static_cast<u8>(block);
-        z[cursor++] = static_cast<u8>(block >> 8);
-        z[cursor++] = static_cast<u8>(~block);
-        z[cursor++] = static_cast<u8>(~block >> 8);
-        for (u32 i = 0; i < block;) {
-            // Reduced initial sums and at most 5552 bytes keep both sums in u32.
-            const u32 end = i + minimum<u32>(5552, block - i);
-            for (; i < end; ++i) {
-                const u8 value = column ? rgba[(static_cast<u64>(row) * width * 4) + column - 1] : 0;
-                z[cursor++] = value;
-                adler_a += value;
-                adler_b += adler_a;
-                if (++column == row_bytes) {
-                    column = 0;
-                    ++row;
-                }
-            }
-            adler_a %= 65'521;
-            adler_b %= 65'521;
-        }
-        emitted += block;
-    }
-    byte_store_be32(z + cursor, adler_b << 16 | adler_a);
-    cursor += 4;
-    byte_store_be32(z + cursor, png_crc32(idat + 4, static_cast<u32>(4 + zlib)));
-    u8* iend = z + cursor + 4;
-    byte_store_be32(iend, 0);
-    copy_bytes(iend + 4, "IEND", 4);
-    byte_store_be32(iend + 8, png_crc32(iend + 4, 4));
-    return static_cast<u64>(iend + 12 - out) == total ? total : 0;
-}
-
 // Width:height of each use: server banners 16:9, profile banners 17:6
 // (680x240), everything else square.
 void aspect(GuildImageProfile profile, u64* aw, u64* ah) noexcept {
@@ -471,7 +405,7 @@ GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> sou
     }
     u8* scanlines = allocate(image.inflated_bytes);
     u8* rgba = allocate(static_cast<u64>(width) * height * 4);
-    const u64 png_bytes = stored_png_bytes(width, height);
+    const u64 png_bytes = clipboard_image_png_bytes(width, height);
     u8* output = png_bytes <= limit ? allocate(png_bytes) : nullptr;
     if (!scanlines || !rgba || !output) {
         release(scanlines);
@@ -484,7 +418,9 @@ GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> sou
     if (decoded.ok())
         resample(image, scanlines, cx, cy, cw, ch, width, height, rgba);
     release(scanlines);
-    const u64 written = decoded.ok() ? encode_stored_png(rgba, width, height, output) : 0;
+    const u64 written =
+        decoded.ok() ? clipboard_image_encode_png(rgba, width, height, width * 4, {output, static_cast<u32>(png_bytes)})
+                     : 0;
     secure_clear_bytes(rgba, static_cast<SIZE_T>(static_cast<u64>(width) * height * 4));
     release(rgba);
     if (!written) {

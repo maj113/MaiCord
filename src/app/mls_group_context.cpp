@@ -88,7 +88,8 @@ MlsStatus mls_key_package_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, b
     return MlsStatus::ok;
 }
 
-MlsStatus mls_external_sender_parse(ConstSlice<u8> input, MlsExternalSender* sender) noexcept {
+MlsStatus mls_external_sender_parse(const ConstSlice<u8>& input_view, MlsExternalSender* sender) noexcept {
+    const ConstSlice<u8> input = input_view; // *sender is written below
     if (!sender || !input.data || !input.count || input.count > kMlsMaxExternalSenderBytes)
         return MlsStatus::invalid_argument;
     reset_value(sender);
@@ -132,8 +133,9 @@ MlsStatus mls_group_context_write(u64 group_id, u64 epoch, const u8* tree_hash,
     *written = writer.used;
     return MlsStatus::ok;
 }
-MlsStatus mls_group_context_parse(ConstSlice<u8> input, ConstSlice<u8> external_sender,
+MlsStatus mls_group_context_parse(const ConstSlice<u8>& input_view, const ConstSlice<u8>& external_view,
                                   MlsGroupContext* context, u32* consumed) noexcept {
+    const ConstSlice<u8> input = input_view, external_sender = external_view; // *context is written below
     if (!context || !consumed || !input.data || !input.count || !external_sender.data)
         return MlsStatus::invalid_argument;
     reset_value(context);

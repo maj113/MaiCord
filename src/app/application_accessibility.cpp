@@ -171,10 +171,10 @@ Utf8View channel_name(u64 channel_id) noexcept {
 
 void add_unread(NameBuilder* name, bool unread, u32 mentions) noexcept {
     if (mentions)
-        name->add(utf8_literal(", ")).number(mentions).add(mentions == 1 ? utf8_literal(" mention")
+        name->add(", ").number(mentions).add(mentions == 1 ? utf8_literal(" mention")
                                                                           : utf8_literal(" mentions"));
     else if (unread)
-        name->add(utf8_literal(", unread"));
+        name->add(", unread");
 }
 
 UiAccessScrollState scroll_state(float offset, float content, float viewport) noexcept {
@@ -216,7 +216,7 @@ void describe_guild(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
         info->state |= ui_access_focused;
     g_name.bytes = 0;
     if (view.folder_role == GuildFolderRole::header) {
-        g_name.add(utf8_literal("Server folder, ")).number(view.folder_size).add(utf8_literal(" servers"));
+        g_name.add("Server folder, ").number(view.folder_size).add(" servers");
         info->state |= view.folder_expanded ? ui_access_expanded : ui_access_collapsed;
         info->actions = ui_access_action_invoke | ui_access_action_expand | ui_access_action_focus;
     } else if (view.folder_role == GuildFolderRole::conversation) {
@@ -230,7 +230,7 @@ void describe_guild(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
         const auto* guild = state ? chat_state_store_find_guild(*state, view.id) : nullptr;
         g_name.add(guild ? chat_state_store_guild_name(*state, *guild) : utf8_literal("Server"));
         if (view.unavailable)
-            g_name.add(utf8_literal(", unavailable"));
+            g_name.add(", unavailable");
         add_unread(&g_name, view.unread, view.mention_count);
         info->actions = ui_access_action_select | ui_access_action_invoke | ui_access_action_focus;
     }
@@ -292,11 +292,11 @@ void describe_channel(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
     g_name.add(name);
     const Utf8View kind = channel_kind(view.type);
     if (kind.bytes)
-        g_name.add(utf8_literal(", ")).add(kind);
+        g_name.add(", ").add(kind);
     if (view.voice_count)
-        g_name.add(utf8_literal(", ")).number(view.voice_count).add(utf8_literal(" connected"));
+        g_name.add(", ").number(view.voice_count).add(" connected");
     if (view.muted)
-        g_name.add(utf8_literal(", muted"));
+        g_name.add(", muted");
     add_unread(&g_name, view.unread, view.mention_count);
     info->name = g_name.view();
 }
@@ -309,9 +309,9 @@ void describe_message(void*, const UiWidgetManager&, UiWidgetHandle handle, cons
         g_name.bytes = 0;
         const auto* state = chat_state();
         const Utf8View name = state ? channel_name(state->selected_channel_id) : Utf8View{};
-        g_name.add(utf8_literal("Messages"));
+        g_name.add("Messages");
         if (name.bytes)
-            g_name.add(utf8_literal(" in ")).add(name);
+            g_name.add(" in ").add(name);
         info->name = g_name.view();
         info->actions = ui_access_action_scroll;
         if (scene.timeline && scene.timeline->list) {
@@ -385,7 +385,7 @@ void describe_composer(void*, const UiWidgetManager&, UiWidgetHandle handle, con
         g_name.bytes = 0;
         const auto* state = chat_state();
         const Utf8View name = state ? channel_name(g_app.message_composer.channel_id) : Utf8View{};
-        g_name.add(utf8_literal("Message"));
+        g_name.add("Message");
         if (name.bytes) {
             const auto* channel = chat_state_store_find_channel(*state, g_app.message_composer.channel_id);
             g_name.add(channel && channel_is_private(channel->type) ? utf8_literal(" @") : utf8_literal(" #"))
@@ -442,7 +442,7 @@ void describe_popup(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
         g_name.bytes = 0;
         g_name.add(item.label);
         if (item.detail.bytes)
-            g_name.add(utf8_literal(", ")).add(item.detail);
+            g_name.add(", ").add(item.detail);
         info->name = g_name.view();
         if (item.flags & popup_item_command_category) {
             info->role = UiAccessRole::header;
@@ -549,7 +549,7 @@ void describe_shell(void*, const UiWidgetManager&, UiWidgetHandle, const UiWidge
                                 : nullptr;
         g_name.bytes = 0;
         g_name.add(guild ? chat_state_store_guild_name(*state, *guild) : utf8_literal("Server"))
-            .add(utf8_literal(", server actions"));
+            .add(", server actions");
         info->role = UiAccessRole::button;
         info->name = g_name.view();
         info->actions = ui_access_action_invoke | ui_access_action_expand;
@@ -955,7 +955,7 @@ void prefix_grouped_authors(UiAccessTree* tree) noexcept {
         if (!user)
             continue;
         g_name.bytes = 0;
-        g_name.add(user_store_name(users, *user)).add(utf8_literal(": ")).add(ui_access_name(*tree, node));
+        g_name.add(user_store_name(users, *user)).add(": ").add(ui_access_name(*tree, node));
         ui_access_set_name(tree, node, g_name.view());
     }
 }
@@ -1683,7 +1683,7 @@ void announce_new_message(const UiAccessTree& tree) noexcept {
     const auto* user = user_store_find(users, record->author_id);
     g_name.bytes = 0;
     if (user)
-        g_name.add(user_store_name(users, *user)).add(utf8_literal(": "));
+        g_name.add(user_store_name(users, *user)).add(": ");
     // Prefer the drawn (markdown-resolved) content of a materialized row.
     const u32 before = g_name.bytes;
     const auto* presentation = g_app.renderer.message_text;
@@ -1694,7 +1694,7 @@ void announce_new_message(const UiAccessTree& tree) noexcept {
             const auto& command = presentation->commands[index];
             if (command.message_id == record->id && command.owner.manager == &scene.widgets &&
                 ui_widget_handle_equal(command.owner.handle, scene.rows[row].content))
-                g_name.add(command.text).add(utf8_literal(" "));
+                g_name.add(command.text).add(" ");
         }
         break;
     }
@@ -1807,10 +1807,10 @@ void observe_voice(StatusObserver& status, bool primed) noexcept {
                            session->udp_phase == VoiceUdpPhase::ready;
     if (primed && connected && (!status.voice_connected || channel != status.voice_channel)) {
         g_name.bytes = 0;
-        g_name.add(utf8_literal("Voice connected"));
+        g_name.add("Voice connected");
         const Utf8View name = channel_name(channel);
         if (name.bytes)
-            g_name.add(utf8_literal(", ")).add(name);
+            g_name.add(", ").add(name);
         announce(g_name.view(), false);
     } else if (primed && !channel && status.voice_channel) {
         announce(utf8_literal("Voice disconnected"), false);
@@ -1839,7 +1839,7 @@ void observe_mentions(StatusObserver& status, u64 now_ms) noexcept {
     }
     if (status.mentions_primed && total > status.mention_total && latest) {
         g_name.bytes = 0;
-        g_name.add(utf8_literal("New mention"));
+        g_name.add("New mention");
         const Utf8View name = chat_state_store_channel_name(*state, *latest);
         if (name.bytes)
             g_name.add(channel_is_private(latest->type) ? utf8_literal(" from ") : utf8_literal(" in #")).add(name);

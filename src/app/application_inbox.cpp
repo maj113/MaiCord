@@ -205,7 +205,7 @@ u64 unread_key() noexcept {
     return (static_cast<u64>(s.activity_mutations) << 32) ^ s.channel_mutations ^
            (static_cast<u64>(s.guild_mutations) << 16);
 }
-bool push_unread(UnreadRow row) noexcept {
+bool push_unread(const UnreadRow& row) noexcept {
     if (inbox->unread_count == kUnreadCapacity)
         return false;
     inbox->unreads[inbox->unread_count++] = row;

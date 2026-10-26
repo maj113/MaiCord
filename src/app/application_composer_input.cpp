@@ -68,6 +68,14 @@ bool activate_composer_control(MessageComposerControl control) noexcept {
     return false;
 }
 
+// The edit holds the pointer while a selection drags; without the capture the selection ends at once.
+void begin_composer_pointer_capture() noexcept {
+    SetCapture(g_app.window);
+    g_app.message_composer_pointer_selection = GetCapture() == g_app.window;
+    if (!g_app.message_composer_pointer_selection)
+        ui_widget_manager_capture(&g_app.message_composer_scene.widgets, ui_widget_invalid_handle());
+}
+
 } // namespace
 
 void end_message_composer_pointer_selection() noexcept {
@@ -89,6 +97,13 @@ void end_message_composer_pointer_selection() noexcept {
     }
 }
 
+void release_message_composer_focus() noexcept {
+    stop_local_typing(g_app.message_composer.channel_id);
+    g_app.message_composer.focused = false;
+    ++g_app.message_composer.revision;
+    reset_message_composer_caret_timing(false);
+}
+
 bool handle_composer_click(LPARAM lparam) noexcept {
     if (!g_app.account_ui || g_app.login.visible || !g_app.message_composer_scene.active) {
         return false;
@@ -99,10 +114,7 @@ bool handle_composer_click(LPARAM lparam) noexcept {
     const MessageComposerControl hit = message_composer_scene_hit_test(g_app.message_composer_scene, x, y);
     if (hit == MessageComposerControl::none) {
         if (g_app.message_composer.focused) {
-            stop_local_typing(g_app.message_composer.channel_id);
-            g_app.message_composer.focused = false;
-            ++g_app.message_composer.revision;
-            reset_message_composer_caret_timing(false);
+            release_message_composer_focus();
             refresh_message_composer_ui();
         }
         return false;
@@ -156,10 +168,7 @@ bool handle_composer_click(LPARAM lparam) noexcept {
         if (composing ||
             !ui_widget_manager_capture(&g_app.message_composer_scene.widgets, g_app.message_composer_scene.edit))
             return true;
-        SetCapture(g_app.window);
-        g_app.message_composer_pointer_selection = GetCapture() == g_app.window;
-        if (!g_app.message_composer_pointer_selection)
-            ui_widget_manager_capture(&g_app.message_composer_scene.widgets, ui_widget_invalid_handle());
+        begin_composer_pointer_capture();
         return true;
     }
     if (hit == MessageComposerControl::attachments &&
@@ -209,10 +218,7 @@ bool handle_composer_double_click(LPARAM lparam) noexcept {
     if (!ui_widget_manager_capture(&g_app.message_composer_scene.widgets,
                                    g_app.message_composer_scene.edit))
         return true;
-    SetCapture(g_app.window);
-    g_app.message_composer_pointer_selection = GetCapture() == g_app.window;
-    if (!g_app.message_composer_pointer_selection)
-        ui_widget_manager_capture(&g_app.message_composer_scene.widgets, ui_widget_invalid_handle());
+    begin_composer_pointer_capture();
     return true;
 }
 
@@ -333,10 +339,7 @@ bool handle_composer_key(WPARAM key) noexcept {
             return application_reply_draft_activate(MessageComposerControl::cancel_reply);
         if (application_clear_channel_attachments())
             return refresh_message_composer_ui() && pump_message_history();
-        stop_local_typing(composer.channel_id);
-        composer.focused = false;
-        ++composer.revision;
-        reset_message_composer_caret_timing(false);
+        release_message_composer_focus();
         return refresh_message_composer_ui();
     case VK_UP: // In an empty composer the registry's edit_last_message has first refusal.
     case VK_DOWN: {

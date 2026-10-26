@@ -10,6 +10,7 @@
 #include "maicord/platform/file_picker.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/log.hpp"
+#include "application_log_fields.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -46,6 +47,18 @@ bool plugins_page_selected() noexcept {
     const auto* scene = g_app.renderer.settings_scene;
     return scene && scene->selected_page.owner_id == 1 && scene->selected_page.page_id == 4;
 }
+// The Settings window, account scope and profile a plugin operation started under.
+struct ScopeStamp {
+    const void* settings;
+    u64 serial, profile;
+};
+ScopeStamp scope_stamp() noexcept {
+    return {g_app.settings, g_app.plugin_account_scope_serial, g_app.account.status.profile_id};
+}
+bool scope_unchanged(const ScopeStamp& stamp) noexcept {
+    return static_cast<const void*>(g_app.settings) == stamp.settings &&
+        g_app.plugin_account_scope_serial == stamp.serial && g_app.account.status.profile_id == stamp.profile;
+}
 bool install_context(const ApplicationPlugins& plugins,bool detached=false) noexcept {
     if(g_app.plugins!=&plugins)return false;
     return static_cast<const void*>(g_app.settings)==plugins.install_settings&&
@@ -55,8 +68,8 @@ bool install_context(const ApplicationPlugins& plugins,bool detached=false) noex
         ((application_settings_active()&&plugins_page_selected())||(detached&&!application_settings_active()));
 }
 void preferences_error(NativePluginPreferencesResult result) noexcept {
-    log_u64(LogLevel::warning, "plugins", "preferences_error", static_cast<u64>(result.error));
-    log_u64(LogLevel::warning, "plugins", "preferences_native_error", result.win32_error);
+    log_u64_pair(LogLevel::warning, "plugins", "preferences_error\0preferences_native_error",
+                 static_cast<u64>(result.error), result.win32_error);
 }
 ApplicationPlugins* ensure() noexcept {
     if (g_app.plugins) return g_app.plugins;
@@ -110,8 +123,16 @@ Utf8View error_text(NativePluginModuleResult result) noexcept {
     return utf8_literal("Couldn't load the plugin. It may be missing dependencies.");
 }
 void report_error(NativePluginModuleResult result) noexcept {
-    log_u64(LogLevel::warning, "plugins", "module_error", static_cast<u64>(result.error));
-    log_u64(LogLevel::warning, "plugins", "module_native_error", result.win32_error);
+    log_u64_pair(LogLevel::warning, "plugins", "module_error\0module_native_error", static_cast<u64>(result.error),
+                 result.win32_error);
+}
+void module_failed(ApplicationPlugins& plugins, NativePluginModuleResult result) noexcept {
+    plugins.status = error_text(result);
+    report_error(result);
+}
+void set_label(ApplicationPlugins& plugins, u32 slot, const NativePluginManifest& manifest) noexcept {
+    for (u32 i = 0; i < manifest.name_bytes; ++i) plugins.labels[slot][i] = manifest.name[i];
+    plugins.label_bytes[slot] = manifest.name_bytes;
 }
 void copy_label(ApplicationPlugins& plugins, u32 index, ConstSlice<wchar_t> path) noexcept {
     u32 first = 0;
@@ -204,13 +225,12 @@ void application_plugins_poll() noexcept {
         auto* host = application_settings_plugin_host();
         if (index < 8 && host) {
             copy_label(*plugins, index, path);
-            const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
-            auto* settings = g_app.settings;
+            const auto stamp = scope_stamp();
             plugins->activating = true;
             application_plugins_sdk_bind_host(*plugins, host);
             // Developer Mode load: the user picked this DLL directly.
             const auto loaded = native_plugin_module_load(&plugins->modules[index], host, path, MC_PERM_ALL);
-            if (g_app.settings != settings || serial != g_app.plugin_account_scope_serial || profile != g_app.account.status.profile_id) {
+            if (!scope_unchanged(stamp)) {
                 const auto rollback = native_plugin_module_unload(&plugins->modules[index]);
                 plugins->reopen_settings = false;
                 plugins->status = rollback.ok() ? Utf8View{} : error_text(rollback);
@@ -252,8 +272,7 @@ bool application_plugins_unload(u32 index) noexcept {
     }
     const bool reopen = application_settings_active();
     const bool plugin_page = plugins_page_selected();
-    auto* settings = g_app.settings;
-    const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
+    const auto stamp = scope_stamp();
     const auto result = native_plugin_module_unload(&plugins->modules[index]);
     plugins->activating = false;
     plugins->status = result.ok() ? utf8_literal("Plugin unloaded.") : error_text(result);
@@ -264,8 +283,7 @@ bool application_plugins_unload(u32 index) noexcept {
     }
     else report_error(result);
     application_settings_refresh_pages();
-    if (reopen && g_app.settings == settings && serial == g_app.plugin_account_scope_serial &&
-        profile == g_app.account.status.profile_id && !application_settings_active()) {
+    if (reopen && scope_unchanged(stamp) && !application_settings_active()) {
         if (plugin_page) application_settings_plugin_catalog_reopen();
         else application_settings_open();
     }
@@ -305,7 +323,7 @@ bool application_plugins_release() noexcept {
     }
     for (auto& module : plugins->modules) {
         const auto result = native_plugin_module_unload(&module);
-        if (!result.ok()) { plugins->status = error_text(result); plugins->closing = false; report_error(result); return false; }
+        if (!result.ok()) { plugins->closing = false; module_failed(*plugins, result); return false; }
     }
     const auto preferences_released = native_plugin_preferences_release(&plugins->preferences_io);
     if (!preferences_released.ok()) {
@@ -353,6 +371,10 @@ Utf8View application_plugins_status() noexcept {
 }
 
 namespace {
+bool catalog_row_visible(const ApplicationPlugins& plugins, u32 index) noexcept {
+    return index < plugins.catalog->catalog.count && index >= plugins.catalog_first &&
+        index - plugins.catalog_first < 8;
+}
 bool catalog_context(ApplicationPlugins* plugins, u64 expected_revision, bool require_catalog = true) noexcept {
     return plugins && plugins == g_app.plugins && !application_plugins_busy() && (!require_catalog || plugins->catalog) &&
         plugins->catalog_revision == expected_revision && g_app.account_ui && !g_app.login.visible &&
@@ -522,13 +544,12 @@ bool application_plugins_discover() noexcept {
     if (application_plugins_busy() || !g_app.account_ui || g_app.login.visible || !application_settings_active()) return false;
     auto* plugins = ensure();
     if (!plugins) return false;
-    auto* settings = g_app.settings;
+    const auto stamp = scope_stamp();
     if (!plugins_page_selected()) return false;
-    const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
     // No live Settings or choice descriptor borrows a bank being overwritten.
     application_settings_plugin_catalog_unbind();
-    if (g_app.plugins != plugins || g_app.settings != settings || serial != g_app.plugin_account_scope_serial ||
-        profile != g_app.account.status.profile_id || !g_app.account_ui || g_app.login.visible || !advance_catalog(*plugins)) return false;
+    if (g_app.plugins != plugins || !scope_unchanged(stamp) || !g_app.account_ui || g_app.login.visible ||
+        !advance_catalog(*plugins)) return false;
     NativePluginCatalogResult result{NativePluginCatalogError::invalid_input};
     if (!plugins->catalog)
         plugins->catalog = static_cast<ApplicationPluginCatalogOwner*>(VirtualAlloc(nullptr,
@@ -554,11 +575,9 @@ bool application_plugins_catalog_page(bool previous, u64 revision) noexcept {
     if (!catalog_context(plugins, revision)) return false;
     const u32 count = plugins->catalog->catalog.count, first = plugins->catalog_first;
     if (previous ? first < 8 : count - first <= 8) return false;
-    auto* settings = g_app.settings;
-    const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
+    const auto stamp = scope_stamp();
     application_settings_plugin_catalog_unbind();
-    if (g_app.plugins != plugins || g_app.settings != settings || serial != g_app.plugin_account_scope_serial ||
-        profile != g_app.account.status.profile_id || !advance_catalog(*plugins)) return false;
+    if (g_app.plugins != plugins || !scope_unchanged(stamp) || !advance_catalog(*plugins)) return false;
     plugins->catalog_first = previous ? first - 8 : first + 8;
     application_settings_refresh_pages();
     return application_settings_plugin_catalog_reopen();
@@ -628,8 +647,7 @@ bool request_approval(ApplicationPlugins& plugins, u32 index, u64 revision) noex
 
 bool application_plugins_catalog_enable(u32 index, u64 revision) noexcept {
     auto* plugins = g_app.plugins;
-    if (!catalog_context(plugins, revision) || index >= plugins->catalog->catalog.count ||
-        index < plugins->catalog_first || index - plugins->catalog_first >= 8) return false;
+    if (!catalog_context(plugins, revision) || !catalog_row_visible(*plugins, index)) return false;
     const auto& entry = plugins->catalog->catalog.entries[index];
     if (entry.status != NativePluginCatalogError::none || !native_plugin_manifest_valid(entry.manifest)) return false;
     // A plugin revoked as harmful stays off.
@@ -645,8 +663,7 @@ bool application_plugins_catalog_enable(u32 index, u64 revision) noexcept {
 namespace {
 bool enable_entry(u32 index, u64 revision, u64 approved) noexcept {
     auto* plugins = g_app.plugins;
-    if (!catalog_context(plugins, revision) || index >= plugins->catalog->catalog.count ||
-        index < plugins->catalog_first || index - plugins->catalog_first >= 8) return false;
+    if (!catalog_context(plugins, revision) || !catalog_row_visible(*plugins, index)) return false;
     const auto& entry = plugins->catalog->catalog.entries[index];
     if (entry.status != NativePluginCatalogError::none || !native_plugin_manifest_valid(entry.manifest)) return false;
     const u32 slot = free_slot(*plugins);
@@ -658,8 +675,7 @@ bool enable_entry(u32 index, u64 revision, u64 approved) noexcept {
     const u32 characters = catalog.directory_characters;
     if (!characters || characters >= kNativePluginCatalogPathCapacity) return false;
     copy_bytes(directory, catalog.directory, (characters + 1) * static_cast<u32>(sizeof(wchar_t)));
-    auto* settings = g_app.settings;
-    const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
+    const auto stamp = scope_stamp();
     const u32 first = plugins->catalog_first;
     const u32 scene_revision = g_app.renderer.settings_scene->revision;
     auto* host = application_settings_plugin_host_current();
@@ -668,15 +684,14 @@ bool enable_entry(u32 index, u64 revision, u64 approved) noexcept {
     application_plugins_sdk_bind_host(*plugins, host);
     const auto result = native_plugin_module_load_declared(&plugins->modules[slot], host, {directory, characters},
         manifest, approved);
-    const bool current = g_app.plugins == plugins && g_app.settings == settings &&
-        serial == g_app.plugin_account_scope_serial && profile == g_app.account.status.profile_id &&
+    const bool current = g_app.plugins == plugins && scope_unchanged(stamp) &&
         g_app.account_ui && !g_app.login.visible && plugins->catalog_revision == revision && plugins->catalog_first == first &&
         application_settings_active() && plugins_page_selected() &&
         g_app.renderer.settings_scene->revision == scene_revision;
     if (!current) {
         const auto rollback = native_plugin_module_unload(&plugins->modules[slot]);
         plugins->activating = false;
-        if (!rollback.ok()) { plugins->status = error_text(rollback); report_error(rollback); }
+        if (!rollback.ok()) module_failed(*plugins, rollback);
         else {
             plugins->status = result.ok() ? Utf8View{} : error_text(result);
             if (!result.ok()) report_error(result);
@@ -684,13 +699,9 @@ bool enable_entry(u32 index, u64 revision, u64 approved) noexcept {
         return false;
     }
     plugins->activating = false;
-    if (plugins->modules[slot].enabled) {
-        const u32 bytes = manifest.name_bytes;
-        for (u32 i = 0; i < bytes; ++i) plugins->labels[slot][i] = manifest.name[i];
-        plugins->label_bytes[slot] = bytes;
-    }
+    if (plugins->modules[slot].enabled) set_label(*plugins, slot, manifest);
     if (result.ok()) plugins->status = utf8_literal("Plugin enabled.");
-    else { plugins->status = error_text(result); report_error(result); }
+    else module_failed(*plugins, result);
     if (result.ok() && plugins->modules[slot].enabled) {
         capture_loaded_identity(*plugins, slot, manifest);
         NativePluginPreferences remembered = plugins->preferences;
@@ -772,8 +783,7 @@ bool application_plugins_restore() noexcept {
     }
     auto* host = application_settings_plugin_host();
     if (!host) return false;
-    auto* settings = g_app.settings;
-    const u64 serial = g_app.plugin_account_scope_serial, profile = g_app.account.status.profile_id;
+    const auto stamp = scope_stamp();
     u32 restored = 0, attempted = 0; bool failed = false, scope_abandoned = false;
     plugins->activating = true;
     for (u32 index = 0; index < plugins->catalog->catalog.count; ++index) {
@@ -791,14 +801,12 @@ bool application_plugins_restore() noexcept {
         application_plugins_sdk_bind_host(*plugins, host);
         const auto loaded = native_plugin_module_load_declared(&plugins->modules[slot], host, {directory, characters},
             manifest, approved);
-        if (g_app.plugins != plugins || g_app.settings != settings || serial != g_app.plugin_account_scope_serial ||
-            profile != g_app.account.status.profile_id || !g_app.account_ui || g_app.login.visible) {
+        if (g_app.plugins != plugins || !scope_unchanged(stamp) || !g_app.account_ui || g_app.login.visible) {
             failed = scope_abandoned = true; break;
         }
         if (plugins->modules[slot].enabled) {
             if (loaded.ok()) capture_loaded_identity(*plugins, slot, manifest);
-            for (u32 i = 0; i < manifest.name_bytes; ++i) plugins->labels[slot][i] = manifest.name[i];
-            plugins->label_bytes[slot] = manifest.name_bytes;
+            set_label(*plugins, slot, manifest);
             ++restored;
         }
         if (!loaded.ok()) { report_error(loaded); failed = true; }

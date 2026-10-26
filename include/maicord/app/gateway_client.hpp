@@ -1543,9 +1543,9 @@ bool gateway_client_event_member_list_record(
     ConstSlice<u8>* user_appearance = nullptr, ConstSlice<u8>* member_appearance = nullptr) noexcept;
 bool gateway_client_event_as_message_poll_vote(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                GatewayMessagePollVoteEvent* output) noexcept;
-bool gateway_client_event_as_message(const GatewayClientEvent& event, ConstSlice<u8> payload,
+bool gateway_client_event_as_message(const GatewayClientEvent& event, const ConstSlice<u8>& payload,
                                      GatewayMessageEvent* message) noexcept;
-bool gateway_client_event_as_message(const GatewayClientEvent& event, ConstSlice<u8> payload,
+bool gateway_client_event_as_message(const GatewayClientEvent& event, const ConstSlice<u8>& payload,
                                      const GatewayMessageRichScratch& rich_scratch,
                                      GatewayMessageEvent* message) noexcept;
 // Reads only the copied scalar rich header; no rich descriptor arrays or JSON
@@ -1593,8 +1593,8 @@ inline bool gateway_client_event_message_system_target(const GatewayClientEvent&
 }
 bool gateway_client_event_as_message_delete(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                             GatewayMessageDeleteEvent* message) noexcept;
-bool gateway_client_event_as_message_bulk_delete(const GatewayClientEvent& event, ConstSlice<u8> payload,
-                                                 Slice<u64> ids,
+bool gateway_client_event_as_message_bulk_delete(const GatewayClientEvent& event, const ConstSlice<u8>& payload,
+                                                 const Slice<u64>& ids,
                                                  GatewayMessageBulkDeleteEvent* message) noexcept;
 bool gateway_client_event_as_message_reaction(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                               GatewayMessageReactionEvent* reaction) noexcept;

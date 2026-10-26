@@ -65,7 +65,7 @@ void plugin_call_ledger_close(PluginCallLedger*) noexcept;
 // A null ledger makes begin/end no-ops so hosts without accounting still work.
 PluginCallTicket plugin_call_begin(PluginCallLedger*, u64 owner_id, PluginCallKind) noexcept;
 // True when this call pushed the owner over the overrun limit.
-bool plugin_call_end(PluginCallLedger*, PluginCallTicket) noexcept;
+bool plugin_call_end(PluginCallLedger*, const PluginCallTicket&) noexcept;
 bool plugin_call_ledger_disable_requested(const PluginCallLedger*, u64 owner_id) noexcept;
 // Returns one owner whose disable is pending and clears its request, or zero.
 u64 plugin_call_ledger_take_disable(PluginCallLedger*) noexcept;

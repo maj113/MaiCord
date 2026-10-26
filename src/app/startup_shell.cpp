@@ -88,7 +88,8 @@ Utf8View startup_shell_text(const StartupShell& shell, StartupShellText text) no
                : Utf8View{};
 }
 
-bool startup_shell_add_text(StartupShell* shell, Utf8View text, StartupShellText* output) noexcept {
+bool startup_shell_add_text(StartupShell* shell, const Utf8View& text_view, StartupShellText* output) noexcept {
+    const Utf8View text = text_view; // *output is cleared first
     *output = {};
     if (!text.bytes)
         return true;

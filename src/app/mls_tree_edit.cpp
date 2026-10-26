@@ -21,8 +21,9 @@ MlsStatus mls_hpke_ciphertext_next(ConstSlice<u8> ciphertexts, u32* offset, MlsH
     *has_ciphertext = true;
     return MlsStatus::ok;
 }
-MlsStatus mls_update_path_node_next(ConstSlice<u8> nodes, u32* offset, MlsUpdatePathNode* node,
+MlsStatus mls_update_path_node_next(const ConstSlice<u8>& nodes_view, u32* offset, MlsUpdatePathNode* node,
                                     bool* has_node) noexcept {
+    const ConstSlice<u8> nodes = nodes_view; // *node and *offset are written below
     if (!offset || !node || !has_node || *offset > nodes.count)
         return MlsStatus::invalid_argument;
     *has_node = false;

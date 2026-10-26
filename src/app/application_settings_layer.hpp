@@ -66,7 +66,7 @@ UiSettingsEditor settings_layer_editor_view(SettingsLayer*, u64 control_id, Mess
 bool settings_layer_focus(SettingsLayer*, UiSettingsTarget) noexcept;
 // Builds the scene activation for a keyboard target and dispatches it.
 void settings_layer_activate_target(SettingsLayer*, UiSettingsTarget) noexcept;
-bool settings_layer_open_choice(SettingsLayer*, u64 owner_id, ConstSlice<PopupItem>, UiRect anchor,
+bool settings_layer_open_choice(SettingsLayer*, u64 owner_id, const ConstSlice<PopupItem>&, const UiRect& anchor,
                                 float width) noexcept;
 void settings_layer_close_choice(SettingsLayer*) noexcept;
 bool settings_layer_choice_current(const SettingsLayer&) noexcept;
@@ -89,6 +89,6 @@ bool settings_layer_edit_changed(SettingsLayer*, bool content) noexcept;
 // Replaces the focused editor's whole text through the paste path (UI
 // Automation Value.SetValue). False when no editor is focused and editable.
 bool settings_layer_replace_text(SettingsLayer*, Utf8View text) noexcept;
-void settings_layer_cancel_native_group(SettingsLayer*, TextInputTarget) noexcept;
+void settings_layer_cancel_native_group(SettingsLayer*, const TextInputTarget&) noexcept;
 
 } // namespace maicord::app_detail

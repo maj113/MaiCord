@@ -212,7 +212,7 @@ u32 profile_editor_format_color(u32 color, Slice<char> output) noexcept {
     return color > 0xFFFFFF ? 0 : color_hex_format(color << 8 | 0xFFu, false, output);
 }
 
-bool profile_editor_parse_color(Utf8View text, u32* color) noexcept {
+bool profile_editor_parse_color(const Utf8View& text, u32* color) noexcept {
     u32 rgba = 0;
     if (!color || !color_hex_parse(text, false, &rgba))
         return false;

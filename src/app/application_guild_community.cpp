@@ -217,6 +217,9 @@ const GuildRecord* guild(u64 id) noexcept {
 bool self_member_known(const GuildRecord& g) noexcept {
     return (g.settings.known & guild_settings_self_member) != 0;
 }
+bool rules_gated(const GuildRecord& g) noexcept {
+    return guild_rules_gate(g.upload_features, g.settings.self_member, self_member_known(g));
+}
 bool can_manage_events(u64 guild_id) noexcept {
     if (!g_app.account_ui)
         return false;
@@ -414,15 +417,24 @@ void clear_editors() noexcept {
     }
 }
 
-void push(const UiSettingsControl& control,
-          UiSettingsControlPresentation presentation = {UiSettingsVariant::standard, 0, kUiSettingsNoDefault}) noexcept {
+// Appends a control and returns it for the optional fields; past capacity the row lands in a scratch sink.
+UiSettingsControl& add_control(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind,
+                               bool enabled = true, bool checked = false,
+                               UiSettingsVariant variant = UiSettingsVariant::standard) noexcept {
+    static UiSettingsControl overflow;
     if (owner->control_count >= kControlCapacity)
-        return;
-    owner->presentation[owner->control_count] = presentation;
-    owner->controls[owner->control_count++] = control;
+        return overflow;
+    const u32 index = owner->control_count++;
+    owner->presentation[index] = {variant, 0, kUiSettingsNoDefault};
+    owner->controls[index] = {id, label, description, kind, enabled, checked, {}, 0, {}, nullptr};
+    return owner->controls[index];
 }
-void notice(u64 id, Utf8View label, Utf8View description, Utf8View action = {}) noexcept {
-    push({id, label, description, UiSettingsControlKind::notice, true, false, {}, 0, action, nullptr});
+void notice(u64 id, const Utf8View& label, const Utf8View& description, const Utf8View& action = {}) noexcept {
+    add_control(id, label, description, UiSettingsControlKind::notice).action_label = action;
+}
+void set_footer(const Utf8View& status, const Utf8View& save, const Utf8View& reset, bool visible, bool can_save,
+                bool saving, bool failed) noexcept {
+    owner->footer = {status, save, reset, visible, can_save, saving, failed};
 }
 UiSettingsEditor* editor_view(u64 control, Utf8View placeholder, bool enabled) noexcept {
     const int slot = editor_slot(control);
@@ -452,7 +464,7 @@ Utf8View event_when(Bank& bank, const ScheduledEvent& e, bool full) noexcept {
     const u32 start = bank.used;
     const u64 now = clock_unix_milliseconds() / 1000;
     if (e.status == ScheduledEventStatus::active) {
-        bank.add(utf8_literal("Live now"));
+        bank.add("Live now");
     } else {
         char text[96];
         const auto formatted = format_timestamp_local(e.start_ms / 1000, full ? 'F' : 'f', now, {text, sizeof(text)});
@@ -463,7 +475,7 @@ Utf8View event_when(Bank& bank, const ScheduledEvent& e, bool full) noexcept {
         char text[96];
         const auto formatted = format_timestamp_local(e.end_ms / 1000, 'f', now, {text, sizeof(text)});
         if (formatted.ok) {
-            bank.add(utf8_literal(" \xE2\x80\x93 "));
+            bank.add(" \xE2\x80\x93 ");
             bank.add({text, formatted.bytes});
         }
     }
@@ -486,7 +498,7 @@ Utf8View interested_text(Bank& bank, const ScheduledEvent& e) noexcept {
     if (!e.user_count)
         return utf8_literal("No one's interested in this event yet.");
     bank.number(e.user_count);
-    bank.add(utf8_literal(" interested"));
+    bank.add(" interested");
     return bank.since(start);
 }
 
@@ -496,18 +508,17 @@ void project_rules(Bank& bank) noexcept {
     p.content.description = utf8_literal("Before you can talk here, read and agree to the rules.");
     if (p.phase == Phase::loading || p.phase == Phase::idle) {
         notice(control_notice, {}, utf8_literal("Loading the rules\xE2\x80\xA6"));
-        p.footer = {{}, utf8_literal("Submit"), utf8_literal("Cancel"), true, false, true, false};
+        set_footer({}, utf8_literal("Submit"), utf8_literal("Cancel"), true, false, true, false);
         return;
     }
     if (p.phase == Phase::failed && !p.form.field_count) {
         notice(control_notice, utf8_literal("Couldn't load the rules"), p.status, utf8_literal("Try again"));
-        p.footer = {p.status, utf8_literal("Submit"), utf8_literal("Cancel"), true, false, false, true};
+        set_footer(p.status, utf8_literal("Submit"), utf8_literal("Cancel"), true, false, false, true);
         return;
     }
     if (!rules_presentation_complete(p)) {
         notice(control_notice, utf8_literal("This form can't be completed here"), kIncompleteForm);
-        p.footer = {
-            kIncompleteForm, utf8_literal("Submit"), utf8_literal("Cancel"), true, false, false, true};
+        set_footer(kIncompleteForm, utf8_literal("Submit"), utf8_literal("Cancel"), true, false, false, true);
         return;
     }
     if (p.form.description.bytes)
@@ -519,23 +530,23 @@ void project_rules(Bank& bank) noexcept {
         const Utf8View description = guild_verification_text(p.form, field.description);
         switch (field.type) {
         case GuildVerificationFieldType::terms:
-            push({control_category + f, label.bytes ? label : utf8_literal("Read and agree to the server rules"), {},
-                  UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr});
+            add_control(control_category + f, label.bytes ? label : utf8_literal("Read and agree to the server rules"), {},
+                        UiSettingsControlKind::category);
             // One numbered list in a single box, as the official client shows the rules.
             if (field.value_count) {
                 const u32 start = bank.used;
                 for (u32 v = 0; v < field.value_count; ++v) {
                     if (v)
-                        bank.add(utf8_literal("\n"));
+                        bank.add("\n");
                     bank.number(v + 1);
-                    bank.add(utf8_literal(". "));
+                    bank.add(". ");
                     bank.add(guild_verification_text(p.form, field.values[v]));
                 }
                 notice(control_rule_base + f * kGuildVerificationValueMaximum, {}, bank.since(start));
             }
             if (!agree_shown)
-                push({control_agree, utf8_literal("I have read and agree to the rules"), {},
-                      UiSettingsControlKind::toggle, edit, p.answers[f].agreed, {}, 0, {}, nullptr});
+                add_control(control_agree, utf8_literal("I have read and agree to the rules"), {},
+                            UiSettingsControlKind::toggle, edit, p.answers[f].agreed);
             agree_shown = true;
             break;
         case GuildVerificationFieldType::text_input:
@@ -544,15 +555,14 @@ void project_rules(Bank& bank) noexcept {
             const u64 id = control_text_base + f;
             const auto* view = editor_view(id, guild_verification_text(p.form, field.placeholder), edit);
             if (view)
-                push({id, label, description,
-                      paragraph ? UiSettingsControlKind::multiline : UiSettingsControlKind::edit, edit, false, {}, 0,
-                      {}, view});
+                add_control(id, label, description,
+                            paragraph ? UiSettingsControlKind::multiline : UiSettingsControlKind::edit, edit)
+                    .editor = view;
             break;
         }
         case GuildVerificationFieldType::multiple_choice: {
-            push({control_choice_base + f, label, description, UiSettingsControlKind::radio, edit, false,
-                  {reinterpret_cast<const Utf8View*>(nullptr), 0},
-                  p.answers[f].answered ? p.answers[f].choice : kUiSettingsNoChoice, {}, nullptr});
+            add_control(control_choice_base + f, label, description, UiSettingsControlKind::radio, edit)
+                .selected_choice = p.answers[f].answered ? p.answers[f].choice : kUiSettingsNoChoice;
             break;
         }
         case GuildVerificationFieldType::verification:
@@ -573,9 +583,9 @@ void project_rules(Bank& bank) noexcept {
         status = utf8_literal("Submitting\xE2\x80\xA6");
     if (!status.bytes && !complete)
         status = utf8_literal("Agree to the rules to start talking.");
-    p.footer = {status, utf8_literal("Submit"), utf8_literal("Cancel"), true,
-                complete && connected() && p.phase != Phase::submitting && p.phase != Phase::done,
-                p.phase == Phase::submitting, p.failed};
+    set_footer(status, utf8_literal("Submit"), utf8_literal("Cancel"), true,
+               complete && connected() && p.phase != Phase::submitting && p.phase != Phase::done,
+               p.phase == Phase::submitting, p.failed);
 }
 
 // Multiple-choice labels live in the form bank; the radio borrows them.
@@ -600,35 +610,31 @@ void option_row(Bank& bank, u32 option_index, bool enabled) noexcept {
     const u32 start = bank.used;
     if (option.emoji.bytes && !option.emoji_id) {
         bank.add(guild_onboarding_text(p.onboarding, option.emoji));
-        bank.add(utf8_literal(" "));
+        bank.add(" ");
     }
     bank.add(guild_onboarding_text(p.onboarding, option.title));
-    push({control_option_base + option_index, bank.since(start), guild_onboarding_text(p.onboarding, option.description),
-          UiSettingsControlKind::toggle, enabled, option.selected, {}, 0, {}, nullptr});
+    add_control(control_option_base + option_index, bank.since(start),
+                guild_onboarding_text(p.onboarding, option.description), UiSettingsControlKind::toggle, enabled,
+                option.selected);
 }
 void project_onboarding(Bank& bank) noexcept {
     auto& p = *owner;
     const bool edit = editable();
     if (p.phase == Phase::loading || p.phase == Phase::idle) {
         notice(control_notice, {}, utf8_literal("Loading\xE2\x80\xA6"));
-        p.footer = {{}, utf8_literal("Next"), utf8_literal("Skip"), true, false, true, false};
+        set_footer({}, utf8_literal("Next"), utf8_literal("Skip"), true, false, true, false);
         return;
     }
     if (p.phase == Phase::failed && !p.onboarding.prompt_count) {
         notice(control_notice, utf8_literal("Couldn't load this server's questions"), p.status,
                utf8_literal("Try again"));
-        p.footer = {p.status, utf8_literal("Next"), utf8_literal("Close"), true, false, false, true};
+        set_footer(p.status, utf8_literal("Next"), utf8_literal("Close"), true, false, false, true);
         return;
     }
     if (!onboarding_presentation_complete(p)) {
         notice(control_notice, utf8_literal("These questions can't be completed here"), kIncompleteForm);
-        p.footer = {kIncompleteForm,
-                    p.mode == Mode::channels_roles ? utf8_literal("Save") : utf8_literal("Finish"),
-                    utf8_literal("Close"),
-                    true,
-                    false,
-                    false,
-                    true};
+        set_footer(kIncompleteForm, p.mode == Mode::channels_roles ? utf8_literal("Save") : utf8_literal("Finish"),
+                   utf8_literal("Close"), true, false, false, true);
         return;
     }
     if (p.mode == Mode::channels_roles) {
@@ -638,22 +644,22 @@ void project_onboarding(Bank& bank) noexcept {
             const auto& prompt = p.onboarding.prompts[i];
             if (!prompt.option_count)
                 continue;
-            push({control_category + i, guild_onboarding_text(p.onboarding, prompt.title),
-                  prompt.single_select ? utf8_literal("Pick one.") : utf8_literal("Pick as many as you like."),
-                  UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr});
+            add_control(control_category + i, guild_onboarding_text(p.onboarding, prompt.title),
+                        prompt.single_select ? utf8_literal("Pick one.") : utf8_literal("Pick as many as you like."),
+                        UiSettingsControlKind::category);
             for (u32 o = 0; o < prompt.option_count; ++o)
                 option_row(bank, prompt.first_option + o, edit);
         }
-        p.footer = {p.status.bytes ? p.status
-                    : p.phase == Phase::submitting ? utf8_literal("Saving\xE2\x80\xA6")
-                                                   : Utf8View{},
-                    utf8_literal("Save"), utf8_literal("Cancel"), true,
-                    connected() && p.phase != Phase::submitting, p.phase == Phase::submitting, p.failed};
+        set_footer(p.status.bytes                     ? p.status
+                   : p.phase == Phase::submitting ? utf8_literal("Saving\xE2\x80\xA6")
+                                                  : Utf8View{},
+                   utf8_literal("Save"), utf8_literal("Cancel"), true, connected() && p.phase != Phase::submitting,
+                   p.phase == Phase::submitting, p.failed);
         return;
     }
     if (!p.flow_count) {
         notice(control_notice, utf8_literal("You're all set"), utf8_literal("This server has no questions for you."));
-        p.footer = {{}, utf8_literal("Finish"), utf8_literal("Close"), true, connected(), false, false};
+        set_footer({}, utf8_literal("Finish"), utf8_literal("Close"), true, connected(), false, false);
         return;
     }
     const u32 step = minimum(p.step, p.flow_count - 1);
@@ -663,8 +669,8 @@ void project_onboarding(Bank& bank) noexcept {
     const u32 start = bank.used;
     bank.add(prompt.single_select ? utf8_literal("Pick one") : utf8_literal("Pick as many as you like"));
     bank.add(prompt.required ? utf8_literal(" (required).") : utf8_literal("."));
-    push({control_category + index, guild_onboarding_text(p.onboarding, prompt.title), bank.since(start),
-          UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr});
+    add_control(control_category + index, guild_onboarding_text(p.onboarding, prompt.title), bank.since(start),
+                UiSettingsControlKind::category);
     for (u32 o = 0; o < prompt.option_count; ++o)
         option_row(bank, prompt.first_option + o, edit);
     const bool last = step + 1 >= p.flow_count;
@@ -673,27 +679,27 @@ void project_onboarding(Bank& bank) noexcept {
     if (p.status.bytes)
         bank.add(p.status);
     else if (p.phase == Phase::submitting)
-        bank.add(utf8_literal("Finishing\xE2\x80\xA6"));
+        bank.add("Finishing\xE2\x80\xA6");
     else {
-        bank.add(utf8_literal("Question "));
+        bank.add("Question ");
         bank.number(step + 1);
-        bank.add(utf8_literal(" of "));
+        bank.add(" of ");
         bank.number(p.flow_count);
     }
-    p.footer = {bank.since(status_start), last ? utf8_literal("Finish") : utf8_literal("Next"),
-                step ? utf8_literal("Back") : utf8_literal("Skip"), true,
-                answered && p.phase != Phase::submitting && (!last || connected()), p.phase == Phase::submitting,
-                p.failed};
+    set_footer(bank.since(status_start), last ? utf8_literal("Finish") : utf8_literal("Next"),
+               step ? utf8_literal("Back") : utf8_literal("Skip"), true,
+               answered && p.phase != Phase::submitting && (!last || connected()), p.phase == Phase::submitting,
+               p.failed);
 }
 
 void project_events(Bank& bank) noexcept {
     auto& p = *owner;
     p.listed_count = events ? scheduled_event_store_guild_events(*events, p.guild_id, {p.listed, kListedEvents}) : 0;
     if (can_manage_events(p.guild_id))
-        push({control_create_event, utf8_literal("Create event"),
-              utf8_literal("Schedule an event for any planned activity in your server."),
-              UiSettingsControlKind::action, connected(), false, {}, 0, utf8_literal("Create"), nullptr},
-             {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
+        add_control(control_create_event, utf8_literal("Create event"),
+                    utf8_literal("Schedule an event for any planned activity in your server."),
+                    UiSettingsControlKind::action, connected(), false, UiSettingsVariant::primary)
+            .action_label = utf8_literal("Create");
     if (!p.listed_count) {
         notice(control_notice, utf8_literal("There are no upcoming events."),
                p.phase == Phase::loading ? utf8_literal("Loading events\xE2\x80\xA6")
@@ -708,19 +714,19 @@ void project_events(Bank& bank) noexcept {
         const u32 start = bank.used;
         event_when(bank, e, false);
         if (where.bytes) {
-            bank.add(utf8_literal(" \xC2\xB7 "));
+            bank.add(" \xC2\xB7 ");
             bank.add(where);
         }
         if (e.user_count_known) {
-            bank.add(utf8_literal(" \xC2\xB7 "));
+            bank.add(" \xC2\xB7 ");
             bank.number(e.user_count);
-            bank.add(utf8_literal(" interested"));
+            bank.add(" interested");
         }
-        push({control_event_base + i, {e.name, e.name_bytes}, bank.since(start), UiSettingsControlKind::action,
-              true, false, {}, 0, e.interested ? utf8_literal("Interested") : utf8_literal("View"), nullptr},
-             {e.interested ? UiSettingsVariant::positive : UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
+        add_control(control_event_base + i, {e.name, e.name_bytes}, bank.since(start), UiSettingsControlKind::action,
+                    true, false, e.interested ? UiSettingsVariant::positive : UiSettingsVariant::standard)
+            .action_label = e.interested ? utf8_literal("Interested") : utf8_literal("View");
     }
-    p.footer = {p.status, {}, utf8_literal("Close"), false, false, false, p.failed};
+    set_footer(p.status, {}, utf8_literal("Close"), false, false, false, p.failed);
 }
 
 void project_event(Bank& bank) noexcept {
@@ -730,8 +736,8 @@ void project_event(Bank& bank) noexcept {
         notice(control_notice, p.phase == Phase::loading ? Utf8View{} : utf8_literal("Event unavailable"),
                p.phase == Phase::loading ? utf8_literal("Loading the event\xE2\x80\xA6")
                                          : utf8_literal("This event ended or was canceled."));
-        p.footer = {{}, utf8_literal("Done"), p.from_list ? utf8_literal("Back") : utf8_literal("Close"), true, true,
-                    false, false};
+        set_footer({}, utf8_literal("Done"), p.from_list ? utf8_literal("Back") : utf8_literal("Close"), true, true,
+                   false, false);
         return;
     }
     const u32 title_bytes = minimum<u32>(e->name_bytes, sizeof(p.title));
@@ -745,16 +751,17 @@ void project_event(Bank& bank) noexcept {
     if (e->description_bytes)
         notice(control_about, utf8_literal("About"), {e->description, e->description_bytes});
     const Utf8View count = interested_text(bank, *e);
-    push({control_interested, utf8_literal("Interested"),
-          count.bytes ? count : utf8_literal("Get notified when this event starts."), UiSettingsControlKind::toggle,
-          connected() && (!background || background->interest_event != e->id), e->interested, {}, 0, {}, nullptr});
+    add_control(control_interested, utf8_literal("Interested"),
+                count.bytes ? count : utf8_literal("Get notified when this event starts."),
+                UiSettingsControlKind::toggle, connected() && (!background || background->interest_event != e->id),
+                e->interested);
     const bool copied = p.copied_until && clock_monotonic_milliseconds() < p.copied_until;
-    push({control_copy_link, utf8_literal("Share"), utf8_literal("Copy a link to this event."),
-          UiSettingsControlKind::action, true, false, {}, 0, copied ? utf8_literal("Copied") : utf8_literal("Copy link"),
-          nullptr},
-         {copied ? UiSettingsVariant::positive : UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
-    p.footer = {p.status, utf8_literal("Done"), p.from_list ? utf8_literal("Back") : utf8_literal("Close"), true, true,
-                false, p.failed};
+    add_control(control_copy_link, utf8_literal("Share"), utf8_literal("Copy a link to this event."),
+                UiSettingsControlKind::action, true, false,
+                copied ? UiSettingsVariant::positive : UiSettingsVariant::standard)
+        .action_label = copied ? utf8_literal("Copied") : utf8_literal("Copy link");
+    set_footer(p.status, utf8_literal("Done"), p.from_list ? utf8_literal("Back") : utf8_literal("Close"), true, true,
+               false, p.failed);
 }
 
 u64 create_start_unix() noexcept;
@@ -777,36 +784,40 @@ ScheduledEventCreate event_draft() noexcept {
 void project_create() noexcept {
     auto& p = *owner;
     const bool edit = editable();
-    push({control_where, utf8_literal("Where is your event?"), {}, UiSettingsControlKind::radio, edit, false,
-          {kWhereLabels, 3}, p.where, {}, nullptr});
+    auto& where_row = add_control(control_where, utf8_literal("Where is your event?"), {}, UiSettingsControlKind::radio, edit);
+    where_row.choices = {kWhereLabels, 3};
+    where_row.selected_choice = p.where;
     const bool external = p.where == 2;
     if (external) {
         if (auto* view = editor_view(control_location, utf8_literal("Add a location, link or something."), edit))
-            push({control_location, utf8_literal("Location"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-                  view});
+            add_control(control_location, utf8_literal("Location"), {}, UiSettingsControlKind::edit, edit).editor = view;
     } else {
-        push({control_channel, utf8_literal("Channel"),
-              p.channel_count ? Utf8View{}
-                              : (p.where == 0 ? utf8_literal("This server has no stage channels you can use.")
-                                              : utf8_literal("This server has no voice channels you can use.")),
-              UiSettingsControlKind::choice, edit && p.channel_count, false, {p.channel_labels, p.channel_count},
-              p.channel_index, {}, nullptr});
+        auto& channel = add_control(control_channel, utf8_literal("Channel"),
+                                    p.channel_count ? Utf8View{}
+                                                    : (p.where == 0 ? utf8_literal("This server has no stage channels you can use.")
+                                                                    : utf8_literal("This server has no voice channels you can use.")),
+                                    UiSettingsControlKind::choice, edit && p.channel_count);
+        channel.choices = {p.channel_labels, p.channel_count};
+        channel.selected_choice = p.channel_index;
     }
     if (auto* view = editor_view(control_name, utf8_literal("What's your event?"), edit))
-        push({control_name, utf8_literal("Event topic"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {}, view});
-    push({control_day, utf8_literal("Start date"), {}, UiSettingsControlKind::choice, edit, false,
-          {p.day_views, kDayChoices}, p.day, {}, nullptr});
-    push({control_time, utf8_literal("Start time"), {}, UiSettingsControlKind::choice, edit, false,
-          {p.time_views, kTimeChoices}, p.time_slot, {}, nullptr});
-    push({control_duration, utf8_literal("Duration"),
-          external ? utf8_literal("Events somewhere else need an end time.") : Utf8View{},
-          UiSettingsControlKind::choice, edit, false, {external ? kDurationLabels + 1 : kDurationLabels,
-                                                       external ? kDurationCount - 1 : kDurationCount},
-          external ? (p.duration ? p.duration - 1 : 0) : p.duration, {}, nullptr});
+        add_control(control_name, utf8_literal("Event topic"), {}, UiSettingsControlKind::edit, edit).editor = view;
+    auto& day = add_control(control_day, utf8_literal("Start date"), {}, UiSettingsControlKind::choice, edit);
+    day.choices = {p.day_views, kDayChoices};
+    day.selected_choice = p.day;
+    auto& time = add_control(control_time, utf8_literal("Start time"), {}, UiSettingsControlKind::choice, edit);
+    time.choices = {p.time_views, kTimeChoices};
+    time.selected_choice = p.time_slot;
+    auto& duration = add_control(control_duration, utf8_literal("Duration"),
+                                 external ? utf8_literal("Events somewhere else need an end time.") : Utf8View{},
+                                 UiSettingsControlKind::choice, edit);
+    duration.choices = {external ? kDurationLabels + 1 : kDurationLabels,
+                        external ? kDurationCount - 1 : kDurationCount};
+    duration.selected_choice = external ? (p.duration ? p.duration - 1 : 0) : p.duration;
     if (auto* view = editor_view(control_description, utf8_literal("Tell people a little more about your event."),
                                  edit))
-        push({control_description, utf8_literal("Description"), {}, UiSettingsControlKind::multiline, edit, false, {},
-              0, {}, view});
+        add_control(control_description, utf8_literal("Description"), {}, UiSettingsControlKind::multiline, edit)
+            .editor = view;
     const auto error = scheduled_event_create_validate(event_draft(), clock_unix_milliseconds() / 1000);
     Utf8View hint{};
     switch (error) {
@@ -818,12 +829,12 @@ void project_create() noexcept {
     case ScheduledEventCreateError::description: hint = utf8_literal("The description is too long."); break;
     default: break;
     }
-    p.footer = {p.status.bytes ? p.status
-                : p.phase == Phase::submitting ? utf8_literal("Creating your event\xE2\x80\xA6")
-                                               : hint,
-                utf8_literal("Create event"), utf8_literal("Cancel"), true,
-                error == ScheduledEventCreateError::none && connected() && p.phase != Phase::submitting,
-                p.phase == Phase::submitting, p.failed};
+    set_footer(p.status.bytes                     ? p.status
+               : p.phase == Phase::submitting ? utf8_literal("Creating your event\xE2\x80\xA6")
+                                              : hint,
+               utf8_literal("Create event"), utf8_literal("Cancel"), true,
+               error == ScheduledEventCreateError::none && connected() && p.phase != Phase::submitting,
+               p.phase == Phase::submitting, p.failed);
 }
 
 bool project() noexcept {
@@ -997,6 +1008,9 @@ bool ensure_owner() noexcept {
 bool can_open() noexcept {
     return application_account_available() && g_app.renderer_ready && !g_app.text_form &&
            (!application_channel_overview_active() || application_guild_community_active()) && ensure_owner();
+}
+bool openable(u64 guild_id) noexcept {
+    return g_app.account.api.guild_community && guild(guild_id) && can_open();
 }
 void set_title(Utf8View title) noexcept {
     const u32 bytes = minimum<u32>(title.bytes, sizeof(owner->title));
@@ -1489,9 +1503,6 @@ const GuildRecord* composer_guild() noexcept {
     const auto& s = state();
     return s.home_selected ? nullptr : guild(s.selected_guild_id);
 }
-bool rules_gated(const GuildRecord& g) noexcept {
-    return guild_rules_gate(g.upload_features, g.settings.self_member, self_member_known(g));
-}
 // A server previewed (lurked) from another client holds the composer too.
 bool previewing(const GuildRecord& g) noexcept {
     return self_member_known(g) && (g.settings.self_member & guild_self_member_lurking);
@@ -1528,12 +1539,12 @@ void application_guild_community_joined(u64 guild_id) noexcept {
         (!known || !(g->settings.self_member & guild_self_member_onboarding_completed)) &&
         application_guild_community_open_onboarding(guild_id, false))
         return;
-    if (guild_rules_gate(g->upload_features, g->settings.self_member, known))
+    if (rules_gated(*g))
         application_guild_community_open_rules(guild_id);
 }
 
 bool application_guild_community_open_rules(u64 guild_id) noexcept {
-    if (!g_app.account.api.guild_community || !guild(guild_id) || !can_open())
+    if (!openable(guild_id))
         return false;
     reset_value(&owner->form);
     owner->form_body_bytes = 0;
@@ -1551,7 +1562,7 @@ bool application_guild_community_open_rules(u64 guild_id) noexcept {
 }
 
 bool application_guild_community_open_onboarding(u64 guild_id, bool revisit) noexcept {
-    if (!g_app.account.api.guild_community || !guild(guild_id) || !can_open())
+    if (!openable(guild_id))
         return false;
     reset_value(&owner->onboarding);
     owner->flow_count = owner->step = 0;
@@ -1565,7 +1576,7 @@ bool application_guild_community_open_onboarding(u64 guild_id, bool revisit) noe
 }
 
 bool application_guild_community_open_events(u64 guild_id) noexcept {
-    if (!g_app.account.api.guild_community || !guild(guild_id) || !can_open())
+    if (!openable(guild_id))
         return false;
     owner->from_list = false;
     owner->phase = Phase::loading;
@@ -1576,7 +1587,7 @@ bool application_guild_community_open_events(u64 guild_id) noexcept {
 }
 
 bool application_guild_community_open_event(u64 guild_id, u64 event_id) noexcept {
-    if (!g_app.account.api.guild_community || !guild(guild_id) || !event_id || !can_open())
+    if (!event_id || !openable(guild_id))
         return false;
     owner->event_id = event_id;
     owner->from_list = false;
@@ -1995,7 +2006,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
                 const u64 guild_id = owner->guild_id;
                 application_guild_community_close();
                 const auto* g = guild(guild_id);
-                if (g && guild_rules_gate(g->upload_features, g->settings.self_member, self_member_known(*g)))
+                if (g && rules_gated(*g))
                     application_guild_community_open_rules(guild_id);
                 break;
             }
@@ -2019,8 +2030,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
             if (finishing && channel)
                 application_navigate_known_message(channel, 0);
             const auto* g = guild(guild_id);
-            if (finishing && g &&
-                guild_rules_gate(g->upload_features, g->settings.self_member, self_member_known(*g)))
+            if (finishing && g && rules_gated(*g))
                 application_guild_community_open_rules(guild_id);
         }
         break;

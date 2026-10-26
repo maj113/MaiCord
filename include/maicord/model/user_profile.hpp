@@ -87,7 +87,7 @@ const UserAppearanceRecord* user_appearance_find_activity(const UserAppearanceSt
 void user_appearance_expand(const UserAppearanceRecord& record, UserAppearance* output) noexcept;
 bool user_appearance_upsert(UserAppearanceStore* store, const UserAppearance& value) noexcept;
 u32 user_appearance_write(const UserAppearance& value, Slice<u8> output) noexcept;
-bool user_appearance_read(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* output) noexcept;
+bool user_appearance_read(const ConstSlice<u8>& input, u64 user, u64 guild, UserAppearance* output) noexcept;
 // Reads an appearance record that may be followed by other data (the
 // presence activities trailer); *consumed receives its byte length.
 bool user_appearance_read_prefix(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* output,

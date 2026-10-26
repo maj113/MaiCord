@@ -37,7 +37,7 @@ void load_order() noexcept {
     owner->order_dirty = false;
 }
 
-void load_role_editor(const RoleRecord& r) noexcept {
+__declspec(noinline) void load_role_editor(const RoleRecord& r) noexcept {
     copy_value(&owner->editing_role, r.id);
     owner->role_draft = guild_role_draft_from(state(), r);
     copy_value(&owner->role_base, owner->role_draft);
@@ -81,28 +81,27 @@ void project_role_list(Bank& bank) noexcept {
     if (const auto* everyone = role(owner->guild_id)) {
         const u32 start = bank.used;
         bank.add(chat_state_store_role_name(state(), *everyone));
-        bank.add(utf8_literal(" · applies to all server members"));
+        bank.add(" · applies to all server members");
         const u32 index = push_row(control_everyone, utf8_literal("Default permissions"), bank.since(start),
                                    UiSettingsControlKind::action, true);
         if (index != ~0u)
             owner->list_items[index] = {UiSettingsListStyle::card, UiIcon::members, UiIcon::count,
                                         {UiIcon::count, UiIcon::count}, false};
     }
-    push({control_search, {}, {}, UiSettingsControlKind::edit, editable(), false, {}, 0,
-          manage && !owner->order_dirty ? utf8_literal("Create Role") : Utf8View{},
-          &editor_view(editor_search, control_search, utf8_literal("Search roles"), editable())});
+    push_editor(control_search, {}, {}, UiSettingsControlKind::edit, editable(), editor_search,
+                utf8_literal("Search roles"), manage && !owner->order_dirty ? utf8_literal("Create Role") : Utf8View{});
     u32 listed = 0;
     for (u32 i = 0; i < owner->order_count; ++i)
         listed += owner->order[i] != owner->guild_id && role(owner->order[i]);
     static const Utf8View members_column[]{utf8_literal("MEMBERS")};
     const u32 heading = bank.used;
-    bank.add(utf8_literal("ROLES — "));
+    bank.add("ROLES — ");
     bank.number(listed);
-    const u32 header = push({control_list_category, bank.since(heading),
-                             manage ? utf8_literal("Members use the colour of the highest role they have on this "
-                                                   "list. Drag roles to reorder them.")
-                                    : Utf8View{},
-                             UiSettingsControlKind::category, true, false, {members_column, 1}, 0, {}, nullptr});
+    const u32 header = push_choices(control_list_category, bank.since(heading),
+                                    manage ? utf8_literal("Members use the colour of the highest role they have on this "
+                                                          "list. Drag roles to reorder them.")
+                                           : Utf8View{},
+                                    UiSettingsControlKind::category, true, {members_column, 1});
     if (header != ~0u)
         owner->list_items[header] = {UiSettingsListStyle::header, UiIcon::count, UiIcon::count,
                                      {UiIcon::count, UiIcon::count}, false};
@@ -129,9 +128,9 @@ void project_role_list(Bank& bank) noexcept {
         u8 flags = ui_settings_presentation_accent;
         if (editable_role && !query.bytes)
             flags |= ui_settings_presentation_grip;
-        const u32 index = push({kRowBase + i, bank.add(name), {}, UiSettingsControlKind::action, true, false,
-                                {owner->chips[i], 1}, 0, {}, nullptr},
-                               {UiSettingsVariant::standard, flags, kUiSettingsNoDefault});
+        const u32 index = push_choices(kRowBase + i, bank.add(name), {}, UiSettingsControlKind::action, true,
+                                       {owner->chips[i], 1}, 0, {},
+                                       {UiSettingsVariant::standard, flags, kUiSettingsNoDefault});
         if (index != ~0u)
             owner->list_items[index] = {UiSettingsListStyle::row, UiIcon::shield, UiIcon::user,
                                         {editable_role ? UiIcon::edit : UiIcon::eye, UiIcon::ellipsis},
@@ -156,8 +155,8 @@ Utf8View permission_lock_text(GuildPermissionLock lock) noexcept {
 // switch the account may not change is disabled with its reason.
 void project_permissions(Bank& bank, bool writable) noexcept {
     auto& d = owner->role_draft;
-    push({control_search, {}, {}, UiSettingsControlKind::edit, true, false, {}, 0, {},
-          &editor_view(editor_search, control_search, utf8_literal("Search permissions"), true)});
+    push_editor(control_search, {}, {}, UiSettingsControlKind::edit, true, editor_search,
+                utf8_literal("Search permissions"));
     const bool clearable = writable && guild_role_can_clear(state(), owner->access, d);
     push_row(control_clear, utf8_literal("Clear permissions"),
              d.permissions && writable && !clearable
@@ -189,7 +188,7 @@ void project_permissions(Bank& bank, bool writable) noexcept {
             if (lock != GuildPermissionLock::none) {
                 const u32 start = bank.used;
                 bank.add(entry.description);
-                bank.add(utf8_literal(" "));
+                bank.add(" ");
                 bank.add(permission_lock_text(lock));
                 description = bank.since(start);
             }
@@ -205,9 +204,8 @@ void project_permissions(Bank& bank, bool writable) noexcept {
 
 void project_display(Bank& bank, const RoleRecord* r, bool writable) noexcept {
     auto& d = owner->role_draft;
-    push({control_name, utf8_literal("Role name"), {}, UiSettingsControlKind::edit, writable && !(r && r->managed),
-          false, {}, 0, {},
-          &editor_view(editor_name, control_name, utf8_literal("Role name"), writable && !(r && r->managed))});
+    push_editor(control_name, utf8_literal("Role name"), {}, UiSettingsControlKind::edit,
+                writable && !(r && r->managed), editor_name, utf8_literal("Role name"));
     auto& color_names = owner->color_names;
     color_names[0] = utf8_literal("Default");
     u32 selected = d.color ? kUiSettingsNoChoice : 0;
@@ -216,15 +214,13 @@ void project_display(Bank& bank, const RoleRecord* r, bool writable) noexcept {
         if (kGuildRoleColors[i] == d.color)
             selected = i + 1;
     }
-    push({control_color, utf8_literal("Role colour"),
-          utf8_literal("Members use the colour of the highest role they have on the roles list."),
-          UiSettingsControlKind::swatches, writable, false, {color_names, kGuildRoleColorCount + 1}, selected, {},
-          nullptr},
-         {UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
-    push({control_hex, utf8_literal("Custom colour"),
-          owner->hex_invalid ? utf8_literal("Use six hex digits, like #3498DB.") : Utf8View{},
-          UiSettingsControlKind::edit, writable, false, {}, 0, {},
-          &editor_view(editor_hex, control_hex, utf8_literal("#000000"), writable)});
+    push_choices(control_color, utf8_literal("Role colour"),
+                 utf8_literal("Members use the colour of the highest role they have on the roles list."),
+                 UiSettingsControlKind::swatches, writable, {color_names, kGuildRoleColorCount + 1}, selected, {},
+                 {UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
+    push_editor(control_hex, utf8_literal("Custom colour"),
+                owner->hex_invalid ? utf8_literal("Use six hex digits, like #3498DB.") : Utf8View{},
+                UiSettingsControlKind::edit, writable, editor_hex, utf8_literal("#000000"));
     push_row(control_hoist, utf8_literal("Show members separately"),
              utf8_literal("List members with this role in their own group in the member list."),
              UiSettingsControlKind::toggle, writable, d.hoist);
@@ -266,15 +262,15 @@ void project_role_editor(Bank& bank) noexcept {
     const bool writable = editable() && role_writable();
     const u32 start = bank.used;
     if (owner->role_missing)
-        bank.add(utf8_literal("This role was deleted."));
+        bank.add("This role was deleted.");
     else if (r && !role_writable())
         bank.add(lock_text(guild_settings_role_lock(owner->access, *r)));
     else if (everyone)
-        bank.add(utf8_literal("Default permissions for all server members."));
+        bank.add("Default permissions for all server members.");
     else if (r && r->managed)
-        bank.add(utf8_literal("Managed by an app: its name can't change and it can't be deleted."));
+        bank.add("Managed by an app: its name can't change and it can't be deleted.");
     else
-        bank.add(utf8_literal("Editing role"));
+        bank.add("Editing role");
     const auto header_description = bank.since(start);
     const auto header_name = bank.add({owner->role_draft.name, owner->role_draft.name_bytes});
     push_row(control_header, header_name, header_description, UiSettingsControlKind::action, true, false,
@@ -288,8 +284,8 @@ void project_role_editor(Bank& bank) noexcept {
     // @everyone has permissions only.
     const u8 tab = everyone ? role_tab_permissions : owner->role_tab;
     if (!everyone)
-        push({control_role_tabs, utf8_literal("Role settings"), {}, UiSettingsControlKind::tabs, true, false,
-              {kRoleTabs, 2}, tab, {}, nullptr});
+        push_choices(control_role_tabs, utf8_literal("Role settings"), {}, UiSettingsControlKind::tabs, true,
+                     {kRoleTabs, 2}, tab);
     if (tab == role_tab_permissions)
         project_permissions(bank, writable);
     else
@@ -330,9 +326,9 @@ void confirm_delete_role(u64 role_id) noexcept {
         return;
     static char context[256];
     Bank bank{context, sizeof(context), 0};
-    bank.add(utf8_literal("Are you sure you want to delete the "));
+    bank.add("Are you sure you want to delete the ");
     bank.add(chat_state_store_role_name(state(), *r));
-    bank.add(utf8_literal(" role? This action cannot be undone."));
+    bank.add(" role? This action cannot be undone.");
     ApplicationTextFormRequest request{};
     request.title = utf8_literal("Delete Role");
     request.context = bank.since(0);
@@ -351,7 +347,7 @@ void view_as(u64 role_id) noexcept {
         return;
     application_view_as_role_start(owner->guild_id, role_id);
 }
-void open_role_menu(u64 role_id, UiRect anchor) noexcept {
+void open_role_menu(u64 role_id, const UiRect& anchor) noexcept {
     auto& p = *owner;
     const auto* r = role(role_id);
     if (!r)
@@ -501,11 +497,11 @@ bool reconcile(u64 now) noexcept {
             changed = !p.role_missing;
             p.role_missing = true;
         } else if (p.role_echo) {
-            const auto current = guild_role_draft_from(state(), *r);
+            const auto& current = guild_role_draft_from(state(), *r);
             if (guild_role_draft_equal(current, p.role_base) || deadline_due(now, p.role_echo_until))
                 p.role_echo = false;
         } else if (!mutation_pending()) {
-            const auto current = guild_role_draft_from(state(), *r);
+            const auto& current = guild_role_draft_from(state(), *r);
             if (!guild_role_draft_equal(current, p.role_base)) {
                 if (role_dirty())
                     changed = !p.role_conflict, p.role_conflict = true;
@@ -673,17 +669,17 @@ UiBannerNotice application_view_as_role_notice(u64 channel_id, Slice<char> text)
     u64 roles[kGuildRoleMaximum];
     const u32 count = chat_state_store_view_roles(s, channel->guild_id, {roles, kGuildRoleMaximum});
     TextBank bank{text.data, text.count, 0};
-    bank.add(utf8_literal("You are viewing this server as "));
+    bank.add("You are viewing this server as ");
     if (count == 1) {
         if (const auto* r = chat_state_store_find_role(s, channel->guild_id, roles[0]))
             bank.add(chat_state_store_role_name(s, *r));
     } else if (!count)
-        bank.add(utf8_literal("@everyone"));
+        bank.add("@everyone");
     else {
         bank.number(count);
-        bank.add(utf8_literal(" roles"));
+        bank.add(" roles");
     }
-    bank.add(utf8_literal("."));
+    bank.add(".");
     notice.id = channel->guild_id ^ 0x5649455741535249ull;
     notice.title = bank.since(0);
     notice.description = utf8_literal("Channels and actions follow these roles. Voice restrictions aren't reflected.");

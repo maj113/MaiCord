@@ -1,6 +1,7 @@
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
 #include "application_composer.hpp"
+#include "application_composer_input.hpp"
 #include "application_composer_text_input.hpp"
 #include "application_message_feedback.hpp"
 #include "application_message_history.hpp"
@@ -166,28 +167,27 @@ bool queue_send() noexcept {
     g_voice.draft_id = 0; // The send owns the draft now; completion removes it.
     return true;
 }
+// The recording ends without a message: the module discards it and the bar leaves with `notice`.
+void abort_recording(VoiceMessageNotice notice) noexcept {
+    command(VoiceMessageOperation::discard);
+    reset_value(&g_voice.flow);
+    end_notice(notice);
+}
 void apply(VoiceMessageEvent event, u64 channel = 0) noexcept;
 void perform(VoiceMessageAction action) noexcept {
     switch (action) {
     case VoiceMessageAction::start:
         // The recording bar replaces the editor: release its focus and any
         // text service composition so nothing types into the hidden draft.
-        if (g_app.message_composer.focused) {
-            stop_local_typing(g_app.message_composer.channel_id);
-            g_app.message_composer.focused = false;
-            ++g_app.message_composer.revision;
-            reset_message_composer_caret_timing(false);
-        }
+        if (g_app.message_composer.focused)
+            release_message_composer_focus();
         application_composer_text_input_suspend();
         g_voice.instance = g_app.account.instance;
         g_voice.notice = VoiceMessageNotice::none;
-        if (!command(VoiceMessageOperation::start) || g_voice.status.state == VoiceMessageState::failed) {
-            const auto failure = g_voice.status.failure;
-            command(VoiceMessageOperation::discard);
-            reset_value(&g_voice.flow);
-            end_notice(failure == VoiceMessageFailure::microphone_access ? VoiceMessageNotice::microphone_access
-                                                                         : VoiceMessageNotice::failed_start);
-        }
+        if (!command(VoiceMessageOperation::start) || g_voice.status.state == VoiceMessageState::failed)
+            abort_recording(g_voice.status.failure == VoiceMessageFailure::microphone_access
+                                ? VoiceMessageNotice::microphone_access
+                                : VoiceMessageNotice::failed_start);
         g_voice.next_poll_ms = 0;
         break;
     case VoiceMessageAction::discard:
@@ -198,9 +198,7 @@ void perform(VoiceMessageAction action) noexcept {
     case VoiceMessageAction::finish_and_send:
         command(VoiceMessageOperation::finish);
         if (g_voice.status.state != VoiceMessageState::finished) {
-            command(VoiceMessageOperation::discard);
-            reset_value(&g_voice.flow);
-            end_notice(VoiceMessageNotice::microphone);
+            abort_recording(VoiceMessageNotice::microphone);
             break;
         }
         if (action == VoiceMessageAction::finish)

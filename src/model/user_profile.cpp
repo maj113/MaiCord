@@ -445,7 +445,7 @@ bool read_appearance(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* 
     return true;
 }
 } // namespace
-bool user_appearance_read(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* output) noexcept {
+bool user_appearance_read(const ConstSlice<u8>& input, u64 user, u64 guild, UserAppearance* output) noexcept {
     return read_appearance(input, user, guild, output, nullptr);
 }
 bool user_appearance_read_prefix(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* output,

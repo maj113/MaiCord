@@ -152,14 +152,29 @@ u32 push(const UiSettingsControl& control, UiSettingsControlPresentation) noexce
         invite_copy_test::rows[invite_copy_test::row_count++] = control;
     return invite_copy_test::row_count;
 }
-UiSettingsControl category(u64 id, Utf8View label, Utf8View) noexcept {
-    return {id, label, {}, UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr};
+u32 push_category(u64 id, const Utf8View& label, const Utf8View&) noexcept {
+    return push({id, label, {}, UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr}, {});
 }
-UiSettingsControl notice(Utf8View label, Utf8View description, Utf8View action) noexcept {
-    return {1, label, description, UiSettingsControlKind::notice, true, false, {}, 0, action, nullptr};
+u32 push_notice(const Utf8View& description, const Utf8View& label) noexcept {
+    return push({1, label, description, UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr}, {});
 }
-UiSettingsControl loading(Utf8View description) noexcept {
-    return notice({}, description, {});
+u32 push_error(const Utf8View& label, const Utf8View& description, const Utf8View& action) noexcept {
+    return push({1, label, description, UiSettingsControlKind::notice, true, false, {}, 0, action, nullptr}, {});
+}
+u32 push_choices(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
+                 const ConstSlice<Utf8View>& choices, u32 selected, const Utf8View& action,
+                 UiSettingsControlPresentation presentation) noexcept {
+    UiSettingsControl control{id, label, description, kind, enabled, false, choices, selected, action, nullptr};
+    return push(control, presentation);
+}
+u32 push_loading(const Utf8View& description, u64) noexcept {
+    return push_notice(description, {});
+}
+u32 push_count_heading(Bank& bank, const Utf8View& title, u32 count) noexcept {
+    const u32 start = bank.used;
+    bank.add(title);
+    bank.number(count);
+    return push_category(control_list_category, bank.since(start), {});
 }
 const ChatStateStore& state() noexcept {
     return invite_copy_test::chat;

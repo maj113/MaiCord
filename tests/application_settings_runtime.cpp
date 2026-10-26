@@ -2703,7 +2703,7 @@ u16 application_message_action_bar_capabilities(u64) noexcept {
 bool application_message_forward_available(u64) noexcept {
     return false;
 }
-bool application_profile_open(u64 user, UiRect, ProfileAnchor anchor) noexcept {
+bool application_profile_open(u64 user, const UiRect&, ProfileAnchor anchor) noexcept {
     auto& seen = settings_runtime_test::observed;
     ++seen.profile_opens;
     seen.profile_user = user;

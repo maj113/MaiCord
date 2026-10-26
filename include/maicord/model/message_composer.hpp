@@ -87,7 +87,7 @@ void message_composer_reset(MessageComposer* composer, u64 channel_id,
 // A zero channel is valid for unsent profile/search documents; send validation
 // still requires a resolved destination channel. Restores reset history/identity.
 bool message_composer_restore(MessageComposer* composer, u64 channel_id,
-                              Utf8View text, u32 anchor,
+                              const Utf8View& text, u32 anchor,
                               u32 caret) noexcept;
 // After an initialized borrowed buffer is overwritten externally, validate and
 // adopt its byte length without copying/clearing it. Retires history/identity,
@@ -107,7 +107,7 @@ MessageComposerResult message_composer_insert_utf16(
 MessageComposerResult message_composer_insert_utf8(
     MessageComposer* composer, Utf8View text) noexcept;
 MessageComposerResult message_composer_replace_range(
-    MessageComposer* composer, u32 begin, u32 end, Utf8View text) noexcept;
+    MessageComposer* composer, u32 begin, u32 end, const Utf8View& text) noexcept;
 MessageComposerResult message_composer_insert_line_break(
     MessageComposer* composer) noexcept;
 MessageComposerResult message_composer_backspace(

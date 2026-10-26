@@ -23,7 +23,7 @@ bool acceptance_record_reserved_name(const wchar_t* name, u32 count) noexcept {
         (a == L'a' && b == L'u' && c == L'x') || (a == L'n' && b == L'u' && c == L'l');
 }
 
-bool acceptance_record_path_valid(ConstSlice<wchar_t> path) noexcept {
+bool acceptance_record_path_valid(const ConstSlice<wchar_t>& path) noexcept {
     if (!path.data || path.count < 4 || path.count > kAcceptanceRecordMaximumPathCharacters - 5 ||
         !byte_range_valid({reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}) ||
         ascii_lower(path[0]) < L'a' || ascii_lower(path[0]) > L'z' || path[1] != L':' || path[2] != L'\\') return false;
@@ -39,7 +39,8 @@ bool acceptance_record_path_valid(ConstSlice<wchar_t> path) noexcept {
     return true;
 }
 
-void acceptance_record_terminate(ConstSlice<wchar_t> path, wchar_t* output) noexcept {
+void acceptance_record_terminate(const ConstSlice<wchar_t>& path_view, wchar_t* output) noexcept {
+    const ConstSlice<wchar_t> path = path_view; // the stores below must not force reloads
     for (u32 i = 0; i < path.count; ++i) output[i] = path[i];
     output[path.count] = 0;
 }

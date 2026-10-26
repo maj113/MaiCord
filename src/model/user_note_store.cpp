@@ -70,7 +70,8 @@ bool user_note_request(UserNoteStore* store, u64 user_id) noexcept {
     return true;
 }
 
-bool user_note_edit(UserNoteStore* store, u64 user_id, Utf8View text, u64 now_ms) noexcept {
+bool user_note_edit(UserNoteStore* store, u64 user_id, const Utf8View& text_view, u64 now_ms) noexcept {
+    const Utf8View text = text_view; // the store is written below
     if (!store || !user_note_valid(text))
         return false;
     auto* e = acquire(store, user_id);

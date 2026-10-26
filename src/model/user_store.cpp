@@ -160,7 +160,8 @@ bool user_store_pin(UserStore* store, u64 id) noexcept {
 }
 
 UserStoreResult user_store_upsert(UserStore* store, u64 id,
-                                                 Utf8View display_name, Utf8View username) noexcept {
+                                                 const Utf8View& display_name_view, const Utf8View& username_view) noexcept {
+    Utf8View display_name = display_name_view, username = username_view; // the store is written below
     if (!store || !store->records || !store->order || !store->names || id == 0 || !display_name.data ||
         display_name.bytes == 0) {
         return store_error(store, UserStoreError::invalid_input);
@@ -292,7 +293,8 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
     return UserStoreResult{UserStoreError::none, !found, true, evicted};
 }
 
-bool user_store_set_avatar(UserStore* store, u64 id, Utf8View avatar_hash) noexcept {
+bool user_store_set_avatar(UserStore* store, u64 id, const Utf8View& avatar_view) noexcept {
+    const Utf8View avatar_hash = avatar_view; // the store is written below
     if (!store || !store->records || !store->order || id == 0 || !asset_hash_valid(avatar_hash)) {
         return false;
     }
@@ -364,7 +366,7 @@ Utf8View user_store_avatar_hash(const UserRecord& record) noexcept {
                : Utf8View{};
 }
 
-u32 user_avatar_variant(Utf8View avatar_hash) noexcept {
+u32 user_avatar_variant(const Utf8View& avatar_hash) noexcept {
     if (!asset_hash_valid(avatar_hash) || avatar_hash.bytes == 0) {
         return 0;
     }

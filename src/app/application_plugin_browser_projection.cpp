@@ -4,26 +4,38 @@
 
 namespace maicord::app_detail {
 namespace {
-// Appends whole UTF-8 sequences while they fit.
-Utf8View add(PluginBrowserBank& bank, Utf8View text) noexcept {
-    const u32 start = bank.used;
-    for (u32 i = 0; i < text.bytes;) {
-        const auto decoded = utf8_decode_one(text.data + i, text.bytes - i);
-        if (!decoded.valid || !decoded.width || decoded.width > kPluginBrowserTextBytes - bank.used) break;
-        for (u32 j = 0; j < decoded.width; ++j) bank.text[bank.used++] = text.data[i++];
+// Appends whole UTF-8 sequences while they fit in `capacity`.
+void append_utf8(char* buffer, u32& used, u32 capacity, const char* data, u32 bytes) noexcept {
+    for (u32 i = 0; i < bytes;) {
+        const auto decoded = utf8_decode_one(data + i, bytes - i);
+        if (!decoded.valid || !decoded.width || decoded.width > capacity - used) break;
+        for (u32 j = 0; j < decoded.width; ++j) buffer[used++] = data[i++];
     }
+}
+void put(PluginBrowserBank& bank, const char* data, u32 bytes) noexcept {
+    append_utf8(bank.text, bank.used, kPluginBrowserTextBytes, data, bytes);
+}
+Utf8View add(PluginBrowserBank& bank, const Utf8View& text) noexcept {
+    const u32 start = bank.used;
+    put(bank, text.data, text.bytes);
+    return {bank.text + start, bank.used - start};
+}
+// A literal passes its address and length in registers; an unused result costs nothing.
+template <usize Count> __forceinline Utf8View add(PluginBrowserBank& bank, const char (&text)[Count]) noexcept {
+    const u32 start = bank.used;
+    put(bank, text, Count - 1);
     return {bank.text + start, bank.used - start};
 }
 void number(PluginBrowserBank& bank, u64 value) noexcept {
     char digits[20];
-    add(bank, {digits, decimal_write(digits, value)});
+    put(bank, digits, decimal_write(digits, value));
 }
 void version(PluginBrowserBank& bank, u64 code) noexcept {
     char text[32];
-    add(bank, {text, update_version_text(code, {text, sizeof(text)})});
+    put(bank, text, update_version_text(code, {text, sizeof(text)}));
 }
 // Decoded index text (the index caps every field at 512 bytes).
-void index_text(PluginBrowserBank& bank, Utf8View document, PluginIndexText text) noexcept {
+void index_text(PluginBrowserBank& bank, const Utf8View& document, PluginIndexText text) noexcept {
     if (!text.bytes) return;
     char decoded[520];
     const auto result = plugin_index_text_decode(document, text, {decoded, sizeof(decoded)});
@@ -37,10 +49,10 @@ bool official(const PluginCatalogSnapshot& s, const PluginCatalogEntryView& e) n
     return provider_of(s, e).kind == PluginProviderKind::official;
 }
 // The provider chip: drawn from the provider kind and host alone.
-Utf8View provider_chip(PluginBrowserBank& bank, PluginProviderKind kind, Utf8View host) noexcept {
-    if (kind == PluginProviderKind::official) return add(bank, utf8_literal("Official"));
+Utf8View provider_chip(PluginBrowserBank& bank, PluginProviderKind kind, const Utf8View& host) noexcept {
+    if (kind == PluginProviderKind::official) return add(bank, "Official");
     const u32 start = bank.used;
-    add(bank, utf8_literal("Unofficial \xC2\xB7 "));
+    add(bank, "Unofficial \xC2\xB7 ");
     add(bank, host);
     return since(bank, start);
 }
@@ -88,9 +100,9 @@ Utf8View compatibility_text(const PluginCatalogSnapshot& s, const PluginCatalogE
     return needs_newer_host(s, e) ? utf8_literal("Needs a newer MaiCord") : utf8_literal("Not compatible");
 }
 void relative_time(PluginBrowserBank& bank, u64 now, u64 then) noexcept {
-    if (!then) { add(bank, utf8_literal("never")); return; }
+    if (!then) { add(bank, "never"); return; }
     const u64 age = now > then ? now - then : 0;
-    if (age < 60) { add(bank, utf8_literal("just now")); return; }
+    if (age < 60) { add(bank, "just now"); return; }
     const u64 minutes = age / 60, hours = age / 3600, days = age / 86400;
     number(bank, days ? days : hours ? hours : minutes);
     add(bank, days ? (days == 1 ? utf8_literal(" day ago") : utf8_literal(" days ago"))
@@ -109,17 +121,18 @@ void date(PluginBrowserBank& bank, u64 unix) noexcept {
     add(bank, day < 10 ? utf8_literal("-0") : utf8_literal("-")); number(bank, day);
 }
 void bytes_text(PluginBrowserBank& bank, u64 bytes) noexcept {
-    if (bytes < 1024) { number(bank, bytes); add(bank, utf8_literal(" bytes")); return; }
+    if (bytes < 1024) { number(bank, bytes); add(bank, " bytes"); return; }
     const u64 tenths = bytes < 1024 * 1024 ? bytes * 10 / 1024 : bytes * 10 / (1024 * 1024);
-    number(bank, tenths / 10); add(bank, utf8_literal(".")); number(bank, tenths % 10);
+    number(bank, tenths / 10); add(bank, "."); number(bank, tenths % 10);
     add(bank, bytes < 1024 * 1024 ? utf8_literal(" KB") : utf8_literal(" MB"));
 }
 struct Emitter {
     PluginBrowserBank& bank;
     u32 count;
     // Out of line: inlined at each row, the braced control copy repeats.
-    __declspec(noinline) UiSettingsControl& emit(u64 id, Utf8View label, Utf8View description, UiSettingsControlKind kind,
-        bool enabled = true, Utf8View action = {}, UiSettingsVariant variant = UiSettingsVariant::standard,
+    __declspec(noinline) UiSettingsControl& emit(u64 id, const Utf8View& label, const Utf8View& description,
+        UiSettingsControlKind kind, bool enabled = true, const Utf8View& action = {},
+        UiSettingsVariant variant = UiSettingsVariant::standard,
         u8 flags = 0) noexcept {
         static UiSettingsControl overflow{};
         if (count >= kPluginBrowserControls) {
@@ -129,6 +142,11 @@ struct Emitter {
         bank.controls[count] = {id, label, description, kind, enabled, false, {}, 0, action, nullptr};
         bank.presentation[count] = {variant, flags, kUiSettingsNoDefault};
         return bank.controls[count++];
+    }
+    // The common plain row: enabled, no action button, standard look.
+    __declspec(noinline) UiSettingsControl& row(u64 id, const Utf8View& label, const Utf8View& description,
+        UiSettingsControlKind kind) noexcept {
+        return emit(id, label, description, kind);
     }
 };
 } // namespace
@@ -150,15 +168,15 @@ u32 plugin_browser_find(const PluginCatalogSnapshot* snapshot, u64 provider, u64
 namespace {
 void tabs(Emitter& out, const PluginBrowserUiState& ui, const PluginBrowserFacts& facts) noexcept {
     auto& bank = out.bank;
-    bank.tabs[0] = add(bank, utf8_literal("Browse"));
-    bank.tabs[1] = add(bank, utf8_literal("Installed"));
+    bank.tabs[0] = add(bank, "Browse");
+    bank.tabs[1] = add(bank, "Installed");
     const u32 updates = facts.snapshot ? update_count(facts.snapshot) : facts.offers;
     const u32 start = bank.used;
-    add(bank, utf8_literal("Updates"));
-    if (updates) { add(bank, utf8_literal(" (")); number(bank, updates); add(bank, utf8_literal(")")); }
+    add(bank, "Updates");
+    if (updates) { add(bank, " ("); number(bank, updates); add(bank, ")"); }
     bank.tabs[2] = since(bank, start);
-    bank.tabs[3] = add(bank, utf8_literal("Providers"));
-    auto& control = out.emit(kPluginBrowserTabsId, utf8_literal("Plugins"), {}, UiSettingsControlKind::tabs);
+    bank.tabs[3] = add(bank, "Providers");
+    auto& control = out.row(kPluginBrowserTabsId, utf8_literal("Plugins"), {}, UiSettingsControlKind::tabs);
     control.choices = {bank.tabs, 4};
     control.selected_choice = static_cast<u32>(ui.tab);
 }
@@ -170,15 +188,15 @@ void notices(Emitter& out, const PluginBrowserUiState& ui, const PluginBrowserFa
         out.emit(kPluginBrowserStatusId, facts.status, {}, UiSettingsControlKind::notice, true, {},
             facts.status_critical ? UiSettingsVariant::critical : UiSettingsVariant::standard);
     } else if (ui.tab == PluginBrowserTab::browse && !facts.configured) {
-        out.emit(kPluginBrowserStatusId, utf8_literal("The official plugin catalog isn't configured for this build"),
+        out.row(kPluginBrowserStatusId, utf8_literal("The official plugin catalog isn't configured for this build"),
             utf8_literal("Plugins from providers you add still appear here."), UiSettingsControlKind::notice);
     } else if (ui.tab == PluginBrowserTab::browse && s && s->provider_count && s->providers[0].kind == PluginProviderKind::official) {
         const auto& p = s->providers[0];
         const bool stale = p.status == PluginCatalogStatus::expired || p.status == PluginCatalogStatus::unadmitted;
         if (stale || p.status == PluginCatalogStatus::failed) {
             const u32 start = bank.used;
-            if (p.status == PluginCatalogStatus::failed) add(bank, utf8_literal("Couldn't read the saved catalog"));
-            else { add(bank, utf8_literal("Catalog information from ")); date(bank, p.issued); add(bank, utf8_literal(" is out of date")); }
+            if (p.status == PluginCatalogStatus::failed) add(bank, "Couldn't read the saved catalog");
+            else { add(bank, "Catalog information from "); date(bank, p.issued); add(bank, " is out of date"); }
             out.emit(kPluginBrowserStatusId, since(bank, start), utf8_literal("Refresh to install or update plugins."),
                 UiSettingsControlKind::notice, !facts.busy, utf8_literal("Refresh"), UiSettingsVariant::critical);
         } else if (p.status == PluginCatalogStatus::none) {
@@ -188,9 +206,9 @@ void notices(Emitter& out, const PluginBrowserUiState& ui, const PluginBrowserFa
     }
     if (facts.revoked && facts.revoked->owner) {
         const u32 start = bank.used;
-        add(bank, utf8_literal("MaiCord turned off "));
+        add(bank, "MaiCord turned off ");
         add(bank, facts.revoked->name_bytes ? Utf8View{facts.revoked->name, facts.revoked->name_bytes} : utf8_literal("a plugin"));
-        add(bank, utf8_literal(" because its provider found it harmful."));
+        add(bank, " because its provider found it harmful.");
         const bool present = installed_owner(s, facts.revoked->owner) != nullptr;
         out.emit(kPluginBrowserRevokedId, since(bank, start), utf8_literal("It stays off. Remove it from your computer."),
             UiSettingsControlKind::notice, present && !facts.busy, present ? utf8_literal("Remove") : Utf8View{}, UiSettingsVariant::critical);
@@ -203,34 +221,34 @@ ConstSlice<Utf8View> entry_chips(PluginBrowserBank& bank, u32 slot, const Plugin
     const auto& provider = provider_of(s, e);
     chips[n++] = provider_chip(bank, provider.kind, {provider.host, provider.host_bytes});
     const auto* local = installed(s, e);
-    if (local && (local->state_flags & kPluginStateRevokedMalicious)) chips[n++] = add(bank, utf8_literal("Revoked"));
-    else if (local) chips[n++] = add(bank, utf8_literal("Installed"));
+    if (local && (local->state_flags & kPluginStateRevokedMalicious)) chips[n++] = add(bank, "Revoked");
+    else if (local) chips[n++] = add(bank, "Installed");
     if (update_offered(e) && n < kPluginBrowserChips) {
         const u32 start = bank.used;
-        add(bank, utf8_literal("Update "));
+        add(bank, "Update ");
         version(bank, s.versions[e.first_version + e.update.version].code);
         chips[n++] = since(bank, start);
     }
     if (e.newest == kPluginIndexNoVersion && n < kPluginBrowserChips) chips[n++] = compatibility_text(s, e);
-    if (local && (local->state_flags & kPluginStateRevokedBroken) && n < kPluginBrowserChips) chips[n++] = add(bank, utf8_literal("Known problem"));
+    if (local && (local->state_flags & kPluginStateRevokedBroken) && n < kPluginBrowserChips) chips[n++] = add(bank, "Known problem");
     return {chips, n};
 }
-void author_line(PluginBrowserBank& bank, Utf8View document, const PluginCatalogEntryView& e) noexcept {
+void author_line(PluginBrowserBank& bank, const Utf8View& document, const PluginCatalogEntryView& e) noexcept {
     if (e.author.bytes) {
-        add(bank, utf8_literal("by "));
+        add(bank, "by ");
         index_text(bank, document, e.author);
-        if (e.author_count > 1) add(bank, utf8_literal(" and others"));
-        add(bank, utf8_literal(" \xC2\xB7 "));
+        if (e.author_count > 1) add(bank, " and others");
+        add(bank, " \xC2\xB7 ");
     }
 }
 void browse(Emitter& out, PluginBrowserUiState ui, const PluginBrowserFacts& facts) noexcept {
     auto& bank = out.bank;
     const PluginCatalogSnapshot* s = facts.snapshot;
-    bank.search[0] = add(bank, utf8_literal("Search\xE2\x80\xA6"));
-    bank.search[1] = add(bank, utf8_literal("Clear"));
+    bank.search[0] = add(bank, "Search\xE2\x80\xA6");
+    bank.search[1] = add(bank, "Clear");
     const Utf8View query{ui.query, minimum(ui.query_bytes, kPluginBrowserQueryBytes)};
     u32 start = bank.used;
-    if (query.bytes) { add(bank, utf8_literal("Showing results for \xE2\x80\x9C")); add(bank, query); add(bank, utf8_literal("\xE2\x80\x9D")); }
+    if (query.bytes) { add(bank, "Showing results for \xE2\x80\x9C"); add(bank, query); add(bank, "\xE2\x80\x9D"); }
     auto& search = out.emit(kPluginBrowserSearchId, utf8_literal("Search"), since(bank, start), UiSettingsControlKind::buttons, !!s);
     search.choices = {bank.search, query.bytes ? 2u : 1u};
     bank.sources[0] = utf8_literal("All"); bank.sources[1] = utf8_literal("Official"); bank.sources[2] = utf8_literal("Community");
@@ -251,7 +269,7 @@ void browse(Emitter& out, PluginBrowserUiState ui, const PluginBrowserFacts& fac
     start = bank.used;
     number(bank, total);
     add(bank, total == 1 ? utf8_literal(" plugin") : utf8_literal(" plugins"));
-    out.emit(kPluginBrowserCountId, since(bank, start), {}, UiSettingsControlKind::category);
+    out.row(kPluginBrowserCountId, since(bank, start), {}, UiSettingsControlKind::category);
     const u32 first = total && ui.first < total ? ui.first / kPluginBrowserRows * kPluginBrowserRows : 0;
     bank.map.row_count = 0;
     for (u32 index = 0, nth = 0; s && index < s->entry_count && bank.map.row_count < kPluginBrowserRows; ++index) {
@@ -289,11 +307,11 @@ Utf8View disclosure_label(u32 bit) noexcept {
     return bit < 4 ? labels[bit] : Utf8View{};
 }
 void disclosures_text(PluginBrowserBank& bank, u32 disclosures) noexcept {
-    add(bank, utf8_literal("Also uses (outside MaiCord's permissions): "));
+    add(bank, "Also uses (outside MaiCord's permissions): ");
     bool first = true;
     for (u32 bit = 0; bit < kPluginIndexDisclosureCount; ++bit)
         if (disclosures & (1u << bit)) {
-            if (!first) add(bank, utf8_literal(", "));
+            if (!first) add(bank, ", ");
             first = false;
             add(bank, disclosure_label(bit));
         }
@@ -323,33 +341,26 @@ void detail(Emitter& out, const PluginBrowserFacts& facts, u32 index) noexcept {
     start = bank.used;
     author_line(bank, document, e);
     add(bank, provider.name_bytes ? Utf8View{provider.name, provider.name_bytes} : host);
-    out.emit(kPluginBrowserHeaderId, name, since(bank, start), UiSettingsControlKind::category);
+    out.row(kPluginBrowserHeaderId, name, since(bank, start), UiSettingsControlKind::category);
     u64 notice = kPluginBrowserNoticeFirst;
-    const auto critical = [&](Utf8View text) noexcept {
+    const auto critical = [&](const Utf8View& text) noexcept {
         if (notice < kPluginBrowserNoticeFirst + 6)
             out.emit(notice++, text, {}, UiSettingsControlKind::notice, true, {}, UiSettingsVariant::critical);
     };
     if (custom) {
         start = bank.used;
-        add(bank, utf8_literal("From ")); add(bank, host);
-        add(bank, utf8_literal(", an unofficial provider. MaiCord doesn't review these plugins. Plugins run with full access to your computer."));
+        add(bank, "From "); add(bank, host);
+        add(bank, ", an unofficial provider. MaiCord doesn't review these plugins. Plugins run with full access to your computer.");
         critical(since(bank, start));
     }
     if (provider.kind == PluginProviderKind::custom_unsigned)
         critical(utf8_literal("This provider doesn't sign its catalog. Anyone who controls its website can change what you install."));
-    if (revoked) {
+    const bool broken = !revoked && local && (local->state_flags & kPluginStateRevokedBroken);
+    if (revoked || broken) {
         start = bank.used;
-        add(bank, utf8_literal("Revoked by its provider"));
+        add(bank, revoked ? utf8_literal("Revoked by its provider") : utf8_literal("Known problem"));
         if (e.revocation_reason.bytes) {
-            add(bank, utf8_literal(": "));
-            index_text(bank, plugin_catalog_document(s, e.revocation_provider), e.revocation_reason);
-        }
-        critical(since(bank, start));
-    } else if (local && (local->state_flags & kPluginStateRevokedBroken)) {
-        start = bank.used;
-        add(bank, utf8_literal("Known problem"));
-        if (e.revocation_reason.bytes) {
-            add(bank, utf8_literal(": "));
+            add(bank, ": ");
             index_text(bank, plugin_catalog_document(s, e.revocation_provider), e.revocation_reason);
         }
         critical(since(bank, start));
@@ -368,7 +379,7 @@ void detail(Emitter& out, const PluginBrowserFacts& facts, u32 index) noexcept {
     // Actions by state.
     auto& map = bank.map;
     map.action_count = 0;
-    const auto action = [&](PluginBrowserDetailAction kind, Utf8View label) noexcept {
+    const auto action = [&](PluginBrowserDetailAction kind, const Utf8View& label) noexcept {
         if (map.action_count < 6) { bank.detail[map.action_count] = label; map.actions[map.action_count++] = kind; }
     };
     const bool installable = provider.installable && newest != kPluginIndexNoVersion && !e.reserved;
@@ -377,7 +388,7 @@ void detail(Emitter& out, const PluginBrowserFacts& facts, u32 index) noexcept {
     } else if (e.bound) {
         if (e.update.outcome == PluginUpdateOutcome::available) {
             start = bank.used;
-            add(bank, utf8_literal("Update to "));
+            add(bank, "Update to ");
             version(bank, s.versions[e.first_version + e.update.version].code);
             action(PluginBrowserDetailAction::update, since(bank, start));
         } else if (e.update.outcome == PluginUpdateOutcome::review) {
@@ -387,7 +398,7 @@ void detail(Emitter& out, const PluginBrowserFacts& facts, u32 index) noexcept {
             is_loaded ? utf8_literal("Disable") : utf8_literal("Enable"));
         if (local->previous_code && !revoked) {
             start = bank.used;
-            add(bank, utf8_literal("Roll back to "));
+            add(bank, "Roll back to ");
             version(bank, local->previous_code);
             action(PluginBrowserDetailAction::rollback, since(bank, start));
         }
@@ -401,15 +412,15 @@ void detail(Emitter& out, const PluginBrowserFacts& facts, u32 index) noexcept {
     }
     start = bank.used;
     index_text(bank, document, e.summary);
-    out.emit(kPluginBrowserDescriptionId, since(bank, start), {}, UiSettingsControlKind::notice);
-    out.emit(kPluginBrowserPermissionsId, utf8_literal("Permissions"), {}, UiSettingsControlKind::category);
+    out.row(kPluginBrowserDescriptionId, since(bank, start), {}, UiSettingsControlKind::notice);
+    out.row(kPluginBrowserPermissionsId, utf8_literal("Permissions"), {}, UiSettingsControlKind::category);
     u64 permission = kPluginBrowserPermissionFirst;
     for (u32 bit = 0; bit < kNativePluginPermissionCount; ++bit)
         if (shown->permissions & (1ull << bit))
             out.emit(permission++, native_plugin_permission_label(bit), {}, UiSettingsControlKind::notice, true, {}, UiSettingsVariant::standard,
                 ui_settings_presentation_compact);
     if (!shown->permissions)
-        out.emit(permission, utf8_literal("Nothing beyond running its own code."), {}, UiSettingsControlKind::notice);
+        out.row(permission, utf8_literal("Nothing beyond running its own code."), {}, UiSettingsControlKind::notice);
     if (e.disclosures) {
         start = bank.used;
         disclosures_text(bank, e.disclosures);
@@ -417,21 +428,21 @@ void detail(Emitter& out, const PluginBrowserFacts& facts, u32 index) noexcept {
     }
     if (shown->changelog.bytes) {
         start = bank.used;
-        add(bank, utf8_literal("What's new in "));
+        add(bank, "What's new in ");
         version(bank, shown->code);
-        out.emit(kPluginBrowserChangesId, since(bank, start), {}, UiSettingsControlKind::category);
+        out.row(kPluginBrowserChangesId, since(bank, start), {}, UiSettingsControlKind::category);
         start = bank.used;
         index_text(bank, document, shown->changelog);
-        out.emit(kPluginBrowserChangelogId, since(bank, start), {}, UiSettingsControlKind::notice);
+        out.row(kPluginBrowserChangelogId, since(bank, start), {}, UiSettingsControlKind::notice);
     }
-    out.emit(kPluginBrowserDetailsId, utf8_literal("Details"), {}, UiSettingsControlKind::category);
+    out.row(kPluginBrowserDetailsId, utf8_literal("Details"), {}, UiSettingsControlKind::category);
     u64 row = kPluginBrowserDetailFirst;
-    const auto detail_row = [&](Utf8View label, u32 value_start) noexcept {
+    const auto detail_row = [&](const Utf8View& label, u32 value_start) noexcept {
         out.emit(row++, label, since(bank, value_start), UiSettingsControlKind::notice, true, {}, UiSettingsVariant::standard,
             ui_settings_presentation_compact);
     };
     start = bank.used; version(bank, shown->code);
-    if (local) { add(bank, utf8_literal(" (installed: ")); add(bank, {local->version, local->version_bytes}); add(bank, utf8_literal(")")); }
+    if (local) { add(bank, " (installed: "); add(bank, {local->version, local->version_bytes}); add(bank, ")"); }
     detail_row(utf8_literal("Version"), start);
     start = bank.used; date(bank, shown->released); detail_row(utf8_literal("Released"), start);
     start = bank.used; bytes_text(bank, shown->bytes); detail_row(utf8_literal("Size"), start);
@@ -451,18 +462,18 @@ void detail(Emitter& out, const PluginBrowserFacts& facts, u32 index) noexcept {
         const auto& listed = s.versions[e.first_version + v];
         if (v == newest || listed.compatibility != PluginCompatibility::compatible || listed.revoked || listed.blocked) continue;
         if (local && local->installed_code == listed.code) continue;
-        if (!map.version_count) out.emit(kPluginBrowserVersionsId, utf8_literal("Other versions"), {}, UiSettingsControlKind::category);
+        if (!map.version_count) out.row(kPluginBrowserVersionsId, utf8_literal("Other versions"), {}, UiSettingsControlKind::category);
         start = bank.used;
         version(bank, listed.code);
         const Utf8View label = since(bank, start);
         start = bank.used;
-        add(bank, utf8_literal("Released ")); date(bank, listed.released);
+        add(bank, "Released "); date(bank, listed.released);
         out.emit(kPluginBrowserVersionFirst + map.version_count, label, since(bank, start), UiSettingsControlKind::action,
             installable && (!local || e.bound) && !facts.busy, utf8_literal("Install"), UiSettingsVariant::standard, ui_settings_presentation_compact);
         map.versions[map.version_count++] = v;
     }
     if (local && e.bound && !custom) {
-        out.emit(kPluginBrowserOptionsId, utf8_literal("Options"), {}, UiSettingsControlKind::category);
+        out.row(kPluginBrowserOptionsId, utf8_literal("Options"), {}, UiSettingsControlKind::category);
         auto& toggle = out.emit(kPluginBrowserAutoUpdateId, utf8_literal("Update automatically"),
             utf8_literal("Download new versions now and apply them the next time MaiCord starts."), UiSettingsControlKind::toggle, !facts.busy);
         toggle.checked = !(local->state_flags & kPluginStateAutoUpdateOff);
@@ -504,18 +515,18 @@ void installed_tab(Emitter& out, const PluginBrowserFacts& facts) noexcept {
             const PluginCatalogProviderView* provider = nullptr;
             for (u32 p = 0; s && p < s->provider_count; ++p) if (s->providers[p].id == local->provider) provider = &s->providers[p];
             if (provider) chips[n++] = provider_chip(bank, provider->kind, {provider->host, provider->host_bytes});
-            else chips[n++] = local->provider == kPluginProviderOfficial ? add(bank, utf8_literal("Official"))
-                                                                         : add(bank, utf8_literal("Unofficial"));
+            else chips[n++] = local->provider == kPluginProviderOfficial ? add(bank, "Official")
+                                                                         : add(bank, "Unofficial");
         } else if (s) {
-            chips[n++] = add(bank, utf8_literal("Installed from file"));
+            chips[n++] = add(bank, "Installed from file");
         }
-        if (revoked) chips[n++] = add(bank, utf8_literal("Revoked"));
+        if (revoked) chips[n++] = add(bank, "Revoked");
         else if (gate & kPluginGateIncompatible || (local && (local->state_flags & kPluginStateIncompatibleHost)))
-            chips[n++] = add(bank, utf8_literal("Incompatible"));
+            chips[n++] = add(bank, "Incompatible");
         if (local && local->entry < (s ? s->entry_count : 0) && update_offered(s->entries[local->entry])) {
             const auto& e = s->entries[local->entry];
             const u32 start = bank.used;
-            add(bank, utf8_literal("Update "));
+            add(bank, "Update ");
             version(bank, s->versions[e.first_version + e.update.version].code);
             chips[n++] = since(bank, start);
         }
@@ -533,14 +544,14 @@ void updates_tab(Emitter& out, const PluginBrowserUiState& ui, const PluginBrows
         if (update_offered(s->entries[i])) { ++offered; ready += s->entries[i].update.outcome == PluginUpdateOutcome::available ? 1u : 0u; }
     map.update_all = ready;
     u32 start = bank.used;
-    add(bank, utf8_literal("Update all"));
-    if (ready) { add(bank, utf8_literal(" (")); number(bank, ready); add(bank, utf8_literal(")")); }
+    add(bank, "Update all");
+    if (ready) { add(bank, " ("); number(bank, ready); add(bank, ")"); }
     bank.updates[0] = since(bank, start);
     bank.updates[1] = add(bank, facts.checking ? utf8_literal("Checking\xE2\x80\xA6") : utf8_literal("Check now"));
     start = bank.used;
-    add(bank, utf8_literal("Last checked "));
+    add(bank, "Last checked ");
     relative_time(bank, facts.now_unix, facts.checked_unix);
-    add(bank, utf8_literal("."));
+    add(bank, ".");
     auto& header = out.emit(kPluginBrowserUpdatesHeaderId, offered ? utf8_literal("Updates available") : utf8_literal("Your plugins are up to date"),
         since(bank, start), UiSettingsControlKind::buttons, !facts.busy);
     if (ready) header.choices = {bank.updates, 2};
@@ -561,7 +572,7 @@ void updates_tab(Emitter& out, const PluginBrowserUiState& ui, const PluginBrows
         start = bank.used;
         const auto* local = installed(*s, e);
         if (local) add(bank, {local->version, local->version_bytes});
-        add(bank, utf8_literal(" \xE2\x86\x92 "));
+        add(bank, " \xE2\x86\x92 ");
         version(bank, s->versions[e.first_version + e.update.version].code);
         const bool review = e.update.outcome == PluginUpdateOutcome::review;
         const u32 slot = map.update_count;
@@ -572,7 +583,7 @@ void updates_tab(Emitter& out, const PluginBrowserUiState& ui, const PluginBrows
         u32 n = 0;
         const auto& provider = provider_of(*s, e);
         chips[n++] = provider_chip(bank, provider.kind, {provider.host, provider.host_bytes});
-        if (review) chips[n++] = add(bank, utf8_literal("New permissions"));
+        if (review) chips[n++] = add(bank, "New permissions");
         control.choices = {chips, n};
         map.updates[map.update_count++] = i;
     }
@@ -587,7 +598,7 @@ void fingerprint_short(PluginBrowserBank& bank, const u8* fingerprint) noexcept 
     char text[kPluginProviderFingerprintTextBytes];
     const u32 bytes = plugin_provider_fingerprint_text(fingerprint, {text, sizeof(text)});
     add(bank, {text, bytes >= 9 ? 9u : bytes});
-    add(bank, utf8_literal(" \xE2\x80\xA6"));
+    add(bank, " \xE2\x80\xA6");
 }
 void providers_tab(Emitter& out, const PluginBrowserFacts& facts) noexcept {
     auto& bank = out.bank;
@@ -596,10 +607,10 @@ void providers_tab(Emitter& out, const PluginBrowserFacts& facts) noexcept {
     map.provider_count = 0;
     const PluginCatalogProviderView* official = s && s->provider_count && s->providers[0].kind == PluginProviderKind::official ? &s->providers[0] : nullptr;
     u32 start = bank.used;
-    if (!facts.configured) add(bank, utf8_literal("Not configured for this build."));
+    if (!facts.configured) add(bank, "Not configured for this build.");
     else {
         add(bank, official ? Utf8View{official->host, official->host_bytes} : utf8_literal("GitHub Pages"));
-        add(bank, utf8_literal(" \xC2\xB7 signed \xC2\xB7 checked "));
+        add(bank, " \xC2\xB7 signed \xC2\xB7 checked ");
         relative_time(bank, facts.now_unix, facts.checked_unix);
     }
     auto& row = out.emit(kPluginBrowserOfficialId, utf8_literal("MaiCord plugins (official)"), since(bank, start), UiSettingsControlKind::toggle,
@@ -613,15 +624,15 @@ void providers_tab(Emitter& out, const PluginBrowserFacts& facts) noexcept {
         start = bank.used;
         add(bank, {provider.host, provider.host_bytes});
         if (provider.path_bytes > 1) add(bank, {provider.path, provider.path_bytes});
-        if (changed) add(bank, utf8_literal(" \xC2\xB7 This provider now uses a different signing key."));
-        else if (provider.kind == PluginProviderKind::custom_signed) { add(bank, utf8_literal(" \xC2\xB7 Signed, key ")); fingerprint_short(bank, provider.fingerprint); }
-        else add(bank, utf8_literal(" \xC2\xB7 Not signed"));
-        add(bank, utf8_literal(" \xC2\xB7 Unofficial"));
+        if (changed) add(bank, " \xC2\xB7 This provider now uses a different signing key.");
+        else if (provider.kind == PluginProviderKind::custom_signed) { add(bank, " \xC2\xB7 Signed, key "); fingerprint_short(bank, provider.fingerprint); }
+        else add(bank, " \xC2\xB7 Not signed");
+        add(bank, " \xC2\xB7 Unofficial");
         const Utf8View description = since(bank, start);
         PluginBrowserProviderAction* actions = map.provider_actions[slot];
         Utf8View* labels = bank.providers[slot];
         u32 n = 0;
-        const auto button = [&](PluginBrowserProviderAction kind, Utf8View label) noexcept { actions[n] = kind; labels[n++] = label; };
+        const auto button = [&](PluginBrowserProviderAction kind, const Utf8View& label) noexcept { actions[n] = kind; labels[n++] = label; };
         if (changed) {
             button(PluginBrowserProviderAction::remove, utf8_literal("Remove"));
             button(PluginBrowserProviderAction::trust_key, utf8_literal("Trust new key"));
@@ -670,25 +681,27 @@ u32 plugin_browser_project(const PluginBrowserUiState& ui, const PluginBrowserFa
 namespace {
 struct DialogText {
     PluginBrowserDialog& d;
-    Utf8View add(Utf8View text) noexcept {
+    void put(const char* data, u32 bytes) noexcept { append_utf8(d.text, d.used, kPluginBrowserDialogBytes, data, bytes); }
+    Utf8View add(const Utf8View& text) noexcept {
         const u32 start = d.used;
-        for (u32 i = 0; i < text.bytes;) {
-            const auto decoded = utf8_decode_one(text.data + i, text.bytes - i);
-            if (!decoded.valid || !decoded.width || decoded.width > kPluginBrowserDialogBytes - d.used) break;
-            for (u32 j = 0; j < decoded.width; ++j) d.text[d.used++] = text.data[i++];
-        }
+        put(text.data, text.bytes);
         return {d.text + start, d.used - start};
     }
-    void version(u64 code) noexcept { char t[32]; add({t, update_version_text(code, {t, sizeof(t)})}); }
-    void number(u64 value) noexcept { char t[20]; add({t, decimal_write(t, value)}); }
+    template <usize Count> __forceinline Utf8View add(const char (&text)[Count]) noexcept {
+        const u32 start = d.used;
+        put(text, Count - 1);
+        return {d.text + start, d.used - start};
+    }
+    void version(u64 code) noexcept { char t[32]; put(t, update_version_text(code, {t, sizeof(t)})); }
+    void number(u64 value) noexcept { char t[20]; put(t, decimal_write(t, value)); }
     Utf8View since(u32 start) const noexcept { return {d.text + start, d.used - start}; }
     void fingerprint(const u8* fp) noexcept {
         char t[kPluginProviderFingerprintTextBytes];
-        add({t, plugin_provider_fingerprint_text(fp, {t, sizeof(t)})});
+        put(t, plugin_provider_fingerprint_text(fp, {t, sizeof(t)}));
     }
-    void permissions(u64 mask, Utf8View prefix) noexcept {
+    void permissions(u64 mask, const Utf8View& prefix) noexcept {
         for (u32 bit = 0; bit < kNativePluginPermissionCount; ++bit)
-            if (mask & (1ull << bit)) { add(utf8_literal("\n")); add(prefix); add(native_plugin_permission_label(bit)); }
+            if (mask & (1ull << bit)) { add("\n"); add(prefix); add(native_plugin_permission_label(bit)); }
     }
 };
 inline constexpr Utf8View kBullet = utf8_literal("\xE2\x80\xA2 ");
@@ -702,34 +715,34 @@ void plugin_browser_install_dialog(const PluginBrowserInstallFacts& f, PluginBro
     const bool custom = f.kind != PluginProviderKind::official;
     u32 start = d->used;
     if (f.update_from) {
-        t.add(utf8_literal("Update ")); t.add(f.name); t.add(utf8_literal(" to ")); t.version(f.version_code); t.add(utf8_literal("?"));
+        t.add("Update "); t.add(f.name); t.add(" to "); t.version(f.version_code); t.add("?");
     } else {
         t.add(f.downgrade_from ? utf8_literal("Install an older version of ") : utf8_literal("Install "));
         t.add(f.name);
-        t.add(utf8_literal("?"));
+        t.add("?");
     }
     d->title = t.since(start);
     start = d->used;
-    if (custom) { t.add(utf8_literal("From ")); t.add(f.host); t.add(utf8_literal(" (unofficial).")); }
-    else { t.add(utf8_literal("From ")); t.add(f.provider_name.bytes ? f.provider_name : utf8_literal("MaiCord plugins")); t.add(utf8_literal(" (official).")); }
-    t.add(utf8_literal(" Version ")); t.version(f.version_code); t.add(utf8_literal("."));
-    if (f.publisher.bytes) { t.add(utf8_literal("\nPublished by ")); t.add(f.publisher); t.add(utf8_literal(".")); }
+    if (custom) { t.add("From "); t.add(f.host); t.add(" (unofficial)."); }
+    else { t.add("From "); t.add(f.provider_name.bytes ? f.provider_name : utf8_literal("MaiCord plugins")); t.add(" (official)."); }
+    t.add(" Version "); t.version(f.version_code); t.add(".");
+    if (f.publisher.bytes) { t.add("\nPublished by "); t.add(f.publisher); t.add("."); }
     if (f.downgrade_from) {
-        t.add(utf8_literal("\nThis replaces version ")); t.version(f.downgrade_from);
-        t.add(utf8_literal(". Older versions can lack fixes, and newer versions won't install automatically until you update again."));
+        t.add("\nThis replaces version "); t.version(f.downgrade_from);
+        t.add(". Older versions can lack fixes, and newer versions won't install automatically until you update again.");
     }
-    t.add(utf8_literal("\nThis plugin will be able to:"));
+    t.add("\nThis plugin will be able to:");
     t.permissions(f.permissions, kBullet);
-    if (!f.permissions) t.add(utf8_literal("\nNothing beyond running its own code."));
+    if (!f.permissions) t.add("\nNothing beyond running its own code.");
     if (f.disclosures) {
-        t.add(utf8_literal("\nAlso uses (outside MaiCord's permissions):"));
+        t.add("\nAlso uses (outside MaiCord's permissions):");
         for (u32 bit = 0; bit < kPluginIndexDisclosureCount; ++bit)
-            if (f.disclosures & (1u << bit)) { t.add(utf8_literal("\n")); t.add(kBullet); t.add(disclosure_label(bit)); }
+            if (f.disclosures & (1u << bit)) { t.add("\n"); t.add(kBullet); t.add(disclosure_label(bit)); }
     }
-    if (custom) t.add(utf8_literal("\nMaiCord doesn't review plugins from unofficial providers."));
+    if (custom) t.add("\nMaiCord doesn't review plugins from unofficial providers.");
     if (f.kind == PluginProviderKind::custom_unsigned)
-        t.add(utf8_literal("\nThis provider doesn't sign its catalog. Anyone who controls it can change what you install."));
-    t.add(utf8_literal("\nPlugins run with full access to your computer. Only install plugins you trust."));
+        t.add("\nThis provider doesn't sign its catalog. Anyone who controls it can change what you install.");
+    t.add("\nPlugins run with full access to your computer. Only install plugins you trust.");
     d->context = t.since(start);
     if (f.update_from || f.downgrade_from) {
         d->accept = custom ? utf8_literal("Update unofficial plugin") : utf8_literal("Install this version");
@@ -744,14 +757,14 @@ void plugin_browser_review_dialog(Utf8View name, u64 version_code, const PluginP
     reset_value(d);
     DialogText t{*d};
     u32 start = d->used;
-    t.add(utf8_literal("Update ")); t.add(name); t.add(utf8_literal(" to ")); t.version(version_code); t.add(utf8_literal("?"));
+    t.add("Update "); t.add(name); t.add(" to "); t.version(version_code); t.add("?");
     d->title = t.since(start);
     start = d->used;
-    t.add(utf8_literal("This version asks for more permissions."));
+    t.add("This version asks for more permissions.");
     t.permissions(diff.added, utf8_literal("New: "));
-    if (diff.kept) { t.add(utf8_literal("\nStill allowed:")); t.permissions(diff.kept, kBullet); }
-    if (diff.removed) { t.add(utf8_literal("\nNo longer needed:")); t.permissions(diff.removed, kBullet); }
-    t.add(utf8_literal("\nPlugins run with full access to your computer."));
+    if (diff.kept) { t.add("\nStill allowed:"); t.permissions(diff.kept, kBullet); }
+    if (diff.removed) { t.add("\nNo longer needed:"); t.permissions(diff.removed, kBullet); }
+    t.add("\nPlugins run with full access to your computer.");
     d->context = t.since(start);
     d->accept = utf8_literal("Allow and update");
     d->cancel = utf8_literal("Not now");
@@ -762,29 +775,29 @@ void plugin_browser_provider_dialog(const PluginBrowserProviderFacts& f, PluginB
     DialogText t{*d};
     const bool key_change = f.old_fingerprint != nullptr;
     u32 start = d->used;
-    if (key_change) { t.add(utf8_literal("Trust the new key of ")); t.add(f.host); t.add(utf8_literal("?")); }
-    else t.add(utf8_literal("Add an unofficial plugin provider?"));
+    if (key_change) { t.add("Trust the new key of "); t.add(f.host); t.add("?"); }
+    else t.add("Add an unofficial plugin provider?");
     d->title = t.since(start);
     start = d->used;
     if (key_change) {
-        t.add(utf8_literal("This provider now signs its catalog with a different key. If you didn't expect this, someone else may control it."));
+        t.add("This provider now signs its catalog with a different key. If you didn't expect this, someone else may control it.");
     } else {
-        t.add(utf8_literal("MaiCord doesn't review plugins from ")); t.add(f.host);
-        t.add(utf8_literal(". Plugins are programs that run with full access to your computer, your files and your Discord account in MaiCord. Only add providers you trust."));
+        t.add("MaiCord doesn't review plugins from "); t.add(f.host);
+        t.add(". Plugins are programs that run with full access to your computer, your files and your Discord account in MaiCord. Only add providers you trust.");
     }
-    t.add(utf8_literal("\nProvider: "));
+    t.add("\nProvider: ");
     t.add(f.name.bytes ? f.name : f.host);
-    t.add(utf8_literal(" \xC2\xB7 ")); t.number(f.plugin_count); t.add(f.plugin_count == 1 ? utf8_literal(" plugin") : utf8_literal(" plugins"));
-    t.add(utf8_literal("\nAddress: https://")); t.add(f.host); t.add(f.path);
-    if (key_change && f.old_fingerprint) { t.add(utf8_literal("\nOld key: ")); t.fingerprint(f.old_fingerprint); }
+    t.add(" \xC2\xB7 "); t.number(f.plugin_count); t.add(f.plugin_count == 1 ? utf8_literal(" plugin") : utf8_literal(" plugins"));
+    t.add("\nAddress: https://"); t.add(f.host); t.add(f.path);
+    if (key_change && f.old_fingerprint) { t.add("\nOld key: "); t.fingerprint(f.old_fingerprint); }
     if (f.signed_provider && f.fingerprint) {
         t.add(key_change ? utf8_literal("\nNew key: ") : utf8_literal("\nSigning key: "));
         t.fingerprint(f.fingerprint);
-        if (f.pin_matched) t.add(utf8_literal(" (the key matches the link you were given)"));
+        if (f.pin_matched) t.add(" (the key matches the link you were given)");
     } else {
-        t.add(utf8_literal("\nThis provider doesn't sign its catalog. Anyone who controls "));
+        t.add("\nThis provider doesn't sign its catalog. Anyone who controls ");
         t.add(f.host);
-        t.add(utf8_literal(" can change what you install."));
+        t.add(" can change what you install.");
     }
     d->context = t.since(start);
     d->accept = key_change ? utf8_literal("Trust new key") : utf8_literal("Add provider");
@@ -796,12 +809,12 @@ void plugin_browser_remove_provider_dialog(Utf8View name, u32 installed, PluginB
     reset_value(d);
     DialogText t{*d};
     u32 start = d->used;
-    t.add(utf8_literal("Remove ")); t.add(name); t.add(utf8_literal("?"));
+    t.add("Remove "); t.add(name); t.add("?");
     d->title = t.since(start);
-    d->context = t.add(utf8_literal("Plugins you installed from it stay installed but won't get updates."));
+    d->context = t.add("Plugins you installed from it stay installed but won't get updates.");
     if (installed) {
         start = d->used;
-        t.add(utf8_literal("Also uninstall its ")); t.number(installed); t.add(installed == 1 ? utf8_literal(" plugin") : utf8_literal(" plugins"));
+        t.add("Also uninstall its "); t.number(installed); t.add(installed == 1 ? utf8_literal(" plugin") : utf8_literal(" plugins"));
         d->option = t.since(start);
     }
     d->accept = utf8_literal("Remove");
@@ -811,9 +824,9 @@ void plugin_browser_uninstall_dialog(Utf8View name, PluginBrowserDialog* d) noex
     reset_value(d);
     DialogText t{*d};
     const u32 start = d->used;
-    t.add(utf8_literal("Uninstall ")); t.add(name); t.add(utf8_literal("?"));
+    t.add("Uninstall "); t.add(name); t.add("?");
     d->title = t.since(start);
-    d->context = t.add(utf8_literal("MaiCord turns the plugin off and deletes its files. Its saved data stays unless you delete it too."));
+    d->context = t.add("MaiCord turns the plugin off and deletes its files. Its saved data stays unless you delete it too.");
     d->option = utf8_literal("Also delete its saved data");
     d->accept = utf8_literal("Uninstall");
     d->danger = true;
@@ -822,11 +835,11 @@ void plugin_browser_rollback_dialog(Utf8View name, u64 to_code, u64 from_code, P
     reset_value(d);
     DialogText t{*d};
     u32 start = d->used;
-    t.add(utf8_literal("Roll back ")); t.add(name); t.add(utf8_literal(" to ")); t.version(to_code); t.add(utf8_literal("?"));
+    t.add("Roll back "); t.add(name); t.add(" to "); t.version(to_code); t.add("?");
     d->title = t.since(start);
     start = d->used;
-    t.add(utf8_literal("Version ")); t.version(from_code);
-    t.add(utf8_literal(" won't be offered again until a newer version comes out. Older versions can lack fixes."));
+    t.add("Version "); t.version(from_code);
+    t.add(" won't be offered again until a newer version comes out. Older versions can lack fixes.");
     d->context = t.since(start);
     d->accept = utf8_literal("Roll back");
 }
@@ -838,10 +851,10 @@ void plugin_browser_update_all_dialog(const PluginCatalogSnapshot& s, ConstSlice
     reset_value(d);
     DialogText t{*d};
     u32 start = d->used;
-    t.add(utf8_literal("Update ")); t.number(entries.count); t.add(entries.count == 1 ? utf8_literal(" plugin?") : utf8_literal(" plugins?"));
+    t.add("Update "); t.number(entries.count); t.add(entries.count == 1 ? utf8_literal(" plugin?") : utf8_literal(" plugins?"));
     d->title = t.since(start);
     start = d->used;
-    t.add(utf8_literal("These come from unofficial providers that MaiCord doesn't review:"));
+    t.add("These come from unofficial providers that MaiCord doesn't review:");
     for (u32 i = 0; i < entries.count; ++i) {
         if (entries[i] >= s.entry_count) continue;
         const auto& e = s.entries[entries[i]];
@@ -849,8 +862,8 @@ void plugin_browser_update_all_dialog(const PluginCatalogSnapshot& s, ConstSlice
         if (provider.kind == PluginProviderKind::official) continue;
         char name[kNativePluginNameCapacity];
         const auto decoded = plugin_index_text_decode(plugin_catalog_document(s, e.provider), e.name, {name, sizeof(name)});
-        t.add(utf8_literal("\n\xE2\x80\xA2 ")); t.add({name, decoded.ok() ? decoded.bytes : 0});
-        t.add(utf8_literal(" (")); t.add({provider.host, provider.host_bytes}); t.add(utf8_literal(")"));
+        t.add("\n\xE2\x80\xA2 "); t.add({name, decoded.ok() ? decoded.bytes : 0});
+        t.add(" ("); t.add({provider.host, provider.host_bytes}); t.add(")");
     }
     d->context = t.since(start);
     d->accept = utf8_literal("Update all");

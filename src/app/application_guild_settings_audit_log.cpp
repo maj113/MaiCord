@@ -26,10 +26,10 @@ void project_audit(Bank& bank) noexcept {
         p.audit_user_choice[0] = utf8_literal("Selected member");
     const auto* filter = p.audit_filter_action_set ? audit_action(p.audit_filter_action) : nullptr;
     p.audit_action_choice[0] = filter ? filter->verb : utf8_literal("All actions");
-    push({control_filter_user, utf8_literal("Filter by member"), {}, UiSettingsControlKind::choice, editable(), false,
-          {p.audit_user_choice, 1}, 0, {}, nullptr});
-    push({control_filter_action, utf8_literal("Filter by action"), {}, UiSettingsControlKind::choice, editable(),
-          false, {p.audit_action_choice, 1}, 0, {}, nullptr});
+    push_choices(control_filter_user, utf8_literal("Filter by member"), {}, UiSettingsControlKind::choice, editable(),
+                 {p.audit_user_choice, 1});
+    push_choices(control_filter_action, utf8_literal("Filter by action"), {}, UiSettingsControlKind::choice,
+                 editable(), {p.audit_action_choice, 1});
     if (p.audit_failed)
         push_error(utf8_literal("Couldn't load the audit log"), p.status, utf8_literal("Try again"));
     else if (p.failed && p.status.bytes)
@@ -46,7 +46,7 @@ void project_audit(Bank& bank) noexcept {
         const u32 start = bank.used;
         const auto actor = user_label(entry.user_id);
         bank.add(actor.bytes ? actor : utf8_literal("Someone"));
-        bank.add(utf8_literal(" "));
+        bank.add(" ");
         if (action) {
             bank.add(action->verb);
             Utf8View target{};
@@ -60,19 +60,19 @@ void project_audit(Bank& bank) noexcept {
                     target = chat_state_store_role_name(state(), *r);
             }
             if (target.bytes) {
-                bank.add(utf8_literal(" "));
+                bank.add(" ");
                 bank.add(target);
             }
         } else {
-            bank.add(utf8_literal("made a change (type "));
+            bank.add("made a change (type ");
             bank.number(entry.action_type);
-            bank.add(utf8_literal(")"));
+            bank.add(")");
         }
         const auto label = bank.since(start);
         const u32 detail = bank.used;
         relative_time(bank, (entry.id >> 22) + kSnowflakeEpochMilliseconds, now, false);
         if (entry.reason_bytes) {
-            bank.add(utf8_literal(" · "));
+            bank.add(" · ");
             bank.add({entry.reason, entry.reason_bytes});
         }
         const auto description = bank.since(detail);
@@ -98,7 +98,7 @@ void reset_audit() noexcept {
     owner->scene.content_offset = 0;
     queue(Op::audit_page);
 }
-void open_audit_menu(Menu menu, UiRect anchor) noexcept {
+void open_audit_menu(Menu menu, const UiRect& anchor) noexcept {
     auto& p = *owner;
     u32 count = 0;
     const auto item = [&](Utf8View label, bool checked) noexcept {

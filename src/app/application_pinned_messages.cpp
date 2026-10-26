@@ -138,16 +138,16 @@ void prepare_rows(ApplicationPinnedMessages& value) noexcept {
             {value.timestamps[index], sizeof(value.timestamps[index])});
         value.timestamp_bytes[index] = date.ok ? static_cast<u16>(date.bytes) : 0;
         TextBank detail{value.details[index], sizeof(value.details[index]), 0};
-        detail.add(utf8_literal("Pinned "));
+        detail.add("Pinned ");
         const auto pinned = format_timestamp_local(row.pinned_at_ms / 1000, 'd', now,
             {detail.data + detail.used, detail.capacity - detail.used});
         if (pinned.ok) detail.used += pinned.bytes;
-        else detail.add(utf8_literal("message"));
-        if (row.attachment_count) detail.add(utf8_literal(" · Attachments"));
-        if (row.embed_count) detail.add(utf8_literal(" · Embeds"));
-        if (row.sticker_count) detail.add(utf8_literal(" · Stickers"));
-        if (row.forwarded) detail.add(utf8_literal(" · Forwarded"));
-        if (row.excerpt_truncated) detail.add(utf8_literal(" · Open to read more"));
+        else detail.add("message");
+        if (row.attachment_count) detail.add(" · Attachments");
+        if (row.embed_count) detail.add(" · Embeds");
+        if (row.sticker_count) detail.add(" · Stickers");
+        if (row.forwarded) detail.add(" · Forwarded");
+        if (row.excerpt_truncated) detail.add(" · Open to read more");
         value.detail_bytes[index] = static_cast<u16>(detail.used);
         value.body_heights[index] = 48.f;
     }

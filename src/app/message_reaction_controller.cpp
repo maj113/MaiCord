@@ -11,21 +11,21 @@ u64 add_time(u64 value, u64 delay) noexcept {
     return value > ~u64{0} - delay ? ~u64{0} : value + delay;
 }
 
-bool actor_equal(MessageReactionActor left, MessageReactionActor right) noexcept {
+bool actor_equal(const MessageReactionActor& left, const MessageReactionActor& right) noexcept {
     return left.account_scope == right.account_scope && left.profile_id == right.profile_id &&
            left.self_user_id == right.self_user_id && left.instance == right.instance;
 }
 
-bool actor_valid(MessageReactionActor actor) noexcept {
+bool actor_valid(const MessageReactionActor& actor) noexcept {
     return actor.account_scope && actor.profile_id && actor.self_user_id && actor.instance;
 }
 
-bool source_equal(MessageReactionSource left, MessageReactionSource right) noexcept {
+bool source_equal(const MessageReactionSource& left, const MessageReactionSource& right) noexcept {
     return left.handle.slot == right.handle.slot && left.handle.generation == right.handle.generation &&
            left.revision == right.revision && left.channel_generation == right.channel_generation;
 }
 
-bool source_valid(MessageReactionSource source) noexcept {
+bool source_valid(const MessageReactionSource& source) noexcept {
     return source.handle.generation && source.channel_generation && source.revision;
 }
 

@@ -57,7 +57,7 @@ bool same_handle(MessageHandle a, MessageHandle b) noexcept {
 Utf8View name(const MessageReactionTarget& target) noexcept {
     return {target.name, target.name_bytes};
 }
-bool same_emoji(u64 id, Utf8View value, const MessageReactionTarget& target) noexcept {
+bool same_emoji(u64 id, const Utf8View& value, const MessageReactionTarget& target) noexcept {
     return id == target.emoji_id && (id || utf8_equal(value, name(target)));
 }
 const MessageRecord* resident(const MessageReactionTarget& target,

@@ -68,7 +68,7 @@ UiSettingsEditor settings_layer_editor_view(SettingsLayer*, u64, MessageComposer
 bool settings_layer_focus(SettingsLayer*, UiSettingsTarget) noexcept {
     return false;
 }
-bool settings_layer_open_choice(SettingsLayer*, u64, ConstSlice<PopupItem>, UiRect, float) noexcept {
+bool settings_layer_open_choice(SettingsLayer*, u64, const ConstSlice<PopupItem>&, const UiRect&, float) noexcept {
     return false;
 }
 void settings_layer_close_choice(SettingsLayer*) noexcept {
@@ -98,7 +98,7 @@ UiRect settings_layer_edit_bounds(SettingsLayer*) noexcept {
 bool settings_layer_edit_changed(SettingsLayer*, bool) noexcept {
     return false;
 }
-void settings_layer_cancel_native_group(SettingsLayer*, TextInputTarget) noexcept {
+void settings_layer_cancel_native_group(SettingsLayer*, const TextInputTarget&) noexcept {
 }
 
 namespace {

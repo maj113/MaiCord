@@ -52,17 +52,18 @@ void load() noexcept {
     set_editor(editor_vanity, {p.vanity_base, p.vanity_base_bytes});
 }
 
-void image_rows(Bank& bank, u64 id, u64 remove_id, Utf8View label, Utf8View description, u64 feature, Utf8View level,
-                GuildProfileImageEdit edit, const Picked& picked, bool stored_image, Utf8View* chip) noexcept {
+void image_rows(Bank& bank, u64 id, u64 remove_id, const Utf8View& label, const Utf8View& description, u64 feature,
+                const Utf8View& level, GuildProfileImageEdit edit, const Picked& picked, bool stored_image,
+                Utf8View* chip) noexcept {
     const bool unlocked = guild_features() & feature;
     const bool allowed = editable() && can_manage_guild();
     // "Unlocked" when the feature is present, else the boost level that brings it.
     *chip = unlocked ? utf8_literal("Unlocked") : level;
-    push({id, label,
-          edit == GuildProfileImageEdit::remove ? utf8_literal("Removed when you save.")
-                                                : picked_text(bank, picked, description),
-          UiSettingsControlKind::action, allowed && unlocked && connected(), false, {chip, 1}, 0,
-          unlocked ? utf8_literal("Upload Background") : utf8_literal("Unlock with Boosting"), nullptr});
+    push_choices(id, label,
+                 edit == GuildProfileImageEdit::remove ? utf8_literal("Removed when you save.")
+                                                       : picked_text(bank, picked, description),
+                 UiSettingsControlKind::action, allowed && unlocked && connected(), {chip, 1}, 0,
+                 unlocked ? utf8_literal("Upload Background") : utf8_literal("Unlock with Boosting"));
     const bool shown = edit == GuildProfileImageEdit::replace || (stored_image && edit == GuildProfileImageEdit::keep);
     if (shown)
         push_row(remove_id, utf8_literal("Remove"), {}, UiSettingsControlKind::action, allowed, false,
@@ -109,15 +110,15 @@ void project(Bank& bank) noexcept {
         return;
     }
     const u32 start = bank.used;
-    bank.add(utf8_literal("https://discord.gg/"));
+    bank.add("https://discord.gg/");
     bank.add(editor_text(editor_vanity));
     if (p.vanity_base_bytes) {
-        bank.add(utf8_literal(" · "));
+        bank.add(" · ");
         bank.number(p.vanity_uses);
         bank.add(p.vanity_uses == 1 ? utf8_literal(" use") : utf8_literal(" uses"));
     }
-    push({control_vanity, utf8_literal("Invite URL"), bank.since(start), UiSettingsControlKind::edit, edit, false, {},
-          0, {}, &editor_view(editor_vanity, control_vanity, {}, edit)});
+    push_editor(control_vanity, utf8_literal("Invite URL"), bank.since(start), UiSettingsControlKind::edit, edit,
+                editor_vanity, {});
     if (p.vanity_error)
         push_row(control_notice, guild_vanity_error_text(p.vanity_error_code), {}, UiSettingsControlKind::error, true,
                  false, {}, {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
@@ -308,7 +309,7 @@ bool boost_guild_patch(GuildSettingsPatch* patch) noexcept {
     return true;
 }
 
-void boost_saved(Op op, bool ok, Utf8View body, u64 now) noexcept {
+void boost_saved(Op op, bool ok, const Utf8View& body, u64 now) noexcept {
     auto& p = *owner;
     if (op == Op::vanity_update) {
         if (ok) {

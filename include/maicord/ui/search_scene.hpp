@@ -91,7 +91,7 @@ struct UiSearchTarget {
     MediaEmbedResource resource = MediaEmbedResource::none;
     bool save = false;
 };
-constexpr bool ui_search_target_equal(UiSearchTarget a, UiSearchTarget b) noexcept {
+constexpr bool ui_search_target_equal(const UiSearchTarget& a, const UiSearchTarget& b) noexcept {
     return a.action == b.action && a.channel_id == b.channel_id && a.message_id == b.message_id &&
            a.page_offset == b.page_offset && a.source_revision == b.source_revision &&
            a.source_index == b.source_index && a.rich_kind == b.rich_kind && a.rich_index == b.rich_index &&
@@ -201,8 +201,8 @@ bool ui_search_scene_set_media_policy(UiSearchScene*, const MessageMediaPolicy&)
 constexpr float ui_search_panel_width(float viewport_width) noexcept {
     return minimum(viewport_width >= 900 ? 420.f : 360.f, maximum(0.f, viewport_width));
 }
-bool ui_search_scene_update(UiSearchScene*, const UiSearchSource*, const UiSearchContent*, UiRect viewport,
-                            UiRect title, const UiShellHeaderGeometry* header = nullptr) noexcept;
+bool ui_search_scene_update(UiSearchScene*, const UiSearchSource*, const UiSearchContent*, const UiRect& viewport,
+                            const UiRect& title, const UiShellHeaderGeometry* header = nullptr) noexcept;
 void ui_search_scene_release(UiSearchScene*) noexcept;
 bool ui_search_scene_scroll(UiSearchScene*, float offset) noexcept;
 float ui_search_scene_scroll_maximum(const UiSearchScene&) noexcept;
@@ -219,10 +219,10 @@ MessageScene* ui_search_scene_message_scene(UiSearchScene*) noexcept;
 const MessageScene* ui_search_scene_message_scene(const UiSearchScene&) noexcept;
 // Call after the existing native text coordinator updates measured row heights.
 bool ui_search_scene_refresh_rich(UiSearchScene*) noexcept;
-bool ui_search_scene_target_current(const UiSearchScene&, UiSearchTarget) noexcept;
+bool ui_search_scene_target_current(const UiSearchScene&, const UiSearchTarget&) noexcept;
 UiSearchTarget ui_search_scene_rich_widget_target(const UiSearchScene&, UiWidgetHandle) noexcept;
-UiRect ui_search_scene_content_clip(const UiSearchScene&, UiRect rectangle) noexcept;
-bool ui_search_scene_rich_preview_geometry(const UiSearchScene&, UiSearchTarget, UiRect* rectangle,
+UiRect ui_search_scene_content_clip(const UiSearchScene&, const UiRect& rectangle) noexcept;
+bool ui_search_scene_rich_preview_geometry(const UiSearchScene&, const UiSearchTarget&, UiRect* rectangle,
                                            UiRect* clip) noexcept;
 bool ui_search_scene_avatar(const UiSearchScene&, u32 visible_slot, UiRect* rectangle,
                             UiRect* clip) noexcept;

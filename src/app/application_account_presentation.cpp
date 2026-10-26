@@ -43,6 +43,7 @@
 
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/log.hpp"
+#include "application_log_fields.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/trace_record.hpp"
@@ -53,6 +54,11 @@
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
+namespace {
+const UiNode* shell_node(UiSemantic semantic) noexcept {
+    return ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, semantic));
+}
+} // namespace
 #if !defined(MAICORD_ACCOUNT_TEXT_REFRESH_RUNTIME_TEST)
 namespace {
 void log_member_presentation() noexcept {
@@ -78,18 +84,22 @@ void log_member_presentation() noexcept {
             ++visible_named;
     }
     TraceRecord trace("member_presentation");
-    trace.field("same_guild", projection.guild_id == selected->guild_id ? u64{1} : u64{0});
-    trace.field("same_list", expected_list && projection.list_id == expected_list ? u64{1} : u64{0});
-    trace.field("thread_mode", projection.thread_mode ? u64{1} : u64{0});
-    trace.field("authoritative", projection.authoritative ? u64{1} : u64{0});
-    trace.field("awaiting_sync", projection.awaiting_sync ? u64{1} : u64{0});
-    trace.field("logical_count", projection.count);
-    trace.field("resident_count", projection.resident_count);
-    trace.field("scene_active", scene.active ? u64{1} : u64{0});
-    trace.field("pane_has_area", ui_rect_has_area(scene.viewport) ? u64{1} : u64{0});
-    trace.field("scene_rows", scene.count);
-    trace.field("visible_members", visible_members);
-    trace.field("visible_named_profiles", visible_named);
+    const u64 fields[] = {projection.guild_id == selected->guild_id,
+                          expected_list && projection.list_id == expected_list,
+                          projection.thread_mode,
+                          projection.authoritative,
+                          projection.awaiting_sync,
+                          projection.count,
+                          projection.resident_count,
+                          scene.active,
+                          ui_rect_has_area(scene.viewport),
+                          scene.count,
+                          visible_members,
+                          visible_named};
+    trace_fields(trace, "same_guild\0same_list\0thread_mode\0authoritative\0awaiting_sync\0logical_count\0"
+                        "resident_count\0scene_active\0pane_has_area\0scene_rows\0visible_members\0"
+                        "visible_named_profiles",
+                 fields);
     trace.write("member_hydration");
 }
 // The caller's own status for private member rows; unknown until the session
@@ -233,16 +243,11 @@ bool synchronize_shell_widget_scenes() noexcept {
     }
     const NavigationView* navigation =
         g_app.account_ui ? &g_app.account_ui->navigation_view : nullptr;
-    const UiNode* guild_rail =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::guild_navigation));
-    const UiNode* channel_navigation = ui_scene_resolve(
-        g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::channel_navigation));
-    const UiNode* message_view =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::message_view));
-    const UiNode* composer =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::composer));
-    const UiNode* members =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::member_sidebar));
+    const UiNode* guild_rail = shell_node(UiSemantic::guild_navigation);
+    const UiNode* channel_navigation = shell_node(UiSemantic::channel_navigation);
+    const UiNode* message_view = shell_node(UiSemantic::message_view);
+    const UiNode* composer = shell_node(UiSemantic::composer);
+    const UiNode* members = shell_node(UiSemantic::member_sidebar);
     const UiRect guild_viewport = guild_rail ? guild_rail->rectangle : UiRect{};
     const UiRect channel_viewport = channel_navigation ? channel_navigation->rectangle : UiRect{};
     UiRect message_viewport = !friends && message_view ? message_view->rectangle : UiRect{};
@@ -311,18 +316,15 @@ bool synchronize_shell_widget_scenes() noexcept {
                              (read_channel->actions & channel_action_read_history) &&
                              read_channel->last_read_message_id < read_channel->last_message_id;
     // Voice messages: the microphone, or the recording bar, for this channel.
-    {
-        const auto* composer_row =
-            navigation ? navigation_view_find_channel(*navigation, navigation->selected_channel_id) : nullptr;
-        message_composer_scene_set_voice(
-            &g_app.message_composer_scene,
-            !friends && g_app.account_ui
-                ? application_voice_message_view(composer_row ? composer_row->actions : 0,
-                                                 g_app.account.status.required_action !=
-                                                         AccountRequirement::none ||
-                                                     community_notice.bytes != 0)
-                : nullptr);
-    }
+    const auto* selected_row =
+        navigation ? navigation_view_find_channel(*navigation, navigation->selected_channel_id) : nullptr;
+    message_composer_scene_set_voice(
+        &g_app.message_composer_scene,
+        !friends && g_app.account_ui
+            ? application_voice_message_view(selected_row ? selected_row->actions : 0,
+                                             g_app.account.status.required_action != AccountRequirement::none ||
+                                                 community_notice.bytes != 0)
+            : nullptr);
     // The selected server's banner sets the channel list's top inset.
     application_guild_banner_project(clock_monotonic_milliseconds());
     u64 stage = 1;
@@ -350,11 +352,7 @@ bool synchronize_shell_widget_scenes() noexcept {
             message_composer_scene_update(
                 &g_app.message_composer_scene, &g_app.message_composer,
                 composer ? composer->rectangle : UiRect{},
-                navigation &&
-                    navigation_view_find_channel(*navigation, navigation->selected_channel_id) &&
-                    (navigation_view_find_channel(*navigation, navigation->selected_channel_id)
-                         ->actions &
-                     channel_action_send_messages) != 0,
+                selected_row && (selected_row->actions & channel_action_send_messages) != 0,
                 reply_label.bytes != 0 ? composer_context_message_id : 0, reply_label,
                 g_app.account_ui ? &composer_projection : nullptr, typing_label, composer_attachments,
                 g_app.account.status.required_action != AccountRequirement::none ||
@@ -615,46 +613,43 @@ bool rebuild_account_text_cache(bool scroll_refresh, bool scroll_moving) noexcep
             &g_app.renderer, clock_unix_milliseconds() / 1'000,
             renderer_text_measure_revision(g_app.renderer), &trace, scroll_refresh, scroll_moving});
     if (!coordinated.ok()) {
-        log_u64(LogLevel::error, "ui", "message_text_coordinator_error",
-                static_cast<u64>(coordinated.error));
-        log_u64(LogLevel::error, "ui", "message_text_coordinator_scene_error",
-                static_cast<u64>(coordinated.scene_error));
-        log_u64(LogLevel::error, "ui", "message_text_coordinator_presentation_error",
-                static_cast<u64>(coordinated.presentation_error));
-        log_u64(LogLevel::error, "ui", "message_text_coordinator_passes", coordinated.passes);
-        log_u64(LogLevel::error, "ui", "message_text_failure_message_id",
-                ui.message_text.failure_message_id);
-        log_u64(LogLevel::error, "ui", "message_text_failure_source_index",
-                ui.message_text.failure_source_index);
-        log_u64(LogLevel::error, "ui", "message_text_failure_stage",
-                static_cast<u64>(ui.message_text.failure_stage));
-        log_u64(LogLevel::error, "ui", "message_text_failure_operation",
-                static_cast<u64>(ui.message_text.failure_operation));
-        log_u64(LogLevel::error, "ui", "message_text_failure_item_index",
-                ui.message_text.failure_item_index);
-        log_u64(LogLevel::error, "ui", "message_text_failure_flow_error",
-                static_cast<u64>(ui.message_text.failure_flow_error));
-        log_u64(LogLevel::error, "ui", "message_text_skipped_components",
-                ui.message_text.rich.skipped_components);
+        const u64 failed[] = {static_cast<u64>(coordinated.error),
+                              static_cast<u64>(coordinated.scene_error),
+                              static_cast<u64>(coordinated.presentation_error),
+                              coordinated.passes,
+                              ui.message_text.failure_message_id,
+                              ui.message_text.failure_source_index,
+                              static_cast<u64>(ui.message_text.failure_stage),
+                              static_cast<u64>(ui.message_text.failure_operation),
+                              ui.message_text.failure_item_index,
+                              static_cast<u64>(ui.message_text.failure_flow_error),
+                              ui.message_text.rich.skipped_components};
+        log_u64_fields(LogLevel::error, "ui",
+                       "message_text_coordinator_error\0message_text_coordinator_scene_error\0"
+                       "message_text_coordinator_presentation_error\0message_text_coordinator_passes\0"
+                       "message_text_failure_message_id\0message_text_failure_source_index\0"
+                       "message_text_failure_stage\0message_text_failure_operation\0"
+                       "message_text_failure_item_index\0message_text_failure_flow_error\0"
+                       "message_text_skipped_components",
+                       failed);
         for (u32 pass = 0; pass < trace.count; ++pass) {
             const MessageTextCoordinatorPass& item = trace.passes[pass];
-            log_u64(LogLevel::error, "ui", "message_text_trace_pass", pass + 1u);
-            log_u64(LogLevel::error, "ui", "message_text_trace_flags", item.flags);
-            log_u64(LogLevel::error, "ui", "message_text_trace_scroll_units", item.scroll_units);
-            log_u64(LogLevel::error, "ui", "message_text_trace_total_units", item.total_units);
-            log_u64(LogLevel::error, "ui", "message_text_trace_first", item.first);
-            log_u64(LogLevel::error, "ui", "message_text_trace_count", item.count);
-            log_u64(LogLevel::error, "ui", "message_text_trace_commands", item.command_count);
-            log_u64(LogLevel::error, "ui", "message_text_trace_measurements", item.measurement_count);
+            const u64 values[] = {pass + 1u,      item.flags,         item.scroll_units, item.total_units,
+                                  item.first,     item.count,         item.command_count, item.measurement_count};
+            log_u64_fields(LogLevel::error, "ui",
+                           "message_text_trace_pass\0message_text_trace_flags\0message_text_trace_scroll_units\0"
+                           "message_text_trace_total_units\0message_text_trace_first\0message_text_trace_count\0"
+                           "message_text_trace_commands\0message_text_trace_measurements",
+                           values);
         }
-        log_u64(LogLevel::error, "render", "content_text_build_error",
-                static_cast<u64>(ui.renderer_text.last_error));
-        log_u64(LogLevel::error, "render", "content_text_shape_error",
-                static_cast<u64>(ui.renderer_text.last_shape_error));
-        log_u64(LogLevel::error, "render", "content_text_native_error",
-                static_cast<u64>(static_cast<u32>(ui.renderer_text.native_error)));
-        log_u64(LogLevel::error, "render", "content_text_quads", ui.renderer_text.quad_count);
-        log_u64(LogLevel::error, "render", "content_text_batches", ui.renderer_text.batch_count);
+        const u64 render[] = {static_cast<u64>(ui.renderer_text.last_error),
+                              static_cast<u64>(ui.renderer_text.last_shape_error),
+                              static_cast<u64>(static_cast<u32>(ui.renderer_text.native_error)),
+                              ui.renderer_text.quad_count, ui.renderer_text.batch_count};
+        log_u64_fields(LogLevel::error, "render",
+                       "content_text_build_error\0content_text_shape_error\0content_text_native_error\0"
+                       "content_text_quads\0content_text_batches",
+                       render);
         const bool fallback_built = renderer_rebuild_shell_text(&g_app.renderer, application_theme());
         log_u64(fallback_built ? LogLevel::warning : LogLevel::error, "render",
                 "content_text_shell_fallback", fallback_built ? 1u : 0u);
@@ -795,12 +790,8 @@ bool refresh_shell_text(bool force) noexcept {
     const bool group_dm = home && selected && selected->type == 3;
     const bool scope_changed =
         (g_app.shell_scene.view == UiShellView::private_channels) != home ||
-        (home && (ui_scene_resolve(g_app.shell_scene,
-                                   ui_scene_find(g_app.shell_scene, UiSemantic::member_toggle)) !=
-                  nullptr) != group_dm) ||
-        (home &&
-         (ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::composer)) !=
-          nullptr) != (ui.chat_state.selected_channel_id != 0));
+        (home && (shell_node(UiSemantic::member_toggle) != nullptr) != group_dm) ||
+        (home && (shell_node(UiSemantic::composer) != nullptr) != (ui.chat_state.selected_channel_id != 0));
     // A channel's permissions or type arriving after the first layout (launch
     // restores the channel before READY) changes its header controls.
     const bool header_stale = ui_scene_header_stale(g_app.shell_scene, shell_header_flags(false));

@@ -503,38 +503,44 @@ void request_close() noexcept;
 const RoleRecord* role(u64 id) noexcept;
 bool pending(const Picked& picked) noexcept;
 void release_picked(Picked* picked) noexcept;
-void set_editor(Editor index, Utf8View text) noexcept;
+void set_editor(Editor index, const Utf8View& text) noexcept;
 Utf8View editor_text(Editor index) noexcept;
 void start_pick(Pick pick) noexcept;
 
 // Projection helpers.
-u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation = {}) noexcept;
 // Fills popup row `index` (enabled plus `flags`); the action is kMenuChoiceBase + action.
-void popup_row(u32 index, Utf8View label, u32 action, u32 flags = 0) noexcept;
+void popup_row(u32 index, const Utf8View& label, u32 action, u32 flags = 0) noexcept;
 // A control with no choices or editor: an optional action button label.
-u32 push_row(u64 id, Utf8View label, Utf8View description, UiSettingsControlKind kind, bool enabled,
-             bool checked = false, Utf8View action = {}, UiSettingsControlPresentation presentation = {}) noexcept;
-u32 push_category(u64 id, Utf8View label, Utf8View description = {}) noexcept;
+u32 push_row(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
+             bool checked = false, const Utf8View& action = {}, UiSettingsControlPresentation presentation = {}) noexcept;
+// A row with a choice list (choice, radio, swatches, tabs, buttons, segments) and the selected choice.
+u32 push_choices(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
+                 const ConstSlice<Utf8View>& choices, u32 selected = 0, const Utf8View& action = {},
+                 UiSettingsControlPresentation presentation = {}) noexcept;
+// An edit or multiline row over the editor `index`; `action` labels the button beside the field.
+u32 push_editor(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
+                Editor index, const Utf8View& placeholder, const Utf8View& action = {}) noexcept;
+u32 push_category(u64 id, const Utf8View& label, const Utf8View& description = {}) noexcept;
 // A plain notice row.
-u32 push_notice(Utf8View description, Utf8View label = {}) noexcept;
+u32 push_notice(const Utf8View& description, const Utf8View& label = {}) noexcept;
 // A critical notice; `action` labels its retry button.
-u32 push_error(Utf8View label, Utf8View description, Utf8View action = {}) noexcept;
+u32 push_error(const Utf8View& label, const Utf8View& description, const Utf8View& action = {}) noexcept;
 // A notice with the loading spinner.
-u32 push_loading(Utf8View description, u64 id = control_notice) noexcept;
+u32 push_loading(const Utf8View& description, u64 id = control_notice) noexcept;
 // The list heading "<title><count>".
-u32 push_count_heading(Bank& bank, Utf8View title, u32 count) noexcept;
-Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept;
-UiSettingsEditor& editor_view(Editor index, u64 control, Utf8View placeholder, bool enabled) noexcept;
+u32 push_count_heading(Bank& bank, const Utf8View& title, u32 count) noexcept;
+Utf8View channel_label(Bank& bank, u64 channel_id, const Utf8View& none) noexcept;
+UiSettingsEditor& editor_view(Editor index, u64 control, const Utf8View& placeholder, bool enabled) noexcept;
 u32 person_color(u64 user_id) noexcept;
 void image_summary(Bank& bank, const GuildImageInfo& info) noexcept;
-Utf8View picked_text(Bank& bank, const Picked& picked, Utf8View current) noexcept;
+Utf8View picked_text(Bank& bank, const Picked& picked, const Utf8View& current) noexcept;
 void relative_time(Bank& bank, u64 then_ms, u64 now_ms, bool future) noexcept;
 Utf8View user_label(u64 id) noexcept;
 Utf8View user_name(const GuildAdminUser& user) noexcept;
 // Channels of `types` (a bit per channel type) in channel-list order behind a
 // first "none" row; menu_channel holds the matching ids.
-void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, PermissionSet required,
-                       UiRect anchor) noexcept;
+void open_channel_menu(Menu menu, u32 types, u64 current, const Utf8View& none, PermissionSet required,
+                       const UiRect& anchor) noexcept;
 
 // Roles: a dragged row dropped before or after another, and the draft
 // order with deleted roles skipped.
@@ -557,19 +563,19 @@ void server_profile_loaded(const GuildAdminProfile* profile) noexcept;
 // Server Profile: the save's body (cropping a new icon first) and its outcome.
 bool profile_patch(GuildSettingsPatch* patch, GuildServerProfileWrite* write,
                    Slice<GuildServerProfileTraitWrite> traits) noexcept;
-void profile_saved(bool ok, Utf8View body) noexcept;
+void profile_saved(bool ok, const Utf8View& body) noexcept;
 // Boost Perks: the vanity read, the save's two requests and their outcomes.
 void boost_vanity_loaded(const GuildAdminVanity* vanity) noexcept;
 bool boost_vanity_patch(GuildSettingsPatch* patch) noexcept;
 bool boost_guild_patch(GuildSettingsPatch* patch) noexcept;
-void boost_saved(Op op, bool ok, Utf8View body, u64 now) noexcept;
+void boost_saved(Op op, bool ok, const Utf8View& body, u64 now) noexcept;
 void release_uri(u8** uri, u32* bytes) noexcept;
 
 // Members: the search request of the current filters and page, its
 // outcome, the debounced text and the bulk ban update.
 bool members_search_request(GuildModerationRequest* request, GuildMemberSearchQuery* query) noexcept;
 void members_search_sent() noexcept;
-void members_search_response(const RestClientResponse& response, Utf8View body, u64 now) noexcept;
+void members_search_response(const RestClientResponse& response, const Utf8View& body, u64 now) noexcept;
 void members_tick(u64 now) noexcept;
 void members_bulk_ban_update(const GuildBulkBanUpdate& update) noexcept;
 void members_release() noexcept;
@@ -578,7 +584,7 @@ bool audit_load_visible() noexcept;
 // Bans: Enter in the search box, the ban search request and its reply.
 void bans_editor_enter() noexcept;
 bool bans_search_request(GuildModerationRequest* request) noexcept;
-void bans_search_loaded(bool ok, Utf8View body) noexcept;
+void bans_search_loaded(bool ok, const Utf8View& body) noexcept;
 
 // Text forms.
 TextFormOwnerKey form_key(u64 kind, u64 item) noexcept;

@@ -156,7 +156,7 @@ struct MlsUpdatePath {
 MlsStatus mls_update_path_parse(KdfSha256Workspace* kdf, ConstSlice<u8> input, const u8* group_id,
                                 u32 committer_leaf, MlsUpdatePath* path, u32* consumed) noexcept;
 // Cursor over UpdatePathNode or HPKECiphertext vectors (offset advanced).
-MlsStatus mls_update_path_node_next(ConstSlice<u8> nodes, u32* offset, MlsUpdatePathNode* node,
+MlsStatus mls_update_path_node_next(const ConstSlice<u8>& nodes, u32* offset, MlsUpdatePathNode* node,
                                     bool* has_node) noexcept;
 MlsStatus mls_hpke_ciphertext_next(ConstSlice<u8> ciphertexts, u32* offset, MlsHpkeCiphertext* ciphertext,
                                    bool* has_ciphertext) noexcept;

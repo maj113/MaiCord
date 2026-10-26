@@ -18,7 +18,7 @@ UiSettingsAvatarMedia application_guild_icon_media(u64 guild_id) noexcept;
 // the default avatar (embed/avatars/{n}.png; n is discriminator % 5 for
 // legacy tags, else (id >> 22) % 6) under the profile card's key. The hash
 // field then carries that CDN path.
-UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, Utf8View avatar_hash,
+UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, const Utf8View& avatar_hash,
                                                            u16 discriminator) noexcept;
 void application_preferences_initialize() noexcept;
 void application_preferences_apply() noexcept;

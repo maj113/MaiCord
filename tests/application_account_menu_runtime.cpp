@@ -358,7 +358,7 @@ bool dismiss_popup() noexcept {
     set_popup_owner(PopupOwnerKind::none);
     return true;
 }
-bool application_profile_open(u64 user, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open(u64 user, const UiRect&, ProfileAnchor) noexcept {
     ++account_menu_runtime_test::views;
     account_menu_runtime_test::viewed_user = user;
     return true;

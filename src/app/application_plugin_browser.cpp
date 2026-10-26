@@ -72,7 +72,7 @@ bool g_status_critical;
 BrowserUi* g_ui;
 
 u64 now_unix() noexcept { return clock_unix_milliseconds() / 1000; }
-void set_status(Utf8View text, bool critical = false) noexcept {
+void set_status(const Utf8View& text, bool critical = false) noexcept {
     g_status_bytes = utf8_copy_truncated(g_status, text);
     g_status_critical = critical;
 }

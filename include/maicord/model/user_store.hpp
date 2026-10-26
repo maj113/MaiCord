@@ -81,9 +81,9 @@ void user_store_clear_pins(UserStore* store) noexcept;
 bool user_store_pin(UserStore* store, u64 id) noexcept;
 UserStoreResult user_store_upsert(UserStore* store,
                                                  u64 id,
-                                                 Utf8View display_name, Utf8View username = {}) noexcept;
+                                                 const Utf8View& display_name, const Utf8View& username = {}) noexcept;
 bool user_store_set_avatar(UserStore* store, u64 id,
-                                   Utf8View avatar_hash) noexcept;
+                                   const Utf8View& avatar_hash) noexcept;
 // Per-platform presence for a resident user; true when it changed. It never
 // advances the store revision: presence repaints are coalesced by the caller.
 bool user_store_set_client_status(UserStore* store, u64 id, u8 client_status) noexcept;
@@ -96,6 +96,6 @@ Utf8View user_store_name(const UserStore& store,
 Utf8View user_store_username(const UserStore& store, const UserRecord& record) noexcept;
 Utf8View user_store_avatar_hash(
     const UserRecord& record) noexcept;
-u32 user_avatar_variant(Utf8View avatar_hash) noexcept;
+u32 user_avatar_variant(const Utf8View& avatar_hash) noexcept;
 
 } // namespace maicord

@@ -27,29 +27,29 @@ void project_invites(Bank& bank) noexcept {
         if (const auto* channel = chat_state_store_find_channel(state(), invite.channel_id)) {
             bank.add(channel->type == 2 ? utf8_literal("") : utf8_literal("#"));
             bank.add(chat_state_store_channel_name(state(), *channel));
-            bank.add(utf8_literal(" · "));
+            bank.add(" · ");
         }
         const auto inviter = user_label(invite.inviter_id);
         if (inviter.bytes) {
-            bank.add(utf8_literal("by "));
+            bank.add("by ");
             bank.add(inviter);
-            bank.add(utf8_literal(" · "));
+            bank.add(" · ");
         }
         bank.number(invite.uses);
         if (invite.max_uses) {
-            bank.add(utf8_literal("/"));
+            bank.add("/");
             bank.number(invite.max_uses);
         }
         bank.add(invite.uses == 1 && !invite.max_uses ? utf8_literal(" use · ") : utf8_literal(" uses · "));
         if (invite.expires_at_ms) {
-            bank.add(utf8_literal("expires "));
+            bank.add("expires ");
             relative_time(bank, invite.expires_at_ms, now, true);
         } else
-            bank.add(utf8_literal("never expires"));
+            bank.add("never expires");
         const auto description = bank.since(start);
-        push({kRowBase + i, code, description, UiSettingsControlKind::buttons, true, false,
-              {kInviteActions, editable() ? 2u : 1u}, 0, {}, nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        push_choices(kRowBase + i, code, description, UiSettingsControlKind::buttons, true,
+                     {kInviteActions, editable() ? 2u : 1u}, 0, {},
+                     {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     }
 }
 
@@ -58,9 +58,9 @@ void confirm_revoke_invite(u32 index) noexcept {
         return;
     static char title[96];
     Bank bank{title, sizeof(title), 0};
-    bank.add(utf8_literal("Revoke invite "));
+    bank.add("Revoke invite ");
     bank.add({owner->invites[index].code, owner->invites[index].code_bytes});
-    bank.add(utf8_literal("?"));
+    bank.add("?");
     // A plain confirmation: revoking sends no reason.
     ApplicationTextFormRequest request{};
     request.title = bank.since(0);
@@ -79,7 +79,7 @@ bool copy_invite(u32 index) noexcept {
     const auto& invite = owner->invites[index];
     char link[96];
     Bank bank{link, sizeof(link), 0};
-    bank.add(utf8_literal("https://discord.gg/"));
+    bank.add("https://discord.gg/");
     bank.add({invite.code, invite.code_bytes});
     return application_copy_text(bank.since(0), kToastInviteCopied, kToastLinkCopyFailed);
 }

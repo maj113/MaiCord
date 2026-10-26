@@ -69,7 +69,7 @@ u32 byte_offset(Utf8View text, u32 utf16) noexcept {
 }
 
 void add_count(UiAccessNameBuilder* name, u64 count, Utf8View one, Utf8View many) noexcept {
-    name->number(count).add(utf8_literal(" ")).add(count == 1 ? one : many);
+    name->number(count).add(" ").add(count == 1 ? one : many);
 }
 
 u32 add_widgets(UiAccessTree* tree, u32 parent, const UiWidgetManager& manager, UiAccessDescribe describe,
@@ -205,7 +205,7 @@ void search_group(void* context, u8 group, UiAccessNodeDesc* description) noexce
         break;
     case search_results:
         description->role = UiAccessRole::list;
-        g_group_name.clear().add(utf8_literal("Search results"));
+        g_group_name.clear().add("Search results");
         if (s.count_bytes)
             g_group_name.part({s.count_text, s.count_bytes});
         description->name = g_group_name.view();
@@ -244,7 +244,7 @@ void describe_search(void* context, const UiWidgetManager& manager, UiWidgetHand
         return;
     }
     if (same(handle, s.scope) && content) {
-        g_name.clear().add(utf8_literal("Remove search scope: ")).add(content->scope_chip);
+        g_name.clear().add("Remove search scope: ").add(content->scope_chip);
         info->name = g_name.view();
         info->help = utf8_literal("Search the whole server instead");
         info->leaf = true;
@@ -269,7 +269,7 @@ void describe_search(void* context, const UiWidgetManager& manager, UiWidgetHand
         info->state |= content->filters ? ui_access_expanded : ui_access_collapsed;
         return;
     case UiSearchAction::sort:
-        g_name.clear().add(utf8_literal("Sort: ")).add(search_sort_label(
+        g_name.clear().add("Sort: ").add(search_sort_label(
             content->sort == 0 ? UiSearchAction::newest
             : content->sort == 1 ? UiSearchAction::oldest
                                  : UiSearchAction::relevance));
@@ -301,9 +301,9 @@ void describe_search(void* context, const UiWidgetManager& manager, UiWidgetHand
     case UiSearchAction::page: {
         const u32 size = content->page_size ? content->page_size : 25;
         const u32 page = target.page_offset / size;
-        g_name.clear().add(utf8_literal("Page ")).number(page + 1u);
+        g_name.clear().add("Page ").number(page + 1u);
         if (page == content->offset / size) {
-            g_name.add(utf8_literal(", current page"));
+            g_name.add(", current page");
             info->state |= ui_access_selected;
         }
         info->name = g_name.view();
@@ -317,7 +317,7 @@ void describe_search(void* context, const UiWidgetManager& manager, UiWidgetHand
         info->leaf = true;
         g_name.clear().add(search_tab_label(tab));
         if (tab < 5 && ((content->tab_known >> tab) & 1u))
-            g_name.add(utf8_literal(", ")).number(content->tab_totals[tab]).add(utf8_literal(" results"));
+            g_name.add(", ").number(content->tab_totals[tab]).add(" results");
         info->name = g_name.view();
         info->state |= ui_access_selectable | (content->tab == tab ? ui_access_selected : 0);
         info->actions = ui_access_action_select;
@@ -337,15 +337,15 @@ void describe_search(void* context, const UiWidgetManager& manager, UiWidgetHand
                 row = &s.visible[slot];
         g_name.clear();
         if (row && row->unavailable) {
-            g_name.add(utf8_literal("Unavailable message"));
+            g_name.add("Unavailable message");
         } else if (row) {
             g_name.part(pick(row->author, utf8_literal("Unknown author"))).part(row->detail);
             if (row->body.bytes)
-                g_name.add(utf8_literal(": ")).add(row->body);
+                g_name.add(": ").add(row->body);
             if (row->channel.bytes)
-                g_name.add(utf8_literal(", in ")).add(row->channel);
+                g_name.add(", in ").add(row->channel);
         } else {
-            g_name.add(utf8_literal("Search result"));
+            g_name.add("Search result");
         }
         info->name = g_name.view();
         info->state |= ui_access_focusable;
@@ -398,9 +398,9 @@ void describe_pins(void* context, const UiWidgetManager&, UiWidgetHandle handle,
     const auto focused = s.focused;
     if (same(handle, s.root)) {
         info->role = UiAccessRole::pane;
-        g_name.clear().add(utf8_literal("Pinned messages"));
+        g_name.clear().add("Pinned messages");
         if (content && content->channel.bytes)
-            g_name.add(utf8_literal(" in ")).add(content->channel);
+            g_name.add(" in ").add(content->channel);
         info->name = g_name.view();
         return;
     }
@@ -439,7 +439,7 @@ void describe_pins(void* context, const UiWidgetManager&, UiWidgetHandle handle,
             info->key = row.message_id;
             info->item = row.message_id;
             g_name.clear().part(pick(row.author, utf8_literal("Unknown author"))).part(row.timestamp);
-            g_name.add(utf8_literal(": ")).add(pick(row.body, utf8_literal("Message has no text"))).part(row.detail);
+            g_name.add(": ").add(pick(row.body, utf8_literal("Message has no text"))).part(row.detail);
             info->name = g_name.view();
             info->help = utf8_literal("Jump to message");
             info->state |= ui_access_focusable;
@@ -452,7 +452,7 @@ void describe_pins(void* context, const UiWidgetManager&, UiWidgetHandle handle,
             return;
         }
         if (same(handle, s.unpin[slot])) {
-            g_name.clear().add(utf8_literal("Unpin message from ")).add(pick(row.author, utf8_literal("unknown author")));
+            g_name.clear().add("Unpin message from ").add(pick(row.author, utf8_literal("unknown author")));
             info->name = g_name.view();
             info->leaf = true;
             if (row.unpin_pending)
@@ -488,7 +488,7 @@ void describe_threads(void* context, const UiWidgetManager&, UiWidgetHandle hand
         info->role = UiAccessRole::pane;
         g_name.clear().add(s.forum ? utf8_literal("Posts") : utf8_literal("Threads"));
         if (view && view->title.bytes)
-            g_name.add(utf8_literal(" in ")).add(view->title);
+            g_name.add(" in ").add(view->title);
         info->name = g_name.view();
         // The panel has no field of its own; the header search bar is scoped to it.
         info->help = s.forum ? utf8_literal("Search post titles with the header search bar")
@@ -523,7 +523,7 @@ void describe_threads(void* context, const UiWidgetManager&, UiWidgetHandle hand
     if (view && view->forum && s.backing) {
         const auto& forum = *view->forum;
         if (same(handle, s.forum_sort)) {
-            g_name.clear().add(utf8_literal("Sort by: ")).add(ui_forum_sort_label(forum.sort));
+            g_name.clear().add("Sort by: ").add(ui_forum_sort_label(forum.sort));
             info->name = g_name.view();
             info->leaf = true;
             return;
@@ -671,13 +671,13 @@ void describe_inbox(void* context, const UiWidgetManager& manager, UiWidgetHandl
             if (row.kind == UiInboxRowKind::mention) {
                 g_name.part(pick(row.title, utf8_literal("Unknown author"))).part(row.timestamp);
                 if (row.body.bytes)
-                    g_name.add(utf8_literal(": ")).add(row.body);
+                    g_name.add(": ").add(row.body);
                 if (row.detail.bytes)
-                    g_name.add(utf8_literal(", in ")).add(row.detail);
+                    g_name.add(", in ").add(row.detail);
             } else {
                 g_name.part(row.title);
                 if (row.mention_count)
-                    g_name.add(utf8_literal(", ")).number(row.mention_count).add(
+                    g_name.add(", ").number(row.mention_count).add(
                         row.mention_count == 1 ? utf8_literal(" mention") : utf8_literal(" mentions"));
                 else
                     g_name.part(utf8_literal("unread"));
@@ -693,9 +693,9 @@ void describe_inbox(void* context, const UiWidgetManager& manager, UiWidgetHandl
         if (same(handle, s.actions[slot])) {
             g_name.clear();
             if (row.kind == UiInboxRowKind::group)
-                g_name.add(utf8_literal("Mark all as read in ")).add(row.title);
+                g_name.add("Mark all as read in ").add(row.title);
             else
-                g_name.add(utf8_literal("Mark ")).add(row.title).add(utf8_literal(" as read"));
+                g_name.add("Mark ").add(row.title).add(" as read");
             info->name = g_name.view();
             info->leaf = true;
             return;
@@ -902,14 +902,14 @@ void mount_viewer_media(void* context, UiAccessTree* tree, u32 node) noexcept {
     media.surface = tree->nodes[node].surface;
     g_name.clear().add(v.video ? utf8_literal("Video") : utf8_literal("Image"));
     if (v.item_count > 1)
-        g_name.add(utf8_literal(" ")).number(v.item + 1u).add(utf8_literal(" of ")).number(v.item_count);
+        g_name.add(" ").number(v.item + 1u).add(" of ").number(v.item_count);
     media.name = g_name.view();
     UiAccessNameBuilder help{};
     // 100% is one source pixel per device pixel.
     if (!v.video && v.zoom > 0) {
-        help.add(utf8_literal("Zoom "))
+        help.add("Zoom ")
             .number(static_cast<u64>(v.zoom / ui_image_viewer_actual_zoom(v) * 100.0f + 0.5f))
-            .add(utf8_literal("%"));
+            .add("%");
         media.help = help.view();
     }
     if (v.caption_bytes)
@@ -925,7 +925,7 @@ void describe_viewer(void* context, const UiWidgetManager&, UiWidgetHandle handl
         info->state |= ui_access_modal;
         g_name.clear().add(v.video ? utf8_literal("Video viewer") : utf8_literal("Image viewer"));
         if (v.item_count > 1)
-            g_name.add(utf8_literal(", ")).number(v.item + 1u).add(utf8_literal(" of ")).number(v.item_count);
+            g_name.add(", ").number(v.item + 1u).add(" of ").number(v.item_count);
         info->name = g_name.view();
         info->mount = mount_viewer_media;
         info->mount_context = context;
@@ -1021,7 +1021,7 @@ void describe_picker(void* context, const UiWidgetManager&, UiWidgetHandle handl
         }
     if (same(handle, s.edit)) {
         const UiEditView view = content ? content->edit : UiEditView{};
-        g_name.clear().add(utf8_literal("Search ")).add(kind == UiMediaPickerKind::gif ? utf8_literal("GIFs")
+        g_name.clear().add("Search ").add(kind == UiMediaPickerKind::gif ? utf8_literal("GIFs")
                                                         : kind == UiMediaPickerKind::sticker ? utf8_literal("stickers")
                                                                                              : utf8_literal("emoji"));
         edit_field(info, g_name.view(), content ? content->placeholder : Utf8View{}, view.text, view.anchor, view.caret,
@@ -1175,7 +1175,7 @@ void add_call_control(UiAccessTree* tree, u32 parent, u8 surface, const UiCallSc
 void call_tile_name(const UiCallParticipant& p, UiAccessNameBuilder* name) noexcept {
     name->clear();
     if (p.stream != UiCallStream::none) {
-        name->add(pick(p.name, utf8_literal("Someone"))).add(utf8_literal("'s stream"));
+        name->add(pick(p.name, utf8_literal("Someone"))).add("'s stream");
         switch (p.stream) {
         case UiCallStream::available: name->part(utf8_literal("live, not watching")); break;
         case UiCallStream::connecting: name->part(utf8_literal("connecting")); break;
@@ -1191,7 +1191,7 @@ void call_tile_name(const UiCallParticipant& p, UiAccessNameBuilder* name) noexc
         default: break;
         }
         if (p.viewers)
-            name->add(utf8_literal(", ")).number(p.viewers).add(p.viewers == 1 ? utf8_literal(" viewer")
+            name->add(", ").number(p.viewers).add(p.viewers == 1 ? utf8_literal(" viewer")
                                                                                : utf8_literal(" viewers"));
         return;
     }
@@ -1236,7 +1236,7 @@ void mount_call(void* context, UiAccessTree* tree, u32 node) noexcept {
     }
     // Participants (stage speakers) with speaking and mute state.
     g_name.clear().add(s.stage_active ? utf8_literal("Speakers") : utf8_literal("Participants"));
-    g_name.add(utf8_literal(", ")).number(s.tile_count);
+    g_name.add(", ").number(s.tile_count);
     const UiRect area = s.stage_active && ui_rect_has_area(s.stage_speakers) ? s.stage_speakers : s.stage;
     const u32 list = add_synthetic(tree, node, surface, 5, UiAccessRole::list, area, s.viewport, g_name.view(), 0,
                                    ui_access_action_scroll);
@@ -1267,7 +1267,7 @@ void mount_call(void* context, UiAccessTree* tree, u32 node) noexcept {
         }
     }
     if (ui_rect_has_area(s.stage_audience)) {
-        g_name.clear().add(utf8_literal("Audience, ")).number(s.stage_audience_count);
+        g_name.clear().add("Audience, ").number(s.stage_audience_count);
         const u32 audience =
             add_synthetic(tree, node, surface, 6, UiAccessRole::list, s.stage_audience, s.viewport, g_name.view());
         for (u32 index = 0; audience != kUiAccessNone && index < s.stage_audience_shown; ++index) {
@@ -1279,7 +1279,7 @@ void mount_call(void* context, UiAccessTree* tree, u32 node) noexcept {
         }
     }
     if (ui_rect_has_area(s.stage_requests)) {
-        g_name.clear().add(utf8_literal("Requests to speak, ")).number(s.stage_request_count);
+        g_name.clear().add("Requests to speak, ").number(s.stage_request_count);
         const u32 requests =
             add_synthetic(tree, node, surface, 7, UiAccessRole::list, s.stage_requests, s.viewport, g_name.view());
         for (u32 index = 0; requests != kUiAccessNone && index < s.stage_request_shown; ++index) {
@@ -1317,7 +1317,7 @@ void describe_call(void* context, const UiWidgetManager&, UiWidgetHandle handle,
     info->role = UiAccessRole::pane;
     g_name.clear().add(s.stage_active ? utf8_literal("Stage") : utf8_literal("Call"));
     if (s.title_bytes)
-        g_name.add(utf8_literal(": ")).add({s.title, s.title_bytes});
+        g_name.add(": ").add({s.title, s.title_bytes});
     info->name = g_name.view();
     info->leaf = true;
     info->ignore_text = true; // names, badges and labels are projected by mount_call
@@ -1406,10 +1406,10 @@ bool ui_access_quick_switcher_summary(const UiQuickSwitcherScene& scene, UiAcces
         add_count(output, scene.accepted_count, utf8_literal("result"), utf8_literal("results"));
         return true;
     case UiQuickSwitcherPhase::no_matches:
-        output->add(utf8_literal("No matches"));
+        output->add("No matches");
         return true;
     case UiQuickSwitcherPhase::unavailable:
-        output->add(utf8_literal("Results unavailable"));
+        output->add("Results unavailable");
         return true;
     default:
         return false;

@@ -210,7 +210,7 @@ EditorStorage editor_storage(Editor index) noexcept {
     }
 }
 } // namespace
-void set_editor(Editor index, Utf8View text) noexcept {
+void set_editor(Editor index, const Utf8View& text) noexcept {
     application_composer_text_input_suspend();
     auto& model = owner->models[index];
     const auto storage = editor_storage(index);
@@ -247,21 +247,15 @@ u32 claim_control(UiSettingsControlPresentation presentation) noexcept {
     return owner->control_count++;
 }
 } // namespace
-u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation) noexcept {
-    const u32 index = claim_control(presentation);
-    if (index != ~0u)
-        owner->controls[index] = control;
-    return index;
-}
-void popup_row(u32 index, Utf8View label, u32 action, u32 flags) noexcept {
+void popup_row(u32 index, const Utf8View& label, u32 action, u32 flags) noexcept {
     auto& item = owner->popup_items[index];
     reset_value(&item);
     item.label = label;
     item.action = kMenuChoiceBase + action;
     item.flags = static_cast<u16>(popup_item_enabled | flags);
 }
-u32 push_row(u64 id, Utf8View label, Utf8View description, UiSettingsControlKind kind, bool enabled, bool checked,
-             Utf8View action, UiSettingsControlPresentation presentation) noexcept {
+u32 push_row(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
+             bool checked, const Utf8View& action, UiSettingsControlPresentation presentation) noexcept {
     const u32 index = claim_control(presentation);
     if (index == ~0u)
         return index;
@@ -278,26 +272,44 @@ u32 push_row(u64 id, Utf8View label, Utf8View description, UiSettingsControlKind
     control.editor = nullptr;
     return index;
 }
-u32 push_category(u64 id, Utf8View label, Utf8View description) noexcept {
+u32 push_choices(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
+                 const ConstSlice<Utf8View>& choices, u32 selected, const Utf8View& action,
+                 UiSettingsControlPresentation presentation) noexcept {
+    const u32 index = push_row(id, label, description, kind, enabled, false, action, presentation);
+    if (index != ~0u) {
+        owner->controls[index].choices = choices;
+        owner->controls[index].selected_choice = selected;
+    }
+    return index;
+}
+u32 push_editor(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind, bool enabled,
+                Editor index, const Utf8View& placeholder, const Utf8View& action) noexcept {
+    const UiSettingsEditor* view = &editor_view(index, id, placeholder, enabled);
+    const u32 row = push_row(id, label, description, kind, enabled, false, action);
+    if (row != ~0u)
+        owner->controls[row].editor = view;
+    return row;
+}
+u32 push_category(u64 id, const Utf8View& label, const Utf8View& description) noexcept {
     return push_row(id, label, description, UiSettingsControlKind::category, true);
 }
-u32 push_notice(Utf8View description, Utf8View label) noexcept {
+u32 push_notice(const Utf8View& description, const Utf8View& label) noexcept {
     return push_row(control_notice, label, description, UiSettingsControlKind::notice, true);
 }
-u32 push_error(Utf8View label, Utf8View description, Utf8View action) noexcept {
+u32 push_error(const Utf8View& label, const Utf8View& description, const Utf8View& action) noexcept {
     return push_row(control_notice, label, description, UiSettingsControlKind::notice, true, false, action,
                     {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
 }
-u32 push_loading(Utf8View description, u64 id) noexcept {
+u32 push_loading(const Utf8View& description, u64 id) noexcept {
     return push_row(id, {}, description, UiSettingsControlKind::notice, true, true);
 }
-u32 push_count_heading(Bank& bank, Utf8View title, u32 count) noexcept {
+u32 push_count_heading(Bank& bank, const Utf8View& title, u32 count) noexcept {
     const u32 start = bank.used;
     bank.add(title);
     bank.number(count);
     return push_category(control_list_category, bank.since(start));
 }
-Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept {
+Utf8View channel_label(Bank& bank, u64 channel_id, const Utf8View& none) noexcept {
     const auto* channel = channel_id ? chat_state_store_find_channel(state(), channel_id) : nullptr;
     if (!channel)
         return none;
@@ -306,7 +318,7 @@ Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept {
     bank.add(chat_state_store_channel_name(state(), *channel));
     return bank.since(start);
 }
-UiSettingsEditor& editor_view(Editor index, u64 control, Utf8View placeholder, bool enabled) noexcept {
+UiSettingsEditor& editor_view(Editor index, u64 control, const Utf8View& placeholder, bool enabled) noexcept {
     owner->editors[index] =
         settings_layer_editor_view(&owner->layer, control, owner->models[index], placeholder, enabled);
     return owner->editors[index];
@@ -323,26 +335,26 @@ void image_summary(Bank& bank, const GuildImageInfo& info) noexcept {
                                utf8_literal(" JPEG"), utf8_literal(" WebP"), utf8_literal(" Lottie")};
     if (info.width) {
         bank.number(info.width);
-        bank.add(utf8_literal("×"));
+        bank.add("×");
         bank.number(info.height);
     }
     bank.add(kinds[static_cast<u32>(info.kind) < 7 ? static_cast<u32>(info.kind) : 0]);
     if (info.animated)
-        bank.add(utf8_literal(" (animated)"));
-    bank.add(utf8_literal(" · "));
+        bank.add(" (animated)");
+    bank.add(" · ");
     if (info.bytes >= 1024 * 1024) {
         bank.number(info.bytes / (1024 * 1024));
-        bank.add(utf8_literal("."));
+        bank.add(".");
         bank.number(info.bytes % (1024 * 1024) * 10 / (1024 * 1024));
-        bank.add(utf8_literal(" MB"));
+        bank.add(" MB");
     } else {
         bank.number((info.bytes + 1023) / 1024);
-        bank.add(utf8_literal(" KB"));
+        bank.add(" KB");
     }
     if (info.resized) {
-        bank.add(utf8_literal(", resized from "));
+        bank.add(", resized from ");
         bank.number(info.source_width);
-        bank.add(utf8_literal("×"));
+        bank.add("×");
         bank.number(info.source_height);
     }
 }
@@ -372,15 +384,15 @@ Utf8View image_error_text(GuildImageProfile profile, GuildImageError error) noex
 }
 } // namespace
 // Description of an image row: the pending change, or the current state.
-Utf8View picked_text(Bank& bank, const Picked& picked, Utf8View current) noexcept {
+Utf8View picked_text(Bank& bank, const Picked& picked, const Utf8View& current) noexcept {
     if (picked.clear)
         return utf8_literal("Removed when you save.");
     if (!picked.set)
         return current;
     const u32 start = bank.used;
-    bank.add(utf8_literal("New: "));
+    bank.add("New: ");
     image_summary(bank, picked.info);
-    bank.add(utf8_literal(". Save to apply."));
+    bank.add(". Save to apply.");
     return bank.since(start);
 }
 
@@ -388,18 +400,18 @@ void relative_time(Bank& bank, u64 then_ms, u64 now_ms, bool future) noexcept {
     const u64 delta = future ? (then_ms > now_ms ? then_ms - now_ms : 0) : (now_ms > then_ms ? now_ms - then_ms : 0);
     const u64 minutes = delta / 60'000, hours = minutes / 60, days = hours / 24;
     if (!future && minutes < 1) {
-        bank.add(utf8_literal("just now"));
+        bank.add("just now");
         return;
     }
     if (future)
-        bank.add(utf8_literal("in "));
+        bank.add("in ");
     const u64 value = days ? days : hours ? hours : minutes ? minutes : 1;
     bank.number(value);
     bank.add(days    ? (value == 1 ? utf8_literal(" day") : utf8_literal(" days"))
              : hours ? (value == 1 ? utf8_literal(" hour") : utf8_literal(" hours"))
                      : (value == 1 ? utf8_literal(" minute") : utf8_literal(" minutes")));
     if (!future)
-        bank.add(utf8_literal(" ago"));
+        bank.add(" ago");
 }
 Utf8View user_name(const GuildAdminUser& user) noexcept {
     return user.display_bytes ? Utf8View{user.display, user.display_bytes}
@@ -494,7 +506,7 @@ bool project_page() noexcept {
         if (selected) {
             if (p.page == Page::roles && p.editing_role) {
                 const u32 start = bank.used;
-                bank.add(utf8_literal("Edit role — "));
+                bank.add("Edit role — ");
                 bank.add({p.role_draft.name, p.role_draft.name_bytes});
                 content.title = bank.since(start);
             } else
@@ -580,7 +592,7 @@ Utf8View failure_text(const RestClientResponse& response) noexcept {
     }
 }
 // Service error codes worth their own wording; otherwise the status text.
-Utf8View failure_text(const RestClientResponse& response, Utf8View body) noexcept {
+Utf8View failure_text(const RestClientResponse& response, const Utf8View& body) noexcept {
     if (response.error == RestClientError::none && response.status_code >= 400 && body.bytes) {
         const u64 code = guild_asset_error_code(body, {owner->scratch, kScratchUnits});
         if (code == kTwoFactorRequired)
@@ -890,8 +902,8 @@ void poll_picker() noexcept {
 
 } // namespace
 
-void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, PermissionSet required,
-                       UiRect anchor) noexcept {
+void open_channel_menu(Menu menu, u32 types, u64 current, const Utf8View& none, PermissionSet required,
+                       const UiRect& anchor) noexcept {
     auto& p = *owner;
     Bank bank{p.popup_text, sizeof(p.popup_text), 0};
     u32 count = 0;
@@ -911,7 +923,7 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, Permiss
             continue;
         const u32 start = bank.used;
         if (channel.type != 2 && channel.type != 13)
-            bank.add(utf8_literal("#"));
+            bank.add("#");
         bank.add(chat_state_store_channel_name(s, channel));
         popup_row(count, bank.since(start), 0, channel.id == current ? popup_item_checked : 0);
         p.menu_channel[count++] = channel.id;
@@ -1467,10 +1479,10 @@ bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8
     static char context[kGuildAdminNameBytes + 16];
     Bank bank{context, sizeof(context), 0};
     if (category) {
-        bank.add(utf8_literal("In "));
+        bank.add("In ");
         bank.add(chat_state_store_channel_name(s, *category));
     } else if (type != 4)
-        bank.add(utf8_literal("Outside any category."));
+        bank.add("Outside any category.");
     ApplicationTextFormRequest request{};
     request.title = type == 4   ? utf8_literal("Create category")
                     : type == 2 ? utf8_literal("Create voice channel")
@@ -1753,7 +1765,7 @@ bool application_guild_settings_owns_response(u64 request_id) noexcept {
     return request_id && ((owner && owner->request_id == request_id) || creation.request_id == request_id);
 }
 
-bool application_guild_settings_response(const RestClientResponse& response, Utf8View body) noexcept {
+bool application_guild_settings_response(const RestClientResponse& response, const Utf8View& body) noexcept {
     if (!application_guild_settings_owns_response(response.request_id))
         return false;
     if (creation.request_id == response.request_id) {
@@ -2016,7 +2028,7 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     return true;
 }
 
-void application_guild_settings_gateway(const GatewayClientEvent& event, Utf8View body) noexcept {
+void application_guild_settings_gateway(const GatewayClientEvent& event, const Utf8View& body) noexcept {
     if (!owner || event.kind != GatewayClientEventKind::dispatch)
         return;
     if (event.dispatch_kind == GatewayClientDispatchKind::guild_bulk_ban_update) {

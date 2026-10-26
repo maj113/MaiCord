@@ -227,7 +227,7 @@ u64 current_sku(bool decoration) noexcept {
 struct Bank {
     char* data;
     u32 capacity, used;
-    Utf8View add(Utf8View text) noexcept {
+    Utf8View add(const Utf8View& text) noexcept {
         const u32 take = minimum(text.bytes, capacity - used);
         copy_bytes(data + used, text.data, take);
         used += take;
@@ -254,7 +254,7 @@ struct Bank {
         return {data + start, used - start};
     }
 };
-template <u32 N> void assign(ProfileString<N>* to, Utf8View from) noexcept {
+template <u32 N> void assign(ProfileString<N>* to, const Utf8View& from) noexcept {
     to->bytes = static_cast<u16>(utf8_copy_truncated(to->data, from));
 }
 
@@ -277,7 +277,7 @@ u32 editor_limit(u32 index) noexcept {
            : index == editor_pronouns ? kProfileEditPronounsCodepoints
                                       : kProfileBioMaximumCodepoints;
 }
-void load_editor(u32 index, Utf8View text) noexcept {
+void load_editor(u32 index, const Utf8View& text) noexcept {
     auto& model = owner->models[index];
     const u32 bytes = utf8_copy_truncated(editor_buffer(index), editor_capacity(index), text);
     message_composer_refresh_borrowed(&model, bytes);
@@ -503,7 +503,7 @@ Utf8View preview_heading(Bank& bank) noexcept {
 // Lays the card out at anchor. visible is the page area it may draw in (the
 // aside's clip), so a scrolled card is cut at the scroller's edges; empty
 // while the aside is out of view.
-bool layout_preview(UiRect anchor, UiRect visible) noexcept {
+bool layout_preview(const UiRect& anchor, const UiRect& visible) noexcept {
     auto& p = *owner;
     if (!p.loaded)
         return false;
@@ -550,7 +550,7 @@ MediaAttachmentFormat format_of(GuildImageKind kind) noexcept {
         return MediaAttachmentFormat::unknown;
     }
 }
-bool request_preview(Picked& picked, FileSnapshot snapshot) noexcept {
+bool request_preview(Picked& picked, const FileSnapshot& snapshot) noexcept {
     const u32 generation = ++owner->preview_serial | kLocalDraftPreviewThumbnailVariant;
     const auto key = media_asset_local_draft_preview(kPreviewIdBase | owner->preview_serial, generation,
                                                      format_of(picked.info.kind));
@@ -606,7 +606,7 @@ bool pump_previews(u64 now) noexcept {
     return changed;
 }
 
-void item_media(UiProfileDialogItem* item, Utf8View url, bool png) noexcept {
+void item_media(UiProfileDialogItem* item, const Utf8View& url, bool png) noexcept {
     assign(&item->url, url);
     item->key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0,
                                   MediaEmbedResource::image,
@@ -953,6 +953,11 @@ bool dialog_update() noexcept {
     g_app.context_focus = &p.dialog.widgets;
     return true;
 }
+// Rebuilds the dialog from its state and repaints the page.
+bool refresh_dialog() noexcept {
+    dialog_update();
+    return repaint();
+}
 void close_dialog() noexcept {
     auto& p = *owner;
     if (p.dialog_kind == Dialog::crop)
@@ -1265,7 +1270,7 @@ bool guard() noexcept {
     }
     return true;
 }
-void hand_off(UiSettingsTarget target) noexcept {
+void hand_off(const UiSettingsTarget& target) noexcept {
     if (!guard())
         return;
     // Focus leaves the closing editor scene, so Settings restores the shell.
@@ -1531,7 +1536,7 @@ bool register_pages() noexcept {
     return ui_page_registry_select(&p.registry, kProfilesPage).ok();
 }
 
-Utf8View failure(const RestClientResponse& response, Utf8View body) noexcept {
+Utf8View failure(const RestClientResponse& response, const Utf8View& body) noexcept {
     auto& p = *owner;
     if (!response.transport_ok())
         return utf8_literal("Couldn't reach Discord. Try again.");
@@ -1544,7 +1549,7 @@ Utf8View failure(const RestClientResponse& response, Utf8View body) noexcept {
     }
     return {};
 }
-void load_profile(Utf8View body) noexcept {
+void load_profile(const Utf8View& body) noexcept {
     auto& p = *owner;
     const u64 guild = p.tab == ProfileEditorTab::guild ? p.guild_id : 0;
     const Slice<u32> structurals{p.structurals, sizeof(p.structurals) / sizeof(u32)};
@@ -1722,10 +1727,8 @@ bool application_profile_editor_synchronize() noexcept {
         p.layer.choice = false;
         changed = true;
     }
-    if (changed) {
-        dialog_update();
-        return repaint();
-    }
+    if (changed)
+        return refresh_dialog();
     if (!project())
         return false;
     if (p.dialog_kind != Dialog::none)
@@ -1772,8 +1775,7 @@ void dialog_action(UiProfileDialogAction action, u32 source) noexcept {
     default:
         return;
     }
-    dialog_update();
-    repaint();
+    refresh_dialog();
 }
 bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     auto& p = *owner;
@@ -1815,14 +1817,12 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
                 image_crop_clamp(&p.crop);
             } else
                 set_zoom(x);
-            dialog_update();
-            repaint();
+            refresh_dialog();
         } else if (message == WM_LBUTTONUP) {
             p.crop_dragging = p.zoom_dragging = false;
             if (GetCapture() == g_app.window)
                 ReleaseCapture();
-            dialog_update();
-            repaint();
+            refresh_dialog();
         }
         return true;
     }
@@ -1845,8 +1845,7 @@ bool dialog_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
         } else {
             p.zoom_dragging = true;
             set_zoom(x);
-            dialog_update();
-            repaint();
+            refresh_dialog();
         }
         return true;
     }
@@ -1886,8 +1885,7 @@ bool dialog_key(UiInputKind kind, u32 key, bool repeated) noexcept {
     }
     if (key == VK_RETURN && !repeated) {
         apply_dialog();
-        dialog_update();
-        repaint();
+        refresh_dialog();
         return true;
     }
     if (p.dialog_kind == Dialog::crop && (key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN)) {
@@ -1895,8 +1893,7 @@ bool dialog_key(UiInputKind kind, u32 key, bool repeated) noexcept {
         const float step = shift ? kImageCropFastKeyStep : kImageCropKeyStep;
         image_crop_pan(&p.crop, key == VK_LEFT ? -step : key == VK_RIGHT ? step : 0,
                        key == VK_UP ? -step : key == VK_DOWN ? step : 0);
-        dialog_update();
-        repaint();
+        refresh_dialog();
         return true;
     }
     if (p.dialog_kind != Dialog::crop && p.item_count && (key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN)) {
@@ -2025,8 +2022,7 @@ bool application_profile_editor_submit(u64 now) noexcept {
                            ? utf8_literal("This image is too large to upload.")
                            : Utf8View{};
         }
-        dialog_update();
-        repaint();
+        refresh_dialog();
         return false;
     }
     p.request_id = id;
@@ -2040,7 +2036,7 @@ bool application_profile_editor_owns_response(u64 request_id) noexcept {
     return request_id && owner && owner->request_id == request_id;
 }
 
-bool application_profile_editor_response(const RestClientResponse& response, Utf8View body) noexcept {
+bool application_profile_editor_response(const RestClientResponse& response, const Utf8View& body) noexcept {
     if (!application_profile_editor_owns_response(response.request_id))
         return false;
     auto& p = *owner;
@@ -2100,8 +2096,7 @@ bool application_profile_editor_response(const RestClientResponse& response, Utf
     }
     if (!p.queued)
         p.op = Op::none;
-    dialog_update();
-    return repaint();
+    return refresh_dialog();
 }
 
 u64 application_profile_editor_caret_wake() noexcept {
@@ -2174,8 +2169,7 @@ void application_profile_editor_frame_uploaded(MediaAssetKey key) noexcept {
     if (auto* picked = picked_for(key)) {
         picked->ready = true;
         picked->poll_at = 0;
-        dialog_update();
-        repaint();
+        refresh_dialog();
     }
 }
 
@@ -2183,8 +2177,7 @@ void application_profile_editor_frame_rejected(MediaAssetKey key) noexcept {
     if (auto* picked = picked_for(key)) {
         picked->ready = false;
         picked->failed = true;
-        dialog_update();
-        repaint();
+        refresh_dialog();
     }
 }
 

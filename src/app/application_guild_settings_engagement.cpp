@@ -103,10 +103,10 @@ void toggle(const SettingsLayerActivation& activation) noexcept {
 Utf8View widget_text(Bank& bank, bool json) noexcept {
     const u32 start = bank.used;
     if (json)
-        bank.add(utf8_literal("https://discord.com/api/guilds/"));
+        bank.add("https://discord.com/api/guilds/");
     bank.number(owner->guild_id);
     if (json)
-        bank.add(utf8_literal("/widget.json"));
+        bank.add("/widget.json");
     return bank.since(start);
 }
 
@@ -137,9 +137,9 @@ void project(Bank& bank) noexcept {
             push_row(control_message + bit_index(message.bit), message.label, {}, UiSettingsControlKind::toggle,
                      messages, guild_engagement_message_enabled(d, message.bit));
     p.system_choice[0] = channel_label(bank, d.system_channel_id, utf8_literal("No System Messages"));
-    push({control_system_channel, utf8_literal("System Messages Channel"),
-          utf8_literal("The channel system event messages are posted to."), UiSettingsControlKind::choice, edit,
-          false, {p.system_choice, 1}, 0, {}, nullptr});
+    push_choices(control_system_channel, utf8_literal("System Messages Channel"),
+                 utf8_literal("The channel system event messages are posted to."), UiSettingsControlKind::choice,
+                 edit, {p.system_choice, 1});
 
     push_category(control_activity_category, utf8_literal("Activity Feed Settings"),
                   utf8_literal("A feed of activity from games and connected apps in this server."));
@@ -153,26 +153,25 @@ void project(Bank& bank) noexcept {
     push_category(control_notifications_category, utf8_literal("Default Notification Settings"),
                   utf8_literal("Whether members who haven't chosen their own notification settings are notified "
                                "for every message in this server or only for mentions."));
-    push({control_notifications, utf8_literal("Default notifications"),
-          count_known && members >= kGuildLargeNotificationMembers
-              ? utf8_literal("Only @mentions is recommended for Community servers. With this many members, "
-                             "non-mention messages don't send mobile push notifications.")
-              : utf8_literal("Only @mentions is recommended for Community servers."),
-          UiSettingsControlKind::radio, edit, false, {kNotificationChoices, 2}, d.default_notifications, {},
-          nullptr});
+    push_choices(control_notifications, utf8_literal("Default notifications"),
+                 count_known && members >= kGuildLargeNotificationMembers
+                     ? utf8_literal("Only @mentions is recommended for Community servers. With this many members, "
+                                    "non-mention messages don't send mobile push notifications.")
+                     : utf8_literal("Only @mentions is recommended for Community servers."),
+                 UiSettingsControlKind::radio, edit, {kNotificationChoices, 2}, d.default_notifications);
 
     p.afk_choice[0] = channel_label(bank, d.afk_channel_id, utf8_literal("No Inactive Channel"));
-    push({control_afk_channel, utf8_literal("Inactive Channel"), {}, UiSettingsControlKind::choice, edit, false,
-          {p.afk_choice, 1}, 0, {}, nullptr});
+    push_choices(control_afk_channel, utf8_literal("Inactive Channel"), {}, UiSettingsControlKind::choice, edit,
+                 {p.afk_choice, 1});
     u32 timeout = kUiSettingsNoChoice;
     for (u32 i = 0; i < sizeof(kGuildAfkTimeouts) / sizeof(u32); ++i)
         if (kGuildAfkTimeouts[i] == d.afk_timeout_seconds)
             timeout = i;
-    push({control_afk_timeout, utf8_literal("Inactive Timeout"),
-          utf8_literal("Members idle for longer than the timeout are moved to this channel and muted. This "
-                       "doesn't affect browsers."),
-          UiSettingsControlKind::choice, edit && d.afk_channel_id, false,
-          {kAfkLabels, sizeof(kAfkLabels) / sizeof(kAfkLabels[0])}, timeout, {}, nullptr});
+    push_choices(control_afk_timeout, utf8_literal("Inactive Timeout"),
+                 utf8_literal("Members idle for longer than the timeout are moved to this channel and muted. This "
+                              "doesn't affect browsers."),
+                 UiSettingsControlKind::choice, edit && d.afk_channel_id,
+                 {kAfkLabels, sizeof(kAfkLabels) / sizeof(kAfkLabels[0])}, timeout);
 
     if (!manage)
         return;
@@ -199,9 +198,9 @@ void project(Bank& bank) noexcept {
     if (!d.widget_enabled)
         return;
     p.widget_choice[0] = channel_label(bank, d.widget_channel_id, utf8_literal("No Invite"));
-    push({control_widget_channel, utf8_literal("Invite Channel"),
-          utf8_literal("With a channel selected, the widget offers an invite link to it."),
-          UiSettingsControlKind::choice, edit, false, {p.widget_choice, 1}, 0, {}, nullptr});
+    push_choices(control_widget_channel, utf8_literal("Invite Channel"),
+                 utf8_literal("With a channel selected, the widget offers an invite link to it."),
+                 UiSettingsControlKind::choice, edit, {p.widget_choice, 1});
     push_row(control_widget_id, utf8_literal("Server ID"), widget_text(bank, false), UiSettingsControlKind::action,
              true, false, utf8_literal("Copy"),
              {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
@@ -210,7 +209,7 @@ void project(Bank& bank) noexcept {
              {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
 }
 
-void open_timeout_menu(UiRect anchor) noexcept {
+void open_timeout_menu(const UiRect& anchor) noexcept {
     auto& p = *owner;
     constexpr u32 count = sizeof(kGuildAfkTimeouts) / sizeof(u32);
     for (u32 i = 0; i < count; ++i)

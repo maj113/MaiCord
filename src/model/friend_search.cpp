@@ -481,8 +481,8 @@ bool next_unit(Utf16Cursor* cursor, u16* output) noexcept {
     return true;
 }
 } // namespace
-FriendSearchResult friend_search(Utf8View query, Utf8View username,
-    Utf8View nickname, Utf8View display_name) noexcept {
+FriendSearchResult friend_search(const Utf8View& query, const Utf8View& username,
+    const Utf8View& nickname, const Utf8View& display_name) noexcept {
     Folded needle, name;
     if (!fold(query, &needle)) return {FriendSearchError::invalid_query, false};
     bool matched = false;

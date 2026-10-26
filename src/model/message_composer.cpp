@@ -239,8 +239,9 @@ void message_composer_reset(MessageComposer* composer, u64 channel_id, bool reta
     composer->phase = MessageComposerPhase::idle;
 }
 
-bool message_composer_restore(MessageComposer* composer, u64 channel_id, Utf8View text, u32 anchor,
+bool message_composer_restore(MessageComposer* composer, u64 channel_id, const Utf8View& text_view, u32 anchor,
                               u32 caret) noexcept {
+    const Utf8View text = text_view; // the composer is written below
     if (!composer || !composer->text || (!text.data && text.bytes != 0) ||
         text.bytes > composer->capacity || anchor > text.bytes || caret > text.bytes ||
         !utf8_validate(text).valid ||
@@ -384,7 +385,8 @@ MessageComposerResult message_composer_insert_utf8(MessageComposer* composer, Ut
 }
 
 MessageComposerResult message_composer_replace_range(MessageComposer* composer, u32 begin, u32 end,
-                                                     Utf8View text) noexcept {
+                                                     const Utf8View& text_view) noexcept {
+    const Utf8View text = text_view; // the composer is written below
     if (!composer || !composer->text || composer->bytes > composer->capacity || begin > end || end > composer->bytes ||
         !text_boundary(*composer, begin) || !text_boundary(*composer, end) ||
         (!text.data && text.bytes != 0)) {

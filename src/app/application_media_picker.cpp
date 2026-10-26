@@ -151,6 +151,10 @@ MediaAttachmentFormat format(const MediaCatalogItem& item) noexcept {
                   : item.sticker_format == 3 ? MediaAttachmentFormat::lottie : MediaAttachmentFormat::png)
                : catalog_favorite_format(item.preview_url);
 }
+MediaAssetKey catalog_key(u64 id, u32 generation, const MediaCatalogItem& item) noexcept {
+    return media_asset_catalog_preview(id, generation, format(item),
+                                       item.sticker_format == 2 || item.sticker_format == 3);
+}
 } // namespace
 struct ApplicationMediaPicker {
     MessageComposer edit;
@@ -259,14 +263,20 @@ bool emoji_projection(ApplicationMediaPicker& p) noexcept {
     ++p.source.revision;
     return true;
 }
+u64 emoji_state_key(const ChatStateStore& state) noexcept {
+    return (static_cast<u64>(state.emoji_mutations) << 32) | state.permission_mutations;
+}
+void emoji_state_current(ApplicationMediaPicker& p) noexcept {
+    const auto& state = g_app.account_ui->chat_state;
+    p.emoji_state_revision = emoji_state_key(state);
+    p.emoji_guild_revision = state.guild_mutations;
+}
 // The Emoji tab stays open (and the tabs usable) when its model cannot open.
 void emoji_unavailable(ApplicationMediaPicker& p) noexcept {
     revoke_capture(p);
     ui_media_picker_scene_close(&p.scene);
     reaction_picker_release(&p.emoji);
-    const auto& state = g_app.account_ui->chat_state;
-    p.emoji_state_revision = (static_cast<u64>(state.emoji_mutations) << 32) | state.permission_mutations;
-    p.emoji_guild_revision = state.guild_mutations;
+    emoji_state_current(p);
     p.source.count = p.section_count = 0;
     p.phase = UiMediaPickerPhase::failed;
     p.status = utf8_literal("Couldn't load emoji.");
@@ -282,9 +292,7 @@ bool open_emoji_model(ApplicationMediaPicker& p) noexcept {
              .ok() ||
         !emoji_projection(p))
         return false;
-    p.emoji_state_revision =
-        (static_cast<u64>(ui.chat_state.emoji_mutations) << 32) | ui.chat_state.permission_mutations;
-    p.emoji_guild_revision = ui.chat_state.guild_mutations;
+    emoji_state_current(p);
     return true;
 }
 bool landing(const ApplicationMediaPicker& p) noexcept {
@@ -545,13 +553,13 @@ bool sticker_previews(CatalogBank* bank, char* urls, u32 capacity) noexcept {
     for (u32 i = 0; i < bank->count; ++i) {
         auto& item = bank->items[i];
         const u32 first = writer.used;
-        if (!(item.sticker_format == 4
-                  ? protocol_writer_append_literal(&writer, "https://media.discordapp.net/stickers/")
-                  : protocol_writer_append_literal(&writer, "https://cdn.discordapp.com/stickers/")) ||
+        const bool animated = item.sticker_format == 4;
+        if (!protocol_writer_append_c_string(&writer, animated ? "https://media.discordapp.net/stickers/"
+                                                               : "https://cdn.discordapp.com/stickers/") ||
             !protocol_writer_append_u64(&writer, item.sticker_id) ||
-            !(item.sticker_format == 4   ? protocol_writer_append_literal(&writer, ".gif")
-              : item.sticker_format == 3 ? protocol_writer_append_literal(&writer, ".json")
-                                         : protocol_writer_append_literal(&writer, ".png")))
+            !protocol_writer_append_c_string(&writer, animated                  ? ".gif"
+                                                      : item.sticker_format == 3 ? ".json"
+                                                                                 : ".png"))
             return false;
         item.preview_url = {urls + first, writer.used - first};
         if (item.available &&
@@ -628,14 +636,16 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
             text_used += decoded.text_bytes;
             const u32 first = used;
             for (u32 k = 0; k < decoded.item_count; ++k) {
-                auto item = bank->items[first + k];
+                const auto& source = bank->items[first + k];
                 const auto sendable =
-                    guild_sticker_sendability(order[i], channel_guild, item.available, external, premium);
+                    guild_sticker_sendability(order[i], channel_guild, source.available, external, premium);
                 if (sendable == StickerSendability::hidden)
                     continue;
+                auto& item = bank->items[used++];
+                if (&item != &source)
+                    item = source;
                 item.guild_id = order[i];
                 item.available = sendable == StickerSendability::sendable;
-                bank->items[used++] = item;
             }
             if (used == first)
                 continue;
@@ -710,8 +720,7 @@ bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
     if (!item)
         return false;
     const bool categories = bank->operation == MediaCatalogOperation::gif_categories;
-    const auto key = media_asset_catalog_preview(bank->first_id + at, bank->generation, format(*item),
-                                                 (item->sticker_format == 2 || item->sticker_format == 3));
+    const auto key = catalog_key(bank->first_id + at, bank->generation, *item);
     reset_value(out);
     out->id = key.id;
     out->asset_id = preview_admitted(*bank, at) ? key.id : 0;
@@ -814,8 +823,7 @@ bool projection(ApplicationMediaPicker& p) noexcept {
                     }
                 if (cover != ~u32{0} && preview_admitted(*bank, cover)) {
                     const auto& art = bank->items[cover];
-                    const auto key = media_asset_catalog_preview(bank->first_id + cover, bank->generation, format(art),
-                                                                 art.sticker_format == 2 || art.sticker_format == 3);
+                    const auto key = catalog_key(bank->first_id + cover, bank->generation, art);
                     p.section_cover[p.section_count] = cover;
                     next.asset_id = key.id;
                     next.icon_variant = key.variant;
@@ -959,7 +967,7 @@ bool react(ApplicationMediaPicker& p, const ReactionPickerSelection& selection) 
     p.reaction_error = error;
     return repaint();
 }
-bool activate(ApplicationMediaPicker& p, UiMediaPickerTarget target) noexcept {
+bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target) noexcept {
     if (!owns_current(p) || !front(&p) || target.account_scope != p.scope ||
         target.query_generation != p.generation || target.source_revision != p.source.revision ||
         target.scene_generation != p.scene.generation || !ui_media_picker_scene_current(p.scene))
@@ -1363,7 +1371,7 @@ bool application_media_picker_synchronize() noexcept {
     p->source.account_scope = p->scope;
     p->source.query_generation = p->generation;
     const auto& state = g_app.account_ui->chat_state;
-    const u64 emoji_revision = (static_cast<u64>(state.emoji_mutations) << 32) | state.permission_mutations;
+    const u64 emoji_revision = emoji_state_key(state);
     if (p->kind == UiMediaPickerKind::emoji &&
         (p->emoji_state_revision != emoji_revision || p->emoji_guild_revision != state.guild_mutations)) {
         revoke_capture(*p);
@@ -1420,10 +1428,12 @@ bool application_media_picker_synchronize() noexcept {
     content.status = p->status;
     content.back = p->kind == UiMediaPickerKind::gif &&
                    (p->favorites_view || p->operation != MediaCatalogOperation::gif_categories);
-    auto prior = p->content;
+    auto& prior = p->content;
+    const auto revision = prior.revision;
     prior.revision = 0;
-    content.revision =
-        bytes_equal(&prior, &content, sizeof(content)) ? p->content.revision : p->content.revision + 1;
+    const bool content_same = bytes_equal(&prior, &content, sizeof(content));
+    prior.revision = revision;
+    content.revision = content_same ? revision : revision + 1;
     p->content = content;
     auto viewport = ui_scene_content_rectangle(g_app.shell_scene, UiSemantic::content);
     viewport.right = static_cast<float>(g_app.renderer.width) * 96.f / maximum(g_app.renderer.dpi, 1u);
@@ -1722,8 +1732,7 @@ bool application_media_picker_preview_request(u32 cell, AccountMediaCatalogPrevi
         return false;
     reset_value(out);
     out->url = item->preview_url;
-    out->key = media_asset_catalog_preview(bank->first_id + local, bank->generation, format(*item),
-                                           (item->sticker_format == 2 || item->sticker_format == 3));
+    out->key = catalog_key(bank->first_id + local, bank->generation, *item);
     out->catalog_scope = p->scope;
     out->catalog_generation = bank->generation;
     // Fit within 512 px keeping the aspect ratio the proxy sizes from.
@@ -1796,8 +1805,7 @@ bool application_media_picker_preview_owner_current(MediaAssetKey key, u64 scope
         } else if (bank == &p->favorites_tile)
             temporary = p->tile_item;
         const auto& item = bank == &p->saved || bank == &p->favorites_tile ? temporary : bank->items[index];
-        return media_asset_key_equal(
-            key, media_asset_catalog_preview(key.id, generation, format(item), (item.sticker_format == 2 || item.sticker_format == 3)));
+        return media_asset_key_equal(key, catalog_key(key.id, generation, item));
     }
     return false;
 }
@@ -1921,6 +1929,12 @@ bool edit_pointer(ApplicationMediaPicker& p, float x, float y, bool extend) noex
         return false;
     message_composer_set_selection(&p.edit, extend ? p.edit.anchor : byte, byte);
     return application_media_picker_edit_changed(false);
+}
+// Scrolls the dragged bar's pane so its thumb follows the pointer at y.
+bool scrollbar_follow(ApplicationMediaPicker& p, const UiScrollbarGeometry& geometry, float y) noexcept {
+    const float next = ui_scrollbar_scroll_from_pointer(geometry, y, p.scrollbar_grab);
+    const float prior = p.scrollbar_rail ? p.scene.rail_scroll_dips : p.scene.scroll_dips;
+    return ui_media_picker_scene_scroll(&p.scene, next - prior, p.scrollbar_rail);
 }
 } // namespace
 
@@ -2163,9 +2177,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
             return true;
         }
         if (message == WM_MOUSEMOVE || message == WM_LBUTTONUP) {
-            const float next = ui_scrollbar_scroll_from_pointer(geometry, y, p->scrollbar_grab);
-            const float prior = p->scrollbar_rail ? p->scene.rail_scroll_dips : p->scene.scroll_dips;
-            const bool changed = ui_media_picker_scene_scroll(&p->scene, next - prior, p->scrollbar_rail);
+            const bool changed = scrollbar_follow(*p, geometry, y);
             if (message == WM_LBUTTONUP)
                 revoke_capture(*p);
             if (changed)
@@ -2190,9 +2202,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         p->scrollbar_dragging = p->captured = true;
         ui_media_picker_scene_set_scrollbar_state(&p->scene, p->scrollbar_rail,
                                                   UiScrollbarVisualState::pressed);
-        const float next = ui_scrollbar_scroll_from_pointer(geometry, y, p->scrollbar_grab);
-        const float prior = p->scrollbar_rail ? p->scene.rail_scroll_dips : p->scene.scroll_dips;
-        ui_media_picker_scene_scroll(&p->scene, next - prior, p->scrollbar_rail);
+        scrollbar_follow(*p, geometry, y);
         SetCapture(g_app.window);
         repaint(true);
         return true;

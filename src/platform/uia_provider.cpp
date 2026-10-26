@@ -428,12 +428,21 @@ template <typename F> HRESULT on_window_thread(UiaProviderHost* host, const F& f
         host, [](const void* context) noexcept -> HRESULT { return (*static_cast<const F*>(context))(); }, &f);
 }
 
-template <usize Offset, auto Method> struct Marshal;
-template <usize Offset, typename... Args, HRESULT(STDMETHODCALLTYPE* Method)(void*, Args...) noexcept>
-struct Marshal<Offset, Method> {
+// One shared body per distinct argument list: a thunk only forwards its
+// method and the distance from its interface pointer to the owning host.
+template <typename... Args>
+__declspec(noinline) HRESULT marshal_call(void* self, Args... args,
+                                          HRESULT(STDMETHODCALLTYPE* method)(void*, Args...) noexcept,
+                                          usize host_distance) noexcept {
+    auto* host = *reinterpret_cast<UiaProviderHost**>(static_cast<char*>(self) + host_distance);
+    return on_window_thread(host, [&]() noexcept -> HRESULT { return method(self, args...); });
+}
+
+template <usize HostDistance, auto Method> struct Marshal;
+template <usize HostDistance, typename... Args, HRESULT(STDMETHODCALLTYPE* Method)(void*, Args...) noexcept>
+struct Marshal<HostDistance, Method> {
     static HRESULT STDMETHODCALLTYPE call(void* self, Args... args) noexcept {
-        return on_window_thread(element_from<Offset>(self)->host,
-                                [&]() noexcept -> HRESULT { return Method(self, args...); });
+        return marshal_call<Args...>(self, args..., Method, HostDistance);
     }
 };
 
@@ -509,36 +518,19 @@ bool supports(const Resolved& r, int pattern) noexcept {
     }
 }
 
+// UiAccessRole order.
+constexpr u16 kControlTypes[]{
+    control_custom,      control_window,     control_pane,      control_group,        control_window,
+    control_button,      control_button,     control_check_box, control_radio_button, control_combo_box,
+    control_list,        control_list_item,  control_tree,      control_tree_item,    control_tab,
+    control_tab_item,    control_menu,       control_menu_item, control_text,         control_header,
+    control_edit,        control_slider,     control_image,     control_hyperlink,    control_document,
+    control_status_bar,  control_scroll_bar};
+static_assert(sizeof(kControlTypes) / sizeof(kControlTypes[0]) == static_cast<usize>(UiAccessRole::count));
+
 int control_type(UiAccessRole role) noexcept {
-    switch (role) {
-    case UiAccessRole::window: return control_window;
-    case UiAccessRole::pane: return control_pane;
-    case UiAccessRole::group: return control_group;
-    case UiAccessRole::dialog: return control_window;
-    case UiAccessRole::button: return control_button;
-    case UiAccessRole::toggle_button: return control_button;
-    case UiAccessRole::check_box: return control_check_box;
-    case UiAccessRole::radio_button: return control_radio_button;
-    case UiAccessRole::combo_box: return control_combo_box;
-    case UiAccessRole::list: return control_list;
-    case UiAccessRole::list_item: return control_list_item;
-    case UiAccessRole::tree: return control_tree;
-    case UiAccessRole::tree_item: return control_tree_item;
-    case UiAccessRole::tab_list: return control_tab;
-    case UiAccessRole::tab: return control_tab_item;
-    case UiAccessRole::menu: return control_menu;
-    case UiAccessRole::menu_item: return control_menu_item;
-    case UiAccessRole::text: return control_text;
-    case UiAccessRole::header: return control_header;
-    case UiAccessRole::edit: return control_edit;
-    case UiAccessRole::slider: return control_slider;
-    case UiAccessRole::image: return control_image;
-    case UiAccessRole::link: return control_hyperlink;
-    case UiAccessRole::document: return control_document;
-    case UiAccessRole::status: return control_status_bar;
-    case UiAccessRole::scroll_bar: return control_scroll_bar;
-    default: return control_custom;
-    }
+    const u32 index = static_cast<u32>(role);
+    return index < static_cast<u32>(UiAccessRole::count) ? kControlTypes[index] : control_custom;
 }
 
 BSTR make_bstr(const UiaRuntime* runtime, Utf8View text) noexcept {
@@ -597,7 +589,7 @@ int expand_state(const UiAccessNode& node) noexcept {
     return (node.state & ui_access_expanded) ? 1 : (node.state & ui_access_collapsed) ? 0 : 3;
 }
 
-HRESULT request(Element* element, UiAccessAction action, double number = 0, Utf8View text = {}) noexcept {
+HRESULT request(Element* element, UiAccessAction action, double number, const Utf8View& text) noexcept {
     Resolved r{};
     if (!resolve_element(element, &r))
         return kElementNotAvailable;
@@ -609,6 +601,10 @@ HRESULT request(Element* element, UiAccessAction action, double number = 0, Utf8
         !host->callbacks.act(host->callbacks.context, r.node->key, action, number, text))
         return kInvalidOperation;
     return S_OK;
+}
+
+__declspec(noinline) HRESULT request(Element* element, UiAccessAction action) noexcept {
+    return request(element, action, 0, Utf8View{});
 }
 
 void* element_for_index(Element* from, const Resolved& r, u32 index) noexcept {
@@ -978,14 +974,21 @@ HRESULT STDMETHODCALLTYPE toggle_toggle(void* self) noexcept {
     return request(element_from<kToggle>(self), UiAccessAction::toggle);
 }
 
-HRESULT STDMETHODCALLTYPE toggle_state_get(void* self, int* out) noexcept {
+// The getters that read one value of the resolved node share this body per value type.
+template <typename T>
+__declspec(noinline) HRESULT read_node(Element* element, T* out, T (*read)(const UiAccessNode&) noexcept) noexcept {
     if (!out)
         return E_POINTER;
     Resolved r{};
-    if (!resolve_element(element_from<kToggle>(self), &r))
+    if (!resolve_element(element, &r))
         return kElementNotAvailable;
-    *out = toggle_state(r.node->state);
+    *out = read(*r.node);
     return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE toggle_state_get(void* self, int* out) noexcept {
+    return read_node<int>(element_from<kToggle>(self), out,
+                          [](const UiAccessNode& node) noexcept -> int { return toggle_state(node.state); });
 }
 
 HRESULT STDMETHODCALLTYPE selection_get(void* self, SAFEARRAY** out) noexcept {
@@ -1045,13 +1048,9 @@ HRESULT STDMETHODCALLTYPE selection_item_remove(void* self) noexcept {
 }
 
 HRESULT STDMETHODCALLTYPE selection_item_selected(void* self, BOOL* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<kSelectionItem>(self), &r))
-        return kElementNotAvailable;
-    *out = (r.node->state & ui_access_selected) ? TRUE : FALSE;
-    return S_OK;
+    return read_node<int>(element_from<kSelectionItem>(self), out, [](const UiAccessNode& node) noexcept -> int {
+        return (node.state & ui_access_selected) ? TRUE : FALSE;
+    });
 }
 
 HRESULT STDMETHODCALLTYPE selection_item_container(void* self, void** out) noexcept {
@@ -1072,6 +1071,14 @@ HRESULT STDMETHODCALLTYPE selection_item_container(void* self, void** out) noexc
     return S_OK;
 }
 
+// UTF-8 bytes of a NUL-terminated UTF-16 argument (capped at the value limit); 0 when empty, <= 0 on failure.
+__declspec(noinline) int wide_argument_utf8(const wchar_t* text, char* output, int capacity) noexcept {
+    int units = 0;
+    while (units < static_cast<int>(kUiAccessValueMaximumBytes) && text[units])
+        ++units;
+    return units ? WideCharToMultiByte(CP_UTF8, 0, text, units, output, capacity, nullptr, nullptr) : 0;
+}
+
 HRESULT STDMETHODCALLTYPE value_set(void* self, const wchar_t* text) noexcept {
     auto* element = element_from<kValue>(self);
     Resolved r{};
@@ -1081,17 +1088,14 @@ HRESULT STDMETHODCALLTYPE value_set(void* self, const wchar_t* text) noexcept {
         return kInvalidOperation;
     if (!text)
         return E_INVALIDARG;
-    int units = 0;
-    while (units < static_cast<int>(kUiAccessValueMaximumBytes) && text[units])
-        ++units;
     ScratchPages<char[kUiAccessValueMaximumBytes * 3]> scratch;
     if (!scratch.data)
         return E_OUTOFMEMORY;
     char* utf8 = *scratch.data;
-    const int bytes = units ? WideCharToMultiByte(CP_UTF8, 0, text, units, utf8, static_cast<int>(sizeof(*scratch.data)), nullptr, nullptr) : 0;
-    if (units && bytes <= 0)
+    const int bytes = wide_argument_utf8(text, utf8, static_cast<int>(sizeof(*scratch.data)));
+    if (text[0] && bytes <= 0)
         return E_INVALIDARG;
-    return request(element, UiAccessAction::set_value, 0, {utf8, static_cast<u32>(bytes)});
+    return request(element, UiAccessAction::set_value, 0, Utf8View{utf8, static_cast<u32>(bytes)});
 }
 
 HRESULT STDMETHODCALLTYPE value_get(void* self, BSTR* out) noexcept {
@@ -1109,26 +1113,9 @@ HRESULT STDMETHODCALLTYPE value_get(void* self, BSTR* out) noexcept {
 }
 
 template <usize Offset> HRESULT STDMETHODCALLTYPE read_only_get(void* self, BOOL* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<Offset>(self), &r))
-        return kElementNotAvailable;
-    *out = (r.node->state & ui_access_read_only) ? TRUE : FALSE;
-    return S_OK;
-}
-
-template <usize Field> HRESULT STDMETHODCALLTYPE range_read(void* self, double* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<kRangeValue>(self), &r))
-        return kElementNotAvailable;
-    const auto& range = r.node->range;
-    const float values[]{range.value, range.minimum, range.maximum, range.step,
-                         range.large_step > 0 ? range.large_step : range.step};
-    *out = static_cast<double>(values[Field]);
-    return S_OK;
+    return read_node<int>(element_from<Offset>(self), out, [](const UiAccessNode& node) noexcept -> int {
+        return (node.state & ui_access_read_only) ? TRUE : FALSE;
+    });
 }
 
 HRESULT STDMETHODCALLTYPE range_set(void* self, double value) noexcept {
@@ -1140,23 +1127,33 @@ HRESULT STDMETHODCALLTYPE range_set(void* self, double value) noexcept {
         return kInvalidOperation;
     if (value < r.node->range.minimum || value > r.node->range.maximum)
         return E_INVALIDARG;
-    return request(element, UiAccessAction::set_range, value);
+    return request(element, UiAccessAction::set_range, value, Utf8View{});
 }
 
 HRESULT STDMETHODCALLTYPE range_value_get(void* self, double* out) noexcept {
-    return range_read<0>(self, out);
+    return read_node<double>(element_from<kRangeValue>(self), out, [](const UiAccessNode& node) noexcept -> double {
+        return node.range.value;
+    });
 }
 HRESULT STDMETHODCALLTYPE range_minimum(void* self, double* out) noexcept {
-    return range_read<1>(self, out);
+    return read_node<double>(element_from<kRangeValue>(self), out, [](const UiAccessNode& node) noexcept -> double {
+        return node.range.minimum;
+    });
 }
 HRESULT STDMETHODCALLTYPE range_maximum(void* self, double* out) noexcept {
-    return range_read<2>(self, out);
+    return read_node<double>(element_from<kRangeValue>(self), out, [](const UiAccessNode& node) noexcept -> double {
+        return node.range.maximum;
+    });
 }
 HRESULT STDMETHODCALLTYPE range_step(void* self, double* out) noexcept {
-    return range_read<3>(self, out);
+    return read_node<double>(element_from<kRangeValue>(self), out, [](const UiAccessNode& node) noexcept -> double {
+        return node.range.step;
+    });
 }
 HRESULT STDMETHODCALLTYPE range_large_step(void* self, double* out) noexcept {
-    return range_read<4>(self, out);
+    return read_node<double>(element_from<kRangeValue>(self), out, [](const UiAccessNode& node) noexcept -> double {
+        return node.range.large_step > 0 ? node.range.large_step : node.range.step;
+    });
 }
 
 HRESULT STDMETHODCALLTYPE scroll_scroll(void* self, int horizontal, int vertical) noexcept {
@@ -1171,7 +1168,7 @@ HRESULT STDMETHODCALLTYPE scroll_scroll(void* self, int horizontal, int vertical
     case 4: amount = UiAccessScroll::small_increment; break;
     default: return S_OK;
     }
-    return request(element_from<kScroll>(self), UiAccessAction::scroll, static_cast<double>(amount));
+    return request(element_from<kScroll>(self), UiAccessAction::scroll, static_cast<double>(amount), Utf8View{});
 }
 
 HRESULT STDMETHODCALLTYPE scroll_set_percent(void*, double horizontal, double vertical) noexcept {
@@ -1193,33 +1190,21 @@ HRESULT STDMETHODCALLTYPE scroll_full_view(void*, double* out) noexcept {
 }
 
 HRESULT STDMETHODCALLTYPE scroll_vertical_percent(void* self, double* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<kScroll>(self), &r))
-        return kElementNotAvailable;
-    *out = r.node->scroll.vertical_percent < 0 ? kScrollNoScroll : r.node->scroll.vertical_percent;
-    return S_OK;
+    return read_node<double>(element_from<kScroll>(self), out, [](const UiAccessNode& node) noexcept -> double {
+        return node.scroll.vertical_percent < 0 ? kScrollNoScroll : node.scroll.vertical_percent;
+    });
 }
 
 HRESULT STDMETHODCALLTYPE scroll_vertical_view(void* self, double* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<kScroll>(self), &r))
-        return kElementNotAvailable;
-    *out = r.node->scroll.vertical_view_percent > 0 ? r.node->scroll.vertical_view_percent : 100.0;
-    return S_OK;
+    return read_node<double>(element_from<kScroll>(self), out, [](const UiAccessNode& node) noexcept -> double {
+        return node.scroll.vertical_view_percent > 0 ? node.scroll.vertical_view_percent : 100.0;
+    });
 }
 
 HRESULT STDMETHODCALLTYPE scroll_vertically(void* self, BOOL* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<kScroll>(self), &r))
-        return kElementNotAvailable;
-    *out = r.node->scroll.vertical_percent >= 0 ? TRUE : FALSE;
-    return S_OK;
+    return read_node<int>(element_from<kScroll>(self), out, [](const UiAccessNode& node) noexcept -> int {
+        return node.scroll.vertical_percent >= 0 ? TRUE : FALSE;
+    });
 }
 
 HRESULT STDMETHODCALLTYPE expand_expand(void* self) noexcept {
@@ -1231,13 +1216,8 @@ HRESULT STDMETHODCALLTYPE expand_collapse_action(void* self) noexcept {
 }
 
 HRESULT STDMETHODCALLTYPE expand_state_get(void* self, int* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<kExpandCollapse>(self), &r))
-        return kElementNotAvailable;
-    *out = expand_state(*r.node);
-    return S_OK;
+    return read_node<int>(element_from<kExpandCollapse>(self), out,
+                          [](const UiAccessNode& node) noexcept -> int { return expand_state(node); });
 }
 
 // ScrollItem
@@ -1280,36 +1260,22 @@ HRESULT STDMETHODCALLTYPE grid_item_at(void* self, int row, int column, void** o
     return *out ? S_OK : E_OUTOFMEMORY;
 }
 
-template <bool Rows> HRESULT grid_count(void* self, int* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<kGrid>(self), &r))
-        return kElementNotAvailable;
-    *out = Rows ? r.node->placement.grid_row : r.node->placement.grid_column;
-    return S_OK;
-}
 HRESULT STDMETHODCALLTYPE grid_rows(void* self, int* out) noexcept {
-    return grid_count<true>(self, out);
+    return read_node<int>(element_from<kGrid>(self), out,
+                          [](const UiAccessNode& node) noexcept -> int { return node.placement.grid_row; });
 }
 HRESULT STDMETHODCALLTYPE grid_columns(void* self, int* out) noexcept {
-    return grid_count<false>(self, out);
+    return read_node<int>(element_from<kGrid>(self), out,
+                          [](const UiAccessNode& node) noexcept -> int { return node.placement.grid_column; });
 }
 
-template <bool Row> HRESULT grid_position(void* self, int* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<kGridItem>(self), &r))
-        return kElementNotAvailable;
-    *out = Row ? r.node->placement.grid_row : r.node->placement.grid_column;
-    return S_OK;
-}
 HRESULT STDMETHODCALLTYPE grid_item_row(void* self, int* out) noexcept {
-    return grid_position<true>(self, out);
+    return read_node<int>(element_from<kGridItem>(self), out,
+                          [](const UiAccessNode& node) noexcept -> int { return node.placement.grid_row; });
 }
 HRESULT STDMETHODCALLTYPE grid_item_column(void* self, int* out) noexcept {
-    return grid_position<false>(self, out);
+    return read_node<int>(element_from<kGridItem>(self), out,
+                          [](const UiAccessNode& node) noexcept -> int { return node.placement.grid_column; });
 }
 HRESULT STDMETHODCALLTYPE grid_item_span(void*, int* out) noexcept {
     if (!out)
@@ -1469,15 +1435,6 @@ HRESULT STDMETHODCALLTYPE text_supported_selection(void*, int* out) noexcept {
     return S_OK;
 }
 
-template <auto Method> struct RangeMarshal;
-template <typename... Args, HRESULT(STDMETHODCALLTYPE* Method)(void*, Args...) noexcept>
-struct RangeMarshal<Method> {
-    static HRESULT STDMETHODCALLTYPE call(void* self, Args... args) noexcept {
-        return on_window_thread(static_cast<TextRange*>(self)->host,
-                                [&]() noexcept -> HRESULT { return Method(self, args...); });
-    }
-};
-
 HRESULT STDMETHODCALLTYPE range_query_interface(void* self, const GUID* iid, void** out) noexcept {
     if (!out)
         return E_POINTER;
@@ -1580,16 +1537,11 @@ HRESULT STDMETHODCALLTYPE range_find_text(void* self, BSTR needle, BOOL backward
     RangeText text{};
     if (!range_resolve(range, &text))
         return kElementNotAvailable;
-    int units = 0;
-    while (units < static_cast<int>(kUiAccessValueMaximumBytes) && needle[units])
-        ++units;
     ScratchPages<char[kUiAccessValueMaximumBytes * 3]> scratch;
     if (!scratch.data)
         return E_OUTOFMEMORY;
     char* pattern = *scratch.data;
-    const int bytes =
-        units ? WideCharToMultiByte(CP_UTF8, 0, needle, units, pattern, static_cast<int>(sizeof(*scratch.data)), nullptr, nullptr)
-              : 0;
+    const int bytes = wide_argument_utf8(needle, pattern, static_cast<int>(sizeof(*scratch.data)));
     if (bytes <= 0)
         return E_INVALIDARG;
     const u32 length = static_cast<u32>(bytes);
@@ -1802,7 +1754,7 @@ HRESULT STDMETHODCALLTYPE range_children(void* self, SAFEARRAY** out) noexcept {
     return *out ? S_OK : E_OUTOFMEMORY;
 }
 
-#define UIA_RANGE(method) &RangeMarshal<&method>::call
+#define UIA_RANGE(method) &Marshal<offsetof(TextRange, host), &method>::call
 constexpr TextRangeVtbl kTextRangeVtbl{
     {&range_query_interface, &range_add_ref, &range_release},
     UIA_RANGE(range_clone),
@@ -1846,7 +1798,7 @@ void* range_create(UiaProviderHost* host, u64 key, u32 start, u32 end) noexcept 
     return range;
 }
 
-#define UIA_MARSHAL(offset, method) &Marshal<offset, &method>::call
+#define UIA_MARSHAL(offset, method) &Marshal<offsetof(Element, host) - (offset), &method>::call
 constexpr SimpleVtbl kSimpleVtbl{unknown_vtbl<kSimple>(), &simple_provider_options,
                                  UIA_MARSHAL(kSimple, simple_pattern_provider),
                                  UIA_MARSHAL(kSimple, simple_property_value),

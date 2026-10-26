@@ -18,6 +18,17 @@ struct TextBank {
         used += take;
         return {data + used - take, take};
     }
+    __declspec(noinline) void append(const char* source, u32 bytes) noexcept {
+        const u32 take = minimum(bytes, capacity - used);
+        copy_bytes(data + used, source, take);
+        used += take;
+    }
+    // A literal passes its address and length in registers; an unused result costs nothing.
+    template <usize Count> __forceinline Utf8View add(const char (&text)[Count]) noexcept {
+        const u32 start = used;
+        append(text, Count - 1);
+        return {data + start, used - start};
+    }
     // Decimal digits; the most significant ones that fit when out of room.
     __declspec(noinline) Utf8View number(u64 value) noexcept {
         char digits[20];

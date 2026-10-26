@@ -118,7 +118,7 @@ struct StartupShell {
 
 Utf8View startup_shell_text(const StartupShell& shell, StartupShellText text) noexcept;
 // Appends text to the bank; false (and an empty reference) when it does not fit.
-bool startup_shell_add_text(StartupShell* shell, Utf8View text, StartupShellText* output) noexcept;
+bool startup_shell_add_text(StartupShell* shell, const Utf8View& text, StartupShellText* output) noexcept;
 
 // The plaintext body; 0 when output is too small.
 u32 startup_shell_encode(const StartupShell& shell, Slice<u8> output) noexcept;

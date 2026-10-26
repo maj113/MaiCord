@@ -331,12 +331,12 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
         copy_value(&w->probe_address, address);
         if (address_error != PluginProviderAddressError::none) break;
         if (!ensure_work(w->probe_work)) { address_error = PluginProviderAddressError::invalid_input; break; }
-        w->probe = plugin_provider_probe(address, op->transport, op->workspace, w->probe_work, cmd.allow_unsigned && cmd.kind == Kind::probe, now);
-        if (w->probe.error != PluginProviderProbeError::none) {
-            const PluginProviderProbe failed = w->probe;
+        // The result is kept either way; a failed probe also releases its document first.
+        const auto& probed = plugin_provider_probe(address, op->transport, op->workspace, w->probe_work,
+                                                   cmd.allow_unsigned && cmd.kind == Kind::probe, now);
+        if (probed.error != PluginProviderProbeError::none)
             free_probe(w);
-            w->probe = failed;
-        }
+        w->probe = probed;
         break;
     }
     case Kind::add_provider:

@@ -60,7 +60,7 @@ QuickSwitcherScope scope() noexcept {
     return {g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
             g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0};
 }
-bool same_scope(QuickSwitcherScope a, QuickSwitcherScope b) noexcept {
+bool same_scope(const QuickSwitcherScope& a, const QuickSwitcherScope& b) noexcept {
     return a.account_serial == b.account_serial && a.profile_key == b.profile_key && a.self_user_id == b.self_user_id;
 }
 QuickSwitcherSources sources() noexcept {

@@ -52,6 +52,7 @@
 #include "application_soundboard.hpp"
 #include "application_startup_history.hpp"
 
+#include "application_log_fields.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/deadline.hpp"
@@ -121,6 +122,23 @@ static u64 next_message_history_request_id() noexcept {
     }
     return request_id;
 }
+// A message-jump history request is over: the search navigation takes its outcome and the jump target clears.
+static void end_message_jump(const RestClientResponse& response, const MessageHistoryRestResult& result) noexcept {
+    application_search_navigation_history_response(response, result);
+    g_app.pending_message_jump_channel_id = 0;
+    g_app.pending_message_jump_message_id = 0;
+}
+static void fail_message_jump(const RestClientResponse& response, MessageHistoryRestError error) noexcept {
+    MessageHistoryRestResult failed{};
+    failed.error = error;
+    end_message_jump(response, failed);
+}
+
+// The reply refresh gave up on its message: the lane moves on without retrying it.
+static void give_up_reply_refresh() noexcept {
+    g_app.reply_refresh.completed_through_id = g_app.reply_refresh.message_id;
+    g_app.reply_refresh.state = AttachmentRefreshState::idle;
+}
 
 static bool begin_required_catchup() noexcept {
     if (application_thread_browser_read_blocked())
@@ -165,15 +183,54 @@ struct DetailsRequestTurn {
 };
 static DetailsRequestTurn details_request_turn{};
 
-// A lane with a `submit` admits its request when `pending` reports work and the lane's owner tags
-// the request. A lane without one (channel overview, profile, commands) tags its own request.
-struct DetailsLane {
+// A request lane: `pending` reports work and `submit` sends it, tagged with `owner`.
+struct RequestLane {
     bool (*pending)(u64 now) noexcept;
     bool (*submit)(u64 request_id, u64 now) noexcept;
     MessageHistoryRequestOwner owner;
 };
 
-static constexpr DetailsLane kDetailsLanes[] = {
+// Short settings-style requests on the primary lane. Search yields to a pending message jump.
+static constexpr RequestLane kPrimaryLanes[] = {
+    {application_self_status_pending, application_self_status_submit, MessageHistoryRequestOwner::self_status},
+    {application_custom_status_pending, application_custom_status_submit,
+     MessageHistoryRequestOwner::custom_status},
+    {application_activity_sharing_pending, application_activity_sharing_submit,
+     MessageHistoryRequestOwner::activity_sharing},
+    {application_user_settings_pending, application_user_settings_submit,
+     MessageHistoryRequestOwner::user_settings},
+    // Guild folder layout edits share the settings-proto lane and owner.
+    {application_guild_folders_pending, application_guild_folders_submit,
+     MessageHistoryRequestOwner::user_settings},
+    {application_search_pending, application_search_submit, MessageHistoryRequestOwner::message_search},
+    {application_media_picker_pending, application_media_picker_submit,
+     MessageHistoryRequestOwner::media_catalog},
+    {application_gif_favorites_pending, application_gif_favorites_submit,
+     MessageHistoryRequestOwner::gif_favorites},
+    {application_emoji_preferences_pending, application_emoji_preferences_submit,
+     MessageHistoryRequestOwner::emoji_preferences},
+    {application_friends_pending, application_friends_submit, MessageHistoryRequestOwner::friends},
+};
+static constexpr u32 kPrimaryLaneSearch = 5, kPrimaryLaneMedia = 6, kPrimaryLaneFriends = 9,
+                     kPrimaryLaneEnd = 10;
+
+// The first pending lane in [first, last) takes the pump's turn, whether or not its submit was
+// accepted (a refused one is retried by a later pump).
+static bool admit_primary_lanes(u32 first, u32 last, u64 now) noexcept {
+    for (; first < last; ++first) {
+        const RequestLane& lane = kPrimaryLanes[first];
+        if (!lane.pending(now))
+            continue;
+        if (lane.submit(next_message_history_request_id(), now))
+            g_app.message_history_request_owner = lane.owner;
+        return true;
+    }
+    return false;
+}
+
+// A lane without a `submit` (channel overview, profile, commands) tags its own request; a lane with
+// one is admitted when its pending reports work.
+static constexpr RequestLane kDetailsLanes[] = {
     {application_thread_actions_pending, application_thread_actions_submit,
      MessageHistoryRequestOwner::thread_actions},
     {application_search_navigation_pending, application_search_navigation_submit,
@@ -211,7 +268,7 @@ static constexpr DetailsLane kDetailsLanes[] = {
     {application_dm_profile_pending, application_dm_profile_submit, MessageHistoryRequestOwner::dm_profile},
 };
 
-static bool admit_details_lane(const DetailsLane& lane, u64 now) noexcept {
+static bool admit_details_lane(const RequestLane& lane, u64 now) noexcept {
     if (!lane.submit)
         return lane.pending(now);
     if (!lane.pending(now))
@@ -231,7 +288,7 @@ static void admit_details_request(u64 now) noexcept {
     constexpr u8 lanes = sizeof(kDetailsLanes) / sizeof(kDetailsLanes[0]);
     for (u8 tried = 0; tried < lanes; ++tried) {
         const u8 index = static_cast<u8>((turn.next + tried) % lanes);
-        const DetailsLane& lane = kDetailsLanes[index];
+        const RequestLane& lane = kDetailsLanes[index];
         if (admit_details_lane(lane, now)) {
             turn.next = static_cast<u8>((index + 1) % lanes);
             return;
@@ -264,6 +321,30 @@ static bool admit_message_reaction(u64 now_ms) noexcept {
     return true;
 }
 
+// An edit or delete the client refuses to send (`log_key` null: access is gone, reported as a 403)
+// or whose submit failed is reported to the user.
+static void notice_mutation_refused(ApplicationMessageMutationKind kind, u64 channel_id, u64 message_id,
+                                    const char* log_key, RestClientSubmitError submit_error) noexcept {
+    RestClientResponse response{};
+    if (!log_key) {
+        response.status_code = 403;
+    } else {
+        log_u64(LogLevel::error, "rest", log_key, static_cast<u64>(submit_error));
+        response.error = submit_error == RestClientSubmitError::account_restricted
+                             ? RestClientError::account_restricted
+                             : RestClientError::invalid_input;
+    }
+    application_message_mutation_notice_failed(kind, channel_id, message_id, response);
+}
+
+// The message edit request is over without an applied edit: an open editor keeps its text.
+static void end_message_edit_request() noexcept {
+    if (g_app.message_edit.editor_active)
+        g_app.message_edit.phase = MessageEditRequestPhase::idle;
+    else
+        reset_message_edit();
+}
+
 static bool pump_message_history_lower(u64 now_ms) noexcept {
     AccountHost& host = g_app.account;
     MessageHistoryCatchup& catchup = g_app.message_catchup;
@@ -275,40 +356,23 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
                               message_edit.retry_at_ms != 0 && message_edit.retry_at_ms <= now_ms));
     if (edit_ready) {
         if (!application_message_edit_pending_available()) {
-            RestClientResponse denied{};
-            denied.status_code = 403;
-            application_message_mutation_notice_failed(ApplicationMessageMutationKind::edit,
-                                                       message_edit.channel_id, message_edit.message_id,
-                                                       denied);
+            notice_mutation_refused(ApplicationMessageMutationKind::edit, message_edit.channel_id,
+                                    message_edit.message_id, nullptr, {});
             message_edit.retry_at_ms = 0;
-            if (message_edit.editor_active)
-                message_edit.phase = MessageEditRequestPhase::idle;
-            else
-                reset_message_edit();
+            end_message_edit_request();
             return refresh_message_composer_ui();
         }
-        const u64 request_id = next_message_history_request_id();
         const RestClientSubmitResult submitted =
             host.api.message_edit(host.instance, message_edit.channel_id, message_edit.message_id,
-                                  Utf8View{message_edit.content, message_edit.content_bytes}, request_id);
+                                  Utf8View{message_edit.content, message_edit.content_bytes},
+                                  next_message_history_request_id());
         if (submitted.error == RestClientSubmitError::busy) {
             return true;
         }
         if (!submitted.ok()) {
-            log_u64(LogLevel::error, "rest", "message_edit_submit_error",
-                    static_cast<u64>(submitted.error));
-            RestClientResponse failure{};
-            failure.error = submitted.error == RestClientSubmitError::account_restricted
-                                ? RestClientError::account_restricted
-                                : RestClientError::invalid_input;
-            application_message_mutation_notice_failed(ApplicationMessageMutationKind::edit,
-                                                       message_edit.channel_id, message_edit.message_id,
-                                                       failure);
-            if (message_edit.editor_active) {
-                message_edit.phase = MessageEditRequestPhase::idle;
-            } else {
-                reset_message_edit();
-            }
+            notice_mutation_refused(ApplicationMessageMutationKind::edit, message_edit.channel_id,
+                                    message_edit.message_id, "message_edit_submit_error", submitted.error);
+            end_message_edit_request();
             return refresh_message_composer_ui();
         }
         message_edit.phase = MessageEditRequestPhase::submitting;
@@ -319,31 +383,20 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
 
     if (g_app.message_delete.message_id != 0 &&
         (g_app.message_delete.retry_at_ms == 0 || g_app.message_delete.retry_at_ms <= now_ms)) {
+        const u64 channel_id = g_app.message_delete.channel_id, message_id = g_app.message_delete.message_id;
         if (!application_message_delete_pending_available()) {
-            RestClientResponse denied{};
-            denied.status_code = 403;
-            application_message_mutation_notice_failed(ApplicationMessageMutationKind::erase,
-                                                       g_app.message_delete.channel_id,
-                                                       g_app.message_delete.message_id, denied);
+            notice_mutation_refused(ApplicationMessageMutationKind::erase, channel_id, message_id, nullptr, {});
             reset_message_delete();
             return refresh_account_text(true);
         }
-        const u64 request_id = next_message_history_request_id();
         const RestClientSubmitResult submitted = host.api.message_delete(
-            host.instance, g_app.message_delete.channel_id, g_app.message_delete.message_id, request_id);
+            host.instance, channel_id, message_id, next_message_history_request_id());
         if (submitted.error == RestClientSubmitError::busy) {
             return true;
         }
         if (!submitted.ok()) {
-            log_u64(LogLevel::error, "rest", "message_delete_submit_error",
-                    static_cast<u64>(submitted.error));
-            RestClientResponse failure{};
-            failure.error = submitted.error == RestClientSubmitError::account_restricted
-                                ? RestClientError::account_restricted
-                                : RestClientError::invalid_input;
-            application_message_mutation_notice_failed(ApplicationMessageMutationKind::erase,
-                                                       g_app.message_delete.channel_id,
-                                                       g_app.message_delete.message_id, failure);
+            notice_mutation_refused(ApplicationMessageMutationKind::erase, channel_id, message_id,
+                                    "message_delete_submit_error", submitted.error);
             reset_message_delete();
             return refresh_account_text(true);
         }
@@ -442,54 +495,13 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
         }
     }
 
-    if (application_self_status_pending(now_ms)) {
-        if (application_self_status_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::self_status;
-        return true;
-    }
-    if (application_custom_status_pending(now_ms)) {
-        if (application_custom_status_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::custom_status;
-        return true;
-    }
-    if (application_activity_sharing_pending(now_ms)) {
-        if (application_activity_sharing_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::activity_sharing;
-        return true;
-    }
-    if (application_user_settings_pending(now_ms)) {
-        if (application_user_settings_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::user_settings;
-        return true;
-    }
-    // Guild folder layout edits share the settings-proto lane and owner.
-    if (application_guild_folders_pending(now_ms)) {
-        if (application_guild_folders_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::user_settings;
-        return true;
-    }
     // Explicit result activation keeps its jump priority; ordinary search
     // submissions precede passive history paging and media URL refreshes.
-    if (!g_app.pending_message_jump_message_id && application_search_pending(now_ms)) {
-        if (application_search_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::message_search;
+    if (admit_primary_lanes(0, kPrimaryLaneSearch, now_ms) ||
+        (!g_app.pending_message_jump_message_id &&
+         admit_primary_lanes(kPrimaryLaneSearch, kPrimaryLaneMedia, now_ms)) ||
+        admit_primary_lanes(kPrimaryLaneMedia, kPrimaryLaneFriends, now_ms))
         return true;
-    }
-    if (application_media_picker_pending(now_ms)) {
-        if (application_media_picker_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::media_catalog;
-        return true;
-    }
-    if (application_gif_favorites_pending(now_ms)) {
-        if (application_gif_favorites_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::gif_favorites;
-        return true;
-    }
-    if (application_emoji_preferences_pending(now_ms)) {
-        if (application_emoji_preferences_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::emoji_preferences;
-        return true;
-    }
     if (application_thread_browser_read_blocked())
         return true;
     MessageHistoryQuery query{};
@@ -551,8 +563,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
             } else if (owner == MessageHistoryRequestOwner::older) {
                 message_history_older_fail(&older, MessageHistoryCatchupFailure::transport);
             } else if (owner == MessageHistoryRequestOwner::reply_refresh) {
-                g_app.reply_refresh.completed_through_id = g_app.reply_refresh.message_id;
-                g_app.reply_refresh.state = AttachmentRefreshState::idle;
+                give_up_reply_refresh();
                 return true;
             } else {
                 message_history_attachment_reset(&g_app.attachment_refresh);
@@ -611,15 +622,18 @@ using TimedResponseConsumer = bool (*)(const RestClientResponse&, Utf8View body,
 struct ResponseRoute {
     MessageHistoryRequestOwner owner;
     bool lenient; // A failed take never stops the pump.
-    ResponseConsumer plain;
-    TimedResponseConsumer timed;
+    bool timed;
+    union {
+        ResponseConsumer plain;
+        TimedResponseConsumer with_time;
+    };
 
     constexpr ResponseRoute(MessageHistoryRequestOwner o, ResponseConsumer c, bool l = false) noexcept
-        : owner(o), lenient(l), plain(c), timed(nullptr) {}
+        : owner(o), lenient(l), timed(false), plain(c) {}
     constexpr ResponseRoute(MessageHistoryRequestOwner o, TimedResponseConsumer c) noexcept
-        : owner(o), lenient(false), plain(nullptr), timed(c) {}
+        : owner(o), lenient(false), timed(true), with_time(c) {}
     bool consume(const RestClientResponse& response, Utf8View body, u64 now_ms) const noexcept {
-        return plain ? plain(response, body) : timed(response, body, now_ms);
+        return timed ? with_time(response, body, now_ms) : plain(response, body);
     }
 };
 
@@ -826,11 +840,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                 } else if (owner == MessageHistoryRequestOwner::message_delete) {
                     reset_message_delete();
                 } else if (owner == MessageHistoryRequestOwner::message_edit) {
-                    if (g_app.message_edit.editor_active) {
-                        g_app.message_edit.phase = MessageEditRequestPhase::idle;
-                    } else {
-                        reset_message_edit();
-                    }
+                    end_message_edit_request();
                     refresh_message_composer_ui();
                 } else if (owner == MessageHistoryRequestOwner::reaction_users) {
                     const ReactionViewerControllerResult failed = reaction_viewer_controller_submit_failed(
@@ -842,11 +852,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                     application_reaction_tooltip_failed();
                 } else if (owner == MessageHistoryRequestOwner::message_jump) {
                     response.error = RestClientError::response;
-                    MessageHistoryRestResult failed{};
-                    failed.error = MessageHistoryRestError::transport;
-                    application_search_navigation_history_response(response, failed);
-                    g_app.pending_message_jump_channel_id = 0;
-                    g_app.pending_message_jump_message_id = 0;
+                    fail_message_jump(response, MessageHistoryRestError::transport);
                 } else if (owner == MessageHistoryRequestOwner::catchup &&
                            catchup.state == MessageHistoryCatchupState::awaiting_page) {
                     message_history_catchup_fail(&catchup, MessageHistoryCatchupFailure::transport);
@@ -856,8 +862,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                 } else if (owner == MessageHistoryRequestOwner::attachment_refresh) {
                     message_history_attachment_reset(&g_app.attachment_refresh);
                 } else if (owner == MessageHistoryRequestOwner::reply_refresh) {
-                    g_app.reply_refresh.completed_through_id = g_app.reply_refresh.message_id;
-                    g_app.reply_refresh.state = AttachmentRefreshState::idle;
+                    give_up_reply_refresh();
                 }
                 log_write(LogLevel::error, "rest", "message_history_take_failed");
                 return false;
@@ -939,16 +944,14 @@ static bool pump_message_history_main(bool admit) noexcept {
                                kMessageHistoryObjectStructuralCount});
                 if (!accepted.ok()) {
                     const ReactionViewerController& controller = g_app.reaction_viewer_controller;
-                    log_u64(LogLevel::warning, "reaction_viewer", "response_error",
-                            static_cast<u64>(accepted.error));
-                    log_u64(LogLevel::warning, "reaction_viewer", "http_status",
-                            controller.last_http_status);
-                    log_u64(LogLevel::warning, "reaction_viewer", "transport_error",
-                            static_cast<u64>(controller.last_transport_error));
-                    log_u64(LogLevel::warning, "reaction_viewer", "decode_error",
-                            static_cast<u64>(controller.last_decode_error));
-                    log_u64(LogLevel::warning, "reaction_viewer", "decode_error_offset",
-                            controller.last_decode_offset);
+                    const u64 failed[] = {static_cast<u64>(accepted.error), controller.last_http_status,
+                                          static_cast<u64>(controller.last_transport_error),
+                                          static_cast<u64>(controller.last_decode_error),
+                                          controller.last_decode_offset};
+                    log_u64_fields(LogLevel::warning, "reaction_viewer",
+                                   "response_error\0http_status\0transport_error\0decode_error\0"
+                                   "decode_error_offset",
+                                   failed);
                 } else if (accepted.stale) {
                     log_write(LogLevel::info, "reaction_viewer", "stale_response_discarded");
                 }
@@ -1037,11 +1040,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                             body.bytes && body.bytes == response.body_bytes &&
                             !application_message_decode_scratch(*g_app.account_ui, &scratch, body)) {
                             if (owner == MessageHistoryRequestOwner::message_jump) {
-                                MessageHistoryRestResult failed{};
-                                failed.error = MessageHistoryRestError::decode;
-                                application_search_navigation_history_response(response, failed);
-                                g_app.pending_message_jump_channel_id =
-                                    g_app.pending_message_jump_message_id = 0;
+                                fail_message_jump(response, MessageHistoryRestError::decode);
                                 return true;
                             }
                             log_write(LogLevel::error, "message",
@@ -1079,9 +1078,7 @@ static bool pump_message_history_main(bool admit) noexcept {
                                     accepted.disposition = MessageHistoryRestDisposition::failed;
                                 }
                             }
-                            application_search_navigation_history_response(response, accepted);
-                            g_app.pending_message_jump_channel_id = 0;
-                            g_app.pending_message_jump_message_id = 0;
+                            end_message_jump(response, accepted);
                         } else if (owner == MessageHistoryRequestOwner::reply_refresh) {
                             accepted = message_history_reply_accept_rest(
                                 &g_app.reply_refresh, &g_app.message_view.timeline,
@@ -1109,11 +1106,10 @@ static bool pump_message_history_main(bool admit) noexcept {
                             TraceRecord shortfall("history_shortfall");
                             shortfall.field("request", response.request_id);
                             shortfall.field("work", rest_owner_name(owner));
-                            shortfall.field("decoded", accepted.decode.page.count);
-                            shortfall.field("inserted", accepted.apply.inserted);
-                            shortfall.field("resident", accepted.apply.resident);
-                            shortfall.field("skipped", accepted.apply.skipped);
-                            shortfall.field("evicted", accepted.apply.evicted);
+                            const u64 fields[] = {accepted.decode.page.count, accepted.apply.inserted,
+                                                  accepted.apply.resident, accepted.apply.skipped,
+                                                  accepted.apply.evicted};
+                            trace_fields(shortfall, "decoded\0inserted\0resident\0skipped\0evicted", fields);
                             log_write(LogLevel::warning, "rest", shortfall.text);
                         }
                         MessagePollPageInput inputs[kMessageHistoryRequestLimit]{};
@@ -1180,47 +1176,44 @@ static bool pump_message_history_main(bool admit) noexcept {
                     if (accepted.apply.destructive_failure) {
                         g_app.message_pump.resync_required = true;
                     }
-                    log_u64(LogLevel::error, "rest", "message_history_error",
-                            static_cast<u64>(accepted.error));
-                    log_u64(LogLevel::error, "rest", "message_history_apply_error",
-                            static_cast<u64>(accepted.apply.error));
-                    log_u64(LogLevel::error, "rest", "message_history_decode_error",
-                            static_cast<u64>(accepted.decode.error));
-                    log_u64(LogLevel::error, "rest", "message_history_message_error",
-                            static_cast<u64>(accepted.decode.message_error));
-                    log_u64(LogLevel::error, "rest", "message_history_read_error",
-                            static_cast<u64>(accepted.decode.read_error));
-                    log_u64(LogLevel::error, "rest", "message_history_scan_error",
-                            static_cast<u64>(accepted.decode.scan_error));
-                    log_u64(LogLevel::error, "rest", "message_history_error_offset",
-                            accepted.decode.error_offset);
+                    const u64 failed[] = {static_cast<u64>(accepted.error),
+                                          static_cast<u64>(accepted.apply.error),
+                                          static_cast<u64>(accepted.decode.error),
+                                          static_cast<u64>(accepted.decode.message_error),
+                                          static_cast<u64>(accepted.decode.read_error),
+                                          static_cast<u64>(accepted.decode.scan_error),
+                                          accepted.decode.error_offset};
+                    log_u64_fields(LogLevel::error, "rest",
+                                   "message_history_error\0message_history_apply_error\0"
+                                   "message_history_decode_error\0message_history_message_error\0"
+                                   "message_history_read_error\0message_history_scan_error\0"
+                                   "message_history_error_offset",
+                                   failed);
                     if (accepted.decode.schema_field[0])
                         log_write(LogLevel::error, "message_schema_field", accepted.decode.schema_field);
-                    log_u64(LogLevel::error, "rest", "message_history_transport_error",
-                            static_cast<u64>(response.error));
-                    log_u64(LogLevel::error, "rest", "message_history_native_error", response.native_error);
-                    log_u64(LogLevel::error, "rest", "message_history_http_status", response.status_code);
+                    const u64 transport[] = {static_cast<u64>(response.error), response.native_error,
+                                             response.status_code};
+                    log_u64_fields(LogLevel::error, "rest",
+                                   "message_history_transport_error\0message_history_native_error\0"
+                                   "message_history_http_status",
+                                   transport);
                     return false;
                 } else if (accepted.disposition == MessageHistoryRestDisposition::retry_scheduled) {
                     // One diagnostic per completed attempt, never per frame or pump.
-                    log_u64(LogLevel::warning, "rest", "message_history_retry_transport_error",
-                            static_cast<u64>(response.error));
-                    log_u64(LogLevel::warning, "rest", "message_history_retry_native_error",
-                            response.native_error);
-                    log_u64(LogLevel::warning, "rest", "message_history_retry_http_status",
-                            response.status_code);
-                    log_u64(LogLevel::warning, "rest", "message_history_retry_reused_connection",
-                            response.reused_connection);
+                    const u64 retry[] = {static_cast<u64>(response.error), response.native_error,
+                                         response.status_code, response.reused_connection};
+                    log_u64_fields(LogLevel::warning, "rest",
+                                   "message_history_retry_transport_error\0message_history_retry_native_error\0"
+                                   "message_history_retry_http_status\0message_history_retry_reused_connection",
+                                   retry);
                 } else if (accepted.disposition == MessageHistoryRestDisposition::applied && g_app.window) {
                     TraceRecord applied("history_applied");
                     applied.field("request", response.request_id);
                     applied.field("work", rest_owner_name(owner));
-                    applied.field("decoded", accepted.decode.page.count);
-                    applied.field("inserted", accepted.apply.inserted);
-                    applied.field("resident", accepted.apply.resident);
-                    applied.field("channel_epoch", g_app.load_trace.channel_epoch);
-                    applied.field("decode_apply_us",
-                                  clock_microseconds(g_app.clock, apply_started, clock_now()));
+                    const u64 fields[] = {accepted.decode.page.count, accepted.apply.inserted,
+                                          accepted.apply.resident, g_app.load_trace.channel_epoch,
+                                          clock_microseconds(g_app.clock, apply_started, clock_now())};
+                    trace_fields(applied, "decoded\0inserted\0resident\0channel_epoch\0decode_apply_us", fields);
                     applied.write("load_trace");
                     if (owner == MessageHistoryRequestOwner::catchup ||
                         owner == MessageHistoryRequestOwner::message_jump) {
@@ -1299,11 +1292,8 @@ static bool pump_message_history_main(bool admit) noexcept {
         g_app.message_history_request_owner = MessageHistoryRequestOwner::scoped_read;
         return true;
     }
-    if (application_friends_pending(now_ms)) {
-        if (application_friends_submit(next_message_history_request_id(), now_ms))
-            g_app.message_history_request_owner = MessageHistoryRequestOwner::friends;
+    if (admit_primary_lanes(kPrimaryLaneFriends, kPrimaryLaneEnd, now_ms))
         return true;
-    }
     if (reaction_viewer_controller_prepare_request(&g_app.reaction_viewer_controller, now_ms,
                                                    &reaction_users)) {
         const u64 request_id = next_message_history_request_id();

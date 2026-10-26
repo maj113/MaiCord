@@ -14,8 +14,8 @@ struct FriendSearchResult {
 // normalization or trimming). Every input must be valid UTF-8 of at most 128
 // bytes; missing fields are empty. An empty query matches every valid input;
 // malformed fields still report error.
-FriendSearchResult friend_search(Utf8View query, Utf8View username,
-    Utf8View nickname, Utf8View display_name) noexcept;
+FriendSearchResult friend_search(const Utf8View& query, const Utf8View& username,
+    const Utf8View& nickname, const Utf8View& display_name) noexcept;
 struct FriendCompareResult {
     FriendSearchError error;
     i32 order;

@@ -536,7 +536,7 @@ bool application_profile_menu_activate(u32 action) noexcept {
         return mutate_role(*p, p->menu_roles[action - menu_role_first], true);
     return true;
 }
-bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind) noexcept {
+bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind) noexcept {
     if (!g_app.account_ui || !user)
         return false;
     application_composer_text_input_suspend();

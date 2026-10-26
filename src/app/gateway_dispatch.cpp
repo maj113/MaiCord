@@ -213,8 +213,10 @@ template <typename Value> bool append_packed(Slice<char> output, u32* cursor, co
     return true;
 }
 
-bool pack_text_range(Slice<char> output, u32 transient_bytes, Utf8View value,
+bool pack_text_range(const Slice<char>& output_view, u32 transient_bytes, const Utf8View& value_view,
                      GatewayClientMessageTextRange* range) noexcept {
+    const Slice<char> output = output_view; // *range is cleared below
+    const Utf8View value = value_view;
     if (transient_bytes > output.count || value.bytes > 0xFFFFu) {
         return false;
     }

@@ -7,6 +7,8 @@
 namespace maicord::app_detail {
 
 void end_message_composer_pointer_selection() noexcept;
+// The composer gives up keyboard focus: its typing indicator, caret and revision follow.
+void release_message_composer_focus() noexcept;
 bool handle_composer_click(LPARAM lparam) noexcept;
 bool handle_composer_double_click(LPARAM lparam) noexcept;
 bool handle_composer_drag(WPARAM buttons, LPARAM lparam) noexcept;

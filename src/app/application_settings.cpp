@@ -258,7 +258,7 @@ bool release_slider_theme(ApplicationSettings& settings) noexcept {
     settings.slider_theme_baseline = nullptr;
     return true;
 }
-bool capture_slider_theme(ApplicationSettings& settings, UiSettingsTarget target) noexcept {
+bool capture_slider_theme(ApplicationSettings& settings, const UiSettingsTarget& target) noexcept {
     if (!release_slider_theme(settings))
         return false;
     // Built-in and notification gestures already have a preferences
@@ -292,7 +292,7 @@ bool release_plugin_page(ApplicationSettings& settings) noexcept {
     settings.plugin_page_committed = false;
     return true;
 }
-bool update_scene(ApplicationSettings& settings, UiRect viewport) noexcept;
+bool update_scene(ApplicationSettings& settings, const UiRect& viewport) noexcept;
 void close_choice() noexcept;
 void detach_plugin(void*, u64 owner_id) noexcept {
     application_plugins_detach_owner(owner_id);
@@ -749,7 +749,7 @@ UiSettingsAvatarMedia application_guild_icon_media(u64 guild_id) noexcept {
     return media;
 }
 
-UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, Utf8View avatar_hash,
+UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, const Utf8View& avatar_hash,
                                                            u16 discriminator) noexcept {
     UiSettingsAvatarMedia media{};
     if (!user_id)
@@ -908,7 +908,7 @@ void bind_chrome(ApplicationSettings& settings) noexcept {
          focused ? &g_app.renderer.media_picker_edit_geometry : nullptr,
          utf8_literal("Search")});
 }
-bool update_scene(ApplicationSettings& settings, UiRect viewport) noexcept {
+bool update_scene(ApplicationSettings& settings, const UiRect& viewport) noexcept {
     ui_settings_scene_bind_theme_styles(&settings.scene, application_theme().styles);
     bind_chrome(settings);
     const auto* selected = ui_page_registry_selected(settings.registry);
@@ -1067,7 +1067,7 @@ bool project_choice(ApplicationSettingsChoice choice) noexcept {
     close_choice();
     return false;
 }
-bool open_choice(UiSettingsTarget target, const NativePluginUiToken* expected) noexcept {
+bool open_choice(const UiSettingsTarget& target, const NativePluginUiToken* expected) noexcept {
     auto* settings = g_app.settings;
     ApplicationSettingsChoice choice{};
     const auto* control = settings ? ui_settings_scene_control(settings->scene, target, &choice.control_index) : nullptr;
@@ -1118,7 +1118,7 @@ void apply_search(ApplicationSettings& settings) noexcept {
     ++settings.content[kSettingsSearchPage - 1].revision;
     project(settings);
 }
-void set_search(ApplicationSettings& settings, Utf8View text) noexcept {
+void set_search(ApplicationSettings& settings, const Utf8View& text) noexcept {
     const u32 bytes = minimum(text.bytes, kSettingsSearchBytes);
     u32 valid = 0;
     while (valid < bytes) {
@@ -1137,7 +1137,7 @@ bool flash(ApplicationSettings& settings, u64 control_id) noexcept {
     return ui_settings_scene_set_flash(&settings.scene, control_id, .001f);
 }
 // Opens a panel, optionally scrolling to and flashing one of its controls.
-bool navigate(ApplicationSettings& settings, UiPageKey page, u64 control_id) noexcept {
+bool navigate(ApplicationSettings& settings, const UiPageKey& page, u64 control_id) noexcept {
     if (!page_allowed(page))
         return false;
     // Profiles is the profile editor's page: it takes the modal over.
@@ -1181,7 +1181,7 @@ bool searching(const ApplicationSettings& settings) noexcept {
 }
 
 // Motion needs a presenting window; headless hosts settle immediately.
-void animate_toggle(ApplicationSettings& settings, UiSettingsTarget target,
+void animate_toggle(ApplicationSettings& settings, const UiSettingsTarget& target,
                     const UiSettingsActivation& request) noexcept {
     if (request.kind == UiSettingsControlKind::toggle && g_app.window)
         ui_settings_scene_animate_toggle(&settings.scene, target, request.checked,
@@ -1192,8 +1192,20 @@ bool settled(ApplicationSettings& settings, bool result) noexcept {
     project(settings);
     return refresh() && result;
 }
+// Gives up the mouse capture when the window holds it.
+void release_capture() noexcept {
+    if (GetCapture() == g_app.window)
+        ReleaseCapture();
+}
+// A toggle's result: the thumb animates on success, then the page refreshes.
+bool settled_toggle(ApplicationSettings& settings, const UiSettingsTarget& target, const UiSettingsActivation& request,
+                    bool result) noexcept {
+    if (result)
+        animate_toggle(settings, target, request);
+    return settled(settings, result);
+}
 
-bool activate_plugin(ApplicationSettings& settings, UiSettingsTarget target, const UiSettingsActivation& request,
+bool activate_plugin(ApplicationSettings& settings, const UiSettingsTarget& target, const UiSettingsActivation& request,
                      const NativePluginUiToken* expected) noexcept {
     // ABI-5 text, colour and keybind rows edit through the text form.
     if (request.kind == UiSettingsControlKind::action && application_plugins_settings_edit(target.page, target.control_id))
@@ -1212,7 +1224,7 @@ bool activate_plugin(ApplicationSettings& settings, UiSettingsTarget target, con
         animate_toggle(settings, target, request);
     return result.ok() && (!result.changed || refresh());
 }
-bool activate_plugin_catalog(ApplicationSettings& settings, UiSettingsTarget target, const UiSettingsActivation& request) noexcept {
+bool activate_plugin_catalog(ApplicationSettings& settings, const UiSettingsTarget& target, const UiSettingsActivation& request) noexcept {
     settings.plugin_error = NativePluginError::none;
     if (plugin_browser_control(target.control_id)) {
         const bool result = application_plugin_browser_activate(target.control_id, request);
@@ -1248,7 +1260,7 @@ bool activate_plugin_catalog(ApplicationSettings& settings, UiSettingsTarget tar
             static_cast<u32>(target.control_id - kApplicationPluginCatalogActionFirst), revision);
     return false;
 }
-bool activate(UiSettingsTarget target, bool reverse, const NativePluginUiToken* expected = nullptr, bool picker = false,
+bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUiToken* expected = nullptr, bool picker = false,
               u32 selected = ~0u, bool save = true) noexcept {
     auto* settings = g_app.settings;
     if (!settings || !settings->scene.active)
@@ -1323,11 +1335,8 @@ bool activate(UiSettingsTarget target, bool reverse, const NativePluginUiToken* 
         return false;
     if (bool result = false; binding != SettingBinding::game_detection &&
                              application_activity_settings_activate(binding, request.checked,
-                                                                    request.selected_choice, &result)) {
-        if (result)
-            animate_toggle(*settings, target, request);
-        return settled(*settings, result);
-    }
+                                                                    request.selected_choice, &result))
+        return settled_toggle(*settings, target, request, result);
     switch (binding) {
     case SettingBinding::customize_theme:
         return application_theme_editor_open();
@@ -1374,14 +1383,12 @@ bool activate(UiSettingsTarget target, bool reverse, const NativePluginUiToken* 
     default:
         break;
     }
-    if (settings_binding_backend(binding) == SettingBackend::os) {
+    const auto backend = settings_binding_backend(binding);
+    if (backend == SettingBackend::os)
         // Startup entry and protocol handler: the Windows registry is the value.
-        const bool result = application_desktop_settings_activate(binding, request.checked);
-        if (result)
-            animate_toggle(*settings, target, request);
-        return settled(*settings, result);
-    }
-    if (settings_binding_backend(binding) == SettingBackend::voice) {
+        return settled_toggle(*settings, target, request,
+                              application_desktop_settings_activate(binding, request.checked));
+    if (backend == SettingBackend::voice) {
         const bool result =
             application_voice_settings_activate(binding, request.checked, request.selected_choice, save);
         if (result)
@@ -1391,18 +1398,14 @@ bool activate(UiSettingsTarget target, bool reverse, const NativePluginUiToken* 
         project(*settings);
         return update_scene(*settings, settings->scene.viewport) && application_request_frame() && result;
     }
-    if (settings_binding_backend(binding) == SettingBackend::keybinds)
+    if (backend == SettingBackend::keybinds)
         return settled(*settings, application_keybinds_settings_activate(binding));
-    if (settings_binding_backend(binding) == SettingBackend::proto1 ||
-        settings_binding_backend(binding) == SettingBackend::account) {
-        const bool result = settings_binding_backend(binding) == SettingBackend::proto1
-                                ? application_user_settings_activate(binding, request.checked, request.selected_choice)
-                                : application_account_settings_activate(binding);
-        if (result)
-            animate_toggle(*settings, target, request);
-        return settled(*settings, result);
-    }
-    if (settings_binding_backend(binding) != SettingBackend::local)
+    if (backend == SettingBackend::proto1 || backend == SettingBackend::account)
+        return settled_toggle(*settings, target, request,
+                              backend == SettingBackend::proto1
+                                  ? application_user_settings_activate(binding, request.checked, request.selected_choice)
+                                  : application_account_settings_activate(binding));
+    if (backend != SettingBackend::local)
         return false;
     if (bool result = false; binding == SettingBinding::background_effect &&
                              application_plugins_fx_activate(request.selected_choice, &result))
@@ -1849,8 +1852,7 @@ bool application_settings_open() noexcept {
     ui_button_keyboard_cancel(&g_app.button_keyboard);
     ui_button_pointer(&g_app.message_composer_scene.widgets, UiButtonPointerEvent::cancel, {});
     ui_button_pointer(&g_app.shell_scene.widgets, UiButtonPointerEvent::cancel, {});
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    release_capture();
     g_app.button_pointer_owner = nullptr;
     g_app.message_composer_pointer_selection = false;
     g_app.message_text_pointer_selection = false;
@@ -1918,8 +1920,7 @@ void application_settings_close(bool restore_focus) noexcept {
     }
     const auto* previous = settings->previous_focus;
     const bool composer = settings->previous_composer_focus;
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
+    release_capture();
     reset_value(&settings->pressed);
     settings->notifications_active = false;
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
@@ -2048,9 +2049,9 @@ bool application_settings_synchronize() noexcept {
     const u64 now = clock_monotonic_milliseconds();
     bool animating = ui_settings_scene_tick(&settings->scene, now, g_app.preferences.reduced_motion);
     if (settings->scene.flash_control) {
-        const auto tokens = ui_settings_layout_tokens(application_theme().styles);
+        const auto timing = ui_settings_layout_tokens(application_theme().styles).duration;
         const u64 elapsed = now - settings->flash_started_ms;
-        const u64 total = tokens.duration.flash_ms, fade = minimum<u64>(tokens.duration.flash_fade_ms, total);
+        const u64 total = timing.flash_ms, fade = minimum<u64>(timing.flash_fade_ms, total);
         float strength = 0;
         if (elapsed < total)
             strength = elapsed < fade ? maximum(.001f, static_cast<float>(elapsed) / static_cast<float>(fade))
@@ -2061,18 +2062,18 @@ bool application_settings_synchronize() noexcept {
     }
     {
         // Dialog entrance: a spring from the scrim fade to full scale.
-        const auto tokens = ui_settings_layout_tokens(application_theme().styles);
+        const auto timing = ui_settings_layout_tokens(application_theme().styles).duration;
         const bool motion = g_app.window && !g_app.preferences.reduced_motion && !g_app.renderer.live_resize &&
                             (!g_app.surface_motion.system_preference_cached || g_app.surface_motion.client_area_animation);
         if (settings->entrance_opens != settings->scene.opens) {
             settings->entrance_opens = settings->scene.opens;
             settings->entrance_started_ms = motion ? now : 0;
         }
-        const u64 duration = maximum<u64>(1, tokens.duration.modal_enter_ms);
+        const u64 duration = maximum<u64>(1, timing.modal_enter_ms);
         const u64 elapsed = now - settings->entrance_started_ms;
         const bool running = motion && settings->entrance_started_ms && elapsed < duration;
         renderer_set_settings_modal_progress(&g_app.renderer,
-                                             running ? ui_settings_modal_entrance(tokens.duration, elapsed) : 1.f);
+                                             running ? ui_settings_modal_entrance(timing, elapsed) : 1.f);
         animating = animating || running;
     }
     if (animating)
@@ -2468,8 +2469,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 const bool accepted = hit.enabled && hit.action == choice.pressed_action;
                 close_choice();
                 choice.popup_generation = g_app.popup_scene.widgets.generation;
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                release_capture();
                 // Capture cancellation may run nested UI. Both the closed bank
                 // and copied control token must remain current before dispatch.
                 if (accepted)
@@ -2487,8 +2487,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
         if (settings->backdrop_pressed) {
             if (message == WM_LBUTTONUP) {
                 settings->backdrop_pressed = false;
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                release_capture();
                 if (backdrop())
                     application_settings_close();
             }
@@ -2507,8 +2506,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 settings->search_selecting = false;
                 reset_value(&settings->pressed);
                 ui_button_pointer(&settings->scene.widgets, UiButtonPointerEvent::cancel, {});
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                release_capture();
             }
             return true;
         }
@@ -2522,8 +2520,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 refresh();
             } else if (message == WM_LBUTTONUP) {
                 settings->scrollbar_dragging = false;
-                if (GetCapture() == g_app.window)
-                    ReleaseCapture();
+                release_capture();
             }
             return true;
         }
@@ -2642,8 +2639,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             const u64 serial = settings->pressed_account_serial, profile = settings->pressed_profile;
             reset_value(&settings->pressed);
             settings->pressed_plugin = false;
-            if (GetCapture() == g_app.window)
-                ReleaseCapture();
+            release_capture();
             if (g_app.settings == settings && settings->scene.active && serial == g_app.plugin_account_scope_serial &&
                 profile == g_app.account.status.profile_id &&
                 catalog_revision == application_plugins_catalog_revision() && pointer.activate &&

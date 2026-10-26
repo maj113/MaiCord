@@ -71,6 +71,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/render/renderer_settings_visibility.hpp"
 #include "maicord/core/win32_error.hpp"
+#include "application_log_fields.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -85,18 +86,19 @@ void log_member_source_binding(const GatewayClientEvent& event) noexcept {
     const bool same_guild = selected && selected->guild_id == event.member_list.guild_id;
     const u64 derived_list = same_guild ? member_list_channel_id(state, selected->id) : 0;
     TraceRecord trace("member_source_binding");
-    trace.field("selected_guild_channel", selected && selected->guild_id ? u64{1} : u64{0});
-    trace.field("same_guild", same_guild ? u64{1} : u64{0});
-    trace.field("derived_list_available", derived_list ? u64{1} : u64{0});
-    trace.field("incoming_list_present", event.member_list.list_id ? u64{1} : u64{0});
-    trace.field("same_list",
-                same_guild && derived_list &&
-                        (!event.member_list.list_id || derived_list == event.member_list.list_id)
-                    ? u64{1}
-                    : u64{0});
-    trace.field("member_records", event.member_list.member_record_count);
-    trace.field("group_summaries", event.member_list.group_count);
-    trace.field("logical_count", event.member_list.logical_count);
+    const u64 fields[] = {selected && selected->guild_id,
+                          same_guild,
+                          derived_list != 0,
+                          event.member_list.list_id != 0,
+                          same_guild && derived_list &&
+                              (!event.member_list.list_id || derived_list == event.member_list.list_id),
+                          event.member_list.member_record_count,
+                          event.member_list.group_count,
+                          event.member_list.logical_count};
+    trace_fields(trace,
+                 "selected_guild_channel\0same_guild\0derived_list_available\0incoming_list_present\0same_list\0"
+                 "member_records\0group_summaries\0logical_count",
+                 fields);
     trace.write("member_hydration");
 }
 } // namespace
@@ -107,6 +109,14 @@ bool author_hydration_visible() noexcept {
            !g_app.login.visible && !g_app.startup_shell_provisional && !application_friends_active() &&
            !renderer_settings_hides_shell(g_app.renderer) && g_app.message_scene.active &&
            ui_rect_has_area(g_app.message_scene.viewport);
+}
+// Pins the user and member record of every resident member row of the scene.
+void pin_resident_members(AccountUiRuntime& ui, const MemberListScene& scene, u64 guild_id) noexcept {
+    for (u32 i = 0; i < scene.count; ++i)
+        if (member_list_scene_row_resident(scene, i) && scene.rows[i].kind == MemberListRowKind::member) {
+            user_store_pin(&ui.user_store, scene.rows[i].user_id);
+            guild_member_store_pin_user(&ui.guild_member_store, guild_id, scene.rows[i].user_id);
+        }
 }
 bool synchronize_member_subscription_impl(u64 now_ms) noexcept {
     MemberListSubscriptionRetry& pending = g_app.member_list_subscription;
@@ -171,13 +181,7 @@ bool synchronize_member_subscription_impl(u64 now_ms) noexcept {
             guild_member_store_clear_pins(&ui.guild_member_store);
             user_store_clear_pins(&ui.user_store);
             if (pin_visible)
-                for (u32 i = 0; i < scene.count; ++i)
-                    if (member_list_scene_row_resident(scene, i) &&
-                        scene.rows[i].kind == MemberListRowKind::member) {
-                        user_store_pin(&ui.user_store, scene.rows[i].user_id);
-                        guild_member_store_pin_user(&ui.guild_member_store, selected->guild_id,
-                                                            scene.rows[i].user_id);
-                    }
+                pin_resident_members(ui, scene, selected->guild_id);
             thread_pending.visible_pins = pin_visible;
             thread_pending.member_pin_revision = ui.guild_member_store.revision;
             thread_pending.user_pin_revision = ui.user_store.revision;
@@ -377,68 +381,59 @@ void synchronize_visible_author_hydration(u64 now_ms, bool pins_reset) noexcept 
     const u64 people =
         hash64_bytes(hash64_mix(kHash64Seed, (u64{author_count} << 32) | voice_end), ids,
                      count * static_cast<u32>(sizeof(ids[0])));
-    if (!pins_reset && people == g_author_people && owner.interest_current &&
-        owner.interest.eligible == key.eligible && owner.interest.guild == key.guild &&
-        owner.interest.channel == key.channel && owner.voice_revision == ui.voice_states.revision &&
-        owner.member_pin_revision == ui.guild_member_store.revision &&
-        owner.user_pin_revision == ui.user_store.revision && (!owner.next_at_ms || owner.next_at_ms > now_ms)) {
-        retain_interest();
-        return;
-    }
-    g_author_people = people;
-    u64 missing[kVisibleAuthorMaximum]{};
-    u32 missing_count = 0;
-    // Rebuild only finite resident interest, retaining positional range pins.
-    // Otherwise scrolling through authors could permanently pin the whole cache.
-    guild_member_store_clear_user_pins(&ui.guild_member_store);
-    guild_member_store_refresh_visible_users(ui.guild_member_store, &ui.user_store);
-    const auto& members = g_app.member_list_scene;
-    if (g_app.member_pane_visible && members.active && ui.member_list.thread_mode && selected &&
-        ui.member_list.guild_id == selected->guild_id && ui.member_list.list_id == selected->id)
-        for (u32 i = 0; i < members.count; ++i)
-            if (member_list_scene_row_resident(members, i) &&
-                members.rows[i].kind == MemberListRowKind::member) {
-                guild_member_store_pin_user(&ui.guild_member_store, selected->guild_id,
-                                                    members.rows[i].user_id);
-                user_store_pin(&ui.user_store, members.rows[i].user_id);
-            }
-    for (u32 i = 0; i < count; ++i) {
-        const auto* member =
-            guild_member_store_find(ui.guild_member_store, selected->guild_id, ids[i]);
-        if (member)
-            guild_member_store_pin_user(&ui.guild_member_store, selected->guild_id, ids[i]);
-        user_store_pin(&ui.user_store, ids[i]);
-        // Authors need their roles (name colour), voice rows their profile;
-        // list rows were gathered because their record is missing.
-        if (i < author_count ? !member || !member->roles_known
-            : i < voice_end  ? visible_voice_user_missing(ui.user_store, ui.guild_member_store,
-                                                          selected->guild_id, ids[i])
-                             : true)
-            missing[missing_count++] = ids[i];
-    }
-    const bool scope_changed =
-        eligible && (owner.guild_id != selected->guild_id || owner.channel_id != selected->id);
-    if ((!missing_count || scope_changed) && owner.pending_interest) {
-        if (g_app.account.api.guild_members_request)
-            g_app.account.api.guild_members_request(g_app.account.instance, nullptr);
-        owner.pending_interest = false;
-    }
-    if (!missing_count) {
-        owner.next_at_ms = 0;
-        owner.retry_at_ms = 0;
-        owner.retry_delay_ms = 0;
-        retain_interest();
-        return;
-    }
-    GatewayGuildMemberRequest request{};
-    if (!visible_author_hydration_plan(&owner, selected->guild_id, selected->id, {missing, missing_count},
-                                       now_ms, &request)) {
-        retain_interest();
-        return;
-    }
-    const bool admitted = g_app.account.api.guild_members_request &&
-                          g_app.account.api.guild_members_request(g_app.account.instance, &request);
-    visible_author_hydration_complete(&owner, request, now_ms, admitted);
+    do {
+        if (!pins_reset && people == g_author_people && owner.interest_current &&
+            owner.interest.eligible == key.eligible && owner.interest.guild == key.guild &&
+            owner.interest.channel == key.channel && owner.voice_revision == ui.voice_states.revision &&
+            owner.member_pin_revision == ui.guild_member_store.revision &&
+            owner.user_pin_revision == ui.user_store.revision && (!owner.next_at_ms || owner.next_at_ms > now_ms))
+            break;
+        g_author_people = people;
+        u64 missing[kVisibleAuthorMaximum]{};
+        u32 missing_count = 0;
+        // Rebuild only finite resident interest, retaining positional range pins.
+        // Otherwise scrolling through authors could permanently pin the whole cache.
+        guild_member_store_clear_user_pins(&ui.guild_member_store);
+        guild_member_store_refresh_visible_users(ui.guild_member_store, &ui.user_store);
+        const auto& members = g_app.member_list_scene;
+        if (g_app.member_pane_visible && members.active && ui.member_list.thread_mode && selected &&
+            ui.member_list.guild_id == selected->guild_id && ui.member_list.list_id == selected->id)
+            pin_resident_members(ui, members, selected->guild_id);
+        for (u32 i = 0; i < count; ++i) {
+            const auto* member =
+                guild_member_store_find(ui.guild_member_store, selected->guild_id, ids[i]);
+            if (member)
+                guild_member_store_pin_user(&ui.guild_member_store, selected->guild_id, ids[i]);
+            user_store_pin(&ui.user_store, ids[i]);
+            // Authors need their roles (name colour), voice rows their profile;
+            // list rows were gathered because their record is missing.
+            if (i < author_count ? !member || !member->roles_known
+                : i < voice_end  ? visible_voice_user_missing(ui.user_store, ui.guild_member_store,
+                                                              selected->guild_id, ids[i])
+                                 : true)
+                missing[missing_count++] = ids[i];
+        }
+        const bool scope_changed =
+            eligible && (owner.guild_id != selected->guild_id || owner.channel_id != selected->id);
+        if ((!missing_count || scope_changed) && owner.pending_interest) {
+            if (g_app.account.api.guild_members_request)
+                g_app.account.api.guild_members_request(g_app.account.instance, nullptr);
+            owner.pending_interest = false;
+        }
+        if (!missing_count) {
+            owner.next_at_ms = 0;
+            owner.retry_at_ms = 0;
+            owner.retry_delay_ms = 0;
+            break;
+        }
+        GatewayGuildMemberRequest request{};
+        if (!visible_author_hydration_plan(&owner, selected->guild_id, selected->id, {missing, missing_count},
+                                           now_ms, &request))
+            break;
+        const bool admitted = g_app.account.api.guild_members_request &&
+                              g_app.account.api.guild_members_request(g_app.account.instance, &request);
+        visible_author_hydration_complete(&owner, request, now_ms, admitted);
+    } while (false);
     retain_interest();
 }
 
@@ -558,9 +553,10 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
     }
     if (event->kind == GatewayClientEventKind::dispatch &&
         event->dispatch_kind == GatewayClientDispatchKind::guild_emojis_update) {
-        log_u64(LogLevel::info, "gateway", "guild_emojis_update_guild_id", event->state.guild_id);
-        log_u64(LogLevel::info, "gateway", "guild_emojis_update_count", event->state.emoji_count);
-        log_u64(LogLevel::info, "gateway", "guild_emojis_update_role_ids", event->state.emoji_role_count);
+        const u64 values[] = {event->state.guild_id, event->state.emoji_count, event->state.emoji_role_count};
+        log_u64_fields(LogLevel::info, "gateway",
+                       "guild_emojis_update_guild_id\0guild_emojis_update_count\0guild_emojis_update_role_ids",
+                       values);
     }
     application_log_gateway_event(*event);
     return popped;
@@ -583,46 +579,50 @@ void application_log_gateway_event(const GatewayClientEvent& event) noexcept {
             log_u64(LogLevel::warning, "gateway", "close_code", event.close_code);
         }
         if (event.error != GatewayClientError::none) {
-            log_u64(LogLevel::error, "gateway", "event_error", static_cast<u64>(event.error));
-            log_u64(LogLevel::error, "gateway", "event_native_error", event.native_error);
-            log_u64(LogLevel::error, "gateway", "failure_stage", static_cast<u64>(event.failure_stage));
-            log_u64(LogLevel::error, "gateway", "session_error", static_cast<u64>(event.session_error));
-            log_u64(LogLevel::error, "gateway", "handshake_error", static_cast<u64>(event.handshake_error));
-            log_u64(LogLevel::error, "gateway", "websocket_error", static_cast<u64>(event.websocket_error));
-            log_u64(LogLevel::error, "gateway", "gateway_decode_error",
-                    static_cast<u64>(event.gateway_decode_error));
-            log_u64(LogLevel::error, "gateway", "event_decode_error",
-                    static_cast<u64>(event.event_decode_error));
-            log_u64(LogLevel::error, "gateway", "compression_error",
-                    static_cast<u64>(event.compression_error));
-            log_u64(LogLevel::error, "gateway", "etf_error", static_cast<u64>(event.etf_error));
-            log_u64(LogLevel::error, "gateway", "json_scan_error", static_cast<u64>(event.json_scan_error));
-            log_u64(LogLevel::error, "gateway", "json_read_error", static_cast<u64>(event.json_read_error));
-            log_u64(LogLevel::error, "gateway", "route_error_offset", event.route_error_offset);
-            log_u64(LogLevel::error, "gateway", "route_detail", event.route_detail);
+            const u64 values[] = {static_cast<u64>(event.error),
+                                  event.native_error,
+                                  static_cast<u64>(event.failure_stage),
+                                  static_cast<u64>(event.session_error),
+                                  static_cast<u64>(event.handshake_error),
+                                  static_cast<u64>(event.websocket_error),
+                                  static_cast<u64>(event.gateway_decode_error),
+                                  static_cast<u64>(event.event_decode_error),
+                                  static_cast<u64>(event.compression_error),
+                                  static_cast<u64>(event.etf_error),
+                                  static_cast<u64>(event.json_scan_error),
+                                  static_cast<u64>(event.json_read_error),
+                                  event.route_error_offset,
+                                  event.route_detail};
+            log_u64_fields(LogLevel::error, "gateway",
+                           "event_error\0event_native_error\0failure_stage\0session_error\0handshake_error\0"
+                           "websocket_error\0gateway_decode_error\0event_decode_error\0compression_error\0"
+                           "etf_error\0json_scan_error\0json_read_error\0route_error_offset\0route_detail",
+                           values);
         }
         break;
     default:
         if (event.kind == GatewayClientEventKind::dispatch &&
             event.dispatch_kind == GatewayClientDispatchKind::guild_member_list_update) {
-            log_u64(LogLevel::info, "gateway", "member_list_records", event.member_list.record_count);
-            log_u64(LogLevel::info, "gateway", "member_list_members",
-                    event.member_list.member_record_count);
-            log_u64(LogLevel::info, "gateway", "member_list_id", event.member_list.list_id);
+            const u64 values[] = {event.member_list.record_count, event.member_list.member_record_count,
+                                  event.member_list.list_id};
+            log_u64_fields(LogLevel::info, "gateway", "member_list_records\0member_list_members\0member_list_id",
+                           values);
         }
         if (event.kind == GatewayClientEventKind::dispatch &&
             event.event_decode_error != GatewayEventDecodeError::none) {
-            log_u64(LogLevel::warning, "gateway", "dispatch_decode_skipped",
-                    static_cast<u64>(event.event_decode_error));
-            log_u64(LogLevel::warning, "gateway", "dispatch_scan_error",
-                    static_cast<u64>(event.json_scan_error));
-            log_u64(LogLevel::warning, "gateway", "dispatch_read_error",
-                    static_cast<u64>(event.json_read_error));
-            log_u64(LogLevel::warning, "gateway", "dispatch_error_offset", event.route_error_offset);
-            log_u64(LogLevel::warning, "gateway", "dispatch_kind", static_cast<u64>(event.dispatch_kind));
-            log_u64(LogLevel::warning, "gateway", "dispatch_payload_bytes", event.dispatch_payload_bytes);
-            log_u64(LogLevel::warning, "gateway", "dispatch_sequence", event.sequence);
-            log_u64(LogLevel::warning, "gateway", "dispatch_event_name_bytes", event.event_name_bytes);
+            const u64 skipped[] = {static_cast<u64>(event.event_decode_error),
+                                   static_cast<u64>(event.json_scan_error),
+                                   static_cast<u64>(event.json_read_error),
+                                   event.route_error_offset,
+                                   static_cast<u64>(event.dispatch_kind),
+                                   event.dispatch_payload_bytes,
+                                   event.sequence,
+                                   event.event_name_bytes};
+            log_u64_fields(LogLevel::warning, "gateway",
+                           "dispatch_decode_skipped\0dispatch_scan_error\0dispatch_read_error\0"
+                           "dispatch_error_offset\0dispatch_kind\0dispatch_payload_bytes\0dispatch_sequence\0"
+                           "dispatch_event_name_bytes",
+                           skipped);
             if (event.dispatch_kind == GatewayClientDispatchKind::unknown && event.event_name_bytes &&
                 event.event_name_bytes < kGatewayClientEventNameCapacity) {
                 // Protocol event names only ([A-Z0-9_]); anything else is dropped, never echoed.
@@ -646,23 +646,24 @@ void application_log_gateway_event(const GatewayClientEvent& event) noexcept {
 
 void application_log_account_observations(const AccountModuleStatus& status, u32 observations) noexcept {
     if ((observations & account_host_observation_phase) != 0) {
-        log_u64(LogLevel::info, "account", "coordinator_phase", status.coordinator_phase);
-        log_u64(LogLevel::info, "account", "coordinator_error", status.coordinator_error);
-        log_u64(LogLevel::info, "account", "rest_error", status.rest_error);
-        log_u64(LogLevel::info, "account", "gateway_error", status.gateway_error);
-        log_u64(LogLevel::info, "account", "native_error", status.native_error);
-        log_u64(LogLevel::info, "account", "required_action", static_cast<u64>(status.required_action));
+        const u64 values[] = {status.coordinator_phase, status.coordinator_error, status.rest_error,
+                              status.gateway_error,     status.native_error,
+                              static_cast<u64>(status.required_action)};
+        log_u64_fields(LogLevel::info, "account",
+                       "coordinator_phase\0coordinator_error\0rest_error\0gateway_error\0native_error\0"
+                       "required_action",
+                       values);
     }
     if ((observations & account_host_observation_ready) != 0) {
-        log_u64(LogLevel::info, "account", "gateway_ready", status.gateway_ready);
-        log_u64(LogLevel::info, "account", "gateway_sources", status.gateway_sources);
+        const u64 values[] = {status.gateway_ready, status.gateway_sources};
+        log_u64_fields(LogLevel::info, "account", "gateway_ready\0gateway_sources", values);
     }
     if ((observations & account_host_observation_session_saves) != 0) {
         log_u64(LogLevel::info, "account", "session_saves", status.session_saves);
     }
     if ((observations & account_host_observation_session_save_failures) != 0) {
-        log_u64(LogLevel::warning, "account", "session_save_failures", status.session_save_failures);
-        log_u64(LogLevel::warning, "account", "session_native_error", status.session_native_error);
+        const u64 values[] = {status.session_save_failures, status.session_native_error};
+        log_u64_fields(LogLevel::warning, "account", "session_save_failures\0session_native_error", values);
     }
 }
 
@@ -747,8 +748,8 @@ void application_account_stop_observed(const AccountHostStopResult& stopped, boo
         }
     }
     if (!stopped.ok()) {
-        log_u64(LogLevel::error, "account", "host_stop_error", static_cast<u64>(stopped.error));
-        log_u64(LogLevel::error, "account", "host_stop_native_error", stopped.native_error);
+        log_u64_pair(LogLevel::error, "account", "host_stop_error\0host_stop_native_error",
+                     static_cast<u64>(stopped.error), stopped.native_error);
         return;
     }
     // The joined stop cleared the account instance. The host can now release
@@ -866,8 +867,8 @@ bool application_account_module_load() noexcept {
     const i64 trace_start = clock_now();
     const AccountHostResult loaded = account_host_load(&g_app.account);
     if (!loaded.ok()) {
-        log_u64(LogLevel::error, "account", "host_load_error", static_cast<u64>(loaded.error));
-        log_u64(LogLevel::error, "account", "host_load_native_error", loaded.native_error);
+        log_u64_pair(LogLevel::error, "account", "host_load_error\0host_load_native_error",
+                     static_cast<u64>(loaded.error), loaded.native_error);
     }
     if (loaded.ok() && !g_app.account.instance && !g_app.account.login_instance)
         g_app.account.api.set_rest_trace([](const char* record) noexcept {
@@ -895,8 +896,8 @@ void application_account_module_release() noexcept {
     if (!g_app.account.instance && !g_app.account.login_instance) {
         const AccountHostResult released = account_host_release(&g_app.account);
         if (!released.ok()) {
-            log_u64(LogLevel::error, "account", "host_release_error", static_cast<u64>(released.error));
-            log_u64(LogLevel::error, "account", "host_release_native_error", released.native_error);
+            log_u64_pair(LogLevel::error, "account", "host_release_error\0host_release_native_error",
+                         static_cast<u64>(released.error), released.native_error);
         }
     }
 }
@@ -926,9 +927,9 @@ AccountModuleStartResult start_account_worker(const AccountPaths& paths) noexcep
     start_trace.field("session_loaded", static_cast<u64>(started.session_loaded));
     start_trace.write("load_trace");
     if (!started.ok()) {
-        log_u64(LogLevel::error, "account", "module_start_error", static_cast<u64>(started.error));
-        log_u64(LogLevel::error, "account", "profile_error", started.profile_error);
-        log_u64(LogLevel::error, "account", "module_start_native_error", started.native_error);
+        const u64 failed[] = {static_cast<u64>(started.error), started.profile_error, started.native_error};
+        log_u64_fields(LogLevel::error, "account", "module_start_error\0profile_error\0module_start_native_error",
+                       failed);
     }
     return started;
 }
@@ -961,14 +962,13 @@ void publish_started_account(const AccountPaths& paths, const AccountModuleStart
         application_trace_load_stage("startup_shell_released");
         MAICORD_PERF_MARK("startup_shell_released");
     }
-    log_u64(LogLevel::info, "account", "profile_id", started.status.profile_id);
-    log_u64(LogLevel::info, "account", "module_runtime_bytes", host.api.runtime_bytes());
-    log_u64(LogLevel::info, "account", "ui_runtime_bytes", sizeof(AccountUiRuntime));
-    log_u64(LogLevel::info, "account", "session_loaded", started.session_loaded ? 1 : 0);
+    const u64 info[] = {started.status.profile_id, host.api.runtime_bytes(), sizeof(AccountUiRuntime),
+                        started.session_loaded ? u64{1} : u64{0}};
+    log_u64_fields(LogLevel::info, "account", "profile_id\0module_runtime_bytes\0ui_runtime_bytes\0session_loaded",
+                   info);
     if (!started.session_loaded && !win32_error_is_missing_file(started.status.session_native_error)) {
-        log_u64(LogLevel::warning, "account", "session_load_error", started.session_error);
-        log_u64(LogLevel::warning, "account", "session_load_native_error",
-                started.status.session_native_error);
+        log_u64_pair(LogLevel::warning, "account", "session_load_error\0session_load_native_error",
+                     started.session_error, started.status.session_native_error);
     }
 }
 } // namespace
@@ -1080,8 +1080,8 @@ bool application_account_attach_if_present() noexcept {
     AccountPaths paths{};
     const AccountPathsResult resolved = account_paths_resolve(&paths);
     if (!resolved.ok()) {
-        log_u64(LogLevel::warning, "account", "path_error", static_cast<u64>(resolved.error));
-        log_u64(LogLevel::warning, "account", "path_native_error", resolved.native_error);
+        log_u64_pair(LogLevel::warning, "account", "path_error\0path_native_error", static_cast<u64>(resolved.error),
+                     resolved.native_error);
         application_account_logout_prepare_startup();
         return true;
     }

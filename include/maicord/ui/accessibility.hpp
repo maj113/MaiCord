@@ -457,10 +457,8 @@ struct UiAccessNameBuilder {
         bytes = 0;
         return *this;
     }
-    __declspec(noinline) UiAccessNameBuilder& add(const Utf8View& view) noexcept {
-        // Locals: the stores into data may alias *view, which would force reloads in the loop.
-        const char* const source = view.data;
-        const u32 total = view.bytes;
+    __declspec(noinline) UiAccessNameBuilder& add_bytes(const char* source, u32 total) noexcept {
+        // Locals: the stores into data may alias the source, which would force reloads in the loop.
         const u32 room = static_cast<u32>(sizeof(data)) - bytes;
         u32 length = total < room ? total : room;
         while (length && length < total && (static_cast<u8>(source[length]) & 0xC0u) == 0x80u)
@@ -469,6 +467,13 @@ struct UiAccessNameBuilder {
             data[bytes + index] = source[index];
         bytes += length;
         return *this;
+    }
+    __declspec(noinline) UiAccessNameBuilder& add(const Utf8View& view) noexcept {
+        return add_bytes(view.data, view.bytes);
+    }
+    // A literal passes its address and length in registers.
+    template <usize Count> __forceinline UiAccessNameBuilder& add(const char (&text)[Count]) noexcept {
+        return add_bytes(text, Count - 1);
     }
     // Adds separator before text when both the name so far and text are non-empty.
     __declspec(noinline) UiAccessNameBuilder& part(const Utf8View& text, const Utf8View& separator = {", ", 2}) noexcept {

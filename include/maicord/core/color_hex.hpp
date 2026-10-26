@@ -9,7 +9,7 @@ namespace maicord {
 // alpha. Surrounding spaces are the caller's to trim. The result is
 // 0xRRGGBBAA; without alpha digits the alpha byte is 0xFF. Rejected text
 // leaves *rgba unchanged.
-constexpr bool color_hex_parse(Utf8View text, bool alpha, u32* rgba) noexcept {
+constexpr bool color_hex_parse(const Utf8View& text, bool alpha, u32* rgba) noexcept {
     if (!rgba || (!text.data && text.bytes))
         return false;
     const u32 at = text.bytes && text.data[0] == '#' ? 1 : 0;

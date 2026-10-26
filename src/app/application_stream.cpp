@@ -179,9 +179,9 @@ void card_pump(u64 now) noexcept {
 }
 void format_label(u32 percent) noexcept {
     TextBank label{stream.menu_label, sizeof(stream.menu_label), 0};
-    label.add(utf8_literal("Stream volume \xC2\xB7 "));
+    label.add("Stream volume \xC2\xB7 ");
     label.number(percent);
-    label.add(utf8_literal("%"));
+    label.add("%");
     stream.menu_label_bytes = label.used;
 }
 bool menu_open() noexcept {

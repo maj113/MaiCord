@@ -13,7 +13,7 @@ bool range(const void* p,usize bytes,usize alignment) noexcept {
 usize row_bytes(Slice<NotificationRetentionRow> rows) noexcept {return usize(rows.count)*sizeof(NotificationRetentionRow);}
 usize index_bytes(Slice<u32> index) noexcept {return usize(index.count)*sizeof(u32);}
 bool owner_range(const NotificationRetention* n) noexcept {return n && range(n,sizeof(*n),alignof(NotificationRetention));}
-bool storage(const NotificationRetention* n,Slice<NotificationRetentionRow> rows,Slice<u32> index,u32 count) noexcept {
+bool storage(const NotificationRetention* n,const Slice<NotificationRetentionRow>& rows,const Slice<u32>& index,u32 count) noexcept {
     if(!owner_range(n) || count>rows.count)return false;
     if(!rows.count || !index.count)return !rows.count && !index.count && !rows.data && !index.data && !count;
     if((index.count&(index.count-1)) || u64(index.count)<2*u64(rows.count) ||

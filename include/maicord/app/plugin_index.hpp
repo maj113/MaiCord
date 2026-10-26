@@ -216,7 +216,7 @@ inline Utf8View plugin_index_work_document(const PluginIndexWork& work) noexcept
 }
 
 // Unescapes one text field of the document the index was parsed from.
-JsonStringDecodeResult plugin_index_text_decode(Utf8View document, PluginIndexText text, Slice<char> output) noexcept;
+JsonStringDecodeResult plugin_index_text_decode(const Utf8View& document, PluginIndexText text, const Slice<char>& output) noexcept;
 
 // The schema-3 manifest the client writes for one listed version: owner, ABI,
 // min_host_abi, name, summary as description, publisher, permissions, the

@@ -270,6 +270,26 @@ void cancel_retired() noexcept {
         owner->cancel_requested = true;
     }
 }
+// Drops queued voter-page work and retires the voter-page request in flight.
+void drop_voter_work() noexcept {
+    auto& c = owner->controller;
+    if (c.pending_ready && c.pending.kind == PollControllerWorkKind::voters) {
+        reset_value(&c.pending);
+        c.pending_ready = false;
+    }
+    if (c.flight.active && c.flight.command.kind == PollControllerWorkKind::voters)
+        c.flight.retired = true;
+    cancel_retired();
+}
+bool aggregates_known(const MessagePollRecord& p) noexcept {
+    bool known = p.results_known;
+    for (u32 i = 0; i < p.answer_count; ++i)
+        known &= p.answers[i].count_known;
+    return known;
+}
+u64 theme_hash() noexcept {
+    return hash64_counted_bytes(kHash64Seed, &application_theme(), sizeof(Theme));
+}
 bool ensure_owner() noexcept {
     if (owner)
         return !owner->release_pending;
@@ -505,7 +525,7 @@ bool project_voters() noexcept {
                                  owner->voters_more && !loading,
                                  owner->controller.voters_failed && !loading && connected()};
     const auto viewport = application_viewport_dips();
-    const auto theme = hash64_counted_bytes(kHash64Seed, &application_theme(), sizeof(Theme));
+    const auto theme = theme_hash();
     if (owner->scene.active && owner->scene.state.revision == owner->revision &&
         ui_rect_equal(owner->scene.geometry.viewport, viewport) && owner->projected_theme == theme &&
         owner->projected_dpi == g_app.renderer.dpi)
@@ -566,7 +586,7 @@ void project_card() noexcept {
     const auto* p = poll(owner->source);
     if (!p || !project_state(owner->source, *p, {owner->answers, kUiPollMaximumAnswers}, &state))
         return hide_card();
-    const auto theme = hash64_counted_bytes(kHash64Seed, &application_theme(), sizeof(Theme));
+    const auto theme = theme_hash();
     const UiWidgetReference root{&scene->widgets, handle};
     const bool same =
         owner->card.active && owner->card.projection.state.revision == state.revision &&
@@ -606,6 +626,23 @@ bool queue_page(u32 answer, u32 page, u64 after) noexcept {
     changed();
     g_app.context_focus = &owner->widgets;
     return project_voters();
+}
+bool pointer_event(UINT message, UiPollPointerEvent* event) noexcept {
+    switch (message) {
+    case WM_LBUTTONDOWN:
+        *event = UiPollPointerEvent::down;
+        return true;
+    case WM_LBUTTONUP:
+        *event = UiPollPointerEvent::up;
+        return true;
+    case WM_MOUSEMOVE:
+        *event = UiPollPointerEvent::move;
+        return true;
+    case WM_MOUSELEAVE:
+        *event = UiPollPointerEvent::leave;
+        return true;
+    }
+    return false;
 }
 bool front() noexcept {
     return !g_app.text_form && !g_app.popup_scene.active && !g_app.image_viewer.scene.active &&
@@ -727,9 +764,7 @@ bool application_poll_open(const ApplicationPollSource& source) noexcept {
     owner->source = source;
     owner->publication = ++publication;
     owner->reconcile_requested = owner->source_checked = false;
-    owner->aggregates_known = p->results_known;
-    for (u32 i = 0; i < p->answer_count; ++i)
-        owner->aggregates_known &= p->answers[i].count_known;
+    owner->aggregates_known = aggregates_known(*p);
     owner->label_publication = owner->observed_model_publication = 0;
     const auto initial = snapshot(source, *p);
     owner->results = p->is_finalized || (initial.mine_known && initial.mine_mask);
@@ -737,7 +772,7 @@ bool application_poll_open(const ApplicationPollSource& source) noexcept {
     owner->user_count = owner->cursor_count = owner->cursor_first = owner->page = 0;
     reset_value(&owner->status);
     owner->scene.active = false;
-    const auto observed = poll_controller_observe(&owner->controller, snapshot(source, *p));
+    const auto observed = poll_controller_observe(&owner->controller, initial);
     cancel_retired();
     owner->selection = owner->controller.snapshot.mine_mask;
     if (!observed.ok())
@@ -865,13 +900,7 @@ bool application_poll_voters(u32 answer, bool more) noexcept {
         return queue_page(answer, 0, 0);
     // Cached first page: the inspector opens at once and no request is sent.
     auto& c = value.controller;
-    if (c.pending_ready && c.pending.kind == PollControllerWorkKind::voters) {
-        reset_value(&c.pending);
-        c.pending_ready = false;
-    }
-    if (c.flight.active && c.flight.command.kind == PollControllerWorkKind::voters)
-        c.flight.retired = true;
-    cancel_retired();
+    drop_voter_work();
     clear_capture();
     copy_page(*value.pages[bank], cache->pages[slot], cache->count[slot]);
     value.bank = bank;
@@ -903,14 +932,7 @@ void application_poll_voters_close() noexcept {
     clear_capture();
     owner->voters_active = owner->scene.active = false;
     renderer_bind_poll_voters_scene(&g_app.renderer, nullptr);
-    auto& c = owner->controller;
-    if (c.pending_ready && c.pending.kind == PollControllerWorkKind::voters) {
-        reset_value(&c.pending);
-        c.pending_ready = false;
-    }
-    if (c.flight.active && c.flight.command.kind == PollControllerWorkKind::voters)
-        c.flight.retired = true;
-    cancel_retired();
+    drop_voter_work();
     if (g_app.context_focus == &owner->widgets)
         g_app.context_focus = nullptr;
     changed();
@@ -949,10 +971,9 @@ bool application_poll_synchronize() noexcept {
             application_poll_close();
         return true;
     }
-    const auto before = owner->controller;
-    bool aggregates = p->results_known;
-    for (u32 i = 0; i < p->answer_count; ++i)
-        aggregates &= p->answers[i].count_known;
+    const auto was_phase = owner->controller.vote_phase;
+    const bool was_can_vote = owner->controller.snapshot.can_vote, was_desired = owner->controller.desired_active;
+    const bool aggregates = aggregates_known(*p);
     if (owner->aggregates_known && !aggregates)
         owner->reconcile_requested = false;
     owner->aggregates_known = aggregates;
@@ -961,12 +982,11 @@ bool application_poll_synchronize() noexcept {
     cancel_retired();
     if (owner->observed_model_publication != g_app.account_ui->message_poll_store.content_revision ||
         owner->source.result_revision != p->result_revision ||
-        before.vote_phase != owner->controller.vote_phase ||
-        before.snapshot.can_vote != owner->controller.snapshot.can_vote ||
-        before.desired_active != owner->controller.desired_active) {
+        was_phase != owner->controller.vote_phase || was_can_vote != owner->controller.snapshot.can_vote ||
+        was_desired != owner->controller.desired_active) {
         owner->source.result_revision = p->result_revision;
         owner->observed_model_publication = g_app.account_ui->message_poll_store.content_revision;
-        if (!owner->controller.desired_active && before.desired_active) {
+        if (!owner->controller.desired_active && was_desired) {
             owner->selection = owner->controller.snapshot.mine_mask;
             owner->results = owner->controller.snapshot.mine_known && owner->controller.snapshot.mine_mask;
         }
@@ -1125,9 +1145,10 @@ bool application_poll_response(const RestClientResponse& response, Utf8View body
     // The official client applies an accepted vote locally and waits for the
     // gateway echo instead of refetching the message; the store update is
     // idempotent against that echo.
+    const bool accepted_2xx =
+        response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
     const bool vote_accepted = fresh && flight.command.kind == PollControllerWorkKind::vote &&
-                               value.controller.desired_active && response.transport_ok() &&
-                               response.status_code >= 200 && response.status_code < 300;
+                               value.controller.desired_active && accepted_2xx;
     if (vote_accepted)
         message_poll_store_own_vote(&g_app.account_ui->message_poll_store, value.source.source.message_id,
                                     value.source.source.channel_id, value.source.source.actor.self_user_id,
@@ -1139,8 +1160,7 @@ bool application_poll_response(const RestClientResponse& response, Utf8View body
                                                                          voted.message_id)
                                               : nullptr;
     const auto voter = actor();
-    if (!vote_accepted && flight.command.kind == PollControllerWorkKind::vote && response.transport_ok() &&
-        response.status_code >= 200 && response.status_code < 300 && voted_poll &&
+    if (!vote_accepted && flight.command.kind == PollControllerWorkKind::vote && accepted_2xx && voted_poll &&
         voted_poll->channel_id == voted.channel_id &&
         voted_poll->content_revision == voted.poll_content_revision && voter.instance == voted.actor.instance &&
         voter.account_scope == voted.actor.account_scope && voter.profile_id == voted.actor.profile_id &&
@@ -1442,15 +1462,7 @@ bool application_poll_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         return false;
     if (!voters) {
         UiPollPointerEvent event{};
-        if (message == WM_LBUTTONDOWN)
-            event = UiPollPointerEvent::down;
-        else if (message == WM_LBUTTONUP)
-            event = UiPollPointerEvent::up;
-        else if (message == WM_MOUSEMOVE)
-            event = UiPollPointerEvent::move;
-        else if (message == WM_MOUSELEAVE)
-            event = UiPollPointerEvent::leave;
-        else
+        if (!pointer_event(message, &event))
             return false;
         const auto result = ui_poll_scene_pointer(&owner->card, event, point);
         if (event == UiPollPointerEvent::down && result.handled) {
@@ -1482,15 +1494,7 @@ bool application_poll_window_message(UINT message, WPARAM wparam, LPARAM lparam)
         return true;
     }
     UiPollPointerEvent event{};
-    if (message == WM_LBUTTONDOWN)
-        event = UiPollPointerEvent::down;
-    else if (message == WM_LBUTTONUP)
-        event = UiPollPointerEvent::up;
-    else if (message == WM_MOUSEMOVE)
-        event = UiPollPointerEvent::move;
-    else if (message == WM_MOUSELEAVE)
-        event = UiPollPointerEvent::leave;
-    else
+    if (!pointer_event(message, &event))
         return message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
                message == WM_MBUTTONDOWN || message == WM_MBUTTONUP || message == WM_MOUSEHWHEEL;
     if (event == UiPollPointerEvent::down) {

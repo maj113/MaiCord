@@ -307,6 +307,6 @@ inline constexpr u32 kGuildContentFilterLevels = 3;
 bool guild_delete_confirmed(Utf8View typed, Utf8View name) noexcept;
 
 // ASCII case-insensitive substring match; empty query matches everything.
-bool guild_settings_text_matches(Utf8View query, Utf8View text) noexcept;
+bool guild_settings_text_matches(const Utf8View& query, const Utf8View& text) noexcept;
 
 } // namespace maicord

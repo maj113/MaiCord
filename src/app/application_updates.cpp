@@ -229,9 +229,9 @@ void add_build(TextBank& t, u64 version, Utf8View commit = {}) noexcept {
 void add_size(TextBank& t, u64 bytes) noexcept {
     if (bytes >= 1024 * 1024) {
         const u64 tenths = (bytes * 10 + 512 * 1024) / (1024 * 1024);
-        t.number(tenths / 10); t.add(utf8_literal(".")); t.number(tenths % 10); t.add(utf8_literal(" MB"));
+        t.number(tenths / 10); t.add("."); t.number(tenths % 10); t.add(" MB");
     } else {
-        t.number((bytes + 1023) / 1024); t.add(utf8_literal(" KB"));
+        t.number((bytes + 1023) / 1024); t.add(" KB");
     }
 }
 void add_date(TextBank& t, u64 unix_seconds, bool year) noexcept {
@@ -266,34 +266,34 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
     const u64 offer = offered_version(v);
     switch (binding) {
     case SettingBinding::update_status: {
-        description.add(utf8_literal("MaiCord ")); add_build(description, v.own_version, own_commit(v));
+        description.add("MaiCord "); add_build(description, v.own_version, own_commit(v));
         description.add(disabled ? utf8_literal(".") : v.channel == UpdateChannel::preview ? utf8_literal(", preview channel.")
                                                                                             : utf8_literal(", stable channel."));
         control->action_label = utf8_literal("Check now");
         control->enabled = !busy && !disabled;
         switch (v.state) {
         case State::disabled:
-            label.add(utf8_literal("Updates aren't configured for this build"));
-            description.add(utf8_literal(" Download new versions manually."));
+            label.add("Updates aren't configured for this build");
+            description.add(" Download new versions manually.");
             control->kind = UiSettingsControlKind::notice; reset_value(&control->action_label);
             break;
-        case State::idle: label.add(utf8_literal("Check for updates")); break;
-        case State::checking: label.add(utf8_literal("Checking for updates…")); break;
+        case State::idle: label.add("Check for updates"); break;
+        case State::checking: label.add("Checking for updates…"); break;
         case State::downloading:
-            label.add(utf8_literal("Downloading update"));
-            if (v.total) { label.add(utf8_literal(" ")); label.number(minimum<u64>(100, v.received * 100 / v.total)); label.add(utf8_literal("%")); }
+            label.add("Downloading update");
+            if (v.total) { label.add(" "); label.number(minimum<u64>(100, v.received * 100 / v.total)); label.add("%"); }
             break;
-        case State::installing: label.add(utf8_literal("Installing update…")); break;
-        case State::up_to_date: label.add(utf8_literal("You're up to date")); break;
+        case State::installing: label.add("Installing update…"); break;
+        case State::up_to_date: label.add("You're up to date"); break;
         case State::ready:
-            label.add(utf8_literal("Update ready"));
+            label.add("Update ready");
             description.used = 0;
-            description.add(utf8_literal("Restart MaiCord to finish updating to ")); add_build(description, v.ready_version);
-            description.add(utf8_literal("."));
+            description.add("Restart MaiCord to finish updating to "); add_build(description, v.ready_version);
+            description.add(".");
             control->action_label = utf8_literal("Restart");
             presentation->variant = UiSettingsVariant::primary;
             break;
-        case State::restarting: label.add(utf8_literal("Restarting…")); control->action_label = utf8_literal("Restart"); break;
+        case State::restarting: label.add("Restarting…"); control->action_label = utf8_literal("Restart"); break;
         case State::error:
         case State::rate_limited:
             label.add(v.state == State::rate_limited ? utf8_literal("Couldn't check for updates") : utf8_literal("Couldn't update"));
@@ -318,31 +318,31 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
         return control->description.bytes != 0;
     case SettingBinding::update_available: {
         if (disabled || !offer) return false;
-        label.add(utf8_literal("MaiCord "));
+        label.add("MaiCord ");
         char t[40];
         label.add({t, application_updates_offer_label(v, {t, sizeof(t)})});
         const bool preview = update_version_channel(offer) == UpdateChannel::preview;
         switch (v.state) {
         case State::downloading:
-            description.add(utf8_literal("Downloading "));
-            if (v.total) { add_size(description, v.received); description.add(utf8_literal(" of ")); add_size(description, v.total); }
-            description.add(utf8_literal("…"));
+            description.add("Downloading ");
+            if (v.total) { add_size(description, v.received); description.add(" of "); add_size(description, v.total); }
+            description.add("…");
             if (meter && v.total) *meter = static_cast<u16>(minimum<u64>(1000, v.received * 1000 / v.total));
             break;
         case State::installing:
-            description.add(utf8_literal("Checking the download and installing it…"));
+            description.add("Checking the download and installing it…");
             if (meter) *meter = 1000;
             break;
         case State::ready:
         case State::restarting:
-            description.add(utf8_literal("Downloaded and verified. Restart MaiCord to finish."));
+            description.add("Downloaded and verified. Restart MaiCord to finish.");
             break;
         case State::error:
         case State::rate_limited:
-            description.add(utf8_literal("Not installed yet. MaiCord tries again on the next check."));
+            description.add("Not installed yet. MaiCord tries again on the next check.");
             break;
         default:
-            description.add(utf8_literal("Signed by the MaiCord publisher."));
+            description.add("Signed by the MaiCord publisher.");
             break;
         }
         TextBank chips{text->chip_text, sizeof(text->chip_text), 0};
@@ -359,7 +359,7 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
             add_size(chips, v.offer_bytes);
             text->chips[count++] = chips.since(start);
         }
-        text->chips[count++] = chips.add(utf8_literal("Signature verified"));
+        text->chips[count++] = chips.add("Signature verified");
         control->label = label.view(); control->description = description.view();
         control->choices = {text->chips, count};
         reset_value(&control->action_label);
@@ -374,9 +374,9 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
             description.add(utf8_literal("Every master build that passes CI, often several a day. New features first; "
                                          "expect rough edges."));
         else {
-            description.add(utf8_literal("Tested releases. Recommended for most people."));
+            description.add("Tested releases. Recommended for most people.");
             if (update_version_channel(v.own_version) == UpdateChannel::preview)
-                description.add(utf8_literal(" This preview build stays installed until a newer stable release comes out."));
+                description.add(" This preview build stays installed until a newer stable release comes out.");
         }
         control->description = description.view();
         return !disabled;
@@ -387,8 +387,8 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
         return !disabled;
     case SettingBinding::update_rollback:
         if (disabled || !v.rollback_version) return false;
-        description.add(utf8_literal("Go back to ")); add_build(description, v.rollback_version);
-        description.add(utf8_literal(". Newer releases install again when they come out."));
+        description.add("Go back to "); add_build(description, v.rollback_version);
+        description.add(". Newer releases install again when they come out.");
         control->description = description.view();
         control->enabled = !busy;
         return true;
@@ -410,7 +410,7 @@ void application_updates_changelog_build(const ApplicationUpdatesView& v, const 
     TextBank& bank = out->bank;
     {
         const u32 start = bank.used;
-        bank.add(utf8_literal("What's new since "));
+        bank.add("What's new since ");
         add_build(bank, v.own_version, own_commit(v));
         out->heading = bank.since(start);
     }
@@ -435,8 +435,8 @@ void application_updates_changelog_build(const ApplicationUpdatesView& v, const 
             row.column[0] = bank.since(start);
         } else {
             const u32 start = bank.used;
-            bank.add(utf8_literal("MaiCord ")); add_build(bank, entry.version);
-            if (entry.date_unix_seconds) { bank.add(utf8_literal(" · ")); add_date(bank, entry.date_unix_seconds, true); }
+            bank.add("MaiCord "); add_build(bank, entry.version);
+            if (entry.date_unix_seconds) { bank.add(" · "); add_date(bank, entry.date_unix_seconds, true); }
             row.label = bank.since(start);
             const u32 notes = bank.used;
             bank.used += update_changelog_display_text(update_changelog_text(log, entry),
@@ -451,9 +451,9 @@ void application_updates_changelog_build(const ApplicationUpdatesView& v, const 
         bank.number(newer - shown);
         bank.add(out->preview ? utf8_literal(" earlier changes aren't shown.") : utf8_literal(" earlier releases aren't shown."));
     } else if (v.own_version < log.base) {
-        bank.add(utf8_literal("Changes up to "));
+        bank.add("Changes up to ");
         add_build(bank, log.base);
-        bank.add(utf8_literal(" aren't listed here."));
+        bank.add(" aren't listed here.");
     }
     if (bank.used != start) out->rows[out->count++] = {{}, bank.since(start), {}, false};
 }

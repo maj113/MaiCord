@@ -294,12 +294,9 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
     friends.sections.hidden_available = hidden_count != 0;friends.sections.hidden_count = hidden_count;++friends.sections.revision;
     friends.requests_sections.hidden_count = hidden_count;++friends.requests_sections.revision;
     if (friends.requests_visible) {
-        if (!friends.requests_indices.arena.base && !stable_storage_initialize(&friends.requests_indices,
-            relationship_capacity, 0, sizeof(u32), alignof(u32))) {
-            close_requests(friends);invalidate_sources(friends);
-            recovery(friends, utf8_literal("Couldn't load other requests. Try again."));return;
-        }
-        if (hidden_count && !stable_storage_reserve(&friends.requests_indices, hidden_count)) {
+        if ((!friends.requests_indices.arena.base && !stable_storage_initialize(&friends.requests_indices,
+            relationship_capacity, 0, sizeof(u32), alignof(u32))) ||
+            (hidden_count && !stable_storage_reserve(&friends.requests_indices, hidden_count))) {
             close_requests(friends);invalidate_sources(friends);
             recovery(friends, utf8_literal("Couldn't load other requests. Try again."));return;
         }
@@ -322,9 +319,13 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
 bool repaint() noexcept {
     return application_friends_synchronize() && application_request_frame();
 }
+// Another surface owns the window's input.
+bool overlay_open() noexcept {
+    return application_settings_active() || g_app.text_form || g_app.popup_scene.active ||
+        (g_app.profile && g_app.profile->scene.active) || g_app.reaction_viewer.active || g_app.image_viewer.scene.active;
+}
 bool search_available() noexcept {
-    return application_friends_active() && !application_friends_requests_active() && !application_settings_active() && !g_app.text_form && !g_app.popup_scene.active &&
-        !(g_app.profile && g_app.profile->scene.active) && !g_app.reaction_viewer.active && !g_app.image_viewer.scene.active;
+    return application_friends_active() && !application_friends_requests_active() && !overlay_open();
 }
 void search_focus(ApplicationFriends& friends, bool focused) noexcept {
     auto* model = friends_search_document(&friends.search, friends.tab);
@@ -381,8 +382,13 @@ bool friend_activities(const void*, u64 user_id, UserActivitySet* out) noexcept 
 }
 // Card text, cut on a UTF-8 boundary when the buffer fills.
 struct ActiveText : TextBank {
-    void add(Utf8View text) noexcept {
+    void add(const Utf8View& text) noexcept {
         used += utf8_copy_truncated(data + used, capacity - used, text);
+    }
+    // "text" after a middle dot.
+    void add_after_dot(const Utf8View& text) noexcept {
+        add(utf8_literal(" \xC2\xB7 "));
+        add(text);
     }
 };
 Utf8View friend_name(u64 user_id) noexcept {
@@ -450,13 +456,10 @@ void project_active(ApplicationFriends& friends) noexcept {
             else
                 title.add(card.guild_id ? utf8_literal("Voice channel") : utf8_literal("In a call"));
             member_names(subtitle, card);
-            if (guild) {
-                subtitle.add(utf8_literal(" \xC2\xB7 "));
-                subtitle.add(chat_state_store_guild_name(ui.chat_state, *guild));
-            } else if (card.name_bytes) {
-                subtitle.add(utf8_literal(" \xC2\xB7 "));
-                subtitle.add({card.name, card.name_bytes});
-            }
+            if (guild)
+                subtitle.add_after_dot(chat_state_store_guild_name(ui.chat_state, *guild));
+            else if (card.name_bytes)
+                subtitle.add_after_dot({card.name, card.name_bytes});
             out.kind = UiFriendsActiveKind::voice;
         } else {
             char heading[160];
@@ -464,10 +467,8 @@ void project_active(ApplicationFriends& friends) noexcept {
                                                     {heading, sizeof(heading)});
             title.add(bytes ? Utf8View{heading, bytes} : Utf8View{card.name, card.name_bytes});
             member_names(subtitle, card);
-            if (card.detail_bytes) {
-                subtitle.add(utf8_literal(" \xC2\xB7 "));
-                subtitle.add({card.detail, card.detail_bytes});
-            }
+            if (card.detail_bytes)
+                subtitle.add_after_dot({card.detail, card.detail_bytes});
             out.kind = UiFriendsActiveKind::activity;
         }
         out.title = title.view();
@@ -484,7 +485,7 @@ void project_active(ApplicationFriends& friends) noexcept {
         ++friends.active_now.revision;
 }
 constexpr u32 friends_popup_action_base = 0xF100;
-bool more(ApplicationFriends& friends, UiFriendsTarget target, UiRect anchor = {}) noexcept {
+bool more(ApplicationFriends& friends, const UiFriendsTarget& target, UiRect anchor = {}) noexcept {
     auto& scene = input_scene(friends);
     UiFriendsTarget checked{};
     if (!ui_friends_scene_activation(scene, {UiFriendsAction::more, target.user_id, friends.tab}, &checked)) return false;
@@ -611,7 +612,7 @@ bool confirmation_save(TextFormOwnerKey key, Utf8View) noexcept {
     if (queued) g_app.friends->stranger_confirmation = false;
     return queued;
 }
-bool confirm(ApplicationFriends& friends, UiFriendsTarget target, bool allow_hidden = false) noexcept {
+bool confirm(ApplicationFriends& friends, const UiFriendsTarget& target, bool allow_hidden = false) noexcept {
     allow_hidden = allow_hidden || friends.requests_visible;
     const bool bulk = target.action == UiFriendsAction::clear_incoming;
     const auto* current = relationship_store_find(friends.store, target.user_id);
@@ -654,7 +655,7 @@ bool confirm(ApplicationFriends& friends, UiFriendsTarget target, bool allow_hid
     request.danger = target.action != UiFriendsAction::accept && target.action != UiFriendsAction::ignore;
     return application_text_form_open(request);
 }
-bool activate(UiFriendsTarget target) noexcept {
+bool activate(const UiFriendsTarget& target) noexcept {
     auto* friends = g_app.friends;
     UiFriendsTarget checked{};
     if (!friends || !ui_friends_scene_activation(input_scene(*friends), target, &checked)) return false;
@@ -1219,8 +1220,7 @@ void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8>
 bool application_friends_input(UiInputKind kind, u32 key, bool repeated) noexcept {
     auto* friends = g_app.friends;
     if (friends && ui_input_consume_key_tail(&friends->held_key, {kind, key, repeated})) return true;
-    if (!application_friends_active() || application_settings_active() || g_app.text_form || g_app.popup_scene.active ||
-        (g_app.profile && g_app.profile->scene.active) || g_app.reaction_viewer.active || g_app.image_viewer.scene.active) return false;
+    if (!application_friends_active() || overlay_open()) return false;
     auto& scene = input_scene(*friends);
     const bool modal = friends->requests_visible;
     if (!modal && search_keys(*friends, kind, key)) return true;
@@ -1257,8 +1257,7 @@ bool application_friends_window_message(UINT message, WPARAM wparam, LPARAM lpar
         return false;
     }
     if (message == WM_SETFOCUS && friends->search_focused) { application_friends_search_changed(false);return false; }
-    if (application_settings_active() || g_app.text_form || g_app.popup_scene.active ||
-        (g_app.profile && g_app.profile->scene.active) || g_app.reaction_viewer.active || g_app.image_viewer.scene.active) return false;
+    if (overlay_open()) return false;
     auto& scene = input_scene(*friends);
     const bool modal = friends->requests_visible;
     float x = client_dip_x(lparam), y = client_dip_y(lparam);

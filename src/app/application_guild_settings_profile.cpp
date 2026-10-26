@@ -65,8 +65,8 @@ void project(Bank& bank) noexcept {
     }
     const bool edit = editable() && can_manage_guild();
     auto& d = p.profile_draft;
-    push({control_name, utf8_literal("Name"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-          &editor_view(editor_name, control_name, utf8_literal("Name"), edit)});
+    push_editor(control_name, utf8_literal("Name"), {}, UiSettingsControlKind::edit, edit, editor_name,
+                utf8_literal("Name"));
 
     push_category(control_banner_category, utf8_literal("Icon"));
     const auto* g = guild();
@@ -76,11 +76,11 @@ void project(Bank& bank) noexcept {
         : d.icon == GuildProfileImageEdit::replace
             ? [&]() noexcept {
                   const u32 start = bank.used;
-                  bank.add(utf8_literal("New: "));
+                  bank.add("New: ");
                   bank.number(p.icon_info.width);
-                  bank.add(utf8_literal("×"));
+                  bank.add("×");
                   bank.number(p.icon_info.height);
-                  bank.add(utf8_literal(". Save to apply."));
+                  bank.add(". Save to apply.");
                   return bank.since(start);
               }()
             : utf8_literal("We recommend an image of at least 512x512.");
@@ -102,14 +102,13 @@ void project(Bank& bank) noexcept {
     for (u32 i = 0; i < kGuildProfileBannerColorCount; ++i)
         names[i + 1] = kGuildProfileBannerNames[i];
     const u32 banner = guild_server_profile_banner_choice(d);
-    push({control_banner_colors, utf8_literal("Banner"), {}, UiSettingsControlKind::swatches, edit, false,
-          {names, kGuildProfileBannerColorCount + 1}, banner == ~0u ? kUiSettingsNoChoice : banner, {}, nullptr});
+    push_choices(control_banner_colors, utf8_literal("Banner"), {}, UiSettingsControlKind::swatches, edit,
+                 {names, kGuildProfileBannerColorCount + 1}, banner == ~0u ? kUiSettingsNoChoice : banner);
 
-    push({control_description, utf8_literal("Description"),
-          utf8_literal("How did your server get started? Why should people join?"), UiSettingsControlKind::multiline,
-          edit, false, {}, 0, {},
-          &editor_view(editor_description, control_description, utf8_literal("Tell the world a bit about this server."),
-                       edit)});
+    push_editor(control_description, utf8_literal("Description"),
+                utf8_literal("How did your server get started? Why should people join?"),
+                UiSettingsControlKind::multiline, edit, editor_description,
+                utf8_literal("Tell the world a bit about this server."));
 
     const bool discoverable = d.profile.discoverable;
     push_row(control_private, utf8_literal("Private Profile"),
@@ -255,7 +254,7 @@ bool profile_patch(GuildSettingsPatch* patch, GuildServerProfileWrite* write,
     return true;
 }
 
-void profile_saved(bool ok, Utf8View body) noexcept {
+void profile_saved(bool ok, const Utf8View& body) noexcept {
     auto& p = *owner;
     if (!ok)
         return;

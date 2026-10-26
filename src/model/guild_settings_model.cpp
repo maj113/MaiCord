@@ -817,7 +817,7 @@ u32 guild_role_color_rgba(u32 color) noexcept {
     return ((color ? color : 0x99aab5u) & 0xffffffu) << 8 | 0xffu;
 }
 
-bool guild_settings_text_matches(Utf8View query, Utf8View text) noexcept {
+bool guild_settings_text_matches(const Utf8View& query, const Utf8View& text) noexcept {
     return ascii_contains_ignore_case(text, query);
 }
 

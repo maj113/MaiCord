@@ -814,7 +814,7 @@ bool application_account_logout_blocked() noexcept {
 bool application_account_logout_host_owned() noexcept {
     return poll_app_test::host_owned;
 }
-bool application_profile_open(u64, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     return true;
 }
 bool application_search_active() noexcept {

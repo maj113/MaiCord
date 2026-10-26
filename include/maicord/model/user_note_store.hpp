@@ -42,7 +42,7 @@ Utf8View user_note_text(const UserNoteStore&, u64 user_id) noexcept;
 // Ensures an entry and schedules one GET unless the note is known or loading.
 bool user_note_request(UserNoteStore*, u64 user_id) noexcept;
 // Replaces the draft; the save is due kUserNoteSaveDelayMs after the last edit.
-bool user_note_edit(UserNoteStore*, u64 user_id, Utf8View text, u64 now_ms) noexcept;
+bool user_note_edit(UserNoteStore*, u64 user_id, const Utf8View& text, u64 now_ms) noexcept;
 // Makes a pending draft due now (blur, card closed, Enter).
 void user_note_flush(UserNoteStore*, u64 user_id, u64 now_ms) noexcept;
 // The next request: due saves first, then loads. due_ms is the earliest future

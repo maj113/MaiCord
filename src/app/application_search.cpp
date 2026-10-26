@@ -77,6 +77,9 @@ bool text_reserve(SearchTextBanks& storage, u32 bank, u32 bytes) noexcept {
     }
     return true;
 }
+bool text_reserve_both(SearchTextBanks& storage, u32 bytes) noexcept {
+    return text_reserve(storage, 0, bytes) && text_reserve(storage, 1, bytes);
+}
 struct SearchTextOwner {
     MessageTextPresentation presentation;
     MessageTextCommand commands[kMaximumMessageTextCommands];
@@ -197,6 +200,26 @@ static_assert(sizeof(ApplicationSearch) <= 8192);
 namespace {
 u32 search_publication_counter{};
 u32 filter_publication_counter{};
+Utf8View without_prefix(Utf8View value, char prefix) noexcept {
+    return value.bytes && value.data[0] == prefix ? Utf8View{value.data + 1, value.bytes - 1} : value;
+}
+__declspec(noinline) void menus_close(ApplicationSearch& s) noexcept {
+    s.filters = s.suggestions = s.sort_menu = false;
+}
+__declspec(noinline) void suggestions_open(ApplicationSearch& s) noexcept {
+    s.filters = s.sort_menu = false;
+    s.suggestions = true;
+}
+// Replaces a range of the query as one undoable edit.
+bool edit_replace(ApplicationSearch& s, u32 begin, u32 end, Utf8View text) noexcept {
+    if (!s.edit.history && !message_composer_enable_history(&s.edit, 4096))
+        return false;
+    message_composer_break_history_run(&s.edit);
+    if (message_composer_replace_range(&s.edit, begin, end, text) != MessageComposerResult::changed)
+        return false;
+    message_composer_break_history_run(&s.edit);
+    return true;
+}
 void member_query_withdraw(ApplicationSearch& s, bool invalidate_choices = false) noexcept {
     if (!s.member_query_active)
         return;
@@ -275,7 +298,7 @@ bool bank_initialize(SearchBank& b) noexcept {
     if (!message_poll_store_initialize_owned(&b.staged_polls, kMessageSearchMaximumMessages,
                                              poll_text_limit) ||
         !stable_storage_initialize(&b.content_storage, search_bank_text_limit, 0, 1, 1) ||
-        !text_reserve(b.rich_text, 0, 1) || !text_reserve(b.rich_text, 1, 1) ||
+        !text_reserve_both(b.rich_text, 1) ||
         !text_reserve(b.user_names, 0, 1) ||
         !stable_storage_initialize(&b.user_records, search_user_limit, 16, sizeof(UserRecord),
                                    alignof(UserRecord), true) ||
@@ -301,7 +324,7 @@ bool bank_initialize(SearchBank& b) noexcept {
     b.initialized = true;
     return true;
 }
-bool bank_user(SearchBank& b, u64 id, Utf8View name, Utf8View avatar = {}) noexcept {
+bool bank_user(SearchBank& b, u64 id, const Utf8View& name, const Utf8View& avatar = {}) noexcept {
     if (!id || !name.bytes)
         return true;
     if (!user_store_find(b.users, id) && b.users.count == b.users.capacity) {
@@ -315,11 +338,17 @@ bool bank_user(SearchBank& b, u64 id, Utf8View name, Utf8View avatar = {}) noexc
     // Accepted identities are pinned; no replacement may evict a previous
     // card's labels. Commit both possible compaction prefixes before mutation.
     const u32 needed = b.users.name_used + name.bytes;
-    if (!text_reserve(b.user_names, 0, needed) || !text_reserve(b.user_names, 1, needed))
+    if (!text_reserve_both(b.user_names, needed))
         return false;
     const auto result = user_store_upsert(&b.users, id, name);
     return result.ok() && !result.evicted && user_store_pin(&b.users, id) &&
            (!avatar.bytes || user_store_set_avatar(&b.users, id, avatar));
+}
+bool bank_mentions(SearchBank& b, ConstSlice<GatewayMessageNamedUser> users) noexcept {
+    for (u32 i = 0; i < users.count; ++i)
+        if (!bank_user(b, users[i].id, users[i].name))
+            return false;
+    return true;
 }
 // Compare normalized owning rich values, never scratch pointers or text arena
 // offsets. Overlapping context groups may reuse an identity only when every
@@ -492,7 +521,7 @@ bool bank_accept(void* opaque, u32 index, const MessageSearchMessage& item) noex
             return false;
         b.result_handles[index] = result.handle;
         const u32 needed = b.rich.text_used + m.transient_bytes;
-        if (!text_reserve(b.rich_text, 0, needed) || !text_reserve(b.rich_text, 1, needed))
+        if (!text_reserve_both(b.rich_text, needed))
             return false;
         const auto rich = message_rich_store_apply(&b.rich, m.id, 1, m);
         if (!rich.ok() || rich.storage_truncated)
@@ -508,16 +537,8 @@ bool bank_accept(void* opaque, u32 index, const MessageSearchMessage& item) noex
         !bank_user(b, m.reference.author_id, m.reference.author_name, m.reference.author_avatar_hash) ||
         !bank_user(b, m.interaction.user_id, m.interaction.user_name, m.interaction.user_avatar_hash))
         return false;
-    for (u32 i = 0; i < m.mention_users.count; ++i) {
-        const auto& u = m.mention_users[i];
-        if (!bank_user(b, u.id, u.name))
-            return false;
-    }
-    for (u32 i = 0; i < m.snapshot.mention_users.count; ++i) {
-        const auto& u = m.snapshot.mention_users[i];
-        if (!bank_user(b, u.id, u.name))
-            return false;
-    }
+    if (!bank_mentions(b, m.mention_users) || !bank_mentions(b, m.snapshot.mention_users))
+        return false;
     const u64 guild =
         item.guild_known
             ? item.guild_id
@@ -793,6 +814,21 @@ bool repaint() noexcept {
     application_composer_text_input_synchronize();
     return true;
 }
+// Closes the open field, repaints and moves keyboard focus into the menu a toggle just opened.
+bool menu_focus(ApplicationSearch& s, const bool& opened, UiSearchAction first) noexcept {
+    focus(s, false);
+    if (!repaint())
+        return false;
+    g_app.context_focus = &s.scene.widgets;
+    if (opened)
+        focus_target(s, first);
+    application_request_frame();
+    return true;
+}
+UiScrollbarGeometry body_scrollbar(const ApplicationSearch& s) noexcept {
+    return ui_scrollbar_geometry(s.scene.body, s.scene.scroll_dips,
+                                 ui_rect_height(s.scene.body) + ui_search_scene_scroll_maximum(s.scene));
+}
 bool selected_scope(MessageSearchScope* kind, u64* id) noexcept {
     if (!g_app.account_ui)
         return false;
@@ -873,8 +909,7 @@ void current_scope(ApplicationSearch& s) noexcept {
     s.profile_id = profile;
     s.account_scope = epoch;
     s.admission_busy = false;
-    s.filters = false;
-    s.suggestions = s.sort_menu = false;
+    menus_close(s);
     s.tab = s.result_tab = MessageSearchTab::messages;
     s.tab_known = 0;
     s.validation = id && profile && epoch
@@ -958,17 +993,23 @@ bool choices_current(void* opaque) noexcept {
                                                           g_app.account_ui->active_channel_id);
     return active && choice_channel(*s, *active) && stamp == s->choices->stamp;
 }
+bool channel_usable(const ChannelRecord& c) noexcept {
+    return c.occupied && channel_is_message_capable(c.type) && !(c.flags & kChannelObfuscatedFlag);
+}
+// A guild channel whose permissions do not yet let this user view and read it.
+bool channel_view_denied(const ChatStateStore& state, const ChannelRecord& c) noexcept {
+    constexpr u32 required = channel_action_view | channel_action_read_history;
+    return !c.permissions_resolved || (c.actions & required) != required ||
+           !chat_state_store_channel_visible(state, c);
+}
 bool choice_channel(const ApplicationSearch& s, const ChannelRecord& c) noexcept {
     const auto& state = g_app.account_ui->chat_state;
-    constexpr u32 required = channel_action_view | channel_action_read_history;
-    if (!application_channel_readable(g_app, c.id) || !c.occupied ||
-        !channel_is_message_capable(c.type) || (c.flags & kChannelObfuscatedFlag))
+    if (!application_channel_readable(g_app, c.id) || !channel_usable(c))
         return false;
     if (s.scope == MessageSearchScope::channel)
         return c.id == s.scope_id;
     const auto* guild = chat_state_store_find_guild(state, c.guild_id);
-    return c.guild_id == s.scope_id && guild && !guild->unavailable && c.permissions_resolved &&
-           (c.actions & required) == required && chat_state_store_channel_visible(state, c) &&
+    return c.guild_id == s.scope_id && guild && !guild->unavailable && !channel_view_denied(state, c) &&
            (!channel_is_thread(c.type) || chat_state_store_thread_accessible(state, c));
 }
 bool choice_user_allowed(u64 id) noexcept {
@@ -976,7 +1017,7 @@ bool choice_user_allowed(u64 id) noexcept {
     const auto* record = relationships ? relationship_store_find(*relationships, id) : nullptr;
     return id && (!record || (record->type != RelationshipType::blocked && !record->ignored));
 }
-Utf8View choice_copy(SearchFilterChoices& b, char* output, u32 capacity, Utf8View text) noexcept {
+Utf8View choice_copy(SearchFilterChoices& b, char* output, u32 capacity, const Utf8View& text) noexcept {
     if (!utf8_validate(text).valid)
         return {};
     const u32 bytes = utf8_truncated_length(text, capacity);
@@ -988,7 +1029,7 @@ Utf8View choice_copy(SearchFilterChoices& b, char* output, u32 capacity, Utf8Vie
 }
 bool resolve_user(void*, Utf8View, u64*) noexcept;
 bool resolve_channel(void*, Utf8View, u64*) noexcept;
-bool choice_capacity(SearchFilterChoices& b, Utf8View value) noexcept {
+bool choice_capacity(SearchFilterChoices& b, const Utf8View& value) noexcept {
     if (b.filter.other_value_count < 4 ||
         (b.filter.kind != UiSearchFilterKind::from && b.filter.kind != UiSearchFilterKind::mentions &&
          b.filter.kind != UiSearchFilterKind::in))
@@ -1040,8 +1081,8 @@ bool choice_capacity(SearchFilterChoices& b, Utf8View value) noexcept {
     b.capacity_limited |= !allowed;
     return allowed;
 }
-void choice_add(SearchFilterChoices& b, u64 id, u8 rank, Utf8View label, Utf8View detail, Utf8View value,
-                u32 semantic = 0, Utf8View avatar = {}) noexcept {
+void choice_add(SearchFilterChoices& b, u64 id, u8 rank, const Utf8View& label, const Utf8View& detail,
+                const Utf8View& value, u32 semantic = 0, const Utf8View& avatar = {}) noexcept {
     if (!label.bytes || !value.bytes || value.bytes > sizeof(b.values[0]))
         return;
     if (!choice_capacity(b, value))
@@ -1083,7 +1124,8 @@ void choice_add(SearchFilterChoices& b, u64 id, u8 rank, Utf8View label, Utf8Vie
         b.rows[i].avatar_hash.data = b.avatars[i];
     }
 }
-bool choice_match(Utf8View prefix, Utf8View name, Utf8View alias, Utf8View value) noexcept {
+bool choice_match(const Utf8View& prefix, const Utf8View& name, const Utf8View& alias,
+                  const Utf8View& value) noexcept {
     const auto result = friend_search(prefix, name, alias, value);
     return result.ok() && result.matched;
 }
@@ -1100,9 +1142,7 @@ void choice_user(ApplicationSearch& s, SearchFilterChoices& b, u64 id, u8 rank,
     const bool self = id == s.account_id;
     if (self && !label.bytes)
         label = utf8_literal("You");
-    auto prefix = b.filter.prefix();
-    if (prefix.bytes && prefix.data[0] == '@')
-        prefix = {prefix.data + 1, prefix.bytes - 1};
+    const auto prefix = without_prefix(b.filter.prefix(), '@');
     const auto value = self ? utf8_literal("@me") : Utf8View{digits, bytes};
     // A server nickname, the profile's display name or the username matches,
     // as in the official client's people search.
@@ -1130,10 +1170,10 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         member_query_withdraw(s, true);
         return false;
     }
-    const auto stamp = choices_stamp(s);
+    auto stamp = choices_stamp(s);
     if (s.choices && s.choices->initialized && stamp == s.choices->stamp)
         return false;
-    const auto filter =
+    const auto& filter =
         ui_search_filter_context(message_composer_text(s.edit), s.edit.anchor, s.edit.caret);
     if (filter.kind == UiSearchFilterKind::none) {
         member_query_withdraw(s);
@@ -1149,20 +1189,18 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
     if (!s.choices)
         return false;
     auto& b = *s.choices;
-    auto matching_stamp = stamp;
-    matching_stamp.anchor = b.stamp.anchor;
-    matching_stamp.caret = b.stamp.caret;
-    if (b.initialized && matching_stamp == b.stamp && b.filter.kind == filter.kind &&
+    // Selection/caret changes still invalidate every captured row, while
+    // identical matching inputs keep the existing choices.
+    const u32 stamp_anchor = stamp.anchor, stamp_caret = stamp.caret;
+    stamp.anchor = b.stamp.anchor;
+    stamp.caret = b.stamp.caret;
+    const bool same_inputs =
+        b.initialized && stamp == b.stamp && b.filter.kind == filter.kind &&
         b.filter.token_begin == filter.token_begin && b.filter.token_end == filter.token_end &&
         b.filter.value_begin == filter.value_begin && b.filter.value_end == filter.value_end &&
-        utf8_equal(b.filter.prefix(), filter.prefix())) {
-        // Selection/caret changes still invalidate every captured row,
-        // while identical matching inputs keep the existing choices.
-        copy_value(&b.stamp, stamp);
-        copy_value(&b.filter, filter);
-        choices_publish(b);
-        return true;
-    }
+        utf8_equal(b.filter.prefix(), filter.prefix());
+    stamp.anchor = stamp_anchor;
+    stamp.caret = stamp_caret;
     const bool preserve_selection =
         b.initialized && b.source.selected < b.source.rows.count && b.stamp.document == stamp.document &&
         b.stamp.text == stamp.text && b.stamp.anchor == stamp.anchor && b.stamp.caret == stamp.caret &&
@@ -1171,6 +1209,10 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
     const u32 selected_semantic = preserve_selection ? b.rows[b.source.selected].semantic : 0;
     copy_value(&b.stamp, stamp);
     copy_value(&b.filter, filter);
+    if (same_inputs) {
+        choices_publish(b);
+        return true;
+    }
     b.initialized = true;
     b.capacity_limited = false;
     ++b.rebuilds;
@@ -1201,9 +1243,9 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         const bool negated = prefix.bytes && prefix.data[0] == '-' &&
                              (kind == UiSearchFilterKind::has || kind == UiSearchFilterKind::author_type);
         if (negated)
-            prefix = {prefix.data + 1, prefix.bytes - 1};
-        if (kind == UiSearchFilterKind::file_type && prefix.bytes && prefix.data[0] == '.')
-            prefix = {prefix.data + 1, prefix.bytes - 1};
+            prefix = without_prefix(prefix, '-');
+        if (kind == UiSearchFilterKind::file_type)
+            prefix = without_prefix(prefix, '.');
         const auto fixed = ui_search_filter_fixed_choices(kind);
         for (u32 i = 0; i < fixed.count; ++i) {
             const auto& row = fixed[i];
@@ -1223,9 +1265,7 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
     } else if (kind == UiSearchFilterKind::link_from || kind == UiSearchFilterKind::file_name) {
         // Free text: the hint explains the expected value.
     } else if (filter.kind == UiSearchFilterKind::in) {
-        auto prefix = filter.prefix();
-        if (prefix.bytes && prefix.data[0] == '#')
-            prefix = {prefix.data + 1, prefix.bytes - 1};
+        const auto prefix = without_prefix(filter.prefix(), '#');
         const auto& state = g_app.account_ui->chat_state;
         for (u32 i = 0; i < state.channel_count; ++i) {
             const auto& c = state.channels[state.channel_order[i]];
@@ -1271,9 +1311,7 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         // member search the composer's '@' runs; its results rebuild this list.
         const u64 member_guild = s.scope == MessageSearchScope::guild ? s.scope_id : active->guild_id;
         if (member_guild) {
-            auto query = b.filter.prefix();
-            if (query.bytes && query.data[0] == '@')
-                query = {query.data + 1, query.bytes - 1};
+            const auto query = without_prefix(b.filter.prefix(), '@');
             if (query.bytes) {
                 application_member_query_note(member_guild, active->id, query);
                 requested_members = s.member_query_active = true;
@@ -1326,16 +1364,10 @@ bool choice_accept(ApplicationSearch& s, u32 revision, u32 index) noexcept {
     const auto text = message_composer_text(s.edit);
     if (b.filter.value_end == text.bytes || text.data[b.filter.value_end] != ' ')
         replacement[bytes++] = ' ';
-    if (!s.edit.history && !message_composer_enable_history(&s.edit, 4096))
+    if (!edit_replace(s, b.filter.value_begin, b.filter.value_end, {replacement, bytes}))
         return false;
-    message_composer_break_history_run(&s.edit);
-    if (message_composer_replace_range(&s.edit, b.filter.value_begin, b.filter.value_end,
-                                       {replacement, bytes}) != MessageComposerResult::changed)
-        return false;
-    message_composer_break_history_run(&s.edit);
     reset_value(&s.validation);
-    s.suggestions = false;
-    s.filters = s.sort_menu = false;
+    menus_close(s);
     focus(s, true);
     return repaint();
 }
@@ -1353,8 +1385,7 @@ bool resolve_user(void*, Utf8View name, u64* id) noexcept {
     if (!g_app.account_ui || !id)
         return false;
     const auto& state = g_app.account_ui->chat_state;
-    if (name.bytes && name.data[0] == '@')
-        name = {name.data + 1, name.bytes - 1};
+    name = without_prefix(name, '@');
     if (utf8_equal(name, utf8_literal("me"))) {
         *id = state.self_user_id;
         return *id != 0;
@@ -1377,8 +1408,7 @@ bool resolve_channel(void* opaque, Utf8View name, u64* id) noexcept {
     const auto& s = *static_cast<ApplicationSearch*>(opaque);
     if (!g_app.account_ui || !id)
         return false;
-    if (name.bytes && name.data[0] == '#')
-        name = {name.data + 1, name.bytes - 1};
+    name = without_prefix(name, '#');
     const auto& state = g_app.account_ui->chat_state;
     u64 found = 0;
     for (u32 i = 0; i < state.channel_count; ++i) {
@@ -1448,7 +1478,7 @@ bool commit(ApplicationSearch& s, bool tab_switch = false) noexcept {
     if (thread_scope(s, nullptr)) {
         // Thread names, not messages: the browser lists the matches in place
         // and opens the chosen thread. The field keeps the query and focus.
-        s.filters = s.suggestions = s.sort_menu = false;
+        menus_close(s);
         reset_value(&s.validation);
         s.committed_edit_revision = s.edit.text_revision;
         application_thread_browser_search(message_composer_text(s.edit));
@@ -1473,8 +1503,7 @@ bool commit(ApplicationSearch& s, bool tab_switch = false) noexcept {
     parsed.query.endpoint =
         s.tabs_unavailable ? MessageSearchEndpoint::legacy : MessageSearchEndpoint::tabs;
     parsed.query.tab_counts = !tab_switch;
-    s.filters = false;
-    s.suggestions = s.sort_menu = false;
+    menus_close(s);
     if (!parsed.ok()) {
         s.validation = parsed.error == UiSearchQueryError::invalid_date
                            ? utf8_literal("Use a valid YYYY-MM-DD date (2015-2100).")
@@ -1572,8 +1601,7 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
     case UiSearchAction::filter_value:
         return choice_accept(s, target.source_revision, target.source_index);
     case UiSearchAction::edit:
-        s.suggestions = true;
-        s.filters = s.sort_menu = false;
+        suggestions_open(s);
         focus(s, true);
         return repaint();
     case UiSearchAction::submit:
@@ -1583,15 +1611,14 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
         ApplicationThreadBrowserSearchScope threads{};
         if (application_thread_browser_search_scope(&threads))
             s.widened_thread_session = threads.session;
-        s.suggestions = true;
-        s.filters = s.sort_menu = false;
+        suggestions_open(s);
         focus(s, true);
         return repaint();
     }
     case UiSearchAction::tab:
         if (target.source_index >= kMessageSearchTabCount)
             return true;
-        s.filters = s.suggestions = s.sort_menu = false;
+        menus_close(s);
         s.tab = static_cast<MessageSearchTab>(target.source_index);
         focus(s, false);
         return commit(s, true);
@@ -1619,8 +1646,7 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
         s.panel = false;
         retire_actions(s);
         choices_release(s);
-        s.filters = false;
-        s.suggestions = s.sort_menu = false;
+        menus_close(s);
         focus(s, false);
         return repaint();
     case UiSearchAction::filters:
@@ -1628,31 +1654,16 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
         s.filters = !s.filters;
         s.suggestions = s.filters;
         s.sort_menu = false;
-        focus(s, false);
-        if (!repaint())
-            return false;
-        g_app.context_focus = &s.scene.widgets;
-        if (s.filters)
-            focus_target(s, UiSearchAction::filter_from);
-        application_request_frame();
-        return true;
+        return menu_focus(s, s.filters, UiSearchAction::filter_from);
     case UiSearchAction::sort:
         s.sort_menu = !s.sort_menu;
         s.filters = s.suggestions = false;
-        focus(s, false);
-        if (!repaint())
-            return false;
-        g_app.context_focus = &s.scene.widgets;
-        if (s.sort_menu)
-            focus_target(s, UiSearchAction::newest);
-        application_request_frame();
-        return true;
+        return menu_focus(s, s.sort_menu, UiSearchAction::newest);
     case UiSearchAction::result:
         if (s.filters || s.suggestions || s.sort_menu || !context_current(s))
             return true;
         focus(s, false);
-        s.filters = false;
-        s.suggestions = s.sort_menu = false;
+        menus_close(s);
         {
             ApplicationSearchSourceTicket ticket{};
             if (!ui_search_scene_target_current(s.scene, target) ||
@@ -1762,17 +1773,10 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
         const u32 caret = first + used;
         if (last < text.bytes && text.data[last] != ' ')
             inserted[used++] = ' ';
-        if (!s.edit.history && !message_composer_enable_history(&s.edit, 4096))
+        if (!edit_replace(s, first, last, {inserted, used}))
             return false;
-        message_composer_break_history_run(&s.edit);
-        if (message_composer_replace_range(&s.edit, first, last, {inserted, used}) !=
-            MessageComposerResult::changed)
-            return false;
-        message_composer_break_history_run(&s.edit);
         message_composer_set_selection(&s.edit, caret, caret);
-        s.filters = false;
-        s.suggestions = true;
-        s.sort_menu = false;
+        suggestions_open(s);
         focus(s, true);
         return application_search_edit_changed(true);
     }
@@ -1822,7 +1826,8 @@ bool application_search_close_panel() noexcept {
         return true;
     cancel_submitted(*s);
     message_search_cancel(&s->controller);
-    s->panel = s->filters = s->suggestions = s->sort_menu = false;
+    s->panel = false;
+    menus_close(*s);
     retire_actions(*s);
     choices_release(*s);
     focus(*s, false);
@@ -1859,8 +1864,7 @@ bool channel_authorized(ApplicationSearch& s, u32 index, bool permit_unknown) no
         return permit_unknown && !b.channel_generations[index] &&
                s.scope == MessageSearchScope::guild && item.guild_known &&
                item.guild_id == s.scope_id;
-    if (!channel->occupied || !channel_is_message_capable(channel->type) ||
-        (channel->flags & kChannelObfuscatedFlag) ||
+    if (!channel_usable(*channel) ||
         (s.scope == MessageSearchScope::guild ? channel->guild_id != s.scope_id
                                                      : channel->guild_id || channel->id != s.scope_id ||
                                                            !channel_is_private(channel->type)))
@@ -1869,11 +1873,8 @@ bool channel_authorized(ApplicationSearch& s, u32 index, bool permit_unknown) no
         return false;
     if (channel->guild_id) {
         const auto* guild = chat_state_store_find_guild(state, channel->guild_id);
-        constexpr u32 required = channel_action_view | channel_action_read_history;
         if (!guild || guild->unavailable ||
-            ((!channel->permissions_resolved || (channel->actions & required) != required ||
-              !chat_state_store_channel_visible(state, *channel)) &&
-             !(permit_unknown && row_access_check(s, index))))
+            (channel_view_denied(state, *channel) && !(permit_unknown && row_access_check(s, index))))
             return false;
     }
     // A guild channel not seen before can get its first model generation once
@@ -1891,13 +1892,9 @@ bool row_unavailable(const ApplicationSearch& s, u32 index) noexcept {
                                                            b.messages[index].message.channel_id);
     if (!channel)
         return true;
-    constexpr u32 required = channel_action_view | channel_action_read_history;
-    return !channel->occupied || !channel_is_message_capable(channel->type) ||
-           (channel->flags & kChannelObfuscatedFlag) ||
+    return !channel_usable(*channel) ||
            (b.channel_generations[index] && b.channel_generations[index] != channel->generation) ||
-           (channel->guild_id &&
-            (!channel->permissions_resolved || (channel->actions & required) != required ||
-             !chat_state_store_channel_visible(g_app.account_ui->chat_state, *channel)));
+           (channel->guild_id && channel_view_denied(g_app.account_ui->chat_state, *channel));
 }
 bool row_access_check(const ApplicationSearch& s, u32 index) noexcept {
     if (!s.bank || !g_app.account_ui || index >= s.bank->page.message_count)
@@ -2221,9 +2218,9 @@ bool application_search_synchronize() noexcept {
     // Message filters, recent message searches and the results pane do not
     // apply to thread names; the browser's own list shows those results.
     if (thread_scoped)
-        s->suggestions = s->filters = s->sort_menu = false;
+        menus_close(*s);
     if (!front() && (s->focused || s->captured || s->suggestions || s->filters || s->sort_menu)) {
-        s->suggestions = s->filters = s->sort_menu = false;
+        menus_close(*s);
         focus(*s, false);
         release_pointer(*s);
     }
@@ -2691,8 +2688,7 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         } else if (shift)
             message_composer_clear(&s->edit);
         s->panel = true;
-        s->suggestions = true;
-        s->filters = s->sort_menu = false;
+        suggestions_open(*s);
         focus(*s, true);
         s->held_key = key;
         repaint();
@@ -2765,7 +2761,7 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
     if (key == VK_ESCAPE) {
         s->held_key = key;
         if (s->filters || s->suggestions || s->sort_menu) {
-            s->filters = s->suggestions = s->sort_menu = false;
+            menus_close(*s);
             repaint();
         } else
             activate(*s, {UiSearchAction::close, 0, 0});
@@ -2892,17 +2888,13 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
     if (!s)
         return false;
     if (message == WM_KILLFOCUS) {
-        s->suggestions = s->filters = s->sort_menu = false;
+        menus_close(*s);
         focus(*s, false);
         release_pointer(*s);
         return false;
     }
     if (message == WM_CAPTURECHANGED && reinterpret_cast<HWND>(lparam) != g_app.window) {
-        s->dragging = false;
-        s->captured = false;
-        s->scrollbar_dragging = false;
-        reset_value(&s->pressed);
-        ui_widget_manager_capture(&s->scene.widgets, ui_widget_invalid_handle());
+        release_pointer(*s);
         return false;
     }
     if (!front())
@@ -2953,7 +2945,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
     if (message == WM_LBUTTONDOWN) {
         if (!inside) {
             const bool popup = s->suggestions || s->filters || s->sort_menu;
-            s->suggestions = s->filters = s->sort_menu = false;
+            menus_close(*s);
             if (s->focused) {
                 focus(*s, false);
                 repaint();
@@ -2965,7 +2957,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
             return false;
         }
         if (hit.action == UiSearchAction::none && (s->suggestions || s->filters || s->sort_menu)) {
-            s->suggestions = s->filters = s->sort_menu = false;
+            menus_close(*s);
             focus(*s, false);
             reset_value(&s->pressed);
             repaint();
@@ -2981,9 +2973,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         }
         s->pressed = hit;
         s->pressed_revision = s->scene.revision;
-        const auto scrollbar =
-            ui_scrollbar_geometry(s->scene.body, s->scene.scroll_dips,
-                                  ui_rect_height(s->scene.body) + ui_search_scene_scroll_maximum(s->scene));
+        const auto scrollbar = body_scrollbar(*s);
         if (s->panel && !s->filters && !s->suggestions && !s->sort_menu &&
             ui_scrollbar_track_hit(scrollbar, x, y)) {
             focus(*s, false);
@@ -3000,9 +2990,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
             return true;
         }
         if (hit.action == UiSearchAction::edit) {
-            s->filters = false;
-            s->suggestions = true;
-            s->sort_menu = false;
+            suggestions_open(*s);
             focus(*s, true);
             // A third press after a double click selects the whole query.
             const bool triple = application_click_count(&s->edit, x, y, false) == 3;
@@ -3051,9 +3039,7 @@ bool application_search_window_message(UINT message, WPARAM wparam, LPARAM lpara
         return true;
     }
     if (message == WM_MOUSEMOVE && s->scrollbar_dragging) {
-        const auto geometry =
-            ui_scrollbar_geometry(s->scene.body, s->scene.scroll_dips,
-                                  ui_rect_height(s->scene.body) + ui_search_scene_scroll_maximum(s->scene));
+        const auto geometry = body_scrollbar(*s);
         ui_search_scene_scroll(&s->scene, ui_scrollbar_scroll_from_pointer(geometry, y, s->thumb_grab));
         repaint();
         return true;

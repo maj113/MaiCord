@@ -1485,6 +1485,11 @@ bool application_video_synchronize() noexcept {
     return project_video_scene(video, positioned, visible, nullptr);
 }
 
+// One copy of the host's status for every refresh.
+__declspec(noinline) static void refresh_video_status(ApplicationVideo& video) noexcept {
+    video.status = g_app.account.api.video_status(g_app.account.instance);
+}
+
 bool application_video_pump(bool* repaint) noexcept {
     // Call view pictures share the video wake and presentation turn.
     if (!application_call_pump(repaint))
@@ -1529,7 +1534,7 @@ bool application_video_pump(bool* repaint) noexcept {
     bool visible = position_video_scene(video, positioned);
     const bool surface_covered = content_surface_covers_video();
     if (video->selecting && (!searched || visible || surface_covered)) {
-        const auto existing = g_app.account.api.video_status(g_app.account.instance);
+        const auto& existing = g_app.account.api.video_status(g_app.account.instance);
         if (existing.selected && existing.playback.identity.session_epoch != video->session_epoch) {
             AccountVideoFrame frame{};
             if (g_app.account.api.video_take(g_app.account.instance, &frame) &&
@@ -1554,7 +1559,7 @@ bool application_video_pump(bool* repaint) noexcept {
             if (selected.ok() && selected.admitted) {
                 video->selecting = false;
                 video->selected = true;
-                video->status = g_app.account.api.video_status(g_app.account.instance);
+                refresh_video_status(*video);
             } else if (selected.error == AccountVideoError::busy) {
                 if (!request_video_source(video->source, &video->source_refresh, video)) {
                     video->selecting = false;
@@ -1568,7 +1573,7 @@ bool application_video_pump(bool* repaint) noexcept {
         }
     }
     if (video->selected) {
-        video->status = g_app.account.api.video_status(g_app.account.instance);
+        refresh_video_status(*video);
         if (video->status.collection_count && video->status.collection_track &&
             video->status.collection_track <= video->status.collection_count) {
             video->collection_count = video->status.collection_count;

@@ -919,7 +919,7 @@ bool application_search_navigation_source(const ApplicationSearchSourceTicket&,
 bool application_search_source_notice(const ApplicationSearchSourceTicket&, Utf8View) noexcept {
     return false;
 }
-bool application_profile_open(u64, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     return false;
 }
 bool application_guild_card_open(u64, UiRect) noexcept {

@@ -61,10 +61,10 @@ bool allowed_user(QuickSwitcherSources sources, u64 id) noexcept {
     return relation && relation->type == RelationshipType::friend_ && !relation->ignored && !relation->spam &&
         user_store_find(*sources.users, id);
 }
-u16 copy_text(char* output, u32 capacity, Utf8View text) noexcept {
+u16 copy_text(char* output, u32 capacity, const Utf8View& text) noexcept {
     return static_cast<u16>(utf8_copy_truncated(output, capacity, text));
 }
-u32 field_score(Utf8View query, Utf8View field) noexcept {
+u32 field_score(const Utf8View& query, const Utf8View& field) noexcept {
     if (!field.bytes) return 0;
     if (ascii_equal_ignore_case(query, field)) return 1000;
     if (query.bytes <= field.bytes && ascii_equal_ignore_case(query, {field.data, query.bytes})) return 850;
@@ -80,7 +80,7 @@ u32 field_score(Utf8View query, Utf8View field) noexcept {
     }
     return 300 - minimum(gaps, 100u);
 }
-u32 match_score(Utf8View query, Utf8View label, Utf8View detail, Utf8View alternate, u64 id) noexcept {
+u32 match_score(const Utf8View& query, const Utf8View& label, const Utf8View& detail, const Utf8View& alternate, u64 id) noexcept {
     if (!query.bytes) return 100;
     u64 numeric = 0; bool digits = true;
     for (u32 i = 0; i < query.bytes; ++i) {

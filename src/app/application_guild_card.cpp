@@ -102,11 +102,11 @@ void resolve_media() noexcept {
         // (an a_ icon's representative frame) at ui_media_proxy_size(64 * dpr).
         const u32 dpi = g_app.renderer.dpi ? g_app.renderer.dpi : 96u;
         TextBank url{c.icon_url, sizeof(c.icon_url), 0};
-        url.add(utf8_literal("https://cdn.discordapp.com/icons/"));
+        url.add("https://cdn.discordapp.com/icons/");
         url.number(p.id);
-        url.add(utf8_literal("/"));
+        url.add("/");
         url.add({p.icon, p.icon_bytes});
-        url.add(utf8_literal(".webp?size="));
+        url.add(".webp?size=");
         url.number(ui_media_proxy_size((64u * dpi + 95u) / 96u));
         c.icon_url_bytes = url.used;
         c.icon_key = media_asset_embed(hash64_bytes(kHash64Seed, c.icon_url, url.used), 1, 0, MediaEmbedResource::image,

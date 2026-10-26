@@ -226,7 +226,7 @@ Utf8View editor_text() noexcept {
 
 Utf8View invite_link(Bank& bank) noexcept {
     const u32 start = bank.used;
-    bank.add(utf8_literal("https://discord.gg/"));
+    bank.add("https://discord.gg/");
     bank.add({owner->invite.code, owner->invite.code_bytes});
     return bank.since(start);
 }
@@ -238,19 +238,19 @@ Utf8View expiry_sentence(Bank& bank) noexcept {
     const u32 start = bank.used;
     const u32 seconds = kGuildInviteExpirySeconds[owner->link_expiry];
     if (!seconds)
-        bank.add(utf8_literal("Your invite link never expires."));
+        bank.add("Your invite link never expires.");
     else {
-        bank.add(utf8_literal("Your invite link expires in "));
+        bank.add("Your invite link expires in ");
         bank.add(kExpiryLabels[owner->link_expiry]);
-        bank.add(utf8_literal("."));
+        bank.add(".");
     }
     const u32 uses = kGuildInviteUses[owner->link_uses];
     if (uses == 1)
-        bank.add(utf8_literal(" It works once."));
+        bank.add(" It works once.");
     else if (uses) {
-        bank.add(utf8_literal(" It works "));
+        bank.add(" It works ");
         bank.number(uses);
-        bank.add(utf8_literal(" times."));
+        bank.add(" times.");
     }
     return bank.since(start);
 }
@@ -343,9 +343,9 @@ void default_server_name(Bank& bank) noexcept {
     }
     if (bytes) {
         bank.add({name.data, bytes});
-        bank.add(utf8_literal("\xE2\x80\x99s server"));
+        bank.add("\xE2\x80\x99s server");
     } else
-        bank.add(utf8_literal("My server"));
+        bank.add("My server");
 }
 
 void push(const UiSettingsControl& control,
@@ -408,11 +408,11 @@ void project_invite(Bank& bank) noexcept {
     const auto* guild = chat_state_store_find_guild(state(), p.guild_id);
     const u32 start = bank.used;
     if (channel && guild) {
-        bank.add(utf8_literal("Share this link to invite people to "));
+        bank.add("Share this link to invite people to ");
         bank.add(chat_state_store_guild_name(state(), *guild));
-        bank.add(utf8_literal(". They join in #"));
+        bank.add(". They join in #");
         bank.add(chat_state_store_channel_name(state(), *channel));
-        bank.add(utf8_literal("."));
+        bank.add(".");
     }
     p.content.description = bank.since(start);
 }
@@ -422,7 +422,7 @@ void project_create(Bank& bank) noexcept {
     const u32 start = bank.used;
     if (p.icon.data) {
         bank.number(p.icon.info.width);
-        bank.add(utf8_literal("\xC3\x97"));
+        bank.add("\xC3\x97");
         bank.number(p.icon.info.height);
         bank.add(p.icon.info.resized ? utf8_literal(" image, resized for upload.") : utf8_literal(" image."));
     }
@@ -912,7 +912,7 @@ bool application_guild_lifecycle_open_invite(u64 guild_id, u64 channel_id) noexc
     if (!guild || !channel || !can_open())
         return false;
     Bank bank{owner->title, sizeof(owner->title), 0};
-    bank.add(utf8_literal("Invite friends to "));
+    bank.add("Invite friends to ");
     bank.add(chat_state_store_guild_name(s, *guild));
     owner->guild_id = guild_id;
     owner->guild_generation = guild->generation;
@@ -1018,17 +1018,17 @@ bool application_guild_lifecycle_leave(u64 guild_id) noexcept {
     Bank title{b.leave_title, sizeof(b.leave_title), 0};
     Bank context{b.leave_context, sizeof(b.leave_context), 0};
     if (b.leave_owner) {
-        title.add(utf8_literal("You own this server"));
-        context.add(utf8_literal("Transfer ownership of "));
+        title.add("You own this server");
+        context.add("Transfer ownership of ");
         context.add(name);
-        context.add(utf8_literal(" to someone else in Server settings, or delete the server, before you leave."));
+        context.add(" to someone else in Server settings, or delete the server, before you leave.");
     } else {
-        title.add(utf8_literal("Leave \xE2\x80\x98"));
+        title.add("Leave \xE2\x80\x98");
         title.add(name);
-        title.add(utf8_literal("\xE2\x80\x99"));
-        context.add(utf8_literal("Are you sure you want to leave "));
+        title.add("\xE2\x80\x99");
+        context.add("Are you sure you want to leave ");
         context.add(name);
-        context.add(utf8_literal("? You won\xE2\x80\x99t be able to rejoin unless you are re-invited."));
+        context.add("? You won\xE2\x80\x99t be able to rejoin unless you are re-invited.");
     }
     b.leave_title_bytes = static_cast<u16>(title.used);
     b.leave_context_bytes = static_cast<u16>(context.used);
@@ -1209,6 +1209,24 @@ u64 application_guild_lifecycle_next_wake() noexcept {
     return wake;
 }
 
+// Sends a background admin request. A busy submit leaves it queued to retry shortly; any other
+// outcome dequeues it, and a sent one takes the details lane.
+static RestClientSubmitResult send_background(const GuildAdminRequest& request, u64 now, bool& queued, u64& retry,
+                                              u64& request_id) noexcept {
+    const u64 id = application_next_request_id();
+    const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
+    if (submitted.error == RestClientSubmitError::busy) {
+        retry = deadline_after(now, 50);
+        return submitted;
+    }
+    queued = false;
+    if (submitted.ok()) {
+        request_id = id;
+        claim_lane(id);
+    }
+    return submitted;
+}
+
 bool application_guild_lifecycle_submit(u64 now) noexcept {
     if (!g_app.account_ui || !lane_free() || !g_app.account.instance)
         return false;
@@ -1218,41 +1236,22 @@ bool application_guild_lifecycle_submit(u64 now) noexcept {
         GuildAdminRequest request{};
         request.operation = GuildAdminOperation::guild_leave;
         request.guild_id = b.leave_guild;
-        const u64 id = application_next_request_id();
-        const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
-        if (submitted.error == RestClientSubmitError::busy) {
-            b.leave_retry = deadline_after(now, 50);
-            return false;
-        }
-        b.leave_queued = false;
-        if (!submitted.ok()) {
+        const auto sent = send_background(request, now, b.leave_queued, b.leave_retry, b.leave_request);
+        if (!sent.ok() && sent.error != RestClientSubmitError::busy) {
             b.leave_status = utf8_literal("Couldn't leave this server. Try again.");
             ++b.leave_revision;
-            return false;
         }
-        b.leave_request = id;
-        claim_lane(id);
-        return true;
+        return sent.ok();
     }
     if (b.reorder_queued && !b.reorder_request && (!b.reorder_retry || b.reorder_retry <= now)) {
         GuildAdminRequest request{};
         request.operation = GuildAdminOperation::channel_reorder;
         request.guild_id = b.reorder_guild;
         request.positions = {b.positions, b.position_count};
-        const u64 id = application_next_request_id();
-        const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, id);
-        if (submitted.error == RestClientSubmitError::busy) {
-            b.reorder_retry = deadline_after(now, 50);
-            return false;
-        }
-        b.reorder_queued = false;
-        if (!submitted.ok()) {
-            log_u64(LogLevel::warning, "guild_lifecycle", "reorder_submit_error", static_cast<u64>(submitted.error));
-            return false;
-        }
-        b.reorder_request = id;
-        claim_lane(id);
-        return true;
+        const auto sent = send_background(request, now, b.reorder_queued, b.reorder_retry, b.reorder_request);
+        if (!sent.ok() && sent.error != RestClientSubmitError::busy)
+            log_u64(LogLevel::warning, "guild_lifecycle", "reorder_submit_error", static_cast<u64>(sent.error));
+        return sent.ok();
     }
     if (!owner || !owner->queued || owner->request_id || (owner->retry_at && owner->retry_at > now))
         return false;

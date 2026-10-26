@@ -66,7 +66,7 @@ struct ApplicationProfile {
     u32 note_text_revision;
     char note_display[kUserNoteMaximumBytes];
 };
-bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind = ProfileAnchor::point) noexcept;
+bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind = ProfileAnchor::point) noexcept;
 // Edit Profile for the signed-in user: the profile editor's Main Profile.
 bool application_profile_open_edit(u64 user, UiRect anchor, ProfileAnchor kind = ProfileAnchor::account) noexcept;
 // The open popout for user becomes the full profile; false when not shown.

@@ -632,7 +632,7 @@ UiSearchTarget item_target(const UiSearchScene& s, const UiSearchItem& item, boo
     }
     return target;
 }
-const UiSearchItem* target_item(const UiSearchScene& s, UiSearchTarget target,
+const UiSearchItem* target_item(const UiSearchScene& s, const UiSearchTarget& target,
                                 u32* slot = nullptr) noexcept {
     if (!tiled(s))
         return nullptr;
@@ -649,6 +649,11 @@ const UiSearchItem* target_item(const UiSearchScene& s, UiSearchTarget target,
         }
     }
     return nullptr;
+}
+bool row_text_valid(const UiSearchRow& row) noexcept {
+    return row.channel_id && row.message_id && utf8_validate(row.body).valid &&
+           utf8_validate(row.author).valid && utf8_validate(row.channel).valid &&
+           utf8_validate(row.detail).valid;
 }
 bool measure_rows(UiSearchScene& s) noexcept {
     if (rich_enabled(s)) {
@@ -674,9 +679,7 @@ bool measure_rows(UiSearchScene& s) noexcept {
         // IEEE-754 exponent bits before any arithmetic or ordered comparisons.
         u32 height_bits = 0;
         copy_bytes(&height_bits, &row.body_height, sizeof(height_bits));
-        if ((height_bits & 0x7f800000u) == 0x7f800000u || !row.channel_id || !row.message_id ||
-            !utf8_validate(row.body).valid || !utf8_validate(row.author).valid ||
-            !utf8_validate(row.channel).valid || !utf8_validate(row.detail).valid ||
+        if ((height_bits & 0x7f800000u) == 0x7f800000u || !row_text_valid(row) ||
             !ui_coordinate_valid(row.body_height) || row.body_height < 0 ||
             (row.body_height != 0 && (row.body_height < 24 || row.body_height > 464)))
             return false;
@@ -884,10 +887,18 @@ UiIcon item_icon(const UiSearchScene& s, const UiSearchItem& item) noexcept {
         }
         return true;
     };
-    if (ends(".zip", 4) || ends(".rar", 4) || ends(".7z", 3) || ends(".tar", 4) || ends(".gz", 3))
-        return UiIcon::file_archive;
-    if (ends(".txt", 4) || ends(".md", 3) || ends(".pdf", 4) || ends(".log", 4) || ends(".json", 5))
-        return UiIcon::file_text;
+    static constexpr struct {
+        char suffix[6];
+        u8 bytes;
+        UiIcon icon;
+    } kSuffixes[] = {{".zip", 4, UiIcon::file_archive}, {".rar", 4, UiIcon::file_archive},
+                     {".7z", 3, UiIcon::file_archive},  {".tar", 4, UiIcon::file_archive},
+                     {".gz", 3, UiIcon::file_archive},  {".txt", 4, UiIcon::file_text},
+                     {".md", 3, UiIcon::file_text},     {".pdf", 4, UiIcon::file_text},
+                     {".log", 4, UiIcon::file_text},    {".json", 5, UiIcon::file_text}};
+    for (const auto& entry : kSuffixes)
+        if (ends(entry.suffix, entry.bytes))
+            return entry.icon;
     return UiIcon::file;
 }
 bool add_items(UiSearchScene& s) noexcept {
@@ -1144,9 +1155,7 @@ bool rebuild(UiSearchScene& s) noexcept {
                 if (y >= s.body.bottom)
                     break;
                 UiSearchRow row{};
-                if (!s.source->resolve(s.source->context, i, &row) || !row.channel_id || !row.message_id ||
-                    !utf8_validate(row.body).valid || !utf8_validate(row.author).valid ||
-                    !utf8_validate(row.channel).valid || !utf8_validate(row.detail).valid)
+                if (!s.source->resolve(s.source->context, i, &row) || !row_text_valid(row))
                     return false;
                 s.visible[s.count] = row;
                 const bool rich = rich_enabled(s);
@@ -1295,7 +1304,7 @@ bool rebuild(UiSearchScene& s) noexcept {
     ++s.revision;
     return true;
 }
-bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8View value, const UiRect& r,
+bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
           const Color& color, u32 flags, UiTextWrapping wrap, UiTextAlignment alignment,
           bool chooser_text) noexcept {
     if (!value.bytes || !ui_rect_has_area(r))
@@ -1333,11 +1342,11 @@ bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8V
               {},
               {}});
 }
-bool line(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8View value, const UiRect& r,
+bool line(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
           const Color& color, u32 flags, UiTextAlignment alignment = UiTextAlignment::start) noexcept {
     return text(out, s, owner, value, r, color, flags, UiTextWrapping::no_wrap, alignment, false);
 }
-bool centered(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8View value, const UiRect& r,
+bool centered(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
               const Color& color, u32 flags = text_style_subtext) noexcept {
     return line(out, s, owner, value, r, color, flags, UiTextAlignment::center);
 }
@@ -1415,7 +1424,7 @@ bool ui_search_scene_refresh_rich(UiSearchScene* s) noexcept {
     p.layout_passes = scene->layout_passes;
     return true;
 }
-bool ui_search_scene_target_current(const UiSearchScene& s, UiSearchTarget target) noexcept {
+bool ui_search_scene_target_current(const UiSearchScene& s, const UiSearchTarget& target) noexcept {
     if (!current(s) || target.action == UiSearchAction::none)
         return false;
     if (target.action == UiSearchAction::filter_value)
@@ -1530,14 +1539,14 @@ UiSearchTarget ui_search_scene_rich_widget_target(const UiSearchScene& s, UiWidg
     }
     return {};
 }
-UiRect ui_search_scene_content_clip(const UiSearchScene& s, UiRect rectangle) noexcept {
+UiRect ui_search_scene_content_clip(const UiSearchScene& s, const UiRect& rectangle) noexcept {
     // Item layouts hide the message projection, including its text and emoji.
     if (!current(s) || tiled(s))
         return {};
     return overlay_clip(s, rectangle);
 }
 namespace {
-const MessageSceneRowWidget* rich_target_row(const UiSearchScene& s, UiSearchTarget target,
+const MessageSceneRowWidget* rich_target_row(const UiSearchScene& s, const UiSearchTarget& target,
                                              const MessageScene** output_scene) noexcept {
     const auto* scene = ui_search_scene_message_scene(s);
     if (!scene || !ui_search_scene_target_current(s, target))
@@ -1554,7 +1563,7 @@ UiRect rich_item_clip(const UiSearchScene& s, const UiRect& rectangle, const UiR
     return ui_rect_intersection(ui_search_scene_content_clip(s, rectangle), node_clip);
 }
 } // namespace
-bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, UiSearchTarget target, UiRect* rectangle,
+bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, const UiSearchTarget& target, UiRect* rectangle,
                                            UiRect* clip) noexcept {
     if (!rectangle || !clip || target.action != UiSearchAction::rich_item)
         return false;
@@ -1657,7 +1666,7 @@ bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, UiSearchTarge
     return ui_rect_has_area(*clip);
 }
 bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, const UiSearchContent* content,
-                            UiRect viewport, UiRect title, const UiShellHeaderGeometry* header) noexcept {
+                            const UiRect& viewport, const UiRect& title, const UiShellHeaderGeometry* header) noexcept {
     if (s && content && !choices_authorized(content->filter_choices)) {
         s->active = false;
         return false;

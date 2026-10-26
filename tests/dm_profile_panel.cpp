@@ -816,7 +816,7 @@ bool application_friends_active() noexcept {
 bool application_search_active() noexcept {
     return false;
 }
-bool application_profile_open(u64, UiRect, ProfileAnchor) noexcept {
+bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
     ++full_opens;
     return true;
 }

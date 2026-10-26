@@ -44,6 +44,7 @@
 #include "maicord/app/user_account_coordinator.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "application_log_fields.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -71,16 +72,12 @@ void log_skipped_events(u32 source_index, const MessageEventPumpDrainResult& dra
     // Kinds, the failed check and sizes only: never payload contents.
     const auto& failure = drained.failure;
     TraceRecord trace("event_skipped");
-    trace.field("source", source_index);
-    trace.field("event_kind", static_cast<u64>(failure.kind));
-    trace.field("dispatch_kind", static_cast<u64>(failure.dispatch_kind));
+    const u64 identity[] = {source_index, static_cast<u64>(failure.kind), static_cast<u64>(failure.dispatch_kind)};
+    trace_fields(trace, "source\0event_kind\0dispatch_kind", identity);
     trace.field("reason", message_event_pump_reject_reason_name(failure.reason));
-    trace.field("detail", failure.detail);
-    trace.field("payload_bytes", failure.payload_bytes);
-    trace.field("sequence", failure.sequence);
-    trace.field("in_drain", drained.apply_failures);
-    trace.field("session_total", g_sync.skipped);
-    trace.field("state_incomplete", drained.state_incomplete ? u64{1} : u64{0});
+    const u64 detail[] = {failure.detail,      failure.payload_bytes, failure.sequence,
+                          drained.apply_failures, g_sync.skipped,     drained.state_incomplete};
+    trace_fields(trace, "detail\0payload_bytes\0sequence\0in_drain\0session_total\0state_incomplete", detail);
     log_write(LogLevel::error, "account", trace.text);
 }
 

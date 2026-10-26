@@ -275,7 +275,7 @@ void settings_layer_activate_target(SettingsLayer* layer, UiSettingsTarget targe
     dispatch(layer, activation, false, true);
 }
 
-bool settings_layer_open_choice(SettingsLayer* layer, u64 owner_id, ConstSlice<PopupItem> items, UiRect anchor,
+bool settings_layer_open_choice(SettingsLayer* layer, u64 owner_id, const ConstSlice<PopupItem>& items, const UiRect& anchor,
                                 float width) noexcept {
     if (!items.count)
         return false;
@@ -443,7 +443,7 @@ bool settings_layer_replace_text(SettingsLayer* layer, Utf8View text) noexcept {
     return settings_layer_edit_changed(layer, replaced || model->text_revision != revision);
 }
 
-void settings_layer_cancel_native_group(SettingsLayer* layer, TextInputTarget target) noexcept {
+void settings_layer_cancel_native_group(SettingsLayer* layer, const TextInputTarget& target) noexcept {
     MessageComposer* model = nullptr;
     BoundedEdit* binding = nullptr;
     layer->pending_surrogate = 0;

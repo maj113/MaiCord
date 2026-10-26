@@ -25,7 +25,7 @@ Utf8View trim(Utf8View text) noexcept {
         --end;
     return {text.data + start, end - start};
 }
-BanQuery parse(Utf8View text) noexcept {
+BanQuery parse(const Utf8View& text) noexcept {
     BanQuery query{};
     bool text_seen = false;
     u32 start = 0;
@@ -47,15 +47,15 @@ BanQuery parse(Utf8View text) noexcept {
     }
     return query;
 }
-bool matches(const BanQuery& query, u64 user_id, Utf8View name) noexcept {
+bool matches(const BanQuery& query, u64 user_id, const Utf8View& name) noexcept {
     for (u32 i = 0; i < query.id_count; ++i)
         if (query.ids[i] == user_id)
             return true;
     return query.text.bytes && guild_settings_text_matches(query.text, name);
 }
 
-void push_ban_row(Bank& bank, u64 user_id, Utf8View name, Utf8View reason, bool can_unban, Utf8View avatar,
-                  u16 discriminator) noexcept {
+void push_ban_row(Bank& bank, u64 user_id, const Utf8View& name, const Utf8View& reason, bool can_unban,
+                  const Utf8View& avatar, u16 discriminator) noexcept {
     auto& p = *owner;
     char id_text[24];
     Bank id{id_text, sizeof(id_text), 0};
@@ -87,9 +87,8 @@ void project_bans(Bank& bank) noexcept {
                                "proxy. Ban circumvention can be made very hard by enabling phone verification in "
                                "Safety Setup."));
     // The search field with its Search button beside it.
-    push({control_search, {}, {}, UiSettingsControlKind::edit, editable(), false, {}, 0, utf8_literal("Search"),
-          &editor_view(editor_search, control_search, utf8_literal("Search Bans by User Id or Username"),
-                       editable())});
+    push_editor(control_search, {}, {}, UiSettingsControlKind::edit, editable(), editor_search,
+                utf8_literal("Search Bans by User Id or Username"), utf8_literal("Search"));
     const bool searching = busy() && p.request.op == Op::ban_search;
     const auto& store = p.bans;
     if (p.bans_failed)
@@ -142,7 +141,7 @@ void open_ban(u64 user) noexcept {
     Bank title_bank{title, sizeof(title), 0};
     title_bank.add(name.bytes ? name : utf8_literal("Banned user"));
     Bank context_bank{context, sizeof(context), 0};
-    context_bank.add(utf8_literal("Ban Reason\n"));
+    context_bank.add("Ban Reason\n");
     context_bank.add(reason.bytes ? reason : utf8_literal("No reason provided"));
     // A plain confirmation: lifting a ban sends no reason.
     ApplicationTextFormRequest request{};
@@ -217,7 +216,7 @@ bool bans_search_request(GuildModerationRequest* request) noexcept {
     return guild_moderation_request_valid(*request);
 }
 
-void bans_search_loaded(bool ok, Utf8View body) noexcept {
+void bans_search_loaded(bool ok, const Utf8View& body) noexcept {
     auto& p = *owner;
     if (!ok)
         return;

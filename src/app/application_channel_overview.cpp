@@ -284,13 +284,19 @@ Utf8View status() noexcept {
     return c.dirty_fields ? utf8_literal("Careful — you have unsaved changes!") : Utf8View{};
 }
 
-u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation = {}) noexcept {
+constexpr UiSettingsControlPresentation kCriticalRow{UiSettingsVariant::critical, 0, kUiSettingsNoDefault};
+// Appends a control and returns it for the optional fields; past capacity the row lands in a scratch sink.
+UiSettingsControl& add_control(u64 id, const Utf8View& label, const Utf8View& description, UiSettingsControlKind kind,
+                               bool enabled = true, bool checked = false,
+                               UiSettingsControlPresentation presentation = {}) noexcept {
+    static UiSettingsControl overflow;
     if (owner->control_count >= kControlCapacity)
-        return ~0u;
-    owner->controls[owner->control_count] = control;
-    owner->presentation[owner->control_count] = presentation;
-    reset_value(&owner->avatar_media[owner->control_count]);
-    return owner->control_count++;
+        return overflow;
+    const u32 index = owner->control_count++;
+    owner->controls[index] = {id, label, description, kind, enabled, checked, {}, 0, {}, nullptr};
+    owner->presentation[index] = presentation;
+    reset_value(&owner->avatar_media[index]);
+    return owner->controls[index];
 }
 UiSettingsEditor* editor(u32 index, u64 control, Utf8View placeholder, bool enabled) noexcept {
     owner->editors[index] =
@@ -306,66 +312,45 @@ u32 slowmode_index(u32 seconds) noexcept {
 void project_text_overview() noexcept {
     auto& p = *owner;
     const bool edit = editable();
-    p.controls[0] = {1, utf8_literal("Channel name"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-                     editor(0, 1, utf8_literal("Channel name"), edit)};
-    p.controls[1] = {2, utf8_literal("Channel topic"), {}, UiSettingsControlKind::multiline, edit, false, {}, 0, {},
-                     editor(1, 2, utf8_literal("Tell members what this channel is for"), edit)};
-    p.controls[2] = {
-        3,
-        utf8_literal("Slowmode"),
-        utf8_literal("Members can send one message per interval unless they can bypass slowmode."),
-        UiSettingsControlKind::choice,
-        edit,
-        false,
-        {slowmode_labels, 15},
-        slowmode_index(p.controller.draft.slowmode_seconds),
-        {}};
-    p.controls[3] = {4,
-                     utf8_literal("Age-restricted channel"),
-                     utf8_literal("Members must confirm they meet the age requirement to view this channel."),
-                     UiSettingsControlKind::toggle,
-                     edit,
-                     p.controller.draft.nsfw,
-                     {},
-                     0,
-                     {}};
+    add_control(1, utf8_literal("Channel name"), {}, UiSettingsControlKind::edit, edit).editor =
+        editor(0, 1, utf8_literal("Channel name"), edit);
+    add_control(2, utf8_literal("Channel topic"), {}, UiSettingsControlKind::multiline, edit).editor =
+        editor(1, 2, utf8_literal("Tell members what this channel is for"), edit);
+    auto& slowmode = add_control(3, utf8_literal("Slowmode"),
+                                 utf8_literal("Members can send one message per interval unless they can bypass slowmode."),
+                                 UiSettingsControlKind::choice, edit);
+    slowmode.choices = {slowmode_labels, 15};
+    slowmode.selected_choice = slowmode_index(p.controller.draft.slowmode_seconds);
+    add_control(4, utf8_literal("Age-restricted channel"),
+                utf8_literal("Members must confirm they meet the age requirement to view this channel."),
+                UiSettingsControlKind::toggle, edit, p.controller.draft.nsfw);
     const bool conflict = p.controller.phase == ChannelOverviewPhase::conflict;
-    p.controls[4] = {
-        5,
-        conflict ? utf8_literal("Review your changes") : utf8_literal("Refresh channel settings"),
-        conflict ? utf8_literal("Keep your changes on top of the latest settings.")
-                 : utf8_literal("Reload the latest settings. Unsaved changes are kept."),
-        UiSettingsControlKind::action,
-        p.controller.available && p.controller.can_manage && !p.controller.request_id && !p.controller.queued,
-        false,
-        {},
-        0,
-        conflict ? utf8_literal("Use my changes") : utf8_literal("Refresh")};
-    for (u32 i = 0; i < 5; ++i)
-        reset_value(&p.presentation[i]);
-    if (conflict)
-        p.presentation[4].variant = UiSettingsVariant::primary;
-    p.control_count = 5;
+    add_control(5, conflict ? utf8_literal("Review your changes") : utf8_literal("Refresh channel settings"),
+                conflict ? utf8_literal("Keep your changes on top of the latest settings.")
+                         : utf8_literal("Reload the latest settings. Unsaved changes are kept."),
+                UiSettingsControlKind::action,
+                p.controller.available && p.controller.can_manage && !p.controller.request_id && !p.controller.queued,
+                false, {conflict ? UiSettingsVariant::primary : UiSettingsVariant::standard, 0, 0})
+        .action_label = conflict ? utf8_literal("Use my changes") : utf8_literal("Refresh");
 }
 void project_generic_overview() noexcept {
     auto& p = *owner;
     const bool edit = editable() && p.loaded && p.can_overview;
     auto& d = p.draft;
     if (p.fetch_failed)
-        push({control_notice, utf8_literal("Couldn't load this channel"), p.status, UiSettingsControlKind::notice,
-              true, false, {}, 0, utf8_literal("Try again"), nullptr},
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        add_control(control_notice, utf8_literal("Couldn't load this channel"), p.status, UiSettingsControlKind::notice,
+                    true, false, kCriticalRow)
+            .action_label = utf8_literal("Try again");
     else if (!p.loaded)
-        push({control_notice, {}, utf8_literal("Loading…"), UiSettingsControlKind::notice, true, false, {}, 0, {},
-              nullptr});
+        add_control(control_notice, {}, utf8_literal("Loading…"), UiSettingsControlKind::notice);
     else if (p.conflict)
-        push({control_notice, utf8_literal("Changed elsewhere"),
-              utf8_literal("Someone else updated this channel. Load the latest values or keep editing."),
-              UiSettingsControlKind::notice, true, false, {}, 0, utf8_literal("Load latest"), nullptr},
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    push({1, p.type == 4 ? utf8_literal("Category name") : utf8_literal("Channel name"), {},
-          UiSettingsControlKind::edit, edit, false, {}, 0, {},
-          editor(0, 1, p.type == 4 ? utf8_literal("Category name") : utf8_literal("Channel name"), edit)});
+        add_control(control_notice, utf8_literal("Changed elsewhere"),
+                    utf8_literal("Someone else updated this channel. Load the latest values or keep editing."),
+                    UiSettingsControlKind::notice, true, false, kCriticalRow)
+            .action_label = utf8_literal("Load latest");
+    add_control(1, p.type == 4 ? utf8_literal("Category name") : utf8_literal("Channel name"), {},
+                UiSettingsControlKind::edit, edit)
+        .editor = editor(0, 1, p.type == 4 ? utf8_literal("Category name") : utf8_literal("Channel name"), edit);
     if (p.type == 4)
         return;
     // Bitrate marks: the standard steps plus the stored value when higher.
@@ -387,22 +372,27 @@ void project_generic_overview() noexcept {
         selected = p.bitrate_count;
         p.bitrate_values[p.bitrate_count++] = d.bitrate;
     }
-    push({control_bitrate, utf8_literal("Bitrate (kbps)"),
-          utf8_literal("Higher bitrates sound better but use more bandwidth."), UiSettingsControlKind::slider, edit,
-          false, {p.bitrate_labels, p.bitrate_count}, selected, {}, nullptr},
-         {UiSettingsVariant::standard, ui_settings_presentation_marks, 5});
-    if (p.type == 2)
-        push({control_user_limit, utf8_literal("User limit"),
-              utf8_literal("How many members can join at once. Members who can move others ignore the limit."),
-              UiSettingsControlKind::slider, edit, false, {p.user_limit_labels, kChannelSettingsUserLimitMaximum + 1},
-              minimum(d.user_limit, kChannelSettingsUserLimitMaximum), {}, nullptr});
-    push({3, utf8_literal("Slowmode"),
-          utf8_literal("Members can send one message per interval unless they can bypass slowmode."),
-          UiSettingsControlKind::choice, edit, false, {slowmode_labels, 15}, slowmode_index(d.slowmode_seconds), {},
-          nullptr});
-    push({4, utf8_literal("Age-restricted channel"),
-          utf8_literal("Members must confirm they meet the age requirement to view this channel."),
-          UiSettingsControlKind::toggle, edit, d.nsfw, {}, 0, {}, nullptr});
+    auto& bitrate = add_control(control_bitrate, utf8_literal("Bitrate (kbps)"),
+                                utf8_literal("Higher bitrates sound better but use more bandwidth."),
+                                UiSettingsControlKind::slider, edit, false,
+                                {UiSettingsVariant::standard, ui_settings_presentation_marks, 5});
+    bitrate.choices = {p.bitrate_labels, p.bitrate_count};
+    bitrate.selected_choice = selected;
+    if (p.type == 2) {
+        auto& limit = add_control(control_user_limit, utf8_literal("User limit"),
+                                  utf8_literal("How many members can join at once. Members who can move others ignore the limit."),
+                                  UiSettingsControlKind::slider, edit);
+        limit.choices = {p.user_limit_labels, kChannelSettingsUserLimitMaximum + 1};
+        limit.selected_choice = minimum(d.user_limit, kChannelSettingsUserLimitMaximum);
+    }
+    auto& slowmode = add_control(3, utf8_literal("Slowmode"),
+                                 utf8_literal("Members can send one message per interval unless they can bypass slowmode."),
+                                 UiSettingsControlKind::choice, edit);
+    slowmode.choices = {slowmode_labels, 15};
+    slowmode.selected_choice = slowmode_index(d.slowmode_seconds);
+    add_control(4, utf8_literal("Age-restricted channel"),
+                utf8_literal("Members must confirm they meet the age requirement to view this channel."),
+                UiSettingsControlKind::toggle, edit, d.nsfw);
 }
 
 Utf8View target_name(Bank& bank, const PermissionOverwriteRecord& entry, u32* color, bool* member) noexcept {
@@ -431,7 +421,7 @@ Utf8View target_name(Bank& bank, const PermissionOverwriteRecord& entry, u32* co
     }
     // Uncached members show their user ID.
     const u32 start = bank.used;
-    bank.add(utf8_literal("Member "));
+    bank.add("Member ");
     if (entry.id)
         bank.number(entry.id);
     return bank.since(start);
@@ -467,39 +457,38 @@ void project_permissions(Bank& bank) noexcept {
     auto& p = *owner;
     const bool edit = editable() && p.can_permissions;
     if (p.failed && p.status.bytes)
-        push({control_notice, {}, p.status, UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr},
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        add_control(control_notice, {}, p.status, UiSettingsControlKind::notice, true, false, kCriticalRow);
     if (p.overwrite_conflict)
-        push({control_notice, utf8_literal("Changed elsewhere"),
-              utf8_literal("Someone else changed these permissions. Load the latest values or keep editing."),
-              UiSettingsControlKind::notice, true, false, {}, 0, utf8_literal("Load latest"), nullptr},
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        add_control(control_notice, utf8_literal("Changed elsewhere"),
+                    utf8_literal("Someone else changed these permissions. Load the latest values or keep editing."),
+                    UiSettingsControlKind::notice, true, false, kCriticalRow)
+            .action_label = utf8_literal("Load latest");
     if (const auto* parent = parent_channel()) {
         const bool synced = permission_overwrite_draft_equal(p.overwrite_draft,
                                                              chat_state_store_channel_overwrites(state(), *parent));
         const u32 start = bank.used;
         bank.add(synced ? utf8_literal("Synced with ") : utf8_literal("Not synced with "));
         bank.add(chat_state_store_channel_name(state(), *parent));
-        push({control_sync, Utf8View{bank.data + start, bank.used - start},
-              synced ? utf8_literal("This channel uses its category's permissions.")
-                     : utf8_literal("Sync to copy the category's permissions to this channel."),
-              UiSettingsControlKind::notice, edit || synced, false, {}, 0,
-              synced ? Utf8View{} : utf8_literal("Sync now"), nullptr},
-             {synced ? UiSettingsVariant::positive : UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
+        add_control(control_sync, Utf8View{bank.data + start, bank.used - start},
+                    synced ? utf8_literal("This channel uses its category's permissions.")
+                           : utf8_literal("Sync to copy the category's permissions to this channel."),
+                    UiSettingsControlKind::notice, edit || synced, false,
+                    {synced ? UiSettingsVariant::positive : UiSettingsVariant::standard, 0, kUiSettingsNoDefault})
+            .action_label = synced ? Utf8View{} : utf8_literal("Sync now");
     }
-    push({control_targets, utf8_literal("Roles and members"),
-          utf8_literal("Overrides replace role permissions for this channel. Pick one to edit it."),
-          UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr});
-    push({control_add_target, utf8_literal("Add a role or member"), {}, UiSettingsControlKind::action, edit, false,
-          {}, 0, utf8_literal("Add"), nullptr});
+    add_control(control_targets, utf8_literal("Roles and members"),
+                utf8_literal("Overrides replace role permissions for this channel. Pick one to edit it."),
+                UiSettingsControlKind::category);
+    add_control(control_add_target, utf8_literal("Add a role or member"), {}, UiSettingsControlKind::action, edit)
+        .action_label = utf8_literal("Add");
     // @everyone is always listed, even without an explicit override.
     if (permission_overwrite_draft_find(p.overwrite_draft, p.identity.guild_id) == ~0u) {
-        push({kTargetBase + kPermissionOverwriteDraftMaximum, utf8_literal("@everyone"), utf8_literal("Role"),
-              UiSettingsControlKind::action, true, false, {}, 0, {}, nullptr},
-             {UiSettingsVariant::standard,
-              static_cast<u8>(ui_settings_presentation_compact | ui_settings_presentation_accent |
-                              (p.selected_target == p.identity.guild_id ? ui_settings_presentation_selected : 0)),
-              kUiSettingsNoDefault});
+        add_control(kTargetBase + kPermissionOverwriteDraftMaximum, utf8_literal("@everyone"), utf8_literal("Role"),
+                    UiSettingsControlKind::action, true, false,
+                    {UiSettingsVariant::standard,
+                     static_cast<u8>(ui_settings_presentation_compact | ui_settings_presentation_accent |
+                                     (p.selected_target == p.identity.guild_id ? ui_settings_presentation_selected : 0)),
+                     kUiSettingsNoDefault});
         p.row_accent[kPermissionOverwriteDraftMaximum] = guild_role_color_rgba(0);
     }
     u32 order[kPermissionOverwriteDraftMaximum];
@@ -515,7 +504,7 @@ void project_permissions(Bank& bank) noexcept {
         const u32 start = bank.used;
         bank.add(member ? utf8_literal("Member") : utf8_literal("Role"));
         if (overrides) {
-            bank.add(utf8_literal(" · "));
+            bank.add(" · ");
             bank.number(overrides);
             bank.add(overrides == 1 ? utf8_literal(" override") : utf8_literal(" overrides"));
         }
@@ -524,12 +513,12 @@ void project_permissions(Bank& bank) noexcept {
             flags |= ui_settings_presentation_selected;
         if (member)
             flags |= ui_settings_presentation_avatar;
-        const u32 target = push({kTargetBase + order[i], name, Utf8View{bank.data + start, bank.used - start},
-                                 UiSettingsControlKind::action, true, false, {}, 0,
-                                 entry.id == p.identity.guild_id || !edit ? Utf8View{} : utf8_literal("Remove"),
-                                 nullptr},
-                                {UiSettingsVariant::standard, static_cast<u8>(flags | ui_settings_presentation_accent),
-                                 kUiSettingsNoDefault});
+        const u32 target = p.control_count;
+        add_control(kTargetBase + order[i], name, Utf8View{bank.data + start, bank.used - start},
+                    UiSettingsControlKind::action, true, false,
+                    {UiSettingsVariant::standard, static_cast<u8>(flags | ui_settings_presentation_accent),
+                     kUiSettingsNoDefault})
+            .action_label = entry.id == p.identity.guild_id || !edit ? Utf8View{} : utf8_literal("Remove");
         // Member targets draw the cached avatar over their initials once resident.
         if (member && target < kControlCapacity)
             p.avatar_media[target] = application_user_avatar_media(entry.id);
@@ -545,11 +534,10 @@ void project_permissions(Bank& bank) noexcept {
     bool member = false;
     const auto name = target_name(bank, shown, &color, &member);
     const u32 start = bank.used;
-    bank.add(utf8_literal("Permissions for "));
+    bank.add("Permissions for ");
     bank.add(name);
-    push({control_grid, Utf8View{bank.data + start, bank.used - start},
-          utf8_literal("Deny, keep neutral to inherit, or allow each permission."), UiSettingsControlKind::category,
-          true, false, {}, 0, {}, nullptr});
+    add_control(control_grid, Utf8View{bank.data + start, bank.used - start},
+                utf8_literal("Deny, keep neutral to inherit, or allow each permission."), UiSettingsControlKind::category);
     const u8 scope_bits = permission_grid_channel_scope(p.type);
     const PermissionSet mine = self_permissions(p.identity.channel_id);
     const auto* guild = chat_state_store_find_guild(state(), p.identity.guild_id);
@@ -564,16 +552,18 @@ void project_permissions(Bank& bank) noexcept {
             if (static_cast<u32>(e.group) != group || !permission_grid_applies(e, scope_bits))
                 continue;
             if (first) {
-                push({control_group + group, permission_group_label(static_cast<PermissionGroup>(group)), {},
-                      UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr});
+                add_control(control_group + group, permission_group_label(static_cast<PermissionGroup>(group)), {},
+                            UiSettingsControlKind::category);
                 first = false;
             }
             const auto value = permission_tri_get(allow, deny, e.bit);
-            push({control_permission + i, permission_grid_label(e, scope_bits),
-                  permission_grid_description(e, scope_bits), UiSettingsControlKind::segments,
-                  edit && ((grantable & e.bit) == e.bit || value != PermissionTriState::neutral), false,
-                  {kTriState, 3}, static_cast<u32>(value), {}, nullptr},
-                 {UiSettingsVariant::standard, ui_settings_presentation_tristate, kUiSettingsNoDefault});
+            auto& row = add_control(control_permission + i, permission_grid_label(e, scope_bits),
+                                    permission_grid_description(e, scope_bits), UiSettingsControlKind::segments,
+                                    edit && ((grantable & e.bit) == e.bit || value != PermissionTriState::neutral),
+                                    false,
+                                    {UiSettingsVariant::standard, ui_settings_presentation_tristate, kUiSettingsNoDefault});
+            row.choices = {kTriState, 3};
+            row.selected_choice = static_cast<u32>(value);
         }
     }
 }
@@ -656,7 +646,7 @@ void build_navigation() noexcept {
     Bank header{p.header, sizeof(p.header), 0};
     if (channel) {
         if (p.type == 0 || p.type == 5 || p.type == 15)
-            header.add(utf8_literal("#"));
+            header.add("#");
         header.add(chat_state_store_channel_name(state(), *channel));
         for (u32 i = 0; i < header.used; ++i)
             if (p.header[i] >= 'a' && p.header[i] <= 'z')
@@ -723,11 +713,11 @@ void confirm_delete() noexcept {
         return;
     static char title[kGuildAdminNameBytes + 32];
     Bank bank{title, sizeof(title), 0};
-    bank.add(utf8_literal("Delete "));
+    bank.add("Delete ");
     if (owner->type == 0 || owner->type == 5 || owner->type == 15)
-        bank.add(utf8_literal("#"));
+        bank.add("#");
     bank.add(chat_state_store_channel_name(state(), *channel));
-    bank.add(utf8_literal("?"));
+    bank.add("?");
     ApplicationTextFormRequest request{};
     request.title = {title, bank.used};
     request.context = owner->type == 4 ? utf8_literal("Channels in this category are kept. This can't be undone.")

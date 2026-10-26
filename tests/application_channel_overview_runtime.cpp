@@ -465,10 +465,10 @@ bool application_guild_settings_submit(u64) noexcept {
 bool application_guild_settings_owns_response(u64) noexcept {
     return false;
 }
-bool application_guild_settings_response(const RestClientResponse&, Utf8View) noexcept {
+bool application_guild_settings_response(const RestClientResponse&, const Utf8View&) noexcept {
     return false;
 }
-void application_guild_settings_gateway(const GatewayClientEvent&, Utf8View) noexcept {
+void application_guild_settings_gateway(const GatewayClientEvent&, const Utf8View&) noexcept {
 }
 void application_media_picker_gateway(const GatewayClientEvent&, Utf8View) noexcept {
 }
@@ -616,7 +616,7 @@ SettingsLayer* application_profile_editor_settings_layer() noexcept { return nul
 bool application_profile_editor_window_message(UINT, WPARAM, LPARAM) noexcept { return false; }
 bool application_profile_editor_submit(u64) noexcept { return false; }
 bool application_profile_editor_owns_response(u64) noexcept { return false; }
-bool application_profile_editor_response(const RestClientResponse&, Utf8View) noexcept { return false; }
+bool application_profile_editor_response(const RestClientResponse&, const Utf8View&) noexcept { return false; }
 u64 application_profile_editor_next_wake() noexcept { return 0; }
 u64 application_profile_editor_caret_wake() noexcept { return 0; }
 void application_profile_editor_tick(u64) noexcept {}
