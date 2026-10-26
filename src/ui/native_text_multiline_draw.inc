@@ -102,14 +102,7 @@ bool native_text_candidate_trimmed_once(const TextSystem& system,Utf8View text,C
     u32 decoration_count=0,hit_count=0;
     if(geometry){auto rendered=layout;rendered.run_count=written_runs;const ConstSlice<NativeStyledOmission> hidden{omissions.data,omission_count};
         if(!native_styled_decorations(owner,rendered,width,format->tab_stop,{output->decorations,output->decoration_capacity},&decoration_count,directional?output:nullptr,nullptr,hidden))return false;
-        DecorationGraphemeCursor boundaries{};
-        for(u32 i=0;i<hits.count;++i){const auto& hit=hits[i];if(!hit.unit_count||hit.first_unit>shape.source_units||hit.unit_count>shape.source_units-hit.first_unit)return false;
-            if(!decoration_range(owner,rendered,format->tab_stop,hit.first_unit,hit.first_unit+hit.unit_count,
-                [&](const NativeParagraphLine& line,float left,float span_width) noexcept {
-                    if(!(span_width>0)||!(line.height>0))return true;if(!output->hit_regions||hit_count==output->hit_region_capacity)return false;
-                    output->hit_regions[hit_count++]={left,line.top,decoration_add(left,span_width),decoration_add(line.top,line.height),hit.semantic_index,0};return true;
-                },&boundaries,directional?output:nullptr,nullptr,hidden))return false;
-        }
+        if(!native_collect_hit_regions(owner,rendered,format->tab_stop,hits,true,output,&hit_count,directional?output:nullptr,nullptr,hidden))return false;
     }
     if(!native_font_session_retain(owner.fonts))return false;
     auto* store=native_font_session_runs(owner.fonts);u32 retained=0,retained_signs=0;

@@ -47,7 +47,7 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
 }
 }
 SfntStatus sfnt_tibetan_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl) noexcept {
+    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((input.count&&!input.data)||(steps.count&&!steps.data)||plan.substitution_roots.count)return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*8+steps.count>limits.stage_work)return SfntStatus::resource_limit;

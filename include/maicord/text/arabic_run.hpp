@@ -15,7 +15,7 @@ namespace maicord {
 // The forced-LTR path supports backward joining and marks; CGJ and some mixed
 // control/mark cases are not handled.
 SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlanHandle plan,
-    Utf8View input,bool independent_letters,bool rtl,float em_size,SfntShapeStorage storage,
+    Utf8View input,bool independent_letters,bool rtl,float em_size,const SfntShapeStorage& storage,
     SfntShapeRunResult* result,SfntShapeLimits limits={}) noexcept;
 // Adapt the successful Arabic output to the common compact glyph stream used
 // by paragraph layout. The glyph prefix can alias shaping.glyphs,

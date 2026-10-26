@@ -16,19 +16,8 @@ struct Policy {
     bool has_reph:1=false,has_pref:1=false,reph_formed:1=false,control_ids:1=false;
 };
 static_assert(sizeof(Policy)==56);
-struct Work {
-    u64 left,used=0;
-    bool spend(u64 n) noexcept {if(n>left)return false;left-=n;used+=n;return true;}
-};
 SfntStatus role(const SfntComponentGlyph& glyph,u8* out,Work& w) noexcept {
     if(!w.spend(1))return SfntStatus::resource_limit;*out=glyph.glyph.reserved;return SfntStatus::ok;
-}
-SfntStatus locate(const Policy& p,Slice<SfntComponentGlyph> glyphs,u32 node,u32& index,Work& w) noexcept {
-    index=nil;if(node==nil)return SfntStatus::ok;u32 root=0,ordinal=0;u64 used=0;
-    const auto status=sfnt_component_location(*p.forest,node,&root,&ordinal,w.left,&used);w.spend(used);
-    if(status!=SfntStatus::ok||root==nil)return status;
-    if(!w.spend(glyphs.count))return SfntStatus::resource_limit;
-    for(u32 i=0;i<glyphs.count;++i)if(glyphs[i].component==root){index=i;break;}return SfntStatus::ok;
 }
 SfntStatus snapshot(Policy& p,Slice<SfntComponentGlyph> glyphs,Work& w) noexcept {
     const u32 count=glyphs.count;if(count>p.snapshots.count)return SfntStatus::output_too_small;
@@ -46,13 +35,6 @@ SfntStatus changed(Policy& p,Slice<SfntComponentGlyph> glyphs,u32& node,Work& w,
         if(!same){last=i;node=glyphs[i].component;if(!reph)break;}
     }if(reph&&last!=nil){glyphs[last].glyph.reserved|=reph_role;p.reph_formed=true;}return SfntStatus::ok;
 }
-SfntStatus move_before(Slice<SfntComponentGlyph> glyphs,u32 from,u32 before,Work& w) noexcept {
-    if(from==nil||before==nil)return SfntStatus::ok;
-    const u32 to=before>from?before-1:before;if(from>=glyphs.count||to>=glyphs.count)return SfntStatus::invalid_input;
-    if(!w.spend((from>to?from-to:to-from)+1))return SfntStatus::resource_limit;
-    const auto saved=glyphs[from];if(from<to)for(u32 i=from;i<to;++i)glyphs[i]=glyphs[i+1];
-    else for(u32 i=from;i>to;--i)glyphs[i]=glyphs[i-1];glyphs[to]=saved;return SfntStatus::ok;
-}
 SfntStatus reorder(Policy& p,Slice<SfntComponentGlyph> glyphs,Work& w) noexcept {
     u32 pref=nil;SfntStatus status=SfntStatus::ok;
     for(u32 at=0;at<glyphs.count;){
@@ -66,7 +48,7 @@ SfntStatus reorder(Policy& p,Slice<SfntComponentGlyph> glyphs,Work& w) noexcept 
         }
         if(!moved)++at;
     }
-    status=locate(p,glyphs,p.pref,pref,w);if(status!=SfntStatus::ok)return status;
+    status=locate(*p.forest,glyphs,p.pref,&pref,w);if(status!=SfntStatus::ok)return status;
     u32 start=0;
     for(u32 i=0;i<glyphs.count;++i){u8 r=0;status=role(glyphs[i],&r,w);if(status!=SfntStatus::ok)return status;
         if((r&halant_role)&&glyphs[i].glyph.glyph==p.halant)start=i+1;
@@ -129,14 +111,10 @@ struct RunPolicy {
 };
 static_assert(sizeof(RunPolicy)==144);
 SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap* clusters,
-    SfntComponentForest* forest,SfntGsubExecutionScratch scratch,u64 available,u64* used) noexcept {
+    SfntComponentForest* forest,const SfntGsubExecutionScratch& scratch,u64 available,u64* used) noexcept {
     *used=0;if(stage)return SfntStatus::ok;
     auto& run=*static_cast<RunPolicy*>(context);auto& p=run.cluster;p.forest=forest;forest->preserve_forms=false;
     Work w{available};struct Report {Work& w;u64* out;~Report() noexcept {*out=w.used;}} report{w,used};
-    const auto seek=[&](SfntGlyphBuffer& value,u32 at) noexcept {
-        const u64 cost=(at>value.gap_begin?at-value.gap_begin:value.gap_begin-at)+1ull;
-        if(!w.spend(cost))return SfntStatus::resource_limit;return sfnt_glyph_buffer_seek(&value,at,cost);
-    };
     SfntStatus status=SfntStatus::ok;
     for(u32 first=0;first<sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));){
         const auto view=sfnt_glyph_buffer_view(*buffer);const u32 total=sfnt_glyph_count(view);
@@ -147,13 +125,8 @@ SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClust
             if(!w.spend(1))return SfntStatus::resource_limit;if(run.groups[value.source]!=group)break;++end;
             const u8 r=value.glyph.reserved;if(r&join_role)continue;
             if(!(r&cgj_role))pre=(r&pre_role)!=0;if(pre)++p.pre_count;}
-        status=seek(*buffer,end);if(status!=SfntStatus::ok)return status;
-        // Borrow only this cluster plus the existing gap. The unprocessed suffix
-        // stays outside the local view, so lookaround cannot escape the cluster.
         SfntGlyphBuffer local{};
-        status=sfnt_glyph_buffer_open({buffer->storage.data+first*sizeof(SfntComponentGlyph),
-            (buffer->gap_end-first)*static_cast<u32>(sizeof(SfntComponentGlyph))},sizeof(SfntComponentGlyph),end-first,&local);
-        if(status!=SfntStatus::ok)return status;
+        status=open_group(w,*buffer,first,end,local);if(status!=SfntStatus::ok)return status;
         u32 step=0;
         for(u16 phase=0;phase<=4;++phase){
             Slice<SfntComponentGlyph> current{reinterpret_cast<SfntComponentGlyph*>(local.storage.data),sfnt_glyph_count(sfnt_glyph_buffer_view(local))};
@@ -163,18 +136,7 @@ SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClust
             else if(phase==3&&p.has_pref)status=changed(p,current,p.pref,w);
             else if(phase==4&&(p.reph_formed||p.pref!=nil||p.pre_count))status=reorder(p,current,w);
             if(status!=SfntStatus::ok)return status;
-            while(step<run.early.count&&run.early[step].stage==phase){
-                const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(local));
-                if(run.plan->refresh_substitution_classes){if(!w.spend(count))return SfntStatus::resource_limit;
-                    auto* values=reinterpret_cast<SfntComponentGlyph*>(local.storage.data);
-                    for(u32 i=0;i<count;++i)values[i].glyph.glyph_class=sfnt_gdef_glyph_class(*p.gdef,values[i].glyph.glyph);}
-                SfntGsubExecutionResult execution{};
-                status=sfnt_gsub_execute_lookup(*run.plan->substitutions,run.early[step++].lookup,&local,0,count,0,scratch,
-                    {w.left,run.limits.match_work},&execution,clusters,forest);
-                if(!w.spend(execution.operations))return SfntStatus::invalid_input;run.edits+=execution.edits;
-                if(status!=SfntStatus::ok)return status;
-                status=seek(local,sfnt_glyph_count(sfnt_glyph_buffer_view(local)));if(status!=SfntStatus::ok)return status;
-            }
+            status=run_early(w,*run.plan,run.early,step,phase,local,scratch,run.limits.match_work,clusters,forest,run.edits);if(status!=SfntStatus::ok)return status;
         }
         buffer->gap_begin=first+local.gap_begin;buffer->gap_end=first+local.gap_end;
         first=buffer->gap_begin;
@@ -190,8 +152,47 @@ SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponen
 }
 
 }
+SfntStatus use_shape::seek(Work& w,SfntGlyphBuffer& value,u32 at) noexcept {
+    const u64 cost=(at>value.gap_begin?at-value.gap_begin:value.gap_begin-at)+1ull;
+    if(!w.spend(cost))return SfntStatus::resource_limit;return sfnt_glyph_buffer_seek(&value,at,cost);
+}
+SfntStatus use_shape::open_group(Work& w,SfntGlyphBuffer& buffer,u32 first,u32 end,SfntGlyphBuffer& local) noexcept {
+    const auto status=seek(w,buffer,end);if(status!=SfntStatus::ok)return status;
+    return sfnt_glyph_buffer_open({buffer.storage.data+first*sizeof(SfntComponentGlyph),
+        (buffer.gap_end-first)*static_cast<u32>(sizeof(SfntComponentGlyph))},sizeof(SfntComponentGlyph),end-first,&local);
+}
+SfntStatus use_shape::run_early(Work& w,const SfntShapePlan& plan,ConstSlice<SfntLookupStep> early,u32& step,u32 phase,SfntGlyphBuffer& local,
+    const SfntGsubExecutionScratch& scratch,u32 match_work,SfntClusterMap* clusters,SfntComponentForest* forest,u64& edits) noexcept {
+    while(step<early.count&&(phase==0xffffu||early[step].stage==phase)){
+        const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(local));
+        if(plan.refresh_substitution_classes){if(!w.spend(count))return SfntStatus::resource_limit;
+            auto* values=reinterpret_cast<SfntComponentGlyph*>(local.storage.data);
+            for(u32 i=0;i<count;++i)values[i].glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,values[i].glyph.glyph);}
+        SfntGsubExecutionResult execution{};
+        auto status=sfnt_gsub_execute_lookup(*plan.substitutions,early[step++].lookup,&local,0,count,0,scratch,{w.left,match_work},&execution,clusters,forest);
+        if(!w.spend(execution.operations))return SfntStatus::invalid_input;edits+=execution.edits;
+        if(status!=SfntStatus::ok)return status;
+        status=seek(w,local,sfnt_glyph_count(sfnt_glyph_buffer_view(local)));if(status!=SfntStatus::ok)return status;
+    }
+    return SfntStatus::ok;
+}
+SfntStatus use_shape::locate(const SfntComponentForest& forest,const Slice<SfntComponentGlyph>& glyphs,u32 node,u32* index,Work& w) noexcept {
+    *index=0xffffffffu;if(node==0xffffffffu)return SfntStatus::ok;u32 root=0,ordinal=0;u64 used=0;
+    const auto status=sfnt_component_location(forest,node,&root,&ordinal,w.left,&used);w.spend(used);
+    if(status!=SfntStatus::ok||root==0xffffffffu)return status;
+    if(!w.spend(glyphs.count))return SfntStatus::resource_limit;
+    for(u32 i=0;i<glyphs.count;++i)if(glyphs[i].component==root){*index=i;break;}return SfntStatus::ok;
+}
+SfntStatus use_shape::move_before(const Slice<SfntComponentGlyph>& view,u32 from,u32 before,Work& w) noexcept {
+    const Slice<SfntComponentGlyph> glyphs=view; // the record stores below must not force reloads
+    if(from==0xffffffffu||before==0xffffffffu)return SfntStatus::ok;
+    const u32 to=before>from?before-1:before;if(from>=glyphs.count||to>=glyphs.count)return SfntStatus::invalid_input;
+    if(!w.spend((from>to?from-to:to-from)+1))return SfntStatus::resource_limit;
+    const auto saved=glyphs[from];if(from<to)for(u32 i=from;i<to;++i)glyphs[i]=glyphs[i+1];
+    else for(u32 i=from;i>to;--i)glyphs[i]=glyphs[i-1];glyphs[to]=saved;return SfntStatus::ok;
+}
 SfntStatus sfnt_sinhala_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl) noexcept {
+    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((input.count&&!input.data)||(steps.count&&!steps.data)||plan.substitution_roots.count)return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*8+steps.count>limits.stage_work)return SfntStatus::resource_limit;
@@ -266,8 +267,8 @@ SfntStatus use_shape::restore_groups(Slice<u32> groups,Slice<u32> boundaries,u32
     return sfnt_cluster_map_open(groups.count,{boundaries.data,count},clusters->storage,clusters,cost);
 }
 SfntStatus use_shape::run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> mapped,u32 units,u32 starts,
-    u32 early,u32 halant_scalar,float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,
-    SfntShapeLimits limits,bool rtl,const u16* control_glyphs) noexcept {
+    u32 early,u32 halant_scalar,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,
+    const SfntShapeLimits& limits,bool rtl,const u16* control_glyphs) noexcept {
     RunPolicy policy{{&plan.gdef,{reinterpret_cast<Snapshot*>(storage.positions.data),storage.positions.count}},&plan,
         {steps.data,early},{storage.character_glyphs.data,units},storage.targets,limits};policy.boundary_count=starts;
     for(u32 i=0;i<early;++i){policy.cluster.has_reph|=steps[i].stage==1;policy.cluster.has_pref|=steps[i].stage==2;}

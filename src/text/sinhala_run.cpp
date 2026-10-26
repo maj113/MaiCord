@@ -11,7 +11,7 @@ namespace maicord {
 // Non-admitted fonts keep nominal mapping, without USE expansion or circles.
 // Tibetan overrides only its mark, selector and control-source rules.
 SfntStatus use_shape::nominal_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,float em,
-    SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,bool tibetan) noexcept {
+    const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,bool rtl,bool tibetan) noexcept {
     if((storage.positions.count&&!storage.positions.data)||(storage.targets.count&&!storage.targets.data))return SfntStatus::invalid_input;
     const u64 capacity=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntClusterGlyph);
     if(static_cast<u64>(input.count)*4>limits.stage_work)return SfntStatus::resource_limit;
@@ -50,7 +50,7 @@ SfntStatus use_shape::nominal_run(const SfntShapePlan& plan,const SfntCmap& cmap
             zero[i]=static_cast<u8>(control||g.glyph_class==SfntGlyphClass::mark);}
         return SfntStatus::ok;
     };
-    const auto remember=[](void* context,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,SfntGsubExecutionScratch,u64 work) noexcept {
+    const auto remember=[](void* context,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,const SfntGsubExecutionScratch&,u64 work) noexcept {
         auto& p=*static_cast<Policy*>(context);p.forest=forest;
         const auto view=sfnt_glyph_buffer_view(*buffer);const u32 n=sfnt_glyph_count(view);
         if(n>work)return SfntStatus::resource_limit;if(n!=forest->nodes.count)return SfntStatus::invalid_input;
@@ -81,33 +81,21 @@ SfntStatus native_sinhala_plan_prepare(const NativeRunPlanStore& store,NativeRun
     saved_state.keep=true;*output=plan;return SfntStatus::ok;
 }
 SfntStatus native_sinhala_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntLookupStep> steps,
-    Utf8View text,float em,SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing,bool use_shaping) noexcept {
+    const Utf8View& text,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,bool rtl,float spacing,bool use_shaping) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
-    if((text.bytes&&!text.data)||(storage.components.count&&!storage.components.data))return SfntStatus::invalid_input;
-    if(!sfnt_trailing_spacing_valid(spacing))return SfntStatus::invalid_input;
-    if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;
-    ConstSlice<u32> scalars{};const auto decoded=decode_run_scalars(text,storage,scalars);if(decoded!=SfntStatus::ok)return decoded;
-    auto status=use_shaping?sfnt_sinhala_shape_run(plan,cmap,scalars,em,storage,result,steps,limits,rtl):
-        use_shape::nominal_run(plan,cmap,scalars,em,storage,result,limits,rtl);
-    if(status!=SfntStatus::ok||!spacing)return status;
-    status=sfnt_trailing_spacing({storage.placements.data,result->glyph_count},
-        {storage.flags.data,result->glyph_count},spacing,limits.stage_work,rtl);
-    if(status!=SfntStatus::ok)result->glyph_count=result->source_units=result->target_count=0;
-    return status;
+    ConstSlice<u32> scalars{};const auto begun=script_run_begin(text,storage,limits,spacing,&scalars);if(begun!=SfntStatus::ok)return begun;
+    return script_run_finish(use_shaping?sfnt_sinhala_shape_run(plan,cmap,scalars,em,storage,result,steps,limits,rtl):
+        use_shape::nominal_run(plan,cmap,scalars,em,storage,result,limits,rtl),storage,result,limits,spacing,rtl);
 }
-SfntStatus native_sinhala_run(const NativeRunPlanStore& store,const NativeSinhalaPlan& prepared,Utf8View text,float em,
-    SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
+SfntStatus native_sinhala_run(const NativeRunPlanStore& store,const NativeSinhalaPlan& prepared,const Utf8View& text,float em,
+    const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,bool rtl,float spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     const auto* parent=native_run_plan_get(store,prepared.run,prepared.independent_letters);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
     SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,prepared.language_found?ConstSlice<u16>{}:parent->substitution_roots,prepared.language_found?prepared.positioning():parent->positioning_roots);
     return native_sinhala_run(plan,*prepared.cmap,prepared.substitutions(),text,em,storage,result,limits,rtl,spacing,prepared.language_found);
 }
-SfntStatus native_sinhala_run(const NativeRunPlanStore& store,const NativeSinhalaPlan& prepared,Utf8View text,float em,
-    const NativeAsciiStorage& storage,NativeAsciiResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
-    if((storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||
-        (storage.character_glyphs.count&&!storage.character_glyphs.data))return SfntStatus::invalid_input;
-    SfntShapeRunResult shaped{};const auto status=native_sinhala_run(store,prepared,text,em,storage.shaping,&shaped,limits,rtl,spacing);
-    return status==SfntStatus::ok?compact_shape_result(storage,shaped,result):status;
+SfntStatus native_sinhala_run(const NativeRunPlanStore& store,const NativeSinhalaPlan& prepared,const Utf8View& text,float em,
+    const NativeAsciiStorage& storage,NativeAsciiResult* result,const SfntShapeLimits& limits,bool rtl,float spacing) noexcept {
+    return compact_run(storage,result,[&](const SfntShapeStorage& shaping,SfntShapeRunResult* shaped) noexcept {return native_sinhala_run(store,prepared,text,em,shaping,shaped,limits,rtl,spacing);});
 }
 }

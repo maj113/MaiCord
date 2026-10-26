@@ -32,34 +32,21 @@ SfntStatus native_tibetan_plan_prepare(const NativeRunPlanStore& store,NativeRun
     saved_state.keep=true;*output=plan;return SfntStatus::ok;
 }
 SfntStatus native_tibetan_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntLookupStep> steps,
-    Utf8View text,float em,SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing,bool admitted) noexcept {
+    const Utf8View& text,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,bool rtl,float spacing,bool admitted) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
-    if((text.bytes&&!text.data)||(storage.components.count&&!storage.components.data))return SfntStatus::invalid_input;
-    if(!sfnt_trailing_spacing_valid(spacing))return SfntStatus::invalid_input;
-    if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;
-    ConstSlice<u32> scalars{};const auto decoded=decode_run_scalars(text,storage,scalars);if(decoded!=SfntStatus::ok)return decoded;
-    SfntStatus status;
-    if(admitted)status=sfnt_tibetan_shape_run(plan,cmap,scalars,em,storage,result,steps,limits,rtl);
-    else status=use_shape::nominal_run(plan,cmap,scalars,em,storage,result,limits,rtl,true);
-    if(status!=SfntStatus::ok||!spacing)return status;
-    status=sfnt_trailing_spacing({storage.placements.data,result->glyph_count},
-        {storage.flags.data,result->glyph_count},spacing,limits.stage_work,rtl);
-    if(status!=SfntStatus::ok)result->glyph_count=result->source_units=result->target_count=0;
-    return status;
+    ConstSlice<u32> scalars{};const auto begun=script_run_begin(text,storage,limits,spacing,&scalars);if(begun!=SfntStatus::ok)return begun;
+    return script_run_finish(admitted?sfnt_tibetan_shape_run(plan,cmap,scalars,em,storage,result,steps,limits,rtl):
+        use_shape::nominal_run(plan,cmap,scalars,em,storage,result,limits,rtl,true),storage,result,limits,spacing,rtl);
 }
-SfntStatus native_tibetan_run(const NativeRunPlanStore& store,const NativeTibetanPlan& prepared,Utf8View text,float em,
-    SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
+SfntStatus native_tibetan_run(const NativeRunPlanStore& store,const NativeTibetanPlan& prepared,const Utf8View& text,float em,
+    const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,bool rtl,float spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     const auto* parent=native_run_plan_get(store,prepared.run,prepared.independent_letters);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
     SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,prepared.admitted?ConstSlice<u16>{}:parent->substitution_roots,prepared.admitted?prepared.positioning():parent->positioning_roots);
     return native_tibetan_run(plan,*prepared.cmap,prepared.substitutions(),text,em,storage,result,limits,rtl,spacing,prepared.admitted);
 }
-SfntStatus native_tibetan_run(const NativeRunPlanStore& store,const NativeTibetanPlan& prepared,Utf8View text,float em,
-    const NativeAsciiStorage& storage,NativeAsciiResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
-    if((storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||
-        (storage.character_glyphs.count&&!storage.character_glyphs.data))return SfntStatus::invalid_input;
-    SfntShapeRunResult shaped{};const auto status=native_tibetan_run(store,prepared,text,em,storage.shaping,&shaped,limits,rtl,spacing);
-    return status==SfntStatus::ok?compact_shape_result(storage,shaped,result):status;
+SfntStatus native_tibetan_run(const NativeRunPlanStore& store,const NativeTibetanPlan& prepared,const Utf8View& text,float em,
+    const NativeAsciiStorage& storage,NativeAsciiResult* result,const SfntShapeLimits& limits,bool rtl,float spacing) noexcept {
+    return compact_run(storage,result,[&](const SfntShapeStorage& shaping,SfntShapeRunResult* shaped) noexcept {return native_tibetan_run(store,prepared,text,em,shaping,shaped,limits,rtl,spacing);});
 }
 }

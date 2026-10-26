@@ -6,6 +6,6 @@ namespace maicord {
 // it private until this stage succeeds. Scratch/output can change on failure.
 // Paragraph callers need only cluster widths and ordered-x validation: source
 // boundaries were validated by the shaper and the collector owns line geometry.
-SfntStatus native_unicode_line_geometry(const SfntFontLayoutMetrics&,Utf8View,float,
+SfntStatus native_unicode_line_geometry(const SfntFontLayoutMetrics&,const Utf8View&,float,
     const NativeAsciiLineStorage&,NativeAsciiLineResult*,bool paragraph_only=false) noexcept;
 }

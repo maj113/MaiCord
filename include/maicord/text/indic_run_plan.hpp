@@ -29,5 +29,5 @@ static_assert(sizeof(NativeIndicFormPlan)==176);
 // one lookup budget. Only probe.glyphs/substitutions are used; state, scratch,
 // borrowed views and outputs must otherwise be disjoint.
 SfntStatus native_indic_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHandle,SfntIndicProfile,
-    Arena* state,Arena* scratch,SfntShapeStorage probe,NativeIndicPlan*,Slice<u8> forms={},SfntShapeLimits limits={}) noexcept;
+    Arena* state,Arena* scratch,const SfntShapeStorage& probe,NativeIndicPlan*,Slice<u8> forms={},const SfntShapeLimits& limits={}) noexcept;
 }

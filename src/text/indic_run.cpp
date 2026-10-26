@@ -14,7 +14,7 @@
 // plans and paragraphs, shared by every profile except Devanagari and Tamil.
 namespace maicord {
 SfntStatus indic_scalar_cluster(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> font_forms,
-    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
+    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,
     bool word_initial,bool followed_by_text,float trailing_spacing,bool rtl,bool defer_output) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(font_forms.count!=128||!font_forms.data)return SfntStatus::invalid_input;
@@ -41,8 +41,15 @@ SfntStatus indic_scalar_cluster(SfntIndicProfile profile,const SfntShapePlan& pl
         sizes.source_units,em,storage,result,steps,limits,followed_by_text,trailing_spacing,rtl,word_initial,defer_output);
 }
 namespace {
-template<class T> Slice<T> tail(Slice<T> value,u32 start) noexcept {
+template<class T> __forceinline Slice<T> tail(const Slice<T>& value,u32 start) noexcept {
     return start<=value.count?Slice<T>{value.data?value.data+start:nullptr,value.count-start}:Slice<T>{};
+}
+// The still-unused suffix of every per-glyph/unit/target array of the run storage.
+SfntShapeStorage unused_storage(const SfntShapeStorage& s,u32 glyphs,u32 units,u32 targets) noexcept {
+    SfntShapeStorage out=s;
+    out.glyphs=tail(s.glyphs,glyphs);out.character_glyphs=tail(s.character_glyphs,units);out.targets=tail(s.targets,targets);
+    out.associations=tail(s.associations,glyphs);out.advances=tail(s.advances,glyphs);out.flags=tail(s.flags,glyphs);
+    out.positions=tail(s.positions,glyphs);out.placements=tail(s.placements,glyphs);return out;
 }
 bool word_character(u32 scalar) noexcept {
     const auto category=unicode_properties(scalar)->indic_syllabic_category();
@@ -50,7 +57,7 @@ bool word_character(u32 scalar) noexcept {
 }
 }
 SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
+    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool rtl,float trailing_spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((text.bytes&&!text.data)||forms.count!=128||!forms.data||(steps.count&&!steps.data)||!plan.advance||!plan.units_per_em||!(em>0)||em>65536)return SfntStatus::invalid_input;
     if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
@@ -82,10 +89,7 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
         for(u32 at=0;at<window;){u32 length=1;while(at+length<window&&!boundaries[at+length])++length;
             const u32 consumed=byte_offsets[at+length]-byte_offsets[at];
             if(at+length==window&&first+consumed<source_size)break;
-            const SfntShapeStorage local{tail(storage.glyphs,count),storage.components,storage.cluster_bits,
-                tail(storage.character_glyphs,units),tail(storage.targets,targets),tail(storage.associations,count),
-                tail(storage.advances,count),tail(storage.flags,count),tail(storage.positions,count),
-                tail(storage.placements,count),storage.substitutions,storage.positioning};
+            const SfntShapeStorage local=unused_storage(storage,count,units,targets);
             // Component trees are dead after export; reuse that scratch per cluster.
             auto remaining=limits;remaining.lookup_operations-=result->lookup_operations;SfntShapeRunResult shaped{};
             const bool initial=profile==SfntIndicProfile::bengali&&(!have_previous||!word_character(previous));
@@ -119,7 +123,7 @@ SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,con
     if(status==SfntStatus::ok){result->glyph_count=count;result->source_units=units;result->target_count=targets;}return status;
 }
 SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& prepared,Utf8View text,float em,
-    SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
+    const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,bool rtl,float trailing_spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!indic_form_profile(profile)||prepared.indic.profile!=profile)return SfntStatus::invalid_input;
     const auto* parent=native_run_plan_get(store,prepared.indic.run);if(!parent||!prepared.indic.cmap)return SfntStatus::invalid_input;
@@ -127,12 +131,8 @@ SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& st
     return indic_utf8_run(profile,plan,*prepared.indic.cmap,text,{prepared.forms,128},em,storage,result,prepared.indic.substitutions(),limits,rtl,trailing_spacing);
 }
 SfntStatus indic_owned_run(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& prepared,Utf8View text,float em,
-    const NativeAsciiStorage& storage,NativeAsciiResult* result,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
-    if((storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||
-       (storage.character_glyphs.count&&!storage.character_glyphs.data))return SfntStatus::invalid_input;
-    SfntShapeRunResult shaped{};const auto status=indic_owned_run(profile,store,prepared,text,em,storage.shaping,&shaped,limits,rtl,trailing_spacing);
-    return status==SfntStatus::ok?compact_shape_result(storage,shaped,result):status;
+    const NativeAsciiStorage& storage,NativeAsciiResult* result,const SfntShapeLimits& limits,bool rtl,float trailing_spacing) noexcept {
+    return compact_run(storage,result,[&](const SfntShapeStorage& shaping,SfntShapeRunResult* shaped) noexcept {return indic_owned_run(profile,store,prepared,text,em,shaping,shaped,limits,rtl,trailing_spacing);});
 }
 SfntStatus indic_form_paragraph(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& plan,
     Utf8View text,float em,const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,float trailing_spacing,bool rtl) noexcept {

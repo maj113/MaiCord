@@ -70,7 +70,7 @@ static_assert(sizeof(SfntShapeGlyphPolicy)==24);
 // invariants and honor the supplied setup-work bound. On failure no output is valid.
 struct SfntShapeInputPolicy {
     void* context;
-    SfntStatus (*prepare)(void*,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest*,SfntGsubExecutionScratch,u64) noexcept;
+    SfntStatus (*prepare)(void*,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest*,const SfntGsubExecutionScratch&,u64) noexcept;
 };
 
 // Script processing between substitution stages (for example Indic final
@@ -83,7 +83,7 @@ struct SfntShapeInputPolicy {
 // run. Failure leaves result lengths unset.
 struct SfntShapeStagePolicy {
     void* context;
-    SfntStatus (*prepare)(void*,u16,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest*,SfntGsubExecutionScratch,u64,u64*) noexcept;
+    SfntStatus (*prepare)(void*,u16,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest*,const SfntGsubExecutionScratch&,u64,u64*) noexcept;
     u16 count; // 1..256; stage IDs use a one-byte representation.
 };
 static_assert(sizeof(SfntShapeStagePolicy)==24);

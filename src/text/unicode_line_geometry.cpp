@@ -3,7 +3,8 @@
 #include "maicord/text/base.hpp"
 #include "layout_float.hpp"
 namespace maicord {
-SfntStatus native_unicode_line_geometry(const SfntFontLayoutMetrics& metrics,Utf8View text,float em,const NativeAsciiLineStorage& s,NativeAsciiLineResult* output,bool paragraph_only) noexcept {
+SfntStatus native_unicode_line_geometry(const SfntFontLayoutMetrics& metrics,const Utf8View& text_view,float em,const NativeAsciiLineStorage& s,NativeAsciiLineResult* output,bool paragraph_only) noexcept {
+    const Utf8View text=text_view; // *output is written below
     auto& line=*output;if(!paragraph_only){const auto status=sfnt_single_font_line(metrics,em,&line.vertical);if(status!=SfntStatus::ok)return status;}
     const u32 units=line.run.source_units;
     if(units&&(!line.run.glyph_count||s.run.character_glyphs[0]))return SfntStatus::unsupported_sequence;

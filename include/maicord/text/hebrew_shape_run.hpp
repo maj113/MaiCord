@@ -8,5 +8,5 @@ namespace maicord {
 // source/control metadata (one u32 per UTF-16 unit). All are consumed before
 // that reuse. No allocation.
 SfntStatus sfnt_hebrew_shape_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<SfntClusterGlyph>,ConstSlice<u32>,
-    u32 source_units,bool rtl,float em,SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits limits={}) noexcept;
+    u32 source_units,bool rtl,float em,const SfntShapeStorage&,SfntShapeRunResult*,SfntShapeLimits limits={}) noexcept;
 }

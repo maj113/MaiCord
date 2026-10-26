@@ -20,7 +20,7 @@ bool paired_open(const UnicodeBidiCell& cell) noexcept {
     return cell.link!=none && unicode_bidi_bracket(cell.scalar).type==UnicodeBracketType::open;
 }
 bool context_strong(B type) noexcept {return type==B::l || type==B::r || type==B::an;}
-void assign(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,u32 at,B value) noexcept {
+void assign(const Slice<UnicodeBidiCell>& cells,const ConstSlice<u32>& order,u32 at,B value) noexcept {
     auto& cell=cells[order[at]];const bool existing=context_strong(cell.resolved);cell.resolved=value;
     if(existing)return;
     // Insert a newly strong cell into the successor map. Stop after updating

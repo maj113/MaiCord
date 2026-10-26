@@ -4,9 +4,10 @@
 #include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
-u16 read(ConstSlice<u8> bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}
-bool span(ConstSlice<u8> bytes,u32 at,u32 size) noexcept {return bytes.data && at<=bytes.count && size<=bytes.count-at;}
-SfntStatus tail(ConstSlice<u8> bytes,u32 at,u32 minimum,ConstSlice<u8>* out,bool optional=true) noexcept {
+u16 read(const ConstSlice<u8>& bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}
+bool span(const ConstSlice<u8>& bytes,u32 at,u32 size) noexcept {return bytes.data && at<=bytes.count && size<=bytes.count-at;}
+SfntStatus tail(const ConstSlice<u8>& view,u32 at,u32 minimum,ConstSlice<u8>* out,bool optional=true) noexcept {
+    const ConstSlice<u8> bytes=view; // *out is cleared first
     reset_value(out);if(!at)return optional?SfntStatus::missing_table:SfntStatus::malformed;
     if(at<minimum)return SfntStatus::malformed;
     if(!span(bytes,at,2))return SfntStatus::truncated;

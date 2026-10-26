@@ -12,7 +12,7 @@ SfntShapeStorage storage() noexcept {return {{glyphs,16},{nodes,32},{bits,2},{ch
     {advances,16},{flags,16},{positions_out,16},{placements,16},
     {{frames,8},{positions,32},{rebased,32},{consumed,16},{reinterpret_cast<u8*>(replacements),sizeof(replacements)},{journal,128}},{}};}
 struct Policy {u16 visited[256]{};u32 calls=0,mode=0;};
-SfntStatus stage(void* opaque,u16 index,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,SfntGsubExecutionScratch,u64 work,u64* used) noexcept {
+SfntStatus stage(void* opaque,u16 index,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,const SfntGsubExecutionScratch&,u64 work,u64* used) noexcept {
     auto& p=*static_cast<Policy*>(opaque);*used=0;if(p.calls>=256)return SfntStatus::invalid_input;p.visited[p.calls++]=index;
     if(index==5&&!p.mode){
         if(!work)return SfntStatus::resource_limit;*used=1;const auto view=sfnt_glyph_buffer_view(*buffer);

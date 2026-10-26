@@ -4,7 +4,7 @@ namespace maicord {namespace {
 // Authored grammar with no input data; see tools/unicode/thai_syllable_data.py.
 #include "generated/thai_syllable_data.inc"
 
-u32 syllable_scalar(ConstSlice<u32> text,u32 first,u32 offset) noexcept {
+u32 syllable_scalar(const ConstSlice<u32>& text,u32 first,u32 offset) noexcept {
     return offset<text.count-first?text[first+offset]:0;
 }
 bool syllable_consonant(u32 cp) noexcept {return cp-0xe01u<46;}

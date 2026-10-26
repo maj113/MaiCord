@@ -160,6 +160,24 @@ template<class Visitor> bool decoration_range(const NativeTextContext& owner,con
     return native_styled_range(owner,layout,tab_stop,first,end,{&visit,[](void* context,const NativeParagraphLine& line,float left,float width) noexcept {
         return (*static_cast<Visitor*>(context))(line,left,width);}},boundaries,drawn,omission,omissions);
 }
+// One hit-region emitter for every publisher. `grapheme` selects the directional
+// grapheme-boundary cursor; the other arguments pass straight to native_styled_range.
+__declspec(noinline) bool native_collect_hit_regions(const NativeTextContext& owner,const NativeParagraphLayout& layout,float tab_stop,ConstSlice<TextHitRange> hits,bool grapheme,
+    ShapedText* output,u32* count,const ShapedText* drawn,const NativeStyledOmission* omission=nullptr,ConstSlice<NativeStyledOmission> omissions={}) noexcept {
+    struct Sink {ShapedText* output;u32 count;const TextHitRange* hit;} sink{output,0,nullptr};
+    DecorationGraphemeCursor boundaries{};const u32 units=owner.paragraph_shape.source_units;
+    for(u32 h=0;h<hits.count;++h){const auto& hit=hits[h];
+        if(!hit.unit_count||hit.first_unit>units||hit.unit_count>units-hit.first_unit)return false;
+        sink.hit=&hit;
+        if(!native_styled_range(owner,layout,tab_stop,hit.first_unit,hit.first_unit+hit.unit_count,{&sink,[](void* context,const NativeParagraphLine& line,float left,float width) noexcept {
+            auto& s=*static_cast<Sink*>(context);
+            if(!(width>0)||!(line.height>0))return true;
+            if(!s.output->hit_regions||s.count==s.output->hit_region_capacity)return false;
+            s.output->hit_regions[s.count++]={left,line.top,decoration_add(left,width),decoration_add(line.top,line.height),s.hit->semantic_index,0};return true;}},
+            grapheme?&boundaries:nullptr,drawn,omission,omissions))return false;
+    }
+    *count=sink.count;return true;
+}
 struct NativeDecorationPoint {float left,top,width,height;};
 bool native_decoration_point(const NativeTextContext& owner,const NativeParagraphLayout& layout,float tab_stop,u32 source,
     const ShapedText* drawn,ConstSlice<NativeStyledOmission> omissions,NativeDecorationPoint* output) noexcept {

@@ -59,7 +59,7 @@ SfntStatus role(const SfntComponentForest& forest,const SfntComponentGlyph& glyp
     return sfnt_component_first_metadata(forest,glyph.component,output,available,used);
 }
 SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,
-    SfntGsubExecutionScratch,u64 available,u64* used) noexcept {
+    const SfntGsubExecutionScratch&,u64 available,u64* used) noexcept {
     *used=0;auto& p=*static_cast<Policy*>(opaque);
     if(stage!=0&&stage!=static_cast<u16>(SfntIndicStage::final_reorder))return SfntStatus::ok;
     const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));
@@ -102,7 +102,7 @@ SfntStatus finish(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u
 }
 }
 SfntStatus sfnt_tamil_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> scalars,float em,
-    SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,float trailing_spacing,bool rtl) noexcept {
+    const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,float trailing_spacing,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     if((scalars.count&&!scalars.data)||(steps.count&&!steps.data))return SfntStatus::invalid_input;

@@ -54,7 +54,7 @@ struct Scanner {
     }
 };
 static_assert(sizeof(Scanner)==8);
-u32 next_scalar(ConstSlice<u32> input,u32 at) noexcept {
+u32 next_scalar(const ConstSlice<u32>& input,u32 at) noexcept {
     u32 next=at+1;if(next<input.count&&myanmar_category(input[next])=='S'&&myanmar_category(input[at])!='S')++next;
     return next;
 }

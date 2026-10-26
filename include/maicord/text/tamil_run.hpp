@@ -10,13 +10,13 @@ namespace maicord {
 // Other script, font, bidi and typography limits are those of the scalar Tamil run
 // executor.
 SfntStatus native_tamil_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<SfntLookupStep>,
-    Utf8View,float em_size,SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits limits={},float trailing_spacing=0,bool rtl=false) noexcept;
+    Utf8View,float em_size,const SfntShapeStorage&,SfntShapeRunResult*,const SfntShapeLimits& limits={},float trailing_spacing=0,bool rtl=false) noexcept;
 // Reject a stale parent or wrong script identity before dereferencing views.
 SfntStatus native_tamil_run(const NativeRunPlanStore&,const NativeIndicPlan&,Utf8View,
-    float em_size,SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits limits={},float trailing_spacing=0,bool rtl=false) noexcept;
+    float em_size,const SfntShapeStorage&,SfntShapeRunResult*,const SfntShapeLimits& limits={},float trailing_spacing=0,bool rtl=false) noexcept;
 // Compact publication accepts exact-prefix aliases of its corresponding rich
 // buffers, as in native_latin_run. Missing glyphs reject the complete result;
 // failures publish no lengths. Partial aliases and other overlaps are invalid.
 SfntStatus native_tamil_run(const NativeRunPlanStore&,const NativeIndicPlan&,Utf8View,
-    float em_size,const NativeAsciiStorage&,NativeAsciiResult*,SfntShapeLimits limits={},float trailing_spacing=0,bool rtl=false) noexcept;
+    float em_size,const NativeAsciiStorage&,NativeAsciiResult*,const SfntShapeLimits& limits={},float trailing_spacing=0,bool rtl=false) noexcept;
 }

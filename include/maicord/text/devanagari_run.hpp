@@ -37,6 +37,6 @@ struct NativeDevanagariRunStorage {
 // rtl mirrors nominal characters and selects directional positioning. The
 // caller owns visual run ordering; trailing spacing follows reading order.
 SfntStatus native_devanagari_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<u8> font_forms,
-    ConstSlice<SfntLookupStep> steps,Utf8View,float em_size,NativeDevanagariRunStorage,
-    NativeAsciiResult*,SfntShapeLimits limits={},float trailing_spacing=0,bool reuse_clusters=false,bool rtl=false) noexcept;
+    ConstSlice<SfntLookupStep> steps,Utf8View,float em_size,const NativeDevanagariRunStorage&,
+    NativeAsciiResult*,const SfntShapeLimits& limits={},float trailing_spacing=0,bool reuse_clusters=false,bool rtl=false) noexcept;
 }

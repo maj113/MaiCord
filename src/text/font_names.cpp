@@ -4,7 +4,7 @@
 namespace maicord {namespace {
 u16 word(ConstSlice<u8> bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}
 bool unicode(u16 platform,u16 encoding) noexcept {return (platform==0&&encoding<=6)||(platform==3&&(encoding==0||encoding==1||encoding==10));}
-bool span(ConstSlice<u8> table,u32 storage,u32 offset,u32 length) noexcept {
+bool span(const ConstSlice<u8>& table,u32 storage,u32 offset,u32 length) noexcept {
     return storage<=table.count&&offset<=table.count-storage&&length<=table.count-storage-offset;
 }
 bool tag_is(ConstSlice<u8> tag,const char* text,u32 length) noexcept {

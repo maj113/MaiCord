@@ -872,14 +872,14 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
     if(system.message_hit_policy){if(emoji){mixed=true;directional=true;extended=true;}presentation=0;emoji=false;}
     const bool fallback_only=!require_styled&&text.bytes<=16000&&(directional||common||(!emoji&&!styles.count&&!hits.count&&!extended));
     const auto* format=resolve_format(system,wrapping);if(!format)return false;
-    auto& owner=*system.native_text;const float em=format->em;++owner.attempts;
+    auto& owner=*system.native_text;const float em=format->em;
     // Resolve the omission face before retaining source scratch: a cache miss
     // can prepare a different fallback shape in that same arena.
     if(overflow==TextOverflow::ellipsis&&!editor&&
        !omission_sign(owner,format)&&!prepare_omission_sign(owner,system,format))return false;
     const u8 mode=static_cast<u8>((editor?1:0)|(emoji?2:0)|(extended?4:0)|(rtl?16:0)|(mixed?32:0)|(system.message_hit_policy?64:0));
     if(owner.last_valid&&owner.last_styled&&(owner.last_mode&119)==mode&&(!geometry||owner.styled_lines.count)&&owner.last_format==format&&owner.last_em==em&&owner.last_style_em==system.em_size&&owner.last_fixed_weight==system.fixed_weight&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
-       owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)&&owner.last_styles.count==styles.count&&bytes_equal(owner.last_styles.data,styles.data,styles.count*sizeof(TextStyleSpan)))++owner.reuses;
+       owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)&&owner.last_styles.count==styles.count&&bytes_equal(owner.last_styles.data,styles.data,styles.count*sizeof(TextStyleSpan))){}
     else if((fallback_only||!prepare_styled_shape(owner,system,format,text,styles,em,geometry,editor!=nullptr,presentation,extended))&&
         !prepare_styled_shape(owner,system,format,text,styles,em,geometry,editor!=nullptr,presentation,extended,true,rtl,mixed,!fallback_only))return false;
     const auto& shape=owner.paragraph_shape;const auto& s=owner.paragraph_storage;NativeParagraphLayout layout{};const float tab_stop=format->tab_stop;
@@ -899,7 +899,7 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
     if(overflow==TextOverflow::ellipsis&&((layout.flags&native_paragraph_emergency_break)||layout.width>width)){
         if(layout.line_count==1&&!editor){
             if(trim_single_line(owner,nullptr,system,format,text,width,height,wrapping,layout,output,measure,directional?&rtl_output:nullptr,hits))return true;}
-        ++owner.does_not_fit;return false;}
+        return false;}
     if(output){
         const auto* final_run=layout.run_count?owner.paragraph_runs.data+layout.run_count-1:nullptr;
         const u32 visible_glyphs=(layout.flags&native_paragraph_height_trimmed)?(final_run?final_run->glyph_first+final_run->glyph_count:0):shape.glyph_count;
@@ -910,16 +910,7 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
         u32 decoration_count=0;if(decorations&&!native_styled_decorations(owner,layout,width,tab_stop,{output->decorations,output->decoration_capacity},&decoration_count,directional?output:nullptr))return false;
         u32 hit_count=0;
         if(hits.count){if(!output->hit_regions||!output->hit_region_capacity)return false;
-            DecorationGraphemeCursor boundaries{};
-            for(u32 h=0;h<hits.count;++h){const auto& hit=hits[h];
-                if(!hit.unit_count||hit.first_unit>shape.source_units||hit.unit_count>shape.source_units-hit.first_unit)return false;
-                if(!decoration_range(owner,layout,tab_stop,hit.first_unit,hit.first_unit+hit.unit_count,
-                    [&](const NativeParagraphLine& line,float left,float width) noexcept {
-                        if(!(width>0)||!(line.height>0))return true;
-                        if(hit_count==output->hit_region_capacity)return false;
-                        output->hit_regions[hit_count++]={left,line.top,decoration_add(left,width),decoration_add(line.top,line.height),hit.semantic_index,0};return true;
-                    },directional?&boundaries:nullptr,directional?output:nullptr))return false;
-            }
+            if(!native_collect_hit_regions(owner,layout,tab_stop,hits,directional,output,&hit_count,directional?output:nullptr))return false;
         }
         if(layout.run_count>output->run_capacity||published_glyphs>output->glyph_capacity||shape.source_units>output->cluster_capacity||published_glyphs>65535)return output_capacity_failure(owner);
         if(output->native_fonts()||output->run_count||!native_font_session_retain(owner.fonts))return false;

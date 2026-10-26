@@ -6,8 +6,8 @@
 namespace maicord {namespace {
 using layout_read::WorkReport;using layout_read::r16;
 inline bool spend(u32* work,u32 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
-bool span(ConstSlice<u8> b,u32 at,u64 count) noexcept {return at<=b.count && count<=b.count-at && (!count || b.data);}
-ConstSlice<u8> slice(ConstSlice<u8> b,u32 at) noexcept {return {b.data+at,b.count-at};}
+bool span(const ConstSlice<u8>& b,u32 at,u64 count) noexcept {return at<=b.count && count<=b.count-at && (!count || b.data);}
+ConstSlice<u8> slice(const ConstSlice<u8>& b,u32 at) noexcept {return {b.data+at,b.count-at};}
 SfntStatus child(ConstSlice<u8> parent,u16 at,u32 minimum,ConstSlice<u8>* out) noexcept {
     reset_value(out);if(at<minimum)return SfntStatus::malformed;if(!span(parent,at,2))return SfntStatus::truncated;*out=slice(parent,at);return SfntStatus::ok;
 }

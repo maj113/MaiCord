@@ -62,7 +62,7 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
 }
 }
 SfntStatus sfnt_khmer_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl) noexcept {
+    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((steps.count&&!steps.data)||(storage.positions.count&&!storage.positions.data)||
         (storage.character_glyphs.count&&!storage.character_glyphs.data)||(storage.targets.count&&!storage.targets.data)||

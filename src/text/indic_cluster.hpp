@@ -16,13 +16,13 @@ inline constexpr u32 indic_cluster_capacity=32;
 // failures set no output lengths. Whole-run GPOS is not applied. defer_output skips
 // source-map export, pixel finalization and tracking for the run coordinator.
 SfntStatus indic_scalar_cluster(SfntIndicProfile,const SfntShapePlan&,const SfntCmap&,ConstSlice<u32>,ConstSlice<u8>,
-    float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits,
+    float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,const SfntShapeLimits&,
     bool word_initial,bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept;
 // Shared retained-run entry for owned profiles: validated UTF-8, a bounded decode
 // window of complete clusters and one run-wide GPOS pass. No allocation; failed
 // output is unpublished.
 SfntStatus indic_utf8_run(SfntIndicProfile,const SfntShapePlan&,const SfntCmap&,Utf8View,ConstSlice<u8>,
-    float,SfntShapeStorage,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits,bool,float) noexcept;
+    float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,const SfntShapeLimits&,bool,float) noexcept;
 // Internal shared execution. Bengali/Gujarati/Gurmukhi/Odia/Telugu/Kannada input is already segmented;
 // re-scanning Bengali expansion would lose the original orphan/vowel distinction.
 // Prepare one scanner-recognized cluster (at most 31 scalars). forms[i] holds
@@ -34,6 +34,6 @@ SfntStatus indic_utf8_run(SfntIndicProfile,const SfntShapePlan&,const SfntCmap&,
 // zero the result. Work reserves 64 units per scalar.
 SfntStatus indic_initial_order(SfntIndicProfile,ConstSlice<u32>,ConstSlice<u8>,Slice<u32>,Slice<u8>,SfntDevanagariOrderResult*,u64,bool inserted_circle=false) noexcept;
 SfntStatus indic_shape_cluster(SfntIndicProfile,const SfntShapePlan&,const SfntCmap&,ConstSlice<SfntClusterGlyph>,
-    ConstSlice<u32>,ConstSlice<u8>,u32,float,SfntShapeStorage,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,
-    SfntShapeLimits,bool,float,bool,bool,bool=false) noexcept;
+    ConstSlice<u32>,ConstSlice<u8>,u32,float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,
+    const SfntShapeLimits&,bool,float,bool,bool,bool=false) noexcept;
 }

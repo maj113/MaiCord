@@ -18,10 +18,10 @@ SfntStatus native_latin_run(const NativeRunPlanStore&,NativeRunPlanHandle,Utf8Vi
 // Always shapes and preserves rich glyph/component output instead of compacting.
 // Mapped input borrows positions; all source and lifetime rules match native_latin_run.
 SfntStatus native_latin_shape_run(const NativeRunPlanStore&,NativeRunPlanHandle,Utf8View,bool independent,bool rtl,float em,
-    SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits limits={}) noexcept;
+    const SfntShapeStorage&,SfntShapeRunResult*,SfntShapeLimits limits={}) noexcept;
 // Generic preparation for Khmer text that the font gate rejects. Uses
 // caller-selected roots over the parent run, nominal dependent vowels and
 // separate Khmer consonant shaping groups; grapheme boundaries are unaffected.
 SfntStatus native_khmer_fallback_shape_run(const NativeRunPlanStore&,NativeRunPlanHandle,Utf8View,bool independent,bool rtl,float em,
-    SfntShapeStorage,SfntShapeRunResult*,ConstSlice<u16> substitutions,ConstSlice<u16> positioning,SfntShapeLimits limits={}) noexcept;
+    const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<u16> substitutions,ConstSlice<u16> positioning,SfntShapeLimits limits={}) noexcept;
 }

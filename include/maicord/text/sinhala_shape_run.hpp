@@ -8,5 +8,5 @@ namespace maicord {
 // exact component-buffer prefix until mapping completes; other input/font views
 // must be disjoint from mutable scratch. Failures publish no lengths.
 SfntStatus sfnt_sinhala_shape_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<u32>,
-    float,SfntShapeStorage,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits limits={},bool rtl=false) noexcept;
+    float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,const SfntShapeLimits& limits={},bool rtl=false) noexcept;
 }

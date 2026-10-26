@@ -58,7 +58,7 @@ SfntStatus repair(void* context,SfntClusterMap* clusters,const SfntComponentFore
 }
 }
 SfntStatus sfnt_hebrew_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> input,ConstSlice<u32> scalars,
-    u32 units,bool rtl,float em,SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits) noexcept {
+    u32 units,bool rtl,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,SfntShapeLimits limits) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(input.count!=scalars.count||(input.count&&(!input.data||!scalars.data))||!storage.substitutions.replacements.data||!storage.targets.data||!storage.advances.data)return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*10+static_cast<u64>(units)*2>limits.stage_work||units>0x1fffffffu)return SfntStatus::resource_limit;

@@ -11,9 +11,9 @@ constexpr bool indic_form_profile(SfntIndicProfile profile) noexcept {
 // The expected profile stays explicit: validate it and the retained generation
 // before dereferencing borrowed cmap/font data.
 SfntStatus indic_owned_run(SfntIndicProfile,const NativeRunPlanStore&,const NativeIndicFormPlan&,Utf8View,
-    float,SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits,bool rtl,float spacing) noexcept;
+    float,const SfntShapeStorage&,SfntShapeRunResult*,const SfntShapeLimits&,bool rtl,float spacing) noexcept;
 SfntStatus indic_owned_run(SfntIndicProfile,const NativeRunPlanStore&,const NativeIndicFormPlan&,Utf8View,
-    float,const NativeAsciiStorage&,NativeAsciiResult*,SfntShapeLimits,bool rtl,float spacing) noexcept;
+    float,const NativeAsciiStorage&,NativeAsciiResult*,const SfntShapeLimits&,bool rtl,float spacing) noexcept;
 SfntStatus indic_form_paragraph(SfntIndicProfile,const NativeRunPlanStore&,const NativeIndicFormPlan&,Utf8View,
     float,const NativeAsciiParagraphStorage&,NativeLatinBoundaryStorage,NativeParagraphShape*,float spacing,bool rtl) noexcept;
 }

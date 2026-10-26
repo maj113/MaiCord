@@ -70,10 +70,10 @@ struct Builder {
         return finish_lookup_plan({bits.data,words},{output.data,result.lookup_count},0,emission);
     }
 };
-bool unusable(const SfntLayout& layout,Slice<u64> scratch,Slice<u16> indices) noexcept {
+bool unusable(const SfntLayout& layout,const Slice<u64>& scratch,const Slice<u16>& indices) noexcept {
     return !layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(indices.count&&!indices.data);
 }
-SfntStatus build(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult& result,u64 work,bool independent,bool common,u32 script) noexcept {
+SfntStatus build(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,const Slice<u64>& scratch,const Slice<u16>& indices,SfntLookupPlanResult& result,u64 work,bool independent,bool common,u32 script) noexcept {
     Builder builder{layout,variations,scratch,indices,result,work};const auto status=builder.run(independent,common,script);result.operations=work-builder.work;return status;
 }
 }

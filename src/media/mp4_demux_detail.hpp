@@ -14,18 +14,18 @@ constexpr u32 fourcc(char a,char b,char c,char d) noexcept {
 }
 inline u32 read_u32(const u8* p) noexcept { return byte_load_be32(p); }
 inline u64 read_u64(const u8* p) noexcept { return byte_load_be64(p); }
-bool next_box(ConstSlice<u8>,u64*,u64,Box*) noexcept;
-bool find_box(ConstSlice<u8>,u64,u64,u32,Box*) noexcept;
+bool next_box(const ConstSlice<u8>&,u64*,u64,Box*) noexcept;
+bool find_box(const ConstSlice<u8>&,u64,u64,u32,Box*) noexcept;
 // QuickTime may close an atom list (sample entry extensions, 'wave') with a
 // 32-bit zero instead of another atom.
-bool atom_list_end(ConstSlice<u8>,u64 cursor,u64 end) noexcept;
+bool atom_list_end(const ConstSlice<u8>&,u64 cursor,u64 end) noexcept;
 // First sample description of an stsd box. Several are legal; the stsc check
 // requires every sample to reference this one.
-bool first_description(ConstSlice<u8>,const Box& stsd,Box* entry) noexcept;
+bool first_description(const ConstSlice<u8>&,const Box& stsd,Box* entry) noexcept;
 // The track read for a handler. Several may share one (a Cinematic-mode
 // disparity track, a spatial-audio alternate): prefer a decodable first sample
 // description, then an enabled track header, then file order.
-Mp4DemuxError select_track(ConstSlice<u8>,const Box& moov,u32 handler,Box* track) noexcept;
+Mp4DemuxError select_track(const ConstSlice<u8>&,const Box& moov,u32 handler,Box* track) noexcept;
 // Shared codec-description validation for ordinary and fragmented tracks.
 Mp4DemuxError parse_description(Mp4Demuxer*, const Box& stsd) noexcept;
 Mp4DemuxError parse_audio_description(Mp4AudioDemuxer&, const Box& stsd) noexcept;

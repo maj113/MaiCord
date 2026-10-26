@@ -5,7 +5,7 @@
 namespace maicord {namespace {
 using namespace sfnt_read;
 bool charge(u32* work,u64 cost) noexcept {if(cost>*work)return false;*work-=static_cast<u32>(cost);return true;}
-template<class T> bool room(Slice<T> array,u32 count) noexcept {return array.count>=count && (!count || array.data);}
+template<class T> bool room(const Slice<T>& array,u32 count) noexcept {return array.count>=count && (!count || array.data);}
 SfntStatus optional(const SfntFace& f,u32 tag,ConstSlice<u8>* bytes) noexcept {const auto s=sfnt_table(f,tag,bytes);return s==SfntStatus::missing_table?SfntStatus::ok:s;}
 bool fixed(float value,i32* out) noexcept {const double v=static_cast<double>(value)*64;if(!(v>=-2147483648.0 && v<=2147483647.0))return false;*out=static_cast<i32>(v);return static_cast<double>(*out)==v;}
 TtGraphicsState glyph_state(TtGraphicsState state) noexcept {

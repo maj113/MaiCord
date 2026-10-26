@@ -34,6 +34,37 @@ SfntStatus native_layout_variations(const NativeFontInstance& instance,const Sfn
     for(u32 i=0;i<coordinates.count;++i){const double value=coordinates[i]*16384;fixed[i]=static_cast<i16>(value+(value<0?-.5:.5));}
     u32 record=0;return sfnt_layout_variation_select(layout,{fixed.data,fixed.count},&output,&record,work);
 }
+SfntStatus native_plan_steps_run(u32 kind,Arena& state,Arena& scratch,NativePlanPass pass,const void* context,
+    ConstSlice<SfntLookupStep>& steps,ConstSlice<u16>& roots,SfntLookupPlanResult* found,bool require_language) noexcept {
+    SfntLookupPlanResult result{};auto status=pass(context,Slice<SfntLookupStep>{},&result);
+    if(status!=SfntStatus::ok&&status!=SfntStatus::output_too_small)return status;
+    if(found)*found=result;if(require_language&&!result.language_found)return SfntStatus::unsupported_sequence;
+    auto filled_steps=take<SfntLookupStep>(kind?scratch:state,result.lookup_count);
+    if(!filled(filled_steps))return kind?SfntStatus::output_too_small:SfntStatus::resource_limit;
+    status=pass(context,filled_steps,&result);if(status!=SfntStatus::ok)return status;
+    if(!kind){steps={filled_steps.data,filled_steps.count};return SfntStatus::ok;}
+    auto lookups=take<u16>(state,filled_steps.count);if(!filled(lookups))return SfntStatus::resource_limit;
+    for(u32 i=0;i<filled_steps.count;++i)lookups[i]=filled_steps[i].lookup;
+    roots={lookups.data,lookups.count};return SfntStatus::ok;
+}
+SfntStatus native_plan_tables_run(const NativePlanSource& source,const SfntLayout (&layouts)[2],Arena& state,Arena& scratch,
+    NativeTablePass pass,const void* context,NativePlanTables& output,u32 work) noexcept {
+    for(u32 kind=0;kind<2;++kind){const auto& layout=layouts[kind];if(!layout.table.data)continue;
+        ArenaScope temporary{&scratch,arena_mark(&scratch)};
+        if(!kind&&!source.parent->substitutions)return SfntStatus::invalid_input;
+        SfntFeatureSubstitutions variations{};auto status=native_layout_variations(*source.instance,layout,scratch,variations,work);
+        if(status!=SfntStatus::ok)return status;
+        auto mask=take<u8>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
+        ConstSlice<SfntLookupStep> steps{};ConstSlice<u16> roots{};
+        struct Pass {NativeTablePass pass;const void* context;const SfntLayout& layout;const SfntFeatureSubstitutions& variations;Slice<u8> mask;} table{pass,context,layout,variations,mask};
+        status=native_plan_steps_run(kind,state,scratch,[](const void* data,Slice<SfntLookupStep> out,SfntLookupPlanResult* result) noexcept {
+            const auto& t=*static_cast<const Pass*>(data);return t.pass(t.context,t.layout,t.variations,t.mask,out,result);},&table,steps,roots,nullptr,false);
+        if(status!=SfntStatus::ok)return status;
+        if(!kind){output.substitution_steps=steps.data;output.substitution_count=steps.count;}
+        else{output.positioning_roots=roots.data;output.positioning_count=static_cast<u16>(roots.count);}
+    }
+    return SfntStatus::ok;
+}
 SfntStatus native_positioning_prepare(const NativeFontFace& font,const SfntShapePlan& parent,ConstSlice<u16> roots,
     Arena& state,Arena& scratch,const SfntGposProgram** output,u32 work) noexcept {
     const auto* existing=parent.positioning;*output=nullptr;if(roots.count>work)return SfntStatus::resource_limit;

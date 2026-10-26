@@ -13,8 +13,8 @@ struct ClusterMemo {u32 hash,key,byte_first,unit_first,glyph_first,glyph_count;}
 static_assert(sizeof(ClusterMemo)==24);
 }
 SfntStatus native_devanagari_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u8> font_forms,
-    ConstSlice<SfntLookupStep> steps,Utf8View text,float em,NativeDevanagariRunStorage storage,
-    NativeAsciiResult* result,SfntShapeLimits limits,float trailing_spacing,bool reuse_clusters,bool rtl) noexcept {
+    ConstSlice<SfntLookupStep> steps,Utf8View text,float em,const NativeDevanagariRunStorage& storage,
+    NativeAsciiResult* result,const SfntShapeLimits& limits,float trailing_spacing,bool reuse_clusters,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     if((text.bytes&&!text.data)||font_forms.count!=128||!font_forms.data||(steps.count&&!steps.data)||

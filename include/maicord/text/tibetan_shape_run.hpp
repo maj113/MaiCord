@@ -8,5 +8,5 @@ namespace maicord {
 // component-buffer prefix; other input/font views must be disjoint from scratch.
 // Failures publish no output lengths. Font support is not checked.
 SfntStatus sfnt_tibetan_shape_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<u32>,
-    float,SfntShapeStorage,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits limits={},bool rtl=false) noexcept;
+    float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,const SfntShapeLimits& limits={},bool rtl=false) noexcept;
 }

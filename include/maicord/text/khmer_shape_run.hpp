@@ -9,5 +9,5 @@ namespace maicord {
 // component prefix until mapping completes. Other mutable views must be disjoint.
 // Failure leaves output lengths zero; retry from the original input.
 SfntStatus sfnt_khmer_shape_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<u32>,
-    float,SfntShapeStorage,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits limits={},bool rtl=false) noexcept;
+    float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,const SfntShapeLimits& limits={},bool rtl=false) noexcept;
 }

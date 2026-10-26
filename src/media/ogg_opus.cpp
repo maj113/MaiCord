@@ -20,7 +20,7 @@ constexpr CrcTable crc_table() noexcept {
     return table;
 }
 constexpr auto kCrc = crc_table();
-bool scratch_valid(ConstSlice<u8> encoded, Slice<u8> scratch, const void* out, u32 out_bytes) noexcept {
+bool scratch_valid(const ConstSlice<u8>& encoded, const Slice<u8>& scratch, const void* out, u32 out_bytes) noexcept {
     return (!scratch.count || scratch.data) &&
            !byte_ranges_overlap(encoded.data, encoded.count, out, out_bytes) &&
            !byte_ranges_overlap(scratch.data, scratch.count, encoded.data, encoded.count) &&

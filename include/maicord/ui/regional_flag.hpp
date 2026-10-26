@@ -14,7 +14,7 @@ inline constexpr u32 kRegionalFlagSvgTargetBytes = kRegionalFlagSvgTargetPrefixB
 // 677..679 identify England, Scotland and Wales. Zero means unsupported.
 // Only complete, pinned-upstream-supported sequences are admitted; a lone
 // indicator or an unrecognized tag sequence yields zero.
-u16 regional_flag_sequence(Utf8View glyph) noexcept;
+u16 regional_flag_sequence(const Utf8View& glyph) noexcept;
 
 struct RegionalFlagRange { u32 first_byte, end_byte; u16 sequence; };
 // Sequential scanner over unchanged UTF-8. Unsupported RI pairs are consumed

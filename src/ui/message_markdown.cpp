@@ -718,18 +718,6 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
     ++parser->transformations;
 }
 
-bool validate_utf8(Utf8View input) noexcept {
-    u32 offset = 0;
-    while (offset < input.bytes) {
-        const Utf8DecodeResult decoded = utf8_decode_one(input.data + offset, input.bytes - offset);
-        if (!decoded.valid || decoded.width == 0) {
-            return false;
-        }
-        offset += decoded.width;
-    }
-    return true;
-}
-
 bool valid_url(Utf8View input, u32 begin, u32 end) noexcept {
     if (begin >= end || end - begin > 2'048) {
         return false;
@@ -1958,7 +1946,7 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
     }
     if (source_offsets.data && source_offsets.count < text_output.count)
         return parse_error(MessageMarkdownError::output_too_small);
-    if (!validate_utf8(input)) {
+    if (!utf8_validate(input).valid) {
         return parse_error(MessageMarkdownError::invalid_utf8);
     }
     AnsiColorRun ansi_runs[kMessageMarkdownAnsiRunMaximum];
@@ -2021,7 +2009,7 @@ u32 message_markdown_source_styles(Utf8View input, Slice<char> text, Slice<u32> 
 }
 
 u32 message_markdown_source_styles(Utf8View input, Slice<TextStyleSpan> output) noexcept {
-    if ((!input.data && input.bytes) || !output.data || !validate_utf8(input)) return 0;
+    if ((!input.data && input.bytes) || !output.data || !utf8_validate(input).valid) return 0;
     MessageMarkdownOptions options{};
     options.preserve_entities = true;
     options.spoiler_revealed = +[](void*, u32) noexcept { return true; };
@@ -2171,10 +2159,10 @@ u32 message_markdown_find_invites(Utf8View content, Slice<InviteLink> output) no
         return 0;
     const u32 limit = minimum<u32>(output.count, kInviteLinksPerMessage);
     u32 count = 0;
+    InviteLink link;
     for (u32 at = 0; at < content.bytes && count < limit;) {
-        const bool boundary = !at || !invite_url_byte(content.data[at - 1]) || content.data[at - 1] == '(';
-        InviteLink link{};
-        if (!boundary || (content.data[at] != 'h' && content.data[at] != 'H') ||
+        if ((content.data[at] != 'h' && content.data[at] != 'H') ||
+            !(!at || !invite_url_byte(content.data[at - 1]) || content.data[at - 1] == '(') ||
             !invite_link_at(content, at, &link)) {
             ++at;
             continue;

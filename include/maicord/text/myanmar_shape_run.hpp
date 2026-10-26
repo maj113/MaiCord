@@ -10,5 +10,5 @@ namespace maicord {
 // modern=false keeps source clusters/stages without reordering or circles.
 // Failure leaves output lengths unset; scratch contents can change.
 SfntStatus sfnt_myanmar_shape_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<u32>,
-    float,SfntShapeStorage,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits limits={},bool rtl=false,bool modern=true) noexcept;
+    float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,const SfntShapeLimits& limits={},bool rtl=false,bool modern=true) noexcept;
 }

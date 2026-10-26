@@ -6,7 +6,7 @@
 namespace maicord {
 namespace mp4_demux_detail {
 
-bool next_box(ConstSlice<u8> encoded, u64* cursor, u64 end,
+bool next_box(const ConstSlice<u8>& encoded, u64* cursor, u64 end,
               Box* output) noexcept {
     if (!cursor || !output || *cursor > end || end > encoded.count ||
         end - *cursor < 8u) {
@@ -34,7 +34,7 @@ bool next_box(ConstSlice<u8> encoded, u64* cursor, u64 end,
     return true;
 }
 
-bool find_box(ConstSlice<u8> encoded, u64 begin, u64 end, u32 type,
+bool find_box(const ConstSlice<u8>& encoded, u64 begin, u64 end, u32 type,
               Box* output) noexcept {
     u64 cursor = begin;
     Box box{};
@@ -47,19 +47,19 @@ bool find_box(ConstSlice<u8> encoded, u64 begin, u64 end, u32 type,
     return false;
 }
 
-bool atom_list_end(ConstSlice<u8> encoded, u64 cursor, u64 end) noexcept {
+bool atom_list_end(const ConstSlice<u8>& encoded, u64 cursor, u64 end) noexcept {
     return cursor == end || (cursor < end && end - cursor == 4u && end <= encoded.count &&
                              read_u32(encoded.data + cursor) == 0);
 }
 
-bool first_description(ConstSlice<u8> encoded, const Box& stsd, Box* entry) noexcept {
+bool first_description(const ConstSlice<u8>& encoded, const Box& stsd, Box* entry) noexcept {
     if (stsd.end - stsd.payload < 16u || !read_u32(encoded.data + stsd.payload + 4u))
         return false;
     u64 cursor = stsd.payload + 8u;
     return next_box(encoded, &cursor, stsd.end, entry);
 }
 
-bool table(ConstSlice<u8> encoded, const Box& box, u32 entry_bytes,
+bool table(const ConstSlice<u8>& encoded, const Box& box, u32 entry_bytes,
            u32* offset, u32* count) noexcept {
     if (box.end - box.payload < 8u) {
         return false;
@@ -96,7 +96,7 @@ u64 scale_us(u64 value, u32 timescale) noexcept {
     return fraction>~0ull-base?~0ull:base+fraction;
 }
 
-bool media_track(ConstSlice<u8> encoded, const Box& track, u32 handler,
+bool media_track(const ConstSlice<u8>& encoded, const Box& track, u32 handler,
                  Box* media, Box* sample_table) noexcept {
     Box mdia{};
     Box hdlr{};
@@ -120,7 +120,7 @@ bool media_track(ConstSlice<u8> encoded, const Box& track, u32 handler,
     return true;
 }
 
-bool known_description(ConstSlice<u8> encoded, const Box& sample_table, u32 handler) noexcept {
+bool known_description(const ConstSlice<u8>& encoded, const Box& sample_table, u32 handler) noexcept {
     Box stsd{}, entry{};
     if (!find_box(encoded, sample_table.payload, sample_table.end, fourcc('s', 't', 's', 'd'), &stsd) ||
         !first_description(encoded, stsd, &entry))
@@ -132,7 +132,7 @@ bool known_description(ConstSlice<u8> encoded, const Box& sample_table, u32 hand
 }
 
 // The tkhd flags/matrix. An absent header reads as an enabled, unrotated track.
-bool track_header(ConstSlice<u8> encoded, const Box& track, bool* enabled, u8* rotation) noexcept {
+bool track_header(const ConstSlice<u8>& encoded, const Box& track, bool* enabled, u8* rotation) noexcept {
     Box tkhd{};
     *enabled = true;
     *rotation = 0;
@@ -151,7 +151,7 @@ bool track_header(ConstSlice<u8> encoded, const Box& track, bool* enabled, u8* r
     return true;
 }
 
-Mp4DemuxError select_track(ConstSlice<u8> encoded, const Box& moov, u32 handler, Box* selected) noexcept {
+Mp4DemuxError select_track(const ConstSlice<u8>& encoded, const Box& moov, u32 handler, Box* selected) noexcept {
     u64 cursor = moov.payload;
     u32 best = 0;
     while (cursor < moov.end) {

@@ -35,7 +35,7 @@ u8 thai_shape_class(u32 cp) noexcept {
 struct Controls {const SfntGdef* gdef;const u8* sources;u32 units;u16 space;bool expansion_attachments;};
 // Preserve the origin of inserted dotted circles in existing component padding.
 // A missing synthetic base is permitted; a missing user character is not.
-SfntStatus remember_synthetic_bases(void*,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,SfntGsubExecutionScratch,u64 work) noexcept {
+SfntStatus remember_synthetic_bases(void*,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,const SfntGsubExecutionScratch&,u64 work) noexcept {
     const auto view=sfnt_glyph_buffer_view(*buffer);const u32 count=sfnt_glyph_count(view);
     if(count>work)return SfntStatus::resource_limit;if(count!=forest->nodes.count)return SfntStatus::invalid_input;
     for(u32 i=0;i<count;++i){auto& glyph=const_cast<SfntGsubGlyph&>(sfnt_glyph_at(view,i));
@@ -243,14 +243,14 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     *out={result.glyph_count,units,0,1,result.lookup_operations};return SfntStatus::ok;
 }
 }
-SfntStatus native_latin_shape_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,bool rtl,float em,SfntShapeStorage storage,SfntShapeRunResult* out,SfntShapeLimits limits) noexcept {
+SfntStatus native_latin_shape_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,bool rtl,float em,const SfntShapeStorage& storage,SfntShapeRunResult* out,SfntShapeLimits limits) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);
     const u64 capacity=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntClusterGlyph);
     NativeAsciiStorage s{{reinterpret_cast<SfntClusterGlyph*>(storage.positions.data),static_cast<u32>(minimum(capacity,u64{0xffffffffu}))},storage,{},storage.placements,storage.character_glyphs};
     NativeAsciiResult compact{};return alphabetic_run(store,handle,text,independent,em,s,&compact,limits,false,nullptr,true,rtl,out);
 }
 SfntStatus native_khmer_fallback_shape_run(const NativeRunPlanStore& store,NativeRunPlanHandle handle,Utf8View text,bool independent,bool rtl,float em,
-    SfntShapeStorage storage,SfntShapeRunResult* out,ConstSlice<u16> substitutions,ConstSlice<u16> positioning,SfntShapeLimits limits) noexcept {
+    const SfntShapeStorage& storage,SfntShapeRunResult* out,ConstSlice<u16> substitutions,ConstSlice<u16> positioning,SfntShapeLimits limits) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);
     const u64 capacity=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntClusterGlyph);
     NativeAsciiStorage s{{reinterpret_cast<SfntClusterGlyph*>(storage.positions.data),static_cast<u32>(minimum(capacity,u64{0xffffffffu}))},storage,{},storage.placements,storage.character_glyphs};

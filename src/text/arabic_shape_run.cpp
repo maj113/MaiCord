@@ -12,7 +12,7 @@ struct ControlPolicy {const SfntGdef* gdef;const u8* sources;u32 units;u16 space
 constexpr u8 cgj_marker=128;
 constexpr u8 ltr_control_marker=64;
 constexpr u8 initial_join_marker=32;
-SfntStatus prepare_controls(void* opaque,SfntGlyphBuffer* buffer,SfntClusterMap* clusters,SfntComponentForest* forest,SfntGsubExecutionScratch scratch,u64 work) noexcept {
+SfntStatus prepare_controls(void* opaque,SfntGlyphBuffer* buffer,SfntClusterMap* clusters,SfntComponentForest* forest,const SfntGsubExecutionScratch& scratch,u64 work) noexcept {
     auto& policy=*static_cast<ControlPolicy*>(opaque);policy.forest=forest;
     const auto initial=sfnt_glyph_buffer_view(*buffer);const u32 count=sfnt_glyph_count(initial);
     if(count>work)return SfntStatus::resource_limit;work-=count;
@@ -75,7 +75,7 @@ SfntStatus restore_cgj_clusters(void* opaque,SfntClusterMap* clusters,const Sfnt
 }
 }
 SfntStatus sfnt_arabic_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> input,ConstSlice<u32> scalars,
-    u32 units,ConstSlice<u32> boundaries,bool rtl,float em,SfntShapeStorage storage,
+    u32 units,ConstSlice<u32> boundaries,bool rtl,float em,const SfntShapeStorage& storage,
     SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(scalars.count!=input.count)return SfntStatus::invalid_input;

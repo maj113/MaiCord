@@ -3,6 +3,7 @@
 #include "devanagari_character.hpp"
 #include "indic_cluster.hpp"
 #include "indic_forms.hpp"
+#include "use_shape_internal.hpp"
 namespace maicord {namespace {
 constexpr u32 nil=0xffffffffu;
 constexpr u8 halant_role=1,control_role=2,sign_role=4,post_role=8,spacing_role=16,pre_attachment_role=32,join_role=64,half_nukta_role=128;
@@ -12,27 +13,10 @@ struct Policy {
     SfntIndicProfile profile=SfntIndicProfile::devanagari;bool word_initial=false;u16 pref_glyph=0;
 };
 static_assert(sizeof(Policy)==104);
-struct Work {
-    u64 left,used=0;
-    bool spend(u64 n) noexcept {if(n>left)return false;left-=n;used+=n;return true;}
-};
-SfntStatus locate(const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u32 node,u32* index,Work& work) noexcept {
-    *index=nil;if(node==nil)return SfntStatus::ok;u32 root=0,ordinal=0;u64 used=0;
-    auto status=sfnt_component_location(forest,node,&root,&ordinal,work.left,&used);work.spend(used);if(status!=SfntStatus::ok)return status;
-    if(root==nil)return SfntStatus::ok;
-    if(!work.spend(glyphs.count))return SfntStatus::resource_limit;
-    for(u32 i=0;i<glyphs.count;++i)if(glyphs[i].component==root){*index=i;break;}return SfntStatus::ok;
-}
+using use_shape::Work;using use_shape::locate;using use_shape::move_before;
 SfntStatus role(const SfntComponentForest& forest,const SfntComponentGlyph& glyph,u8* value,Work& work) noexcept {
     *value=0;if(glyph.component==nil)return SfntStatus::ok;u64 used=0;
     const auto status=sfnt_component_first_metadata(forest,glyph.component,value,work.left,&used);work.spend(used);return status;
-}
-SfntStatus move_before(Slice<SfntComponentGlyph> glyphs,u32 from,u32 before,Work& work) noexcept {
-    if(from==nil)return SfntStatus::ok;const u32 target=before>from?before-1:before;
-    if(from>=glyphs.count||target>=glyphs.count)return SfntStatus::invalid_input;
-    const u32 distance=from>target?from-target:target-from;if(!work.spend(distance+1))return SfntStatus::resource_limit;
-    const auto saved=glyphs[from];if(from<target)for(u32 i=from;i<target;++i)glyphs[i]=glyphs[i+1];
-    else for(u32 i=from;i>target;--i)glyphs[i]=glyphs[i-1];glyphs[target]=saved;return SfntStatus::ok;
 }
 SfntStatus move_group_before(Slice<SfntComponentGlyph> glyphs,u32 from,u32 amount,u32 before,Slice<u8> scratch,Work& work) noexcept {
     if(from>glyphs.count||amount>glyphs.count-from||before>glyphs.count)return SfntStatus::invalid_input;
@@ -45,7 +29,7 @@ SfntStatus move_group_before(Slice<SfntComponentGlyph> glyphs,u32 from,u32 amoun
     if(target>from)for(u32 i=from;i<target;++i)glyphs[i]=glyphs[i+amount];else for(u32 i=from;i-->target;)glyphs[i+amount]=glyphs[i];
     copy_bytes(glyphs.data+target,scratch.data,bytes);return SfntStatus::ok;
 }
-SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,SfntGsubExecutionScratch scratch,u64 available,u64* used) noexcept {
+SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,const SfntGsubExecutionScratch& scratch,u64 available,u64* used) noexcept {
     auto& p=*static_cast<Policy*>(opaque);Work work{available};struct Report {Work& w;u64* out;~Report() noexcept {*out=w.used;}} report{work,used};
     const bool initial=stage==12&&p.profile==SfntIndicProfile::bengali;
     const bool pref_boundary=(p.profile==SfntIndicProfile::telugu||p.profile==SfntIndicProfile::kannada||p.profile==SfntIndicProfile::malayalam)&&(stage==static_cast<u16>(SfntDevanagariStage::pre_base)||stage==static_cast<u16>(SfntDevanagariStage::below_base));
@@ -209,8 +193,8 @@ SfntStatus restore_cluster(void* opaque,SfntClusterMap* clusters,const SfntCompo
 }
 }
 SfntStatus indic_shape_cluster(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> input,
-    ConstSlice<u32> scalars,ConstSlice<u8> forms,u32 units,float em,SfntShapeStorage storage,SfntShapeRunResult* result,
-    ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool followed_by_text,float trailing_spacing,bool rtl,bool word_initial,bool defer_output) noexcept {
+    ConstSlice<u32> scalars,ConstSlice<u8> forms,u32 units,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,
+    ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool followed_by_text,float trailing_spacing,bool rtl,bool word_initial,bool defer_output) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);u32 n=input.count;
     if(!sfnt_trailing_spacing_valid(trailing_spacing))return SfntStatus::invalid_input;
     if(n!=scalars.count||(n&&!input.data)||(!n!=!units))return SfntStatus::invalid_input;
@@ -257,8 +241,8 @@ SfntStatus indic_shape_cluster(SfntIndicProfile profile,const SfntShapePlan& pla
     if(status!=SfntStatus::ok){result->glyph_count=result->source_units=result->target_count=0;}return status;
 }
 SfntStatus sfnt_devanagari_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> input,
-    ConstSlice<u32> scalars,ConstSlice<u8> forms,u32 units,float em,SfntShapeStorage storage,SfntShapeRunResult* result,
-    ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool followed_by_text,float trailing_spacing,bool rtl) noexcept {
+    ConstSlice<u32> scalars,ConstSlice<u8> forms,u32 units,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,
+    ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool followed_by_text,float trailing_spacing,bool rtl) noexcept {
     return indic_shape_cluster(SfntIndicProfile::devanagari,plan,cmap,input,scalars,forms,units,em,storage,result,steps,limits,followed_by_text,trailing_spacing,rtl,false);
 }
 }

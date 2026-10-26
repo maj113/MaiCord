@@ -25,9 +25,9 @@ static_assert(sizeof(NativeDevanagariPlan)==184);
 // form probes; stage_work bounds each directory/planner pass independently.
 // Missing dev2 language or halant returns unsupported_sequence.
 SfntStatus native_devanagari_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHandle,
-    Arena* state,Arena* scratch,SfntShapeStorage probe,NativeDevanagariPlan*,SfntShapeLimits limits={}) noexcept;
+    Arena* state,Arena* scratch,const SfntShapeStorage& probe,NativeDevanagariPlan*,const SfntShapeLimits& limits={}) noexcept;
 // Reject stale parent handles before using any borrowed profile pointer.
 // Run storage and limitations are those of native_devanagari_run.
 SfntStatus native_devanagari_run(const NativeRunPlanStore&,const NativeDevanagariPlan&,
-    Utf8View,float em_size,NativeDevanagariRunStorage,NativeAsciiResult*,SfntShapeLimits limits={},float trailing_spacing=0,bool rtl=false) noexcept;
+    Utf8View,float em_size,const NativeDevanagariRunStorage&,NativeAsciiResult*,const SfntShapeLimits& limits={},float trailing_spacing=0,bool rtl=false) noexcept;
 }

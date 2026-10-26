@@ -27,14 +27,14 @@ SfntStatus native_myanmar_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHa
     Arena* state,Arena* scratch,NativeMyanmarPlan*,u32 stage_work=1000000) noexcept;
 // Already-itemized UTF-8; scalar input borrows the component-buffer prefix
 // until mapped input is ready. Output source maps use UTF-16 units. No allocation.
-SfntStatus native_myanmar_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<SfntLookupStep>,Utf8View,
-    float,SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits limits={},bool rtl=false,float trailing_spacing=0,bool modern=true) noexcept;
+SfntStatus native_myanmar_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<SfntLookupStep>,const Utf8View&,
+    float,const SfntShapeStorage&,SfntShapeRunResult*,const SfntShapeLimits& limits={},bool rtl=false,float trailing_spacing=0,bool modern=true) noexcept;
 // Reject stale handles before accessing borrowed font/root views.
-SfntStatus native_myanmar_run(const NativeRunPlanStore&,const NativeMyanmarPlan&,Utf8View,
-    float,SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits limits={},bool rtl=false,float trailing_spacing=0) noexcept;
+SfntStatus native_myanmar_run(const NativeRunPlanStore&,const NativeMyanmarPlan&,const Utf8View&,
+    float,const SfntShapeStorage&,SfntShapeRunResult*,const SfntShapeLimits& limits={},bool rtl=false,float trailing_spacing=0) noexcept;
 // Exact corresponding output-prefix aliases are permitted as in native_ascii_run.
 // Missing final glyph IDs reject compact publication; control-ID aliasing follows
 // the Windows Myanmar policy. Failures publish no output lengths.
-SfntStatus native_myanmar_run(const NativeRunPlanStore&,const NativeMyanmarPlan&,Utf8View,
-    float,const NativeAsciiStorage&,NativeAsciiResult*,SfntShapeLimits limits={},bool rtl=false,float trailing_spacing=0) noexcept;
+SfntStatus native_myanmar_run(const NativeRunPlanStore&,const NativeMyanmarPlan&,const Utf8View&,
+    float,const NativeAsciiStorage&,NativeAsciiResult*,const SfntShapeLimits& limits={},bool rtl=false,float trailing_spacing=0) noexcept;
 }

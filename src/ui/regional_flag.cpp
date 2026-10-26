@@ -32,7 +32,7 @@ bool known(u16 sequence) noexcept {
 }
 
 
-u16 regional_flag_sequence(Utf8View glyph) noexcept {
+u16 regional_flag_sequence(const Utf8View& glyph) noexcept {
     if (!glyph.data || (glyph.bytes != 8 && glyph.bytes != 28)) return 0;
     u32 scalars[7]{};
     const u32 count = glyph.bytes / 4;

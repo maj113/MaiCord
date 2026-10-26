@@ -22,41 +22,37 @@ SfntStatus native_layout_open(const NativeFontFace&,u32 kind,SfntLayout&) noexce
 // table has no variations); the F2DOT14 coordinates are taken from scratch.
 SfntStatus native_layout_variations(const NativeFontInstance&,const SfntLayout&,Arena& scratch,
     SfntFeatureSubstitutions&,u32 work) noexcept;
-// Runs a lookup planner, plan(steps,&result), once to count and once to fill.
+// One pass of a lookup planner: pass(context,steps,&result) counts with empty
+// steps, then fills them.
+using NativePlanPass=SfntStatus (*)(const void* context,Slice<SfntLookupStep> steps,SfntLookupPlanResult* result) noexcept;
+// Runs a lookup planner once to count and once to fill.
 // Substitution steps (kind 0) stay in state; positioning (kind 1) keeps only
 // their lookup indices there. require_language fails a count pass that found
 // no language system with unsupported_sequence.
-template<class Planner> SfntStatus native_plan_steps(u32 kind,Arena& state,Arena& scratch,Planner&& plan,
+SfntStatus native_plan_steps_run(u32 kind,Arena& state,Arena& scratch,NativePlanPass pass,const void* context,
+    ConstSlice<SfntLookupStep>& steps,ConstSlice<u16>& roots,SfntLookupPlanResult* found,bool require_language) noexcept;
+template<class Planner> SfntStatus native_plan_steps(u32 kind,Arena& state,Arena& scratch,const Planner& plan,
     ConstSlice<SfntLookupStep>& steps,ConstSlice<u16>& roots,SfntLookupPlanResult* found=nullptr,bool require_language=false) noexcept {
-    SfntLookupPlanResult result{};auto status=plan(Slice<SfntLookupStep>{},&result);
-    if(status!=SfntStatus::ok&&status!=SfntStatus::output_too_small)return status;
-    if(found)*found=result;if(require_language&&!result.language_found)return SfntStatus::unsupported_sequence;
-    auto filled_steps=take<SfntLookupStep>(kind?scratch:state,result.lookup_count);
-    if(!filled(filled_steps))return kind?SfntStatus::output_too_small:SfntStatus::resource_limit;
-    status=plan(filled_steps,&result);if(status!=SfntStatus::ok)return status;
-    if(!kind){steps={filled_steps.data,filled_steps.count};return SfntStatus::ok;}
-    auto lookups=take<u16>(state,filled_steps.count);if(!filled(lookups))return SfntStatus::resource_limit;
-    for(u32 i=0;i<filled_steps.count;++i)lookups[i]=filled_steps[i].lookup;
-    roots={lookups.data,lookups.count};return SfntStatus::ok;
+    return native_plan_steps_run(kind,state,scratch,[](const void* context,Slice<SfntLookupStep> out,SfntLookupPlanResult* result) noexcept {
+        return (*static_cast<const Planner*>(context))(out,result);},&plan,steps,roots,found,require_language);
 }
-// Plans both opened tables of a script plan: GSUB steps and GPOS roots from
-// planner(layout,variations,mask,steps,&result) with a one-byte lookup mask.
+// Planner of one opened table: planner(layout,variations,mask,steps,&result)
+// with a one-byte lookup mask.
+using NativeTablePass=SfntStatus (*)(const void* context,const SfntLayout&,const SfntFeatureSubstitutions&,
+    Slice<u8> mask,Slice<SfntLookupStep> steps,SfntLookupPlanResult* result) noexcept;
+// The planned GSUB steps and GPOS roots of a script plan.
+struct NativePlanTables {const SfntLookupStep* substitution_steps;const u16* positioning_roots;u32 substitution_count;u16 positioning_count;};
+SfntStatus native_plan_tables_run(const NativePlanSource& source,const SfntLayout (&layouts)[2],Arena& state,Arena& scratch,
+    NativeTablePass pass,const void* context,NativePlanTables& output,u32 work) noexcept;
+// Plans both opened tables of a script plan: GSUB steps and GPOS roots.
 template<class Plan,class Planner> SfntStatus native_plan_tables(const NativePlanSource& source,const SfntLayout (&layouts)[2],
-    Arena& state,Arena& scratch,Plan& plan,Planner&& planner,u32 work) noexcept {
-    for(u32 kind=0;kind<2;++kind){const auto& layout=layouts[kind];if(!layout.table.data)continue;
-        ArenaScope temporary{&scratch,arena_mark(&scratch)};
-        if(!kind&&!source.parent->substitutions)return SfntStatus::invalid_input;
-        SfntFeatureSubstitutions variations{};auto status=native_layout_variations(*source.instance,layout,scratch,variations,work);
-        if(status!=SfntStatus::ok)return status;
-        auto mask=take<u8>(scratch,layout.lookup_count);if(!filled(mask))return SfntStatus::output_too_small;
-        ConstSlice<SfntLookupStep> steps{};ConstSlice<u16> roots{};
-        status=native_plan_steps(kind,state,scratch,[&](Slice<SfntLookupStep> out,SfntLookupPlanResult* result) noexcept {
-            return planner(layout,variations,mask,out,result);},steps,roots);
-        if(status!=SfntStatus::ok)return status;
-        if(!kind){plan.substitution_steps=steps.data;plan.substitution_count=steps.count;}
-        else{plan.positioning_roots=roots.data;plan.positioning_count=static_cast<u16>(roots.count);}
-    }
-    return SfntStatus::ok;
+    Arena& state,Arena& scratch,Plan& plan,const Planner& planner,u32 work) noexcept {
+    NativePlanTables tables{plan.substitution_steps,plan.positioning_roots,plan.substitution_count,plan.positioning_count};
+    const auto status=native_plan_tables_run(source,layouts,state,scratch,[](const void* context,const SfntLayout& layout,
+        const SfntFeatureSubstitutions& variations,Slice<u8> mask,Slice<SfntLookupStep> steps,SfntLookupPlanResult* result) noexcept {
+        return (*static_cast<const Planner*>(context))(layout,variations,mask,steps,result);},&planner,tables,work);
+    plan.substitution_steps=tables.substitution_steps;plan.positioning_roots=tables.positioning_roots;
+    plan.substitution_count=tables.substitution_count;plan.positioning_count=tables.positioning_count;return status;
 }
 SfntStatus native_positioning_prepare(const NativeFontFace&,const SfntShapePlan&,ConstSlice<u16> roots,
     Arena& state,Arena& scratch,const SfntGposProgram** output,u32 work) noexcept;

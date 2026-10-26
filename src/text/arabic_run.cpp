@@ -8,7 +8,7 @@
 
 namespace maicord {
 SfntStatus native_arabic_run(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,
-    Utf8View text,bool independent,bool rtl,float em,SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits) noexcept {
+    Utf8View text,bool independent,bool rtl,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,SfntShapeLimits limits) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     const auto plan=native_arabic_plan_get(store,handle,independent);
     if(!plan.shape || !plan.cmap || (text.bytes && !text.data) || !(em>0) || em>65536 ||

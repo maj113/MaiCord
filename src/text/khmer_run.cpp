@@ -48,29 +48,20 @@ SfntStatus native_khmer_plan_prepare(const NativeRunPlanStore& store,NativeRunPl
     status=native_positioning_prepare(font,parent,plan.positioning(),*state,*scratch,&plan.positioning_program,work);if(status!=SfntStatus::ok)return status;
     saved_state.keep=true;*output=plan;return SfntStatus::ok;
 }
-SfntStatus native_khmer_run(const NativeRunPlanStore& store,const NativeKhmerPlan& prepared,Utf8View text,float em,
-    SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
+SfntStatus native_khmer_run(const NativeRunPlanStore& store,const NativeKhmerPlan& prepared,const Utf8View& text,float em,
+    const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,bool rtl,float spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     const auto* parent=native_run_plan_get(store,prepared.run,prepared.independent_letters);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
-    if((text.bytes&&!text.data)||(storage.components.count&&!storage.components.data))return SfntStatus::invalid_input;
-    if(!sfnt_trailing_spacing_valid(spacing))return SfntStatus::invalid_input;
-    if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;
+    ConstSlice<u32> scalars{};const auto begun=script_run_begin(text,storage,limits,spacing,prepared.admitted?&scalars:nullptr);if(begun!=SfntStatus::ok)return begun;
     SfntStatus status;
-    if(prepared.admitted){ConstSlice<u32> scalars{};const auto decoded=decode_run_scalars(text,storage,scalars);if(decoded!=SfntStatus::ok)return decoded;
-        SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,{},prepared.positioning());
+    if(prepared.admitted){SfntShapePlan plan;native_profile_shape_plan(plan,*parent,prepared.positioning_program,{},prepared.positioning());
         status=sfnt_khmer_shape_run(plan,*prepared.cmap,scalars,em,storage,result,prepared.substitutions(),limits,rtl);
     }else status=native_khmer_fallback_shape_run(store,prepared.run,text,prepared.independent_letters,rtl,em,storage,result,
         {prepared.fallback_roots,prepared.substitution_count},prepared.positioning(),limits);
-    if(status!=SfntStatus::ok||!spacing)return status;
-    status=sfnt_trailing_spacing({storage.placements.data,result->glyph_count},{storage.flags.data,result->glyph_count},spacing,limits.stage_work,rtl);
-    if(status!=SfntStatus::ok)result->glyph_count=result->source_units=result->target_count=0;return status;
+    return script_run_finish(status,storage,result,limits,spacing,rtl);
 }
-SfntStatus native_khmer_run(const NativeRunPlanStore& store,const NativeKhmerPlan& prepared,Utf8View text,float em,
-    const NativeAsciiStorage& storage,NativeAsciiResult* result,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
-    if((storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||
-        (storage.character_glyphs.count&&!storage.character_glyphs.data))return SfntStatus::invalid_input;
-    SfntShapeRunResult shaped{};const auto status=native_khmer_run(store,prepared,text,em,storage.shaping,&shaped,limits,rtl,spacing);
-    return status==SfntStatus::ok?compact_shape_result(storage,shaped,result):status;
+SfntStatus native_khmer_run(const NativeRunPlanStore& store,const NativeKhmerPlan& prepared,const Utf8View& text,float em,
+    const NativeAsciiStorage& storage,NativeAsciiResult* result,const SfntShapeLimits& limits,bool rtl,float spacing) noexcept {
+    return compact_run(storage,result,[&](const SfntShapeStorage& shaping,SfntShapeRunResult* shaped) noexcept {return native_khmer_run(store,prepared,text,em,shaping,shaped,limits,rtl,spacing);});
 }
 }

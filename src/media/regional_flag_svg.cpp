@@ -17,7 +17,7 @@ void sincos(double angle, double& sine, double& cosine) noexcept {
     term = 1; cosine = 1;
     for (u32 n = 1; n < 12; ++n) {term *= -angle * angle / ((2 * n - 1) * (2 * n)); cosine += term;}
 }
-bool equal(Utf8View value, const char* literal) noexcept {
+bool equal(const Utf8View& value, const char* literal) noexcept {
     const u32 bytes = c_string_length(literal);
     if (bytes != value.bytes) return false;
     for (u32 i = 0; i < bytes; ++i) if (value.data[i] != literal[i]) return false;
@@ -53,7 +53,7 @@ bool number(Cursor& c, double& value) noexcept {
     }
     if (value > 4096) return false; if (negative) value = -value; return true;
 }
-bool scalar(Utf8View input, float& output) noexcept {
+bool scalar(const Utf8View& input, float& output) noexcept {
     Cursor cursor{input}; double value = 0;
     if (!number(cursor, value)) return false; skip(cursor);
     if (cursor.at != input.bytes) return false; output = static_cast<float>(value); return true;

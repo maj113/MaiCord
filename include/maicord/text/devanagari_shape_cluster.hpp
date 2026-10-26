@@ -17,6 +17,6 @@ namespace maicord {
 // spacing; controls cannot.
 SfntStatus sfnt_devanagari_shape_cluster(const SfntShapePlan&,const SfntCmap&,
     ConstSlice<SfntClusterGlyph> input,ConstSlice<u32> scalars,ConstSlice<u8> forms,
-    u32 source_units,float em_size,SfntShapeStorage,SfntShapeRunResult*,
-    ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits={},bool followed_by_text=false,float trailing_spacing=0,bool rtl=false) noexcept;
+    u32 source_units,float em_size,const SfntShapeStorage&,SfntShapeRunResult*,
+    ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits={},bool followed_by_text=false,float trailing_spacing=0,bool rtl=false) noexcept;
 }

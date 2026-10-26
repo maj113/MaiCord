@@ -6,7 +6,7 @@
 #include "compact_run.hpp"
 namespace maicord {
 SfntStatus native_tamil_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntLookupStep> steps,
-    Utf8View text,float em,SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,float trailing_spacing,bool rtl) noexcept {
+    Utf8View text,float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,float trailing_spacing,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((text.bytes&&!text.data)||(storage.components.count&&!storage.components.data))return SfntStatus::invalid_input;
     if(text.bytes>limits.stage_work)return SfntStatus::resource_limit;
@@ -14,7 +14,7 @@ SfntStatus native_tamil_run(const SfntShapePlan& plan,const SfntCmap& cmap,Const
     return sfnt_tamil_shape_run(plan,cmap,scalars,em,storage,result,steps,limits,trailing_spacing,rtl);
 }
 SfntStatus native_tamil_run(const NativeRunPlanStore& store,const NativeIndicPlan& prepared,Utf8View text,float em,
-    SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,float trailing_spacing,bool rtl) noexcept {
+    const SfntShapeStorage& storage,SfntShapeRunResult* result,const SfntShapeLimits& limits,float trailing_spacing,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(prepared.profile!=SfntIndicProfile::tamil)return SfntStatus::invalid_input;
     const auto* parent=native_run_plan_get(store,prepared.run);if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
@@ -22,12 +22,7 @@ SfntStatus native_tamil_run(const NativeRunPlanStore& store,const NativeIndicPla
     return native_tamil_run(plan,*prepared.cmap,prepared.substitutions(),text,em,storage,result,limits,trailing_spacing,rtl);
 }
 SfntStatus native_tamil_run(const NativeRunPlanStore& store,const NativeIndicPlan& prepared,Utf8View text,float em,
-    const NativeAsciiStorage& storage,NativeAsciiResult* result,SfntShapeLimits limits,float trailing_spacing,bool rtl) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
-    if((storage.glyphs.count&&!storage.glyphs.data)||(storage.placements.count&&!storage.placements.data)||
-        (storage.character_glyphs.count&&!storage.character_glyphs.data))return SfntStatus::invalid_input;
-    SfntShapeRunResult shaped{};const auto status=native_tamil_run(store,prepared,text,em,storage.shaping,&shaped,limits,trailing_spacing,rtl);
-    if(status!=SfntStatus::ok)return status;
-    return compact_shape_result(storage,shaped,result);
+    const NativeAsciiStorage& storage,NativeAsciiResult* result,const SfntShapeLimits& limits,float trailing_spacing,bool rtl) noexcept {
+    return compact_run(storage,result,[&](const SfntShapeStorage& shaping,SfntShapeRunResult* shaped) noexcept {return native_tamil_run(store,prepared,text,em,shaping,shaped,limits,trailing_spacing,rtl);});
 }
 }

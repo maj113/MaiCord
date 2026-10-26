@@ -7,7 +7,7 @@
 
 namespace maicord {namespace {
 SfntStatus forms(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,const SfntGsubProgram& program,
-    NativeIndicPlan& plan,Slice<u8> bits,Arena* scratch,Slice<u16> mask,SfntShapeStorage probe,SfntShapeLimits limits) noexcept {
+    NativeIndicPlan& plan,Slice<u8> bits,Arena* scratch,Slice<u16> mask,const SfntShapeStorage& probe,const SfntShapeLimits& limits) noexcept {
     const auto* info=sfnt_indic_script(plan.profile);if(!info)return SfntStatus::invalid_input;const u32 first=info->block_first;
     u16 halant=0;auto status=sfnt_cmap_glyph(*plan.cmap,first+0x4d,0,&halant);if(status!=SfntStatus::ok)return status;
     if(!halant)return SfntStatus::unsupported_sequence;
@@ -31,7 +31,7 @@ SfntStatus forms(const SfntLayout& layout,const SfntFeatureSubstitutions& variat
 }
 }
 SfntStatus native_indic_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,SfntIndicProfile profile,
-    Arena* state,Arena* scratch,SfntShapeStorage probe,NativeIndicPlan* output,Slice<u8> form_output,SfntShapeLimits limits) noexcept {
+    Arena* state,Arena* scratch,const SfntShapeStorage& probe,NativeIndicPlan* output,Slice<u8> form_output,const SfntShapeLimits& limits) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     const auto* info=sfnt_indic_script(profile);
     if(!info||(form_output.count&&(form_output.count!=128||!form_output.data)))return SfntStatus::invalid_input;

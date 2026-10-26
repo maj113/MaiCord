@@ -4,7 +4,8 @@
 
 namespace maicord {namespace {
 using namespace sfnt_read;
-SfntStatus tail(ConstSlice<u8> b,u32 at,u32 minimum,ConstSlice<u8>* out) noexcept {
+SfntStatus tail(const ConstSlice<u8>& view,u32 at,u32 minimum,ConstSlice<u8>* out) noexcept {
+    const ConstSlice<u8> b=view; // *out is cleared first
     reset_value(out);if(at<minimum)return SfntStatus::malformed;if(!span(b,at,2))return SfntStatus::truncated;
     *out={b.data+at,b.count-at};return SfntStatus::ok;
 }

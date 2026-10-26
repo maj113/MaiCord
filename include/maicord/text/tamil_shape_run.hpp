@@ -16,5 +16,5 @@ namespace maicord {
 // return unsupported_sequence.
 // Failed attempts leave lengths unset; scratch may change, so restart from the original input.
 SfntStatus sfnt_tamil_shape_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<u32>,
-    float em_size,SfntShapeStorage,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits limits={},float trailing_spacing=0,bool rtl=false) noexcept;
+    float em_size,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,const SfntShapeLimits& limits={},float trailing_spacing=0,bool rtl=false) noexcept;
 }

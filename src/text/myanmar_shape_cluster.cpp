@@ -36,49 +36,27 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
     return SfntStatus::ok;
 }
 
-struct Work {
-    u64 left,used=0;
-    bool spend(u64 n) noexcept {if(n>left)return false;left-=n;used+=n;return true;}
-};
+using use_shape::Work;
 struct RunPolicy {
     use_shape::GroupRun groups;const SfntShapePlan* plan;ConstSlice<SfntLookupStep> early;u64 edits=0;u32 match_work=0;
 };
 static_assert(sizeof(RunPolicy)==104);
 SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap* clusters,
-    SfntComponentForest* forest,SfntGsubExecutionScratch scratch,u64 available,u64* used) noexcept {
+    SfntComponentForest* forest,const SfntGsubExecutionScratch& scratch,u64 available,u64* used) noexcept {
     *used=0;if(stage)return SfntStatus::ok;
     auto& run=*static_cast<RunPolicy*>(context);forest->preserve_forms=false;
     if(!run.early.count)return SfntStatus::ok;
     Work w{available};struct Report {Work& w;u64* out;~Report() noexcept {*out=w.used;}} report{w,used};
-    const auto seek=[&](SfntGlyphBuffer& value,u32 at) noexcept {
-        const u64 cost=(at>value.gap_begin?at-value.gap_begin:value.gap_begin-at)+1ull;
-        if(!w.spend(cost))return SfntStatus::resource_limit;return sfnt_glyph_buffer_seek(&value,at,cost);
-    };
     for(u32 first=0;first<sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));){
         const auto view=sfnt_glyph_buffer_view(*buffer);const u32 total=sfnt_glyph_count(view);
         const auto& initial=*reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(view,first));
         const u32 group=run.groups.groups[initial.source];u32 end=first;
         while(end<total){const auto& value=*reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(view,end));
             if(!w.spend(1))return SfntStatus::resource_limit;if(run.groups.groups[value.source]!=group)break;++end;}
-        auto status=seek(*buffer,end);if(status!=SfntStatus::ok)return status;
-        // Expose only this cluster and the existing gap to the shared executor.
-        // Both contextual lookahead and lookbehind stay inside the local view.
         SfntGlyphBuffer local{};
-        status=sfnt_glyph_buffer_open({buffer->storage.data+first*sizeof(SfntComponentGlyph),
-            (buffer->gap_end-first)*static_cast<u32>(sizeof(SfntComponentGlyph))},sizeof(SfntComponentGlyph),end-first,&local);
-        if(status!=SfntStatus::ok)return status;
-        for(u32 step=0;step<run.early.count;++step){
-            const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(local));
-            if(run.plan->refresh_substitution_classes){if(!w.spend(count))return SfntStatus::resource_limit;
-                auto* values=reinterpret_cast<SfntComponentGlyph*>(local.storage.data);
-                for(u32 i=0;i<count;++i)values[i].glyph.glyph_class=sfnt_gdef_glyph_class(*run.groups.gdef,values[i].glyph.glyph);}
-            SfntGsubExecutionResult execution{};
-            status=sfnt_gsub_execute_lookup(*run.plan->substitutions,run.early[step].lookup,&local,0,count,0,scratch,
-                {w.left,run.match_work},&execution,clusters,forest);
-            if(!w.spend(execution.operations))return SfntStatus::invalid_input;run.edits+=execution.edits;
-            if(status!=SfntStatus::ok)return status;
-            status=seek(local,sfnt_glyph_count(sfnt_glyph_buffer_view(local)));if(status!=SfntStatus::ok)return status;
-        }
+        auto status=use_shape::open_group(w,*buffer,first,end,local);if(status!=SfntStatus::ok)return status;
+        u32 step=0;
+        status=use_shape::run_early(w,*run.plan,run.early,step,0xffffu,local,scratch,run.match_work,clusters,forest,run.edits);if(status!=SfntStatus::ok)return status;
         buffer->gap_begin=first+local.gap_begin;buffer->gap_end=first+local.gap_end;first=buffer->gap_begin;
     }
     return SfntStatus::ok;
@@ -86,7 +64,7 @@ SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClust
 
 }
 SfntStatus sfnt_myanmar_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,bool modern) noexcept {
+    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool rtl,bool modern) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if((steps.count&&!steps.data)||(storage.positions.count&&!storage.positions.data)||
         (storage.character_glyphs.count&&!storage.character_glyphs.data)||(storage.targets.count&&!storage.targets.data)||

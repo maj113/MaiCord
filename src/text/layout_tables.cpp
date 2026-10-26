@@ -5,9 +5,9 @@
 
 namespace maicord {namespace {
 inline u16 read(const u8* bytes,u32 at) noexcept {return byte_load_be16(bytes+at);}
-inline u16 read(ConstSlice<u8> bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}
-bool span(ConstSlice<u8> bytes,u32 at,u32 count) noexcept {return at<=bytes.count && count<=bytes.count-at;}
-ConstSlice<u8> slice(ConstSlice<u8> bytes,u32 at,u32 count) noexcept {return {bytes.data+at,count};}
+inline u16 read(const ConstSlice<u8>& bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}
+bool span(const ConstSlice<u8>& bytes,u32 at,u32 count) noexcept {return at<=bytes.count && count<=bytes.count-at;}
+ConstSlice<u8> slice(const ConstSlice<u8>& bytes,u32 at,u32 count) noexcept {return {bytes.data+at,count};}
 }
 SfntStatus sfnt_coverage_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntCoverage* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);

@@ -572,7 +572,7 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
         CHECK(owned.indic.positioning_count==root_count&&bytes_equal(owned.indic.positioning_roots,roots,root_count*sizeof(u16)));
         if(profile_only){print("PASS Tamil owned profile face=");number(index);print(" root_bytes=");number(count*sizeof(SfntLookupStep)+root_count*sizeof(u16));print(" profile_bytes=");number(sizeof(NativeIndicPlan));print("\n");return owned.close();}
         CHECK(tamil_shape_stream(owned,storage));return owned.close();}
-    SfntShapeStagePolicy policy{nullptr,+[](void*,u16,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest*,SfntGsubExecutionScratch,u64,u64* used) noexcept {*used=0;return SfntStatus::ok;},13};
+    SfntShapeStagePolicy policy{nullptr,+[](void*,u16,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest*,const SfntGsubExecutionScratch&,u64,u64* used) noexcept {*used=0;return SfntStatus::ok;},13};
     const SfntDevanagariForm forms[]{sfnt_deva_reph,sfnt_deva_half,sfnt_deva_pre,sfnt_deva_below,sfnt_deva_post};u8 font_forms[128]{};
     const u32 block=sfnt_indic_script(profile)->block_first;
     u16 halant=0;CHECK(sfnt_cmap_glyph(cmap,block+0x4d,0,&halant)==SfntStatus::ok&&halant);

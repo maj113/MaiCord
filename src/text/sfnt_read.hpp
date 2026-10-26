@@ -3,16 +3,16 @@
 
 // Bounds checks, big-endian reads and work budgets shared by the table parsers.
 namespace maicord::sfnt_read {
-inline bool span(ConstSlice<u8> b, u32 at, u32 size) noexcept {
+inline bool span(const ConstSlice<u8>& b, u32 at, u32 size) noexcept {
     return b.data && at <= b.count && size <= b.count - at;
 }
-inline ConstSlice<u8> view(ConstSlice<u8> b, u32 at, u32 size) noexcept { return {b.data + at, size}; }
+inline ConstSlice<u8> view(const ConstSlice<u8>& b, u32 at, u32 size) noexcept { return {b.data + at, size}; }
 inline u16 be16(const u8* p) noexcept { return byte_load_be16(p); }
 inline i16 s16(const u8* p) noexcept { return static_cast<i16>(byte_load_be16(p)); }
 inline u32 be24(const u8* p) noexcept { return (static_cast<u32>(p[0]) << 16u) | byte_load_be16(p + 1); }
 inline u32 be32(const u8* p) noexcept { return byte_load_be32(p); }
-inline u16 r16(ConstSlice<u8> b, u32 at) noexcept { return byte_load_be16(b.data + at); }
-inline u32 r32(ConstSlice<u8> b, u32 at) noexcept { return byte_load_be32(b.data + at); }
+inline u16 r16(const ConstSlice<u8>& b, u32 at) noexcept { return byte_load_be16(b.data + at); }
+inline u32 r32(const ConstSlice<u8>& b, u32 at) noexcept { return byte_load_be32(b.data + at); }
 // Big-endian unsigned value of one to four bytes.
 inline u32 packed(const u8* p, u32 size) noexcept {
     u32 value = 0;
@@ -20,7 +20,7 @@ inline u32 packed(const u8* p, u32 size) noexcept {
     return value;
 }
 // glyf offset of a glyph from a loca view with a stride of two or four bytes.
-inline u32 loca_offset(ConstSlice<u8> loca, u32 stride, u32 glyph) noexcept {
+inline u32 loca_offset(const ConstSlice<u8>& loca, u32 stride, u32 glyph) noexcept {
     return stride == 4 ? byte_load_be32(loca.data + glyph * 4) : byte_load_be16(loca.data + glyph * 2) * 2u;
 }
 // Transform words in a composite glyph record (0, 1, 2 or 4), or 0xff when its

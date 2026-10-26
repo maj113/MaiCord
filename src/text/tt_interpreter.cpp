@@ -3,7 +3,7 @@
 #include "maicord/text/base.hpp"
 #include "tt_math.hpp"
 namespace maicord {namespace {
-bool valid(ConstSlice<u8> b) noexcept {return !b.count || b.data;}
+bool valid(const ConstSlice<u8>& b) noexcept {return !b.count || b.data;}
 bool fits(i64 v) noexcept {return v>=-2147483648ll && v<=2147483647ll;}
 i64 quotient(i64 numerator,i64 denominator) noexcept {const bool negative=(numerator<0)!=(denominator<0);const i64 n=absolute_value<i64>(numerator),d=absolute_value<i64>(denominator);const i64 q=(n+d/2)/d;return negative?-q:q;}
 // Fixed-point projection multiplication adds a positive half before shifting;

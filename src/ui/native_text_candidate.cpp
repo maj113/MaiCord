@@ -96,7 +96,7 @@ struct NativeTextContext {
     NativeFontSession* fonts;Binding* bindings;
     NativeRunPlanStore store;Arena scratch;
     NativeArabicPlanStore arabic_store;
-    u32 binding_count;u64 shaped,measured,attempts,prepare_failed,execute_failed,does_not_fit,reuses;
+    u32 binding_count;u64 shaped,measured,prepare_failed,execute_failed;
     // Single-line work and styled paragraph reset metadata have disjoint cache
     // lifetimes, so they share storage.
     union {NativeAsciiLineStorage last_storage;ConstSlice<u8> styled_reset;};
@@ -139,7 +139,7 @@ constexpr usize binding_region_bytes=(sizeof(NativeTextContext)+sizeof(Binding)*
 constexpr usize context_reserved_bytes=binding_region_bytes+plan_region_bytes+arabic_region_bytes;
 static_assert(sizeof(NativeTextContext)%alignof(Binding)==0);
 constexpr usize page_bytes(usize bytes) noexcept {return (bytes+4095u)&~usize{4095};}
-static_assert(sizeof(NativeTextCatalogScope)==112&&sizeof(NativeTextContext)==2584);
+static_assert(sizeof(NativeTextCatalogScope)==112&&sizeof(NativeTextContext)==2560);
 static_assert(binding_region_bytes==16384&&context_reserved_bytes==40960);
 static_assert(page_bytes(sizeof(NativeTextContext))==4096&&
     page_bytes(sizeof(NativeTextContext)+sizeof(Binding)*32)==4096&&
@@ -566,7 +566,7 @@ bool paragraph(NativeTextContext& owner,const Binding& binding,const TextSystem&
     const float em=format->em;
     if(overflow==TextOverflow::ellipsis&&!(height>0))return false;
     if(owner.last_valid&&!owner.last_styled&&owner.last_paragraph&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
-       owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes))++owner.reuses;
+       owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)){}
     else if(owner.last_valid&&!owner.last_styled&&!owner.last_paragraph&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)){
         // Reuse the shaped printable line; only cluster/run descriptors are appended.
         owner.last_valid=false;owner.prefer_multiline=false;const auto& line=owner.last_line;const auto& source=owner.last_storage;
@@ -607,7 +607,7 @@ bool paragraph(NativeTextContext& owner,const Binding& binding,const TextSystem&
     // wrap. Fitting aggregate metrics alone cannot establish no trimming.
     if(overflow==TextOverflow::ellipsis&&(layout.flags&native_paragraph_emergency_break||layout.width>width)){
         if(layout.line_count==1&&!hits&&trim_single_line(owner,&binding,system,format,text,width,height,wrapping,layout,output,measure))return true;
-        ++owner.does_not_fit;return false;}
+        return false;}
     if(output){
         const auto* final_run=layout.run_count?owner.paragraph_runs.data+layout.run_count-1:nullptr;
         const u32 visible_glyphs=(layout.flags&native_paragraph_height_trimmed)?(final_run?final_run->glyph_first+final_run->glyph_count:0):shape.glyph_count;
@@ -644,7 +644,7 @@ bool native_text_format_create(NativeTextContext* owner,const NativeTextFormatDe
     *handle=intern_format(*owner,{{d.family,d.scope,d.properties},d.em_size,d.tab_stop,0,d.word_wrap});return *handle!=0;
 }
 bool native_text_context_set_code_format(NativeTextContext* owner,u32 handle) noexcept {
-    if(!owner||owner->binding_count||owner->attempts||!format_at(*owner,handle))return false;
+    if(!owner||owner->binding_count||!format_at(*owner,handle))return false;
     owner->code_format=handle;return true;
 }
 bool native_text_format_prepare(NativeTextContext* owner,u32 handle) noexcept {
@@ -686,16 +686,9 @@ ConstSlice<NativeParagraphCluster> native_text_candidate_prepared_clusters(const
 }
 namespace {
 void release_context_contents(NativeTextContext* o) noexcept {
-    log_u64(LogLevel::info,"text","native_binding_count",o->binding_count);
-    log_u64(LogLevel::info,"text","native_binding_capacity",o->store.slots.count);
-    log_u64(LogLevel::info,"text","native_context_reserved",context_reserved_bytes*(o->backing==o?1:2));
-    log_u64(LogLevel::info,"text","native_context_committed",page_bytes(sizeof(NativeTextContext)+o->store.slots.count*sizeof(Binding))+page_bytes(o->store.slots.count*sizeof(NativeRunPlanSlot))+page_bytes(o->arabic_store.slots.count*sizeof(NativeArabicPlanSlot))+(o->backing==o?0:4096));
-    log_u64(LogLevel::info,"text","native_context_bytes",sizeof(NativeTextContext));
-    log_u64(LogLevel::info,"text","native_line_attempts",o->attempts);log_u64(LogLevel::info,"text","native_lines_shaped",o->shaped);log_u64(LogLevel::info,"text","native_lines_measured",o->measured);
-    log_u64(LogLevel::info,"text","native_line_prepare_failures",o->prepare_failed);log_u64(LogLevel::info,"text","native_line_execute_failures",o->execute_failed);log_u64(LogLevel::info,"text","native_line_does_not_fit",o->does_not_fit);
-    log_u64(LogLevel::info,"text","native_line_scratch_commit",o->scratch.committed);
+    log_u64(LogLevel::info,"text","native_lines_shaped",o->shaped);log_u64(LogLevel::info,"text","native_lines_measured",o->measured);
+    log_u64(LogLevel::info,"text","native_line_prepare_failures",o->prepare_failed);log_u64(LogLevel::info,"text","native_line_execute_failures",o->execute_failed);
     log_u64(LogLevel::info,"text","native_line_storage_retries",o->storage_retries);
-    log_u64(LogLevel::info,"text","native_line_reuses",o->reuses);
     log_u64(LogLevel::info,"text","native_arabic_lines_shaped",o->arabic_shaped);log_u64(LogLevel::info,"text","native_arabic_lines_measured",o->arabic_measured);
     log_u64(LogLevel::info,"text","native_paragraphs_shaped",o->paragraphs_shaped);log_u64(LogLevel::info,"text","native_paragraphs_measured",o->paragraphs_measured);
     log_u64(LogLevel::info,"text","native_latin_lines_shaped",o->latin_shaped);log_u64(LogLevel::info,"text","native_latin_lines_measured",o->latin_measured);
@@ -790,16 +783,7 @@ bool trim_single_line(NativeTextContext& owner,const Binding* binding,const Text
             const NativeStyledOmission omission{prefix.source_units,x,sign->width,complete.height,directional?directional->omission_visual:placed.run_count,
                 directional?ConstSlice<NativeOmissionZero>{directional->zeroes.data,directional->zeroes.count}:ConstSlice<NativeOmissionZero>{&zero,1}};
             if(decorations&&!native_styled_decorations(owner,placed,width,format->tab_stop,{output->decorations,output->decoration_capacity},&decoration_count,written?output:nullptr,cut.sign?&omission:nullptr))return false;
-            DecorationGraphemeCursor boundaries{};
-            for(u32 h=0;h<hits.count;++h){const auto& hit=hits[h];
-                if(!hit.unit_count||hit.first_unit>shape.source_units||hit.unit_count>shape.source_units-hit.first_unit)return false;
-                if(!decoration_range(owner,placed,format->tab_stop,hit.first_unit,hit.first_unit+hit.unit_count,
-                    [&](const NativeParagraphLine& line,float left,float width) noexcept {
-                        if(!(width>0)||!(line.height>0))return true;
-                        if(!output->hit_regions||hit_count==output->hit_region_capacity)return false;
-                        output->hit_regions[hit_count++]={left,line.top,decoration_add(left,width),decoration_add(line.top,line.height),hit.semantic_index,0};return true;
-                    },&boundaries,written?output:nullptr,cut.sign?&omission:nullptr))return false;
-            }
+            if(!native_collect_hit_regions(owner,placed,format->tab_stop,hits,true,output,&hit_count,written?output:nullptr,cut.sign?&omission:nullptr))return false;
         }
         if(!native_font_session_retain(owner.fonts))return false;
         auto* store=native_font_session_runs(owner.fonts);u32 retained=0;
@@ -898,7 +882,7 @@ bool native_text_candidate_line_once(const TextSystem& system,Utf8View text,floa
         if(!latin_text(text,&controls)&&(!latin_text(text,&controls,true,true,&script)||!script||controls))return native_text_candidate_styled(system,text,{},width,height,output,measure,wrapping,overflow);arabic=false;latin=true;}
     if(arabic&&system.tracking)return native_text_candidate_styled(system,text,{},width,height,output,measure,wrapping,overflow);
     const auto* format=resolve_format(system,wrapping);if(!format)return false;
-    auto& owner=*system.native_text;++owner.attempts;auto* selected=binding(owner,format);if(!selected)return false;
+    auto& owner=*system.native_text;auto* selected=binding(owner,format);if(!selected)return false;
     const auto* profile=script?alphabetic_profile(owner,*selected,script,system.independent_letters):nullptr;if(script&&!profile)return false;
     if(!arabic&&(controls||(owner.last_valid&&!owner.last_styled&&owner.last_paragraph&&owner.last_format==format&&owner.last_em==format->em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes))))return paragraph(owner,*selected,system,format,text,width,height,wrapping,overflow,output,measure,nullptr,latin,profile)||
         native_text_candidate_styled(system,text,{},width,height,output,measure,wrapping,overflow);
@@ -906,7 +890,7 @@ bool native_text_candidate_line_once(const TextSystem& system,Utf8View text,floa
         return native_text_candidate_styled(system,text,{},width,height,output,measure,wrapping,overflow);
     const float em=format->em;
     if(owner.last_valid&&!owner.last_styled&&!owner.last_paragraph&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
-       owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes))++owner.reuses;
+       owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)){}
     else{
         owner.last_valid=false;owner.prefer_multiline=false;NativeAsciiLineStorage buffers{};Slice<char> saved_text{};
         NativeAsciiLineResult line{};SfntStatus status{};
@@ -926,11 +910,11 @@ bool native_text_candidate_line_once(const TextSystem& system,Utf8View text,floa
         owner.last_format=format;owner.last_em=em;owner.last_independent=system.independent_letters;owner.last_tracking=system.tracking;owner.last_paragraph=false;owner.last_styled=false;owner.last_valid=true;
     }
     const auto& buffers=owner.last_storage;const auto& line=owner.last_line;
-    if(!(line.geometry_flags&native_line_ordered_x)){++owner.does_not_fit;return false;}
+    if(!(line.geometry_flags&native_line_ordered_x))return false;
     if(line.width_including_trailing>width||line.vertical.height>height){
         if(!arabic)return paragraph(owner,*selected,system,format,text,width,height,wrapping,overflow,output,measure,nullptr,latin,profile)||
             native_text_candidate_styled(system,text,{},width,height,output,measure,wrapping,overflow);
-        ++owner.does_not_fit;return native_text_candidate_styled(system,text,{},width,height,output,measure,wrapping,overflow);}
+        return native_text_candidate_styled(system,text,{},width,height,output,measure,wrapping,overflow);}
     if(output){
         const bool split=line.trailing_source_units&&line.trailing_source_units<line.run.source_units;
         const u32 run_count=split?2u:1u;const u32 trim=line.run.source_units-line.trailing_source_units;

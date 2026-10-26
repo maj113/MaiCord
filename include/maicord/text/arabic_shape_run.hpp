@@ -24,6 +24,6 @@ namespace maicord {
 // Kept separate so unmasked callers do not pull Arabic Unicode preparation into
 // their binaries.
 SfntStatus sfnt_arabic_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> input,ConstSlice<u32> scalars,
-    u32 source_units,ConstSlice<u32> cluster_boundaries,bool rtl,float em_size,SfntShapeStorage storage,
+    u32 source_units,ConstSlice<u32> cluster_boundaries,bool rtl,float em_size,const SfntShapeStorage& storage,
     SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits={}) noexcept;
 } // namespace maicord

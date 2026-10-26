@@ -9,7 +9,7 @@ using namespace mp4_demux_detail;
 using E = Mp4DemuxError;
 constexpr u64 limit = 0x7fffffffffffffffull;
 // Check the complete child list, including duplicates and trailing truncation.
-bool unique(ConstSlice<u8> bytes, const Box& parent, u32 type, Box* output, bool required = true) noexcept {
+bool unique(const ConstSlice<u8>& bytes, const Box& parent, u32 type, Box* output, bool required = true) noexcept {
     u64 cursor = parent.payload;
     Box found{};
     while (cursor < parent.end) {
@@ -29,7 +29,7 @@ bool brand(u32 value) noexcept {
         value == fourcc('c','m','f','c') || value == fourcc('c','m','f','s') ||
         ((value & 0xffffff00u) == fourcc('i','s','o',0) && (value & 255) >= '2' && (value & 255) <= '9');
 }
-bool clock(ConstSlice<u8> bytes, const Box& box, u32* timescale, u64* duration, bool movie) noexcept {
+bool clock(const ConstSlice<u8>& bytes, const Box& box, u32* timescale, u64* duration, bool movie) noexcept {
     if (box.end - box.payload < 4) return false;
     const auto* p = bytes.data + box.payload;
     const u32 version = read_u32(p);
@@ -40,7 +40,7 @@ bool clock(ConstSlice<u8> bytes, const Box& box, u32* timescale, u64* duration, 
     if (*duration == (version ? ~u64{0} : ~u32{0})) *duration = 0;
     return *timescale && *duration <= limit;
 }
-bool empty_table(ConstSlice<u8> bytes, const Box& parent, u32 type, u32 length, bool required = true) noexcept {
+bool empty_table(const ConstSlice<u8>& bytes, const Box& parent, u32 type, u32 length, bool required = true) noexcept {
     Box table{};
     if (!unique(bytes, parent, type, &table, required)) return false;
     if (!table.end) return true;
@@ -48,7 +48,7 @@ bool empty_table(ConstSlice<u8> bytes, const Box& parent, u32 type, u32 length, 
     for (u32 i = 0; i < length; i += 4) if (read_u32(bytes.data + table.payload + i)) return false;
     return true;
 }
-E edits(ConstSlice<u8> bytes, const Box& track, Mp4FragmentTrack& out) noexcept {
+E edits(const ConstSlice<u8>& bytes, const Box& track, Mp4FragmentTrack& out) noexcept {
     Box edts{}, elst{};
     if (!unique(bytes, track, fourcc('e','d','t','s'), &edts, false)) return E::malformed;
     if (!edts.end) return E::none;

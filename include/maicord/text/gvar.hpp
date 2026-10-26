@@ -36,5 +36,5 @@ SfntStatus sfnt_gvar_design_advance(const SfntTrueType&,const SfntGvarInstance&,
 // fractional until the outline resolver rounds the final point.
 // Scratch/output must not overlap inputs or each other. Output is valid only on
 // success; scratch may change on failure.
-SfntStatus sfnt_gvar_deltas(const SfntGvarInstance& instance,u16 glyph,ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,bool composite,SfntGvarScratch scratch,Slice<SfntGvarDelta> output,u32 work_limit=1000000,u32* work_used=nullptr,u32 point_origin=0) noexcept;
+SfntStatus sfnt_gvar_deltas(const SfntGvarInstance& instance,u16 glyph,const ConstSlice<SfntOutlinePoint>& points,const ConstSlice<u32>& ends,bool composite,const SfntGvarScratch& scratch,const Slice<SfntGvarDelta>& output,u32 work_limit=1000000,u32* work_used=nullptr,u32 point_origin=0) noexcept;
 } // namespace maicord

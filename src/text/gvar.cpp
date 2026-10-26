@@ -65,7 +65,7 @@ double inferred(double target,double a,double b,double da,double db) noexcept {
     if(a==b)return da==db?da:0;if(a>b){const double c=a;a=b;b=c;const double d=da;da=db;db=d;}
     if(target<=a)return da;if(target>=b)return db;return da+(db-da)*((target-a)/(b-a));
 }
-SfntStatus apply(PointList list,ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,bool composite,SfntGvarScratch scratch,Slice<SfntGvarDelta> output,double scale,u32& work,u32 origin) noexcept {
+SfntStatus apply(const PointList& list,const ConstSlice<SfntOutlinePoint>& points,const ConstSlice<u32>& ends,bool composite,const SfntGvarScratch& scratch,const Slice<SfntGvarDelta>& output,double scale,u32& work,u32 origin) noexcept {
     if(!spend(work,list.count))return SfntStatus::resource_limit;
     if(list.all){for(u32 i=0;i<list.count;++i){output[i].x+=scratch.x_deltas[i]*scale;output[i].y+=scratch.y_deltas[i]*scale;}return SfntStatus::ok;}
     // Coalesce repeated point IDs cumulatively, as required by the packed-point
@@ -175,7 +175,7 @@ SfntStatus sfnt_gvar_design_advance(const SfntTrueType& font,const SfntGvarInsta
     u16 chain[64];Advance advance{};const auto status=glyph_advance(font,instance,glyph,{chain,64},0,&advance,work);if(status!=SfntStatus::ok)return status;
     if(!(advance.x>=-9.e15&&advance.x<=9.e15))return SfntStatus::malformed;*output=static_cast<u16>(static_cast<i64>(rounded(advance.x)));return SfntStatus::ok;
 }
-SfntStatus sfnt_gvar_deltas(const SfntGvarInstance& instance,u16 glyph,ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,bool composite,SfntGvarScratch scratch,Slice<SfntGvarDelta> output,u32 work,u32* used,u32 origin) noexcept {
+SfntStatus sfnt_gvar_deltas(const SfntGvarInstance& instance,u16 glyph,const ConstSlice<SfntOutlinePoint>& points,const ConstSlice<u32>& ends,bool composite,const SfntGvarScratch& scratch,const Slice<SfntGvarDelta>& output,u32 work,u32* used,u32 origin) noexcept {
     WorkReport report{work,work,used};const auto& font=instance.font;
     if(!font.table.data || instance.coordinates.count!=font.axis_count || instance.shared_scalars.count!=font.shared_count || (instance.coordinates.count && !instance.coordinates.data) || (instance.shared_scalars.count && !instance.shared_scalars.data) || (!composite && points.count && !points.data) || (ends.count && !ends.data) || points.count>65536 || (composite && ends.count))return SfntStatus::invalid_input;
     if(glyph>=font.glyph_count)return SfntStatus::glyph_out_of_range;const u32 total=points.count+4;
