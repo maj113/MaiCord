@@ -29,7 +29,7 @@ bool source_current(const UiTooltipKey& key) noexcept {
     const auto* widget = ui_widget_manager_resolve(*key.owner.manager, key.owner.handle);
     const auto* node = ui_widget_manager_layout_node(*key.owner.manager, key.owner.handle);
     if (!widget || !node || !node->visible || (widget->flags & ui_widget_block_input) ||
-        !ui_rect_has_area(ui_rect_intersection(node->rectangle, node->clip_rectangle)))
+        !ui_rect_intersects(node->rectangle, node->clip_rectangle))
         return false;
     if (widget->kind == UiWidgetKind::button || (widget->flags & ui_widget_hit_test))
         return ui_widget_manager_input_enabled(*key.owner.manager, key.owner.handle);
@@ -381,8 +381,7 @@ bool ui_tooltip_paint_box(PaintStream* paint, const Theme& theme, UiRect rectang
 bool ui_tooltip_paint(const UiTooltipScene& scene, const Theme& theme, PaintStream* paint) noexcept {
     if (!ui_tooltip_visible(scene))
         return true;
-    if (!paint || !paint_stream_push_clip(paint, scene.viewport.left, scene.viewport.top,
-                                          scene.viewport.right, scene.viewport.bottom))
+    if (!paint || !paint_stream_push_clip(paint, scene.viewport))
         return false;
     const auto r = scene.rectangle;
     if (!paint_stream_record_content(paint, scene.text_owner, r, UiLayoutContentKind::decoration,

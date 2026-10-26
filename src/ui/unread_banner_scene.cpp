@@ -330,7 +330,7 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
     if (!ui_unread_banner_visible(scene))
         return true;
     const auto v = scene.viewport;
-    if (!paint || !paint_stream_push_clip(paint, v.left, v.top, v.right, v.bottom))
+    if (!paint || !paint_stream_push_clip(paint, v))
         return false;
     bool ok = true;
     const auto& st = scene.style;
@@ -356,19 +356,15 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
         if (ok && scene.notice_primary_bytes) {
             const auto b = scene.notice_primary_rect;
             Color button = ui_theme_color_alpha(theme.tokens.emphasis.fill, level * (busy ? .5f : 1.f));
-            ok = paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom, button, theme.scale.radius_sm) &&
+            ok = paint_stream_push_rounded(paint, b, button, theme.scale.radius_sm) &&
                  (scene.hovered != UiUnreadBannerAction::notice_primary ||
-                  paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom,
-                                            ui_theme_color_alpha(theme.tokens.state.hover, level), theme.scale.radius_sm));
+                  paint_stream_push_rounded(paint, b, ui_theme_color_alpha(theme.tokens.state.hover, level), theme.scale.radius_sm));
         }
         if (ok && scene.notice_secondary_bytes) {
             const auto b = scene.notice_secondary_rect;
-            ok = paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom,
-                                           ui_theme_color_alpha(theme.tokens.fill.subtle, level * (busy ? .5f : 1.f)),
-                                           theme.scale.radius_sm) &&
+            ok = paint_stream_push_rounded(paint, b, ui_theme_color_alpha(theme.tokens.fill.subtle, level * (busy ? .5f : 1.f)), theme.scale.radius_sm) &&
                  (scene.hovered != UiUnreadBannerAction::notice_secondary ||
-                  paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom,
-                                            ui_theme_color_alpha(theme.tokens.state.hover, level), theme.scale.radius_sm));
+                  paint_stream_push_rounded(paint, b, ui_theme_color_alpha(theme.tokens.state.hover, level), theme.scale.radius_sm));
         }
     }
     if (ok && scene.banner_motion.value > 0 && scene.label_bytes) {
@@ -384,7 +380,7 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
                                          ui_layout_content_bounds_allow_overlap) &&
              // Square top edge tucks under the channel header; only the bottom is rounded.
              paint_stream_push(paint, r.left, r.top, r.right, r.top + st.banner_radius, fill) &&
-             paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, fill, st.banner_radius) &&
+             paint_stream_push_rounded(paint, r, fill, st.banner_radius) &&
              (scene.hovered != UiUnreadBannerAction::mark_read ||
               paint_stream_push_rounded(paint, scene.banner_action.left, r.top, r.right, r.bottom,
                                         {text.red, text.green, text.blue, .14f * level}, st.banner_radius)) &&
@@ -405,8 +401,7 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
              paint_stream_push_rounded(paint, r.left, r.top + 2, r.right, r.bottom + 2, ui_theme_color_alpha(theme.tokens.overlay.shadow_soft, level),
                                        st.pill_radius) &&
              ui_surface_paint(paint, r, theme, UiElevation::banner, st.pill_radius, &fill, &border) &&
-             (!hovered || paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom,
-                                                    ui_theme_color_alpha(theme.tokens.state.hover, level), st.pill_radius)) &&
+             (!hovered || paint_stream_push_rounded(paint, r, ui_theme_color_alpha(theme.tokens.state.hover, level), st.pill_radius)) &&
              ui_icon_paint(paint, UiIcon::arrow_down, icon, ui_theme_color_alpha(theme.tokens.emphasis.outline, level));
     }
     return paint_stream_pop_clip(paint) && ok;

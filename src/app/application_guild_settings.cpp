@@ -236,14 +236,22 @@ Utf8View editor_text(Editor index) noexcept {
     return message_composer_text(owner->models[index]);
 }
 
-u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation) noexcept {
+namespace {
+// Reserves the next control slot with its presentation, or ~0u when the page is full.
+u32 claim_control(UiSettingsControlPresentation presentation) noexcept {
     if (owner->control_count >= kControlCapacity)
         return ~0u;
-    owner->controls[owner->control_count] = control;
     owner->presentation[owner->control_count] = presentation;
     reset_value(&owner->avatar_media[owner->control_count]);
     reset_value(&owner->list_items[owner->control_count]);
     return owner->control_count++;
+}
+} // namespace
+u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation) noexcept {
+    const u32 index = claim_control(presentation);
+    if (index != ~0u)
+        owner->controls[index] = control;
+    return index;
 }
 void popup_row(u32 index, Utf8View label, u32 action, u32 flags) noexcept {
     auto& item = owner->popup_items[index];
@@ -252,14 +260,42 @@ void popup_row(u32 index, Utf8View label, u32 action, u32 flags) noexcept {
     item.action = kMenuChoiceBase + action;
     item.flags = static_cast<u16>(popup_item_enabled | flags);
 }
-UiSettingsControl category(u64 id, Utf8View label, Utf8View description) noexcept {
-    return {id, label, description, UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr};
+u32 push_row(u64 id, Utf8View label, Utf8View description, UiSettingsControlKind kind, bool enabled, bool checked,
+             Utf8View action, UiSettingsControlPresentation presentation) noexcept {
+    const u32 index = claim_control(presentation);
+    if (index == ~0u)
+        return index;
+    auto& control = owner->controls[index];
+    control.id = id;
+    control.label = label;
+    control.description = description;
+    control.kind = kind;
+    control.enabled = enabled;
+    control.checked = checked;
+    control.choices = {};
+    control.selected_choice = 0;
+    control.action_label = action;
+    control.editor = nullptr;
+    return index;
 }
-UiSettingsControl notice(Utf8View label, Utf8View description, Utf8View action) noexcept {
-    return {control_notice, label, description, UiSettingsControlKind::notice, true, false, {}, 0, action, nullptr};
+u32 push_category(u64 id, Utf8View label, Utf8View description) noexcept {
+    return push_row(id, label, description, UiSettingsControlKind::category, true);
 }
-UiSettingsControl loading(Utf8View description) noexcept {
-    return {control_notice, {}, description, UiSettingsControlKind::notice, true, true, {}, 0, {}, nullptr};
+u32 push_notice(Utf8View description, Utf8View label) noexcept {
+    return push_row(control_notice, label, description, UiSettingsControlKind::notice, true);
+}
+u32 push_error(Utf8View label, Utf8View description, Utf8View action) noexcept {
+    return push_row(control_notice, label, description, UiSettingsControlKind::notice, true, false, action,
+                    {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+}
+u32 push_loading(Utf8View description, u64 id) noexcept {
+    return push_row(id, {}, description, UiSettingsControlKind::notice, true, true);
+}
+u32 push_count_heading(Bank& bank, Utf8View title, u32 count) noexcept {
+    const u32 start = bank.used;
+    bank.add(title);
+    bank.number(count);
+    return push_category(control_list_category, bank.since(start));
 }
 Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept {
     const auto* channel = channel_id ? chat_state_store_find_channel(state(), channel_id) : nullptr;

@@ -31,14 +31,45 @@ namespace {
 
 constexpr UiTextEffect no_effect{};
 
-bool append_command(const UiWidgetManager& manager, UiWidgetHandle owner, Utf8View text,
+// How a command's text sits in its box; the presets cover the combinations the
+// shell uses, and call sites with a per-row face or effect copy one and set them.
+struct TextLook {
+    u32 style_flags = text_style_none;
+    UiTextAlignment horizontal = UiTextAlignment::start;
+    UiTextAlignment vertical = UiTextAlignment::center;
+    UiTextWrapping wrapping = UiTextWrapping::no_wrap;
+    UiTextOverflow overflow = UiTextOverflow::ellipsis;
+    bool owned = false;
+    UiTextFace face = UiTextFace::normal;
+    const UiTextEffect* effect = &no_effect;
+};
+
+constexpr TextLook kLookLine{};
+constexpr TextLook kLookLineOwned{.owned = true};
+constexpr TextLook kLookClipped{.overflow = UiTextOverflow::clip};
+constexpr TextLook kLookCentered{.horizontal = UiTextAlignment::center, .overflow = UiTextOverflow::clip};
+constexpr TextLook kLookSub{.style_flags = text_style_subtext};
+constexpr TextLook kLookSubOwned{.style_flags = text_style_subtext, .owned = true};
+constexpr TextLook kLookBold{.style_flags = text_style_bold};
+constexpr TextLook kLookCode{.style_flags = kTextStyleSizeCodeSm, .owned = true};
+constexpr TextLook kLookTimer{.style_flags = text_style_subtext,
+                              .horizontal = UiTextAlignment::end,
+                              .overflow = UiTextOverflow::clip,
+                              .owned = true};
+constexpr TextLook kLookBadge{.style_flags = text_style_subtext | text_style_bold,
+                              .horizontal = UiTextAlignment::center,
+                              .overflow = UiTextOverflow::clip};
+constexpr TextLook kLookMention{.style_flags = text_style_bold | kTextStyleSizeCodeSm,
+                                .overflow = UiTextOverflow::clip};
+constexpr TextLook kLookDraft{.vertical = UiTextAlignment::start,
+                              .wrapping = UiTextWrapping::wrap,
+                              .overflow = UiTextOverflow::clip};
+constexpr TextLook kLookTop{.vertical = UiTextAlignment::start};
+constexpr TextLook kLookGroup{.style_flags = text_style_subtext | text_style_bold};
+
+bool append_command(const UiWidgetManager& manager, UiWidgetHandle owner, const Utf8View& text,
                     const UiRect& rectangle, const UiRect& clip, const Color& color, UiTextOutput* stream,
-                    UiTextAlignment horizontal_alignment = UiTextAlignment::start,
-                    UiTextAlignment vertical_alignment = UiTextAlignment::start,
-                    UiTextWrapping wrapping = UiTextWrapping::no_wrap,
-                    UiTextOverflow overflow = UiTextOverflow::clip, u32 style_flags = text_style_none,
-                    bool owned = false, UiTextFace face = UiTextFace::normal,
-                    const UiTextEffect& effect = no_effect) noexcept {
+                    const TextLook& look) noexcept {
     if (text.bytes == 0) {
         return true;
     }
@@ -47,14 +78,22 @@ bool append_command(const UiWidgetManager& manager, UiWidgetHandle owner, Utf8Vi
                                 rectangle,
                                 clip,
                                 color,
-                                style_flags,
-                                horizontal_alignment,
-                                vertical_alignment,
-                                wrapping,
-                                overflow,
-                                face,
-                                effect};
-    return owned ? ui_text_output_push_owned(stream, command) : ui_text_output_push(stream, command);
+                                look.style_flags,
+                                look.horizontal,
+                                look.vertical,
+                                look.wrapping,
+                                look.overflow,
+                                look.face,
+                                *look.effect};
+    return look.owned ? ui_text_output_push_owned(stream, command) : ui_text_output_push(stream, command);
+}
+
+// A command clipped to `rectangle` limited to `region`; nothing when that is empty.
+bool append_visible(const UiWidgetManager& manager, UiWidgetHandle owner, const Utf8View& text,
+                    const UiRect& rectangle, const UiRect& region, const Color& color, UiTextOutput* stream,
+                    const TextLook& look) noexcept {
+    const UiRect clip = ui_rect_intersection(rectangle, region);
+    return !ui_rect_has_area(clip) || append_command(manager, owner, text, rectangle, clip, color, stream, look);
 }
 
 // The server acronym: the first character of each word ("MaiCord Lab"
@@ -81,11 +120,10 @@ Utf8View guild_acronym(Utf8View name, Slice<char> storage, u32* characters) noex
     return {storage.data, used};
 }
 
-void reject_atomically(UiTextOutput* stream) noexcept {
-    if (!stream) {
-        return;
-    }
+// A rejected output drops every command it holds; callers `return reject(...)`.
+bool reject(UiTextOutput* stream) noexcept {
     ui_text_output_reject(stream);
+    return false;
 }
 
 Color packed_role_color(u32 packed, const Theme& theme) noexcept {
@@ -127,27 +165,21 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
           !ui_rect_has_area(guild_scene->viewport))) ||
         (channel_scene.active &&
          (!ui_rect_has_area(channel_scene.viewport) || channel_scene.count > channel_scene.rows.count))) {
-        reject_atomically(stream);
-        return false;
+        return reject(stream);
     }
     ui_text_output_reset(stream);
     const UiNode* title = ui_scene_resolve_semantic(scene, UiSemantic::title_bar);
     if (const auto* friends = ui_scene_resolve_semantic(scene, UiSemantic::friends_button)) {
         if (!append_command(scene.widgets, friends->widget, utf8_literal("Friends"),
                             ui_scene_content_rectangle(scene, UiSemantic::friends_button),
-                            friends->rectangle, theme.text_primary, stream, UiTextAlignment::start,
-                            UiTextAlignment::center)) {
-            reject_atomically(stream);
-            return false;
-        }
+                            friends->rectangle, theme.text_primary, stream, kLookClipped))
+            return reject(stream);
     }
     const UiNode* title_label = ui_scene_resolve_semantic(scene, UiSemantic::title_label);
     const UiNode* channel_header = ui_scene_resolve_semantic(scene, UiSemantic::channel_header);
     const UiNode* channel_navigation = ui_scene_resolve_semantic(scene, UiSemantic::channel_navigation);
-    if (!title) {
-        reject_atomically(stream);
-        return false;
-    }
+    if (!title)
+        return reject(stream);
 
     Utf8View title_text = scene.view == UiShellView::friends ? utf8_literal("Friends")
                           : state.home_selected              ? utf8_literal("Direct messages")
@@ -183,18 +215,12 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
     if (title_label && ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, title_label->widget,
                                                  title_text_rectangle, nullptr, &header_slot))
         title_text_rectangle.right = header_slot.badge.rectangle.left - 8;
-    if (header_slot.badge.label.bytes && !ui_badge_text_output(header_slot.badge, scene.widgets, theme, stream)) {
-        reject_atomically(stream);
-        return false;
-    }
+    if (header_slot.badge.label.bytes && !ui_badge_text_output(header_slot.badge, scene.widgets, theme, stream))
+        return reject(stream);
     if (!append_command(scene.widgets, title_text_owner->widget, title_text, title_text_rectangle,
-                        title_text_owner->rectangle, theme.text_primary, stream, UiTextAlignment::start,
-                        UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
-                        text_style_none,
-                        selected_channel && channel_is_private(selected_channel->type))) {
-        reject_atomically(stream);
-        return false;
-    }
+                        title_text_owner->rectangle, theme.text_primary, stream,
+                        selected_channel && channel_is_private(selected_channel->type) ? kLookLineOwned : kLookLine))
+        return reject(stream);
     // A one-to-one DM's activity follows the name (its glyph: private_channel_rows).
     char activity_line[192];
     UiPrivateHeaderActivity activity{};
@@ -202,11 +228,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
         ui_private_header_activity(scene, *navigation.private_rows, selected_channel->id,
                                    {activity_line, sizeof(activity_line)}, &activity) &&
         !append_command(scene.widgets, title_label->widget, activity.line, activity.text, title_label->rectangle,
-                        theme.text_secondary, stream, UiTextAlignment::start, UiTextAlignment::center,
-                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis, kTextStyleSizeCodeSm, true)) {
-        reject_atomically(stream);
-        return false;
-    }
+                        theme.text_secondary, stream, kLookCode))
+        return reject(stream);
 
     if (channel_header) {
         const GuildRecord* selected_guild =
@@ -231,19 +254,12 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 const UiRect shadow{header_text_rectangle.left, header_text_rectangle.top + 1,
                                     header_text_rectangle.right, header_text_rectangle.bottom + 1};
                 if (!append_command(scene.widgets, owner->widget, name, shadow, owner->rectangle,
-                                    theme.tokens.overlay.shadow, stream, UiTextAlignment::start,
-                                    UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis)) {
-                    reject_atomically(stream);
-                    return false;
-                }
+                                    theme.tokens.overlay.shadow, stream, kLookLine))
+                    return reject(stream);
             }
-            if (!append_command(scene.widgets, owner->widget, name, header_text_rectangle,
-                                owner->rectangle, banner ? theme.tokens.text.on_accent : theme.text_primary, stream,
-                                UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                UiTextOverflow::ellipsis)) {
-                reject_atomically(stream);
-                return false;
-            }
+            if (!append_command(scene.widgets, owner->widget, name, header_text_rectangle, owner->rectangle,
+                                banner ? theme.tokens.text.on_accent : theme.text_primary, stream, kLookLine))
+                return reject(stream);
         }
     }
 
@@ -252,10 +268,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
     if (home && rail && navigation.home_badge &&
         !ui_mention_badge_text_output(navigation.home_badge, scene.widgets, home->widget,
                                       ui_mention_badge_guild_rectangle(home->rectangle, navigation.home_badge),
-                                      rail->rectangle, stream)) {
-        reject_atomically(stream);
-        return false;
-    }
+                                      rail->rectangle, stream))
+        return reject(stream);
     const auto* guild_navigation = ui_scene_resolve_semantic(scene, UiSemantic::guild_navigation);
     if (guild_navigation && guild_scene && guild_scene->active) {
         for (u32 index = 0; index < guild_scene->count; ++index) {
@@ -265,49 +279,38 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                     : nullptr;
             if (guild) {
                 const auto* layout = guild_rail_scene_layout_node(*guild_scene, row);
-                if (!layout) {
-                    reject_atomically(stream);
-                    return false;
-                }
+                if (!layout)
+                    return reject(stream);
                 char storage[32];
                 u32 characters = 0;
                 const auto acronym =
                     guild_acronym(chat_state_store_guild_name(state, *guild), {storage, sizeof(storage)}, &characters);
                 const auto clip = ui_rect_intersection(guild_navigation->rectangle, guild_scene->viewport);
+                TextLook look = kLookCentered;
+                look.style_flags = characters <= 2 ? text_style_heading_3 : characters <= 4 ? text_style_none : text_style_subtext;
+                look.owned = true;
                 if (!append_command(guild_scene->widgets, row.widget, acronym,
                                     guild_rail_icon_rectangle(layout->rectangle), clip,
                                     row.view.unavailable || (row.view.muted && !row.view.selected)
                                         ? theme.text_secondary
                                         : theme.text_primary,
-                                    stream,
-                                    UiTextAlignment::center, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                    UiTextOverflow::clip,
-                                    characters <= 2   ? text_style_heading_3
-                                    : characters <= 4 ? text_style_none
-                                                      : text_style_subtext,
-                                    true)) {
-                    reject_atomically(stream);
-                    return false;
-                }
+                                    stream, look))
+                    return reject(stream);
             }
             if (!row.view.mention_count ||
                 (row.view.folder_role == GuildFolderRole::header && row.view.folder_expanded))
                 continue;
             const auto* layout = guild_rail_scene_layout_node(*guild_scene, row);
-            if (!layout) {
-                reject_atomically(stream);
-                return false;
-            }
+            if (!layout)
+                return reject(stream);
             const auto rectangle = ui_mention_badge_guild_rectangle(guild_rail_icon_rectangle(layout->rectangle),
                                                                     row.view.mention_count);
             // Rail badges extend beyond the row; clipping to the row itself
             // would cut the two-DIP overhang shared with the paint geometry.
             const auto clip = ui_rect_intersection(guild_navigation->rectangle, guild_scene->viewport);
             if (!ui_mention_badge_text_output(row.view.mention_count, guild_scene->widgets, row.widget,
-                                              rectangle, clip, stream)) {
-                reject_atomically(stream);
-                return false;
-            }
+                                              rectangle, clip, stream))
+                return reject(stream);
         }
     }
     if (channel_navigation && channel_scene.active) {
@@ -317,10 +320,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             const UiLayoutNode* layout = shell_navigation_scene_layout_node(channel_scene, row_widget);
             const UiLayoutNode* label_layout =
                 ui_widget_manager_layout_node(channel_scene.widgets, row_widget.label);
-            if (!layout || !label_layout) {
-                reject_atomically(stream);
-                return false;
-            }
+            if (!layout || !label_layout)
+                return reject(stream);
             if (layout->rectangle.bottom > channel_navigation->rectangle.top &&
                 layout->rectangle.top < channel_navigation->rectangle.bottom) {
                 const ChannelRecord* channel = chat_state_store_find_channel(state, row.id);
@@ -363,10 +364,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 if (shell_navigation_plugin_badge(channel_scene, index, &plugin)) {
                     text_right = plugin.badge.rectangle.left - 6.0f;
                     name_rectangle.right = minimum(name_rectangle.right, text_right);
-                    if (!ui_badge_text_output(plugin.badge, channel_scene.widgets, theme, stream)) {
-                        reject_atomically(stream);
-                        return false;
-                    }
+                    if (!ui_badge_text_output(plugin.badge, channel_scene.widgets, theme, stream))
+                        return reject(stream);
                 }
                 if (channel && channel_is_private(channel->type)) {
                     const UiRect content = label_layout->content_rectangle;
@@ -379,12 +378,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     subtitle_rectangle = ui_activity_glyph_text(subtitle_rectangle, subtitle_glyph);
                     if (subtitle.bytes && ui_rect_has_area(subtitle_rectangle) &&
                         !append_command(channel_scene.widgets, row_widget.label, subtitle, subtitle_rectangle,
-                                        visible_clip, ui_background_muted_text_color(theme), stream,
-                                        UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis, text_style_subtext)) {
-                        reject_atomically(stream);
-                        return false;
-                    }
+                                        visible_clip, ui_background_muted_text_color(theme), stream, kLookSub))
+                        return reject(stream);
                 }
                 // A voice session's elapsed time ends the name line.
                 char timer[kUiVoiceElapsedBytes];
@@ -393,28 +388,22 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     line.right = text_right;
                     const UiRect box = ui_voice_elapsed_rectangle(line, timer_bytes, theme.scale.space_4, &text_right);
                     name_rectangle.right = minimum(name_rectangle.right, text_right);
-                    if (!append_command(channel_scene.widgets, row_widget.label, {timer, timer_bytes},
-                                        box, visible_clip, theme.tokens.text.positive, stream, UiTextAlignment::end,
-                                        UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::clip,
-                                        text_style_subtext, true)) {
-                        reject_atomically(stream);
-                        return false;
-                    }
+                    if (!append_command(channel_scene.widgets, row_widget.label, {timer, timer_bytes}, box,
+                                        visible_clip, theme.tokens.text.positive, stream, kLookTimer))
+                        return reject(stream);
                 }
-                if (name.bytes != 0 &&
-                    !append_command(
-                        channel_scene.widgets, row_widget.label, name, name_rectangle, visible_clip,
-                        color, stream, UiTextAlignment::start,
-                        channel && channel_is_private(channel->type) ? UiTextAlignment::center
-                                                                             : UiTextAlignment::start,
-                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis, text_style_none,
-                        channel && channel_is_private(channel->type),
-                        appearance ? profile_name_face(appearance->name.font_id) : UiTextFace::normal,
-                        appearance ? profile_name_effect(appearance->name, hovered,
-                                                         channel_scene.widgets.hover_started_ms)
-                                   : UiTextEffect{})) {
-                    reject_atomically(stream);
-                    return false;
+                if (name.bytes != 0) {
+                    const bool private_row = channel && channel_is_private(channel->type);
+                    TextLook look = private_row ? kLookLineOwned : kLookTop;
+                    UiTextEffect effect;
+                    if (appearance) {
+                        look.face = profile_name_face(appearance->name.font_id);
+                        effect = profile_name_effect(appearance->name, hovered, channel_scene.widgets.hover_started_ms);
+                        look.effect = &effect;
+                    }
+                    if (!append_command(channel_scene.widgets, row_widget.label, name, name_rectangle, visible_clip,
+                                        color, stream, look))
+                        return reject(stream);
                 }
                 // A live stage's topic sits on its own line under the name.
                 if (const auto* instance = row.stage_live && navigation.stage_instances
@@ -424,15 +413,10 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     const float top = layout->rectangle.top + kShellNavigationVoiceHeadHeight - 4.0f;
                     const UiRect topic{left, top, layout->rectangle.right - 10.0f,
                                        top + kShellNavigationStageTopicHeight};
-                    const UiRect clip = ui_rect_intersection(topic, channel_navigation->rectangle);
-                    if (ui_rect_has_area(clip) &&
-                        !append_command(channel_scene.widgets, row_widget.widget, stage_instance_topic(*instance), topic,
-                                        clip, ui_background_muted_text_color(theme), stream, UiTextAlignment::start,
-                                        UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
-                                        text_style_subtext)) {
-                        reject_atomically(stream);
-                        return false;
-                    }
+                    if (!append_visible(channel_scene.widgets, row_widget.widget, stage_instance_topic(*instance),
+                                        topic, channel_navigation->rectangle, ui_background_muted_text_color(theme),
+                                        stream, kLookSub))
+                        return reject(stream);
                 }
                 // A voice channel's status, or the connected channel's offer to set one.
                 if (const auto* extras = row.voice_subtitle ? navigation.voice_extras : nullptr) {
@@ -447,41 +431,29 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     UiRect line = ui_voice_status_rectangle(row, layout->rectangle);
                     if (!display_bytes)
                         line.left = minimum(line.right, line.left + 18.0f); // After the pencil.
-                    const UiRect clip = ui_rect_intersection(line, channel_navigation->rectangle);
                     const bool hovered_line = extras->status_hovered && extras->status_channel_id == row.id;
-                    if (ui_rect_has_area(clip) &&
-                        !append_command(channel_scene.widgets, row_widget.widget,
+                    if (!append_visible(channel_scene.widgets, row_widget.widget,
                                         display_bytes ? Utf8View{display, display_bytes}
                                                       : utf8_literal("Set a channel status"),
-                                        line, clip,
+                                        line, channel_navigation->rectangle,
                                         hovered_line ? theme.text_primary : ui_background_muted_text_color(theme),
-                                        stream, UiTextAlignment::start, UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis, text_style_subtext,
-                                        display_bytes != 0)) {
-                        reject_atomically(stream);
-                        return false;
-                    }
+                                        stream, display_bytes ? kLookSubOwned : kLookSub))
+                        return reject(stream);
                 }
                 UiVoiceInviteRow invite{};
                 if (navigation.voice_extras && ui_voice_invite_row(row, layout->rectangle, &invite)) {
-                    const UiRect clip = ui_rect_intersection(invite.label, channel_navigation->rectangle);
-                    if (ui_rect_has_area(clip) &&
-                        !append_command(channel_scene.widgets, row_widget.widget, utf8_literal("Invite to Voice"),
-                                        invite.label, clip,
+                    if (!append_visible(channel_scene.widgets, row_widget.widget, utf8_literal("Invite to Voice"),
+                                        invite.label, channel_navigation->rectangle,
                                         navigation.voice_extras->invite_hovered ? theme.text_primary
                                                                                 : theme.text_secondary,
-                                        stream, UiTextAlignment::start, UiTextAlignment::center,
-                                        UiTextWrapping::no_wrap, UiTextOverflow::ellipsis)) {
-                        reject_atomically(stream);
-                        return false;
-                    }
+                                        stream, kLookLine))
+                        return reject(stream);
                 }
                 UiVoiceParticipantRow voice{};
                 for (u32 i = 0; navigation.voice_states && users &&
                                 ui_voice_participant_row(row, layout->rectangle, *navigation.voice_states, i, &voice);
                      ++i) {
                     const auto* user = user_store_find(*users, voice.state->user_id);
-                    const UiRect clip = ui_rect_intersection(voice.label, channel_navigation->rectangle);
                     // Voice members are named by their server nickname first. A
                     // member absent from the caches still occupies its row while
                     // the account requests it.
@@ -493,23 +465,13 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     const Utf8View voice_name = nickname.bytes ? nickname
                                                 : user         ? user_store_name(*users, *user)
                                                                : utf8_literal("Unknown user");
-                    if (ui_rect_has_area(clip) &&
-                        !append_command(channel_scene.widgets, row_widget.widget, voice_name, voice.label, clip,
-                                        ui_background_muted_text_color(theme), stream, UiTextAlignment::start,
-                                        UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                        UiTextOverflow::ellipsis, text_style_subtext)) {
-                        reject_atomically(stream);
-                        return false;
-                    }
-                    const UiRect live_clip = ui_rect_intersection(voice.live, channel_navigation->rectangle);
-                    if (ui_rect_has_area(live_clip) &&
-                        !append_command(channel_scene.widgets, row_widget.widget, utf8_literal("LIVE"), voice.live,
-                                        live_clip, theme.tokens.text.on_accent, stream, UiTextAlignment::center,
-                                        UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::clip,
-                                        text_style_subtext | text_style_bold)) {
-                        reject_atomically(stream);
-                        return false;
-                    }
+                    if (!append_visible(channel_scene.widgets, row_widget.widget, voice_name, voice.label,
+                                        channel_navigation->rectangle, ui_background_muted_text_color(theme), stream,
+                                        kLookSub) ||
+                        !append_visible(channel_scene.widgets, row_widget.widget, utf8_literal("LIVE"), voice.live,
+                                        channel_navigation->rectangle, theme.tokens.text.on_accent, stream,
+                                        kLookBadge))
+                        return reject(stream);
                 }
                 if (row.mention_count) {
                     const auto* badge =
@@ -519,10 +481,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                             row.mention_count, channel_scene.widgets, row_widget.mention_badge,
                             badge->rectangle,
                             ui_rect_intersection(badge->clip_rectangle, channel_navigation->rectangle),
-                            stream)) {
-                        reject_atomically(stream);
-                        return false;
-                    }
+                            stream))
+                        return reject(stream);
                 }
             }
         }
@@ -536,40 +496,28 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             message_composer_scene_layout_node(*composer_scene, MessageComposerControl::send);
         const UiLayoutNode* typing =
             message_composer_scene_layout_node(*composer_scene, MessageComposerControl::typing_indicator);
-        if (!edit || !send || !typing) {
-            reject_atomically(stream);
-            return false;
-        }
+        if (!edit || !send || !typing)
+            return reject(stream);
         const Utf8View reply_text = message_composer_scene_reply_label(*composer_scene);
         const Utf8View attachments_text = message_composer_scene_attachment_label(*composer_scene);
         if (message_composer_scene_attachment_row(*composer_scene) == message_composer_attachment_row_strip) {
             if (!ui_composer_attachment_strip_text(message_composer_scene_attachment_view(*composer_scene, true),
-                                                   theme, stream)) {
-                reject_atomically(stream);
-                return false;
-            }
+                                                   theme, stream))
+                return reject(stream);
         } else if (attachments_text.bytes) {
             const auto* attachments =
                 message_composer_scene_layout_node(*composer_scene, MessageComposerControl::attachments);
             if (!attachments ||
                 !append_command(composer_scene->widgets, composer_scene->attachments, attachments_text,
                                 attachments->content_rectangle, attachments->clip_rectangle,
-                                ui_background_muted_text_color(theme), stream, UiTextAlignment::start,
-                                UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                UiTextOverflow::ellipsis)) {
-                reject_atomically(stream);
-                return false;
-            }
+                                ui_background_muted_text_color(theme), stream, kLookLine))
+                return reject(stream);
         }
         if (reply_text.bytes != 0 &&
             (!reply || !append_command(composer_scene->widgets, composer_scene->reply, reply_text,
                                        message_composer_scene_reply_text_rectangle(*composer_scene), reply->clip_rectangle,
-                                       theme.text_secondary, stream,
-                                       UiTextAlignment::start, UiTextAlignment::center,
-                                       UiTextWrapping::no_wrap, UiTextOverflow::ellipsis))) {
-            reject_atomically(stream);
-            return false;
-        }
+                                       theme.text_secondary, stream, kLookLine)))
+            return reject(stream);
         const auto mention_text = message_composer_scene_reply_mention_label(*composer_scene);
         if (mention_text.bytes) {
             const auto* mention = message_composer_scene_layout_node(
@@ -578,11 +526,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 mention_text, message_composer_scene_reply_mention_text(*composer_scene),
                 mention->clip_rectangle,
                 composer_scene->mention_reply_author ? theme.tokens.text.link : theme.tokens.text.muted,
-                stream, UiTextAlignment::start, UiTextAlignment::center,
-                UiTextWrapping::no_wrap, UiTextOverflow::clip, text_style_bold | kTextStyleSizeCodeSm)) {
-                reject_atomically(stream);
-                return false;
-            }
+                stream, kLookMention))
+                return reject(stream);
         }
         const Utf8View draft = message_composer_scene_display_text(*composer_scene);
         Utf8View edit_text =
@@ -600,18 +545,12 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
         if (ui_composer_voice_bar_visible(message_composer_scene_voice_mode(*composer_scene)) &&
             composer_scene->voice) {
             if (!ui_composer_voice_bar_text(*composer_scene->voice, edit->content_rectangle, edit_text_clip,
-                                            {&composer_scene->widgets, composer_scene->edit}, theme, stream)) {
-                reject_atomically(stream);
-                return false;
-            }
-        } else if (!append_command(
-                composer_scene->widgets, composer_scene->edit, edit_text, edit_text_rectangle,
-                edit_text_clip, edit_color, stream, UiTextAlignment::start,
-                composer_scene->model->bytes == 0 ? UiTextAlignment::center : UiTextAlignment::start,
-                composer_scene->model->bytes == 0 ? UiTextWrapping::no_wrap : UiTextWrapping::wrap,
-                composer_scene->model->bytes == 0 ? UiTextOverflow::ellipsis : UiTextOverflow::clip)) {
-            reject_atomically(stream);
-            return false;
+                                            {&composer_scene->widgets, composer_scene->edit}, theme, stream))
+                return reject(stream);
+        } else if (!append_command(composer_scene->widgets, composer_scene->edit, edit_text, edit_text_rectangle,
+                                   edit_text_clip, edit_color, stream,
+                                   composer_scene->model->bytes == 0 ? kLookLine : kLookDraft)) {
+            return reject(stream);
         }
         const Utf8View typing_text = message_composer_scene_typing_label(*composer_scene);
         if (typing_text.bytes != 0 &&
@@ -622,11 +561,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                               : composer_scene->status_tone == 2                        ? theme.tokens.text.positive
                               : composer_scene->status_tone == 1                        ? theme.accent
                                                                                         : theme.text_primary), stream,
-                            UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                            UiTextOverflow::ellipsis, text_style_subtext)) {
-            reject_atomically(stream);
-            return false;
-        }
+                            kLookSub))
+            return reject(stream);
     }
     if (const auto* footer = ui_scene_resolve_semantic(scene, UiSemantic::channel_footer); footer && users) {
         const auto* self = user_store_find(*users, state.self_user_id);
@@ -637,9 +573,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             r.top += 6;
             r.bottom = r.top + 22;
             if (!append_command(scene.widgets, footer->widget, user_store_name(*users, *self), r,
-                                footer->rectangle, theme.text_primary, stream, UiTextAlignment::start,
-                                UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
-                                text_style_bold))
+                                footer->rectangle, theme.text_primary, stream, kLookBold))
                 return false;
             r.top = r.bottom;
             r.bottom = footer->rectangle.bottom - 4;
@@ -663,9 +597,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                 status_bytes ? Utf8View{status, status_bytes}
                                              : user_store_username(*users, *self),
                                 r,
-                                footer->rectangle, ui_background_muted_text_color(theme), stream,
-                                UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                UiTextOverflow::ellipsis, text_style_subtext))
+                                footer->rectangle, ui_background_muted_text_color(theme), stream, kLookSub))
                 return false;
         }
         if (const auto* voice = navigation.voice_panel; voice && voice->state != UiVoicePanelState::hidden) {
@@ -696,13 +628,10 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 --used;
             const bool hovered = voice->hovered == UiVoiceControl::channel;
             if (!append_command(scene.widgets, footer->widget, status, ui_voice_panel_status_text(panel), panel,
-                                ui_voice_panel_status_color(*voice, theme), stream, UiTextAlignment::start,
-                                UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
-                                text_style_bold) ||
+                                ui_voice_panel_status_color(*voice, theme), stream, kLookBold) ||
                 !append_command(scene.widgets, footer->widget, {place, used}, ui_voice_panel_channel_text(panel),
                                 panel, hovered ? theme.text_primary : ui_background_muted_text_color(theme),
-                                stream, UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                UiTextOverflow::ellipsis, text_style_subtext, true))
+                                stream, kLookSubOwned))
                 return false;
         }
     }
@@ -762,12 +691,11 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
                 : UiTextEffect{};
         if (!group && !name_effect.kind)
             name_effect = member_role_effect(*member_scene, row.source_row, theme);
-        if (!append_command(
-                member_scene->widgets, row.label, name, r, label->clip_rectangle, color, stream,
-                UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                UiTextOverflow::ellipsis, group ? text_style_subtext | text_style_bold : 0, false,
-                !group && name_style ? profile_name_face(name_style->name.font_id) : UiTextFace::normal,
-                name_effect))
+        TextLook look = group ? kLookGroup : kLookLine;
+        if (!group && name_style)
+            look.face = profile_name_face(name_style->name.font_id);
+        look.effect = &name_effect;
+        if (!append_command(member_scene->widgets, row.label, name, r, label->clip_rectangle, color, stream, look))
             return false;
         if (subtitle) {
             // The activity glyph (shell_presentation_build_member_status_overlay) leads the line.
@@ -777,17 +705,14 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
                     auto emoji = sub;
                     emoji.right = emoji.left + 16;
                     if (!append_command(member_scene->widgets, row.label, status.emoji, emoji,
-                                        label->clip_rectangle, theme.text_primary, stream,
-                                        UiTextAlignment::center, UiTextAlignment::center))
+                                        label->clip_rectangle, theme.text_primary, stream, kLookCentered))
                         return false;
                 }
                 sub.left += 20;
             }
             if (status.text.bytes &&
                 !append_command(member_scene->widgets, row.label, status.text, sub, label->clip_rectangle,
-                                ui_background_muted_text_color(theme), stream, UiTextAlignment::start,
-                                UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
-                                text_style_subtext))
+                                ui_background_muted_text_color(theme), stream, kLookSub))
                 return false;
         }
         if ((bot || tag) && !ui_badge_text_output(badge, member_scene->widgets, theme, stream))

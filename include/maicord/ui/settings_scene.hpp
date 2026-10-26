@@ -228,7 +228,7 @@ struct UiSettingsTarget {
     UiPageKey page;
     u64 control_id;
 };
-constexpr bool ui_settings_target_equal(UiSettingsTarget a, UiSettingsTarget b) noexcept {
+constexpr bool ui_settings_target_equal(const UiSettingsTarget& a, const UiSettingsTarget& b) noexcept {
     return a.kind == b.kind && ui_page_key_equal(a.page, b.page) && a.control_id == b.control_id;
 }
 
@@ -308,12 +308,12 @@ struct UiSettingsModalLayout {
     bool compact;
 };
 struct UiSettingsLayoutTokens;
-UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens&, UiRect viewport,
+UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens&, const UiRect& viewport,
                                                UiSettingsPresentation) noexcept;
 // Dialogs: shrinks a non-compact layout to the content height (title through
 // footer band) and re-centres it vertically; taller content keeps the full
 // height and scrolls its body.
-void ui_settings_dialog_fit(UiSettingsModalLayout*, UiRect viewport, float content_height) noexcept;
+void ui_settings_dialog_fit(UiSettingsModalLayout*, const UiRect& viewport, float content_height) noexcept;
 
 // Toggle animation of one control on the selected page.
 struct UiSettingsAnimation {
@@ -374,7 +374,7 @@ bool ui_settings_scene_spinner_visible(const UiSettingsScene&) noexcept;
 // Lazy one-allocation retained scene. Only viewport rows and two spacers per
 // list are materialized; inactive scenes have no widget allocation. UI thread.
 bool ui_settings_scene_bind_theme_styles(UiSettingsScene*, const UiResolvedThemeStyles*) noexcept;
-bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, UiRect viewport) noexcept;
+bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, const UiRect& viewport) noexcept;
 // The page check ui_settings_scene_update applies; owners use it to tell a
 // malformed projection apart from a transient (viewport) rejection.
 bool ui_settings_page_content_valid(const UiSettingsPageContent& content) noexcept;
@@ -402,47 +402,47 @@ bool ui_settings_scene_scroll(UiSettingsScene* scene, bool sidebar, float delta)
 UiScrollbarGeometry ui_settings_scene_scrollbar(const UiSettingsScene& scene, bool sidebar) noexcept;
 // Builds a semantic request; never mutates settings or invokes module code.
 // Page selection and close are also returned to the host as target kinds.
-bool ui_settings_scene_activation(const UiSettingsScene& scene, UiSettingsTarget target, bool reverse,
+bool ui_settings_scene_activation(const UiSettingsScene& scene, const UiSettingsTarget& target, bool reverse,
                                   UiSettingsActivation* activation) noexcept;
 // Borrowed descriptor and value anchor for host-owned native controls. Reject
 // stale scenes; descriptor remains immutable until its content revision changes.
-const UiSettingsControl* ui_settings_scene_control(const UiSettingsScene&, UiSettingsTarget,
+const UiSettingsControl* ui_settings_scene_control(const UiSettingsScene&, const UiSettingsTarget&,
                                                    u32* index = nullptr) noexcept;
-bool ui_settings_scene_control_anchor(const UiSettingsScene&, UiSettingsTarget, UiRect*) noexcept;
+bool ui_settings_scene_control_anchor(const UiSettingsScene&, const UiSettingsTarget&, UiRect*) noexcept;
 // Full field/text coordinates plus exact visible clip. A field clipped away
 // by the scrolling body or sticky footer has no geometry/input target.
-bool ui_settings_scene_control_geometry(const UiSettingsScene&, UiSettingsTarget,
+bool ui_settings_scene_control_geometry(const UiSettingsScene&, const UiSettingsTarget&,
                                         UiSettingsControlGeometry*) noexcept;
 // Only inline edit/multiline fields participate, never their labels or footer.
 bool ui_settings_scene_editor_hit(const UiSettingsScene&, float x, float y,
                                   UiSettingsControlGeometry*) noexcept;
 bool ui_settings_scene_bind_palette(UiSettingsScene*, UiSettingsPaletteSource) noexcept;
-bool ui_settings_scene_slider_geometry(const UiSettingsScene&, UiSettingsTarget,
+bool ui_settings_scene_slider_geometry(const UiSettingsScene&, const UiSettingsTarget&,
                                        UiSettingsSliderGeometry*) noexcept;
-bool ui_settings_scene_slider_hit(const UiSettingsScene&, UiSettingsTarget, float x, float y) noexcept;
-bool ui_settings_scene_slider_pointer(const UiSettingsScene&, UiSettingsTarget, float x,
+bool ui_settings_scene_slider_hit(const UiSettingsScene&, const UiSettingsTarget&, float x, float y) noexcept;
+bool ui_settings_scene_slider_pointer(const UiSettingsScene&, const UiSettingsTarget&, float x,
                                       UiSettingsActivation*) noexcept;
-bool ui_settings_scene_slider_key(const UiSettingsScene&, UiSettingsTarget, UiSettingsSliderKey,
+bool ui_settings_scene_slider_key(const UiSettingsScene&, const UiSettingsTarget&, UiSettingsSliderKey,
                                   UiSettingsActivation*) noexcept;
-bool ui_settings_scene_palette_pointer(const UiSettingsScene&, UiSettingsTarget, float x, float y,
+bool ui_settings_scene_palette_pointer(const UiSettingsScene&, const UiSettingsTarget&, float x, float y,
                                        UiSettingsActivation*) noexcept;
-bool ui_settings_scene_palette_hover(UiSettingsScene*, UiSettingsTarget, float x, float y) noexcept;
+bool ui_settings_scene_palette_hover(UiSettingsScene*, const UiSettingsTarget&, float x, float y) noexcept;
 // Radio rows resolve the option under the pointer.
-bool ui_settings_scene_radio_pointer(const UiSettingsScene&, UiSettingsTarget, float x, float y,
+bool ui_settings_scene_radio_pointer(const UiSettingsScene&, const UiSettingsTarget&, float x, float y,
                                      UiSettingsActivation*) noexcept;
 // Notice and action rows activate only on their button (list rows on the
 // whole row); edit rows with an action_label on the button beside the field.
-bool ui_settings_scene_button_hit(const UiSettingsScene&, UiSettingsTarget, float x, float y) noexcept;
+bool ui_settings_scene_button_hit(const UiSettingsScene&, const UiSettingsTarget&, float x, float y) noexcept;
 // Segments and swatches rows resolve the option under the pointer; list rows
 // the part (UiSettingsListPart).
-bool ui_settings_scene_option_pointer(const UiSettingsScene&, UiSettingsTarget, float x, float y,
+bool ui_settings_scene_option_pointer(const UiSettingsScene&, const UiSettingsTarget&, float x, float y,
                                       UiSettingsActivation*) noexcept;
 // Full rectangle of one option of a radio or segments row, or one part of a
 // list row (what the pointer helpers above hit-test); false for other kinds
 // or an unmaterialized row.
-bool ui_settings_scene_choice_rectangle(const UiSettingsScene&, UiSettingsTarget, u32 choice, UiRect*) noexcept;
+bool ui_settings_scene_choice_rectangle(const UiSettingsScene&, const UiSettingsTarget&, u32 choice, UiRect*) noexcept;
 // The leading drag handle of a grip row.
-bool ui_settings_scene_grip_hit(const UiSettingsScene&, UiSettingsTarget, float x, float y) noexcept;
+bool ui_settings_scene_grip_hit(const UiSettingsScene&, const UiSettingsTarget&, float x, float y) noexcept;
 // Materialized row nearest to y and whether y falls in its lower half.
 bool ui_settings_scene_drop_target(const UiSettingsScene&, float y, u64* control_id, bool* after) noexcept;
 // Drag feedback for list reordering; zero ids clear it.
@@ -460,11 +460,11 @@ bool ui_settings_scene_search_geometry(const UiSettingsScene&, UiSettingsControl
 bool ui_settings_scene_set_flash(UiSettingsScene*, u64 control_id, float strength) noexcept;
 // Starts the thumb animation of a toggled switch. Ticks advance the clock;
 // tick returns whether a frame is needed.
-bool ui_settings_scene_animate_toggle(UiSettingsScene*, UiSettingsTarget, bool checked, u64 now_ms) noexcept;
+bool ui_settings_scene_animate_toggle(UiSettingsScene*, const UiSettingsTarget&, bool checked, u64 now_ms) noexcept;
 bool ui_settings_scene_tick(UiSettingsScene*, u64 now_ms, bool reduced_motion) noexcept;
 bool ui_settings_scene_animating(const UiSettingsScene&) noexcept;
 // Scrolls a control into view (with padding) without changing focus.
-bool ui_settings_scene_reveal(UiSettingsScene*, UiSettingsTarget) noexcept;
+bool ui_settings_scene_reveal(UiSettingsScene*, const UiSettingsTarget&) noexcept;
 
 struct UiSettingsPaintRanges {
     u32 page_first_quad, page_end_quad;

@@ -49,14 +49,14 @@ float advance(u8 byte) noexcept {
 }
 } // namespace
 
-float ui_settings_text_width(Utf8View text, float em) noexcept {
+float ui_settings_text_width(const Utf8View& text, float em) noexcept {
     float width = 0;
     for (u32 i = 0; i < text.bytes; ++i)
         width += advance(static_cast<u8>(text.data[i]));
     return width * em;
 }
 
-u32 ui_settings_text_lines(Utf8View text, float em, float width) noexcept {
+u32 ui_settings_text_lines(const Utf8View& text, float em, float width) noexcept {
     if (!text.bytes)
         return 0;
     if (!(width > em))

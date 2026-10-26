@@ -13,7 +13,7 @@ float ui_segments_width(const UiSettingsLayoutTokens& tokens, u32 count) noexcep
     return count ? count * tokens.metric.segment_size + (count - 1) * tokens.metric.segment_gap : 0;
 }
 
-UiRect ui_segments_option(const UiSettingsLayoutTokens& tokens, UiRect group, u32 count, u32 index) noexcept {
+UiRect ui_segments_option(const UiSettingsLayoutTokens& tokens, const UiRect& group, u32 count, u32 index) noexcept {
     if (index >= count)
         return {};
     const float size = tokens.metric.segment_size;
@@ -22,7 +22,7 @@ UiRect ui_segments_option(const UiSettingsLayoutTokens& tokens, UiRect group, u3
     return {left, top, left + size, top + size};
 }
 
-u32 ui_segments_hit(const UiSettingsLayoutTokens& tokens, UiRect group, u32 count, float x, float y) noexcept {
+u32 ui_segments_hit(const UiSettingsLayoutTokens& tokens, const UiRect& group, u32 count, float x, float y) noexcept {
     // Gaps resolve to the nearer option so the group has no dead pixels.
     const float half = tokens.metric.segment_gap * .5f;
     for (u32 i = 0; i < count; ++i) {
@@ -34,7 +34,7 @@ u32 ui_segments_hit(const UiSettingsLayoutTokens& tokens, UiRect group, u32 coun
     return ~0u;
 }
 
-bool ui_segments_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect group, u32 count, u32 selected,
+bool ui_segments_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& group, u32 count, u32 selected,
                        u32 hovered, UiControlState state) noexcept {
     const auto& c = tokens.color;
     const float alpha = state.enabled ? 1.f : tokens.disabled_alpha, radius = tokens.metric.control_radius * .75f;
@@ -45,9 +45,7 @@ bool ui_segments_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRec
         const bool pressed = hover && state.pressed;
         const Color fill = on ? c.brand : pressed ? c.mod_strong : hover ? c.mod_normal : c.input_background;
         const Color border = on ? ui_settings_color_alpha(c.border_subtle, .5f) : c.input_border;
-        ok = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom,
-                                              ui_settings_color_alpha(fill, alpha),
-                                              ui_settings_color_alpha(border, alpha), radius, 1);
+        ok = paint_stream_push_rounded_border(paint, r, ui_settings_color_alpha(fill, alpha), ui_settings_color_alpha(border, alpha), radius, 1);
     }
     if (ok && state.focused && count) {
         const u32 ring = selected < count ? selected : 0;
@@ -64,29 +62,27 @@ float ui_tristate_radius(const UiSettingsLayoutTokens& tokens) noexcept {
     return tokens.metric.control_radius * .5f;
 }
 
-UiRect ui_tristate_option(const UiSettingsLayoutTokens& tokens, UiRect group, u32 index) noexcept {
+UiRect ui_tristate_option(const UiSettingsLayoutTokens& tokens, const UiRect& group, u32 index) noexcept {
     if (index >= kUiTristateCount)
         return {};
     const float width = tokens.metric.tristate_segment, left = group.left + index * width;
     return {left, group.top, left + width, group.bottom};
 }
 
-u32 ui_tristate_hit(const UiSettingsLayoutTokens& tokens, UiRect group, float x, float y) noexcept {
+u32 ui_tristate_hit(const UiSettingsLayoutTokens& tokens, const UiRect& group, float x, float y) noexcept {
     if (!ui_rect_contains(group, x, y) || !(tokens.metric.tristate_segment > 0))
         return ~0u;
     const u32 index = static_cast<u32>((x - group.left) / tokens.metric.tristate_segment);
     return index < kUiTristateCount ? index : kUiTristateCount - 1;
 }
 
-bool ui_tristate_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect group, u32 selected,
+bool ui_tristate_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& group, u32 selected,
                        u32 hovered, UiControlState state) noexcept {
     const auto& c = tokens.color;
     const float alpha = state.enabled ? 1.f : tokens.disabled_alpha, radius = ui_tristate_radius(tokens);
     // One bordered group; segment fills sit inside the border on the
     // concentric inner shape, so the end segments keep its corners.
-    bool ok = paint_stream_push_rounded_border(paint, group.left, group.top, group.right, group.bottom,
-                                               ui_settings_color_alpha(c.input_background, alpha),
-                                               ui_settings_color_alpha(c.border_subtle, alpha), radius, 1);
+    bool ok = paint_stream_push_rounded_border(paint, group, ui_settings_color_alpha(c.input_background, alpha), ui_settings_color_alpha(c.border_subtle, alpha), radius, 1);
     const UiRect inner{group.left + 1, group.top + 1, group.right - 1, group.bottom - 1};
     const float inner_radius = maximum(0.f, radius - 1);
     const Color positive = ui_settings_color_mix(c.positive, {0, 0, 0, 1}, tokens.light ? 0 : .35f);
@@ -105,8 +101,7 @@ bool ui_tristate_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRec
             const float left = i == 0 ? inner.left : option.left, right = i == 2 ? inner.right : option.right;
             ok = i == 1 ? paint_stream_push(paint, left, inner.top, right, inner.bottom, fill)
                         : paint_stream_push_clip(paint, left, inner.top, right, inner.bottom) &&
-                              paint_stream_push_rounded(paint, inner.left, inner.top, inner.right, inner.bottom, fill,
-                                                        inner_radius) &&
+                              paint_stream_push_rounded(paint, inner, fill, inner_radius) &&
                               paint_stream_pop_clip(paint);
         }
         const Color glyph = on ? (i == 1 ? c.text_strong : c.on_brand)
@@ -147,7 +142,7 @@ float ui_color_grid_height(const UiSettingsLayoutTokens& tokens, u32 count, floa
     return rows ? rows * pitch(tokens) - tokens.metric.color_gap + ring_room(tokens) * 2 : 0;
 }
 
-UiRect ui_color_grid_cell(const UiSettingsLayoutTokens& tokens, UiRect field, u32 index) noexcept {
+UiRect ui_color_grid_cell(const UiSettingsLayoutTokens& tokens, const UiRect& field, u32 index) noexcept {
     const float room = ring_room(tokens);
     const u32 columns = ui_color_grid_columns(tokens, ui_rect_width(field) - room * 2);
     const float left = field.left + room + (index % columns) * pitch(tokens);
@@ -155,7 +150,7 @@ UiRect ui_color_grid_cell(const UiSettingsLayoutTokens& tokens, UiRect field, u3
     return {left, top, left + tokens.metric.color_cell, top + tokens.metric.color_cell};
 }
 
-u32 ui_color_grid_hit(const UiSettingsLayoutTokens& tokens, UiRect field, u32 count, float x, float y) noexcept {
+u32 ui_color_grid_hit(const UiSettingsLayoutTokens& tokens, const UiRect& field, u32 count, float x, float y) noexcept {
     for (u32 i = 0; i < count; ++i) {
         const auto cell = ui_color_grid_cell(tokens, field, i);
         if (ui_rect_contains({cell.left - 2, cell.top - 2, cell.right + 2, cell.bottom + 2}, x, y))
@@ -164,14 +159,12 @@ u32 ui_color_grid_hit(const UiSettingsLayoutTokens& tokens, UiRect field, u32 co
     return ~0u;
 }
 
-bool ui_color_grid_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect cell, Color fill, bool selected,
+bool ui_color_grid_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& cell, const Color& fill, bool selected,
                          UiControlState state) noexcept {
     const auto& c = tokens.color;
     const auto& m = tokens.metric;
     const float alpha = state.enabled ? 1.f : tokens.disabled_alpha, radius = m.control_radius * .5f;
-    bool ok = paint_stream_push_rounded_border(paint, cell.left, cell.top, cell.right, cell.bottom,
-                                               ui_settings_color_alpha(fill, alpha),
-                                               ui_settings_color_alpha(c.border_subtle, alpha), radius, 1);
+    bool ok = paint_stream_push_rounded_border(paint, cell, ui_settings_color_alpha(fill, alpha), ui_settings_color_alpha(c.border_subtle, alpha), radius, 1);
     // Selection and hover share one concentric ring; focus wraps it directly,
     // since packed cells leave no room for another gap.
     if (ok && (selected || state.hovered))

@@ -31,15 +31,14 @@ void project_audit(Bank& bank) noexcept {
     push({control_filter_action, utf8_literal("Filter by action"), {}, UiSettingsControlKind::choice, editable(),
           false, {p.audit_action_choice, 1}, 0, {}, nullptr});
     if (p.audit_failed)
-        push(notice(utf8_literal("Couldn't load the audit log"), p.status, utf8_literal("Try again")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error(utf8_literal("Couldn't load the audit log"), p.status, utf8_literal("Try again"));
     else if (p.failed && p.status.bytes)
-        push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error({}, p.status);
     else if (!p.audit_complete && !p.audit_count)
-        push(loading(utf8_literal("Loading the audit logÃ¢â‚¬Â¦")));
-    push(category(control_list_category, utf8_literal("Recent actions")));
+        push_loading(utf8_literal("Loading the audit logÃ¢â‚¬Â¦"));
+    push_category(control_list_category, utf8_literal("Recent actions"));
     if (p.audit_complete && !p.audit_count)
-        push(notice({}, utf8_literal("No matching actions.")));
+        push_notice(utf8_literal("No matching actions."));
     const u64 now = clock_unix_milliseconds();
     for (u32 i = 0; i < p.audit_count; ++i) {
         const auto& entry = p.audit[i];
@@ -77,22 +76,19 @@ void project_audit(Bank& bank) noexcept {
             bank.add({entry.reason, entry.reason_bytes});
         }
         const auto description = bank.since(detail);
-        const u32 row =
-            push({kRowBase + i, label, description, UiSettingsControlKind::action, true, false, {}, 0, {}, nullptr},
-                 {UiSettingsVariant::standard,
-                  static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_compact |
-                                  ui_settings_presentation_accent),
-                  kUiSettingsNoDefault});
+        const u32 row = push_row(kRowBase + i, label, description, UiSettingsControlKind::action, true, false, {},
+                                 {UiSettingsVariant::standard,
+                                  static_cast<u8>(ui_settings_presentation_avatar |
+                                                  ui_settings_presentation_compact |
+                                                  ui_settings_presentation_accent),
+                                  kUiSettingsNoDefault});
         if (row < kControlCapacity)
             p.avatar_media[row] = audit_avatar(entry.user_id);
         p.row_accent[i] = person_color(entry.user_id);
     }
     // Older actions load when this row scrolls into view.
-    if (p.audit_count && !p.audit_complete) {
-        auto row = loading(utf8_literal("Loading older actionsÃ¢â‚¬Â¦"));
-        row.id = control_more;
-        push(row);
-    }
+    if (p.audit_count && !p.audit_complete)
+        push_loading(utf8_literal("Loading older actionsÃ¢â‚¬Â¦"), control_more);
 }
 
 void reset_audit() noexcept {

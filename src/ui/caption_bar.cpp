@@ -246,7 +246,7 @@ bool ui_caption_bar_paint(PaintStream* paint, const Theme& theme, const UiCaptio
         return *pressed || (state.hovered == part && state.pressed == UiCaptionPart::none);
     };
     const auto push_fill = [&](const UiRect& r, Color color) noexcept {
-        return paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, color, radius);
+        return paint_stream_push_rounded(paint, r, color, radius);
     };
     const auto item_box = [&](const UiRect& item) noexcept {
         const float icon = snap(theme.scale.caption_icon, pixel_scale);

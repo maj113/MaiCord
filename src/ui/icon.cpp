@@ -6,7 +6,7 @@ namespace {
 bool push_icon_quad(PaintStream* paint, UiIcon icon, const UiRect& box, const Color& color, bool solid,
                     float weight) noexcept {
     const u32 before = paint->count;
-    if (!paint_stream_push(paint, box.left, box.top, box.right, box.bottom, color))
+    if (!paint_stream_push(paint, box, color))
         return false;
     if (paint->count != before) {
         auto& quad = paint->quads[before];

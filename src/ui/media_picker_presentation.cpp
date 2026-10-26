@@ -21,8 +21,8 @@ bool active_widget(const UiMediaPickerScene& scene, UiWidgetHandle widget) noexc
            (scene.widgets.focused.slot == widget.slot &&
             scene.widgets.focused.generation == widget.generation);
 }
-bool text(UiTextOutput* output, const UiMediaPickerScene& scene, UiWidgetHandle owner, Utf8View value,
-          UiRect rectangle, UiRect region, Color color, u32 flags = 0,
+bool text(UiTextOutput* output, const UiMediaPickerScene& scene, UiWidgetHandle owner, const Utf8View& value,
+          const UiRect& rectangle, const UiRect& region, const Color& color, u32 flags = 0,
           UiTextAlignment alignment = UiTextAlignment::start,
           UiTextOverflow overflow = UiTextOverflow::ellipsis) noexcept {
     const auto clip = ui_rect_intersection(rectangle, region);
@@ -93,7 +93,7 @@ bool paint_band(PaintStream* paint, UiRect band, UiRect panel, const Theme& them
         plate.right += radius;
     if (plate.top > panel.top)
         plate.top -= radius;
-    return paint_stream_push_clip(paint, band.left, band.top, band.right, band.bottom) &&
+    return paint_stream_push_clip(paint, band) &&
            ui_background_paint_surface(paint, plate, theme, theme.base_lower, theme.base_lower, radius, 0, .9f,
                                        UiBackgroundSurfaceMode::gradient, UiBackgroundTier::lower) &&
            paint_stream_pop_clip(paint);
@@ -107,7 +107,7 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
     const auto& m = style.metrics;
     const auto panel = scene.panel;
     if (!ui_surface_shadow_paint_isolated(paint, panel, theme, UiElevation::popover, style.panel_radius) ||
-        !paint_stream_push_clip(paint, panel.left, panel.top, panel.right, panel.bottom))
+        !paint_stream_push_clip(paint, panel))
         return false;
     bool ok =
         ui_surface_paint_plate(paint, panel, theme, UiElevation::popover, style.panel_radius) &&
@@ -122,11 +122,8 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
             continue;
         const auto r = widget_rectangle(scene, widget);
         if (i == static_cast<u32>(scene.kind) || active_widget(scene, widget))
-            ok = paint_stream_push_rounded(
-                paint, r.left, r.top, r.right, r.bottom,
-                ui_background_hover_color(
-                    theme, i == static_cast<u32>(scene.kind) ? theme.surface_high : theme.surface, .28f),
-                scene.style.edit_radius);
+            ok = paint_stream_push_rounded(paint, r, ui_background_hover_color(
+                theme, i == static_cast<u32>(scene.kind) ? theme.surface_high : theme.surface, .28f), scene.style.edit_radius);
         ok = ok &&
              paint_stream_record_content(paint, {&scene.widgets, widget}, r, UiLayoutContentKind::control,
                                          ui_layout_content_bounds_allow_overlap);
@@ -154,7 +151,7 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
                                scene.footer.top + 1, theme.surface_high);
     const auto grid = grid_region(scene);
     if (ok)
-        ok = paint_stream_push_clip(paint, grid.left, grid.top, grid.right, grid.bottom);
+        ok = paint_stream_push_clip(paint, grid);
     if (ok) {
         const bool gif = scene.kind == UiMediaPickerKind::gif;
         for (u32 i = 0; ok && i < scene.cell_count; ++i) {
@@ -164,9 +161,7 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
             // Emoji and stickers rest on the panel; the inspected cell is filled.
             if (!gif) {
                 if (selected)
-                    ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom,
-                                                   ui_background_hover_color(theme, theme.surface_high, .28f),
-                                                   scene.style.control_radius);
+                    ok = paint_stream_push_rounded(paint, r, ui_background_hover_color(theme, theme.surface_high, .28f), scene.style.control_radius);
             } else {
                 const Color fill = selected ? ui_background_hover_color(theme, theme.surface_high, .28f)
                                             : theme.base_low;
@@ -207,8 +202,7 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
         ok = paint_stream_pop_clip(paint) && ok;
     }
     if (ok)
-        ok = paint_stream_push_clip(paint, scene.body.left, scene.body.top, scene.body.right,
-                                    scene.body.bottom);
+        ok = paint_stream_push_clip(paint, scene.body);
     if (ok) {
         // Section headers: label after the list inset, chevron before the gutter.
         for (u32 i = 0; ok && i < scene.header_count; ++i) {
@@ -223,8 +217,7 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
         }
         ok = paint_stream_pop_clip(paint) && ok;
     }
-    if (scene.rail_count && !paint_stream_push_clip(paint, scene.rail.left, scene.rail.top,
-                                                    scene.rail.right, scene.rail.bottom))
+    if (scene.rail_count && !paint_stream_push_clip(paint, scene.rail))
         return false;
     // Rail artwork is text (emoji glyphs, server acronyms) or server icon
     // media; only the hover/current-category plate and the separator after the
@@ -247,10 +240,7 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
         }
         const bool hovered = active_widget(scene, slot.widget);
         if (ok && (hovered || slot.section_index == current))
-            ok = paint_stream_push_rounded(
-                paint, r.left, r.top, r.right, r.bottom,
-                ui_background_hover_color(theme, hovered ? theme.surface_high : theme.surface, .28f),
-                scene.style.control_radius);
+            ok = paint_stream_push_rounded(paint, r, ui_background_hover_color(theme, hovered ? theme.surface_high : theme.surface, .28f), scene.style.control_radius);
     }
     if (scene.rail_count)
         ok = paint_stream_pop_clip(paint) && ok;
@@ -265,7 +255,7 @@ bool ui_media_picker_scene_paint_foreground(const UiMediaPickerScene& scene, con
     if (!ui_media_picker_scene_current(scene))
         return true;
     const auto grid = grid_region(scene);
-    if (!paint_stream_push_clip(paint, grid.left, grid.top, grid.right, grid.bottom))
+    if (!paint_stream_push_clip(paint, grid))
         return false;
     bool ok = true;
     for (u32 i = 0; ok && i < scene.cell_count; ++i) {
@@ -273,9 +263,7 @@ bool ui_media_picker_scene_paint_foreground(const UiMediaPickerScene& scene, con
         if (!active_widget(scene, cell.widget) || cell.item.kind != UiMediaPickerItemKind::gif)
             continue;
         const auto r = cell.rectangle;
-        ok = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, Color{0, 0, 0, 0},
-                                              theme.tokens.emphasis.outline, scene.style.control_radius,
-                                              scene.style.selection_width);
+        ok = paint_stream_push_rounded_border(paint, r, Color{0, 0, 0, 0}, theme.tokens.emphasis.outline, scene.style.control_radius, scene.style.selection_width);
         UiRect button_clip{}, button{};
         if (ok && ui_media_picker_scene_favorite(scene, i, &button_clip, &button)) {
             const auto& m = scene.style.metrics;
@@ -286,18 +274,13 @@ bool ui_media_picker_scene_paint_foreground(const UiMediaPickerScene& scene, con
             auto color = cell.item.favorite ? theme.tokens.emphasis.outline : theme.text_primary;
             if (cell.item.favorite_pending)
                 color.alpha *= .5f;
-            if (!paint_stream_push_clip(paint, button_clip.left, button_clip.top, button_clip.right,
-                                        button_clip.bottom)) {
+            if (!paint_stream_push_clip(paint, button_clip)) {
                 ok = false;
                 break;
             }
             // The star button nests in the tile's corner: concentric radius.
-            ok = paint_stream_push_rounded_border(
-                     paint, button.left, button.top, button.right, button.bottom, theme.base_lower,
-                     theme.interactive,
-                     maximum(0.f, minimum(scene.style.control_radius - m.emoji_padding,
-                                          minimum(ui_rect_width(button), ui_rect_height(button)) * .5f)),
-                     1) &&
+            ok = paint_stream_push_rounded_border(paint, button, theme.base_lower, theme.interactive, maximum(0.f, minimum(scene.style.control_radius - m.emoji_padding,
+                                 minimum(ui_rect_width(button), ui_rect_height(button)) * .5f)), 1) &&
                  paint_stream_record_content(paint, {&scene.widgets, cell.widget}, button_clip,
                                              UiLayoutContentKind::control,
                                              ui_layout_content_bounds_allow_overlap) &&

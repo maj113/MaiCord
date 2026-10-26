@@ -44,7 +44,9 @@ void ui_typing_dots_geometry(UiRect row, u16 phase, UiTypingDot output[kUiTyping
         output[i] = {{cx - half, middle - half, cx + half, middle + half}, opacity};
     }
 }
-void ui_typing_dots_quads(UiRect row, Color color, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept {
+void ui_typing_dots_quads(const UiRect& row_view, const Color& color_view, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept {
+    const UiRect row = row_view; // the quads are written below
+    const Color color = color_view;
     UiTypingDot dots[kUiTypingDotCount];
     ui_typing_dots_geometry(row, phase, dots);
     for (u32 i = 0; i < kUiTypingDotCount; ++i) {

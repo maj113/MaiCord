@@ -57,11 +57,10 @@ void project(Bank& bank) noexcept {
         bool settled = false;
         server_profile(&settled);
         if (settled && !read_pending())
-            push(notice(utf8_literal("Something went wrong"), utf8_literal("We couldn't load the profile for this server."),
-                        utf8_literal("Retry")),
-                 {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+            push_error(utf8_literal("Something went wrong"), utf8_literal("We couldn't load the profile for this server."),
+                       utf8_literal("Retry"));
         else
-            push(loading(utf8_literal("Loading the server profile…")));
+            push_loading(utf8_literal("Loading the server profile…"));
         return;
     }
     const bool edit = editable() && can_manage_guild();
@@ -69,7 +68,7 @@ void project(Bank& bank) noexcept {
     push({control_name, utf8_literal("Name"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
           &editor_view(editor_name, control_name, utf8_literal("Name"), edit)});
 
-    push(category(control_banner_category, utf8_literal("Icon")));
+    push_category(control_banner_category, utf8_literal("Icon"));
     const auto* g = guild();
     const Utf8View guild_name = g ? bank.add(chat_state_store_guild_name(state(), *g)) : Utf8View{};
     const Utf8View icon_text =
@@ -86,17 +85,16 @@ void project(Bank& bank) noexcept {
               }()
             : utf8_literal("We recommend an image of at least 512x512.");
     const u32 header_row =
-        push({control_header, guild_name.bytes ? guild_name : utf8_literal("Server"), icon_text,
-              UiSettingsControlKind::action, true, false, {}, 0, edit ? utf8_literal("Change Server Icon") : Utf8View{},
-              nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
+        push_row(control_header, guild_name.bytes ? guild_name : utf8_literal("Server"), icon_text,
+                 UiSettingsControlKind::action, true, false, edit ? utf8_literal("Change Server Icon") : Utf8View{},
+                 {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
     // The stored icon until a save replaces or removes it.
     if (header_row < kControlCapacity && d.icon == GuildProfileImageEdit::keep && d.profile.icon_bytes)
         p.avatar_media[header_row] = application_guild_icon_media(p.guild_id);
     if (has_icon())
-        push({control_icon_remove, utf8_literal("Remove Icon"), {}, UiSettingsControlKind::action, edit, false, {}, 0,
-              utf8_literal("Remove"), nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        push_row(control_icon_remove, utf8_literal("Remove Icon"), {}, UiSettingsControlKind::action, edit, false,
+                 utf8_literal("Remove"),
+                 {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
 
     // "Server Icon Color" and the presets; an uploaded banner selects none.
     auto& names = p.color_names;
@@ -114,12 +112,12 @@ void project(Bank& bank) noexcept {
                        edit)});
 
     const bool discoverable = d.profile.discoverable;
-    push({control_private, utf8_literal("Private Profile"),
-          discoverable ? utf8_literal("Discoverable servers cannot have their content hidden. You can change this "
-                                      "setting in Access")
-                       : utf8_literal("When enabled, only server members can view profile content. Non-members won't "
-                                      "be able to see this content unless they have an invite."),
-          UiSettingsControlKind::toggle, edit && !discoverable, guild_server_profile_private(d), {}, 0, {}, nullptr});
+    push_row(control_private, utf8_literal("Private Profile"),
+             discoverable ? utf8_literal("Discoverable servers cannot have their content hidden. You can change this "
+                                         "setting in Access")
+                          : utf8_literal("When enabled, only server members can view profile content. Non-members won't "
+                                         "be able to see this content unless they have an invite."),
+             UiSettingsControlKind::toggle, edit && !discoverable, guild_server_profile_private(d));
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {

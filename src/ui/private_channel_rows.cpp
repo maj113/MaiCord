@@ -167,10 +167,7 @@ bool decorations(PaintStream* stream, const UiPrivateRowSource& source, u64 chan
     if (ui_private_row_mobile(source, channel_id)) {
         const auto phone = ui_presence_mobile_geometry(dot, 2.f);
         return ui_presence_paint(stream, dot, UiPresence::online, surface, theme, true) &&
-               (!highlight || paint_stream_push_rounded_border(stream, phone.cutout.left, phone.cutout.top,
-                                                               phone.cutout.right, phone.cutout.bottom,
-                                                               Color{0, 0, 0, 0}, *highlight,
-                                                               phone.cutout_radius, 2));
+               (!highlight || paint_stream_push_rounded_border(stream, phone.cutout, Color{0, 0, 0, 0}, *highlight, phone.cutout_radius, 2));
     }
     return ui_presence_paint(stream, dot, presence(status), surface, theme) &&
            (!highlight || ring(stream, dot, *highlight));
@@ -178,12 +175,10 @@ bool decorations(PaintStream* stream, const UiPrivateRowSource& source, u64 chan
 } // namespace
 bool ui_private_avatar_placeholder_paint(PaintStream* stream, u8 type, UiRect avatar, const Theme& theme) noexcept {
     if (type != 3)
-        return paint_stream_push_rounded(stream, avatar.left, avatar.top, avatar.right, avatar.bottom,
-                                         theme.avatar_placeholder, ui_rect_width(avatar) * .5f);
+        return paint_stream_push_rounded(stream, avatar, theme.avatar_placeholder, ui_rect_width(avatar) * .5f);
     for (u32 i = 0; i < 2; ++i) {
         const auto r = ui_private_row_group_avatar(avatar, i);
-        if (!paint_stream_push_rounded(stream, r.left, r.top, r.right, r.bottom, theme.avatar_placeholder,
-                                       ui_rect_width(r) * .5f))
+        if (!paint_stream_push_rounded(stream, r, theme.avatar_placeholder, ui_rect_width(r) * .5f))
             return false;
     }
     return true;
@@ -191,7 +186,7 @@ bool ui_private_avatar_placeholder_paint(PaintStream* stream, u8 type, UiRect av
 bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, UiRect clip, const UiPrivateRowSource& source,
                                    u64 selected_channel_id, const Theme& theme, PaintStream* stream) noexcept {
     if (!scene.active || !source.state || !ui_rect_has_area(clip)) return true;
-    if (!paint_stream_push_clip(stream, clip.left, clip.top, clip.right, clip.bottom)) return false;
+    if (!paint_stream_push_clip(stream, clip)) return false;
     const auto* hovered = shell_navigation_scene_resolve(scene, scene.widgets.hovered);
     bool ok = true;
     for (u32 i = 0; ok && i < scene.count; ++i) {
@@ -199,7 +194,7 @@ bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, UiRect cli
         if (!channel_is_private(row.view.type)) continue;
         const auto* layout = shell_navigation_scene_layout_node(scene, row);
         const auto* icon = ui_widget_manager_layout_node(scene.widgets, row.icon);
-        if (!layout || !icon || !ui_rect_has_area(ui_rect_intersection(layout->rectangle, clip))) continue;
+        if (!layout || !icon || !ui_rect_intersects(layout->rectangle, clip)) continue;
         const bool selected = selected_channel_id ? row.view.id == selected_channel_id : row.view.selected;
         const bool over = hovered == &row;
         const Color highlight = ui_background_hover_color(theme, selected ? theme.interactive : theme.surface_high,
@@ -337,8 +332,7 @@ bool ui_private_member_owner_paint(const MemberListScene& scene, const ChatState
                              ? private_channel_store_find(*state.private_channels, channel->id)
                              : nullptr;
     if (!record || !record->owner_id) return true;
-    if (!paint_stream_push_clip(stream, scene.viewport.left, scene.viewport.top, scene.viewport.right,
-                                scene.viewport.bottom))
+    if (!paint_stream_push_clip(stream, scene.viewport))
         return false;
     bool ok = true;
     for (u32 i = 0; ok && i < scene.count; ++i) {

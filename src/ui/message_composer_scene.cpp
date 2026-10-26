@@ -3,6 +3,7 @@
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/surface_geometry.hpp"
+#include "maicord/ui/widget_builder.hpp"
 
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -278,19 +279,20 @@ bool configure_controls(MessageComposerScene* scene, UiRect viewport, float chro
     const bool compact = compact_controls(width, styles) || voice_bar;
     const UiWidgetHandle accessories[]{scene->add_attachment, scene->gif, scene->sticker, scene->emoji,
                                        scene->send};
+    const UiLayoutStyle accessory = fixed_control_style(accessory_width(styles), styles);
     for (u32 i = 0; i < 5; ++i) {
-        auto* accessory = layout(accessories[i]);
-        if (!accessory)
+        auto* node = layout(accessories[i]);
+        if (!node)
             return false;
-        accessory->spec.style = fixed_control_style(accessory_width(styles), styles);
+        node->spec.style = accessory;
         if (compact && (i == 1 || i == 2)) // GIF and sticker
-            accessory->spec.style.flags = static_cast<u16>(accessory->spec.style.flags & ~ui_layout_node_visible);
+            node->spec.style.flags = static_cast<u16>(node->spec.style.flags & ~ui_layout_node_visible);
     }
     for (u32 i = 0; i < kMessageComposerPluginSlots; ++i) {
         auto* plugin = layout(scene->plugin_slots[i]);
         if (!plugin)
             return false;
-        plugin->spec.style = fixed_control_style(accessory_width(styles), styles);
+        plugin->spec.style = accessory;
         if (i >= scene->plugin_count || voice_bar)
             plugin->spec.style.flags = static_cast<u16>(plugin->spec.style.flags & ~ui_layout_node_visible);
     }
@@ -300,7 +302,6 @@ bool configure_controls(MessageComposerScene* scene, UiRect viewport, float chro
     scene->widgets.layout.wrap_nodes = toolbar != 0.f ? 1u : 0u;
     if (toolbar != 0.f) {
         const auto surface = surface_style(styles);
-        const auto accessory = fixed_control_style(accessory_width(styles), styles);
         controls->spec.style.flow = UiLayoutFlow::horizontal_wrap;
         // A fixed editor consumes the remainder of the first row; the wrap
         // engine then fits the trailing actions into the available width.
@@ -368,6 +369,15 @@ UiLayoutStyle typing_style(const UiResolvedThemeStyles* styles = nullptr) noexce
     style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
                                    ui_layout_node_text_content);
     return style;
+}
+
+// A collapsible banner row (reply, attachments, typing): zero height unless shown.
+constexpr u16 kComposerInteractiveFlags = static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable);
+void banner_row(UiLayoutNode* node, bool shown, float height) noexcept {
+    node->spec.style.height = ui_layout_fixed(shown ? height : 0.0f);
+    node->spec.style.flags = static_cast<u16>(
+        ui_layout_node_allow_zero_size | ui_layout_node_clip_children | ui_layout_node_text_content |
+        (shown ? ui_layout_node_visible : 0));
 }
 
 UiWidgetHandle control_handle(const MessageComposerScene& scene, MessageComposerControl control) noexcept {
@@ -779,149 +789,57 @@ bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidg
         message_composer_scene_release(scene);
         return false;
     }
-    const UiWidgetResult root =
-        ui_widget_manager_add(&scene->widgets, ui_widget_invalid_handle(),
-                              UiWidgetDesc{kComposerRootId, UiWidgetKind::container, ui_widget_none,
-                                           UiLayoutNodeSpec{utf8_literal("MessageComposer"), root_style(),
-                                                            UiSize{}, 0.0f, kComposerRootId}});
-    const UiWidgetResult typing =
-        root.ok() ? ui_widget_manager_add(
-                        &scene->widgets, root.handle,
-                        UiWidgetDesc{kComposerTypingId, UiWidgetKind::text, ui_widget_none,
-                                     UiLayoutNodeSpec{utf8_literal("TypingIndicator"), typing_style(),
-                                                      UiSize{}, 0.0f, kComposerTypingId}})
-                  : UiWidgetResult{};
-    const UiWidgetResult surface =
-        typing.ok() ? ui_widget_manager_add(
-                          &scene->widgets, root.handle,
-                          UiWidgetDesc{kComposerSurfaceId, UiWidgetKind::container, ui_widget_none,
-                                       UiLayoutNodeSpec{utf8_literal("ComposerSurface"), surface_style(),
-                                                        UiSize{}, 0.0f, kComposerSurfaceId}})
-                    : UiWidgetResult{};
+    UiWidgetBuilder b(scene->widgets);
+    constexpr u16 control_flags = static_cast<u16>(ui_widget_enabled | ui_widget_hit_test);
+    constexpr u16 focus_flags = static_cast<u16>(control_flags | ui_widget_focusable);
+    const UiWidgetResult root = b.widget(ui_widget_invalid_handle(), {kComposerRootId, utf8_literal("MessageComposer")},
+                                         UiWidgetKind::container, ui_widget_none, root_style());
+    const UiWidgetResult typing = b.widget(root.handle, {kComposerTypingId, utf8_literal("TypingIndicator")},
+                                           UiWidgetKind::text, ui_widget_none, typing_style());
+    const UiWidgetResult surface = b.widget(root.handle, {kComposerSurfaceId, utf8_literal("ComposerSurface")},
+                                            UiWidgetKind::container, ui_widget_none, surface_style());
     UiLayoutStyle banner_style = reply_style();
     banner_style.padding = UiInsets{kUiMenuRowHorizontalPadding, 0.f, 0.f, 0.f};
-    const UiWidgetResult reply =
-        surface.ok()
-            ? ui_widget_manager_add(&scene->widgets, surface.handle,
-                                    UiWidgetDesc{kComposerReplyId, UiWidgetKind::container, ui_widget_none,
-                                                 UiLayoutNodeSpec{utf8_literal("ReplyBanner"), banner_style,
-                                                                  UiSize{}, 0.0f, kComposerReplyId}})
-            : UiWidgetResult{};
+    const UiWidgetResult reply = b.widget(surface.handle, {kComposerReplyId, utf8_literal("ReplyBanner")},
+                                          UiWidgetKind::container, ui_widget_none, banner_style);
     // The "@ ON" switch is padded 8x12: 16 DIP icon, 4 DIP gap, bold label.
     UiLayoutStyle mention_style = fixed_control_style(kMessageComposerReplyMentionWidth);
     mention_style.height = ui_layout_fixed(kComposerReplyHeight);
     mention_style.horizontal_alignment = UiLayoutAlignment::end;
     mention_style.margin.right = kComposerReplyHeight + 2 * kComposerRowGap + 1;
     mention_style.flags = ui_layout_node_clip_children;
-    const UiWidgetResult mention =
-        reply.ok() ? ui_widget_manager_add(
-                         &scene->widgets, reply.handle,
-                         {kComposerReplyMentionId,
-                          UiWidgetKind::button,
-                          ui_widget_none,
-                          {utf8_literal("ReplyMention"), mention_style, {}, 0.f, kComposerReplyMentionId}})
-                   : UiWidgetResult{};
+    const UiWidgetResult mention = b.widget(reply.handle, {kComposerReplyMentionId, utf8_literal("ReplyMention")},
+                                            UiWidgetKind::button, ui_widget_none, mention_style);
     UiLayoutStyle cancel_style = fixed_control_style(kComposerReplyHeight);
     cancel_style.height = ui_layout_fixed(kComposerReplyHeight);
     cancel_style.horizontal_alignment = UiLayoutAlignment::end;
     cancel_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
-    const UiWidgetResult cancel =
-        mention.ok() ? ui_widget_manager_add(
-                           &scene->widgets, reply.handle,
-                           {kComposerReplyCancelId,
-                            UiWidgetKind::button,
-                            ui_widget_none,
-                            {utf8_literal("CancelReply"), cancel_style, {}, 0.f, kComposerReplyCancelId}})
-                     : UiWidgetResult{};
-    const UiWidgetResult attachments =
-        cancel.ok() ? ui_widget_manager_add(
-                          &scene->widgets, surface.handle,
-                          {kComposerAttachmentsId,
-                           UiWidgetKind::button,
-                           ui_widget_none,
-                           {utf8_literal("Attachments"), reply_style(), {}, 0.0f, kComposerAttachmentsId}})
-                    : UiWidgetResult{};
-    const UiWidgetResult controls =
-        attachments.ok()
-            ? ui_widget_manager_add(
-                  &scene->widgets, surface.handle,
-                  UiWidgetDesc{kComposerControlsId, UiWidgetKind::container, ui_widget_enabled,
-                               UiLayoutNodeSpec{utf8_literal("ComposerControls"), controls_style(),
-                                                UiSize{}, 0.0f, kComposerControlsId}})
-            : UiWidgetResult{};
-    const UiWidgetResult attachment =
-        controls.ok()
-            ? ui_widget_manager_add(&scene->widgets, controls.handle,
-                                    UiWidgetDesc{kComposerAttachmentId, UiWidgetKind::button,
-                                                 static_cast<u16>(ui_widget_enabled | ui_widget_hit_test),
-                                                 UiLayoutNodeSpec{utf8_literal("AddAttachment"),
-                                                                  fixed_control_style(kUiMenuRowHeight),
-                                                                  UiSize{}, 0.0f, kComposerAttachmentId}})
-            : UiWidgetResult{};
-    const UiWidgetResult edit =
-        attachment.ok()
-            ? ui_widget_manager_add(&scene->widgets, controls.handle,
-                                    UiWidgetDesc{kComposerEditId, UiWidgetKind::text_field,
-                                                 static_cast<u16>(ui_widget_enabled | ui_widget_hit_test |
-                                                                  ui_widget_focusable),
-                                                 UiLayoutNodeSpec{utf8_literal("MessageEdit"), edit_style(),
-                                                                  UiSize{}, 0.0f, kComposerEditId}})
-            : UiWidgetResult{};
+    const UiWidgetResult cancel = b.widget(reply.handle, {kComposerReplyCancelId, utf8_literal("CancelReply")},
+                                           UiWidgetKind::button, ui_widget_none, cancel_style);
+    const UiWidgetResult attachments = b.widget(surface.handle, {kComposerAttachmentsId, utf8_literal("Attachments")},
+                                                UiWidgetKind::button, ui_widget_none, reply_style());
+    const UiWidgetResult controls = b.widget(surface.handle, {kComposerControlsId, utf8_literal("ComposerControls")},
+                                             UiWidgetKind::container, ui_widget_enabled, controls_style());
+    const UiLayoutStyle row_control = fixed_control_style(kUiMenuRowHeight);
+    const UiWidgetResult attachment = b.widget(controls.handle, {kComposerAttachmentId, utf8_literal("AddAttachment")},
+                                               UiWidgetKind::button, control_flags, row_control);
+    const UiWidgetResult edit = b.widget(controls.handle, {kComposerEditId, utf8_literal("MessageEdit")},
+                                         UiWidgetKind::text_field, focus_flags, edit_style());
     UiWidgetResult plugins[kMessageComposerPluginSlots]{};
-    bool plugins_ok = edit.ok();
-    for (u32 i = 0; plugins_ok && i < kMessageComposerPluginSlots; ++i) {
-        UiLayoutStyle hidden = fixed_control_style(kUiMenuRowHeight);
-        hidden.flags = static_cast<u16>(hidden.flags & ~ui_layout_node_visible);
-        plugins[i] = ui_widget_manager_add(&scene->widgets, controls.handle,
-                                           {kComposerPluginId + i,
-                                            UiWidgetKind::button,
-                                            ui_widget_none,
-                                            {utf8_literal("PluginSlot"), hidden, {}, 0.0f, kComposerPluginId + i}});
-        plugins_ok = plugins[i].ok();
-    }
-    const UiWidgetResult gif =
-        plugins_ok
-            ? ui_widget_manager_add(
-                  &scene->widgets, controls.handle,
-                  {kComposerGifId,
-                   UiWidgetKind::button,
-                   static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-                   {utf8_literal("GIFs"), fixed_control_style(kUiMenuRowHeight), {}, 0.0f, kComposerGifId}})
-            : UiWidgetResult{};
-    const UiWidgetResult sticker =
-        gif.ok() ? ui_widget_manager_add(
-                       &scene->widgets, controls.handle,
-                       {kComposerStickerId,
-                        UiWidgetKind::button,
-                        static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-                        {utf8_literal("Stickers"),
-                         fixed_control_style(kUiMenuRowHeight),
-                         {},
-                         0.0f,
-                         kComposerStickerId}})
-                 : UiWidgetResult{};
-    const UiWidgetResult emoji =
-        sticker.ok()
-            ? ui_widget_manager_add(
-                  &scene->widgets, controls.handle,
-                  UiWidgetDesc{
-                      kComposerEmojiId, UiWidgetKind::button,
-                      static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-                      UiLayoutNodeSpec{utf8_literal("Emoji"), fixed_control_style(kUiMenuRowHeight),
-                                       UiSize{}, 0.0f, kComposerEmojiId}})
-            : UiWidgetResult{};
-    const UiWidgetResult send =
-        emoji.ok() ? ui_widget_manager_add(
-                         &scene->widgets, controls.handle,
-                         UiWidgetDesc{
-                             kComposerSendId, UiWidgetKind::button,
-                             static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-                             UiLayoutNodeSpec{utf8_literal("Send"), fixed_control_style(kUiMenuRowHeight),
-                                              UiSize{}, 0.0f, kComposerSendId}})
-                   : UiWidgetResult{};
-    if (!root.ok() || !reply.ok() || !attachments.ok() || !controls.ok() || !attachment.ok() ||
-        !edit.ok() || !gif.ok() || !sticker.ok() || !emoji.ok() || !send.ok() || !typing.ok() ||
-        !surface.ok() || !mention.ok() || !cancel.ok()) {
+    UiLayoutStyle hidden = row_control;
+    hidden.flags = static_cast<u16>(hidden.flags & ~ui_layout_node_visible);
+    for (u32 i = 0; i < kMessageComposerPluginSlots; ++i)
+        plugins[i] = b.widget(controls.handle, {kComposerPluginId + i, utf8_literal("PluginSlot")},
+                              UiWidgetKind::button, ui_widget_none, hidden);
+    const UiWidgetResult gif = b.widget(controls.handle, {kComposerGifId, utf8_literal("GIFs")},
+                                        UiWidgetKind::button, focus_flags, row_control);
+    const UiWidgetResult sticker = b.widget(controls.handle, {kComposerStickerId, utf8_literal("Stickers")},
+                                            UiWidgetKind::button, focus_flags, row_control);
+    const UiWidgetResult emoji = b.widget(controls.handle, {kComposerEmojiId, utf8_literal("Emoji")},
+                                          UiWidgetKind::button, focus_flags, row_control);
+    const UiWidgetResult send = b.widget(controls.handle, {kComposerSendId, utf8_literal("Send")},
+                                         UiWidgetKind::button, focus_flags, row_control);
+    if (!b.ok()) {
         message_composer_scene_release(scene);
         return false;
     }
@@ -1172,33 +1090,17 @@ MessageComposerSceneResult message_composer_scene_update(
         !utf8_equal(message_composer_scene_attachment_label(*scene), attachments.label) ||
         scene->attachments_ready != attachments.ready || scene->can_attach != attachments.can_attach ||
         scene->retained_content != attachments.retained_content || tiles_changed;
-    attachment_layout->spec.style.height = ui_layout_fixed(
-        attachment_row == message_composer_attachment_row_strip ? ui_composer_attachment_strip_height()
-        : attachment_row                                         ? kComposerReplyHeight
-                                                                 : 0.0f);
+    banner_row(attachment_layout, attachment_row != 0,
+               attachment_row == message_composer_attachment_row_strip ? ui_composer_attachment_strip_height()
+                                                                       : kComposerReplyHeight);
     attachment_layout->spec.style.padding = attachment_row == message_composer_attachment_row_strip
                                                 ? UiInsets{}
                                                 : reply_style(scene->theme_styles).padding;
-    attachment_layout->spec.style.flags = static_cast<u16>(
-        ui_layout_node_allow_zero_size | ui_layout_node_clip_children | ui_layout_node_text_content |
-        (attachment_row ? ui_layout_node_visible : 0));
-    attachment_widget->flags =
-        attachment_row
-            ? static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable)
-            : ui_widget_none;
-    reply_layout->spec.style.height = ui_layout_fixed(reply_message_id != 0 ? kComposerReplyHeight : 0.0f);
-    reply_layout->spec.style.flags = static_cast<u16>(
-        ui_layout_node_allow_zero_size | ui_layout_node_clip_children | ui_layout_node_text_content |
-        (reply_message_id != 0 ? ui_layout_node_visible : 0));
+    attachment_widget->flags = attachment_row ? kComposerInteractiveFlags : ui_widget_none;
+    banner_row(reply_layout, reply_message_id != 0, kComposerReplyHeight);
     reply->flags = ui_widget_none;
-    cancel->flags = reply_message_id != 0
-                        ? static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable)
-                        : ui_widget_none;
-    typing_layout->spec.style.height =
-        ui_layout_fixed(typing_label.bytes != 0 ? kComposerTypingHeight : 0.0f);
-    typing_layout->spec.style.flags = static_cast<u16>(
-        ui_layout_node_allow_zero_size | ui_layout_node_clip_children | ui_layout_node_text_content |
-        (typing_label.bytes != 0 ? ui_layout_node_visible : 0));
+    cancel->flags = reply_message_id != 0 ? kComposerInteractiveFlags : ui_widget_none;
+    banner_row(typing_layout, typing_label.bytes != 0, kComposerTypingHeight);
     ui_widget_manager_reconcile_input(&scene->widgets);
     const bool attachments_resized = previous_attachment_row != attachment_row;
     const bool relayout = scene->geometry_dirty || !scene->active || reply_changed || plugins_changed ||

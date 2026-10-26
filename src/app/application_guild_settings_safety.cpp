@@ -23,16 +23,16 @@ void project_safety(Bank&) noexcept {
     auto& p = *owner;
     const bool edit = editable() && page_allowed(Page::safety);
     auto& d = p.safety_draft;
-    push(category(control_list_category, utf8_literal("Verification level"),
-                  utf8_literal("Members must meet this before they can send messages or start conversations.")));
+    push_category(control_list_category, utf8_literal("Verification level"),
+                  utf8_literal("Members must meet this before they can send messages or start conversations."));
     push({control_verification, utf8_literal("Verification level"), kVerificationDetails[d.verification_level],
           UiSettingsControlKind::radio, edit, false, {kVerificationChoices, kGuildVerificationLevels},
           d.verification_level, {}, nullptr});
-    push(category(control_display_category, utf8_literal("Explicit image filter"),
-                  utf8_literal("Automatically scan and delete explicit images and embeds.")));
+    push_category(control_display_category, utf8_literal("Explicit image filter"),
+                  utf8_literal("Automatically scan and delete explicit images and embeds."));
     push({control_content_filter, utf8_literal("Explicit image filter"), {}, UiSettingsControlKind::radio, edit,
           false, {kFilterChoices, kGuildContentFilterLevels}, d.explicit_content_filter, {}, nullptr});
-    push(category(control_delete_category, utf8_literal("Moderation")));
+    push_category(control_delete_category, utf8_literal("Moderation"));
     const bool can_mfa = guild_settings_can_set_mfa(p.access);
     const bool self_mfa = state().self_mfa != SelfMfaState::disabled;
     push({control_mfa, utf8_literal("Require 2FA for moderator actions"),

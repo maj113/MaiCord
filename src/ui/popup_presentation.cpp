@@ -227,7 +227,7 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
                                     theme.surface_high) &&
                   success;
     if (const UiRect track = popup_feedback_slider(scene); ui_rect_has_area(track)) {
-        const auto tokens = ui_settings_tokens(theme);
+        const UiSettingsThemeTokens tokens(theme);
         const u32 count = scene.feedback.slider_count;
         const auto g = ui_slider_geometry(tokens, track, count, scene.feedback.slider_value, false);
         success = ui_slider_paint(paint, tokens, g, count, count, {}) && success;

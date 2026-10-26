@@ -48,11 +48,16 @@ inline void clear_bytes(void* destination, u32 bytes) noexcept {
 }
 
 // `*object = T{}` without the zeroed temporary MSVC copies in for a large T:
-// value-initializes in place (memset plus any nonzero member defaults).
+// value-initializes in place (memset plus any nonzero member defaults). A type whose every member
+// default (recursively) is zero declares `static constexpr bool kZeroDefault = true;` and is cleared
+// with one fill instead; never declare it on a type with a nonzero default.
 template <typename T>
 inline void reset_value(T* object) noexcept {
     static_assert(__is_trivially_destructible(T));
-    ::new (static_cast<void*>(object)) T{};
+    if constexpr (requires { T::kZeroDefault; })
+        clear_bytes(object, static_cast<u32>(sizeof(T)));
+    else
+        ::new (static_cast<void*>(object)) T{};
 }
 
 // A memmove the compiler cannot expand inline at a constant size.

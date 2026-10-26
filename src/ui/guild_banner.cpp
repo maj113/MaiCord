@@ -123,7 +123,7 @@ bool ui_guild_card_banner_media(u64 guild_id, Utf8View custom_banner, bool disco
            ui_guild_splash_media(guild_id, custom_banner, true, kUiGuildCardBannerRequestDips, dpi, output);
 }
 
-UiGuildBannerGeometry ui_guild_banner_geometry(UiRect sidebar, UiRect header, float scroll,
+UiGuildBannerGeometry ui_guild_banner_geometry(const UiRect& sidebar, const UiRect& header, float scroll,
                                                bool header_hovered) noexcept {
     UiGuildBannerGeometry g{};
     if (!ui_rect_has_area(sidebar) || !ui_rect_has_area(header) || !(scroll == scroll))

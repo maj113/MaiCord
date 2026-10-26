@@ -24,21 +24,104 @@ Utf8View visible_text_tail(Utf8View text, u32 maximum_codepoints) noexcept {
     return Utf8View{text.data + offset, text.bytes - offset};
 }
 
-bool append_command(const LoginScene& scene, LoginElement element, Utf8View text, const Color& color,
-                    u32 style_flags, UiTextAlignment horizontal, UiTextAlignment vertical,
-                    UiTextCommandStream* stream,
-                    UiTextWrapping wrapping = UiTextWrapping::no_wrap) noexcept {
+// Every command is one of these roles: colour, style, alignment and wrapping
+// come from the table, so a call names only the element, its text and the role.
+enum class Ink : u8 { primary, secondary, accent, notification, submit };
+
+struct TextRole {
+    u32 flags;
+    Ink ink;
+    UiTextAlignment horizontal, vertical;
+    UiTextWrapping wrapping;
+};
+
+enum class Role : u8 {
+    heading,
+    root,
+    browser_link,
+    subtitle,
+    subtitle_wrapped,
+    label,
+    field,
+    field_hint,
+    link_accent,
+    link_muted,
+    submit,
+    submit_muted,
+    status,
+    status_wrapped,
+    status_error,
+    status_wrapped_error,
+    account_name,
+    account_note,
+    account_error,
+    resend,
+    resend_muted,
+    method,
+    qr_title,
+    qr_subtitle,
+    count
+};
+
+constexpr u32 kHeadingStyle = text_style_heading_1 | text_style_bold;
+constexpr u32 kLabelStyle = text_style_subtext | text_style_bold;
+constexpr UiTextAlignment kStart = UiTextAlignment::start;
+constexpr UiTextAlignment kCenter = UiTextAlignment::center;
+constexpr UiTextWrapping kLine = UiTextWrapping::no_wrap;
+constexpr UiTextWrapping kWrap = UiTextWrapping::wrap;
+
+constexpr TextRole kRoles[]{
+    {kHeadingStyle, Ink::primary, kCenter, kStart, kLine},                   // heading
+    {text_style_heading_1, Ink::primary, kCenter, kCenter, kLine},           // root
+    {text_style_subtext, Ink::accent, UiTextAlignment::end, kCenter, kLine}, // browser_link
+    {text_style_none, Ink::secondary, kCenter, kStart, kLine},               // subtitle
+    {text_style_none, Ink::secondary, kCenter, kStart, kWrap},               // subtitle_wrapped
+    {kLabelStyle, Ink::secondary, kStart, kStart, kLine},                    // label
+    {text_style_none, Ink::primary, kStart, kCenter, kLine},                 // field
+    {text_style_none, Ink::secondary, kStart, kCenter, kLine},               // field_hint
+    {text_style_subtext, Ink::accent, kStart, kCenter, kLine},               // link_accent
+    {text_style_subtext, Ink::secondary, kStart, kCenter, kLine},            // link_muted
+    {text_style_bold, Ink::submit, kCenter, kCenter, kLine},                 // submit
+    {text_style_bold, Ink::secondary, kCenter, kCenter, kLine},              // submit_muted
+    {text_style_subtext, Ink::secondary, kStart, kStart, kLine},             // status
+    {text_style_subtext, Ink::secondary, kStart, kStart, kWrap},             // status_wrapped
+    {text_style_subtext, Ink::notification, kStart, kStart, kLine},          // status_error
+    {text_style_subtext, Ink::notification, kStart, kStart, kWrap},          // status_wrapped_error
+    {text_style_bold, Ink::primary, kStart, kStart, kLine},                  // account_name
+    {text_style_subtext, Ink::secondary, kStart, kStart, kLine},             // account_note
+    {text_style_subtext, Ink::notification, kStart, kStart, kLine},          // account_error
+    {text_style_subtext, Ink::accent, kCenter, kCenter, kLine},              // resend
+    {text_style_subtext, Ink::secondary, kCenter, kCenter, kLine},           // resend_muted
+    {kLabelStyle, Ink::primary, kCenter, kCenter, kLine},                    // method
+    {text_style_bold, Ink::primary, kCenter, kStart, kLine},                 // qr_title
+    {text_style_subtext, Ink::secondary, kCenter, kStart, kLine},            // qr_subtitle
+};
+static_assert(sizeof(kRoles) / sizeof(kRoles[0]) == static_cast<u32>(Role::count));
+
+struct Writer {
+    const LoginScene& scene;
+    UiTextCommandStream* stream;
+    const Theme& theme;
+    const Color& submit_ink;
+};
+
+bool append_command(const Writer& out, LoginElement element, const Utf8View& text, Role role) noexcept {
     if (text.bytes == 0) {
         return true;
     }
-    const u32 index = static_cast<u32>(element);
-    const UiWidgetHandle owner = scene.elements[index];
+    const LoginScene& scene = out.scene;
+    const TextRole& style = kRoles[static_cast<u32>(role)];
     const UiLayoutNode* node = login_scene_element(scene, element);
-    return node &&
-           ui_text_command_stream_push(stream, UiTextCommand{text, UiWidgetReference{&scene.widgets, owner},
-                                                             node->content_rectangle, node->clip_rectangle,
-                                                             color, style_flags, horizontal, vertical,
-                                                             wrapping, UiTextOverflow::clip});
+    const Color& color = style.ink == Ink::primary     ? out.theme.text_primary
+                         : style.ink == Ink::secondary ? out.theme.text_secondary
+                         : style.ink == Ink::accent    ? out.theme.accent
+                         : style.ink == Ink::submit    ? out.submit_ink
+                                                       : out.theme.notification;
+    return node && ui_text_command_stream_push(
+                       out.stream,
+                       UiTextCommand{text, UiWidgetReference{&scene.widgets, scene.elements[static_cast<u32>(element)]},
+                                     node->content_rectangle, node->clip_rectangle, color, style.flags,
+                                     style.horizontal, style.vertical, style.wrapping, UiTextOverflow::clip});
 }
 
 Utf8View auth_cooldown_copy(const LoginView& view) noexcept {
@@ -102,6 +185,7 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
     }
     const Color submit_ink =
         scene.submit_disabled ? theme.text_primary : ui_surface_foreground(theme, theme.tokens.emphasis.fill);
+    const Writer out{scene, stream, theme, submit_ink};
 
     if (scene.browser_mode) {
         const Utf8View status =
@@ -115,23 +199,17 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
             : view.status == LoginStatus::browser_failed
                 ? utf8_literal("The browser sign-in could not be completed. Choose Back to try again.")
                 : utf8_literal("Finish signing in your browser, then come back here.");
-        return append_command(scene, LoginElement::heading, utf8_literal("Sign in with your browser"),
-                              theme.text_primary, text_style_heading_1 | text_style_bold,
-                              UiTextAlignment::center, UiTextAlignment::start, stream) &&
-               append_command(scene, LoginElement::forgot_password, utf8_literal("Back to sign in"),
-                              theme.accent, text_style_subtext, UiTextAlignment::start,
-                              UiTextAlignment::center, stream) &&
-               append_command(scene, LoginElement::submit,
+        return append_command(out, LoginElement::heading, utf8_literal("Sign in with your browser"), Role::heading) &&
+               append_command(out, LoginElement::forgot_password, utf8_literal("Back to sign in"),
+                              Role::link_accent) &&
+               append_command(out, LoginElement::submit,
                               view.auth_rate_limited ? auth_cooldown_action(view)
                               : view.status == LoginStatus::browser_expired ? utf8_literal("Sign-in expired")
                               : view.status == LoginStatus::browser_failed
                                   ? utf8_literal("Sign-in failed")
                                   : utf8_literal("Waiting for your browser"),
-                              theme.text_secondary, text_style_bold, UiTextAlignment::center,
-                              UiTextAlignment::center, stream) &&
-               append_command(scene, LoginElement::status_message, status, theme.text_secondary,
-                              text_style_subtext, UiTextAlignment::start, UiTextAlignment::start, stream,
-                              UiTextWrapping::wrap);
+                              Role::submit_muted) &&
+               append_command(out, LoginElement::status_message, status, Role::status_wrapped);
     }
 
     if (scene.phone_mode) {
@@ -185,31 +263,23 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                            (view.status == LoginStatus::recovery_phone_captcha_required &&
                             captcha_status_error(view.captcha_status)) ||
                            view.status == LoginStatus::recovery_phone_failed;
-        if (!append_command(scene, LoginElement::heading, utf8_literal("Phone recovery"),
-                            theme.text_primary, text_style_heading_1 | text_style_bold,
-                            UiTextAlignment::center, UiTextAlignment::start, stream) ||
-            !append_command(scene, LoginElement::subtitle,
+        if (!append_command(out, LoginElement::heading, utf8_literal("Phone recovery"), Role::heading) ||
+            !append_command(out, LoginElement::subtitle,
                             utf8_literal("Enter the six-digit SMS code to reset your password."),
-                            theme.text_secondary, text_style_none, UiTextAlignment::center,
-                            UiTextAlignment::start, stream, UiTextWrapping::wrap) ||
-            !append_command(scene, LoginElement::password_label, utf8_literal("SMS CODE"),
-                            theme.text_secondary, text_style_subtext | text_style_bold,
-                            UiTextAlignment::start, UiTextAlignment::start, stream) ||
-            !append_command(scene, LoginElement::forgot_password, utf8_literal("Back to sign in"),
-                            theme.accent, text_style_subtext, UiTextAlignment::start,
-                            UiTextAlignment::center, stream) ||
-            !append_command(scene, LoginElement::mfa_sms, utf8_literal("Resend code"),
-                            scene.phone_resend_disabled ? theme.text_secondary : theme.accent,
-                            text_style_subtext, UiTextAlignment::center, UiTextAlignment::center, stream) ||
-            !append_command(scene, LoginElement::submit,
+                            Role::subtitle_wrapped) ||
+            !append_command(out, LoginElement::password_label, utf8_literal("SMS CODE"), Role::label) ||
+            !append_command(out, LoginElement::forgot_password, utf8_literal("Back to sign in"),
+                            Role::link_accent) ||
+            !append_command(out, LoginElement::mfa_sms, utf8_literal("Resend code"),
+                            scene.phone_resend_disabled ? Role::resend_muted : Role::resend) ||
+            !append_command(out, LoginElement::submit,
                             view.auth_rate_limited ? auth_cooldown_action(view)
                             : view.status == LoginStatus::recovery_phone_captcha_required
                                 ? captcha_action_label(view.captcha_status)
                                 : utf8_literal("Verify"),
-                            submit_ink, text_style_bold, UiTextAlignment::center, UiTextAlignment::center, stream) ||
-            !append_command(scene, LoginElement::status_message, status,
-                            error ? theme.notification : theme.text_secondary, text_style_subtext,
-                            UiTextAlignment::start, UiTextAlignment::start, stream, UiTextWrapping::wrap))
+                            Role::submit) ||
+            !append_command(out, LoginElement::status_message, status,
+                            error ? Role::status_wrapped_error : Role::status_wrapped))
             return false;
         const auto* field = login_scene_element(scene, LoginElement::password_field);
         const auto owner = scene.elements[static_cast<u32>(LoginElement::password_field)];
@@ -235,11 +305,10 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
     }
 
     if (view.status == LoginStatus::restoring_session)
-        return append_command(scene, LoginElement::root,
+        return append_command(out, LoginElement::root,
                               scene.switching_accounts ? utf8_literal("Switching accounts…")
                                                        : utf8_literal("Connecting to Discord…"),
-                              theme.text_primary, text_style_heading_1, UiTextAlignment::center,
-                              UiTextAlignment::center, stream);
+                              Role::root);
     const Utf8View login = visible_text_tail(view.login, 48);
     const Utf8View password = visible_text_tail(view.password_mask, 48);
     const Utf8View remote_user = visible_text_tail(view.remote_user, 32);
@@ -370,9 +439,6 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
             ? utf8_literal("Security-key verification failed or was cancelled. Try again.")
             : Utf8View{};
 
-    constexpr u32 heading_style = text_style_heading_1 | text_style_bold;
-    constexpr u32 label_style = text_style_subtext | text_style_bold;
-    constexpr u32 secondary_style = text_style_subtext;
     const bool credential_error = view.auth_rate_limited || view.status == LoginStatus::session_expired ||
                                   view.status == LoginStatus::connection_failed ||
                                   view.status == LoginStatus::rejected;
@@ -392,84 +458,72 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                    view.status == LoginStatus::webauthn_failed ||
                    (view.status == LoginStatus::mfa_required && !view.sms_sending && !view.sms_sent &&
                     selected_mfa == login_mfa_capability_sms && view.sms_failed));
-    const Color status_color = status_error ? theme.notification : theme.text_secondary;
+    const bool wrapped_status = recovery || reset;
     if (scene.browser_available &&
-        !append_command(scene, LoginElement::browser_sign_in,
-                        captcha ? utf8_literal("Use browser sign-in") : utf8_literal("Use browser"), theme.accent,
-                        text_style_subtext, UiTextAlignment::end, UiTextAlignment::center, stream))
+        !append_command(out, LoginElement::browser_sign_in,
+                        captcha ? utf8_literal("Use browser sign-in") : utf8_literal("Use browser"),
+                        Role::browser_link))
         return false;
-    if (!append_command(scene, LoginElement::heading,
+    if (!append_command(out, LoginElement::heading,
                         reset                ? utf8_literal("Reset your password")
                         : recovery           ? utf8_literal("Password recovery")
                         : scene.add_account  ? utf8_literal("Add an account")
                                              : utf8_literal("Log in to MaiCord"),
-                        theme.text_primary, heading_style, UiTextAlignment::center, UiTextAlignment::start,
-                        stream) ||
+                        Role::heading) ||
         !append_command(
-            scene, LoginElement::subtitle,
+            out, LoginElement::subtitle,
             reset                  ? utf8_literal("Choose a new password.")
             : recovery             ? utf8_literal("Get instructions to reset your password.")
             : scene.add_account    ? utf8_literal("Press Esc to go back.")
             : scene.account_return ? utf8_literal("Press Esc to use a saved account.")
                                    : utf8_literal("Use your Discord account."),
-            theme.text_secondary, text_style_none, UiTextAlignment::center, UiTextAlignment::start, stream,
-            recovery || reset ? UiTextWrapping::wrap : UiTextWrapping::no_wrap) ||
+            wrapped_status ? Role::subtitle_wrapped : Role::subtitle) ||
         (!reset && !recovery_result &&
-         !append_command(scene, LoginElement::login_label,
+         !append_command(out, LoginElement::login_label,
                          recovery ? utf8_literal("ACCOUNT EMAIL / PHONE")
                                   : utf8_literal("EMAIL, PHONE OR RESET LINK"),
-                         theme.text_secondary, label_style, UiTextAlignment::start, UiTextAlignment::start,
-                         stream)) ||
+                         Role::label)) ||
         (!reset && !recovery_result &&
-         !append_command(scene, LoginElement::login_field, login_value,
-                         login.bytes != 0 ? theme.text_primary : theme.text_secondary, text_style_none,
-                         UiTextAlignment::start, UiTextAlignment::center, stream)) ||
+         !append_command(out, LoginElement::login_field, login_value,
+                         login.bytes != 0 ? Role::field : Role::field_hint)) ||
         (!scene.credential_fields_hidden &&
-         !append_command(scene, LoginElement::password_label,
+         !append_command(out, LoginElement::password_label,
                          webauthn ? utf8_literal("PASSKEY OR SECURITY KEY")
                          : mfa    ? utf8_literal("AUTHENTICATION CODE")
                          : reset  ? utf8_literal("NEW PASSWORD")
                                   : utf8_literal("PASSWORD"),
-                         theme.text_secondary, label_style, UiTextAlignment::start, UiTextAlignment::start,
-                         stream)) ||
+                         Role::label)) ||
         (!scene.credential_fields_hidden &&
-         !append_command(scene, LoginElement::password_field, password_value,
-                         !webauthn && password.bytes != 0 ? theme.text_primary : theme.text_secondary,
-                         text_style_none, UiTextAlignment::start, UiTextAlignment::center, stream)) ||
+         !append_command(out, LoginElement::password_field, password_value,
+                         !webauthn && password.bytes != 0 ? Role::field : Role::field_hint)) ||
         ((!mfa || reset) &&
-         !append_command(scene, LoginElement::forgot_password,
+         !append_command(out, LoginElement::forgot_password,
                          (reset || recovery || login_requires_back(view.status, view.remote_status))
                              ? utf8_literal("Back to sign in")
                              : utf8_literal("Forgot your password?"),
                          (reset || recovery || login_requires_back(view.status, view.remote_status) ||
                           !login_view_recovery_disabled(view))
-                             ? theme.accent
-                             : theme.text_secondary,
-                         secondary_style, UiTextAlignment::start, UiTextAlignment::center, stream)) ||
-        !append_command(scene, LoginElement::submit, action, submit_ink, text_style_bold,
-                        UiTextAlignment::center, UiTextAlignment::center, stream) ||
-        !append_command(scene, LoginElement::status_message, status, status_color, secondary_style,
-                        UiTextAlignment::start, UiTextAlignment::start, stream,
-                        recovery || reset ? UiTextWrapping::wrap : UiTextWrapping::no_wrap) ||
+                             ? Role::link_accent
+                             : Role::link_muted)) ||
+        !append_command(out, LoginElement::submit, action, Role::submit) ||
+        !append_command(out, LoginElement::status_message, status,
+                        status_error ? (wrapped_status ? Role::status_wrapped_error : Role::status_error)
+                                     : (wrapped_status ? Role::status_wrapped : Role::status)) ||
         (!signed_out && remote_status == LoginRemoteStatus::mobile_pending &&
-         !append_command(scene, LoginElement::status_account, remote_user, theme.text_primary,
-                         text_style_bold, UiTextAlignment::start, UiTextAlignment::start, stream)) ||
+         !append_command(out, LoginElement::status_account, remote_user, Role::account_name)) ||
         (view.status == LoginStatus::signed_out_unconfirmed &&
-         !append_command(scene, LoginElement::status_account, utf8_literal("Logged out on this device only."),
-                         theme.text_secondary, secondary_style, UiTextAlignment::start,
-                         UiTextAlignment::start, stream)) ||
+         !append_command(out, LoginElement::status_account, utf8_literal("Logged out on this device only."),
+                         Role::account_note)) ||
         (view.caps_lock && !(!signed_out && remote_status == LoginRemoteStatus::mobile_pending) &&
          view.status != LoginStatus::signed_out_unconfirmed && view.status != LoginStatus::profile_save_failed &&
-         !append_command(scene, LoginElement::status_account, utf8_literal("Caps Lock is on."),
-                         theme.text_secondary, secondary_style, UiTextAlignment::start,
-                         UiTextAlignment::start, stream)) ||
+         !append_command(out, LoginElement::status_account, utf8_literal("Caps Lock is on."),
+                         Role::account_note)) ||
         (view.status == LoginStatus::profile_save_failed &&
-         !append_command(scene, LoginElement::status_account,
+         !append_command(out, LoginElement::status_account,
                          view.reset_mode
                              ? utf8_literal("Try again, or go back to sign in.")
                              : utf8_literal("Try again, or close MaiCord to sign out."),
-                         theme.notification, secondary_style, UiTextAlignment::start,
-                         UiTextAlignment::start, stream))) {
+                         Role::account_error))) {
         return false;
     }
 
@@ -480,8 +534,7 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                                : method.element == LoginElement::mfa_backup ? utf8_literal("BACKUP")
                                                                             : utf8_literal("SMS");
         if (!blocked && (view.mfa_capabilities & method.capability) != 0 &&
-            !append_command(scene, method.element, label, theme.text_primary, label_style,
-                            UiTextAlignment::center, UiTextAlignment::center, stream)) {
+            !append_command(out, method.element, label, Role::method)) {
             return false;
         }
     }
@@ -496,11 +549,8 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
             ? utf8_literal("Verification required")
             : utf8_literal("Scan from the Discord mobile app");
     if (scene.qr_visible &&
-        (!append_command(scene, LoginElement::qr_title, utf8_literal("Log in with QR code"),
-                         theme.text_primary, text_style_bold, UiTextAlignment::center,
-                         UiTextAlignment::start, stream) ||
-         !append_command(scene, LoginElement::qr_subtitle, qr_subtitle, theme.text_secondary,
-                         secondary_style, UiTextAlignment::center, UiTextAlignment::start, stream))) {
+        (!append_command(out, LoginElement::qr_title, utf8_literal("Log in with QR code"), Role::qr_title) ||
+         !append_command(out, LoginElement::qr_subtitle, qr_subtitle, Role::qr_subtitle))) {
         return false;
     }
     return stream->count != 0;

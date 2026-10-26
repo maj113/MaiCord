@@ -14,9 +14,9 @@ u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
 UiRect centered(float x, float y, float width, float height) noexcept {
     return {x - width * .5f, y - height * .5f, x + width * .5f, y + height * .5f};
 }
-bool push_text(UiTextOutput* text, const UiCallScene& s, Utf8View value, UiRect rectangle, UiRect clip,
-               Color color, u32 style, UiTextAlignment horizontal) noexcept {
-    if (!value.bytes || !ui_rect_has_area(ui_rect_intersection(rectangle, clip)))
+bool push_text(UiTextOutput* text, const UiCallScene& s, const Utf8View& value, const UiRect& rectangle,
+               const UiRect& clip, const Color& color, u32 style, UiTextAlignment horizontal) noexcept {
+    if (!value.bytes || !ui_rect_intersects(rectangle, clip))
         return true;
     return ui_text_output_push(text, {value, s.owner, rectangle, clip, color, style, horizontal,
                                       UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
@@ -309,12 +309,11 @@ bool paint(const UiCallScene& s, const Theme& theme, PaintStream* p) noexcept {
     UiCallTileMedia media{};
     for (u32 i = 0; ok && avatar(s, i, &media); ++i) {
         const auto a = media.avatar;
-        ok = paint_stream_push_rounded(p, a.left, a.top, a.right, a.bottom, theme.avatar_placeholder,
-                                       ui_rect_width(a) * .5f);
+        ok = paint_stream_push_rounded(p, a, theme.avatar_placeholder, ui_rect_width(a) * .5f);
     }
     if (ok && audience_more(s)) {
         const auto a = audience_slot(s, audience_drawn(s));
-        ok = paint_stream_push_rounded(p, a.left, a.top, a.right, a.bottom, theme.surface_high, kAvatar * .5f);
+        ok = paint_stream_push_rounded(p, a, theme.surface_high, kAvatar * .5f);
     }
     return ok;
 }
@@ -326,38 +325,26 @@ bool paint_foreground(const UiCallScene& s, const Theme& theme, PaintStream* p) 
     const auto hovered = [&](UiCallControl c) noexcept { return s.hovered == c; };
     const auto pressed = [&](UiCallControl c) noexcept { return s.hovered == c && s.pressed == c; };
     if (const auto r = control(s, UiCallControl::stage_start); ui_rect_has_area(r))
-        ok = paint_stream_push_rounded(
-            p, r.left, r.top, r.right, r.bottom,
-            shaded(theme.tokens.accent.brand, hovered(UiCallControl::stage_start), pressed(UiCallControl::stage_start)),
-            theme.scale.radius_sm);
+        ok = paint_stream_push_rounded(p, r, shaded(theme.tokens.accent.brand, hovered(UiCallControl::stage_start), pressed(UiCallControl::stage_start)), theme.scale.radius_sm);
     if (const auto r = control(s, UiCallControl::stage_topic); ok && ui_rect_has_area(r)) {
         if (hovered(UiCallControl::stage_topic))
-            ok = paint_stream_push_rounded(p, r.left, r.top, r.right, r.bottom,
-                                           pressed(UiCallControl::stage_topic) ? theme.tokens.state.pressed
-                                                                               : theme.tokens.state.hover,
-                                           theme.scale.radius_sm);
+            ok = paint_stream_push_rounded(p, r, pressed(UiCallControl::stage_topic) ? theme.tokens.state.pressed
+                                                : theme.tokens.state.hover, theme.scale.radius_sm);
         ok = ok && ui_icon_paint(p, UiIcon::edit, centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f, 20, 20),
                                  hovered(UiCallControl::stage_topic) ? theme.text_primary : theme.text_secondary);
     }
     if (const auto r = control(s, UiCallControl::stage_end); ok && ui_rect_has_area(r))
-        ok = paint_stream_push_rounded(
-            p, r.left, r.top, r.right, r.bottom,
-            shaded(theme.tokens.accent.danger, hovered(UiCallControl::stage_end), pressed(UiCallControl::stage_end)),
-            theme.scale.radius_sm);
+        ok = paint_stream_push_rounded(p, r, shaded(theme.tokens.accent.danger, hovered(UiCallControl::stage_end), pressed(UiCallControl::stage_end)), theme.scale.radius_sm);
     if (ok && ui_rect_has_area(s.stage_banner)) {
         const auto& b = s.stage_banner;
         const float y = (b.top + b.bottom) * .5f;
         ok = ui_icon_paint(p, UiIcon::hand, {b.left + 16, y - 10, b.left + 36, y + 10},
                            ui_icon_role_color(theme, UiIconRole::accent));
         if (const auto r = control(s, UiCallControl::stage_accept); ok && ui_rect_has_area(r))
-            ok = paint_stream_push_rounded(p, r.left, r.top, r.right, r.bottom,
-                                           shaded(theme.tokens.accent.brand, hovered(UiCallControl::stage_accept),
-                                                  pressed(UiCallControl::stage_accept)),
-                                           theme.scale.radius_sm);
+            ok = paint_stream_push_rounded(p, r, shaded(theme.tokens.accent.brand, hovered(UiCallControl::stage_accept),
+                   pressed(UiCallControl::stage_accept)), theme.scale.radius_sm);
         if (const auto r = control(s, UiCallControl::stage_decline); ok && ui_rect_has_area(r))
-            ok = paint_stream_push_rounded(p, r.left, r.top, r.right, r.bottom,
-                                           hovered(UiCallControl::stage_decline) ? theme.interactive : theme.surface_high,
-                                           theme.scale.radius_sm);
+            ok = paint_stream_push_rounded(p, r, hovered(UiCallControl::stage_decline) ? theme.interactive : theme.surface_high, theme.scale.radius_sm);
     }
     if (ok && ui_rect_has_area(s.stage_audience)) {
         const auto l = audience_label(s);
@@ -368,16 +355,13 @@ bool paint_foreground(const UiCallScene& s, const Theme& theme, PaintStream* p) 
         const auto l = requests_label(s);
         const float y = (l.top + l.bottom) * .5f;
         ok = ui_icon_paint(p, UiIcon::hand, {l.left - 22, y - 8, l.left - 6, y + 8}, theme.text_secondary) &&
-             paint_stream_push_clip(p, s.stage_requests.left, s.stage_requests.top, s.stage_requests.right,
-                                    s.stage_requests.bottom);
+             paint_stream_push_clip(p, s.stage_requests);
         for (u32 i = 0; ok && i < request_rows(s); ++i) {
             const auto r = invite_button(s, i);
             const bool hot = s.hovered == UiCallControl::stage_invite &&
                              s.stage_hovered == s.stage_people[kUiCallStageAudienceShown + i].user_id;
-            ok = paint_stream_push_rounded(p, r.left, r.top, r.right, r.bottom,
-                                           shaded(theme.tokens.accent.brand, hot,
-                                                  hot && s.pressed == UiCallControl::stage_invite),
-                                           theme.scale.radius_sm);
+            ok = paint_stream_push_rounded(p, r, shaded(theme.tokens.accent.brand, hot,
+                   hot && s.pressed == UiCallControl::stage_invite), theme.scale.radius_sm);
         }
         ok = paint_stream_pop_clip(p) && ok;
     }

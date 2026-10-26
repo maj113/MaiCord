@@ -3,6 +3,7 @@
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/ui/style_lengths.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -50,22 +51,10 @@ bool state_valid(const UiPollState& state) noexcept {
     return state.multiselect || selected <= 1;
 }
 bool style_valid(const UiPollStyle& style) noexcept {
-    const float lengths[]{style.padding,
-                          style.gap,
-                          style.answer_padding,
-                          style.answer_gap,
-                          style.minimum_width,
-                          style.maximum_width,
-                          style.target,
-                          style.marker,
-                          style.emoji_extent,
-                          style.question_minimum_height,
-                          style.answer_minimum_height,
-                          style.label_minimum_height,
-                          style.radius};
-    for (float value : lengths)
-        if (!ui_coordinate_valid(value) || value < 0)
-            return false;
+    // The thirteen lengths lead the style, in this order.
+    static_assert(__builtin_offsetof(UiPollStyle, radius) == 12 * sizeof(float));
+    if (!ui_lengths_valid(&style.padding, 13))
+        return false;
     if (style.minimum_width < 128 || style.maximum_width < style.minimum_width || style.target < 32 ||
         style.marker < 12 || style.emoji_extent < 16 || style.label_minimum_height < 12)
         return false;
@@ -136,20 +125,7 @@ u64 content_signature(const UiPollState& state, const UiPollStyle& style) noexce
         hash = hash64_counted_bytes(hash, answer.emoji_name.data, answer.emoji_name.bytes);
         hash = hash64_mix(hash, answer.emoji_id);
     }
-    const float metrics[]{style.padding,
-                          style.gap,
-                          style.answer_padding,
-                          style.answer_gap,
-                          style.minimum_width,
-                          style.maximum_width,
-                          style.target,
-                          style.marker,
-                          style.emoji_extent,
-                          style.question_minimum_height,
-                          style.answer_minimum_height,
-                          style.label_minimum_height,
-                          style.radius};
-    hash = hash64_bytes(hash, metrics, sizeof(metrics));
+    hash = hash64_bytes(hash, &style.padding, 13 * sizeof(float));
     const Utf8View labels[]{style.question_fallback,
                             style.answer_fallback,
                             style.vote,
@@ -166,9 +142,9 @@ u64 content_signature(const UiPollState& state, const UiPollStyle& style) noexce
                             style.unknown_results};
     for (auto label : labels)
         hash = hash64_counted_bytes(hash, label.data, label.bytes);
-    const u32 flags[]{style.question_style, style.answer_style, style.detail_style,
-                      style.count_style,    style.percent_style, style.button_style};
-    return hash64_bytes(hash, flags, sizeof(flags));
+    static_assert(__builtin_offsetof(UiPollStyle, button_style) ==
+                  __builtin_offsetof(UiPollStyle, question_style) + 5 * sizeof(u32));
+    return hash64_bytes(hash, &style.question_style, 6 * sizeof(u32));
 }
 bool measure(const UiPollState& state, Utf8View text, u16 item, u32 flags, float width, bool no_wrap,
              UiTextMeasureCache* cache, u16 backend, UiTextMeasureValue* value) noexcept {
@@ -713,8 +689,8 @@ bool ui_poll_scene_project(UiPollScene* scene, const UiPollState& state, UiRect 
     const auto focus = scene->focus, hover = scene->hover, capture = scene->capture;
     const bool keyboard = scene->keyboard_focus;
     reset_value(scene);
-    scene->projection = projection;
-    scene->style = style;
+    copy_value(&scene->projection, projection);
+    copy_value(&scene->style, style);
     scene->owner = owner;
     scene->surface = surface;
     scene->clip = effective;

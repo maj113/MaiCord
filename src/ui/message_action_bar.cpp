@@ -19,7 +19,7 @@ UiRect occluded_clip(const MessageActionBar& bar, UiRect rectangle, UiRect viewp
     UiRect clip = viewport;
     const float middle = (rectangle.top + rectangle.bottom) * .5f;
     for (const UiRect& occluder : bar.occluders) {
-        if (!ui_rect_has_area(ui_rect_intersection(occluder, rectangle)))
+        if (!ui_rect_intersects(occluder, rectangle))
             continue;
         if ((occluder.top + occluder.bottom) * .5f <= middle)
             clip.top = maximum(clip.top, occluder.bottom);
@@ -54,7 +54,7 @@ bool layout_items(MessageActionBar* bar, UiRect row, UiRect viewport, bool divid
     bar->viewport = viewport;
     bar->clip = occluded_clip(*bar, bar->rectangle, viewport);
     // Entirely under an overlay: nothing to show or hit.
-    if (!ui_rect_has_area(ui_rect_intersection(bar->rectangle, bar->clip)))
+    if (!ui_rect_intersects(bar->rectangle, bar->clip))
         return false;
     float x = left + kMessageActionBarPanelPadding;
     const float y = top + kMessageActionBarPanelPadding;
@@ -396,7 +396,7 @@ bool message_action_bar_set_occluders(MessageActionBar* bar, const UiRect* occlu
     const UiRect clip = occluded_clip(*bar, bar->rectangle, bar->viewport);
     if (ui_rect_equal(clip, bar->clip))
         return true;
-    if (!ui_rect_has_area(ui_rect_intersection(bar->rectangle, clip)))
+    if (!ui_rect_intersects(bar->rectangle, clip))
         return message_action_bar_close(bar, changed);
     bar->clip = clip;
     saturating_increment(bar->revision);

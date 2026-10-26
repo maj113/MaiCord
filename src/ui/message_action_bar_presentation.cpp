@@ -8,8 +8,7 @@ namespace {
 
 bool push_owned(PaintStream* paint, const MessageActionBar& bar, UiRect rectangle, const Color& fill,
                 const Color& border, float radius, float border_width, UiLayoutContentKind kind) noexcept {
-    return paint_stream_push_rounded_border(paint, rectangle.left, rectangle.top, rectangle.right,
-                                            rectangle.bottom, fill, border, radius, border_width) &&
+    return paint_stream_push_rounded_border(paint, rectangle, fill, border, radius, border_width) &&
            paint_stream_record_content(paint, bar.owner, rectangle, kind,
                                        ui_layout_content_bounds_allow_overlap |
                                            ui_layout_content_bounds_allow_overflow);
@@ -48,7 +47,7 @@ bool message_action_bar_presentation_build(const MessageActionBar& bar, const Th
     const UiRect visible = message_action_bar_visible_rectangle(bar);
     if (!paint || bar.message_id == 0 || bar.item_count == 0 || bar.item_count > kMessageActionBarCapacity ||
         !bar.owner.manager || !ui_rect_has_area(bar.rectangle) || !ui_rect_has_area(visible) ||
-        !paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom)) {
+        !paint_stream_push_clip(paint, visible)) {
         return false;
     }
     UiPluginSlotNode plugins[kMessageActionBarPluginItems]{};
@@ -135,7 +134,7 @@ bool message_action_bar_text_presentation_build_output(const MessageActionBar& b
         const MessageActionBarItem& item = bar.items[index];
         if (item.kind != MessageActionBarItemKind::quick_reaction || item.glyph.bytes == 0)
             continue;
-        if (!ui_rect_has_area(ui_rect_intersection(item.rectangle, visible)))
+        if (!ui_rect_intersects(item.rectangle, visible))
             continue;
         if (!ui_text_output_push(text, UiTextCommand{item.glyph, bar.owner, item.rectangle, visible,
                                                      theme.text_primary, text_style_picker_emoji,

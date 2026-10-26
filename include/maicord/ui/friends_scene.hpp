@@ -18,7 +18,7 @@ enum class UiFriendsAction : u8 { none, select_tab, open_dm, profile, accept, ig
     // Active Now column: collapse/expand it, or open a card's first member.
     active_toggle, active_card };
 struct UiFriendsTarget {UiFriendsAction action;u64 user_id;UiFriendsTab tab;UiFriendsSectionKind section = UiFriendsSectionKind::incoming;};
-constexpr bool ui_friends_target_equal(UiFriendsTarget a,UiFriendsTarget b) noexcept {
+constexpr bool ui_friends_target_equal(const UiFriendsTarget& a,const UiFriendsTarget& b) noexcept {
     return a.action==b.action&&a.user_id==b.user_id&&a.tab==b.tab&&
         (a.action!=UiFriendsAction::toggle_section||a.section==b.section);
 }
@@ -117,7 +117,7 @@ struct UiFriendsScene {
     bool active,focus_visible,search_active;
 };
 // Lazy retained viewport list, maximum 16,384 logical rows.
-bool ui_friends_scene_update(UiFriendsScene*,const UiFriendsSource*,UiFriendsTab,UiFriendsPhase,Utf8View status,UiRect viewport,const UiFriendsContent* content=nullptr,const UiFriendsSections* sections=nullptr,const UiFriendsActiveNow* active_now=nullptr) noexcept;
+bool ui_friends_scene_update(UiFriendsScene*,const UiFriendsSource*,UiFriendsTab,UiFriendsPhase,const Utf8View& status,const UiRect& viewport,const UiFriendsContent* content=nullptr,const UiFriendsSections* sections=nullptr,const UiFriendsActiveNow* active_now=nullptr) noexcept;
 // Active Now geometry: avatars beyond the list's visible rows (for media),
 // and pointer hover over cards. Both are no-ops without a visible column.
 u32 ui_friends_scene_active_avatar_count(const UiFriendsScene&) noexcept;
@@ -125,14 +125,14 @@ bool ui_friends_scene_active_avatar(const UiFriendsScene&, u32 index, UiFriendsA
 bool ui_friends_scene_active_hover(UiFriendsScene*, float x, float y) noexcept;
 void ui_friends_scene_release(UiFriendsScene*) noexcept;
 bool ui_friends_scene_scroll(UiFriendsScene*,float delta_dips) noexcept;
-bool ui_friends_scene_focus(UiFriendsScene*,UiFriendsTarget) noexcept;
+bool ui_friends_scene_focus(UiFriendsScene*,const UiFriendsTarget&) noexcept;
 void ui_friends_scene_set_focus_visible(UiFriendsScene*,bool) noexcept;
 UiFriendsTarget ui_friends_scene_focused(const UiFriendsScene&) noexcept;
 UiFriendsTarget ui_friends_scene_hit_test(const UiFriendsScene&,float x,float y) noexcept;
 UiFriendsTarget ui_friends_scene_navigate(UiFriendsScene*,UiListMove) noexcept;
 UiFriendsTarget ui_friends_scene_page(UiFriendsScene*,bool reverse) noexcept;
 // Validates a semantic request against the current source. No host effects.
-bool ui_friends_scene_activation(const UiFriendsScene&,UiFriendsTarget,UiFriendsTarget*) noexcept;
+bool ui_friends_scene_activation(const UiFriendsScene&,const UiFriendsTarget&,UiFriendsTarget*) noexcept;
 UiScrollbarGeometry ui_friends_scene_scrollbar(const UiFriendsScene&) noexcept;
 UiFriendsSearchGeometry ui_friends_scene_search_geometry(const UiFriendsScene&) noexcept;
 // Retained viewport rows include bounded overscan. Helpers reject stale

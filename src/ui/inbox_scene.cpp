@@ -1,6 +1,8 @@
 #include "maicord/ui/inbox_scene.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/background_surface.hpp"
+#include "maicord/ui/rect_edges.hpp"
+#include "maicord/ui/scene_text.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/spinner.hpp"
@@ -51,23 +53,15 @@ bool focused(const UiInboxScene& s, UiWidgetHandle handle) noexcept {
 bool hovered(const UiInboxScene& s, UiWidgetHandle handle) noexcept {
     return ui_widget_handle_matches(s.widgets.hovered, handle);
 }
-UiWidgetHandle add(UiInboxScene& s, UiRect r, UiInboxTarget target, Utf8View name, bool enabled,
+UiWidgetHandle add(UiInboxScene& s, const UiRect& r, const UiInboxTarget& target, const Utf8View& name, bool enabled,
                    UiWidgetHandle parent) noexcept {
     if (!ui_rect_has_area(r))
         return {};
-    auto style = ui_layout_style();
-    style.width = ui_layout_fixed(ui_rect_width(r));
-    style.height = ui_layout_fixed(ui_rect_height(r));
     const auto origin = s.body_owner.generation && parent.slot == s.body_owner.slot ? s.body : s.panel;
-    style.margin.left = r.left - origin.left;
-    style.margin.top = r.top - origin.top;
-    style.flags |= ui_layout_node_allow_overlap | ui_layout_node_clip_children;
-    const u32 id = s.widgets.count + 1;
-    const auto result = ui_widget_manager_add_prevalidated(
-        &s.widgets, parent,
-        {id, target.action == UiInboxAction::none ? UiWidgetKind::container : UiWidgetKind::button,
-         static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : 0),
-         {name, style, {}, 0, id}});
+    const auto result = ui_widget_manager_add_placed(
+        &s.widgets, parent, target.action == UiInboxAction::none ? UiWidgetKind::container : UiWidgetKind::button,
+        static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : 0), name, r,
+        origin);
     if (!result.ok())
         return {};
     s.targets[result.handle.slot] = target;
@@ -102,12 +96,11 @@ bool rebuild(UiInboxScene& s) noexcept {
     s.root = root.handle;
     const auto& c = *s.content;
     const auto p = s.panel;
-    const float tab_top = p.top + 12, tab_bottom = p.top + 40;
-    s.tabs[0] = add(s, {p.left + 92, tab_top, p.left + 184, tab_bottom}, {UiInboxAction::tab_mentions},
+    s.tabs[0] = add(s, ui_rect_edges(p, ui_start(92), ui_start(12), ui_start(184), ui_start(40)), {UiInboxAction::tab_mentions},
                     utf8_literal("Mentions"), true, s.root);
-    s.tabs[1] = add(s, {p.left + 188, tab_top, p.left + 272, tab_bottom}, {UiInboxAction::tab_unreads},
+    s.tabs[1] = add(s, ui_rect_edges(p, ui_start(188), ui_start(12), ui_start(272), ui_start(40)), {UiInboxAction::tab_unreads},
                     utf8_literal("Unreads"), true, s.root);
-    s.close = add(s, {p.right - 44, p.top + 10, p.right - 12, p.top + 42}, {UiInboxAction::close},
+    s.close = add(s, ui_rect_edges(p, ui_end(-44), ui_start(10), ui_end(-12), ui_start(42)), {UiInboxAction::close},
                   utf8_literal("Close inbox"), true, s.root);
     if (!s.tabs[0].generation || !s.tabs[1].generation || !s.close.generation)
         return false;
@@ -178,17 +171,11 @@ bool rebuild(UiInboxScene& s) noexcept {
     ++s.revision;
     return true;
 }
-bool text(UiTextOutput* out, const UiInboxScene& s, UiWidgetHandle owner, Utf8View value, UiRect r, Color color,
-          u32 flags = 0, bool wrap = false, bool in_body = false,
-          UiTextAlignment alignment = UiTextAlignment::start) noexcept {
-    const auto clip = ui_rect_intersection(r, in_body ? s.body : s.panel);
-    return !value.bytes || !ui_rect_has_area(clip) ||
-           ui_text_output_push(out, {value, {&s.widgets, owner}, r, clip, color, flags, alignment,
-                                     wrap ? UiTextAlignment::start : UiTextAlignment::center,
-                                     wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
-                                     UiTextFace::normal});
+bool text(UiTextOutput* out, const UiInboxScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r, const Color& color,
+          u32 flags = 0, u32 mode = 0) noexcept {
+    return ui_scene_text(out, s.widgets, owner, value, r, (mode & ui_text_in_body) ? s.body : s.panel, color, flags, mode);
 }
-bool surface(PaintStream* out, UiRect r, const Theme& theme, Color fill, Color border, float radius = 8) noexcept {
+bool surface(PaintStream* out, const UiRect& r, const Theme& theme, const Color& fill, const Color& border, float radius = 8) noexcept {
     return ui_background_paint_surface(out, r, theme, fill, border, radius, 1, .9f, UiBackgroundSurfaceMode::gradient,
                                        UiBackgroundTier::high);
 }
@@ -231,7 +218,7 @@ bool ui_inbox_scene_avatar(const UiInboxScene& s, u32 slot, UiRect* rectangle, U
         return false;
     *rectangle = mention_avatar(s.row_rectangles[slot]);
     *clip = s.body;
-    return ui_rect_has_area(ui_rect_intersection(*rectangle, *clip));
+    return ui_rect_intersects(*rectangle, *clip);
 }
 float ui_inbox_scene_scroll_maximum(const UiInboxScene& s) noexcept {
     return maximum(0.f, s.offsets[s.measured_count] - ui_rect_height(s.body));
@@ -440,21 +427,21 @@ bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream
         return true;
     if (!out ||
         !ui_surface_shadow_paint_isolated(out, s.panel, theme, UiElevation::popover, theme.scale.radius_md) ||
-        !paint_stream_push_clip(out, s.panel.left, s.panel.top, s.panel.right, s.panel.bottom))
+        !paint_stream_push_clip(out, s.panel))
         return false;
     const auto& c = *s.content;
     bool ok = ui_surface_paint_plate(out, s.panel, theme, UiElevation::popover, theme.scale.radius_md, nullptr,
                                      &theme.surface_high) &&
-              paint_stream_push(out, s.header.left, s.header.bottom - 1, s.header.right, s.header.bottom,
+              paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)),
                                 theme.surface_high) &&
-              ui_icon_paint(out, UiIcon::inbox, {s.panel.left + 14, s.panel.top + 16, s.panel.left + 34, s.panel.top + 36},
+              ui_icon_paint(out, UiIcon::inbox, ui_rect_edges(s.panel, ui_start(14), ui_start(16), ui_start(34), ui_start(36)),
                             theme.text_secondary) &&
               pill(out, s, s.tabs[0], theme, s.tab == UiInboxTab::mentions) &&
               pill(out, s, s.tabs[1], theme, s.tab == UiInboxTab::unreads);
     const auto close = bounds(s, s.close);
     if (ok && (hovered(s, s.close) || focused(s, s.close)))
         ok = surface(out, close, theme, theme.surface_high, focused(s, s.close) ? theme.tokens.border.focus : theme.surface_high, 6);
-    ok = ok && ui_icon_paint(out, UiIcon::close, {close.left + 7, close.top + 7, close.right - 7, close.bottom - 7},
+    ok = ok && ui_icon_paint(out, UiIcon::close, ui_rect_shrink(close, 7),
                              theme.text_secondary);
     if (ok && s.tab == UiInboxTab::mentions) {
         const bool checked[]{c.this_server, c.everyone, c.roles};
@@ -466,10 +453,10 @@ bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream
             ok = surface(out, r, theme, checked[i] ? theme.surface_high : hot ? theme.surface : theme.base_lower,
                          focused(s, s.chips[i]) || checked[i] ? theme.tokens.emphasis.outline : theme.surface_high, ui_rect_height(r) * .5f);
         }
-        ok = ok && paint_stream_push(out, s.filters.left, s.filters.bottom - 1, s.filters.right, s.filters.bottom,
+        ok = ok && paint_stream_push(out, ui_rect_edges(s.filters, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)),
                                      theme.surface_high);
     }
-    if (ok && !paint_stream_push_clip(out, s.body.left, s.body.top, s.body.right, s.body.bottom))
+    if (ok && !paint_stream_push_clip(out, s.body))
         ok = false;
     if (ok) {
         for (u32 i = 0; ok && i < s.count; ++i) {
@@ -480,19 +467,17 @@ bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream
                              focused(s, s.rows[i]) ? theme.tokens.border.focus : theme.surface_high);
                 // Placeholder under the author's avatar media.
                 const auto avatar = mention_avatar(r);
-                ok = ok && paint_stream_push_rounded(out, avatar.left, avatar.top, avatar.right, avatar.bottom,
-                                                     theme.avatar_placeholder, kUiInboxAvatarExtent * .5f);
+                ok = ok && paint_stream_push_rounded(out, avatar, theme.avatar_placeholder, kUiInboxAvatarExtent * .5f);
             } else if (row.kind == UiInboxRowKind::channel) {
                 if (hovered(s, s.rows[i]) || focused(s, s.rows[i]))
                     ok = surface(out, r, theme, theme.surface_high,
                                  focused(s, s.rows[i]) ? theme.tokens.border.focus : theme.surface_high, 4);
                 ok = ok && ui_icon_paint(out, row.guild_id ? UiIcon::channel : UiIcon::direct_message,
-                                         {r.left + 8, r.top + 9, r.left + 26, r.top + 27},
+                                         ui_rect_edges(r, ui_start(8), ui_start(9), ui_start(26), ui_start(27)),
                                          row.muted ? theme.interactive : theme.text_secondary);
                 if (ok && row.mention_count) {
                     const auto badge = badge_rectangle(s, i);
-                    ok = paint_stream_push_rounded(out, badge.left, badge.top, badge.right, badge.bottom,
-                                                   theme.notification, ui_rect_height(badge) * .5f);
+                    ok = paint_stream_push_rounded(out, badge, theme.notification, ui_rect_height(badge) * .5f);
                 }
                 if (ok && ui_inbox_scene_channel_action_visible(s, i)) {
                     const auto a = bounds(s, s.actions[i]);
@@ -528,7 +513,7 @@ bool ui_inbox_scene_paint(const UiInboxScene& s, const Theme& theme, PaintStream
     if (ok && s.more.generation)
         ok = surface(out, bounds(s, s.more), theme, hovered(s, s.more) ? theme.surface_high : theme.surface,
                      focused(s, s.more) ? theme.tokens.border.focus : theme.interactive, 6) &&
-             paint_stream_push(out, s.footer.left, s.footer.top, s.footer.right, s.footer.top + 1, theme.surface_high);
+             paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)), theme.surface_high);
     if (ok)
         ok = ui_scrollbar_paint(out, ui_inbox_scene_scrollbar(s), theme, s.scrollbar_state);
     return paint_stream_pop_clip(out) && ok;
@@ -541,14 +526,14 @@ bool ui_inbox_scene_text_output(const UiInboxScene& s, const Theme& theme, UiTex
         return false;
     const auto& c = *s.content;
     const auto p = s.panel;
-    if (!text(out, s, s.root, utf8_literal("Inbox"), {p.left + 40, p.top + 12, p.left + 88, p.top + 40},
+    if (!text(out, s, s.root, utf8_literal("Inbox"), ui_rect_edges(p, ui_start(40), ui_start(12), ui_start(88), ui_start(40)),
               theme.text_primary, text_style_bold) ||
         !text(out, s, s.tabs[0], utf8_literal("Mentions"), bounds(s, s.tabs[0]),
-              s.tab == UiInboxTab::mentions ? theme.text_primary : theme.text_secondary, text_style_bold, false, false,
-              UiTextAlignment::center) ||
+              s.tab == UiInboxTab::mentions ? theme.text_primary : theme.text_secondary, text_style_bold,
+              ui_text_center) ||
         !text(out, s, s.tabs[1], utf8_literal("Unreads"), bounds(s, s.tabs[1]),
-              s.tab == UiInboxTab::unreads ? theme.text_primary : theme.text_secondary, text_style_bold, false, false,
-              UiTextAlignment::center))
+              s.tab == UiInboxTab::unreads ? theme.text_primary : theme.text_secondary, text_style_bold,
+              ui_text_center))
         return false;
     if (s.tab == UiInboxTab::mentions) {
         const Utf8View labels[]{c.this_server ? utf8_literal("This server") : utf8_literal("All servers"),
@@ -558,23 +543,24 @@ bool ui_inbox_scene_text_output(const UiInboxScene& s, const Theme& theme, UiTex
             if (s.chips[i].generation &&
                 !text(out, s, s.chips[i], labels[i], bounds(s, s.chips[i]),
                       checked[i] ? theme.text_primary : theme.text_secondary, text_style_subtext | text_style_bold,
-                      false, false, UiTextAlignment::center))
+                      ui_text_center))
                 return false;
     }
     for (u32 i = 0; i < s.count; ++i) {
         const auto& row = s.visible[i];
         const auto r = s.row_rectangles[i];
         if (row.kind == UiInboxRowKind::mention) {
-            if (!text(out, s, s.rows[i], row.detail, {r.left + 12, r.top + 8, r.right - 12, r.top + 26},
-                      theme.text_secondary, text_style_subtext, false, true) ||
+            if (!text(out, s, s.rows[i], row.detail, ui_rect_edges(r, ui_start(12), ui_start(8), ui_end(-12), ui_start(26)),
+                      theme.text_secondary, text_style_subtext, ui_text_in_body) ||
                 !text(out, s, s.rows[i], row.title,
-                      {r.left + mention_text_left, r.top + 26, r.right - 140, r.top + 46}, theme.text_primary,
-                      text_style_bold, false, true) ||
-                !text(out, s, s.rows[i], row.timestamp, {r.right - 140, r.top + 26, r.right - 12, r.top + 46},
-                      theme.text_secondary, text_style_subtext, false, true, UiTextAlignment::end) ||
+                      ui_rect_edges(r, ui_start(static_cast<int>(mention_text_left)), ui_start(26), ui_end(-140), ui_start(46)),
+                      theme.text_primary, text_style_bold, ui_text_in_body) ||
+                !text(out, s, s.rows[i], row.timestamp, ui_rect_edges(r, ui_end(-140), ui_start(26), ui_end(-12), ui_start(46)),
+                      theme.text_secondary, text_style_subtext, ui_text_in_body | ui_text_end) ||
                 !text(out, s, s.rows[i], mention_body(row),
-                      {r.left + mention_text_left, r.top + mention_body_top, r.right - 12, r.bottom - 8}, theme.text_primary, 0,
-                      true, true))
+                      ui_rect_edges(r, ui_start(static_cast<int>(mention_text_left)), ui_start(static_cast<int>(mention_body_top)),
+                                    ui_end(-12), ui_end(-8)),
+                      theme.text_primary, 0, ui_text_wrap | ui_text_in_body))
                 return false;
             continue;
         }
@@ -587,8 +573,8 @@ bool ui_inbox_scene_text_output(const UiInboxScene& s, const Theme& theme, UiTex
                   row.kind == UiInboxRowKind::group ? theme.text_secondary
                   : row.muted                      ? theme.interactive
                                                    : theme.text_primary,
-                  row.kind == UiInboxRowKind::group ? text_style_subtext | text_style_bold : text_style_bold, false,
-                  true))
+                  row.kind == UiInboxRowKind::group ? text_style_subtext | text_style_bold : text_style_bold,
+                  ui_text_in_body))
             return false;
         if (row.mention_count && row.kind == UiInboxRowKind::channel) {
             char digits[4];
@@ -598,14 +584,14 @@ bool ui_inbox_scene_text_output(const UiInboxScene& s, const Theme& theme, UiTex
                 digits[bytes++] = static_cast<char>('0' + value / 10);
             digits[bytes++] = static_cast<char>('0' + value % 10);
             if (!text(out, s, s.rows[i], {digits, bytes}, badge_rectangle(s, i), theme.tokens.text.on_accent,
-                      text_style_subtext | text_style_bold, false, true, UiTextAlignment::center))
+                      text_style_subtext | text_style_bold, ui_text_in_body | ui_text_center))
                 return false;
         }
         const bool hot = s.actions[i].generation && (hovered(s, s.actions[i]) || focused(s, s.actions[i]));
         if (row.kind == UiInboxRowKind::group && s.actions[i].generation &&
             !text(out, s, s.actions[i], utf8_literal("Mark all read"), bounds(s, s.actions[i]),
-                  hot ? theme.text_primary : theme.tokens.text.link, text_style_subtext | text_style_bold, false, true,
-                  UiTextAlignment::center))
+                  hot ? theme.text_primary : theme.tokens.text.link, text_style_subtext | text_style_bold,
+                  ui_text_in_body | ui_text_center))
             return false;
     }
     if (!s.measured_count) {
@@ -622,9 +608,9 @@ bool ui_inbox_scene_text_output(const UiInboxScene& s, const Theme& theme, UiTex
                                 : mentions ? utf8_literal("Mentions of you will show up here.")
                                            : utf8_literal("Channels with new messages will show up here.");
         if (!text(out, s, s.root, title, {r.left + 20, top, r.right - 20, top + 28}, theme.text_primary,
-                  text_style_bold, false, true, UiTextAlignment::center) ||
+                  text_style_bold, ui_text_in_body | ui_text_center) ||
             !text(out, s, s.root, detail, {r.left + 24, top + 32, r.right - 24, top + 80}, theme.text_secondary, 0,
-                  true, true, UiTextAlignment::center))
+                  ui_text_wrap | ui_text_in_body | ui_text_center))
             return false;
     }
     if (s.more.generation)
@@ -633,7 +619,7 @@ bool ui_inbox_scene_text_output(const UiInboxScene& s, const Theme& theme, UiTex
                     : c.phase == UiInboxPhase::failed ? utf8_literal("Try again")
                                                       : utf8_literal("Load more"),
                     bounds(s, s.more), c.loading_more ? theme.text_secondary : theme.text_primary, text_style_bold,
-                    false, false, UiTextAlignment::center);
+                    ui_text_center);
     return true;
 }
 } // namespace maicord

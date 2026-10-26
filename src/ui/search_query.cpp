@@ -7,11 +7,11 @@
 
 namespace maicord {
 namespace {
-bool equal(Utf8View a, Utf8View b) noexcept {
+bool equal(const Utf8View& a, const Utf8View& b) noexcept {
     return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
 }
 // Filter keys are camelCase in the query syntax but match case-insensitively.
-bool key_equal(Utf8View key, Utf8View name) noexcept {
+bool key_equal(const Utf8View& key, const Utf8View& name) noexcept {
     if (key.bytes != name.bytes)
         return false;
     for (u32 i = 0; i < key.bytes; ++i) {

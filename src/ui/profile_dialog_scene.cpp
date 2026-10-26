@@ -54,8 +54,8 @@ float crop_height(UiRect viewport) noexcept {
     return kTop + kTitleLine + kBodyGap * 2 + image_crop_editor_height(ui_rect_height(viewport)) + kToolsPad * 2 +
            kTool + kFooterButton + kFooterPad * 2;
 }
-UiProfileDialogPart* add(UiProfileDialogScene* s, UiWidgetHandle parent, UiRect origin, UiRect r, Role role,
-                         UiProfileDialogAction action = UiProfileDialogAction::none, Utf8View text = {},
+UiProfileDialogPart* add(UiProfileDialogScene* s, UiWidgetHandle parent, const UiRect& origin, const UiRect& r, Role role,
+                         UiProfileDialogAction action = UiProfileDialogAction::none, const Utf8View& text = {},
                          u16 source = 0, u32 style = 0, bool clip = false) noexcept {
     if (s->part_count >= kUiProfileDialogPartCapacity || !ui_rect_has_area(r))
         return nullptr;
@@ -156,7 +156,7 @@ bool build_crop(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) n
         !add(s, root, viewport, {editor.right - kRotateBox, middle - kRotateBox * .5f, editor.right, middle + kRotateBox * .5f},
              role_rotate, UiProfileDialogAction::rotate))
         return false;
-    const auto t = ui_settings_layout_tokens(kDefaultTheme.styles);
+    const UiSettingsStyleTokens t(kDefaultTheme.styles);
     const float apply_w = ui_settings_button_width(t, UiSettingsButtonSize::regular,
                                                    ui_settings_text_width(s->content.apply_label, kUiSettingsDescriptionEm) * 1.08f);
     const float cancel_w = ui_settings_button_width(t, UiSettingsButtonSize::regular,
@@ -241,7 +241,7 @@ bool build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport)
         !add(s, root, viewport, {left, footer_top, right - 200, footer_top + kFooterButton}, role_status,
              UiProfileDialogAction::none, s->content.status, 0, text_style_subtext))
         return false;
-    const auto t = ui_settings_layout_tokens(kDefaultTheme.styles);
+    const UiSettingsStyleTokens t(kDefaultTheme.styles);
     const float apply_w = ui_settings_button_width(
         t, UiSettingsButtonSize::regular, ui_settings_text_width(s->content.apply_label, kUiSettingsDescriptionEm) * 1.08f);
     const float cancel_w = ui_settings_button_width(
@@ -387,7 +387,7 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
         const auto editor = s.crop_viewport;
         const auto image = offset(image_crop_image_rect(c.crop), editor);
         const auto mask = offset(image_crop_mask_rect(c.crop), editor);
-        ProfileMedia media{};
+        ProfileMedia& media = *out;
         media.key = c.image;
         media.domain = 1;
         // The image rectangle is already in the turned orientation; the
@@ -404,7 +404,6 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
             media.mask_radius = ui_rect_width(mask) * .5f;
         } else
             media.clip = ui_rect_intersection(editor, mask);
-        *out = media;
         return true;
     }
     // Pickers: tile images, then the large and small previews.
@@ -425,7 +424,7 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
             if (cursor++ != index)
                 continue;
             const auto& item = c.items[part.source];
-            ProfileMedia media{};
+            ProfileMedia& media = *out;
             media.key = item.key;
             copy_value(&media.url, item.url);
             media.clip = clip;
@@ -437,7 +436,6 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
                 media.mask = r;
                 media.mask_radius = 4;
             }
-            *out = media;
             return true;
         }
         // Previews: the avatar, then the selected decoration over it.
@@ -450,21 +448,20 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
         if (cursor++ == index) {
             if (!media_asset_key_valid(c.avatar.key))
                 return false;
-            ProfileMedia media = c.avatar;
+            ProfileMedia& media = *out;
+            copy_value(&media, c.avatar);
             media.rectangle = avatar;
             media.clip = clip;
             media.circular = true;
-            *out = media;
             return true;
         }
         if (has_decoration && cursor++ == index) {
             const auto& item = c.items[c.selected];
-            ProfileMedia media{};
+            ProfileMedia& media = *out;
             copy_value(&media.key, item.key);
             media.url = item.url;
             media.rectangle = decoration_rect(avatar);
             media.clip = clip;
-            *out = media;
             return true;
         }
     }
@@ -474,8 +471,8 @@ bool ui_profile_dialog_media(const UiProfileDialogScene& s, u32 index, ProfileMe
 bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, PaintStream* paint) noexcept {
     if (!s.active)
         return true;
-    const auto t = ui_settings_tokens(theme);
-    bool ok = paint_stream_push(paint, s.viewport.left, s.viewport.top, s.viewport.right, s.viewport.bottom,
+    const UiSettingsThemeTokens t(theme);
+    bool ok = paint_stream_push(paint, s.viewport,
                                 theme.tokens.overlay.scrim) &&
               ui_surface_paint(paint, s.rectangle, theme, UiElevation::dialog, theme.scale.radius_md);
     for (u32 i = 0; ok && i < s.part_count; ++i) {
@@ -486,7 +483,7 @@ bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, 
         UiControlState state{enabled(s, part), hovered(s, part), false, focused(s, part) && s.focus_visible};
         switch (part.role) {
         case role_editor:
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, theme.tokens.overlay.media,
+            ok = paint_stream_push_rounded(paint, r, theme.tokens.overlay.media,
                                            theme.scale.radius_sm);
             if (ok && !s.content.image_ready)
                 ok = ui_icon_paint(paint, s.content.failed ? UiIcon::warning : UiIcon::image,
@@ -503,7 +500,7 @@ bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, 
             const float value = (s.content.crop.zoom - kImageCropMinimumZoom) / (kImageCropMaximumZoom - kImageCropMinimumZoom);
             const float x = track.left + ui_rect_width(track) * (value < 0 ? 0 : value > 1 ? 1 : value);
             const float cy = (track.top + track.bottom) * .5f;
-            ok = paint_stream_push_rounded(paint, track.left, track.top, track.right, track.bottom, t.color.slider_track,
+            ok = paint_stream_push_rounded(paint, track, t.color.slider_track,
                                            kSliderTrack * .5f) &&
                  paint_stream_push_rounded(paint, track.left, track.top, x, track.bottom, t.color.brand,
                                            kSliderTrack * .5f) &&
@@ -517,7 +514,7 @@ bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, 
         case role_close: {
             const Color fill = state.hovered && state.enabled ? theme.tokens.state.hover : Color{};
             if (fill.alpha)
-                ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, fill, theme.scale.radius_sm);
+                ok = paint_stream_push_rounded(paint, r, fill, theme.scale.radius_sm);
             const float pad = 6;
             ok = ok && ui_icon_paint(paint, part.role == role_rotate ? UiIcon::retry : UiIcon::close,
                                      {r.left + pad, r.top + pad, r.right - pad, r.bottom - pad},
@@ -533,7 +530,7 @@ bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, 
                                           state);
             break;
         case role_tile: {
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom,
+            ok = paint_stream_push_rounded(paint, r,
                                            state.hovered ? theme.tokens.state.hover : theme.base_lowest,
                                            theme.scale.radius_sm);
             if (ok && part.source < s.content.items.count && !s.content.items[part.source].sku) {
@@ -545,7 +542,7 @@ bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, 
         case role_preview:
         case role_small_preview:
             if (part.role == role_preview)
-                ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, theme.base_lowest,
+                ok = paint_stream_push_rounded(paint, r, theme.base_lowest,
                                                theme.scale.radius_sm);
             break;
         default:
@@ -563,7 +560,7 @@ bool ui_profile_dialog_foreground(const UiProfileDialogScene& s, const Theme& th
         // The mask: a 5 DIP white border inside the crop shape.
         const auto mask = offset(image_crop_mask_rect(s.content.crop), s.crop_viewport);
         const bool round = s.content.crop.use == ImageCropUse::avatar;
-        ok = paint_stream_push_rounded_border(paint, mask.left, mask.top, mask.right, mask.bottom, {},
+        ok = paint_stream_push_rounded_border(paint, mask, {},
                                               theme.tokens.text.on_accent, round ? ui_rect_width(mask) * .5f : 0,
                                               kMaskBorder);
         if (ok)
@@ -584,8 +581,8 @@ bool ui_profile_dialog_foreground(const UiProfileDialogScene& s, const Theme& th
         if (ring && ui_rect_has_area(r)) {
             const auto* n = node(s, part);
             const auto full = n ? n->rectangle : r;
-            ok = paint_stream_push_clip(paint, r.left, r.top, r.right, r.bottom) &&
-                 paint_stream_push_rounded_border(paint, full.left, full.top, full.right, full.bottom, {},
+            ok = paint_stream_push_clip(paint, r) &&
+                 paint_stream_push_rounded_border(paint, full, {},
                                                   selected ? theme.tokens.emphasis.fill : ui_settings_focus_color(theme),
                                                   theme.scale.radius_sm, 2) &&
                  paint_stream_pop_clip(paint);
@@ -597,7 +594,7 @@ bool ui_profile_dialog_foreground(const UiProfileDialogScene& s, const Theme& th
 bool ui_profile_dialog_text_output(const UiProfileDialogScene& s, const Theme& theme, UiTextOutput* output) noexcept {
     if (!s.active)
         return true;
-    const auto t = ui_settings_tokens(theme);
+    const UiSettingsThemeTokens t(theme);
     for (u32 i = 0; i < s.part_count; ++i) {
         const auto& part = s.parts[i];
         if (!part.text.bytes)
@@ -607,7 +604,7 @@ bool ui_profile_dialog_text_output(const UiProfileDialogScene& s, const Theme& t
             return false;
         auto r = n->rectangle;
         const auto clip = ui_rect_intersection(n->clip_rectangle, s.rectangle);
-        if (!ui_rect_has_area(ui_rect_intersection(r, clip)))
+        if (!ui_rect_intersects(r, clip))
             continue;
         UiControlState state{enabled(s, part), hovered(s, part), false, false};
         Color color = theme.text_primary;

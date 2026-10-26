@@ -145,11 +145,17 @@ Utf8View target_name(u64 guild_id, u64 user_id) noexcept {
 struct Text {
     char data[512];
     u32 bytes;
-    void add(Utf8View value) noexcept {
+    __declspec(noinline) void append(const char* source, u32 count) noexcept {
         const u32 room = sizeof(data) - bytes;
-        const u32 take = value.bytes < room ? value.bytes : room;
-        copy_bytes(data + bytes, value.data, take);
+        const u32 take = count < room ? count : room;
+        copy_bytes(data + bytes, source, take);
         bytes += take;
+    }
+    void add(const Utf8View& value) noexcept {
+        append(value.data, value.bytes);
+    }
+    template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
+        append(text, Count - 1);
     }
     Utf8View view() const noexcept {
         return {data, bytes};
@@ -268,14 +274,14 @@ bool ban_save(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 s
 bool open_ban_form() noexcept {
     Text title{};
     if (moderation.kind == Kind::bulk_ban) {
-        title.add(utf8_literal("Ban "));
+        title.add("Ban ");
         char digits[12];
         title.add({digits, decimal_write(digits, moderation.user_count)});
         title.add(moderation.user_count == 1 ? utf8_literal(" member?") : utf8_literal(" members?"));
     } else {
-        title.add(utf8_literal("Ban @"));
+        title.add("Ban @");
         title.add(target_name(moderation.guild_id, moderation.user_id));
-        title.add(utf8_literal("?"));
+        title.add("?");
     }
     moderation.step = Step::editing;
     ApplicationTextFormRequest request{};
@@ -310,14 +316,14 @@ bool open_form() noexcept {
     u32 maximum = kGuildAdminReasonBytes;
     switch (moderation.kind) {
     case Kind::nickname: {
-        title.add(utf8_literal("Edit nickname"));
+        title.add("Edit nickname");
         context.add(moderation.self_nickname ? utf8_literal("Shown for you in this server.")
                                              : utf8_literal("Shown for "));
         if (!moderation.self_nickname) {
             context.add(name);
-            context.add(utf8_literal(" in this server."));
+            context.add(" in this server.");
         }
-        context.add(utf8_literal(" Leave it empty to reset."));
+        context.add(" Leave it empty to reset.");
         label = utf8_literal("Nickname");
         accept = utf8_literal("Save");
         maximum = kNicknameCodepoints;
@@ -327,23 +333,23 @@ bool open_form() noexcept {
         break;
     }
     case Kind::timeout:
-        title.add(utf8_literal("Time out "));
+        title.add("Time out ");
         title.add(name);
-        context.add(utf8_literal("For "));
+        context.add("For ");
         context.add(duration_text(moderation.choice));
-        context.add(utf8_literal(". They can read but can't send messages, react or join voice."));
+        context.add(". They can read but can't send messages, react or join voice.");
         accept = utf8_literal("Time out");
         break;
     case Kind::end_timeout:
-        title.add(utf8_literal("End timeout for "));
+        title.add("End timeout for ");
         title.add(name);
-        context.add(utf8_literal("They can take part again right away."));
+        context.add("They can take part again right away.");
         accept = utf8_literal("End timeout");
         break;
     case Kind::kick:
-        title.add(utf8_literal("Remove "));
+        title.add("Remove ");
         title.add(name);
-        context.add(utf8_literal("They can rejoin with a new invite."));
+        context.add("They can rejoin with a new invite.");
         accept = utf8_literal("Remove");
         break;
     case Kind::ban:

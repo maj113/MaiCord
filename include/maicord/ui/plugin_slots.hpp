@@ -139,8 +139,7 @@ inline bool ui_plugin_slot_badge_paint(const UiPluginSlotBadge& slot, const UiWi
     const auto* node = ui_widget_manager_layout_node(widgets, badge.owner);
     if (!node) return false;
     const auto geometry = ui_badge_geometry(badge, widgets);
-    if (!paint_stream_push_clip(paint, node->clip_rectangle.left, node->clip_rectangle.top, node->clip_rectangle.right,
-                                node->clip_rectangle.bottom)) return false;
+    if (!paint_stream_push_clip(paint, node->clip_rectangle)) return false;
     const bool painted = ui_icon_paint(paint, static_cast<UiIcon>(slot.icon), geometry.icon, role);
     return paint_stream_pop_clip(paint) && painted;
 }

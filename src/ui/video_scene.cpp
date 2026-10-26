@@ -9,7 +9,7 @@
 
 namespace maicord {
 namespace {
-bool rectangle(UiRect bounds) noexcept {
+bool rectangle(const UiRect& bounds) noexcept {
     return paint_coordinate_valid(bounds.left) && paint_coordinate_valid(bounds.top) &&
            paint_coordinate_valid(bounds.right) && paint_coordinate_valid(bounds.bottom) &&
            bounds.right > bounds.left && bounds.bottom > bounds.top;
@@ -111,12 +111,12 @@ UiRect range_track(UiRect bounds, const UiVideoSceneStyle& style, bool collectio
 constexpr u32 kVolumeSteps = 101;
 // The shared settings slider with the player's thumb and track sizes, so seek
 // and volume match. The media chrome is light on black in every appearance.
-UiSettingsTokens volume_tokens(const UiVideoSceneStyle& style) noexcept {
-    auto tokens = ui_settings_tokens(kDefaultTheme);
-    tokens.metric.slider_grabber = style.thumb_size;
-    tokens.metric.slider_bar = style.track_height;
-    return tokens;
-}
+struct VolumeTokens : UiSettingsThemeTokens {
+    explicit VolumeTokens(const UiVideoSceneStyle& style) noexcept : UiSettingsThemeTokens(kDefaultTheme) {
+        metric.slider_grabber = style.thumb_size;
+        metric.slider_bar = style.track_height;
+    }
+};
 // Centred in the volume control; its grabber sets the pill behind it.
 UiSliderGeometry volume_slider(const UiSettingsTokens& tokens, UiRect bounds, u32 value) noexcept {
     const float middle = (bounds.top + bounds.bottom) * .5f, half = ui_slider_height(tokens, false) * .5f;
@@ -187,7 +187,7 @@ bool range_request(UiVideoScene& scene, UiVideoControl id, UiPoint point,
     const float ratio =
         maximum(0.0f, minimum(1.0f, (clamped_x - track.left) / ui_rect_width(track)));
     const u32 value = id == UiVideoControl::volume
-                          ? ui_slider_index_at(volume_slider(volume_tokens(scene.style), control->bounds,
+                          ? ui_slider_index_at(volume_slider(VolumeTokens(scene.style), control->bounds,
                                                              control->value),
                                                kVolumeSteps, clamped_x)
                           : minimum(control->maximum, static_cast<u32>(ratio * control->maximum + .5f));
@@ -210,12 +210,11 @@ bool range_request(UiVideoScene& scene, UiVideoControl id, UiPoint point,
     *out = request;
     return true;
 }
-bool quad(PaintStream* paint, UiRect bounds, Color color, float radius) noexcept {
-    return paint_stream_push_rounded(paint, bounds.left, bounds.top, bounds.right, bounds.bottom, color,
-                                     radius);
+bool quad(PaintStream* paint, const UiRect& bounds, const Color& color, float radius) noexcept {
+    return paint_stream_push_rounded(paint, bounds, color, radius);
 }
-bool symbol(PaintStream* paint, UiRect bounds, UiVideoControl id, const UiVideoPlaybackState& playback,
-            float extent, Color color, bool error = false, float offset = 0) noexcept {
+bool symbol(PaintStream* paint, const UiRect& bounds, UiVideoControl id, const UiVideoPlaybackState& playback,
+            float extent, const Color& color, bool error = false, float offset = 0) noexcept {
     const float size = minimum(extent, minimum(ui_rect_width(bounds), ui_rect_height(bounds)));
     const float left = (bounds.left + bounds.right - size) * .5f;
     const float top = (bounds.top + bounds.bottom - size) * .5f + offset;
@@ -378,7 +377,7 @@ bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPl
                  visible = ui_rect_overlap(preview, clip);
     if (!rectangle(button) || !rectangle(visible) || !rectangle(ui_rect_overlap(button, visible)))
         return true;
-    if (!paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom))
+    if (!paint_stream_push_clip(paint, visible))
         return false;
     // The media scrim's black at the affordance's own opacity.
     Color background = theme.tokens.overlay.media;
@@ -749,8 +748,7 @@ bool ui_video_scene_tick(UiVideoScene* scene, u64 now_ms, bool reduced_motion) n
 bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintStream* paint) noexcept {
     if (!scene.active)
         return true;
-    if (!paint_stream_push_clip(paint, scene.clip.left, scene.clip.top, scene.clip.right,
-                                scene.clip.bottom))
+    if (!paint_stream_push_clip(paint, scene.clip))
         return false;
     const float opacity =
         scene.play_only && (!scene.projection.playback.playing || scene.projection.playback.error ||
@@ -774,7 +772,7 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
         const float radius = bar.bottom >= scene.preview.bottom - .5f ? scene.style.preview_radius : 0;
         ok = (lead <= 0 || paint_stream_push_gradient(paint, {bar.left, bar.top - lead, bar.right, bar.top},
                                                       {0, 0, 0, 0}, surface)) &&
-             paint_stream_push_clip(paint, bar.left, bar.top, bar.right, bar.bottom) &&
+             paint_stream_push_clip(paint, bar) &&
              quad(paint, {bar.left, bar.top - radius, bar.right, bar.bottom}, surface, radius) &&
              paint_stream_pop_clip(paint);
     }
@@ -813,7 +811,7 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
             const float round = scene.style.track_height * .5f;
             if (control.id == UiVideoControl::volume) {
                 // The shared slider on a pill whose ends share the grabber's centres.
-                auto tokens = volume_tokens(scene.style);
+                VolumeTokens tokens(scene.style);
                 tokens.color.brand = tokens.color.brand_hover = theme.tokens.emphasis.fill;
                 const auto slider = volume_slider(tokens, control.bounds, control.value);
                 const float inset = theme.scale.space_2;
@@ -877,9 +875,7 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
             ok = quad(paint, control.bounds, surface, scene.style.radius);
         }
         if (ok && scene.keyboard_focus && scene.focus == control.id && control.enabled) {
-            ok = paint_stream_push_rounded_border(
-                paint, control.bounds.left, control.bounds.top, control.bounds.right, control.bounds.bottom,
-                {}, ui_theme_color_alpha(theme.tokens.border.focus, opacity), scene.style.radius, scene.style.focus_width);
+            ok = paint_stream_push_rounded_border(paint, control.bounds, {}, ui_theme_color_alpha(theme.tokens.border.focus, opacity), scene.style.radius, scene.style.focus_width);
         }
     }
     if (ok && !scene.play_only && rectangle(scene.center_play)) {

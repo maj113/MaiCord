@@ -41,7 +41,7 @@ bool current(const UiFriendsScene& s) noexcept {
            (!s.active_now || s.active_now->revision == s.active_now_revision);
 }
 // Whether the column fits beside a list of at least the minimum width.
-bool active_fits(const UiFriendsActiveNow* active, UiRect viewport, bool modal) noexcept {
+bool active_fits(const UiFriendsActiveNow* active, const UiRect& viewport, bool modal) noexcept {
     const float width = active && active->collapsed ? kUiFriendsActiveNowCollapsedWidth : kUiFriendsActiveNowWidth;
     return active && !modal && ui_rect_width(viewport) >= kUiFriendsActiveNowMinimumList + width;
 }
@@ -66,7 +66,7 @@ UiRect active_card_rect(const UiFriendsScene& s, u32 index) noexcept {
     const float top = r.top + active_heading + index * (active_card_height + active_card_gap);
     return {r.left + active_padding, top, r.right - active_padding, top + active_card_height};
 }
-UiRect active_avatar_rect(UiRect card, u32 slot) noexcept {
+UiRect active_avatar_rect(const UiRect& card, u32 slot) noexcept {
     const float left = card.left + 14 + slot * active_avatar_step, top = card.top + 14;
     return {left, top, left + active_avatar, top + active_avatar};
 }
@@ -83,7 +83,7 @@ float height(const UiFriendsScene& s) noexcept {
     return maximum(1.f, ui_rect_height(s.surface) - (hidden(s) ? 96 : header_height) - status_height -
                             (searching(s) ? search_height : 0));
 }
-UiRect surface(UiRect viewport, bool modal) noexcept {
+UiRect surface(const UiRect& viewport, bool modal) noexcept {
     if (!modal)
         return viewport;
     const float width = minimum(480.f, ui_rect_width(viewport) - 32),
@@ -469,41 +469,81 @@ bool find(const UiFriendsScene& s, u64 id, u32* index, UiFriendsRow* row) noexce
     }
     return false;
 }
-UiLayoutStyle size(float width, float h) noexcept {
-    auto st = ui_layout_style();
-    st.width = width < 0 ? ui_layout_fill() : ui_layout_fixed(width);
-    st.height = h < 0 ? ui_layout_fill() : ui_layout_fixed(h);
-    st.flags |= ui_layout_node_allow_zero_size | ui_layout_node_clip_children;
-    return st;
-}
+// One node's layout: fixed (or, when negative, filling) extent, flow, vertical
+// padding (12 DIPs across) and gap, end/centre alignment, a right margin and
+// the vertical scroll flag.
+struct Box {
+    float width, height;
+    UiLayoutFlow flow;
+    u8 pad_y, gap, bits, margin_right;
+};
+constexpr u8 box_end = 1, box_center = 2, box_scroll = 4;
 constexpr UiFriendsRow empty_row{};
-UiWidgetHandle add(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind, const UiLayoutStyle& st,
-                   UiFriendsTarget target = {}, const UiFriendsRow& row = empty_row, bool row_label = false,
-                   bool enabled = true) noexcept {
+UiWidgetHandle emit(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind, const Box& box,
+                    const UiFriendsTarget& target, const UiFriendsRow& row, bool row_label,
+                    bool enabled) noexcept {
+    auto st = ui_layout_style();
+    st.width = box.width < 0 ? ui_layout_fill() : ui_layout_fixed(box.width);
+    st.height = box.height < 0 ? ui_layout_fill() : ui_layout_fixed(box.height);
+    st.flags |= ui_layout_node_allow_zero_size | ui_layout_node_clip_children |
+                (box.bits & box_scroll ? ui_layout_node_scroll_vertical : 0);
+    st.flow = box.flow;
+    if (box.pad_y)
+        st.padding = {12, static_cast<float>(box.pad_y), 12, static_cast<float>(box.pad_y)};
+    st.gap = box.gap;
+    if (box.bits & box_end)
+        st.horizontal_alignment = UiLayoutAlignment::end;
+    if (box.bits & box_center)
+        st.vertical_alignment = UiLayoutAlignment::center;
+    st.margin.right = box.margin_right;
     const auto name = row_label ? (row.display_name.bytes ? row.display_name : row.username)
                       : target.action == UiFriendsAction::select_tab ? tab_label(target.tab)
                       : target.action == UiFriendsAction::search     ? utf8_literal("Search friends")
                       : target.action == UiFriendsAction::none       ? utf8_literal("Friends")
                                                                      : action_label(target.action);
     const u32 id = s.widgets.count + 1;
-    const auto result = ui_widget_manager_add_prevalidated(
-        &s.widgets, parent,
-        {id,
-         kind,
-         static_cast<u16>(target.action != UiFriendsAction::none && enabled
-                              ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
-                              : ui_widget_none),
-         {name, st, {}, 0, id}});
+    const auto result = ui_widget_manager_add_keyed(
+        &s.widgets, parent, id, kind,
+        static_cast<u16>(target.action != UiFriendsAction::none && enabled
+                             ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
+                             : ui_widget_none),
+        name.data, name.bytes, st);
     if (!result.ok())
         return ui_widget_invalid_handle();
-    entries(s)[result.handle.slot] = {target, row, row_label};
+    auto& entry = entries(s)[result.handle.slot];
+    entry.target = target;
+    entry.row = row;
+    entry.row_label = row_label;
+    entry.section_label_bytes = 0;
     return result.handle;
 }
-UiWidgetHandle handle(const UiFriendsScene& s, UiFriendsTarget target) noexcept {
+UiWidgetHandle add(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind, const Box& box) noexcept {
+    return emit(s, parent, kind, box, {}, empty_row, false, true);
+}
+UiWidgetHandle add(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind, const Box& box,
+                   UiFriendsAction action, UiFriendsTab tab, bool enabled = true) noexcept {
+    return emit(s, parent, kind, box, {action, 0, tab}, empty_row, false, enabled);
+}
+UiWidgetHandle handle(const UiFriendsScene& s, const UiFriendsTarget& target) noexcept {
     for (u32 i = 0; i < s.widgets.count; ++i)
         if (ui_friends_target_equal(entries(s)[i].target, target))
             return {static_cast<u16>(i), s.widgets.generation};
     return ui_widget_invalid_handle();
+}
+// The scroll offset that brings the row of `id` into view; false when it has no visible row.
+bool reveal(const UiFriendsScene& s, u64 id, float* offset) noexcept {
+    u32 at = 0;
+    UiFriendsRow row{};
+    float top = 0;
+    if (!find(s, id, &at, &row) || !row_top(s, at, &top))
+        return false;
+    const float bottom = top + row_height;
+    *offset = s.scroll_dips;
+    if (top < *offset)
+        *offset = top;
+    else if (bottom > *offset + height(s))
+        *offset = bottom - height(s);
+    return true;
 }
 bool rebuild(UiFriendsScene& s) noexcept {
     const auto visible_window = window(s, s.scroll_dips);
@@ -536,96 +576,63 @@ bool rebuild(UiFriendsScene& s) noexcept {
         s.capacity = capacity;
     } else
         ui_widget_manager_reset(&s.widgets);
-    auto st = size(-1, -1);
-    st.flow = UiLayoutFlow::vertical;
-    const auto root = add(s, ui_widget_invalid_handle(), UiWidgetKind::container, st);
-    st = size(-1, hidden(s) ? 96 : header_height);
-    st.flow = UiLayoutFlow::vertical;
-    st.padding = {12, 8, 12, 8};
-    st.gap = 4;
-    const auto header = add(s, root, UiWidgetKind::container, st);
-    s.heading = add(s, header, UiWidgetKind::text, size(-1, 24));
+    const auto root = add(s, ui_widget_invalid_handle(), UiWidgetKind::container, {-1, -1, UiLayoutFlow::vertical});
+    const auto header = add(s, root, UiWidgetKind::container,
+                            {-1, hidden(s) ? 96.f : header_height, UiLayoutFlow::vertical, 8, 4});
+    s.heading = add(s, header, UiWidgetKind::text, {-1, 24});
     if (hidden(s))
-        s.status_widget = add(s, header, UiWidgetKind::text, size(-1, 48));
+        s.status_widget = add(s, header, UiWidgetKind::text, {-1, 48});
     if (!hidden(s)) {
-        st = size(-1, 32);
-        st.flow = UiLayoutFlow::horizontal;
-        st.gap = 4;
-        const auto tabs = add(s, header, UiWidgetKind::container, st);
+        const auto tabs = add(s, header, UiWidgetKind::container, {-1, 32, UiLayoutFlow::horizontal, 0, 4});
         const float widths[]{54, 32, 68, 68, 84};
         const float tab_scale = minimum(1.f, maximum(1.f, ui_rect_width(s.viewport) - 40) / 306.f);
         for (u32 i = 0; i < 5; ++i)
-            if (!add(s, tabs, UiWidgetKind::button, size(widths[i] * tab_scale, 32),
-                     {UiFriendsAction::select_tab, 0, static_cast<UiFriendsTab>(i)})
+            if (!add(s, tabs, UiWidgetKind::button, {widths[i] * tab_scale, 32}, UiFriendsAction::select_tab,
+                     static_cast<UiFriendsTab>(i))
                      .generation)
                 return false;
     }
     s.search_field = s.clear_search = ui_widget_invalid_handle();
     if (searching(s)) {
-        st = size(-1, search_height);
-        st.flow = UiLayoutFlow::overlay;
-        st.padding = {12, 6, 12, 6};
-        const auto search_row = add(s, root, UiWidgetKind::container, st);
-        st = size(-1, -1);
-        st.flow = UiLayoutFlow::overlay;
-        s.search_field =
-            add(s, search_row, UiWidgetKind::text_field, st, {UiFriendsAction::search, 0, s.tab});
-        st = size(28, 28);
-        st.horizontal_alignment = UiLayoutAlignment::end;
-        st.vertical_alignment = UiLayoutAlignment::center;
-        st.margin.right = 4;
-        s.clear_search =
-            add(s, s.search_field, UiWidgetKind::button, st, {UiFriendsAction::clear_search, 0, s.tab}, {},
-                false, s.content->search.text.bytes != 0);
+        const auto search_row = add(s, root, UiWidgetKind::container, {-1, search_height, UiLayoutFlow::overlay, 6});
+        s.search_field = add(s, search_row, UiWidgetKind::text_field, {-1, -1}, UiFriendsAction::search, s.tab);
+        s.clear_search = add(s, s.search_field, UiWidgetKind::button, {28, 28, UiLayoutFlow::overlay, 0, 0, box_end | box_center, 4},
+                             UiFriendsAction::clear_search, s.tab, s.content->search.text.bytes != 0);
         if (!s.search_field.generation || !s.clear_search.generation)
             return false;
     }
-    st = size(-1, status_height);
-    st.flow = UiLayoutFlow::horizontal;
-    st.padding = {12, 2, 12, 2};
-    st.gap = 8;
-    const auto status_row = add(s, root, UiWidgetKind::container, st);
+    const auto status_row = add(s, root, UiWidgetKind::container, {-1, status_height, UiLayoutFlow::horizontal, 2, 8});
     if (!hidden(s))
-        s.status_widget = add(s, status_row, UiWidgetKind::text, size(-1, -1));
+        s.status_widget = add(s, status_row, UiWidgetKind::text, {-1, -1});
     if (s.sections && (s.sections->hidden_available || s.sections->hidden_view)) {
-        if (!add(s, status_row, UiWidgetKind::button, size(hidden(s) ? 64.f : 132.f, -1),
-                 {UiFriendsAction::toggle_hidden, 0, s.tab})
+        if (!add(s, status_row, UiWidgetKind::button, {hidden(s) ? 64.f : 132.f, -1},
+                 UiFriendsAction::toggle_hidden, s.tab)
                  .generation)
             return false;
     }
     if (hidden(s) && s.sections->hidden_count > 1)
-        if (!add(s, status_row, UiWidgetKind::button, size(64, -1),
-                 {UiFriendsAction::clear_hidden, 0, s.tab})
-                 .generation)
+        if (!add(s, status_row, UiWidgetKind::button, {64, -1}, UiFriendsAction::clear_hidden, s.tab).generation)
             return false;
-    s.count_widget = add(s, status_row, UiWidgetKind::text, size(hidden(s) ? 64.f : 112.f, -1));
+    s.count_widget = add(s, status_row, UiWidgetKind::text, {hidden(s) ? 64.f : 112.f, -1});
     count_heading(s);
-    st = size(-1, -1);
-    st.flow = UiLayoutFlow::vertical;
-    st.flags |= ui_layout_node_scroll_vertical;
-    s.body = add(s, root, UiWidgetKind::scroll_view, st);
+    s.body = add(s, root, UiWidgetKind::scroll_view, {-1, -1, UiLayoutFlow::vertical, 0, 0, box_scroll});
     float cursor = 0;
     u32 row_slot = 0;
     for (u32 i = 0; i < visible_window.count; ++i) {
         const auto& item = visible_window.items[i];
-        if (item.top > cursor &&
-            !add(s, s.body, UiWidgetKind::container, size(-1, item.top - cursor)).generation)
+        if (item.top > cursor && !add(s, s.body, UiWidgetKind::container, {-1, item.top - cursor}).generation)
             return false;
         if (item.heading) {
             const auto& section = s.sections->sections[item.section];
-            st = size(-1, section_height);
-            st.padding = {12, 2, 12, 2};
-            st.flow = UiLayoutFlow::overlay;
-            const auto h = add(s, s.body, UiWidgetKind::button, st,
-                               {UiFriendsAction::toggle_section, 0, s.tab, section.kind});
+            const auto h = emit(s, s.body, UiWidgetKind::button, {-1, section_height, UiLayoutFlow::overlay, 2},
+                                {UiFriendsAction::toggle_section, 0, s.tab, section.kind}, empty_row, false, true);
             if (!h.generation)
                 return false;
             section_heading(entries(s)[h.slot], section);
             if (section.kind == UiFriendsSectionKind::incoming && section.allow_clear &&
                 section.count >= 5) {
-                st = size(64, 28);
-                st.horizontal_alignment = UiLayoutAlignment::end;
-                if (!add(s, h, UiWidgetKind::button, st, {UiFriendsAction::clear_incoming, 0, s.tab})
+                if (!add(s, h, UiWidgetKind::button, {64, 28, UiLayoutFlow::overlay, 0, 0, box_end},
+                         UiFriendsAction::clear_incoming, s.tab)
                          .generation)
                     return false;
             }
@@ -635,38 +642,32 @@ bool rebuild(UiFriendsScene& s) noexcept {
         const auto& r = visible[row_slot];
         UiFriendsAction available[4]{};
         const auto n = actions(r, available, hidden(s));
-        st = size(-1, row_height);
-        st.flow = UiLayoutFlow::overlay;
-        st.padding = {12, 5, 12, 5};
-        const auto row_parent =
-            add(s, s.body, UiWidgetKind::button, st, {primary(r), r.user_id, s.tab}, r, true);
+        const auto row_parent = emit(s, s.body, UiWidgetKind::button, {-1, row_height, UiLayoutFlow::overlay, 5},
+                                     {primary(r), r.user_id, s.tab}, r, true, true);
         if (!row_parent.generation)
             return false;
         s.visible_rows[row_slot++] = row_parent;
         for (u32 j = 0; j < n; ++j) {
-            const bool icon = action_icon(available[j]) != UiIcon::count;
-            st = size(action_width(available[j]), icon ? icon_action_extent : 30);
-            st.horizontal_alignment = UiLayoutAlignment::end;
-            st.vertical_alignment = UiLayoutAlignment::center;
-            st.margin.right = 0;
+            float margin = 0;
             for (u32 k = j + 1; k < n; ++k)
-                st.margin.right += action_step(available[k]);
-            if (!add(s, row_parent, UiWidgetKind::button, st, {available[j], r.user_id, s.tab}, r, false,
-                     allowed(r, available[j]))
+                margin += action_step(available[k]);
+            const bool icon = action_icon(available[j]) != UiIcon::count;
+            if (!emit(s, row_parent, UiWidgetKind::button,
+                      {action_width(available[j]), icon ? icon_action_extent : 30, UiLayoutFlow::overlay, 0, 0,
+                       box_end | box_center, static_cast<u8>(margin)},
+                      {available[j], r.user_id, s.tab}, r, false, allowed(r, available[j]))
                      .generation)
                 return false;
         }
         cursor = item.top + row_height;
     }
-    if (!add(s, s.body, UiWidgetKind::container, size(-1, maximum(0.f, extent(s) - cursor))).generation)
+    if (!add(s, s.body, UiWidgetKind::container, {-1, maximum(0.f, extent(s) - cursor)}).generation)
         return false;
     if (s.tab == UiFriendsTab::add_friend && s.phase == UiFriendsPhase::ready)
-        if (!add(s, s.body, UiWidgetKind::button, size(136, 36), {UiFriendsAction::add_friend, 0, s.tab})
-                 .generation)
+        if (!add(s, s.body, UiWidgetKind::button, {136, 36}, UiFriendsAction::add_friend, s.tab).generation)
             return false;
     if (s.phase == UiFriendsPhase::error)
-        if (!add(s, s.body, UiWidgetKind::button, size(96, 36), {UiFriendsAction::retry, 0, s.tab})
-                 .generation)
+        if (!add(s, s.body, UiWidgetKind::button, {96, 36}, UiFriendsAction::retry, s.tab).generation)
             return false;
     if (!s.body.generation ||
         !ui_layout_engine_set_scroll(&s.widgets.layout, s.widgets.storage[s.body.slot].layout,
@@ -682,8 +683,8 @@ bool rebuild(UiFriendsScene& s) noexcept {
     ++s.revision;
     return true;
 }
-bool text(UiTextOutput* stream, const UiFriendsScene& s, UiWidgetHandle h, Utf8View label, UiRect r,
-          Color color, u32 style = 0, UiTextAlignment align = UiTextAlignment::start) noexcept {
+bool text(UiTextOutput* stream, const UiFriendsScene& s, UiWidgetHandle h, const Utf8View& label, const UiRect& r,
+          const Color& color, u32 style = 0, UiTextAlignment align = UiTextAlignment::start) noexcept {
     const auto* node = ui_widget_manager_layout_node(s.widgets, h);
     if (!node)
         return false;
@@ -703,7 +704,7 @@ bool text(UiTextOutput* stream, const UiFriendsScene& s, UiWidgetHandle h, Utf8V
 }
 } // namespace
 bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* source, UiFriendsTab tab,
-                             UiFriendsPhase phase, Utf8View status, UiRect viewport,
+                             UiFriendsPhase phase, const Utf8View& status, const UiRect& viewport,
                              const UiFriendsContent* content, const UiFriendsSections* sections,
                              const UiFriendsActiveNow* active_now) noexcept {
     if (!scene || tab > UiFriendsTab::add_friend || phase > UiFriendsPhase::error ||
@@ -784,23 +785,17 @@ bool ui_friends_scene_update(UiFriendsScene* scene, const UiFriendsSource* sourc
         scene->scroll_dips = 0;
     scene->scroll_dips = clamp(*scene, scene->scroll_dips);
     UiFriendsTarget accepted{};
+    const auto focus_fallback = [&]() noexcept {
+        scene->focus = {hidden(*scene) ? UiFriendsAction::toggle_hidden : UiFriendsAction::select_tab, 0, tab};
+    };
     if (!ui_friends_scene_activation(*scene, scene->focus, &accepted))
-        scene->focus = {hidden(*scene) ? UiFriendsAction::toggle_hidden : UiFriendsAction::select_tab, 0,
-                        tab};
+        focus_fallback();
     if (scene->focus.user_id) {
-        u32 at = 0;
-        UiFriendsRow row{};
-        float top = 0;
-        if (find(*scene, scene->focus.user_id, &at, &row) && row_top(*scene, at, &top)) {
-            const float bottom = top + row_height;
-            if (top < scene->scroll_dips)
-                scene->scroll_dips = top;
-            else if (bottom > scene->scroll_dips + height(*scene))
-                scene->scroll_dips = bottom - height(*scene);
-            scene->scroll_dips = clamp(*scene, scene->scroll_dips);
-        } else
-            scene->focus = {hidden(*scene) ? UiFriendsAction::toggle_hidden : UiFriendsAction::select_tab,
-                            0, tab};
+        float offset = 0;
+        if (reveal(*scene, scene->focus.user_id, &offset))
+            scene->scroll_dips = clamp(*scene, offset);
+        else
+            focus_fallback();
     }
     if (!rebuild(*scene)) {
         ui_friends_scene_release(scene);
@@ -835,7 +830,7 @@ bool ui_friends_scene_scroll(UiFriendsScene* s, float delta) noexcept {
     ++s->revision;
     return true;
 }
-bool ui_friends_scene_activation(const UiFriendsScene& s, UiFriendsTarget t,
+bool ui_friends_scene_activation(const UiFriendsScene& s, const UiFriendsTarget& t,
                                  UiFriendsTarget* out) noexcept {
     if (!out)
         return false;
@@ -920,25 +915,13 @@ bool ui_friends_scene_activation(const UiFriendsScene& s, UiFriendsTarget t,
     *out = t;
     return true;
 }
-bool ui_friends_scene_focus(UiFriendsScene* s, UiFriendsTarget t) noexcept {
+bool ui_friends_scene_focus(UiFriendsScene* s, const UiFriendsTarget& t) noexcept {
     UiFriendsTarget checked{};
     if (!s || !ui_friends_scene_activation(*s, t, &checked))
         return false;
     if (t.user_id) {
-        u32 at = 0;
-        UiFriendsRow row{};
-        if (!find(*s, t.user_id, &at, &row))
-            return false;
-        float top = 0;
-        if (!row_top(*s, at, &top))
-            return false;
-        const float bottom = top + row_height;
-        float offset = s->scroll_dips;
-        if (top < offset)
-            offset = top;
-        else if (bottom > offset + height(*s))
-            offset = bottom - height(*s);
-        if (!ui_friends_scene_scroll(s, offset - s->scroll_dips))
+        float offset = 0;
+        if (!reveal(*s, t.user_id, &offset) || !ui_friends_scene_scroll(s, offset - s->scroll_dips))
             return false;
     }
     auto h = handle(*s, t);
@@ -1083,7 +1066,7 @@ bool ui_friends_scene_presence_paint(const UiFriendsScene& s, const Theme& theme
     if (!body)
         return false;
     const auto clip = ui_rect_intersection(body->content_rectangle, body->clip_rectangle);
-    if (!paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom))
+    if (!paint_stream_push_clip(paint, clip))
         return false;
     bool ok = true;
     for (u32 i = 0; ok && i < s.count; ++i) {
@@ -1092,7 +1075,7 @@ bool ui_friends_scene_presence_paint(const UiFriendsScene& s, const Theme& theme
             ok = false;
             break;
         }
-        if (!ui_rect_has_area(ui_rect_intersection(row.presence, row.clip)))
+        if (!ui_rect_intersects(row.presence, row.clip))
             continue;
         const bool blocked = row.row.kind == UiFriendsKind::blocked;
         ok = ui_presence_paint(paint, row.presence, blocked ? UiPresence::offline : row.row.presence,
@@ -1107,11 +1090,9 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
     if (!s.active)
         return true;
     if (!paint || !current(s) ||
-        !paint_stream_push_clip(paint, s.viewport.left, s.viewport.top, s.viewport.right,
-                                s.viewport.bottom))
+        !paint_stream_push_clip(paint, s.viewport))
         return false;
-    bool ok = hidden(s) ? paint_stream_push(paint, s.viewport.left, s.viewport.top, s.viewport.right,
-                                            s.viewport.bottom, {0, 0, 0, .65f})
+    bool ok = hidden(s) ? paint_stream_push(paint, s.viewport, {0, 0, 0, .65f})
                         : true;
     // The shell owns the full Friends canvas contrast plate. Adding another
     // one here compounds its tint and hides the selected background.
@@ -1119,7 +1100,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         if (!hidden(s) && background_effects_active(theme.background))
             ok = ui_background_paint_canvas(paint, s.surface, theme, theme.base_lowest);
         else
-            ok = paint_stream_push(paint, s.surface.left, s.surface.top, s.surface.right, s.surface.bottom,
+            ok = paint_stream_push(paint, s.surface,
                                    ui_background_surface_color(theme, theme.base_lowest, .94f));
     }
     const auto* body = ui_widget_manager_layout_node(s.widgets, s.body);
@@ -1139,7 +1120,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         if (e.target.action == UiFriendsAction::search ||
             (e.target.action == UiFriendsAction::clear_search && !s.content->search.text.bytes))
             continue;
-        if (!node || !ui_rect_has_area(ui_rect_intersection(node->rectangle, node->clip_rectangle)))
+        if (!node || !ui_rect_intersects(node->rectangle, node->clip_rectangle))
             continue;
         const bool selected = e.target.action == UiFriendsAction::select_tab && e.target.tab == s.tab;
         const bool focused = s.focus_visible && s.widgets.focused.slot == h.slot &&
@@ -1160,7 +1141,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
                 break;
             }
             clip_open = false;
-            if (!paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom)) {
+            if (!paint_stream_push_clip(paint, clip)) {
                 ok = false;
                 break;
             }
@@ -1227,7 +1208,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         const auto toggle = active_toggle_rect(s);
         const bool toggle_hover = s.active_hover == ~0u;
         if (ok && toggle_hover)
-            ok = paint_stream_push_rounded(paint, toggle.left, toggle.top, toggle.right, toggle.bottom,
+            ok = paint_stream_push_rounded(paint, toggle,
                                            ui_background_hover_color(theme, theme.interactive_hover, .20f),
                                            theme.scale.radius_sm);
         const float glyph = 9;
@@ -1240,7 +1221,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
             const auto card = active_card_rect(s, i);
             const bool hovered = s.active_hover == i + 1;
             ok = paint_stream_push_rounded_border(
-                paint, card.left, card.top, card.right, card.bottom,
+                paint, card,
                 (hovered ? ui_background_hover_color : ui_background_surface_color)(
                     theme, hovered ? theme.interactive_hover : theme.surface_high, hovered ? .22f : .14f),
                 ui_background_surface_color(theme, theme.interactive, .30f), theme.scale.radius_md, 1.f);
@@ -1250,7 +1231,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
                 // A ring in the card colour separates overlapping avatars.
                 ok = paint_stream_push_rounded(paint, a.left - 2, a.top - 2, a.right + 2, a.bottom + 2,
                                                theme.base_lower, active_avatar * .5f + 2) &&
-                     paint_stream_push_rounded(paint, a.left, a.top, a.right, a.bottom, theme.interactive,
+                     paint_stream_push_rounded(paint, a, theme.interactive,
                                                active_avatar * .5f);
             }
             if (ok) {

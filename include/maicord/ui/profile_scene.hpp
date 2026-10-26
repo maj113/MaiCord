@@ -290,8 +290,8 @@ struct ProfileScene {
     bool modal_rounded;
 };
 bool profile_scene_open(ProfileScene* scene, const UserProfile* profile, const ChatStateStore* state,
-                        const UserStore* users, u64 self, UiRect anchor, UiRect viewport) noexcept;
-bool profile_scene_layout(ProfileScene* scene, UiRect viewport, bool force = false) noexcept;
+                        const UserStore* users, u64 self, const UiRect& anchor, const UiRect& viewport) noexcept;
+bool profile_scene_layout(ProfileScene* scene, const UiRect& viewport, bool force = false) noexcept;
 // Advances visible activity timers to now. Text of an unchanged length is
 // rewritten in place; anything else lays the card out again. True when the
 // card changed (the host repaints its text).
@@ -331,8 +331,8 @@ UiWidgetHandle profile_scene_hit_test(const ProfileScene&, float x, float y) noe
 struct UiAccessTree;
 u32 profile_scene_access(UiAccessTree* tree, u32 parent, const ProfileScene& scene, u8 surface,
                          bool focus_owner) noexcept;
-void profile_scene_publish_text_hit(const ProfileScene&, UiWidgetReference, UiRect layout,
-                                     UiRect ink, UiRect clip) noexcept;
+void profile_scene_publish_text_hit(const ProfileScene&, UiWidgetReference, const UiRect& layout,
+                                     const UiRect& ink, const UiRect& clip) noexcept;
 // Popout entrance offset at now (0 when settled or under reduced motion).
 float profile_scene_intro_offset(const ProfileScene& scene, u64 now_ms) noexcept;
 // Effect opacity at now: 1, fading to .35 over 600 ms while hovered.

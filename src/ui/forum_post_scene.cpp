@@ -4,6 +4,7 @@
 #include "maicord/ui/widget_builder.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/ui/style_lengths.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 
@@ -27,40 +28,34 @@ u32 field_index(ForumPostElement e) noexcept {
 Utf8View label(const ForumPostContent& c, u32 key) noexcept {
     if (key >= kForumPostElements)
         return key - kForumPostElements < c.tags.count ? c.tags[key - kForumPostElements].name : Utf8View{};
-    switch (static_cast<ForumPostElement>(key)) {
-    case ForumPostElement::add_files:
-        return c.add_files;
-    case ForumPostElement::attachment_status:
-        return c.attachment_status;
-    case ForumPostElement::heading:
-        return c.heading;
-    case ForumPostElement::context:
-        return c.context;
-    case ForumPostElement::title_label:
-        return c.title_label;
-    case ForumPostElement::body_label:
-        return c.body_label;
-    case ForumPostElement::title:
-        return c.fields[0].text;
-    case ForumPostElement::body:
-        return c.fields[1].text;
-    case ForumPostElement::hint:
-        return c.hint;
-    case ForumPostElement::tags_hint:
-        return c.tags_hint;
-    case ForumPostElement::status:
-        return c.status;
-    case ForumPostElement::risk:
-        return c.risk;
-    case ForumPostElement::cancel:
-        return c.cancel;
-    case ForumPostElement::inspect:
-        return c.inspect;
-    case ForumPostElement::accept:
-        return c.accept;
-    default:
-        return {};
-    }
+    // Byte offset of each element's label inside the content; elements without one hold 0xffff.
+    constexpr u16 none = 0xffff;
+    static constexpr u16 members[kForumPostElements]{
+        none,
+        none,
+        __builtin_offsetof(ForumPostContent, heading),
+        __builtin_offsetof(ForumPostContent, context),
+        __builtin_offsetof(ForumPostContent, title_label),
+        __builtin_offsetof(ForumPostContent, fields),
+        __builtin_offsetof(ForumPostContent, body_label),
+        __builtin_offsetof(ForumPostContent, fields) + sizeof(ForumPostFieldView),
+        __builtin_offsetof(ForumPostContent, hint),
+        __builtin_offsetof(ForumPostContent, tags_hint),
+        none,
+        __builtin_offsetof(ForumPostContent, status),
+        __builtin_offsetof(ForumPostContent, risk),
+        none,
+        __builtin_offsetof(ForumPostContent, cancel),
+        __builtin_offsetof(ForumPostContent, inspect),
+        __builtin_offsetof(ForumPostContent, accept),
+        none,
+        none,
+        __builtin_offsetof(ForumPostContent, add_files),
+        __builtin_offsetof(ForumPostContent, attachment_status),
+        none};
+    static_assert(__builtin_offsetof(ForumPostFieldView, text) == 0);
+    return members[key] == none ? Utf8View{}
+                                : *reinterpret_cast<const Utf8View*>(reinterpret_cast<const u8*>(&c) + members[key]);
 }
 bool natural(ForumPostScene* s, u32 key, UiSize constraint, UiTextMeasureValue* value) noexcept {
     auto text = key >= attachment_key_base ? ui_attachment_draft_list_label(s->attachment_list, key)
@@ -111,6 +106,19 @@ UiWidgetHandle target_handle(const ForumPostScene& s, ForumPostTarget t) noexcep
     if (t.element == ForumPostElement::tags)
         return t.tag < s.content.tags.count ? s.tags[t.tag] : ui_widget_invalid_handle();
     return idx(t.element) < kForumPostElements ? s.elements[idx(t.element)] : ui_widget_invalid_handle();
+}
+// The element, tag or attachment control that owns a widget; count when none does.
+ForumPostTarget target_of(const ForumPostScene& s, UiWidgetHandle h) noexcept {
+    const auto attachment = ui_attachment_draft_list_target(s.attachment_list, h);
+    if (attachment.id)
+        return {ForumPostElement::attachments, 0, attachment.id, attachment.action, attachment.widget};
+    for (u32 i = 0; i < s.content.tags.count; ++i)
+        if (ui_widget_handle_matches(h, s.tags[i]))
+            return {ForumPostElement::tags, i};
+    for (u32 i = 0; i < kForumPostElements; ++i)
+        if (ui_widget_handle_matches(h, s.elements[i]))
+            return {static_cast<ForumPostElement>(i), 0};
+    return {ForumPostElement::count, 0};
 }
 bool build(ForumPostScene* s) noexcept {
     if (!s->storage.arena.base) {
@@ -236,7 +244,7 @@ bool build(ForumPostScene* s) noexcept {
     return true;
 }
 bool fill(PaintStream* p, UiRect r, Color c) noexcept {
-    return !ui_rect_has_area(r) || paint_stream_push(p, r.left, r.top, r.right, r.bottom, c);
+    return !ui_rect_has_area(r) || paint_stream_push(p, r, c);
 }
 } // namespace
 const UiLayoutNode* forum_post_node(const ForumPostScene& s, ForumPostElement e) noexcept {
@@ -252,23 +260,12 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
         (!c.attachments.data && c.attachments.count))
         return false;
     const auto& style = c.style;
-    const float lengths[] = {style.maximum_width, style.inset,       style.padding,      style.gap,
-                             style.title_height,  style.body_height, style.corner_radius};
-    for (float length : lengths)
-        if (!ui_coordinate_valid(length) || length < 0)
-            return false;
+    // Each style's lengths lead it, in declaration order.
+    static_assert(__builtin_offsetof(ForumPostStyle, corner_radius) == 6 * sizeof(float));
+    static_assert(sizeof(UiAttachmentDraftStyle) == 8 * sizeof(float));
     const auto& attachment_style = c.attachment_style;
-    const float attachment_lengths[] = {attachment_style.minimum_card_width,
-                                        attachment_style.preview_extent,
-                                        attachment_style.gap,
-                                        attachment_style.padding,
-                                        attachment_style.control_height,
-                                        attachment_style.control_padding,
-                                        attachment_style.radius,
-                                        attachment_style.progress_height};
-    for (float length : attachment_lengths)
-        if (!ui_coordinate_valid(length) || length < 0)
-            return false;
+    if (!ui_lengths_valid(&style.maximum_width, 7) || !ui_lengths_valid(&attachment_style.minimum_card_width, 8))
+        return false;
     if (attachment_style.minimum_card_width < 96 || attachment_style.preview_extent < 24 ||
         attachment_style.control_height < 24)
         return false;
@@ -389,13 +386,14 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
     for (u32 i = 0; i < c.tags.count; ++i)
         enable(s->tags[i], c.editable && c.tags[i].enabled &&
                                (c.tags[i].selected || selected_count < kForumPostSelectedTagMaximum));
+    const float inset =
+        minimum(style.inset, 8.f + minimum(ui_rect_width(viewport), ui_rect_height(viewport)) * .1f);
+    const float pad = ui_rect_width(viewport) < 240 ? 8.f : style.padding;
+    const float panel_width = minimum(style.maximum_width, ui_rect_width(viewport) - inset);
     if (!was || rebuilt || layout != s->layout_signature) {
         auto* panel = ui_layout_engine_resolve(
             &s->widgets.layout, s->widgets.storage[s->elements[idx(ForumPostElement::panel)].slot].layout);
-        const float inset =
-            minimum(style.inset, 8.f + minimum(ui_rect_width(viewport), ui_rect_height(viewport)) * .1f);
-        panel->spec.style.width =
-            ui_layout_fixed(minimum(style.maximum_width, ui_rect_width(viewport) - inset));
+        panel->spec.style.width = ui_layout_fixed(panel_width);
         const float panel_height =
             minimum(760.f, ui_rect_height(viewport) - minimum(inset, ui_rect_height(viewport) * .25f));
         panel->spec.style.height = ui_layout_fixed(panel_height);
@@ -416,7 +414,6 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
         }
         content->spec.style.flags = ui_layout_node_visible | ui_layout_node_clip_children |
                                     (compact ? 0 : ui_layout_node_scroll_vertical);
-        const float pad = ui_rect_width(viewport) < 240 ? 8.f : style.padding;
         panel->spec.style.padding = {pad, pad, pad, pad};
         panel->spec.style.gap = style.gap;
         const float available = panel->spec.style.width.value - pad * 2;
@@ -456,24 +453,10 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
                             node->spec.style.maximum_size.width);
             }
         }
-        for (u32 f = 0; f < 2; ++f) {
-            const auto e = f ? ForumPostElement::body : ForumPostElement::title;
-            auto* node = ui_layout_engine_resolve(&s->widgets.layout,
-                                                  s->widgets.storage[s->elements[idx(e)].slot].layout);
-            node->spec.style.height = ui_layout_fixed(f ? style.body_height : style.title_height);
-        }
         if (!ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok())
             return false;
     }
-    if (!ui_attachment_draft_list_layout(
-            &s->attachment_list,
-            maximum(1.f, minimum(style.maximum_width,
-                                 ui_rect_width(viewport) -
-                                     minimum(style.inset, 8.f + minimum(ui_rect_width(viewport),
-                                                                        ui_rect_height(viewport)) *
-                                                                    .1f)) -
-                             (ui_rect_width(viewport) < 240 ? 8.f : style.padding) * 2),
-            c.editable))
+    if (!ui_attachment_draft_list_layout(&s->attachment_list, maximum(1.f, panel_width - pad * 2), c.editable))
         return false;
     s->viewport = viewport;
     s->layout_signature = layout;
@@ -498,33 +481,11 @@ void forum_post_release(ForumPostScene* s) noexcept {
     }
 }
 ForumPostTarget forum_post_hit_test(const ForumPostScene& s, float x, float y) noexcept {
-    if (s.active) {
-        const auto h = ui_widget_manager_hit_test(s.widgets, x, y);
-        const auto attachment = ui_attachment_draft_list_target(s.attachment_list, h);
-        if (attachment.id)
-            return {ForumPostElement::attachments, 0, attachment.id, attachment.action, attachment.widget};
-        for (u32 i = 0; i < s.content.tags.count; ++i)
-            if (ui_widget_handle_matches(h, s.tags[i]))
-                return {ForumPostElement::tags, i};
-        for (u32 i = 0; i < kForumPostElements; ++i)
-            if (ui_widget_handle_matches(h, s.elements[i]))
-                return {static_cast<ForumPostElement>(i), 0};
-    }
-    return {ForumPostElement::count, 0};
+    return s.active ? target_of(s, ui_widget_manager_hit_test(s.widgets, x, y))
+                    : ForumPostTarget{ForumPostElement::count, 0};
 }
 ForumPostTarget forum_post_focused(const ForumPostScene& s) noexcept {
-    if (s.active) {
-        const auto attachment = ui_attachment_draft_list_target(s.attachment_list, s.widgets.focused);
-        if (attachment.id)
-            return {ForumPostElement::attachments, 0, attachment.id, attachment.action, attachment.widget};
-        for (u32 i = 0; i < s.content.tags.count; ++i)
-            if (ui_widget_handle_matches(s.widgets.focused, s.tags[i]))
-                return {ForumPostElement::tags, i};
-        for (u32 i = 0; i < kForumPostElements; ++i)
-            if (ui_widget_handle_matches(s.widgets.focused, s.elements[i]))
-                return {static_cast<ForumPostElement>(i), 0};
-    }
-    return {ForumPostElement::count, 0};
+    return s.active ? target_of(s, s.widgets.focused) : ForumPostTarget{ForumPostElement::count, 0};
 }
 bool forum_post_focus(ForumPostScene* s, ForumPostTarget t) noexcept {
     if (!s || !s->active ||
@@ -620,7 +581,7 @@ bool forum_post_paint(const ForumPostScene& s, const TextFormEditGeometry (&geom
         return true;
     const auto* panel = forum_post_node(s, ForumPostElement::panel);
     if (!p || !panel ||
-        !paint_stream_push_clip(p, s.viewport.left, s.viewport.top, s.viewport.right, s.viewport.bottom))
+        !paint_stream_push_clip(p, s.viewport))
         return false;
     bool ok =
         fill(p, s.viewport, theme.tokens.overlay.scrim) &&
@@ -638,8 +599,7 @@ bool forum_post_paint(const ForumPostScene& s, const TextFormEditGeometry (&geom
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
         if (!node)
             return false;
-        if (!paint_stream_push_clip(p, node->clip_rectangle.left, node->clip_rectangle.top,
-                                    node->clip_rectangle.right, node->clip_rectangle.bottom)) {
+        if (!paint_stream_push_clip(p, node->clip_rectangle)) {
             ok = false;
             break;
         }
@@ -651,10 +611,7 @@ bool forum_post_paint(const ForumPostScene& s, const TextFormEditGeometry (&geom
             edit(e) ? theme.base_lowest
                     : (selected || (e == ForumPostElement::accept && enabled) ? theme.tokens.emphasis.fill
                                                                               : theme.surface_high);
-        ok = paint_stream_push_rounded_border(
-            p, node->rectangle.left, node->rectangle.top, node->rectangle.right, node->rectangle.bottom,
-            background, has_focus && s.content.focus_visible ? theme.tokens.border.focus : theme.interactive,
-            s.content.style.corner_radius, has_focus && s.content.focus_visible ? 2.f : 1.f);
+        ok = paint_stream_push_rounded_border(p, node->rectangle, background, has_focus && s.content.focus_visible ? theme.tokens.border.focus : theme.interactive, s.content.style.corner_radius, has_focus && s.content.focus_visible ? 2.f : 1.f);
         ok = ok &&
              paint_stream_record_content(p, {&s.widgets, h}, node->rectangle, UiLayoutContentKind::control,
                                          ui_layout_content_bounds_allow_overlap);

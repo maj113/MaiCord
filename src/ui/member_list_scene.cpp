@@ -207,11 +207,9 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
         if (focused && focused->kind == MemberListRowKind::member) restore_focus = focused->user_id;
     }
     ui_widget_manager_reset(&scene->widgets);
-    const UiWidgetResult root = ui_widget_manager_add_prevalidated(
-        &scene->widgets, ui_widget_invalid_handle(),
-        UiWidgetDesc{
-            kMemberListRootId, UiWidgetKind::scroll_view, ui_widget_enabled,
-            UiLayoutNodeSpec{utf8_literal("MemberList"), ui_layout_scroll_root_style(), UiSize{}, 0.0f, kMemberListRootId}});
+    const UiWidgetResult root = ui_widget_manager_add_keyed(
+        &scene->widgets, ui_widget_invalid_handle(), kMemberListRootId, UiWidgetKind::scroll_view, ui_widget_enabled,
+        "MemberList", ui_layout_scroll_root_style());
     if (!root.ok()) {
         clear_materialization(scene);
         return failure(scene, MemberListSceneError::widget);
@@ -230,35 +228,23 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
         const bool member_row = resident && source_row.kind == MemberListRowKind::member;
         const u32 slot = source_row.member_slot;
         const u32 id = 2u + source_index * kMemberListWidgetsPerRow;
-        const UiWidgetResult row = ui_widget_manager_add_prevalidated(
-            &scene->widgets, root.handle,
-            UiWidgetDesc{
-                id, UiWidgetKind::button,
-                member_row ? static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable)
-                           : static_cast<u16>(ui_widget_enabled),
-                UiLayoutNodeSpec{utf8_literal("MemberRow"), row_style(), UiSize{}, 0.0f, id}});
+        const UiWidgetResult row = ui_widget_manager_add_keyed(
+            &scene->widgets, root.handle, id, UiWidgetKind::button,
+            member_row ? static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable)
+                       : static_cast<u16>(ui_widget_enabled),
+            "MemberRow", row_style());
         const UiWidgetResult avatar =
-            row.ok() ? ui_widget_manager_add_prevalidated(
-                           &scene->widgets, row.handle,
-                           UiWidgetDesc{id + 1, UiWidgetKind::image, ui_widget_enabled,
-                                        UiLayoutNodeSpec{utf8_literal("MemberAvatar"), avatar_style(),
-                                                         UiSize{}, 0.0f, id + 1}})
+            row.ok() ? ui_widget_manager_add_keyed(&scene->widgets, row.handle, id + 1, UiWidgetKind::image,
+                                                   ui_widget_enabled, "MemberAvatar", avatar_style())
                      : UiWidgetResult{};
         const UiWidgetResult label =
-            avatar.ok()
-                ? ui_widget_manager_add_prevalidated(
-                      &scene->widgets, row.handle,
-                      UiWidgetDesc{id + 2, UiWidgetKind::text, ui_widget_enabled,
-                                   UiLayoutNodeSpec{utf8_literal("MemberName"),
-                                                    (member_row || !resident) ? label_style() : group_label_style(),
-                                                    UiSize{}, 0.0f, id + 2}})
-                : UiWidgetResult{};
+            avatar.ok() ? ui_widget_manager_add_keyed(
+                              &scene->widgets, row.handle, id + 2, UiWidgetKind::text, ui_widget_enabled,
+                              "MemberName", (member_row || !resident) ? label_style() : group_label_style())
+                        : UiWidgetResult{};
         const UiWidgetResult status =
-            label.ok() ? ui_widget_manager_add_prevalidated(
-                             &scene->widgets, row.handle,
-                             UiWidgetDesc{id + 3, UiWidgetKind::custom, ui_widget_enabled,
-                                          UiLayoutNodeSpec{utf8_literal("MemberStatus"), status_style(),
-                                                           UiSize{}, 0.0f, id + 3}})
+            label.ok() ? ui_widget_manager_add_keyed(&scene->widgets, row.handle, id + 3, UiWidgetKind::custom,
+                                                     ui_widget_enabled, "MemberStatus", status_style())
                        : UiWidgetResult{};
         if (!row.ok() || !avatar.ok() || !label.ok() || !status.ok()) {
             clear_materialization(scene);
@@ -665,7 +651,7 @@ bool member_media_place(const MemberListScene& s, u32 index, MemberMedia layer,
     const auto* entry = member_media_entry(s, index, &node);
     const u32 bit = 1u << static_cast<u32>(layer);
     if (!entry || !(entry->layer_mask & bit) || (layer == MemberMedia::avatar && entry->plain_avatar) ||
-        !ui_rect_has_area(ui_rect_intersection(node->rectangle, s.viewport)))
+        !ui_rect_intersects(node->rectangle, s.viewport))
         return false;
     *out = {entry->keys[static_cast<u32>(layer)],
             member_media_offset(entry->rectangles[static_cast<u32>(layer)], node->rectangle.left,
@@ -691,7 +677,7 @@ bool member_plain_avatar_place(const MemberListScene& s, u32 index, MemberMediaP
     constexpr u32 avatar = static_cast<u32>(MemberMedia::avatar);
     const UiRect rectangle =
         member_media_offset(entry->rectangles[avatar], node->rectangle.left, node->rectangle.top);
-    if (!ui_rect_has_area(ui_rect_intersection(rectangle, s.viewport)))
+    if (!ui_rect_intersects(rectangle, s.viewport))
         return false;
     *out = {entry->keys[avatar], rectangle, s.viewport, true};
     return true;

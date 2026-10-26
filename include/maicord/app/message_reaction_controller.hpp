@@ -75,6 +75,7 @@ struct MessageReactionCooldown {
 };
 
 struct MessageReactionController {
+    static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
     Slice<MessageReactionIntent> entries{}; // writable backed prefix; fixed address
     MessageReactionActor actor{};
     MessageReactionFlight flight{};

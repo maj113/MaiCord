@@ -37,7 +37,7 @@ UiRect ui_typing_dots_row(UiRect row) noexcept;
 // The dots left-aligned in `row`, vertically centred.
 void ui_typing_dots_geometry(UiRect row, u16 phase, UiTypingDot output[kUiTypingDotCount]) noexcept;
 // The dots' paint quads, as ui_typing_dots_paint pushes them.
-void ui_typing_dots_quads(UiRect row, Color, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept;
+void ui_typing_dots_quads(const UiRect& row, const Color&, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept;
 // Always kUiTypingDotCount quads, whatever the phase.
 bool ui_typing_dots_paint(PaintStream*, UiRect row, Color, u16 phase) noexcept;
 // Where a frame painted animated dots, so a step can patch their quads in

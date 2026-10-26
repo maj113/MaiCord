@@ -56,13 +56,13 @@ struct UiMotionTransition {
     bool active{};
 };
 
-void ui_motion_transition_reset(UiMotionTransition*, UiMotionScope, float value = 0) noexcept;
+void ui_motion_transition_reset(UiMotionTransition*, const UiMotionScope&, float value = 0) noexcept;
 void ui_motion_transition_cancel(UiMotionTransition*) noexcept;
 // Invalid styles fall back as a whole; invalid normalized targets become zero.
 // Interruption preserves the sampled value, but does not promise velocity
 // continuity. Hidden/reduced-motion surfaces settle to the requested endpoint.
 // Returns paint-value change, not whether a deadline was started or retired.
-bool ui_motion_transition_tick(UiMotionTransition*, UiMotionScope, float target, u64 now_ms,
+bool ui_motion_transition_tick(UiMotionTransition*, const UiMotionScope&, float target, u64 now_ms,
                                const UiMotionStyle&, bool reduced_motion, bool visible) noexcept;
 // Absolute deadline anchored to the last tick, never postponed by observation.
 u64 ui_motion_transition_next_wake(const UiMotionTransition&, UiMotionScope, u64 now_ms,

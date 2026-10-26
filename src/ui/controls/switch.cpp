@@ -25,7 +25,7 @@ float clamp01(float value) noexcept {
 }
 } // namespace
 
-UiSwitchThumb ui_switch_thumb(const UiSettingsLayoutTokens& tokens, UiRect track, bool checked, float motion,
+UiSwitchThumb ui_switch_thumb(const UiSettingsLayoutTokens& tokens, const UiRect& track, bool checked, float motion,
                               bool reduced_motion, bool pressed) noexcept {
     const float unit = ui_rect_height(track) / 24;
     const float travel = ui_rect_width(track) - ui_rect_height(track);
@@ -48,7 +48,7 @@ UiSwitchThumb ui_switch_thumb(const UiSettingsLayoutTokens& tokens, UiRect track
     return {{left, top, left + w * unit * scale, top + h * unit * scale}, r * unit * scale};
 }
 
-bool ui_switch_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect track, bool checked,
+bool ui_switch_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& track, bool checked,
                      float motion, bool reduced_motion, UiControlState state) noexcept {
     const auto& c = tokens.color;
     const float t = clamp01(motion);
@@ -67,10 +67,8 @@ bool ui_switch_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect 
     const float radius = ui_rect_height(track) * .5f;
     const auto knob = ui_switch_thumb(tokens, track, checked, motion, reduced_motion,
                                       state.pressed && state.enabled);
-    bool ok = paint_stream_push_rounded_border(paint, track.left, track.top, track.right, track.bottom, fill,
-                                               border, radius, 1) &&
-              paint_stream_push_rounded(paint, knob.box.left, knob.box.top, knob.box.right, knob.box.bottom,
-                                        thumb, knob.radius);
+    bool ok = paint_stream_push_rounded_border(paint, track, fill, border, radius, 1) &&
+              paint_stream_push_rounded(paint, knob.box, thumb, knob.radius);
     if (ok && state.focused)
         ok = ui_settings_focus_paint(paint, tokens, track, radius);
     return ok;

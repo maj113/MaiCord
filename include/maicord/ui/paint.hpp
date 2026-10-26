@@ -97,6 +97,7 @@ bool paint_stream_reset(PaintStream* stream, float right = kMaximumPaintCoordina
 inline bool paint_stream_record_content(PaintStream*, UiWidgetReference, const UiRect&,
                                         UiLayoutContentKind,
                                         u16 = ui_layout_content_bounds_collision) noexcept { return true; }
+bool paint_stream_push_clip(PaintStream* stream, const UiRect& rectangle) noexcept;
 bool paint_stream_push_clip(PaintStream* stream, float left, float top, float right, float bottom) noexcept;
 bool paint_stream_pop_clip(PaintStream* stream) noexcept;
 // A layer boundary: closes the current batch so the next quad starts a new one
@@ -105,21 +106,26 @@ bool paint_stream_pop_clip(PaintStream* stream) noexcept;
 // shell) would land in the earlier batch and draw beneath everything drawn
 // between the two ranges.
 u32 paint_stream_seal(PaintStream* stream) noexcept;
+bool paint_stream_push_rounded_border(PaintStream* stream, const UiRect& rectangle, const Color& fill,
+                                      const Color& border, float radius, float border_width) noexcept;
 bool paint_stream_push_rounded_border(PaintStream* stream, float left, float top, float right, float bottom,
                                       const Color& fill, const Color& border, float radius,
                                       float border_width) noexcept;
+bool paint_stream_push_rounded(PaintStream* stream, const UiRect& rectangle, const Color& color,
+                               float radius) noexcept;
 bool paint_stream_push_rounded(PaintStream* stream, float left, float top, float right, float bottom,
                                const Color& color, float radius) noexcept;
+bool paint_stream_push(PaintStream* stream, const UiRect& rectangle, const Color& color) noexcept;
 bool paint_stream_push(PaintStream* stream, float left, float top, float right, float bottom,
                        const Color& color) noexcept;
 // Two-color gradient encoded in a single 64-byte paint instance.
-bool paint_stream_push_gradient(PaintStream* stream, UiRect rectangle, Color first, Color last,
-                                float radius = 0) noexcept;
-bool paint_stream_push_sv_square(PaintStream*, UiRect, Color hue_rgb, float radius = 0) noexcept;
-bool paint_stream_push_hue_strip(PaintStream*, UiRect, float radius = 0) noexcept;
+bool paint_stream_push_gradient(PaintStream* stream, const UiRect& rectangle, const Color& first,
+                                const Color& last, float radius = 0) noexcept;
+bool paint_stream_push_sv_square(PaintStream*, const UiRect&, const Color& hue_rgb, float radius = 0) noexcept;
+bool paint_stream_push_hue_strip(PaintStream*, const UiRect&, float radius = 0) noexcept;
 // Static directional preview of the theme's literal colors, evenly spaced. Uses
 // at most four paint instances; no texture, background constant or animation.
-bool paint_stream_push_palette_gradient(PaintStream*, UiRect, const BackgroundTheme&,
+bool paint_stream_push_palette_gradient(PaintStream*, const UiRect&, const BackgroundTheme&,
                                         float radius = 0) noexcept;
 bool paint_stream_push_line(PaintStream* stream, UiPoint a, UiPoint b, float width,
                             const Color& color) noexcept;
@@ -127,7 +133,7 @@ bool paint_stream_push_line(PaintStream* stream, UiPoint a, UiPoint b, float wid
 // that follows its corners): one instance over the strip, whose shader mode
 // clips it to the shape's outline (reserved_x carries the shape's width).
 inline constexpr float kPaintEdgeStripMode = -10;
-bool paint_stream_push_edge_strip(PaintStream* stream, UiRect shape, float width, const Color& color,
+bool paint_stream_push_edge_strip(PaintStream* stream, const UiRect& shape, float width, const Color& color,
                                   float radius) noexcept;
 // A single clipped, transparent focus outline. No geometry for ineligible focus.
 bool paint_stream_push_focus(PaintStream* stream, const UiWidgetManager& owner,

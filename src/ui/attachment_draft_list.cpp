@@ -236,8 +236,7 @@ bool ui_attachment_draft_list_paint(const UiAttachmentDraftList& list, const The
         const auto* n = node(list, r, card);
         if (!n)
             return false;
-        if (!paint_stream_push_clip(paint, n->clip_rectangle.left, n->clip_rectangle.top,
-                                    n->clip_rectangle.right, n->clip_rectangle.bottom))
+        if (!paint_stream_push_clip(paint, n->clip_rectangle))
             return false;
         bool ok = ui_background_paint_surface(paint, n->rectangle, theme, theme.surface, theme.interactive,
                                               list.style.radius, 1);
@@ -262,7 +261,7 @@ bool ui_attachment_draft_list_paint(const UiAttachmentDraftList& list, const The
                               static_cast<float>(static_cast<double>(view.uploaded_bytes) / view.bytes))
                     : 0;
             const auto bar = ui_attachment_draft_list_progress(list, r);
-            ok = paint_stream_push(paint, bar.left, bar.top, bar.right, bar.bottom, theme.interactive);
+            ok = paint_stream_push(paint, bar, theme.interactive);
             if (ok && fraction > 0)
                 ok = paint_stream_push(paint, bar.left, bar.top, bar.left + ui_rect_width(bar) * fraction,
                                        bar.bottom, theme.tokens.emphasis.outline);

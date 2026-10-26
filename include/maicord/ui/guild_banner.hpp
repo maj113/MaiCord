@@ -67,7 +67,7 @@ struct UiGuildBannerGeometry {
 };
 // sidebar: the channel sidebar; header: its header bar; scroll: the channel
 // list's scroll offset in DIPs.
-UiGuildBannerGeometry ui_guild_banner_geometry(UiRect sidebar, UiRect header, float scroll,
+UiGuildBannerGeometry ui_guild_banner_geometry(const UiRect& sidebar, const UiRect& header, float scroll,
                                                bool header_hovered) noexcept;
 
 // The host's channel-header banner for the renderer: the picture to draw

@@ -116,7 +116,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
     ProfileMedia result{};
     result.rectangle = node->rectangle;
     result.clip = node->clip_rectangle;
-    if (!ui_rect_has_area(ui_rect_intersection(result.rectangle, result.clip)))
+    if (!ui_rect_intersects(result.rectangle, result.clip))
         return false;
     if (part.media == ProfileMediaKind::status_emoji) {
         const auto* a =
@@ -312,7 +312,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         return false;
     const auto* r = member_list_scene_layout_node(s, row.widget);
     const auto* avatar = member_list_scene_layout_node(s, row.avatar);
-    if (!r || !avatar || (visible_only && !ui_rect_has_area(ui_rect_intersection(r->rectangle, s.viewport))))
+    if (!r || !avatar || (visible_only && !ui_rect_intersects(r->rectangle, s.viewport)))
         return false;
     const auto* global = user_appearance_find(s.users->appearance, row.user_id);
     const auto* guild = user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id);
@@ -419,7 +419,7 @@ bool member_plain_avatar_resolve(const MemberListScene& s, u32 index, MemberAvat
     if (!member_list_scene_row_resident(s, index) || row.kind != MemberListRowKind::member || !row.user_id)
         return false;
     const auto* avatar = member_list_scene_layout_node(s, row.avatar);
-    if (!avatar || (visible_only && !ui_rect_has_area(ui_rect_intersection(avatar->rectangle, s.viewport))))
+    if (!avatar || (visible_only && !ui_rect_intersects(avatar->rectangle, s.viewport)))
         return false;
     if (s.source->guild_id) {
         const auto* guild = user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id);

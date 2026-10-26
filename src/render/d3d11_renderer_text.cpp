@@ -29,6 +29,8 @@
 #include "d3d11_renderer_interaction_state.hpp"
 #include "d3d11_renderer_login_form.hpp"
 
+#include <stddef.h>
+
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_user.hpp"
 
@@ -1259,48 +1261,14 @@ bool measure_content_search(D3D11Renderer* renderer) noexcept {
         text_edit_layout_invalidate(&renderer->composer_layout);
         return true;
     }
-    const auto bounds = ui_friends_scene_search_geometry(*scene).text;
-    const auto& edit = scene->content->search;
-    u32 anchor = 0, caret = 0;
-    if (!ui_rect_has_area(bounds) ||
-        !utf8_utf16_position_for_byte_offset(edit.text, edit.anchor, &anchor) ||
-        !utf8_utf16_position_for_byte_offset(edit.text, edit.caret, &caret)) {
-        text_edit_layout_invalidate(&renderer->composer_layout);
-        return false;
-    }
     auto& layout = renderer->composer_layout;
     if (renderer->edit_selection_owner != &layout) {
         text_edit_layout_invalidate(&renderer->login_edit);
         renderer->edit_selection_owner = &layout;
     }
-    layout.selections = renderer->edit_selections;
-    layout.selection_capacity = kTextEditSelectionCapacity;
-    if (!text_edit_layout_measure(
-            &layout,
-            {edit.text, text_edit_signature(edit.text), anchor, caret, bounds.left, bounds.top,
-             ui_rect_width(bounds), ui_rect_height(bounds), kMaximumUiCoordinate,
-             text_edit_layout_center_vertically | text_edit_layout_scroll_to_caret},
-            renderer->glyph_text.system)) {
-        text_edit_layout_invalidate(&layout);
-        return false;
-    }
-    auto& geometry = renderer->friends_search_geometry;
-    // A long query may scroll its origin more than one viewport width. Keep
-    // the draw rectangle intersecting the actual visible text clip.
-    geometry.text = {layout.origin_x, layout.origin_y,
-                     maximum(bounds.right, layout.origin_x + maximum(layout.width, 1.f)),
-                     layout.origin_y + maximum(layout.layout_height, 1.f)};
-    geometry.caret = {layout.caret.left, layout.caret.top, layout.caret.left + 1,
-                      layout.caret.top + layout.caret.height};
-    if (layout.selection_count > kTextEditSelectionCapacity)
-        return false;
-    geometry.selection_count = layout.selection_count;
-    for (u32 i = 0; i < layout.selection_count; ++i) {
-        const auto& selection = layout.selections[i];
-        geometry.selections[i] = {selection.left, selection.top, selection.left + selection.width,
-                                  selection.top + selection.height};
-    }
-    return true;
+    return d3d11_renderer_measure_search_edit(&layout, renderer->edit_selections, scene->content->search,
+                                              ui_friends_scene_search_geometry(*scene).text,
+                                              renderer->glyph_text.system, true, &renderer->friends_search_geometry);
 }
 
 bool measure_message_search(D3D11Renderer* renderer) noexcept {
@@ -1310,37 +1278,9 @@ bool measure_message_search(D3D11Renderer* renderer) noexcept {
         return true;
     }
     const auto& scene = *renderer->search_scene;
-    const auto& edit = scene.content->edit;
-    const auto bounds = scene.text;
-    u32 anchor = 0, caret = 0;
-    if (!utf8_utf16_position_for_byte_offset(edit.text, edit.anchor, &anchor) ||
-        !utf8_utf16_position_for_byte_offset(edit.text, edit.caret, &caret))
-        return false;
-    auto& layout = renderer->search_layout;
-    layout.selections = renderer->search_edit_selections;
-    layout.selection_capacity = kTextEditSelectionCapacity;
-    if (!text_edit_layout_measure(
-            &layout,
-            {edit.text, text_edit_signature(edit.text), anchor, caret, bounds.left, bounds.top,
-             ui_rect_width(bounds), ui_rect_height(bounds), kMaximumUiCoordinate,
-             text_edit_layout_center_vertically | text_edit_layout_scroll_to_caret},
-            renderer->glyph_text.system))
-        return false;
-    auto& geometry = renderer->search_edit_geometry;
-    geometry.text = {layout.origin_x, layout.origin_y,
-                     maximum(bounds.right, layout.origin_x + maximum(layout.width, 1.f)),
-                     layout.origin_y + maximum(layout.layout_height, 1.f)};
-    geometry.caret = {layout.caret.left, layout.caret.top, layout.caret.left + 1,
-                      layout.caret.top + layout.caret.height};
-    geometry.selection_count = layout.selection_count;
-    if (geometry.selection_count > kTextEditSelectionCapacity)
-        return false;
-    for (u32 i = 0; i < geometry.selection_count; ++i) {
-        const auto& metric = layout.selections[i];
-        geometry.selections[i] = {metric.left, metric.top, metric.left + metric.width,
-                                  metric.top + metric.height};
-    }
-    return true;
+    return d3d11_renderer_measure_search_edit(&renderer->search_layout, renderer->search_edit_selections,
+                                              scene.content->edit, scene.text, renderer->glyph_text.system, false,
+                                              &renderer->search_edit_geometry);
 }
 bool measure_media_picker(D3D11Renderer* renderer) noexcept {
     reset_value(&renderer->media_picker_edit_geometry);
@@ -1357,52 +1297,64 @@ bool measure_media_picker(D3D11Renderer* renderer) noexcept {
     const auto bounds = forward ? renderer->message_forward_scene->text
                         : quick ? renderer->quick_switcher_scene->text
                                 : renderer->media_picker_scene->text;
-    u32 anchor = 0, caret = 0;
-    if (!ui_rect_has_area(bounds) ||
-        !utf8_utf16_position_for_byte_offset(edit.text, edit.anchor, &anchor) ||
-        !utf8_utf16_position_for_byte_offset(edit.text, edit.caret, &caret)) {
-        text_edit_layout_invalidate(&layout);
-        return false;
-    }
-    layout.selections = renderer->media_picker_edit_selections;
-    layout.selection_capacity = kTextEditSelectionCapacity;
-    if (!text_edit_layout_measure(
-            &layout,
-            {edit.text, text_edit_signature(edit.text), anchor, caret, bounds.left, bounds.top,
-             ui_rect_width(bounds), ui_rect_height(bounds), kMaximumUiCoordinate,
-             text_edit_layout_center_vertically | text_edit_layout_scroll_to_caret},
-            renderer->glyph_text.system)) {
-        text_edit_layout_invalidate(&layout);
-        return false;
-    }
-    auto& geometry = renderer->media_picker_edit_geometry;
-    geometry.text = {layout.origin_x, layout.origin_y,
-                     maximum(bounds.right, layout.origin_x + maximum(layout.width, 1.f)),
-                     layout.origin_y + maximum(layout.layout_height, 1.f)};
-    geometry.caret = {layout.caret.left, layout.caret.top, layout.caret.left + 1,
-                      layout.caret.top + layout.caret.height};
-    if (layout.selection_count > kTextEditSelectionCapacity)
-        return false;
-    geometry.selection_count = layout.selection_count;
-    for (u32 i = 0; i < layout.selection_count; ++i) {
-        const auto& metric = layout.selections[i];
-        geometry.selections[i] = {metric.left, metric.top, metric.left + metric.width,
-                                  metric.top + metric.height};
-    }
-    return true;
+    return d3d11_renderer_measure_search_edit(&layout, renderer->media_picker_edit_selections, edit, bounds,
+                                              renderer->glyph_text.system, true,
+                                              &renderer->media_picker_edit_geometry);
 }
+// Boundary ordinals within the overlay text stream. The search message
+// boundaries come last: the raster pass does not compare them.
 struct TextOverlayBoundaries {
     u32 friends_end, media_picker_start, media_picker_end, menu_start, form_start, forum_end;
     u32 popup_start, popup_end, settings_choice_start, settings_choice_end, theme_editor_start,
         theme_editor_end, profile_start, profile_end;
-    u32 search_rich_start{}, search_rich_end{};
     u32 audio_start{}, audio_end{};
     u32 poll_start{}, poll_end{};
     // Profile editor overlays on a settings page (~0u: none this frame).
     u32 settings_preview_start{~0u}, settings_preview_end{~0u}, settings_dialog_start{~0u}, settings_dialog_end{~0u};
     // The toast's text closes the stream (~0u: none this frame).
     u32 toast_start{~0u};
+    u32 search_rich_start{}, search_rich_end{};
 };
+constexpr u32 kComparedOverlayBoundaryBytes = offsetof(TextOverlayBoundaries, search_rich_start);
+static_assert(kComparedOverlayBoundaryBytes == 23 * sizeof(u32) &&
+              sizeof(TextOverlayBoundaries) == kComparedOverlayBoundaryBytes + 2 * sizeof(u32));
+
+// Where a boundary publishes: the renderer's text batch at that ordinal. The
+// form start and forum end are gated on a form or settings page and handled
+// beside this table; the menu start, last, has no end-of-stream endpoint.
+struct OverlayBatchBoundary {
+    u32 boundary, batch;
+};
+constexpr OverlayBatchBoundary kOverlayBatchBoundaries[]{
+    {offsetof(TextOverlayBoundaries, friends_end), offsetof(D3D11Renderer, friends_requests_text_end_batch)},
+    {offsetof(TextOverlayBoundaries, media_picker_start), offsetof(D3D11Renderer, media_picker_text_first_batch)},
+    {offsetof(TextOverlayBoundaries, media_picker_end), offsetof(D3D11Renderer, media_picker_text_end_batch)},
+    {offsetof(TextOverlayBoundaries, profile_start), offsetof(D3D11Renderer, profile_text_first_batch)},
+    {offsetof(TextOverlayBoundaries, profile_end), offsetof(D3D11Renderer, profile_text_end_batch)},
+    {offsetof(TextOverlayBoundaries, theme_editor_start), offsetof(D3D11Renderer, theme_editor_text_first_batch)},
+    {offsetof(TextOverlayBoundaries, theme_editor_end), offsetof(D3D11Renderer, theme_editor_text_end_batch)},
+    {offsetof(TextOverlayBoundaries, popup_start), offsetof(D3D11Renderer, popup_text_first_batch)},
+    {offsetof(TextOverlayBoundaries, popup_end), offsetof(D3D11Renderer, popup_text_end_batch)},
+    {offsetof(TextOverlayBoundaries, settings_choice_start),
+     offsetof(D3D11Renderer, settings_choice_text_first_batch)},
+    {offsetof(TextOverlayBoundaries, settings_choice_end), offsetof(D3D11Renderer, settings_choice_text_end_batch)},
+    {offsetof(TextOverlayBoundaries, settings_preview_start),
+     offsetof(D3D11Renderer, settings_preview_text_first_batch)},
+    {offsetof(TextOverlayBoundaries, settings_preview_end), offsetof(D3D11Renderer, settings_preview_text_end_batch)},
+    {offsetof(TextOverlayBoundaries, settings_dialog_start),
+     offsetof(D3D11Renderer, settings_dialog_text_first_batch)},
+    {offsetof(TextOverlayBoundaries, settings_dialog_end), offsetof(D3D11Renderer, settings_dialog_text_end_batch)},
+    {offsetof(TextOverlayBoundaries, toast_start), offsetof(D3D11Renderer, toast_text_first_batch)},
+    {offsetof(TextOverlayBoundaries, menu_start), offsetof(D3D11Renderer, menu_text_first_batch)},
+};
+constexpr u32 kOverlayEndBoundaryCount = sizeof(kOverlayBatchBoundaries) / sizeof(kOverlayBatchBoundaries[0]) - 1;
+
+u32 overlay_boundary(const TextOverlayBoundaries& boundaries, const OverlayBatchBoundary& entry) noexcept {
+    return *reinterpret_cast<const u32*>(reinterpret_cast<const u8*>(&boundaries) + entry.boundary);
+}
+u32& overlay_batch(D3D11Renderer* renderer, const OverlayBatchBoundary& entry) noexcept {
+    return *reinterpret_cast<u32*>(reinterpret_cast<u8*>(renderer) + entry.batch);
+}
 bool project_toast_text(const D3D11Renderer* renderer, const Theme& theme, UiTextOutput* output,
                         TextOverlayBoundaries* boundaries) noexcept {
     if (!d3d11_renderer_toast_visible(*renderer))
@@ -1766,54 +1718,23 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
         const auto& bounds = *raster.boundaries;
         const bool settings = renderer_settings_page_visible(*renderer);
         const bool form = d3d11_renderer_form_active(*renderer) || d3d11_renderer_tooltip_visible(*renderer);
-        if (ordinal == bounds.friends_end)
-            renderer->friends_requests_text_end_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.media_picker_start)
-            renderer->media_picker_text_first_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.media_picker_end)
-            renderer->media_picker_text_end_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.menu_start)
-            renderer->menu_text_first_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.profile_start)
-            renderer->profile_text_first_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.profile_end)
-            renderer->profile_text_end_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.theme_editor_start)
-            renderer->theme_editor_text_first_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.theme_editor_end)
-            renderer->theme_editor_text_end_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.popup_start)
-            renderer->popup_text_first_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.popup_end)
-            renderer->popup_text_end_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.settings_choice_start)
-            renderer->settings_choice_text_first_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.settings_choice_end)
-            renderer->settings_choice_text_end_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.settings_preview_start)
-            renderer->settings_preview_text_first_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.settings_preview_end)
-            renderer->settings_preview_text_end_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.settings_dialog_start)
-            renderer->settings_dialog_text_first_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.settings_dialog_end)
-            renderer->settings_dialog_text_end_batch = renderer->content_text->batch_count;
-        if ((form || settings) && ordinal == bounds.form_start)
-            renderer->form_text_first_batch = renderer->content_text->batch_count;
+        const u32 batch = renderer->content_text->batch_count;
+        boundary = ordinal == 0;
+        for (const auto& entry : kOverlayBatchBoundaries) {
+            if (ordinal == overlay_boundary(bounds, entry)) {
+                overlay_batch(renderer, entry) = batch;
+                boundary = true;
+            }
+        }
         if (ordinal == bounds.forum_end)
-            renderer->forum_text_end_batch = renderer->content_text->batch_count;
-        if (ordinal == bounds.toast_start)
-            renderer->toast_text_first_batch = renderer->content_text->batch_count;
-        boundary = ordinal == 0 || ordinal == bounds.friends_end || ordinal == bounds.media_picker_start ||
-                   ordinal == bounds.media_picker_end || ordinal == bounds.menu_start ||
-                   ordinal == bounds.profile_start || ordinal == bounds.profile_end ||
-                   ordinal == bounds.popup_start || ordinal == bounds.popup_end ||
-                   ordinal == bounds.settings_choice_start || ordinal == bounds.settings_choice_end ||
-                   ordinal == bounds.theme_editor_start || ordinal == bounds.theme_editor_end ||
-                   ordinal == bounds.settings_preview_start || ordinal == bounds.settings_preview_end ||
-                   ordinal == bounds.settings_dialog_start || ordinal == bounds.settings_dialog_end ||
-                   ordinal == bounds.toast_start ||
-                   ((form || settings) && (ordinal == bounds.form_start || ordinal == bounds.forum_end));
+            renderer->forum_text_end_batch = batch;
+        if (form || settings) {
+            if (ordinal == bounds.form_start) {
+                renderer->form_text_first_batch = batch;
+                boundary = true;
+            }
+            boundary = boundary || ordinal == bounds.forum_end;
+        }
     }
     const bool page = raster.overlay && renderer_settings_page_visible(*renderer) &&
                       ui_settings_scene_page_owner(*renderer->settings_scene, command.owner);
@@ -2450,68 +2371,19 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
     if (!ui_text_emitter_initialize(&overlay_raster, raster_text_command, &raster) ||
         !project_overlay_text(renderer, theme, &overlay_raster, &raster_boundaries) ||
         overlay_raster.signature != overlay.signature || overlay_raster.count != overlay.count ||
-        raster_boundaries.friends_end != boundaries.friends_end ||
-        raster_boundaries.media_picker_start != boundaries.media_picker_start ||
-        raster_boundaries.media_picker_end != boundaries.media_picker_end ||
-        raster_boundaries.popup_start != boundaries.popup_start ||
-        raster_boundaries.popup_end != boundaries.popup_end ||
-        raster_boundaries.profile_start != boundaries.profile_start ||
-        raster_boundaries.profile_end != boundaries.profile_end ||
-        raster_boundaries.audio_start != boundaries.audio_start ||
-        raster_boundaries.audio_end != boundaries.audio_end ||
-        raster_boundaries.poll_start != boundaries.poll_start ||
-        raster_boundaries.poll_end != boundaries.poll_end ||
-        raster_boundaries.settings_choice_start != boundaries.settings_choice_start ||
-        raster_boundaries.settings_choice_end != boundaries.settings_choice_end ||
-        raster_boundaries.settings_preview_start != boundaries.settings_preview_start ||
-        raster_boundaries.settings_preview_end != boundaries.settings_preview_end ||
-        raster_boundaries.settings_dialog_start != boundaries.settings_dialog_start ||
-        raster_boundaries.settings_dialog_end != boundaries.settings_dialog_end ||
-        raster_boundaries.theme_editor_start != boundaries.theme_editor_start ||
-        raster_boundaries.theme_editor_end != boundaries.theme_editor_end ||
-        raster_boundaries.menu_start != boundaries.menu_start ||
-        raster_boundaries.form_start != boundaries.form_start ||
-        raster_boundaries.forum_end != boundaries.forum_end ||
-        raster_boundaries.toast_start != boundaries.toast_start)
+        !bytes_equal(&raster_boundaries, &boundaries, kComparedOverlayBoundaryBytes))
         return false;
-    if (boundaries.friends_end == overlay.count)
-        renderer->friends_requests_text_end_batch = storage->batch_count;
-    if (boundaries.media_picker_start == overlay.count)
-        renderer->media_picker_text_first_batch = storage->batch_count;
-    if (boundaries.media_picker_end == overlay.count)
-        renderer->media_picker_text_end_batch = storage->batch_count;
-    if (boundaries.popup_start == overlay.count)
-        renderer->popup_text_first_batch = storage->batch_count;
-    if (boundaries.profile_start == overlay.count)
-        renderer->profile_text_first_batch = storage->batch_count;
-    if (boundaries.profile_end == overlay.count)
-        renderer->profile_text_end_batch = storage->batch_count;
-    if (boundaries.popup_end == overlay.count)
-        renderer->popup_text_end_batch = storage->batch_count;
-    if (boundaries.settings_choice_start == overlay.count)
-        renderer->settings_choice_text_first_batch = storage->batch_count;
-    if (boundaries.settings_choice_end == overlay.count)
-        renderer->settings_choice_text_end_batch = storage->batch_count;
-    if (boundaries.settings_preview_start == overlay.count)
-        renderer->settings_preview_text_first_batch = storage->batch_count;
-    if (boundaries.settings_preview_end == overlay.count)
-        renderer->settings_preview_text_end_batch = storage->batch_count;
-    if (boundaries.settings_dialog_start == overlay.count)
-        renderer->settings_dialog_text_first_batch = storage->batch_count;
-    if (boundaries.settings_dialog_end == overlay.count)
-        renderer->settings_dialog_text_end_batch = storage->batch_count;
-    if (boundaries.theme_editor_start == overlay.count)
-        renderer->theme_editor_text_first_batch = storage->batch_count;
-    if (boundaries.theme_editor_end == overlay.count)
-        renderer->theme_editor_text_end_batch = storage->batch_count;
+    for (u32 index = 0; index < kOverlayEndBoundaryCount; ++index) {
+        const auto& entry = kOverlayBatchBoundaries[index];
+        if (overlay_boundary(boundaries, entry) == overlay.count)
+            overlay_batch(renderer, entry) = storage->batch_count;
+    }
     // A boundary at end-of-stream has no command callback. Publish its batch
     // endpoint, including settings without an active popup.
     if (boundaries.form_start == overlay.count)
         renderer->form_text_first_batch = storage->batch_count;
     if (boundaries.forum_end == overlay.count)
         renderer->forum_text_end_batch = storage->batch_count;
-    if (boundaries.toast_start == overlay.count)
-        renderer->toast_text_first_batch = storage->batch_count;
     if (prefix.storage)
         prefix.build_serial = storage->rebuilds + 1;
     if (prefix.shell.storage) {

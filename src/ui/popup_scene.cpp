@@ -600,24 +600,17 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     const float width = ui_rect_width(rectangle);
     const float height = ui_rect_height(rectangle);
     ui_widget_manager_reset(&scene->widgets);
-    const UiWidgetResult root = ui_widget_manager_add_prevalidated(
-        &scene->widgets, ui_widget_invalid_handle(),
-        UiWidgetDesc{
-            kPopupRootId, UiWidgetKind::container, ui_widget_none,
-            UiLayoutNodeSpec{utf8_literal("PopupRoot"), root_style(), UiSize{}, 0.0f, kPopupRootId}});
+    const UiWidgetResult root = ui_widget_manager_add_keyed(
+        &scene->widgets, ui_widget_invalid_handle(), kPopupRootId, UiWidgetKind::container, ui_widget_none,
+        "PopupRoot", root_style());
     const UiWidgetResult panel =
-        root.ok() ? ui_widget_manager_add_prevalidated(
-                        &scene->widgets, root.handle,
-                        UiWidgetDesc{kPopupPanelId,
-                                     scrollable ? UiWidgetKind::scroll_view : UiWidgetKind::container,
-                                     ui_widget_none,
-                                     UiLayoutNodeSpec{utf8_literal("PopupPanel"),
-                                                      panel_style(rectangle.left - viewport.left,
-                                                                  rectangle.top - viewport.top, width,
-                                                                  height, quick_strip || commands ||
-                                                                      (items[0].flags & popup_item_command_header),
-                                                                  scrollable, feedback_height, styles),
-                                                      UiSize{}, 0.0f, kPopupPanelId}})
+        root.ok() ? ui_widget_manager_add_keyed(
+                        &scene->widgets, root.handle, kPopupPanelId,
+                        scrollable ? UiWidgetKind::scroll_view : UiWidgetKind::container, ui_widget_none,
+                        "PopupPanel",
+                        panel_style(rectangle.left - viewport.left, rectangle.top - viewport.top, width, height,
+                                    quick_strip || commands || (items[0].flags & popup_item_command_header),
+                                    scrollable, feedback_height, styles))
                   : UiWidgetResult{};
     if (!root.ok() || !panel.ok()) {
         return failure(scene, PopupSceneError::widget);
@@ -637,12 +630,9 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
             style.flags = ui_layout_node_visible | ui_layout_node_clip_children |
                           ui_layout_node_scroll_vertical | ui_layout_node_allow_overlap |
                           ui_layout_node_allow_zero_size;
-            const auto child = ui_widget_manager_add_prevalidated(
-                &scene->widgets, panel.handle,
-                {0x10000u + column,
-                 UiWidgetKind::scroll_view,
-                 ui_widget_none,
-                 {utf8_literal("CommandViewport"), style, {}, 0, 0x10000u + column}});
+            const auto child = ui_widget_manager_add_keyed(&scene->widgets, panel.handle, 0x10000u + column,
+                                                           UiWidgetKind::scroll_view, ui_widget_none,
+                                                           "CommandViewport", style);
             if (!child.ok())
                 return failure(scene, PopupSceneError::widget);
             (column ? command_body : command_rail) = child.handle;
@@ -652,28 +642,21 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         scene->items[index] = items[index];
         const u32 id = 3u + index * kPopupWidgetsPerItem;
         const bool enabled = item_enabled(items[index]);
-        const UiWidgetResult row = ui_widget_manager_add_prevalidated(
+        const bool quick = quick_strip && (items[index].flags & popup_item_quick_reaction);
+        const Utf8View row_name = quick ? utf8_literal("QuickReaction") : utf8_literal("PopupItem");
+        const UiWidgetResult row = ui_widget_manager_add_keyed(
             &scene->widgets,
             commands ? ((items[index].flags & popup_item_command_category) ? command_rail : command_body)
                      : command_selected && index >= 2 ? command_body : panel.handle,
-            UiWidgetDesc{id, UiWidgetKind::button,
-                         static_cast<u16>(ui_widget_hit_test | ui_widget_focusable |
-                                          (enabled ? ui_widget_enabled : 0)),
-                         UiLayoutNodeSpec{quick_strip && (items[index].flags & popup_item_quick_reaction)
-                                              ? utf8_literal("QuickReaction")
-                                              : utf8_literal("PopupItem"),
-                                          row_style(items[index], index, quick_strip, items,
-                                                    width - 2.0f * padding, styles),
-                                          UiSize{}, 0.0f, id}});
+            id, UiWidgetKind::button,
+            static_cast<u16>(ui_widget_hit_test | ui_widget_focusable | (enabled ? ui_widget_enabled : 0)),
+            row_name.data, row_name.bytes,
+            row_style(items[index], index, quick_strip, items, width - 2.0f * padding, styles));
+        const Utf8View label_name = quick ? utf8_literal("QuickReactionLabel") : utf8_literal("PopupItemLabel");
         const UiWidgetResult label =
-            row.ok() ? ui_widget_manager_add_prevalidated(
-                           &scene->widgets, row.handle,
-                           UiWidgetDesc{id + 1u, UiWidgetKind::text, ui_widget_enabled,
-                                        UiLayoutNodeSpec{quick_strip && (items[index].flags & popup_item_quick_reaction)
-                                                             ? utf8_literal("QuickReactionLabel")
-                                                             : utf8_literal("PopupItemLabel"),
-                                                         label_style(items[index], styles), UiSize{},
-                                                         0.0f, id + 1u}})
+            row.ok() ? ui_widget_manager_add_keyed(&scene->widgets, row.handle, id + 1u, UiWidgetKind::text,
+                                                   ui_widget_enabled, label_name.data, label_name.bytes,
+                                                   label_style(items[index], styles))
                      : UiWidgetResult{};
         if (!row.ok() || !label.ok()) {
             return failure(scene, PopupSceneError::widget);

@@ -16,6 +16,9 @@ struct UiThemeMetrics;
 const UiThemeMetrics& ui_theme_metrics(const UiResolvedThemeStyles*) noexcept;
 UiAudioControlsStyle ui_theme_audio_style(const UiResolvedThemeStyles*) noexcept;
 UiPollStyle ui_theme_poll_style(const UiResolvedThemeStyles*) noexcept;
+// Overrides the theme's fields of a default-constructed style in place (no by-value copy).
+void ui_theme_fill_audio_style(const UiResolvedThemeStyles*, UiAudioControlsStyle*) noexcept;
+void ui_theme_fill_poll_style(const UiResolvedThemeStyles*, UiPollStyle*) noexcept;
 UiPollVotersStyle ui_theme_poll_voters_style(const UiResolvedThemeStyles*) noexcept;
 UiSettingsStyle ui_theme_settings_style(const UiResolvedThemeStyles*) noexcept;
 ForumPostStyle ui_theme_forum_style(const UiResolvedThemeStyles*) noexcept;

@@ -63,9 +63,22 @@ static_assert(sizeof(UiSettingsTokens) ==
               sizeof(UiSettingsLayoutTokens) + sizeof(UiSettingsColors) + sizeof(float));
 
 UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept;
+// Same values written straight into *output (a by-value result is copied by the caller).
+void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexcept;
+// The theme's tokens built in place: `const UiSettingsThemeTokens t(theme);` avoids the copy a
+// by-value ui_settings_tokens() result costs the caller.
+struct UiSettingsThemeTokens : UiSettingsTokens {
+    explicit UiSettingsThemeTokens(const Theme& theme) noexcept { ui_settings_fill_tokens(theme, this); }
+};
 Color ui_settings_focus_color(const Theme& theme) noexcept;
 // Geometry and motion queries do not construct a paint palette.
 UiSettingsLayoutTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept;
+void ui_settings_fill_layout_tokens(const UiResolvedThemeStyles* styles, UiSettingsLayoutTokens* output) noexcept;
+struct UiSettingsStyleTokens : UiSettingsLayoutTokens {
+    explicit UiSettingsStyleTokens(const UiResolvedThemeStyles* styles) noexcept {
+        ui_settings_fill_layout_tokens(styles, this);
+    }
+};
 // Entrance progress (0..1) of every modal and dialog elapsed_ms after it
 // opened: a spring (tension 1000, friction 48) over modal_enter_ms, so Settings
 // and each dialog open on one timeline.

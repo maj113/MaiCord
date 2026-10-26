@@ -44,7 +44,7 @@ inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner
     clip = ui_rect_intersection(clip,node->clip_rectangle);
     const auto visible = ui_rect_intersection(rectangle,clip);
     if (!ui_rect_has_area(visible)) return true;
-    if (!paint_stream_push_clip(paint,clip.left,clip.top,clip.right,clip.bottom)) return false;
+    if (!paint_stream_push_clip(paint, clip)) return false;
     const auto border = focus ? ui_foreground_color(theme,theme.accent) : theme.interactive;
     const auto fill = hover || parent_active ? theme.surface_high : theme.base_lowest;
     const float size = minimum(20.f,minimum(ui_rect_width(rectangle),ui_rect_height(rectangle)) - 8.f);
@@ -92,7 +92,7 @@ inline bool ui_gif_favorite_paint(PaintStream* paint, UiWidgetReference owner, U
     clip = ui_rect_intersection(clip, node->clip_rectangle);
     const auto visible = ui_rect_intersection(rectangle, clip);
     if (!ui_rect_has_area(visible)) return true;
-    if (!paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom)) return false;
+    if (!paint_stream_push_clip(paint, clip)) return false;
     const float size = minimum(20.f, minimum(ui_rect_width(rectangle), ui_rect_height(rectangle)) - 8.f);
     const float x = (rectangle.left + rectangle.right - size) * .5f;
     const float y = (rectangle.top + rectangle.bottom - size) * .5f;

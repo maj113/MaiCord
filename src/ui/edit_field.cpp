@@ -23,18 +23,18 @@ bool ui_edit_field_paint_content(PaintStream* paint, UiRect content, const UiEdi
                                  const UiEditGeometry* geometry, const Theme& theme, u32 dpi) noexcept {
     if (!view.active || !view.focused || !geometry)
         return true;
-    if (!paint_stream_push_clip(paint, content.left, content.top, content.right, content.bottom))
+    if (!paint_stream_push_clip(paint, content))
         return false;
     const Color selection = ui_edit_selection_color(theme);
     bool ok = true;
     for (u32 i = 0; ok && i < geometry->selection_count; ++i) {
         const auto r = ui_rect_intersection(geometry->selections[i], content);
         if (ui_rect_has_area(r))
-            ok = paint_stream_push(paint, r.left, r.top, r.right, r.bottom, selection);
+            ok = paint_stream_push(paint, r, selection);
     }
     const auto caret = caret_pixel_rectangle(geometry->caret, content, dpi);
     if (ok && view.caret_visible && ui_rect_has_area(caret))
-        ok = paint_stream_push(paint, caret.left, caret.top, caret.right, caret.bottom, theme.text_primary);
+        ok = paint_stream_push(paint, caret, theme.text_primary);
     return paint_stream_pop_clip(paint) && ok;
 }
 bool ui_edit_field_text_output(UiTextOutput* text, UiWidgetReference owner, UiRect content,

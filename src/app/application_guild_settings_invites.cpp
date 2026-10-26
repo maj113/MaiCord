@@ -11,18 +11,14 @@ constexpr u32 kInviteCopy = 0, kInviteRevoke = 1;
 void project_invites(Bank& bank) noexcept {
     auto& p = *owner;
     if (p.invites_failed)
-        push(notice(utf8_literal("Couldn't load invites"), p.status, utf8_literal("Try again")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error(utf8_literal("Couldn't load invites"), p.status, utf8_literal("Try again"));
     else if (p.failed && p.status.bytes)
-        push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error({}, p.status);
     else if (!p.invites_loaded)
-        push(loading(utf8_literal("Loading invites…")));
-    const u32 heading = bank.used;
-    bank.add(utf8_literal("Active invites — "));
-    bank.number(p.invite_count);
-    push(category(control_list_category, bank.since(heading)));
+        push_loading(utf8_literal("Loading invites…"));
+    push_count_heading(bank, utf8_literal("Active invites — "), p.invite_count);
     if (p.invites_loaded && !p.invite_count)
-        push(notice({}, utf8_literal("No active invites.")));
+        push_notice(utf8_literal("No active invites."));
     const u64 now = clock_unix_milliseconds();
     for (u32 i = 0; i < p.invite_count; ++i) {
         const auto& invite = p.invites[i];

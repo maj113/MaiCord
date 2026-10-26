@@ -35,6 +35,7 @@ struct UiDownloadTarget {
     u32 index{}, source_revision{};
 };
 struct UiDownloadScene {
+    static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
     UiFixedWidgetStorageOwner storage;
     UiWidgetManager widgets;
     const UiDownloadSource* source{};

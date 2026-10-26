@@ -11,8 +11,9 @@ namespace maicord::call_stage {
 u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept;
 UiRect centered(float x, float y, float width, float height) noexcept;
 // Single-line, vertically centred, ellipsized call text; skipped when clipped away.
-bool push_text(UiTextOutput* text, const UiCallScene& s, Utf8View value, UiRect rectangle, UiRect clip,
-               Color color, u32 style, UiTextAlignment horizontal = UiTextAlignment::start) noexcept;
+bool push_text(UiTextOutput* text, const UiCallScene& s, const Utf8View& value, const UiRect& rectangle,
+               const UiRect& clip, const Color& color, u32 style,
+               UiTextAlignment horizontal = UiTextAlignment::start) noexcept;
 
 // Copies content.stage into the scene; clears every stage field when inactive.
 void copy(UiCallScene& s, const UiCallStage& stage) noexcept;

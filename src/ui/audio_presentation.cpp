@@ -12,8 +12,7 @@ namespace maicord {
 namespace {
 bool rounded(PaintStream* paint, UiRect rectangle, Color fill, float radius) noexcept {
     return !ui_rect_has_area(rectangle) ||
-           paint_stream_push_rounded(paint, rectangle.left, rectangle.top, rectangle.right,
-                                     rectangle.bottom, fill, radius);
+           paint_stream_push_rounded(paint, rectangle, fill, radius);
 }
 bool owner_current(UiWidgetReference owner) noexcept {
     return owner.manager && ui_widget_manager_resolve(*owner.manager, owner.handle);
@@ -111,7 +110,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
     const auto visible = ui_rect_intersection(projection.geometry.bounds, clip);
     if (!ui_rect_has_area(visible))
         return true;
-    if (!paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom))
+    if (!paint_stream_push_clip(paint, visible))
         return false;
     const auto paint_controls = [&]() noexcept {
         const auto& bounds = projection.geometry.bounds;
@@ -162,9 +161,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
                     return false;
             }
             if (keyboard_focus && control.enabled && control.id == focus &&
-                !paint_stream_push_rounded_border(paint, control.bounds.left, control.bounds.top,
-                                                  control.bounds.right, control.bounds.bottom, {},
-                                                  projection.focus, kUiControlCornerRadius, 2))
+                !paint_stream_push_rounded_border(paint, control.bounds, {}, projection.focus, kUiControlCornerRadius, 2))
                 return false;
         }
         return true;
@@ -183,7 +180,7 @@ bool ui_audio_controls_text_output(const UiAudioControlsProjection& projection, 
         if (!control.visible || control.kind != UiAudioControlKind::label)
             continue;
         const auto label = ui_audio_controls_label(projection, control.id);
-        if (!label.bytes || !ui_rect_has_area(ui_rect_intersection(control.bounds, visible)))
+        if (!label.bytes || !ui_rect_intersects(control.bounds, visible))
             continue;
         bool compact_time_lines{};
         if (projection.geometry.compact && control.id == UiAudioControl::time)
@@ -223,10 +220,8 @@ u64 ui_audio_scene_paint_revision(const UiAudioScene& scene) noexcept {
     const auto& projection = scene.projection;
     const auto& state = projection.playback;
     const auto& geometry = projection.geometry;
-    const UiRect rectangles[]{geometry.bounds, geometry.title,    geometry.play_pause,
-                              geometry.seek,   geometry.time,     geometry.mute,
-                              geometry.volume, geometry.download, geometry.status};
-    u64 hash = hash64_bytes(kHash64Seed, rectangles, sizeof(rectangles));
+    static_assert(__builtin_offsetof(UiAudioCardGeometry, status) == 8 * sizeof(UiRect));
+    u64 hash = hash64_bytes(kHash64Seed, &geometry.bounds, 9 * sizeof(UiRect));
     hash = hash64_mix(hash, u32{geometry.voice} | (u32{geometry.compact} << 1u) |
                                 (u32{geometry.volume_expanded} << 2u));
     hash = hash64_bytes(hash, &scene.clip, sizeof(scene.clip));
@@ -247,9 +242,9 @@ u64 ui_audio_scene_paint_revision(const UiAudioScene& scene) noexcept {
     const float metrics[]{scene.style.corner_radius, scene.style.waveform_gap,
                           scene.style.minimum_peak_height, projection.volume_thumb_inset};
     hash = hash64_bytes(hash, metrics, sizeof(metrics));
-    const Color colors[]{projection.surface, projection.focus, projection.track, projection.waveform,
-                         projection.played};
-    hash = hash64_bytes(hash, colors, sizeof(colors));
+    static_assert(__builtin_offsetof(UiAudioControlsProjection, played) ==
+                  __builtin_offsetof(UiAudioControlsProjection, surface) + 4 * sizeof(Color));
+    hash = hash64_bytes(hash, &projection.surface, 5 * sizeof(Color));
     for (const auto& control : projection.controls) {
         hash = hash64_mix(hash, static_cast<u8>(control.id));
         hash = hash64_bytes(hash, &control.bounds, sizeof(control.bounds));

@@ -59,6 +59,7 @@ struct PollControllerResult {
     bool ok() const noexcept { return error == PollControllerError::none; }
 };
 struct PollController {
+    static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
     PollControllerSnapshot snapshot{};
     PollControllerCommand pending{};
     PollControllerFlight flight{};

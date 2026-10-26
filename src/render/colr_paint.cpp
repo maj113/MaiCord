@@ -198,18 +198,19 @@ static bool rasterize_colr(ColrPaintGpu* g, ID3D11DeviceContext* context, const 
     g->upload_cursor = (program_base + static_cast<u32>(p.storage.offset) + plan_bytes + 15) & ~15u;
     if (FAILED(context->Map(g->constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
         return false;
-    *static_cast<Constants*>(mapped.pData) = {static_cast<u32>(a.x - padding),
-                                              static_cast<u32>(a.y - padding),
-                                              static_cast<u32>(a.width + 2 * padding),
-                                              static_cast<u32>(a.height + 2 * padding),
-                                              static_cast<float>(bounds.left),
-                                              static_cast<float>(bounds.top),
-                                              scale,
-                                              p.first,
-                                              padding,
-                                              p.nodes,
-                                              program_base,
-                                              plan_capacity?static_cast<u32>(p.storage.offset):0};
+    auto& constants = *static_cast<Constants*>(mapped.pData);
+    constants.x = static_cast<u32>(a.x - padding);
+    constants.y = static_cast<u32>(a.y - padding);
+    constants.width = static_cast<u32>(a.width + 2 * padding);
+    constants.height = static_cast<u32>(a.height + 2 * padding);
+    constants.left = static_cast<float>(bounds.left);
+    constants.top = static_cast<float>(bounds.top);
+    constants.scale = scale;
+    constants.first = p.first;
+    constants.padding = padding;
+    constants.nodes = p.nodes;
+    constants.program_base = program_base;
+    constants.reserved = plan_capacity ? static_cast<u32>(p.storage.offset) : 0;
     context->Unmap(g->constants, 0);
     if(batch&&batch->gpu&&batch->gpu!=g)batch->reset();
     const bool retained=batch&&batch->active();

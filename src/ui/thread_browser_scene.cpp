@@ -1,6 +1,8 @@
 #include "maicord/ui/thread_browser_scene.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/background_surface.hpp"
+#include "maicord/ui/rect_edges.hpp"
+#include "maicord/ui/scene_text.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/spinner.hpp"
@@ -64,24 +66,17 @@ bool selected(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
 bool hovered(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
     return handle.generation && handle.generation == s.widgets.hovered.generation && handle.slot == s.widgets.hovered.slot;
 }
-UiWidgetHandle add(UiThreadBrowserScene& s, UiRect r, UiThreadBrowserAction action,
-    Utf8View label, UiWidgetHandle parent, u64 id = 0) noexcept {
+UiWidgetHandle add(UiThreadBrowserScene& s, const UiRect& r, UiThreadBrowserAction action,
+    const Utf8View& label, UiWidgetHandle parent, u64 id = 0) noexcept {
     if (!ui_rect_has_area(r)) return {};
-    auto layout = ui_layout_style();
-    layout.width = ui_layout_fixed(ui_rect_width(r));
-    layout.height = ui_layout_fixed(ui_rect_height(r));
     const auto origin = s.body_owner.generation && parent.generation == s.body_owner.generation &&
         parent.slot == s.body_owner.slot ? s.body : s.panel;
-    layout.margin.left = r.left - origin.left;
-    layout.margin.top = r.top - origin.top;
-    layout.flags |= ui_layout_node_allow_overlap | ui_layout_node_clip_children;
     const auto value = target(s, action, id);
     const bool enabled = eligible(s, value);
-    const u32 widget_id = s.widgets.count + 1;
-    const auto result = ui_widget_manager_add_prevalidated(&s.widgets, parent,
-        {widget_id, action == UiThreadBrowserAction::none ? UiWidgetKind::container : UiWidgetKind::button,
-         static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : 0),
-         {label, layout, {}, 0, widget_id}});
+    const auto result = ui_widget_manager_add_placed(&s.widgets, parent,
+        action == UiThreadBrowserAction::none ? UiWidgetKind::container : UiWidgetKind::button,
+        static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : 0), label, r,
+        origin);
     if (!result.ok()) return {};
     s.backing->targets[result.handle.slot] = value;
     s.backing->targets[result.handle.slot].widget = result.handle;
@@ -201,16 +196,11 @@ bool rebuild(UiThreadBrowserScene& s) noexcept {
     ++s.layout_passes;
     return true;
 }
-bool text(UiTextOutput* out, const UiThreadBrowserScene& s, UiWidgetHandle owner, Utf8View value,
-    UiRect r, Color color, u32 flags = 0, bool row = false,
-    UiTextAlignment alignment = UiTextAlignment::start, bool wrap = false) noexcept {
-    const auto clip = ui_rect_intersection(r, row ? s.body : s.panel);
-    return !value.bytes || !ui_rect_has_area(clip) || ui_text_output_push(out,
-        {value, {&s.widgets, owner}, r, clip, color, flags, alignment,
-         wrap ? UiTextAlignment::start : UiTextAlignment::center,
-         wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap, UiTextOverflow::ellipsis, UiTextFace::normal});
+bool text(UiTextOutput* out, const UiThreadBrowserScene& s, UiWidgetHandle owner, const Utf8View& value,
+    const UiRect& r, const Color& color, u32 flags = 0, u32 mode = 0) noexcept {
+    return ui_scene_text(out, s.widgets, owner, value, r, (mode & ui_text_in_body) ? s.body : s.panel, color, flags, mode);
 }
-bool surface(PaintStream* out, UiRect r, const Theme& t, Color fill, Color border, float radius) noexcept {
+bool surface(PaintStream* out, const UiRect& r, const Theme& t, const Color& fill, const Color& border, float radius) noexcept {
     return ui_background_paint_surface(out, r, t, fill, border, radius, 1, .9f,
         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high);
 }
@@ -434,9 +424,9 @@ bool ui_thread_browser_scene_move_focus(UiThreadBrowserScene* s, bool reverse) n
 bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t, PaintStream* out) noexcept {
     if (!current(s)) return true;
     if (!out || !ui_surface_shadow_paint_isolated(out, s.panel, t, UiElevation::popover, 0) ||
-        !paint_stream_push_clip(out, s.panel.left, s.panel.top, s.panel.right, s.panel.bottom)) return false;
+        !paint_stream_push_clip(out, s.panel)) return false;
     bool ok = ui_surface_paint_plate(out, s.panel, t, UiElevation::popover, 0, nullptr, &t.surface_high) &&
-        paint_stream_push(out, s.header.left, s.header.bottom - 1, s.header.right, s.header.bottom, t.surface_high) &&
+        paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)), t.surface_high) &&
         ((!s.create_post.generation || bounds(s, s.create_post).left - s.style.gap >= s.header.left + s.style.inset + 32) ?
             ui_icon_paint(out, UiIcon::thread, {s.header.left + s.style.inset, s.header.top + 10,
                 s.header.left + s.style.inset + 24, s.header.top + 34}, t.text_secondary) : true) &&
@@ -444,8 +434,8 @@ bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t
         button(out, s, t, s.archived_tab, s.tab == UiThreadBrowserTab::archived) &&
         button(out, s, t, s.previous) && button(out, s, t, s.next) && button(out, s, t, s.retry);
     const auto close = bounds(s, s.close);
-    ok = ok && ui_icon_paint(out, UiIcon::close, {close.left + 6, close.top + 6, close.right - 6, close.bottom - 6}, t.text_secondary);
-    if (ok && paint_stream_push_clip(out, s.body.left, s.body.top, s.body.right, s.body.bottom)) {
+    ok = ok && ui_icon_paint(out, UiIcon::close, ui_rect_shrink(close, 6), t.text_secondary);
+    if (ok && paint_stream_push_clip(out, s.body)) {
         for (u32 i = 0; ok && !s.forum && i < s.count; ++i) {
             const auto handle = s.backing->rows[i];
             if (!handle.generation) continue;
@@ -453,7 +443,7 @@ bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t
             ok = surface(out, r, t, hovered(s, handle) ? t.surface_high : t.surface,
                 selected(s, handle) ? t.tokens.border.focus : t.surface_high, s.style.radius) &&
                 ui_icon_paint(out, s.view->rows[i].type == 12 ? UiIcon::lock : UiIcon::thread,
-                    {r.left + 8, r.top + 16, r.left + 30, r.top + 38}, t.text_secondary);
+                    ui_rect_edges(r, ui_start(8), ui_start(16), ui_start(30), ui_start(38)), t.text_secondary);
         }
         if (!s.count) {
             const float x = (s.body.left + s.body.right) * .5f, y = s.body.top + minimum(30.f, ui_rect_height(s.body) * .2f);
@@ -466,8 +456,8 @@ bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t
     } else if (ok) ok = false;
     if (ok && s.forum) ok = ui_forum_channel_paint(s, t, out);
     if (ok) ok = ui_scrollbar_paint(out, ui_scrollbar_geometry(s.body, s.scroll_dips,
-        content_height(s)), t) && paint_stream_push(out, s.footer.left, s.footer.top,
-            s.footer.right, s.footer.top + 1, t.surface_high);
+        content_height(s)), t) && paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)),
+            t.surface_high);
     return paint_stream_pop_clip(out) && ok;
 }
 bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene& s, const Theme& t, UiTextOutput* out) noexcept {
@@ -487,7 +477,7 @@ bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene& s, const Th
         if (!buttons[i].generation) continue;
         const bool enabled = ui_thread_browser_scene_target(s, buttons[i]).action != UiThreadBrowserAction::none;
         if (!text(out, s, buttons[i], labels[i], bounds(s, buttons[i]), enabled ? t.text_primary : t.text_secondary,
-            s.style.title_flags, false, UiTextAlignment::center)) return false;
+            s.style.title_flags, ui_text_center)) return false;
     }
     const auto status = s.view->status.bytes ? s.view->status
         : s.view->loading ? utf8_literal("Loading threads…") : s.view->error ? utf8_literal("Couldn't load threads")
@@ -503,7 +493,7 @@ bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene& s, const Th
         const auto& row = s.view->rows[i];
         const auto color = s.view->loading || s.view->error ? t.text_secondary : t.text_primary;
         if (!text(out, s, s.backing->rows[i], row.name.bytes ? row.name : utf8_literal("Unnamed thread"),
-            {r.left + 38, r.top + 4, r.right - 8, r.top + 28}, color, s.style.name_flags, true)) return false;
+            ui_rect_edges(r, ui_start(38), ui_start(4), ui_end(-8), ui_start(28)), color, s.style.name_flags, ui_text_in_body)) return false;
         // Prepared fixed labels expose archive and membership without inventing server state.
         const auto detail = row.type == 12
             ? (row.archived
@@ -516,17 +506,17 @@ bool ui_thread_browser_scene_text_output(const UiThreadBrowserScene& s, const Th
                     : utf8_literal("Public · Archived"))
                 : (row.membership_known ? (row.joined ? utf8_literal("Public · Active · Joined") : utf8_literal("Public · Active · Not joined"))
                     : utf8_literal("Public · Active")));
-        if (!text(out, s, s.backing->rows[i], detail, {r.left + 38, r.top + 28, r.right - 8, r.bottom - 4},
-            t.text_secondary, s.style.detail_flags, true)) return false;
+        if (!text(out, s, s.backing->rows[i], detail, ui_rect_edges(r, ui_start(38), ui_start(28), ui_end(-8), ui_end(-4)),
+            t.text_secondary, s.style.detail_flags, ui_text_in_body)) return false;
     }
     if (!s.count && !s.forum) {
         const float top = s.body.top + minimum(52.f, ui_rect_height(s.body) * .35f);
         if (!text(out, s, s.root, state_text(s), {left, top, right, minimum(s.body.bottom, top + 60)},
-            t.text_secondary, s.style.title_flags, true, UiTextAlignment::center, true)) return false;
+            t.text_secondary, s.style.title_flags, ui_text_in_body | ui_text_center | ui_text_wrap)) return false;
     }
     return text(out, s, s.root, {s.page_text, s.page_bytes},
         {bounds(s, s.previous).right + s.style.gap, s.footer.top,
          bounds(s, s.next).left - s.style.gap, s.footer.bottom}, t.text_secondary,
-        s.style.detail_flags, false, UiTextAlignment::center);
+        s.style.detail_flags, ui_text_center);
 }
 } // namespace maicord

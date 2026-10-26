@@ -579,16 +579,74 @@ MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentatio
     return parsed;
 }
 
-bool append_command(MessageTextPresentation* presentation, Utf8View text, ConstSlice<TextStyleSpan> styles,
-                    ConstSlice<MessageMarkdownSemantic> semantics, UiWidgetReference owner,
-                    const UiRect& rectangle, const UiRect& clip, const Color& color, u64 message_id,
-                    u32 message_revision, u16 measurement_index,
-                    MessageTextMeasurementKind measurement_kind, float minimum_height, float gap_after,
-                    bool themed_styles, UiTextAlignment horizontal_alignment = UiTextAlignment::start,
-                    UiTextAlignment vertical_alignment = UiTextAlignment::start,
-                    UiTextWrapping wrapping = UiTextWrapping::wrap, u8 measurement_slot = 0,
-                    UiTextOverflow overflow = UiTextOverflow::clip,
-                    const Color& inline_role_color = Color{}, u16 source_id = 0) noexcept {
+// How a command is measured, aligned and shaped. The presets are the labels
+// that recur; the defaults are a plain wrapping block.
+struct CommandLook {
+    MessageTextMeasurementKind kind{};
+    float minimum_height{};
+    float gap_after{};
+    bool themed{};
+    UiTextAlignment horizontal{};
+    UiTextAlignment vertical{};
+    UiTextWrapping wrapping = UiTextWrapping::wrap;
+    u8 slot{};
+    UiTextOverflow overflow{};
+    u16 source_id{};
+};
+
+constexpr CommandLook kLookStart{.wrapping = UiTextWrapping::no_wrap, .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookStartThemed{.themed = true,
+                                       .wrapping = UiTextWrapping::no_wrap,
+                                       .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookStamp{.themed = true, .wrapping = UiTextWrapping::no_wrap, .slot = 1};
+constexpr CommandLook kLookMiddle{.vertical = UiTextAlignment::center,
+                                  .wrapping = UiTextWrapping::no_wrap,
+                                  .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookMiddleThemed{.themed = true,
+                                        .vertical = UiTextAlignment::center,
+                                        .wrapping = UiTextWrapping::no_wrap,
+                                        .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookMiddleSecond{.vertical = UiTextAlignment::center,
+                                        .wrapping = UiTextWrapping::no_wrap,
+                                        .slot = 1,
+                                        .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookMiddleClipped{.vertical = UiTextAlignment::center, .wrapping = UiTextWrapping::no_wrap};
+constexpr CommandLook kLookMiddleWrapped{.vertical = UiTextAlignment::center};
+constexpr CommandLook kLookNotice{.kind = MessageTextMeasurementKind::notice,
+                                  .vertical = UiTextAlignment::center,
+                                  .wrapping = UiTextWrapping::no_wrap,
+                                  .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookNoticeCentered{.kind = MessageTextMeasurementKind::notice,
+                                          .horizontal = UiTextAlignment::center,
+                                          .vertical = UiTextAlignment::center,
+                                          .wrapping = UiTextWrapping::no_wrap,
+                                          .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookNoticeLink{.kind = MessageTextMeasurementKind::notice,
+                                      .themed = true,
+                                      .vertical = UiTextAlignment::center,
+                                      .wrapping = UiTextWrapping::no_wrap,
+                                      .slot = 1,
+                                      .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookEnd{.horizontal = UiTextAlignment::end,
+                               .vertical = UiTextAlignment::center,
+                               .wrapping = UiTextWrapping::no_wrap,
+                               .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookAttachmentName{.kind = MessageTextMeasurementKind::attachment,
+                                          .minimum_height = 20.0f,
+                                          .wrapping = UiTextWrapping::no_wrap,
+                                          .overflow = UiTextOverflow::ellipsis};
+constexpr CommandLook kLookBlock{};
+constexpr Color kNoRoleColor{};
+constexpr ConstSlice<TextStyleSpan> kNoStyles{};
+constexpr ConstSlice<MessageMarkdownSemantic> kNoSemantics{};
+constexpr Utf8View kNoLink{};
+
+bool append_command(MessageTextPresentation* presentation, const Utf8View& text,
+                    const ConstSlice<TextStyleSpan>& styles, const ConstSlice<MessageMarkdownSemantic>& semantics,
+                    const UiWidgetReference& owner,
+                    const UiRect& rectangle, const UiRect& clip, const Color& color,
+                    const MessageRecord* record, u16 measurement_index, const CommandLook& look,
+                    const Color& inline_role_color = kNoRoleColor) noexcept {
     if (text.bytes == 0) {
         return true;
     }
@@ -602,43 +660,44 @@ bool append_command(MessageTextPresentation* presentation, Utf8View text, ConstS
     }
     const UiWidget* owner_widget =
         owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
-    if (!owner_widget || !ui_rect_has_area(rectangle) || !ui_rect_has_area(clip) || minimum_height < 0.0f ||
-        gap_after < 0.0f) {
+    if (!owner_widget || !ui_rect_has_area(rectangle) || !ui_rect_has_area(clip) || look.minimum_height < 0.0f ||
+        look.gap_after < 0.0f) {
         return fail(presentation, MessageTextPresentationError::layout);
     }
-    if (measurement_kind != MessageTextMeasurementKind::none &&
+    if (look.kind != MessageTextMeasurementKind::none &&
         measurement_index >= presentation->measurement_count) {
         return fail(presentation, MessageTextPresentationError::measurement);
     }
-    MessageTextCommand command{text,
-                               styles,
-                               semantics,
-                               owner,
-                               rectangle,
-                               clip,
-                               color,
-                               inline_role_color,
-                               message_id,
-                               0,
-                               message_revision,
-                               minimum_height,
-                               gap_after,
-                               0.0f,
-                               0.0f,
-                               measurement_index,
-                               measurement_kind,
-                               measurement_slot,
-                               themed_styles,
-                               horizontal_alignment,
-                               vertical_alignment,
-                               wrapping,
-                               overflow,
-                               source_id};
+    MessageTextCommand& command = presentation->commands[presentation->command_count];
+    command = MessageTextCommand{text,
+                                 styles,
+                                 semantics,
+                                 owner,
+                                 rectangle,
+                                 clip,
+                                 color,
+                                 inline_role_color,
+                                 record ? record->id : 0,
+                                 0,
+                                 record ? record->revision : 0,
+                                 look.minimum_height,
+                                 look.gap_after,
+                                 0.0f,
+                                 0.0f,
+                                 measurement_index,
+                                 look.kind,
+                                 look.slot,
+                                 look.themed,
+                                 look.horizontal,
+                                 look.vertical,
+                                 look.wrapping,
+                                 look.overflow,
+                                 look.source_id};
     command.measurement_identity = command_measurement_identity(command, owner_widget->id);
     const UiSize measured = previous_measurement(presentation, command.measurement_identity);
     command.measured_height = measured.height;
     command.measured_width = measured.width;
-    presentation->commands[presentation->command_count++] = command;
+    ++presentation->command_count;
     return true;
 }
 
@@ -691,8 +750,8 @@ bool commit_last_command(MessageTextPresentation* presentation, UiTextFlowLayout
 }
 
 bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTextFlowLayout* flow,
-                      float left_inset, float right_inset, const Color& color, UiWidgetReference owner,
-                      u64 message_id, u32 message_revision,
+                      float left_inset, float right_inset, const Color& color, const UiWidgetReference& owner,
+                      const MessageRecord& record,
                       u16 measurement_index = kInvalidMessageTextMeasurement,
                       MessageTextMeasurementKind measurement_kind = MessageTextMeasurementKind::none,
                       float gap_after = 3.0f) noexcept {
@@ -706,10 +765,9 @@ bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTe
     if (!begin_item(presentation, flow, left_inset, right_inset, &rectangle)) {
         return false;
     }
-    if (!append_command(presentation, text, ConstSlice<TextStyleSpan>{},
-                        ConstSlice<MessageMarkdownSemantic>{}, owner, rectangle, flow->clip_rectangle,
-                        color, message_id, message_revision, measurement_index, measurement_kind, 16.0f,
-                        gap_after, false)) {
+    if (!append_command(presentation, text, kNoStyles, kNoSemantics, owner, rectangle, flow->clip_rectangle,
+                        color, &record, measurement_index,
+                        {.kind = measurement_kind, .minimum_height = 16.0f, .gap_after = gap_after})) {
         return false;
     }
     return commit_last_command(presentation, flow);
@@ -837,18 +895,14 @@ bool append_result_card_header(MessageTextPresentation* presentation, const Mess
     layout.name.top = layout.timestamp.top = author.top;
     layout.name.bottom = layout.timestamp.bottom = author.bottom;
     const UiWidgetReference owner{&scene.widgets, row.author};
-    if (!append_command(presentation, retained_name.text, retained_name.styles, ConstSlice<MessageMarkdownSemantic>{},
-                        owner, layout.name, clip, color, record.id, record.revision,
-                        kInvalidMessageTextMeasurement, MessageTextMeasurementKind::none, 0.0f, 0.0f, true,
-                        UiTextAlignment::start, UiTextAlignment::start, UiTextWrapping::no_wrap, 0,
-                        UiTextOverflow::ellipsis))
+    if (!append_command(presentation, retained_name.text, retained_name.styles, kNoSemantics,
+                        owner, layout.name, clip, color, &record,
+                        kInvalidMessageTextMeasurement, kLookStartThemed))
         return false;
     return !ui_rect_has_area(layout.timestamp) ||
            append_command(presentation, retained_stamp.text, retained_stamp.styles,
-                          ConstSlice<MessageMarkdownSemantic>{}, owner, layout.timestamp, clip, color, record.id,
-                          record.revision, kInvalidMessageTextMeasurement, MessageTextMeasurementKind::none, 0.0f,
-                          0.0f, true, UiTextAlignment::start, UiTextAlignment::start, UiTextWrapping::no_wrap, 1,
-                          UiTextOverflow::clip);
+                          kNoSemantics, owner, layout.timestamp, clip, color, &record,
+                          kInvalidMessageTextMeasurement, kLookStamp);
 }
 
 // The reply preview ansi rule: /\x1B\[(\d+(?:[:;]\d+)*)m/ inside ```ansi.
@@ -1081,10 +1135,10 @@ RetainedReplySummary retain_interaction_header(MessageTextPresentation* presenta
     return {{text, bytes}, {styles, 2}};
 }
 
-bool append_reply_line(MessageTextPresentation* presentation, Utf8View text,
-                       ConstSlice<TextStyleSpan> styles, UiTextFlowLayout* flow, const Color& color,
-                       const Color& inline_role_color, UiWidgetReference owner, u64 message_id,
-                       u32 message_revision, u16 measurement_index, UiTextOverflow overflow,
+bool append_reply_line(MessageTextPresentation* presentation, const Utf8View& text,
+                       const ConstSlice<TextStyleSpan>& styles, UiTextFlowLayout* flow, const Color& color,
+                       const Color& inline_role_color, const UiWidgetReference& owner, const MessageRecord& record,
+                       u16 measurement_index, UiTextOverflow overflow,
                        float right_inset = 0.0f) noexcept {
     if (!presentation || !flow || text.bytes == 0) {
         return false;
@@ -1098,11 +1152,15 @@ bool append_reply_line(MessageTextPresentation* presentation, Utf8View text,
     // Bound shaping to one line; the renderer applies character-granularity
     // ellipsis inside this retained width.
     rectangle.bottom = rectangle.top + 18.0f;
-    if (!append_command(presentation, text, styles, ConstSlice<MessageMarkdownSemantic>{}, owner, rectangle,
-                        flow->clip_rectangle, color, message_id, message_revision, measurement_index,
-                        MessageTextMeasurementKind::reply, 16.0f, 6.0f, styles.count != 0,
-                        UiTextAlignment::start, UiTextAlignment::start, UiTextWrapping::no_wrap, 0,
-                        overflow, inline_role_color)) {
+    if (!append_command(presentation, text, styles, kNoSemantics, owner, rectangle,
+                        flow->clip_rectangle, color, &record, measurement_index,
+                        {.kind = MessageTextMeasurementKind::reply,
+                         .minimum_height = 16.0f,
+                         .gap_after = 6.0f,
+                         .themed = styles.count != 0,
+                         .wrapping = UiTextWrapping::no_wrap,
+                         .overflow = overflow},
+                        inline_role_color)) {
         return false;
     }
     return commit_last_command(presentation, flow);
@@ -1233,11 +1291,9 @@ bool append_compact_timestamp(MessageTextPresentation* presentation, const Messa
     TextStyleSpan* style = presentation->styles.data + presentation->style_count++;
     *style = TextStyleSpan{0, formatted.bytes, text_style_subtext};
     return append_command(presentation, Utf8View{presentation->utf8.data + text_begin, formatted.bytes}, {style, 1},
-                          {}, UiWidgetReference{&scene.widgets, row.avatar}, gutter->rectangle, clip,
-                          ui_background_muted_text_color(theme), record.id, record.revision,
-                          kInvalidMessageTextMeasurement, MessageTextMeasurementKind::none, 0.0f, 0.0f, true,
-                          UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap, 0,
-                          UiTextOverflow::ellipsis);
+                          kNoSemantics, UiWidgetReference{&scene.widgets, row.avatar}, gutter->rectangle, clip,
+                          ui_background_muted_text_color(theme), &record,
+                          kInvalidMessageTextMeasurement, kLookMiddleThemed);
 }
 
 bool parse_content(MessageTextPresentation* presentation, BuildContext* context, Utf8View source,
@@ -1485,13 +1541,13 @@ float quote_gap_after(const QuoteSegment* segments, u32 count, u32 index, float 
     return after + last;
 }
 
-bool append_rich_markdown_line(MessageTextPresentation* presentation, BuildContext* context,
-                               Utf8View source, UiTextFlowLayout* flow, float left_inset, float right_inset,
-                               const Color& color, UiWidgetReference owner, u64 message_id,
-                               u32 message_revision, u16 measurement_index,
+bool append_rich_markdown_line(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow,
+                               float left_inset, float right_inset, const Color& color,
+                               const UiWidgetReference& owner, u16 measurement_index,
                                MessageTextMeasurementKind measurement_kind, float gap_after = 3.0f,
                                u32 base_style = 0, u8 base_size = text_size_inherit) noexcept {
-    if (!presentation || !context || !flow || (!source.data && source.bytes != 0)) {
+    MessageTextPresentation* const presentation = context ? context->presentation : nullptr;
+    if (!presentation || !context->message || !flow || (!source.data && source.bytes != 0)) {
         return fail(presentation, MessageTextPresentationError::model);
     }
     if (source.bytes == 0) {
@@ -1538,10 +1594,12 @@ bool append_rich_markdown_line(MessageTextPresentation* presentation, BuildConte
             return false;
         }
         if (!append_command(presentation, segment.text, segment.styles, segment.semantics, owner, rectangle,
-                            flow->clip_rectangle, color, message_id, message_revision, measurement_index,
-                            measurement_kind, 16.0f, quote_gap_after(segments, segment_count, index, gap_after),
-                            segment.styles.count != 0, UiTextAlignment::start, UiTextAlignment::start,
-                            UiTextWrapping::wrap, 0, UiTextOverflow::clip, Color{}, context->source_id)) {
+                            flow->clip_rectangle, color, context->message, measurement_index,
+                            {.kind = measurement_kind,
+                             .minimum_height = 16.0f,
+                             .gap_after = quote_gap_after(segments, segment_count, index, gap_after),
+                             .themed = segment.styles.count != 0,
+                             .source_id = context->source_id})) {
             return false;
         }
         if (!commit_last_command(presentation, flow)) {
@@ -1556,19 +1614,27 @@ float framed_width(const MessageTextCommand& command) noexcept {
     return command.measured_width + (message_text_command_code_block(command) ? 2.0f * kMessageCodeBlockInset : 0.0f);
 }
 
+// The widest framed command from `first` on, each plus `inset`, or `widest`.
+float widest_framed(const MessageTextPresentation* presentation, u32 first, float inset, float widest) noexcept {
+    for (u32 c = first; c < presentation->command_count; ++c)
+        widest = maximum(widest, framed_width(presentation->commands[c]) + inset);
+    return widest;
+}
+
 // One embed text block that is not markdown (author, footer, provider, and
 // every part of a non-rich embed): the whole line takes `flags`; a non-empty
 // `link` makes it one link semantic addressing that rich source slot.
-bool append_embed_plain_line(MessageTextPresentation* presentation, BuildContext* context, Utf8View text,
-                             UiTextFlowLayout* flow, float left_inset, float right_inset, const Color& color,
-                             UiWidgetReference owner, u64 message_id, u32 message_revision,
-                             u16 measurement_index, u32 flags, Utf8View link, u16 link_source,
-                             float minimum_height = 16.0f, u16 source_id = 0,
-                             u8 size = text_size_inherit) noexcept {
-    if (!presentation || !context || !flow || (!text.data && text.bytes != 0))
+bool append_embed_plain_line(BuildContext* context, const Utf8View& text, UiTextFlowLayout* flow,
+                             float left_inset, float right_inset, const Color& color,
+                             const UiWidgetReference& owner, u16 measurement_index, u32 flags,
+                             const Utf8View& link, u16 link_source, float minimum_height = 16.0f,
+                             u16 source_id = 0, u8 size = text_size_inherit) noexcept {
+    MessageTextPresentation* const presentation = context ? context->presentation : nullptr;
+    if (!presentation || !context->message || !flow || (!text.data && text.bytes != 0))
         return fail(presentation, MessageTextPresentationError::model);
     if (text.bytes == 0)
         return true;
+    const u64 message_id = context->message->id;
     const bool linked = link.bytes != 0 && link_source != 0 && link.bytes <= 0xFFFFu;
     const u32 scoped = linked ? scoped_source_offset(link_source, 0) : 0;
     if (linked && presentation->has_hover && presentation->hovered_message_id == message_id &&
@@ -1592,9 +1658,11 @@ bool append_embed_plain_line(MessageTextPresentation* presentation, BuildContext
         return false;
     }
     if (!append_command(presentation, text, styles, semantics, owner, rectangle, flow->clip_rectangle, color,
-                        message_id, message_revision, measurement_index, MessageTextMeasurementKind::embed,
-                        minimum_height, 0.0f, styles.count != 0, UiTextAlignment::start, UiTextAlignment::start,
-                        UiTextWrapping::wrap, 0, UiTextOverflow::clip, Color{}, source_id))
+                        context->message, measurement_index,
+                        {.kind = MessageTextMeasurementKind::embed,
+                         .minimum_height = minimum_height,
+                         .themed = styles.count != 0,
+                         .source_id = source_id}))
         return false;
     // A line shorter than its row (the author or footer icon) is centred on it.
     MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
@@ -1605,18 +1673,19 @@ bool append_embed_plain_line(MessageTextPresentation* presentation, BuildContext
 
 // A rich embed markdown block (title, description, field); non-rich embeds
 // show the raw string. A title with embed.url becomes one link to it.
-bool append_embed_block(MessageTextPresentation* presentation, BuildContext* context, Utf8View source,
-                        UiTextFlowLayout* flow, float left_inset, float right_inset, const Color& color,
-                        UiWidgetReference owner, u64 message_id, u32 message_revision, u16 measurement_index,
-                        bool markdown, u8 rules, u32 base_style, u8 base_size, Utf8View link = {},
-                        u16 link_source = 0) noexcept {
+bool append_embed_block(BuildContext* context, const Utf8View& source, UiTextFlowLayout* flow, float left_inset,
+                        float right_inset, const Color& color, const UiWidgetReference& owner,
+                        u16 measurement_index, bool markdown, u8 rules, u32 base_style, u8 base_size,
+                        const Utf8View& link = kNoLink, u16 link_source = 0) noexcept {
     if (source.bytes == 0)
         return true;
     if (!markdown) {
-        return append_embed_plain_line(presentation, context, source, flow, left_inset, right_inset, color, owner,
-                                       message_id, message_revision, measurement_index, base_style, link,
-                                       link_source, 16.0f, identify_rich_source(*context, source), base_size);
+        return append_embed_plain_line(context, source, flow, left_inset, right_inset, color, owner,
+                                       measurement_index, base_style, link, link_source, 16.0f,
+                                       identify_rich_source(*context, source), base_size);
     }
+    MessageTextPresentation* const presentation = context->presentation;
+    const u64 message_id = context->message->id;
     const bool linked = link.bytes != 0 && link_source != 0 && link.bytes <= 0xFFFFu;
     const u32 scoped = linked ? scoped_source_offset(link_source, 0) : 0;
     if (linked && presentation->has_hover && presentation->hovered_message_id == message_id &&
@@ -1624,8 +1693,7 @@ bool append_embed_block(MessageTextPresentation* presentation, BuildContext* con
         base_style |= text_style_underline | text_style_interactive_hover;
     context->markdown_rules = rules;
     const u32 command_before = presentation->command_count;
-    const bool appended = append_rich_markdown_line(presentation, context, source, flow, left_inset, right_inset,
-                                                    color, owner, message_id, message_revision,
+    const bool appended = append_rich_markdown_line(context, source, flow, left_inset, right_inset, color, owner,
                                                     measurement_index, MessageTextMeasurementKind::embed, 0.0f,
                                                     base_style, base_size);
     context->markdown_rules = 0;
@@ -1650,13 +1718,12 @@ bool append_embed_block(MessageTextPresentation* presentation, BuildContext* con
     return true;
 }
 
-bool append_embed_fields(MessageTextPresentation* presentation, BuildContext* context,
-                         const MessageRichStore& store, const MessageRichRecord& rich,
+bool append_embed_fields(BuildContext* context, const MessageRichStore& store, const MessageRichRecord& rich,
                          const MessageRichEmbed& embed, UiTextFlowLayout* flow, const Color& name_color,
-                         const Color& value_color, UiWidgetReference owner, u64 message_id,
-                         u32 message_revision, u16 measurement_index, float* natural_width,
-                         bool markdown) noexcept {
-    if (!presentation || !context || !flow) {
+                         const Color& value_color, const UiWidgetReference& owner, u16 measurement_index,
+                         float* natural_width, bool markdown) noexcept {
+    MessageTextPresentation* const presentation = context ? context->presentation : nullptr;
+    if (!presentation || !flow) {
         return false;
     }
     const u32 field_end =
@@ -1710,19 +1777,16 @@ bool append_embed_fields(MessageTextPresentation* presentation, BuildContext* co
                 return fail(presentation, MessageTextPresentationError::layout);
             }
             const MessageRichEmbedField& value = rich.embed_fields[field + column];
-            if (!append_embed_block(presentation, context, message_rich_store_string(store, value.name),
-                                    &column_flow, 0.0f, 0.0f, name_color, owner, message_id, message_revision,
-                                    measurement_index, markdown, 1, text_style_bold, text_size_sm) ||
+            if (!append_embed_block(context, message_rich_store_string(store, value.name), &column_flow, 0.0f, 0.0f,
+                                    name_color, owner, measurement_index, markdown, 1, text_style_bold,
+                                    text_size_sm) ||
                 !ui_text_flow_advance(&column_flow, 2.0f) ||
-                !append_embed_block(presentation, context, message_rich_store_string(store, value.value),
-                                    &column_flow, 0.0f, 0.0f, value_color, owner, message_id, message_revision,
-                                    measurement_index, markdown, 2, 0, text_size_sm)) {
+                !append_embed_block(context, message_rich_store_string(store, value.value), &column_flow, 0.0f, 0.0f,
+                                    value_color, owner, measurement_index, markdown, 2, 0, text_size_sm)) {
                 return false;
             }
             row_height = maximum(row_height, ui_text_flow_required_height(column_flow));
-            float measured_width = 0;
-            for (u32 c = first_command; c < presentation->command_count; ++c)
-                measured_width = maximum(measured_width, framed_width(presentation->commands[c]));
+            const float measured_width = widest_framed(presentation, first_command, 0.0f, 0.0f);
             row_width += columns > 1 ? maximum(minimum_column_width, measured_width) : measured_width;
         }
         *natural_width = maximum(*natural_width, row_width);
@@ -1771,13 +1835,19 @@ struct RetainedText {
     MessageTextPresentation* presentation;
     u32 begin, used;
     bool ok;
-    void add(Utf8View text) noexcept {
-        if (!ok || text.bytes > presentation->utf8.count - presentation->utf8_count - used) {
+    __declspec(noinline) void append(const char* source, u32 count) noexcept {
+        if (!ok || count > presentation->utf8.count - presentation->utf8_count - used) {
             ok = false;
             return;
         }
-        copy_bytes(presentation->utf8.data + begin + used, text.data, text.bytes);
-        used += text.bytes;
+        copy_bytes(presentation->utf8.data + begin + used, source, count);
+        used += count;
+    }
+    void add(const Utf8View& text) noexcept {
+        append(text.data, text.bytes);
+    }
+    template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
+        append(text, Count - 1);
     }
     Utf8View commit() noexcept {
         if (!ok)
@@ -1789,9 +1859,10 @@ struct RetainedText {
 
 // The poll result card: the winning answer with its share, a tie or no winner.
 // The system line above links the poll itself.
-bool append_poll_result(MessageTextPresentation* presentation, BuildContext* context, const MessageRichStore& store,
-                        const MessageRichRecord& rich, UiTextFlowLayout* flow, const Color& text, const Color& muted,
-                        UiWidgetReference owner, u64 message_id, u32 revision, u16 measurement_index) noexcept {
+bool append_poll_result(BuildContext* context, const MessageRichStore& store, const MessageRichRecord& rich,
+                        UiTextFlowLayout* flow, const Color& text, const Color& muted,
+                        const UiWidgetReference& owner, u16 measurement_index) noexcept {
+    MessageTextPresentation* const presentation = context->presentation;
     const u32 total = parse_u32(poll_result_field(store, rich, utf8_literal("total_votes")));
     const u32 votes = parse_u32(poll_result_field(store, rich, utf8_literal("victor_answer_votes")));
     const bool victor = poll_result_field(store, rich, utf8_literal("victor_answer_id")).bytes != 0;
@@ -1801,35 +1872,33 @@ bool append_poll_result(MessageTextPresentation* presentation, BuildContext* con
     const Utf8View share{number, decimal_write(number, percent)};
     RetainedText head{presentation, presentation->utf8_count, 0, true};
     if (!total)
-        head.add(utf8_literal("There was no winner"));
+        head.add("There was no winner");
     else if (victor) {
         const Utf8View emoji = poll_result_field(store, rich, utf8_literal("victor_answer_emoji_name"));
         const Utf8View answer = poll_result_field(store, rich, utf8_literal("victor_answer_text"));
         if (emoji.bytes && !poll_result_field(store, rich, utf8_literal("victor_answer_emoji_id")).bytes) {
             head.add(emoji);
             if (answer.bytes)
-                head.add(utf8_literal(" "));
+                head.add(" ");
         }
         head.add(answer.bytes || emoji.bytes ? answer : utf8_literal("Answer"));
     } else
-        head.add(utf8_literal("The results were tied"));
+        head.add("The results were tied");
     const Utf8View head_text = head.commit();
     RetainedText detail{presentation, presentation->utf8_count, 0, true};
     if (total) {
         if (victor)
-            detail.add(utf8_literal("Winning answer \xE2\x80\xA2 "));
+            detail.add("Winning answer \xE2\x80\xA2 ");
         detail.add(share);
-        detail.add(utf8_literal("%"));
+        detail.add("%");
     }
     const Utf8View detail_text = detail.commit();
     if (!head.ok || !detail.ok)
         return fail(presentation, MessageTextPresentationError::capacity);
-    return append_embed_plain_line(presentation, context, head_text, flow, kMessageEmbedContentInset,
-                                   kMessageEmbedEndInset, text, owner, message_id, revision, measurement_index,
-                                   text_style_bold, {}, 0, 16.0f, 0, text_size_sm) &&
-           append_embed_plain_line(presentation, context, detail_text, flow, kMessageEmbedContentInset,
-                                   kMessageEmbedEndInset, muted, owner, message_id, revision, measurement_index,
-                                   text_style_none, {}, 0, 16.0f, 0, text_size_xs);
+    return append_embed_plain_line(context, head_text, flow, kMessageEmbedContentInset, kMessageEmbedEndInset, text,
+                                   owner, measurement_index, text_style_bold, kNoLink, 0, 16.0f, 0, text_size_sm) &&
+           append_embed_plain_line(context, detail_text, flow, kMessageEmbedContentInset, kMessageEmbedEndInset, muted,
+                                   owner, measurement_index, text_style_none, kNoLink, 0, 16.0f, 0, text_size_xs);
 }
 
 // Generates the system line (with a trailing muted time) into the retained
@@ -1953,7 +2022,7 @@ bool retain_system_text(MessageTextPresentation* presentation, const ChatStateSt
 // Label of an obscured or blocked preview: inside the scrim pill, or across a
 // blocked notice box.
 bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObscure obscure, const UiRect& media,
-                          UiWidgetReference owner, const UiRect& clip, const Theme& theme, const MessageRecord& record,
+                          const UiWidgetReference& owner, const UiRect& clip, const Theme& theme, const MessageRecord& record,
                           u16 measurement) noexcept {
     if (obscure == MessageMediaObscure::none)
         return true;
@@ -1973,11 +2042,9 @@ bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObs
         style = {0, label.bytes, text_style_bold};
         styles = {&style, 1};
     }
-    return append_command(presentation, label, styles, {}, owner, box, visible,
+    return append_command(presentation, label, styles, kNoSemantics, owner, box, visible,
                           notice ? ui_background_muted_text_color(theme) : theme.tokens.text.on_accent,
-                          record.id, record.revision, measurement, MessageTextMeasurementKind::notice, 0.0f, 0.0f,
-                          false, UiTextAlignment::center, UiTextAlignment::center, UiTextWrapping::no_wrap, 0,
-                          UiTextOverflow::ellipsis);
+                          &record, measurement, kLookNoticeCentered);
 }
 
 // Message annotations below the content: the ephemeral footer ("Only
@@ -1986,7 +2053,7 @@ bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObs
 // accessories (labels, buttons, links) follow as one wrapping row.
 constexpr float kAnnotationLineHeight = 20.0f;
 bool append_plugin_accessories(MessageTextPresentation* presentation, const UiPluginRenderDecoration& decoration,
-                               const UiRect& region, const UiRect& row_clip, UiWidgetReference owner,
+                               const UiRect& region, const UiRect& row_clip, const UiWidgetReference& owner,
                                const Theme& theme, const MessageRecord& record, u16 measurement_index,
                                float* top) noexcept {
     // Every command measures against the full line width, so its identity (and
@@ -2020,11 +2087,15 @@ bool append_plugin_accessories(MessageTextPresentation* presentation, const UiPl
         const u32 before = presentation->command_count;
         if (!ui_rect_has_area(clip) ||
             !append_command(presentation, text, {style, 1}, semantics, owner,
-                            {x, *top, x + line_width, *top + kAnnotationLineHeight}, clip, color, record.id,
-                            record.revision, measurement_index, MessageTextMeasurementKind::notice, 0.0f, 0.0f,
-                            link, UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                            static_cast<u8>(8u + index), UiTextOverflow::ellipsis, Color{},
-                            kUiPluginRenderGeneratedSource))
+                            {x, *top, x + line_width, *top + kAnnotationLineHeight}, clip, color, &record,
+                            measurement_index,
+                            {.kind = MessageTextMeasurementKind::notice,
+                             .themed = link,
+                             .vertical = UiTextAlignment::center,
+                             .wrapping = UiTextWrapping::no_wrap,
+                             .slot = static_cast<u8>(8u + index),
+                             .overflow = UiTextOverflow::ellipsis,
+                             .source_id = kUiPluginRenderGeneratedSource}))
             return !ui_rect_has_area(clip);
         auto& command = presentation->commands[before];
         // The measured width is known from the previous pass: wrap a node that
@@ -2063,10 +2134,9 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
     if (failed) {
         const UiRect line{region.left, top, maximum(region.left + 1.0f, region.right), top + kAnnotationLineHeight};
         if (ui_rect_has_area(ui_rect_intersection(line, row_clip)) &&
-            !append_command(presentation, utf8_literal("This interaction failed"), {}, {}, owner, line, row_clip,
-                            theme.tokens.text.danger, record.id, record.revision, kInvalidMessageTextMeasurement,
-                            MessageTextMeasurementKind::none, 0.0f, 0.0f, false, UiTextAlignment::start,
-                            UiTextAlignment::center, UiTextWrapping::no_wrap, 0, UiTextOverflow::ellipsis))
+            !append_command(presentation, utf8_literal("This interaction failed"), kNoStyles, kNoSemantics, owner, line, row_clip,
+                            theme.tokens.text.danger, &record, kInvalidMessageTextMeasurement,
+                            kLookMiddle))
             return false;
         top += kAnnotationLineHeight;
     }
@@ -2083,11 +2153,9 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
             // The footer is set in the small muted type.
             TextStyleSpan* small = presentation->styles.data + presentation->style_count++;
             *small = {0, notice_text.bytes, text_style_subtext};
-            if (!append_command(presentation, notice_text, {small, 1}, {}, owner, line, row_clip,
-                                ui_background_muted_text_color(theme), record.id, record.revision,
-                                measurement_index, MessageTextMeasurementKind::notice, 0.0f, 0.0f, false,
-                                UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap, 0,
-                                UiTextOverflow::ellipsis))
+            if (!append_command(presentation, notice_text, {small, 1}, kNoSemantics, owner, line, row_clip,
+                                ui_background_muted_text_color(theme), &record,
+                                measurement_index, kLookNotice))
                 return false;
             const float notice_width = presentation->commands[presentation->command_count - 1].measured_width;
             if (notice_width > 0.0f && line.left + notice_width + 8.0f < line.right) {
@@ -2098,9 +2166,8 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
                 *semantic = {record.id, 0, dismiss_text.bytes, 0, 0, MessageMarkdownSemanticKind::message_link, 0};
                 const UiRect dismiss{line.left + notice_width, line.top, line.right, line.bottom};
                 if (!append_command(presentation, dismiss_text, {link, 1}, {semantic, 1}, owner, dismiss, row_clip,
-                                    theme.tokens.text.link, record.id, record.revision, measurement_index,
-                                    MessageTextMeasurementKind::notice, 0.0f, 0.0f, true, UiTextAlignment::start,
-                                    UiTextAlignment::center, UiTextWrapping::no_wrap, 1, UiTextOverflow::ellipsis))
+                                    theme.tokens.text.link, &record, measurement_index,
+                                    kLookNoticeLink))
                     return false;
             }
         }
@@ -2125,7 +2192,7 @@ bool retain_text(MessageTextPresentation* presentation, Utf8View text, Utf8View*
     return true;
 }
 
-bool append_card_line(MessageTextPresentation* presentation, Utf8View text, u32 style, UiWidgetReference owner,
+bool append_card_line(MessageTextPresentation* presentation, Utf8View text, u32 style, const UiWidgetReference& owner,
                       const UiRect& rectangle, const UiRect& clip, const Color& color, const MessageRecord& record, u8 slot,
                       u16 measurement, UiTextAlignment alignment = UiTextAlignment::start) noexcept {
     const UiRect visible = ui_rect_intersection(clip, rectangle);
@@ -2140,10 +2207,14 @@ bool append_card_line(MessageTextPresentation* presentation, Utf8View text, u32 
         styles = {&span, 1};
     }
     // Measured (notice kind: no height contribution) so centred labels align.
-    return append_command(presentation, text, styles, {}, owner, rectangle, visible, color, record.id,
-                          record.revision, measurement, MessageTextMeasurementKind::notice, 0.0f, 0.0f, false,
-                          alignment, UiTextAlignment::center, UiTextWrapping::no_wrap, slot,
-                          UiTextOverflow::ellipsis);
+    return append_command(presentation, text, styles, kNoSemantics, owner, rectangle, visible, color, &record,
+                          measurement,
+                          {.kind = MessageTextMeasurementKind::notice,
+                           .horizontal = alignment,
+                           .vertical = UiTextAlignment::center,
+                           .wrapping = UiTextWrapping::no_wrap,
+                           .slot = slot,
+                           .overflow = UiTextOverflow::ellipsis});
 }
 
 // Invite cards: header, server name, counts and the Join action, from the
@@ -2151,7 +2222,7 @@ bool append_card_line(MessageTextPresentation* presentation, Utf8View text, u32 
 // Event link cards share the invite card frame: when, name, place and the
 // interested count from the scheduled events store, and a View action.
 bool append_event_card(MessageTextPresentation* presentation, const MessageScene& scene, const InviteLink& link,
-                       const MessageInviteCardGeometry& geometry, UiWidgetReference owner,
+                       const MessageInviteCardGeometry& geometry, const UiWidgetReference& owner,
                        const MessageRecord& record, const ChatStateStore& state, const Theme& theme,
                        const UiRect& row_clip, u8 ordinal, u16 measurement_index, u64 now_unix_seconds) noexcept {
     const ScheduledEvent* event =
@@ -2364,9 +2435,8 @@ bool append_intro(MessageTextPresentation* presentation, const MessageScene& sce
         if (!part.text.bytes || !ui_rect_has_area(part.rectangle) ||
             !ui_rect_has_area(ui_rect_intersection(clip, part.rectangle)))
             continue;
-        if (!append_command(presentation, part.text, part.styles, {}, owner, part.rectangle, clip,
-                            theme.text_primary, 0, 0, kInvalidMessageTextMeasurement,
-                            MessageTextMeasurementKind::none, 0, 0, false))
+        if (!append_command(presentation, part.text, part.styles, kNoSemantics, owner, part.rectangle, clip,
+                            theme.text_primary, nullptr, kInvalidMessageTextMeasurement, kLookBlock))
             return false;
     }
     return true;
@@ -2394,14 +2464,15 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             const UiWidgetReference owner{&scene.widgets, item_widget};
             const float item_left = item_layout->content_rectangle.left;
             const auto& attachment = rich->attachments[index];
-            const float audio_height =
-                message_rich_attachment_audio_supported(*rich_store, attachment)
-                    ? ui_audio_card_height(ui_theme_audio_style(scene.theme_styles),
-                                           ui_rect_width(item_layout->content_rectangle),
-                                           message_rich_record_voice(*rich))
-                    : 0;
+            UiAudioControlsStyle audio_style;
+            float audio_height = 0;
+            if (message_rich_attachment_audio_supported(*rich_store, attachment)) {
+                ui_theme_fill_audio_style(scene.theme_styles, &audio_style);
+                audio_height = ui_audio_card_height(audio_style, ui_rect_width(item_layout->content_rectangle),
+                                                    message_rich_record_voice(*rich));
+            }
             const float item_width =
-                minimum(audio_height > 0 ? ui_theme_audio_style(scene.theme_styles).maximum_width : 420.0f,
+                minimum(audio_height > 0 ? audio_style.maximum_width : 420.0f,
                         ui_rect_width(item_layout->content_rectangle));
             UiTextFlowLayout flow{};
             const UiRect attachment_clip = ui_rect_intersection(
@@ -2439,11 +2510,16 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                     auto& span = p->styles[p->style_count++];
                     span = {0, command.text.bytes, command.style_flags};
                     return append_command(
-                        p, {p->utf8.data + offset, command.text.bytes}, {&span, 1}, {}, command.owner,
-                        command.rectangle, command.clip, command.color, audio.record->id,
-                        audio.record->revision, audio.measurement, MessageTextMeasurementKind::attachment,
-                        ui_rect_height(command.rectangle), 0, false, command.horizontal_alignment,
-                        command.vertical_alignment, command.wrapping, audio.slot, command.overflow);
+                        p, {p->utf8.data + offset, command.text.bytes}, {&span, 1}, kNoSemantics, command.owner,
+                        command.rectangle, command.clip, command.color, audio.record,
+                        audio.measurement,
+                        {.kind = MessageTextMeasurementKind::attachment,
+                         .minimum_height = ui_rect_height(command.rectangle),
+                         .horizontal = command.horizontal_alignment,
+                         .vertical = command.vertical_alignment,
+                         .wrapping = command.wrapping,
+                         .slot = audio.slot,
+                         .overflow = command.overflow});
                 };
                 UiTextOutput output{nullptr, &emitter};
                 if (!ui_audio_attachment_project(*rich_store, attachment, rich->message_id,
@@ -2477,11 +2553,9 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                 UiRect label_rectangle{};
                 if (!ui_text_flow_advance(&flow, 7.0f) ||
                     !begin_flow_item_clamped(&flow, 36.0f, 44.0f, &label_rectangle) ||
-                    !append_command(presentation, label, {}, {}, owner, label_rectangle, attachment_clip,
-                                    theme.text_primary, record->id, record->revision, measurement_index,
-                                    MessageTextMeasurementKind::attachment, 20.0f, 0.0f, false,
-                                    UiTextAlignment::start, UiTextAlignment::start, UiTextWrapping::no_wrap,
-                                    0, UiTextOverflow::ellipsis) ||
+                    !append_command(presentation, label, kNoStyles, kNoSemantics, owner, label_rectangle, attachment_clip,
+                                    theme.text_primary, record, measurement_index,
+                                    kLookAttachmentName) ||
                     !ui_text_flow_commit_item(&flow, 20.0f, 20.0f, 8.0f)) {
                     return fail(presentation, MessageTextPresentationError::layout);
                 }
@@ -2550,8 +2624,7 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
             measured_items.embed_author_tops[index] = 0.0f;
             measured_items.embed_footer_tops[index] = 0.0f;
             const auto measure_from = [&](u32 first_command, float inset) noexcept {
-                for (u32 c = first_command; c < presentation->command_count; ++c)
-                    natural_width = maximum(natural_width, framed_width(presentation->commands[c]) + inset);
+                natural_width = widest_framed(presentation, first_command, inset, natural_width);
             };
             const auto block_gap = [&]() noexcept { return ui_text_flow_advance(&flow, kMessageEmbedBlockGap); };
             const auto source = [&](u32 slot) noexcept {
@@ -2569,10 +2642,10 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                 if (provider.bytes) {
                     const u32 first = presentation->command_count;
                     if (!block_gap() ||
-                        !append_embed_plain_line(presentation, &context, provider, &flow, kMessageEmbedContentInset,
-                                                 kMessageEmbedEndInset, muted, owner, record->id, record->revision,
-                                                 measurement_index, text_style_subtext, provider_url, source(7),
-                                                 0.0f, source(6), text_size_xs))
+                        !append_embed_plain_line(&context, provider, &flow, kMessageEmbedContentInset,
+                                                 kMessageEmbedEndInset, muted, owner, measurement_index,
+                                                 text_style_subtext, provider_url, source(7), 0.0f, source(6),
+                                                 text_size_xs))
                         return false;
                     measure_from(first, text_insets);
                 }
@@ -2586,9 +2659,8 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                         kMessageEmbedContentInset + (icon ? kMessageEmbedAuthorIcon + kMessageEmbedIconGap : 0.0f);
                     measured_items.embed_author_tops[index] = ui_text_flow_required_height(flow);
                     const u32 first = presentation->command_count;
-                    if (!append_embed_plain_line(presentation, &context, author_name, &flow, inset, kMessageEmbedEndInset,
-                                                 theme.text_primary, owner, record->id, record->revision,
-                                                 measurement_index, text_style_bold,
+                    if (!append_embed_plain_line(&context, author_name, &flow, inset, kMessageEmbedEndInset,
+                                                 theme.text_primary, owner, measurement_index, text_style_bold,
                                                  message_rich_store_string(*rich_store, embed.author_url),
                                                  source(5), icon ? kMessageEmbedAuthorIcon : 0.0f, source(0),
                                                  text_size_sm))
@@ -2601,9 +2673,9 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                     const Utf8View url = message_rich_store_string(*rich_store, embed.url);
                     const u32 first = presentation->command_count;
                     if (!block_gap() ||
-                        !append_embed_block(presentation, &context, title, &flow, kMessageEmbedContentInset,
-                                            kMessageEmbedEndInset, theme.text_primary, owner, record->id,
-                                            record->revision, measurement_index, plan.markdown, 1,
+                        !append_embed_block(&context, title, &flow, kMessageEmbedContentInset,
+                                            kMessageEmbedEndInset, theme.text_primary, owner,
+                                            measurement_index, plan.markdown, 1,
                                             text_style_bold | (url.bytes ? text_style_link : 0u), text_size_md, url,
                                             source(4)))
                         return false;
@@ -2613,9 +2685,9 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                 if (description.bytes && plan.description) {
                     const u32 first = presentation->command_count;
                     if (!block_gap() ||
-                        !append_embed_block(presentation, &context, description, &flow, kMessageEmbedContentInset,
-                                            kMessageEmbedEndInset, theme.text_primary, owner, record->id,
-                                            record->revision, measurement_index, plan.markdown, 0, 0,
+                        !append_embed_block(&context, description, &flow, kMessageEmbedContentInset,
+                                            kMessageEmbedEndInset, theme.text_primary, owner,
+                                            measurement_index, plan.markdown, 0, 0,
                                             plan.components ? text_size_inherit : text_size_sm))
                         return false;
                     measure_from(first, text_insets);
@@ -2623,15 +2695,15 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                 if (embed.type == GatewayMessageEmbedType::poll_result) {
                     const u32 first = presentation->command_count;
                     if (!block_gap() ||
-                        !append_poll_result(presentation, &context, *rich_store, *rich, &flow, theme.text_primary,
-                                            muted, owner, record->id, record->revision, measurement_index))
+                        !append_poll_result(&context, *rich_store, *rich, &flow, theme.text_primary, muted, owner,
+                                            measurement_index))
                         return false;
                     measure_from(first, text_insets);
                 }
                 if (plan.fields &&
-                    !append_embed_fields(presentation, &context, *rich_store, *rich, embed, &flow,
-                                         theme.text_primary, theme.text_primary, owner, record->id,
-                                         record->revision, measurement_index, &natural_width, plan.markdown)) {
+                    !append_embed_fields(&context, *rich_store, *rich, embed, &flow, theme.text_primary,
+                                         theme.text_primary, owner, measurement_index, &natural_width,
+                                         plan.markdown)) {
                     return false;
                 }
                 natural_width += thumbnail_inset;
@@ -2728,9 +2800,9 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
                         kMessageEmbedContentInset + (icon ? kMessageEmbedFooterIcon + kMessageEmbedIconGap : 0.0f);
                     measured_items.embed_footer_tops[index] = ui_text_flow_required_height(flow);
                     const u32 first = presentation->command_count;
-                    if (!append_embed_plain_line(presentation, &context, line, &flow, inset, kMessageEmbedEndInset,
-                                                 muted, owner, record->id, record->revision, measurement_index,
-                                                 text_style_subtext, {}, 0, icon ? kMessageEmbedFooterIcon : 0.0f,
+                    if (!append_embed_plain_line(&context, line, &flow, inset, kMessageEmbedEndInset, muted, owner,
+                                                 measurement_index, text_style_subtext, kNoLink, 0,
+                                                 icon ? kMessageEmbedFooterIcon : 0.0f,
                                                  footer.bytes ? source(3) : 0, text_size_xs))
                         return false;
                     measure_from(first, inset + kMessageEmbedEndInset);
@@ -2813,11 +2885,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     const auto divider = message_scene_unread_divider_rectangle(scene, row);
     if (ui_rect_has_area(divider)) {
         const auto geometry = ui_unread_divider_geometry(divider, scene.unread_divider_style);
-        if (!append_command(presentation, kUiUnreadDividerLabel, {}, {},
+        if (!append_command(presentation, kUiUnreadDividerLabel, kNoStyles, kNoSemantics,
                             UiWidgetReference{&scene.widgets, row.widget}, geometry.label, row_clip,
-                            ui_unread_divider_text_color(theme), 0, 0, kInvalidMessageTextMeasurement,
-                            MessageTextMeasurementKind::none, 0, 0, false, UiTextAlignment::end,
-                            UiTextAlignment::center, UiTextWrapping::no_wrap, 0, UiTextOverflow::ellipsis))
+                            ui_unread_divider_text_color(theme), nullptr, kInvalidMessageTextMeasurement,
+                            kLookEnd))
             return false;
     }
 
@@ -2886,12 +2957,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         row_measurement.content_present = content.bytes != 0;
         UiRect label_rectangle = reply->content_rectangle;
         label_rectangle.left = minimum(label_rectangle.right - 1.0f, label_rectangle.left + 22.0f);
-        if (!append_command(presentation, utf8_literal("Forwarded"), {}, {},
+        if (!append_command(presentation, utf8_literal("Forwarded"), kNoStyles, kNoSemantics,
                             UiWidgetReference{&scene.widgets, row.reply}, label_rectangle, row_clip,
-                            theme.text_secondary, record->id, record->revision,
-                            kInvalidMessageTextMeasurement, MessageTextMeasurementKind::none, 0.0f, 0.0f,
-                            false, UiTextAlignment::start, UiTextAlignment::center,
-                            UiTextWrapping::no_wrap))
+                            theme.text_secondary, record,
+                            kInvalidMessageTextMeasurement, kLookMiddleClipped))
             return false;
     }
     if (rich && !replaced && record->content_availability == MessageContentAvailability::available &&
@@ -2962,7 +3031,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                                            message_rich_header_user(*rich), theme.text_primary);
         if (summary.text.bytes == 0 ||
             !append_reply_line(presentation, summary.text, summary.styles, &flow, theme.text_primary,
-                               reply_author_color, owner, record->id, record->revision, measurement_index,
+                               reply_author_color, owner, *record, measurement_index,
                                UiTextOverflow::ellipsis,
                                reply_icon != MessageReplyIcon::none ? kMessageReplyIconGap + kMessageReplyIcon
                                                                     : 0.0f)) {
@@ -3025,12 +3094,11 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         if (name.bytes != 0 && !scene.display.compact && !result_card_header &&
             (header.text.bytes == 0 ||
              !append_command(presentation, header.text, header.styles,
-                             ConstSlice<MessageMarkdownSemantic>{},
+                             kNoSemantics,
                              UiWidgetReference{&scene.widgets, row.author}, author->content_rectangle,
-                             row_clip, author_color, record->id, record->revision,
-                             kInvalidMessageTextMeasurement, MessageTextMeasurementKind::none, 0.0f, 0.0f,
-                             header.styles.count != 0, UiTextAlignment::start, UiTextAlignment::start,
-                             UiTextWrapping::no_wrap, 0, UiTextOverflow::ellipsis))) {
+                             row_clip, author_color, record,
+                             kInvalidMessageTextMeasurement,
+                             header.styles.count != 0 ? kLookStartThemed : kLookStart))) {
             return false;
         }
     }
@@ -3118,12 +3186,12 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         const UiRect content_rectangle = line_rectangle(left, content_top, width);
         if (!append_command(presentation, segment.text, segment.styles, segment.semantics,
                             UiWidgetReference{&scene.widgets, row.content}, content_rectangle, row_clip,
-                            content_color, record->id, record->revision, measurement_index,
-                            MessageTextMeasurementKind::content, 0.0f,
-                            quote_gap_after(segments, segment_count, index, 0.0f), segment.styles.count != 0,
-                            UiTextAlignment::start, UiTextAlignment::start, UiTextWrapping::wrap, 0,
-                            UiTextOverflow::clip, compact_name.bytes ? compact_color : Color{},
-                            context.source_id)) {
+                            content_color, record, measurement_index,
+                            {.kind = MessageTextMeasurementKind::content,
+                             .gap_after = quote_gap_after(segments, segment_count, index, 0.0f),
+                             .themed = segment.styles.count != 0,
+                             .source_id = context.source_id},
+                            compact_name.bytes ? compact_color : kNoRoleColor)) {
             return false;
         }
         const MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
@@ -3132,20 +3200,20 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
 
     if (!forwarded && row.poll_unavailable) {
         const auto* node = message_scene_layout_node(scene, row.poll);
+        UiPollStyle poll_style;
+        ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
         if (!node ||
             !append_command(
-                presentation, ui_theme_poll_style(scene.theme_styles).unavailable, {}, {},
+                presentation, poll_style.unavailable, kNoStyles, kNoSemantics,
                 {&scene.widgets, row.poll},
-                {node->rectangle.left + ui_theme_poll_style(scene.theme_styles).padding,
-                 node->rectangle.top + ui_theme_poll_style(scene.theme_styles).padding,
-                 minimum(node->rectangle.right,
-                         node->rectangle.left + ui_theme_poll_style(scene.theme_styles).maximum_width) -
-                     ui_theme_poll_style(scene.theme_styles).padding,
+                {node->rectangle.left + poll_style.padding,
+                 node->rectangle.top + poll_style.padding,
+                 minimum(node->rectangle.right, node->rectangle.left + poll_style.maximum_width) -
+                     poll_style.padding,
                  node->rectangle.top + row.poll_height - kDefaultMessageRichBlockGapDips -
-                     ui_theme_poll_style(scene.theme_styles).padding},
-                row_clip, theme.text_secondary, record->id, record->revision,
-                kInvalidMessageTextMeasurement, MessageTextMeasurementKind::none, 0, 0, false,
-                UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::wrap))
+                     poll_style.padding},
+                row_clip, theme.text_secondary, record,
+                kInvalidMessageTextMeasurement, kLookMiddleWrapped))
             return fail(presentation, MessageTextPresentationError::layout);
     } else if (!forwarded && row.poll_content_revision) {
         UiPollAnswer answers[kUiPollMaximumAnswers]{};
@@ -3169,18 +3237,23 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 span = {0, command.text.bytes, command.style_flags};
                 poll_styles = {&span, 1};
             }
-            return append_command(p, {p->utf8.data + offset, command.text.bytes}, poll_styles, {},
+            return append_command(p, {p->utf8.data + offset, command.text.bytes}, poll_styles, kNoSemantics,
                                   command.owner, command.rectangle, command.clip, command.color,
-                                  poll_text.record->id, poll_text.record->revision,
-                                  kInvalidMessageTextMeasurement, MessageTextMeasurementKind::none, 0, 0,
-                                  false, command.horizontal_alignment, command.vertical_alignment,
-                                  command.wrapping, static_cast<u8>(ordinal), command.overflow);
+                                  poll_text.record,
+                                  kInvalidMessageTextMeasurement,
+                                  {.horizontal = command.horizontal_alignment,
+                                   .vertical = command.vertical_alignment,
+                                   .wrapping = command.wrapping,
+                                   .slot = static_cast<u8>(ordinal),
+                                   .overflow = command.overflow});
         };
         UiTextEmitter emitter{};
         UiTextOutput output{nullptr, &emitter};
+        UiPollStyle poll_style;
+        ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
         if (!message_scene_poll_projection(scene, row, theme, {answers, kUiPollMaximumAnswers}, &poll) ||
             !ui_text_emitter_initialize(&emitter, append_poll, &poll_context) ||
-            !ui_poll_controls_text_output(poll, ui_theme_poll_style(scene.theme_styles), row_clip,
+            !ui_poll_controls_text_output(poll, poll_style, row_clip,
                                           {&scene.widgets, row.poll}, &output))
             return fail(presentation, MessageTextPresentationError::layout);
     }
@@ -3219,7 +3292,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             }
             if (!ui_text_flow_advance(&flow, kDefaultMessageStickerLayoutMetrics.caption_offset()) ||
                 !append_rich_line(presentation, label, &flow, 0.0f, 0.0f, theme.text_primary, owner,
-                                  record->id, record->revision, measurement_index,
+                                  *record, measurement_index,
                                   MessageTextMeasurementKind::sticker) ||
                 !ui_text_flow_ensure_extent(&flow, kDefaultMessageStickerLayoutMetrics.minimum_height())) {
                 return fail(presentation, MessageTextPresentationError::layout);
@@ -3308,9 +3381,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 if (!initialize_flow(presentation, *item_layout, item_layout->content_rectangle.left,
                                      ui_rect_width(item_layout->content_rectangle), row_clip, &flow) ||
                     !append_rich_markdown_line(
-                        presentation, &context, message_rich_store_string(*rich_store, component.content),
-                        &flow, 0.0f, 0.0f, theme.text_primary, owner, record->id, record->revision,
-                        measurement_index, MessageTextMeasurementKind::component)) {
+                        &context, message_rich_store_string(*rich_store, component.content), &flow, 0.0f, 0.0f,
+                        theme.text_primary, owner, measurement_index, MessageTextMeasurementKind::component)) {
                     return false;
                 }
                 set_failure_operation(presentation, MessageTextPresentationOperation::ensure_extent);
@@ -3399,10 +3471,14 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             const UiRect label_rectangle{box.left + clamped_left, box.top, box.right - clamped_right,
                                          box.top + fixed_height};
             if (label.bytes && ui_rect_has_area(item_clip) &&
-                !append_command(presentation, label, {}, {}, owner, label_rectangle, item_clip, color, record->id,
-                                record->revision, measurement_index, MessageTextMeasurementKind::component, 0.0f,
-                                0.0f, false, alignment, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                static_cast<u8>(index), UiTextOverflow::ellipsis))
+                !append_command(presentation, label, kNoStyles, kNoSemantics, owner, label_rectangle, item_clip, color,
+                                record, measurement_index,
+                                {.kind = MessageTextMeasurementKind::component,
+                                 .horizontal = alignment,
+                                 .vertical = UiTextAlignment::center,
+                                 .wrapping = UiTextWrapping::no_wrap,
+                                 .slot = static_cast<u8>(index),
+                                 .overflow = UiTextOverflow::ellipsis}))
                 return false;
             measured_items.heights[slot] = fixed_height;
             if (kind == MessageComponentKind::button) {
@@ -3451,12 +3527,14 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     for (u32 index = 0; index < reaction_result.item_count; ++index) {
         const MessageReactionTextItem& item = reaction_items[index];
         if (!append_command(
-                presentation, item.text, ConstSlice<TextStyleSpan>{}, ConstSlice<MessageMarkdownSemantic>{},
+                presentation, item.text, kNoStyles, kNoSemantics,
                 UiWidgetReference{&scene.widgets, item.widget}, item.content_rectangle, row_clip,
-                item.selected ? theme.text_primary : ui_background_muted_text_color(theme), record->id,
-                record->revision, measurement_index, MessageTextMeasurementKind::reaction, 0.0f, 0.0f,
-                false, UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                static_cast<u8>(index))) {
+                item.selected ? theme.text_primary : ui_background_muted_text_color(theme), record,
+                measurement_index,
+                {.kind = MessageTextMeasurementKind::reaction,
+                 .vertical = UiTextAlignment::center,
+                 .wrapping = UiTextWrapping::no_wrap,
+                 .slot = static_cast<u8>(index)})) {
             return false;
         }
         saturating_accumulate(presentation->rich.reactions);
@@ -3485,18 +3563,15 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         auto& bold = presentation->styles[presentation->style_count++];
         bold = {0, name.bytes, text_style_bold};
         const bool single = !detail_bytes && !rich->thread.name.bytes;
-        if (!append_command(presentation, name, {&bold, 1}, {}, owner,
+        if (!append_command(presentation, name, {&bold, 1}, kNoSemantics, owner,
                             {left, card.top + (single ? 16.0f : 8.0f), right, card.top + (single ? 34.0f : 26.0f)},
-                            row_clip, theme.text_primary, record->id, record->revision,
-                            kInvalidMessageTextMeasurement, MessageTextMeasurementKind::none, 0, 0, false,
-                            UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap, 0,
-                            UiTextOverflow::ellipsis) ||
+                            row_clip, theme.text_primary, record,
+                            kInvalidMessageTextMeasurement, kLookMiddle) ||
             (!single &&
-             !append_command(presentation, {presentation->utf8.data + offset, meta.bytes}, {}, {}, owner,
+             !append_command(presentation, {presentation->utf8.data + offset, meta.bytes}, kNoStyles, kNoSemantics, owner,
                              {left, card.top + 27.0f, right, card.top + 43.0f}, row_clip, theme.text_secondary,
-                             record->id, record->revision, kInvalidMessageTextMeasurement,
-                             MessageTextMeasurementKind::none, 0, 0, false, UiTextAlignment::start,
-                             UiTextAlignment::center, UiTextWrapping::no_wrap, 1, UiTextOverflow::ellipsis)))
+                             record, kInvalidMessageTextMeasurement,
+                             kLookMiddleSecond)))
             return false;
     }
     if (rich->truncations != 0) {
@@ -3513,7 +3588,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             !ui_text_flow_advance(&flow, 4.0f) ||
             !append_rich_line(presentation, utf8_literal("Some content can't be shown"), &flow, 0.0f,
                               0.0f, ui_background_muted_text_color(theme),
-                              UiWidgetReference{&scene.widgets, item_widget}, record->id, record->revision,
+                              UiWidgetReference{&scene.widgets, item_widget}, *record,
                               measurement_index, MessageTextMeasurementKind::notice) ||
             !finish_flow(presentation, flow,
                          &presentation->measurements[measurement_index]

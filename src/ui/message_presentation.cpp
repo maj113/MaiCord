@@ -30,24 +30,34 @@ UiRect message_media_picture_rectangle(const MessageMediaCommand& command, u32 w
 }
 namespace {
 
-bool append_media(MessageMediaCommandStream* stream, u64 id, MessageMediaCommandKind kind, u8 format,
-                  bool animated, const UiRect& rectangle, const UiRect& clip, UiWidgetReference owner,
-                  u32 message_revision = 0, u8 embed_index = 0, u8 embed_resource = 0,
-                  bool ordinary_video = false, bool snapshot = false,
-                  MessageMediaObscure obscure = MessageMediaObscure::none) noexcept {
-    if (id == 0 || !ui_rect_has_area(rectangle) || !owner.manager) {
+// Fills the next command slot with the common fields and returns it (callers
+// set what else applies), or null when the id, rectangle or owner is unusable
+// or the stream is full.
+MessageMediaCommand* append_media(MessageMediaCommandStream* stream, u64 id, MessageMediaCommandKind kind, u8 format,
+                                  bool animated, const UiRect& rectangle, const UiRect& clip,
+                                  const UiWidgetReference& owner) noexcept {
+    if (id == 0 || !ui_rect_has_area(rectangle) || !owner.manager || stream->count >= stream->storage.count) {
         saturating_increment(stream->rejected);
-        return false;
+        return nullptr;
     }
-    if (stream->count >= stream->storage.count) {
-        saturating_increment(stream->rejected);
-        return false;
+    MessageMediaCommand* command = &stream->storage[stream->count++];
+    *command = MessageMediaCommand{id, rectangle, clip, owner, 0, kind, format, 0, 0, animated, false, false, false, 0, 0};
+    return command;
+}
+
+// An embed image command: the record's embed `index` with the chosen resource.
+MessageMediaCommand* append_embed_media(MessageMediaCommandStream* stream, const MessageRecord& record, u32 index,
+                                        const MessageRichEmbedMediaSelection& selection, const UiRect& rectangle,
+                                        const UiRect& clip, const UiWidgetReference& owner) noexcept {
+    MessageMediaCommand* const command = append_media(stream, record.id, MessageMediaCommandKind::embed,
+                                                      static_cast<u8>(selection.format), selection.animated,
+                                                      rectangle, clip, owner);
+    if (command) {
+        command->message_revision = record.revision;
+        command->embed_index = static_cast<u8>(index);
+        command->embed_resource = static_cast<u8>(selection.resource);
     }
-    stream->storage[stream->count++] = MessageMediaCommand{
-        id,          rectangle,      clip,     owner,          message_revision, kind, format,
-        embed_index, embed_resource, animated, ordinary_video, snapshot,         false, 0,
-        static_cast<u8>(obscure)};
-    return true;
+    return command;
 }
 
 const Color& tone_color(const Theme& theme, MessageSystemTone tone) noexcept {
@@ -67,38 +77,26 @@ const Color& tone_color(const Theme& theme, MessageSystemTone tone) noexcept {
 
 // Blocked explicit media keeps its box as a muted notice; the text pass adds
 // the label. Obscured previews still draw (blurred by the media shader).
-bool push_blocked(PaintStream* paint, UiWidgetReference owner, const UiRect& rectangle, const Theme& theme) noexcept {
-    return paint_stream_push_rounded_border(paint, rectangle.left, rectangle.top, rectangle.right,
-                                            rectangle.bottom, theme.surface_high, theme.tokens.border.subtle,
-                                            theme.scale.radius_sm, 1.0f) &&
-           paint_stream_record_content(paint, owner, rectangle, UiLayoutContentKind::decoration,
-                                       ui_layout_content_bounds_allow_overlap);
+bool push_blocked(PaintStream* paint, const UiRect& rectangle, const Theme& theme) noexcept {
+    return paint_stream_push_rounded_border(paint, rectangle, theme.surface_high, theme.tokens.border.subtle, theme.scale.radius_sm, 1.0f);
 }
 
-bool push_owned(PaintStream* stream, UiWidgetReference owner, const UiRect& rectangle, const Color& fill,
-                const Color& border, float radius, float border_width, UiLayoutContentKind kind,
-                u16 flags = ui_layout_content_bounds_collision) noexcept {
-    return paint_stream_push_rounded_border(stream, rectangle.left, rectangle.top, rectangle.right,
-                                            rectangle.bottom, fill, border, radius, border_width) &&
-           paint_stream_record_content(stream, owner, rectangle, kind, flags);
-}
-// A card's accent: its leading border, following the card's rounded corners.
-bool push_accent(PaintStream* stream, UiWidgetReference owner, const UiRect& card, const Color& color,
-                 float card_radius) noexcept {
-    return paint_stream_push_edge_strip(stream, card, kMessageEmbedAccentWidth, color, card_radius) &&
-           paint_stream_record_content(stream, owner,
-                                       {card.left, card.top, minimum(card.left + kMessageEmbedAccentWidth, card.right),
-                                        card.bottom},
-                                       UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap);
-}
-bool push_material(PaintStream* stream, UiWidgetReference owner, const UiRect& rectangle, const Theme& theme,
-                   const Color& fill, const Color& border, float radius, float border_width, UiLayoutContentKind kind,
-                   UiBackgroundTier tier,
+bool push_material(PaintStream* stream, const UiRect& rectangle, const Theme& theme, const Color& fill,
+                   const Color& border, float radius, float border_width, UiBackgroundTier tier,
                    UiBackgroundBorderTone tone = UiBackgroundBorderTone::palette) noexcept {
     return ui_background_paint_surface(stream, rectangle, theme, fill, border, radius, border_width, .9f,
-                                       UiBackgroundSurfaceMode::gradient, tier, tone) &&
-           paint_stream_record_content(stream, owner, rectangle, kind,
-                                       ui_layout_content_bounds_allow_overlap);
+                                       UiBackgroundSurfaceMode::gradient, tier, tone);
+}
+// The card material: surface fill, interactive border, one DIP wide.
+bool push_card(PaintStream* stream, const UiRect& rectangle, const Theme& theme, float radius,
+               UiBackgroundTier tier) noexcept {
+    return push_material(stream, rectangle, theme, theme.surface, theme.interactive, radius, 1.0f, tier);
+}
+// A flat row-wide wash of the outline emphasis colour at `alpha`.
+bool push_outline_tint(PaintStream* paint, const UiRect& rectangle, const Theme& theme, float alpha) noexcept {
+    const Color& outline = theme.tokens.emphasis.outline;
+    return paint_stream_push(paint, rectangle,
+                             ui_theme_color_alpha({outline.red, outline.green, outline.blue, 1}, alpha));
 }
 
 // Invite card chrome and the server icon (fetched by URL like profile art).
@@ -113,7 +111,7 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
         if (!node)
             return false;
         const auto geometry = message_invite_card_geometry(node->rectangle);
-        if (!ui_rect_has_area(ui_rect_intersection(geometry.card, row_clip)))
+        if (!ui_rect_intersects(geometry.card, row_clip))
             continue;
         const UiWidgetReference owner{&scene.widgets, message_scene_rich_item_widget(row, MessageSceneRichItemKind::invite, i)};
         if (invite_link_event(links[i])) {
@@ -121,10 +119,8 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
             const ScheduledEvent* event = scene.scheduled_events
                                               ? scheduled_event_store_find(*scene.scheduled_events, links[i].event_id)
                                               : nullptr;
-            if (!push_material(paint, owner, geometry.card, theme, theme.surface, theme.interactive, 8.0f, 1.0f,
-                               UiLayoutContentKind::control, UiBackgroundTier::high) ||
-                !push_owned(paint, owner, geometry.icon, theme.surface_high, theme.surface_high, 12.0f, 0.0f,
-                            UiLayoutContentKind::icon, ui_layout_content_bounds_allow_overlap))
+            if (!push_card(paint, geometry.card, theme, 8.0f, UiBackgroundTier::high) ||
+                !paint_stream_push_rounded(paint, geometry.icon, theme.surface_high, 12.0f))
                 return false;
             char url[192];
             const u32 url_bytes = event ? message_event_cover_url(*event, {url, sizeof(url)}) : 0;
@@ -145,7 +141,7 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
             }
             if (event) {
                 const Color fill = event->interested ? theme.interactive : theme.tokens.accent.brand;
-                if (!push_owned(paint, owner, geometry.button, fill, fill, 4.0f, 0.0f, UiLayoutContentKind::control))
+                if (!paint_stream_push_rounded(paint, geometry.button, fill, 4.0f))
                     return false;
             }
             continue;
@@ -154,10 +150,8 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
             scene.invite_cards ? invite_card_cache_find(*scene.invite_cards, {links[i].code, links[i].code_bytes})
                                : nullptr;
         const bool known = entry && entry->invite.guild_id;
-        if (!push_material(paint, owner, geometry.card, theme, theme.surface, theme.interactive, 8.0f, 1.0f,
-                           UiLayoutContentKind::control, UiBackgroundTier::high) ||
-            !push_owned(paint, owner, geometry.icon, theme.surface_high, theme.surface_high, 16.0f, 0.0f,
-                        UiLayoutContentKind::icon, ui_layout_content_bounds_allow_overlap))
+        if (!push_card(paint, geometry.card, theme, 8.0f, UiBackgroundTier::high) ||
+            !paint_stream_push_rounded(paint, geometry.icon, theme.surface_high, 16.0f))
             return false;
         if (!known) {
             const UiRect glyph{geometry.icon.left + 13.0f, geometry.icon.top + 13.0f, geometry.icon.right - 13.0f,
@@ -177,7 +171,7 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
                 return false;
         }
         const Color fill = entry->joined ? theme.interactive : theme.tokens.accent.success;
-        if (!push_owned(paint, owner, geometry.button, fill, fill, 4.0f, 0.0f, UiLayoutContentKind::control))
+        if (!paint_stream_push_rounded(paint, geometry.button, fill, 4.0f))
             return false;
     }
     return true;
@@ -210,51 +204,29 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         hover_fill.alpha = 0.55f;
         if (ui_background_active(theme))
             hover_fill = ui_background_hover_color(theme, theme.surface, .10f);
-        if (!push_owned(paint, UiWidgetReference{&scene.widgets, row.widget}, message_rectangle, hover_fill,
-                        hover_fill, 0.0f, 0.0f, UiLayoutContentKind::decoration,
-                        ui_layout_content_bounds_allow_overlap)) {
+        if (!paint_stream_push(paint, message_rectangle, hover_fill))
             return false;
-        }
     }
     const MessageRecord* record = message_store_resolve(*scene.timeline->store, row.message);
-    if (!row.forwarded_snapshot && record && scene.highlight_message_id == record->id &&
-        scene.highlight_level > 0.0f) {
-        const Color tint = ui_theme_color_alpha(
-            {theme.tokens.emphasis.outline.red, theme.tokens.emphasis.outline.green,
-             theme.tokens.emphasis.outline.blue, 1},
-            kMessageSceneHighlightAlpha * scene.highlight_level);
-        if (!push_owned(paint, UiWidgetReference{&scene.widgets, row.widget}, message_rectangle, tint, tint, 0.0f,
-                        0.0f, UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))
+    if (!row.forwarded_snapshot && record) {
+        if (scene.highlight_message_id == record->id && scene.highlight_level > 0.0f &&
+            !push_outline_tint(paint, message_rectangle, theme, kMessageSceneHighlightAlpha * scene.highlight_level))
             return false;
-    }
-    if (!row.forwarded_snapshot && record && (record->flags & kMessageSceneEphemeralFlag) != 0) {
-        const Color tint = ui_theme_color_alpha(
-            {theme.tokens.emphasis.outline.red, theme.tokens.emphasis.outline.green,
-             theme.tokens.emphasis.outline.blue, 1},
-            kMessageSceneEphemeralAlpha);
-        if (!push_owned(paint, UiWidgetReference{&scene.widgets, row.widget}, message_rectangle, tint, tint, 0.0f,
-                        0.0f, UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))
+        if ((record->flags & kMessageSceneEphemeralFlag) != 0 &&
+            !push_outline_tint(paint, message_rectangle, theme, kMessageSceneEphemeralAlpha))
             return false;
-    }
-    if (!row.forwarded_snapshot && record &&
-        (record->presentation_flags & message_presentation_mentions_current_user) != 0) {
-        const Color mention_fill = theme.tokens.mention.background;
-        const UiRect edge{message_rectangle.left, message_rectangle.top, message_rectangle.left + 2.0f,
-                          message_rectangle.bottom};
-        const UiWidgetReference row_owner{&scene.widgets, row.widget};
-        if (!push_owned(paint, row_owner, message_rectangle, mention_fill, mention_fill, 0.0f, 0.0f,
-                        UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap) ||
-            !push_owned(paint, row_owner, edge, theme.tokens.mention.bar, theme.tokens.mention.bar, 0.0f, 0.0f,
-                        UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap)) {
-            return false;
+        if ((record->presentation_flags & message_presentation_mentions_current_user) != 0) {
+            const UiRect edge{message_rectangle.left, message_rectangle.top, message_rectangle.left + 2.0f,
+                              message_rectangle.bottom};
+            if (!paint_stream_push(paint, message_rectangle, theme.tokens.mention.background) ||
+                !paint_stream_push(paint, edge, theme.tokens.mention.bar))
+                return false;
         }
     }
-    const UiWidgetReference avatar_owner{&scene.widgets, row.avatar};
-    if (message_scene_avatar_visible(scene, row) && !push_owned(paint, avatar_owner, avatar->rectangle, theme.avatar_placeholder,
-                                    theme.avatar_placeholder, ui_rect_width(avatar->rectangle) * 0.5f, 0.0f,
-                                    UiLayoutContentKind::icon)) {
+    if (message_scene_avatar_visible(scene, row) &&
+        !paint_stream_push_rounded(paint, avatar->rectangle, theme.avatar_placeholder,
+                                   ui_rect_width(avatar->rectangle) * 0.5f))
         return false;
-    }
     if (!row.forwarded_snapshot && record && message_type_is_system(record->type) && avatar) {
         // System rows: a tinted glyph centred in the avatar gutter, on the
         // first text line.
@@ -286,22 +258,21 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         UiPollAnswer answers[kUiPollMaximumAnswers]{};
         UiPollProjection poll{};
         const UiWidgetReference owner{&scene.widgets, row.poll};
+        UiPollStyle poll_style;
+        ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
         if (row.poll_unavailable) {
             const auto* node = message_scene_layout_node(scene, row.poll);
-            if (!node || !push_material(paint, owner,
-                                        {node->rectangle.left, node->rectangle.top,
-                                         minimum(node->rectangle.right,
-                                                 node->rectangle.left +
-                                                     ui_theme_poll_style(scene.theme_styles).maximum_width),
-                                         node->rectangle.top + row.poll_height -
-                                             ui_theme_metrics(scene.theme_styles).message_rich_gap},
-                                        theme, theme.surface, theme.interactive,
-                                        ui_theme_metrics(scene.theme_styles).control_radius, 1,
-                                        UiLayoutContentKind::control, UiBackgroundTier::high))
+            if (!node || !push_card(paint,
+                                    {node->rectangle.left, node->rectangle.top,
+                                     minimum(node->rectangle.right, node->rectangle.left + poll_style.maximum_width),
+                                     node->rectangle.top + row.poll_height -
+                                         ui_theme_metrics(scene.theme_styles).message_rich_gap},
+                                    theme, ui_theme_metrics(scene.theme_styles).control_radius,
+                                    UiBackgroundTier::high))
                 return false;
         } else if (!message_scene_poll_projection(scene, row, theme, {answers, kUiPollMaximumAnswers},
                                                   &poll) ||
-                   !ui_poll_controls_paint(poll, ui_theme_poll_style(scene.theme_styles), row_clip, theme,
+                   !ui_poll_controls_paint(poll, poll_style, row_clip, theme,
                                            owner, paint))
             return false;
         for (u32 i = 0; i < poll.state.answers.count; ++i) {
@@ -337,16 +308,12 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                                        : nullptr));
     const float text_left = body->content_rectangle.left;
     if (row.forwarded_snapshot) {
-        const UiWidgetReference owner{&scene.widgets, row.widget};
-        const Color line = ui_background_line_color(theme);
         const UiRect edge{row_layout->rectangle.left, row_layout->rectangle.top,
                           row_layout->rectangle.left + 3, row_layout->rectangle.bottom};
         const UiRect glyph{reply->rectangle.left, reply->rectangle.top + 1, reply->rectangle.left + 18,
                            reply->rectangle.top + 19};
-        if (!push_material(paint, owner, row_layout->rectangle, theme, theme.surface, theme.interactive, 8,
-                           1, UiLayoutContentKind::decoration, UiBackgroundTier::low) ||
-            !push_owned(paint, owner, edge, line, line, 1, 0,
-                        UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap) ||
+        if (!push_card(paint, row_layout->rectangle, theme, 8, UiBackgroundTier::low) ||
+            !paint_stream_push_rounded(paint, edge, ui_background_line_color(theme), 1) ||
             !ui_icon_paint(paint, UiIcon::forwarded, glyph, theme.text_secondary))
             return false;
     }
@@ -361,15 +328,10 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                         avatar->rectangle.top + 3.0f};
         const UiRect connector_horizontal{connector_x, connector_y - 1.0f, reference_avatar.left - 3.0f,
                                           connector_y + 1.0f};
-        const UiWidgetReference reply_owner{&scene.widgets, row.reply};
         const Color line = ui_background_line_color(theme);
-        if (!push_owned(paint, reply_owner, connector_vertical, line, line, 1.0f, 0.0f,
-                        UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overflow) ||
-            !push_owned(paint, reply_owner, connector_horizontal, line, line, 1.0f, 0.0f,
-                        UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overflow) ||
-            !push_owned(paint, reply_owner, reference_avatar, theme.avatar_placeholder,
-                        theme.avatar_placeholder, reference_extent * 0.5f, 0.0f, UiLayoutContentKind::icon,
-                        ui_layout_content_bounds_allow_overlap)) {
+        if (!paint_stream_push_rounded(paint, connector_vertical, line, 1.0f) ||
+            !paint_stream_push_rounded(paint, connector_horizontal, line, 1.0f) ||
+            !paint_stream_push_rounded(paint, reference_avatar, theme.avatar_placeholder, reference_extent * 0.5f)) {
             return false;
         }
         // Trailing reply icon (attachment/embed image, sticker, command, voice
@@ -391,7 +353,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             const float icon_top = reference_top + reference_extent * 0.5f - kMessageReplyIcon * 0.5f;
             const UiRect glyph{icon_left, icon_top, icon_left + kMessageReplyIcon, icon_top + kMessageReplyIcon};
             if (kind != MessageReplyIcon::none &&
-                ui_rect_has_area(ui_rect_intersection(glyph, row_clip)) &&
+                ui_rect_intersects(glyph, row_clip) &&
                 !ui_icon_paint(paint, icon, glyph, theme.text_primary))
                 return false;
         }
@@ -412,22 +374,24 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         float preview_height = 0.0f;
         const MessageRichAttachment& attachment = rich->attachments[index];
         const MediaAttachmentFormat format = message_rich_attachment_format(*rich_store, attachment);
-        const float audio_height = message_rich_attachment_audio_supported(*rich_store, attachment)
-                                       ? ui_audio_card_height(ui_theme_audio_style(scene.theme_styles),
-                                                              ui_rect_width(item_layout->content_rectangle),
-                                                              message_rich_record_voice(*rich))
-                                       : 0;
+        UiAudioControlsStyle audio_style;
+        float audio_height = 0;
+        if (message_rich_attachment_audio_supported(*rich_store, attachment)) {
+            ui_theme_fill_audio_style(scene.theme_styles, &audio_style);
+            audio_height = ui_audio_card_height(audio_style, ui_rect_width(item_layout->content_rectangle),
+                                                message_rich_record_voice(*rich));
+        }
         if (audio_height > 0) {
             const auto card = UiRect{item_layout->content_rectangle.left, top,
                                      item_layout->content_rectangle.right, top + audio_height};
-            if (!ui_rect_has_area(ui_rect_intersection(card, row_clip)))
+            if (!ui_rect_intersects(card, row_clip))
                 continue;
             u8 waveform[kUiAudioWaveformMaximum]{};
             UiAudioControlsProjection projection{};
             if (!ui_audio_attachment_project(*rich_store, attachment, rich->message_id,
                                              rich->message_revision, message_rich_record_voice(*rich), card,
                                              theme, {waveform, sizeof(waveform)}, &projection) ||
-                !ui_audio_controls_paint(projection, ui_theme_audio_style(scene.theme_styles), row_clip,
+                !ui_audio_controls_paint(projection, audio_style, row_clip,
                                          theme, owner, paint))
                 return false;
         } else if (message_rich_attachment_preview_extent(*rich_store, attachment,
@@ -441,28 +405,26 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 message_rich_attachment_spoiler(*rich_store, attachment),
                 message_rich_attachment_explicit(attachment));
             if (message_media_obscure_notice(obscure)) {
-                if (!push_blocked(paint, owner, preview, theme))
+                if (!push_blocked(paint, preview, theme))
                     return false;
                 continue;
             }
-            if (!push_owned(paint, owner, preview, theme.surface_high, theme.surface_high, 6.0f, 0.0f,
-                            UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap) ||
-                !append_media(media, attachment.id, MessageMediaCommandKind::attachment,
-                              static_cast<u8>(format), false, preview, row_clip, owner, 0, 0, 0,
-                              format == MediaAttachmentFormat::mp4 && obscure == MessageMediaObscure::none,
-                              row.forwarded_snapshot, obscure)) {
+            if (!paint_stream_push_rounded(paint, preview, theme.surface_high, 6.0f))
                 return false;
-            }
-            media->storage[media->count - 1].gif =
-                format == MediaAttachmentFormat::gif && obscure == MessageMediaObscure::none;
+            MessageMediaCommand* const command = append_media(media, attachment.id, MessageMediaCommandKind::attachment,
+                                                              static_cast<u8>(format), false, preview, row_clip, owner);
+            if (!command)
+                return false;
+            const bool visible = obscure == MessageMediaObscure::none;
+            command->ordinary_video = format == MediaAttachmentFormat::mp4 && visible;
+            command->snapshot = row.forwarded_snapshot;
+            command->obscure = static_cast<u8>(obscure);
+            command->gif = format == MediaAttachmentFormat::gif && visible;
         } else {
             const UiRect card{left, top, minimum(item_layout->rectangle.right, left + 420.0f), top + 36.0f};
             const UiRect icon{left + 8.0f, top + 8.0f, left + 28.0f, top + 28.0f};
-            if (!push_material(paint, owner, card, theme, theme.surface, theme.interactive,
-                               kUiAttachmentFileCardRadius, 1.0f, UiLayoutContentKind::control,
-                               UiBackgroundTier::high) ||
-                !push_owned(paint, owner, icon, theme.tokens.emphasis.fill, theme.tokens.emphasis.fill, 4.0f, 0.0f,
-                            UiLayoutContentKind::icon) ||
+            if (!push_card(paint, card, theme, kUiAttachmentFileCardRadius, UiBackgroundTier::high) ||
+                !paint_stream_push_rounded(paint, icon, theme.tokens.emphasis.fill, 4.0f) ||
                 (!scene.result_cards &&
                  !ui_attachment_save_paint(paint, owner, ui_attachment_save_rectangle(card, true), row_clip,
                                            theme, true))) {
@@ -502,10 +464,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                                static_cast<float>(embed.color & 0xFFu) * rgb_scale, 1.0f}
                                        : theme.interactive;
         const bool media_only = message_rich_embed_media_only(rich->embeds[index]);
-        if (!media_only &&
-            (!push_material(paint, owner, card, theme, theme.surface, theme.interactive, card_radius, 1.0f,
-                            UiLayoutContentKind::decoration, UiBackgroundTier::low) ||
-             !push_accent(paint, owner, card, accent_color, card_radius))) {
+        if (!media_only && (!push_card(paint, card, theme, card_radius, UiBackgroundTier::low) ||
+                            !paint_stream_push_edge_strip(paint, card, kMessageEmbedAccentWidth, accent_color,
+                                                          card_radius))) {
             return false;
         }
         MessageRichEmbedMediaSelection selected{};
@@ -519,11 +480,11 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                                &selected)) {
             const UiRect thumb = message_rich_embed_thumbnail_rect(card, thumb_width, thumb_height,
                                                                    message_rich_embed_plan(*rich_store, embed).components);
-            if (!append_media(media, record->id, MessageMediaCommandKind::embed,
-                              static_cast<u8>(selected.format), selected.animated, thumb, row_clip, owner,
-                              record->revision, static_cast<u8>(index), static_cast<u8>(selected.resource),
-                              false, row.forwarded_snapshot))
+            MessageMediaCommand* const command =
+                append_embed_media(media, *record, index, selected, thumb, row_clip, owner);
+            if (!command)
                 return false;
+            command->snapshot = row.forwarded_snapshot;
         }
         // Author and footer icons: round, fetched by proxied URL like other
         // URL-keyed message images.
@@ -540,11 +501,12 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             const MediaAttachmentFormat format = message_rich_embed_icon_format(icon_urls[icon]);
             const MediaAssetKey key = message_component_media_key(
                 hash64_bytes(kHash64Seed, icon_urls[icon].data, icon_urls[icon].bytes), format);
-            if (!append_media(media, key.id, MessageMediaCommandKind::component, static_cast<u8>(format), false,
-                              icons[icon], row_clip, owner))
+            MessageMediaCommand* const command = append_media(media, key.id, MessageMediaCommandKind::component,
+                                                              static_cast<u8>(format), false, icons[icon], row_clip,
+                                                              owner);
+            if (!command)
                 return false;
-            media->storage[media->count - 1].tile_radius =
-                static_cast<u8>(ui_rect_width(icons[icon]) * 0.5f);
+            command->tile_radius = static_cast<u8>(ui_rect_width(icons[icon]) * 0.5f);
         }
         const float media_width = row.rich_item_layout.embed_media_widths[index];
         const float media_height = row.rich_item_layout.embed_media_heights[index];
@@ -562,21 +524,22 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                              row.forwarded_snapshot),
                     false, message_rich_embed_explicit(rich->embeds[member]));
                 if (message_media_obscure_notice(obscure)) {
-                    if (!push_blocked(paint, owner, cell, theme))
+                    if (!push_blocked(paint, cell, theme))
                         return false;
                     continue;
                 }
-                if (!push_owned(paint, owner, cell, theme.surface_high, theme.surface_high, 0.0f, 0.0f,
-                                UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))
+                if (!paint_stream_push(paint, cell, theme.surface_high))
                     return false;
                 MessageRichEmbedMediaSelection image{};
                 if (!message_rich_embed_gallery_select(*rich_store, rich->embeds[member], &image))
                     continue;
-                if (!append_media(media, record->id, MessageMediaCommandKind::embed, static_cast<u8>(image.format),
-                                  image.animated, cell, row_clip, owner, record->revision, static_cast<u8>(member),
-                                  static_cast<u8>(image.resource), false, row.forwarded_snapshot, obscure))
+                MessageMediaCommand* const command =
+                    append_embed_media(media, *record, member, image, cell, row_clip, owner);
+                if (!command)
                     return false;
-                media->storage[media->count - 1].cover = 1;
+                command->snapshot = row.forwarded_snapshot;
+                command->obscure = static_cast<u8>(obscure);
+                command->cover = 1;
             }
         } else if (record && media_width > 0.0f && media_height > 0.0f &&
             message_rich_embed_media_select(*rich_store, rich->embeds[index], &selected)) {
@@ -590,25 +553,24 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                                                      index, row.forwarded_snapshot),
                                             false, message_rich_embed_explicit(embed));
             if (message_media_obscure_notice(obscure)) {
-                if (!push_blocked(paint, owner, preview, theme))
+                if (!push_blocked(paint, preview, theme))
                     return false;
                 continue;
             }
             MessageRichEmbedMediaSelection playback{};
             const bool playable = message_rich_embed_playback_select(*rich_store, embed, &playback);
-            if (!push_owned(paint, owner, preview, theme.surface_high, theme.surface_high, 4.0f, 0.0f,
-                            UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap) ||
-                !append_media(media, record->id, MessageMediaCommandKind::embed,
-                              static_cast<u8>(selected.format), selected.animated, preview, row_clip, owner,
-                              record->revision, static_cast<u8>(index), static_cast<u8>(selected.resource),
-                              playable &&
-                                  embed.type != GatewayMessageEmbedType::gifv && obscure == MessageMediaObscure::none,
-                              row.forwarded_snapshot, obscure)) {
+            if (!paint_stream_push_rounded(paint, preview, theme.surface_high, 4.0f))
                 return false;
-            }
-            media->storage[media->count - 1].gif =
-                (embed.type == GatewayMessageEmbedType::gifv || selected.format == MediaAttachmentFormat::gif) &&
-                obscure == MessageMediaObscure::none;
+            MessageMediaCommand* const command =
+                append_embed_media(media, *record, index, selected, preview, row_clip, owner);
+            if (!command)
+                return false;
+            const bool visible = obscure == MessageMediaObscure::none;
+            command->ordinary_video = playable && embed.type != GatewayMessageEmbedType::gifv && visible;
+            command->snapshot = row.forwarded_snapshot;
+            command->obscure = static_cast<u8>(obscure);
+            command->gif = (embed.type == GatewayMessageEmbedType::gifv || selected.format == MediaAttachmentFormat::gif) &&
+                           visible;
         }
     }
 
@@ -625,8 +587,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             item_layout->rectangle.left, item_layout->rectangle.top,
             item_layout->rectangle.left + kDefaultMessageStickerLayoutMetrics.preview_extent,
             item_layout->rectangle.top + kDefaultMessageStickerLayoutMetrics.preview_extent};
-        if (!push_owned(paint, owner, rectangle, theme.surface_high, theme.surface_high, 8.0f, 0.0f,
-                        UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap) ||
+        if (!paint_stream_push_rounded(paint, rectangle, theme.surface_high, 8.0f) ||
             !append_media(media, rich->stickers[index].id, MessageMediaCommandKind::sticker,
                           rich->stickers[index].format_type, false, rectangle, row_clip, owner)) {
             return false;
@@ -650,7 +611,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         }
         const UiWidgetReference owner{&scene.widgets, item_widget};
         const UiRect control = item_layout->rectangle;
-        if (!ui_rect_has_area(ui_rect_intersection(control, row_clip)))
+        if (!ui_rect_intersects(control, row_clip))
             continue;
         const bool item_hovered = hovered_widget.slot == item_widget.slot &&
                                   hovered_widget.generation == item_widget.generation && item_widget.generation;
@@ -659,8 +620,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         switch (kind) {
         case MessageComponentKind::container: {
             constexpr float container_radius = 10.0f;
-            if (!push_material(paint, owner, control, theme, theme.surface, theme.interactive, container_radius, 1.0f,
-                               UiLayoutContentKind::control, UiBackgroundTier::low))
+            if (!push_card(paint, control, theme, container_radius, UiBackgroundTier::low))
                 return false;
             if (component.has_accent_color) {
                 constexpr float scale = 1.0f / 255.0f;
@@ -668,7 +628,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 const Color color{static_cast<float>((rgb >> 16) & 255) * scale,
                                   static_cast<float>((rgb >> 8) & 255) * scale,
                                   static_cast<float>(rgb & 255) * scale, 1};
-                if (!push_accent(paint, owner, control, color, container_radius))
+                if (!paint_stream_push_edge_strip(paint, control, kMessageEmbedAccentWidth, color, container_radius))
                     return false;
             }
             break;
@@ -679,10 +639,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             const Color fill = item_hovered && message_component_interactive(component) && !pending ? colors.hover
                                                                                                : colors.fill;
             const bool neutral = component.style != 1 && component.style != 3 && component.style != 4;
-            if (!(neutral ? push_material(paint, owner, control, theme, fill, colors.border, 4.0f, 0.0f,
-                                          UiLayoutContentKind::control, UiBackgroundTier::highest)
-                          : push_owned(paint, owner, control, fill, colors.border, 4.0f, 0.0f,
-                                       UiLayoutContentKind::control)))
+            if (!(neutral ? push_material(paint, control, theme, fill, colors.border, 4.0f, 0.0f,
+                                          UiBackgroundTier::highest)
+                          : paint_stream_push_rounded_border(paint, control, fill, colors.border, 4.0f, 0.0f)))
                 return false;
             if (component.emoji_id && record) {
                 const float top = control.top + (ui_rect_height(control) - kMessageComponentEmojiExtent) * 0.5f;
@@ -720,7 +679,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 fill.alpha *= 0.5f;
                 border.alpha *= 0.5f;
             }
-            if (!push_owned(paint, owner, control, fill, border, 4.0f, 1.0f, UiLayoutContentKind::control))
+            if (!paint_stream_push_rounded_border(paint, control, fill, border, 4.0f, 1.0f))
                 return false;
             const float extent = 18.0f;
             const UiRect chevron{control.right - extent - 12.0f, control.top + (ui_rect_height(control) - extent) * 0.5f,
@@ -731,8 +690,7 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             break;
         }
         case MessageComponentKind::file: {
-            if (!push_material(paint, owner, control, theme, theme.surface, theme.interactive, 6.0f, 1.0f,
-                               UiLayoutContentKind::control, UiBackgroundTier::high))
+            if (!push_card(paint, control, theme, 6.0f, UiBackgroundTier::high))
                 return false;
             const UiRect glyph{control.left + 12.0f, control.top + (ui_rect_height(control) - 28.0f) * 0.5f,
                                control.left + 40.0f, control.top + (ui_rect_height(control) + 28.0f) * 0.5f};
@@ -744,16 +702,14 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             if (component.flags & gateway_message_component_divider) {
                 const float y = (control.top + control.bottom) * 0.5f;
                 const UiRect line{control.left, y - 0.5f, control.right, y + 0.5f};
-                if (!push_owned(paint, owner, line, theme.tokens.border.subtle, theme.tokens.border.subtle, 0, 0,
-                                UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))
+                if (!paint_stream_push(paint, line, theme.tokens.border.subtle))
                     return false;
             }
             break;
         }
         case MessageComponentKind::thumbnail:
         case MessageComponentKind::gallery_item: {
-            if (!push_owned(paint, owner, control, theme.surface_high, theme.surface_high, 8.0f, 0.0f,
-                            UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))
+            if (!paint_stream_push_rounded(paint, control, theme.surface_high, 8.0f))
                 return false;
             MessageComponentMedia resolved{};
             if (record && message_component_media_resolve(*rich_store, component, &resolved)) {
@@ -762,10 +718,13 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                     message_media_reveal_key(record->id, MessageMediaSource::component, index,
                                              row.forwarded_snapshot),
                     message_rich_component_spoiler(component), false);
-                if (!append_media(media, resolved.key.id, MessageMediaCommandKind::component,
-                                  resolved.format, false, control, row_clip, owner, 0, 0, 0, false,
-                                  row.forwarded_snapshot, obscure))
+                MessageMediaCommand* const command =
+                    append_media(media, resolved.key.id, MessageMediaCommandKind::component, resolved.format, false,
+                                 control, row_clip, owner);
+                if (!command)
                     return false;
+                command->snapshot = row.forwarded_snapshot;
+                command->obscure = static_cast<u8>(obscure);
             } else if (!ui_icon_paint(paint, UiIcon::image,
                                       {(control.left + control.right) * 0.5f - 12.0f,
                                        (control.top + control.bottom) * 0.5f - 12.0f,
@@ -789,9 +748,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         const float icon_top = card.top + (kMessageThreadCardHeightDips - 20.0f) * 0.5f;
         const UiRect glyph{card.left + kMessageThreadCardPaddingDips, icon_top,
                            card.left + kMessageThreadCardPaddingDips + 20.0f, icon_top + 20.0f};
-        if (!push_material(paint, UiWidgetReference{&scene.widgets, row.thread}, card, theme, theme.surface,
-                           theme.interactive, ui_theme_metrics(scene.theme_styles).control_radius, 1,
-                           UiLayoutContentKind::control, UiBackgroundTier::high) ||
+        if (!push_card(paint, card, theme, ui_theme_metrics(scene.theme_styles).control_radius,
+                       UiBackgroundTier::high) ||
             !ui_icon_paint(paint, UiIcon::thread, glyph, theme.text_secondary))
             return false;
     }
@@ -802,10 +760,10 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 return false;
             }
             const UiWidgetReference owner{&scene.widgets, reaction.widget};
-            if (!push_material(paint, owner, reaction.control_rectangle, theme,
+            if (!push_material(paint, reaction.control_rectangle, theme,
                                reaction.selected ? theme.surface_high : theme.surface,
                                reaction.selected ? theme.tokens.emphasis.outline : theme.interactive, 8.0f, 1.0f,
-                               UiLayoutContentKind::control, UiBackgroundTier::high,
+                               UiBackgroundTier::high,
                                reaction.selected ? UiBackgroundBorderTone::semantic
                                                  : UiBackgroundBorderTone::palette)) {
                 return false;
@@ -831,20 +789,17 @@ bool append_intro(const MessageScene& scene, const Theme& theme, PaintStream* pa
     if (!message_scene_intro_geometry(scene, &geometry) || !ui_rect_has_area(geometry.icon) || scene.content_gated)
         return true;
     const UiRect clip = ui_rect_intersection(scene.viewport, geometry.area);
-    if (!ui_rect_has_area(clip) || !ui_rect_has_area(ui_rect_intersection(clip, geometry.icon)))
+    if (!ui_rect_has_area(clip) || !ui_rect_intersects(clip, geometry.icon))
         return true;
-    const UiWidgetReference owner{&scene.widgets, scene.root};
     const float extent = ui_rect_width(geometry.icon);
     const MessageSceneIntroKind kind = scene.intro.kind;
     const bool conversation = kind == MessageSceneIntroKind::direct_message ||
                               kind == MessageSceneIntroKind::group_direct_message;
     // A channel's circle takes the theme's surface material; a conversation's
     // is covered by its avatar.
-    if (conversation ? !push_owned(paint, owner, geometry.icon, theme.avatar_placeholder, theme.avatar_placeholder,
-                                   extent * 0.5f, 0.0f, UiLayoutContentKind::icon,
-                                   ui_layout_content_bounds_allow_overlap)
-                     : !push_material(paint, owner, geometry.icon, theme, theme.surface_high, theme.surface_high,
-                                      extent * 0.5f, 0.0f, UiLayoutContentKind::icon, UiBackgroundTier::highest))
+    if (conversation ? !paint_stream_push_rounded(paint, geometry.icon, theme.avatar_placeholder, extent * 0.5f)
+                     : !push_material(paint, geometry.icon, theme, theme.surface_high, theme.surface_high,
+                                      extent * 0.5f, 0.0f, UiBackgroundTier::highest))
         return false;
     // 42 px channel glyph in the strong icon colour; 32 px thread glyph in the subtle one.
     const bool thread = kind == MessageSceneIntroKind::thread;
@@ -877,11 +832,11 @@ bool append_code_blocks(const MessageScene& scene, const MessageTextPresentation
         const MessageTextCommand& command = text.commands[i];
         const UiRect box = message_text_code_block_box(command);
         if (command.owner.manager != &scene.widgets || !ui_rect_has_area(box) ||
-            !ui_rect_has_area(ui_rect_intersection(box, ui_rect_intersection(command.clip, scene.viewport))))
+            !ui_rect_intersects(box, ui_rect_intersection(command.clip, scene.viewport)))
             continue;
-        if (!push_owned(paint, command.owner, box, theme.tokens.background.secondary, theme.tokens.border.strong,
-                        theme.scale.radius_sm, kMessageCodeBlockBorder, UiLayoutContentKind::decoration,
-                        ui_layout_content_bounds_allow_overlap))
+        if (!paint_stream_push_rounded_border(paint, box, theme.tokens.background.secondary,
+                                              theme.tokens.border.strong, theme.scale.radius_sm,
+                                              kMessageCodeBlockBorder))
             return false;
     }
     return true;
@@ -920,8 +875,7 @@ bool message_presentation_build(const MessageScene& scene, const Theme& theme, P
     };
     media->count = 0;
     media->rejected = 0;
-    if (!paint_stream_push_clip(paint, scene.viewport.left, scene.viewport.top, scene.viewport.right,
-                                scene.viewport.bottom)) {
+    if (!paint_stream_push_clip(paint, scene.viewport)) {
         rollback();
         return false;
     }

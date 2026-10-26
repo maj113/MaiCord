@@ -65,20 +65,20 @@ void image_rows(Bank& bank, u64 id, u64 remove_id, Utf8View label, Utf8View desc
           unlocked ? utf8_literal("Upload Background") : utf8_literal("Unlock with Boosting"), nullptr});
     const bool shown = edit == GuildProfileImageEdit::replace || (stored_image && edit == GuildProfileImageEdit::keep);
     if (shown)
-        push({remove_id, utf8_literal("Remove"), {}, UiSettingsControlKind::action, allowed, false, {}, 0,
-              edit == GuildProfileImageEdit::replace && !stored_image ? utf8_literal("Discard") : utf8_literal("Remove"),
-              nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        push_row(remove_id, utf8_literal("Remove"), {}, UiSettingsControlKind::action, allowed, false,
+                 edit == GuildProfileImageEdit::replace && !stored_image ? utf8_literal("Discard")
+                                                                         : utf8_literal("Remove"),
+                 {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
 }
 
 void project(Bank& bank) noexcept {
     auto& p = *owner;
     auto& d = p.boost_draft;
     const bool edit = editable() && can_manage_guild();
-    push({control_progress_bar, utf8_literal("Show Boost progress bar"),
-          utf8_literal("Servers with the Boost progress bar enabled get more Boosts. This progress bar will display "
-                       "in your channel list, attached to your server name (or server banner if you have one set)."),
-          UiSettingsControlKind::toggle, edit, d.progress_bar, {}, 0, {}, nullptr});
+    push_row(control_progress_bar, utf8_literal("Show Boost progress bar"),
+             utf8_literal("Servers with the Boost progress bar enabled get more Boosts. This progress bar will display "
+                          "in your channel list, attached to your server name (or server banner if you have one set)."),
+             UiSettingsControlKind::toggle, edit, d.progress_bar);
     static Utf8View chips[2];
     image_rows(bank, control_banner, control_banner_remove, utf8_literal("Server Banner Background"),
                utf8_literal("This image will display at the top of your channels list. The recommended minimum size "
@@ -92,22 +92,20 @@ void project(Bank& bank) noexcept {
                &chips[1]);
     if (!administrator())
         return;
-    push(category(control_vanity_category, utf8_literal("Custom Invite Link"),
+    push_category(control_vanity_category, utf8_literal("Custom Invite Link"),
                   utf8_literal("Bring others to your server easily with your own customized invite link. Heads up "
                                "though, anyone with the link can join and you'll need at least one text channel that "
-                               "is open to all server members.")));
+                               "is open to all server members."));
     if (!vanity_feature()) {
-        push(notice(utf8_literal("Unlock with Boosting"),
-                    utf8_literal("A custom invite link needs boost level 3.")));
+        push_notice(utf8_literal("A custom invite link needs boost level 3."), utf8_literal("Unlock with Boosting"));
         return;
     }
     if (p.vanity_failed) {
-        push(notice(utf8_literal("Couldn't load the custom invite link"), {}, utf8_literal("Try again")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error(utf8_literal("Couldn't load the custom invite link"), {}, utf8_literal("Try again"));
         return;
     }
     if (!p.vanity_loaded) {
-        push(loading(utf8_literal("Loading the custom invite link…")));
+        push_loading(utf8_literal("Loading the custom invite link…"));
         return;
     }
     const u32 start = bank.used;
@@ -121,13 +119,12 @@ void project(Bank& bank) noexcept {
     push({control_vanity, utf8_literal("Invite URL"), bank.since(start), UiSettingsControlKind::edit, edit, false, {},
           0, {}, &editor_view(editor_vanity, control_vanity, {}, edit)});
     if (p.vanity_error)
-        push({control_notice, guild_vanity_error_text(p.vanity_error_code), {}, UiSettingsControlKind::error, true,
-              false, {}, 0, {}, nullptr},
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_row(control_notice, guild_vanity_error_text(p.vanity_error_code), {}, UiSettingsControlKind::error, true,
+                 false, {}, {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     if (p.vanity_base_bytes)
-        push({control_vanity_remove, utf8_literal("Remove Custom Invite Link"), {}, UiSettingsControlKind::action,
-              edit, false, {}, 0, utf8_literal("Remove"), nullptr},
-             {UiSettingsVariant::critical, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        push_row(control_vanity_remove, utf8_literal("Remove Custom Invite Link"), {}, UiSettingsControlKind::action,
+                 edit, false, utf8_literal("Remove"),
+                 {UiSettingsVariant::critical, ui_settings_presentation_compact, kUiSettingsNoDefault});
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {

@@ -77,8 +77,7 @@ bool ui_button_icon_paint(PaintStream* paint, const UiWidgetManager& owner, UiWi
     const bool pressed = hover && ui_widget_handle_equal(owner.captured, handle);
     const bool focus = keyboard_focus && enabled && ui_widget_handle_equal(owner.focused, handle);
     const auto r = node->rectangle;
-    if (!paint_stream_push_clip(paint, node->clip_rectangle.left, node->clip_rectangle.top,
-                                node->clip_rectangle.right, node->clip_rectangle.bottom))
+    if (!paint_stream_push_clip(paint, node->clip_rectangle))
         return false;
     Color background = ui_button_background(owner, handle, theme,
                                             palette || selected                       ? theme.surface
@@ -95,9 +94,7 @@ bool ui_button_icon_paint(PaintStream* paint, const UiWidgetManager& owner, UiWi
                                     : .80f,
                             UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
                             focus ? UiBackgroundBorderTone::semantic : UiBackgroundBorderTone::palette)
-                      : paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom,
-                                                         background, focus ? theme.tokens.border.focus : background,
-                                                         kUiControlCornerRadius, focus ? 1.5f : 0);
+                      : paint_stream_push_rounded_border(paint, r, background, focus ? theme.tokens.border.focus : background, kUiControlCornerRadius, focus ? 1.5f : 0);
     const float extent = ui_icon_button_extent(minimum(ui_rect_width(r), ui_rect_height(r)));
     const float x = (r.left + r.right - extent) * .5f,
                 y = (r.top + r.bottom - extent) * .5f + (pressed ? 1 : 0);

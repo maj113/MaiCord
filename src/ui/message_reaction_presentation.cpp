@@ -174,13 +174,19 @@ struct LabelWriter {
     Slice<char> output;
     u32 bytes;
     bool ok;
-    void add(Utf8View text) noexcept {
-        if (!ok || !output.data || text.bytes > output.count - bytes) {
+    __declspec(noinline) void append(const char* source, u32 count) noexcept {
+        if (!ok || !output.data || count > output.count - bytes) {
             ok = false;
             return;
         }
-        copy_bytes(output.data + bytes, text.data, text.bytes);
-        bytes += text.bytes;
+        copy_bytes(output.data + bytes, source, count);
+        bytes += count;
+    }
+    void add(const Utf8View& text) noexcept {
+        append(text.data, text.bytes);
+    }
+    template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
+        append(text, Count - 1);
     }
 };
 } // namespace
@@ -193,9 +199,9 @@ MessageReactionTooltipLabel message_reaction_tooltip_label(u64 emoji_id, Utf8Vie
     char shortcode[64];
     const u32 shortcode_bytes = emoji_id ? 0 : emoji_shortcode_key(emoji, {shortcode, sizeof(shortcode)});
     if (emoji_id || shortcode_bytes) {
-        out.add(utf8_literal(":"));
+        out.add(":");
         out.add(emoji_id ? emoji : Utf8View{shortcode, shortcode_bytes});
-        out.add(utf8_literal(":"));
+        out.add(":");
     } else {
         out.add(emoji);
     }
@@ -205,7 +211,7 @@ MessageReactionTooltipLabel message_reaction_tooltip_label(u64 emoji_id, Utf8Vie
     const u32 shown = names.count, others = count > shown ? count - shown : 0;
     if (!shown || shown > bold.count)
         return {heading, 0};
-    out.add(utf8_literal(" reacted by "));
+    out.add(" reacted by ");
     for (u32 i = 0; i < shown; ++i) {
         if (i)
             out.add(i + 1 == shown && !others ? (shown == 2 ? utf8_literal(" and ") : utf8_literal(", and "))

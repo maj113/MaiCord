@@ -11,10 +11,10 @@ namespace {
 constexpr Color neutral(float alpha) noexcept {
     return {151 / 255.f, 151 / 255.f, 159 / 255.f, alpha};
 }
-Color scaled(Color color, float factor) noexcept {
+Color scaled(const Color& color, float factor) noexcept {
     return {color.red * factor, color.green * factor, color.blue * factor, color.alpha};
 }
-Color pick(u32 packed, Color fallback) noexcept {
+Color pick(u32 packed, const Color& fallback) noexcept {
     return packed ? ui_settings_color_unpack(packed) : fallback;
 }
 const UiThemeSettings& settings_style(const UiResolvedThemeStyles* styles) noexcept {
@@ -107,12 +107,12 @@ Color ui_settings_focus_color(const Theme& theme) noexcept {
                 ui_background_active(theme) ? theme.tokens.border.focus : Color{.416f, .659f, .957f, 1});
 }
 
-UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept {
+void ui_settings_fill_tokens(const Theme& theme, UiSettingsTokens* output) noexcept {
+    UiSettingsTokens& t = *output;
     const auto& s = settings_style(theme.styles);
     const bool light = theme.appearance == ThemeAppearance::light;
     constexpr Color white{1, 1, 1, 1}, black{0, 0, 0, 1};
     // Palette fields below and set_layout_tokens initialize the complete result.
-    UiSettingsTokens t;
     t.light = light;
     auto& c = t.color;
     c.text_default = theme.text_primary;
@@ -157,12 +157,21 @@ UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept {
     c.nav_selected = ui_background_active(theme) ? theme.tokens.emphasis.selected : c.mod_strong;
 
     set_layout_tokens(t, s, theme.scale.space_1, theme.styles);
+}
+
+UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept {
+    UiSettingsTokens t;
+    ui_settings_fill_tokens(theme, &t);
     return t;
+}
+
+void ui_settings_fill_layout_tokens(const UiResolvedThemeStyles* styles, UiSettingsLayoutTokens* output) noexcept {
+    set_layout_tokens(*output, settings_style(styles), kDefaultTheme.scale.space_1, styles);
 }
 
 UiSettingsLayoutTokens ui_settings_layout_tokens(const UiResolvedThemeStyles* styles) noexcept {
     UiSettingsLayoutTokens t;
-    set_layout_tokens(t, settings_style(styles), kDefaultTheme.scale.space_1, styles);
+    ui_settings_fill_layout_tokens(styles, &t);
     return t;
 }
 

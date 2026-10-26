@@ -52,7 +52,7 @@ bool geometry_current(const UiThreadHeader& h, const UiThreadHeaderGeometry& g) 
     for (u32 i = 0; i < 6; ++i) {
         const auto* n = ui_widget_manager_layout_node(*h.manager, handle(h.widgets, i));
         if (!n || !ui_rect_equal(n->rectangle, rectangle(g, i)) ||
-            n->visible != ui_rect_has_area(ui_rect_intersection(rectangle(g, i), g.clip))) return false;
+            n->visible != ui_rect_intersects(rectangle(g, i), g.clip)) return false;
     }
     return true;
 }
@@ -65,7 +65,7 @@ bool project_nodes(UiThreadHeader* h) noexcept {
         auto* n = w ? ui_layout_engine_resolve(&m.layout, w->layout) : nullptr;
         if (!n) return false;
         const auto r = rectangle(h->geometry, i);
-        const bool visible = ui_rect_has_area(ui_rect_intersection(r, h->geometry.clip));
+        const bool visible = ui_rect_intersects(r, h->geometry.clip);
         const bool interactive = visible && (i == 3 ||
             (i == 2 && !h->view.busy && enabled(h->view, primary)) ||
             (i == 5 && enabled(h->view, UiThreadAction::cancel)));
@@ -304,7 +304,7 @@ bool ui_thread_header_paint(const UiThreadHeader& h, const Theme& theme, PaintSt
     if (!out || !h.manager) return false;
     if (!h.active || !ui_rect_has_area(h.geometry.clip)) return true;
     const auto& g = h.geometry;
-    if (!paint_stream_push_clip(out, g.clip.left, g.clip.top, g.clip.right, g.clip.bottom)) return false;
+    if (!paint_stream_push_clip(out, g.clip)) return false;
     bool ok = ui_background_paint_canvas(out, g.rectangle, theme, theme.base_lower, UiBackgroundTier::lower);
     const auto primary = ui_thread_header_primary_action(h.view);
     ok = ok && paint_button(h, h.widgets.primary, g.primary, theme, out, accent_action(primary)) &&

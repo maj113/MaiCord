@@ -22,7 +22,7 @@ Measurement* measurement(MessageScene* scene, u32 slot, bool snapshot) noexcept 
 
 void restore_measurement(MessageSceneRowWidget* row, const Measurement& value) noexcept {
     copy_value(&row->rich_layout, value.rich);
-    row->rich_item_layout = value.items;
+    copy_value(&row->rich_item_layout, value.items);
     row->measured_reply_height = value.reply_height;
     row->measured_content_height = value.content_height;
     row->grouped = value.grouped;
@@ -35,7 +35,7 @@ void retain_measurement(MessageScene* scene, const MessageSceneRowWidget& row) n
     Measurement* value = measurement(scene, row.message.slot, row.forwarded_snapshot);
     if (!value) return;
     copy_value(&value->rich, row.rich_layout);
-    value->items = row.rich_item_layout;
+    copy_value(&value->items, row.rich_item_layout);
     value->reply_height = row.measured_reply_height;
     value->content_height = row.measured_content_height;
     value->grouped = row.grouped;

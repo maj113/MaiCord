@@ -53,8 +53,6 @@ inline Color ui_unread_divider_text_color(const Theme& theme) noexcept {
 inline bool ui_unread_divider_paint(PaintStream* paint, UiRect rectangle, const Theme& theme,
     const UiUnreadDividerStyle& style = kDefaultUiUnreadDividerStyle, float pixel_scale = 0) noexcept {
     const auto geometry = ui_unread_divider_geometry(rectangle, style, pixel_scale);
-    return !ui_rect_has_area(geometry.line) || paint_stream_push_rounded_border(paint,
-        geometry.line.left, geometry.line.top, geometry.line.right, geometry.line.bottom,
-        theme.notification, theme.notification, 0, 0);
+    return !ui_rect_has_area(geometry.line) || paint_stream_push_rounded_border(paint, geometry.line, theme.notification, theme.notification, 0, 0);
 }
 } // namespace maicord

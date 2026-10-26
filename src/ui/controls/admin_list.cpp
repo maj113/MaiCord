@@ -10,16 +10,16 @@ namespace {
 constexpr float kChipEm = 13.f, kChipEstimateSlack = 1.12f;
 } // namespace
 
-bool ui_admin_chip_dot(Utf8View label, bool dots) noexcept {
+bool ui_admin_chip_dot(const Utf8View& label, bool dots) noexcept {
     return dots && !(label.bytes && label.data[0] == '+');
 }
 
-float ui_admin_chip_width(const UiSettingsLayoutTokens& tokens, Utf8View label, bool dot) noexcept {
+float ui_admin_chip_width(const UiSettingsLayoutTokens& tokens, const Utf8View& label, bool dot) noexcept {
     const float text = minimum(160.f, ui_settings_text_width(label, kChipEm) * kChipEstimateSlack);
     return text + tokens.metric.chip_padding * 2 + (dot ? tokens.metric.accent_dot - 2 + 6 : 0);
 }
 
-UiRect ui_admin_chip_rect(const UiSettingsLayoutTokens& tokens, ConstSlice<Utf8View> labels, bool dots, UiRect area,
+UiRect ui_admin_chip_rect(const UiSettingsLayoutTokens& tokens, const ConstSlice<Utf8View>& labels, bool dots, const UiRect& area,
                           u32 index) noexcept {
     const auto& m = tokens.metric;
     float x = area.left, y = area.top;
@@ -37,7 +37,7 @@ UiRect ui_admin_chip_rect(const UiSettingsLayoutTokens& tokens, ConstSlice<Utf8V
     return {};
 }
 
-u32 ui_admin_chip_rows(const UiSettingsLayoutTokens& tokens, ConstSlice<Utf8View> labels, bool dots, float width) noexcept {
+u32 ui_admin_chip_rows(const UiSettingsLayoutTokens& tokens, const ConstSlice<Utf8View>& labels, bool dots, float width) noexcept {
     if (!labels.count)
         return 0;
     const auto last = ui_admin_chip_rect(tokens, labels, dots, {0, 0, maximum(1.f, width), 0}, labels.count - 1);
@@ -48,13 +48,11 @@ float ui_admin_chips_height(const UiSettingsLayoutTokens& tokens, u32 rows) noex
     return rows ? rows * tokens.metric.chip_height + (rows - 1) * tokens.metric.chip_gap : 0;
 }
 
-bool ui_admin_chip_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect chip, Color dot, bool has_dot,
+bool ui_admin_chip_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& chip, const Color& dot, bool has_dot,
                          float alpha) noexcept {
     const auto& c = tokens.color;
     const float radius = ui_rect_height(chip) * .5f;
-    bool ok = paint_stream_push_rounded_border(paint, chip.left, chip.top, chip.right, chip.bottom,
-                                               ui_settings_color_alpha(c.mod_subtle, alpha),
-                                               ui_settings_color_alpha(c.border_subtle, alpha), radius, 1);
+    bool ok = paint_stream_push_rounded_border(paint, chip, ui_settings_color_alpha(c.mod_subtle, alpha), ui_settings_color_alpha(c.border_subtle, alpha), radius, 1);
     if (ok && has_dot) {
         const float size = tokens.metric.accent_dot - 2, cy = (chip.top + chip.bottom) * .5f;
         const float left = chip.left + tokens.metric.chip_padding - 2;
@@ -64,12 +62,12 @@ bool ui_admin_chip_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiR
     return ok;
 }
 
-UiRect ui_admin_chip_label_rect(const UiSettingsLayoutTokens& tokens, UiRect chip, bool dot) noexcept {
+UiRect ui_admin_chip_label_rect(const UiSettingsLayoutTokens& tokens, const UiRect& chip, bool dot) noexcept {
     const float left = chip.left + tokens.metric.chip_padding + (dot ? tokens.metric.accent_dot - 2 + 4 : 0);
     return {left, chip.top, chip.right - tokens.metric.chip_padding + 2, chip.bottom};
 }
 
-bool ui_admin_grip_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect lead, bool hovered,
+bool ui_admin_grip_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& lead, bool hovered,
                          bool enabled) noexcept {
     const float size = 18, cx = lead.left + tokens.metric.grip_width * .5f, cy = (lead.top + lead.bottom) * .5f;
     const Color color = hovered ? tokens.color.text_default : tokens.color.text_subtle;
@@ -77,22 +75,20 @@ bool ui_admin_grip_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiR
                          ui_settings_color_alpha(color, enabled ? (hovered ? 1.f : .7f) : .3f));
 }
 
-bool ui_admin_dot_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect lead, Color color,
+bool ui_admin_dot_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& lead, const Color& color,
                         float alpha) noexcept {
     const float size = tokens.metric.accent_dot, cy = (lead.top + lead.bottom) * .5f;
     return paint_stream_push_rounded(paint, lead.left, cy - size * .5f, lead.left + size, cy + size * .5f,
                                      ui_settings_color_alpha(color, alpha), size * .5f);
 }
 
-bool ui_admin_avatar_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect avatar, Color fill,
+bool ui_admin_avatar_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& avatar, const Color& fill,
                            float alpha) noexcept {
     const float radius = ui_rect_width(avatar) * .5f;
-    return paint_stream_push_rounded_border(paint, avatar.left, avatar.top, avatar.right, avatar.bottom,
-                                            ui_settings_color_alpha(fill, alpha),
-                                            ui_settings_color_alpha(tokens.color.border_subtle, alpha), radius, 1);
+    return paint_stream_push_rounded_border(paint, avatar, ui_settings_color_alpha(fill, alpha), ui_settings_color_alpha(tokens.color.border_subtle, alpha), radius, 1);
 }
 
-Utf8View ui_admin_initials(Utf8View label, Slice<char> storage) noexcept {
+Utf8View ui_admin_initials(const Utf8View& label, Slice<char> storage) noexcept {
     u32 used = 0, words = 0;
     bool boundary = true;
     for (u32 offset = 0; offset < label.bytes && words < 2;) {

@@ -15,11 +15,11 @@ bool button(PaintStream* stream, UiRect r, UiIcon icon, Color ink, bool hovered,
     if (active) {
         Color tint = theme.notification;
         tint.alpha = hovered ? .22f : .14f;
-        if (!paint_stream_push_rounded(stream, r.left, r.top, r.right, r.bottom, tint, theme.scale.radius_sm))
+        if (!paint_stream_push_rounded(stream, r, tint, theme.scale.radius_sm))
             return false;
     } else if (hovered || pressed) {
         const Color fill = ui_background_hover_color(theme, theme.surface_high, pressed ? .32f : .20f);
-        if (!paint_stream_push_rounded(stream, r.left, r.top, r.right, r.bottom, fill, theme.scale.radius_sm))
+        if (!paint_stream_push_rounded(stream, r, fill, theme.scale.radius_sm))
             return false;
     }
     return ui_icon_paint(stream, icon, ui_rect_shrink(r, 7), ink);

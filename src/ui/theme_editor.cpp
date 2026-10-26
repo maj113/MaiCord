@@ -172,15 +172,14 @@ bool tree(UiThemeEditorScene& s) noexcept {
                               : e == UiThemeEditorElement::add    ? utf8_literal("Add color stop")
                               : e == UiThemeEditorElement::remove ? utf8_literal("Remove color stop")
                                                                   : utf8_literal("ThemeEditor");
-        const auto added = ui_widget_manager_add_prevalidated(
-            &s.widgets, parent,
-            {i + 1,
-             e == UiThemeEditorElement::body ? UiWidgetKind::scroll_view
-             : control(e)                    ? UiWidgetKind::button
-                                             : UiWidgetKind::container,
-             static_cast<u16>(control(e) ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
-                                         : ui_widget_none),
-             {name, style, {}, 0, i + 1}});
+        const auto added = ui_widget_manager_add_keyed(
+            &s.widgets, parent, i + 1,
+            e == UiThemeEditorElement::body ? UiWidgetKind::scroll_view
+            : control(e)                    ? UiWidgetKind::button
+                                            : UiWidgetKind::container,
+            static_cast<u16>(control(e) ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
+                                        : ui_widget_none),
+            name.data, name.bytes, style);
         if (!added.ok())
             return false;
         s.elements[i] = added.handle;
@@ -455,7 +454,7 @@ bool ui_theme_editor_pointer(UiThemeEditorScene* s, UiThemeEditorElement e, UiPo
         s->draft.effect == BackgroundEffect::none)
         return false;
     const auto* n = ui_theme_editor_node(*s, e);
-    if (!n || !ui_rect_has_area(ui_rect_intersection(n->rectangle, n->clip_rectangle)))
+    if (!n || !ui_rect_intersects(n->rectangle, n->clip_rectangle))
         return false;
     auto next = s->draft;
     const auto r = slider(e) ? track(n->rectangle) : n->rectangle;
@@ -502,7 +501,7 @@ bool ui_theme_editor_key(UiThemeEditorScene* s, UiThemeEditorElement e, u32 key,
         return false;
     if (e == UiThemeEditorElement::direction) {
         if (!out || !ui_theme_editor_current(*s) || s->draft.color_count == 1 ||
-            !ui_rect_has_area(ui_rect_intersection(n->rectangle, n->clip_rectangle)))
+            !ui_rect_intersects(n->rectangle, n->clip_rectangle))
             return false;
         auto next = s->draft;
         if (key == 0x24)
@@ -631,9 +630,9 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
     if (!paint)
         return false;
     if (!ui_surface_shadow_paint_isolated(paint, s.panel, theme, UiElevation::dialog, s.style.radius) ||
-        !paint_stream_push_clip(paint, s.panel.left, s.panel.top, s.panel.right, s.panel.bottom))
+        !paint_stream_push_clip(paint, s.panel))
         return false;
-    auto tokens = ui_settings_tokens(theme);
+    UiSettingsThemeTokens tokens(theme);
     tokens.metric.control_radius = s.style.control_radius;
     bool ok = ui_surface_paint_plate(paint, s.panel, theme, UiElevation::dialog, s.style.radius, &theme.surface,
                                      &theme.interactive);
@@ -647,7 +646,7 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
         const auto clip = ui_rect_intersection(n->rectangle, n->clip_rectangle);
         if (!ui_rect_has_area(clip))
             continue;
-        if (!paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom)) {
+        if (!paint_stream_push_clip(paint, clip)) {
             ok = false;
             break;
         }
@@ -684,8 +683,7 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
                 e == UiThemeEditorElement::intensity ||
                 (e != UiThemeEditorElement::direction && s.draft.effect != BackgroundEffect::none);
             const float x = t.left + fraction * ui_rect_width(t);
-            ok = paint_stream_push_rounded(paint, t.left, t.top, t.right, t.bottom, theme.interactive,
-                                           theme.scale.radius_sm) &&
+            ok = paint_stream_push_rounded(paint, t, theme.interactive, theme.scale.radius_sm) &&
                  paint_stream_push_rounded(paint, t.left, t.top, x, t.bottom,
                                            active ? theme.tokens.emphasis.fill : theme.text_secondary, theme.scale.radius_sm) &&
                  paint_stream_push_rounded_border(paint, x - 7, t.top - 3, x + 7, t.bottom + 3,
@@ -700,8 +698,7 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
             const float inset = m.ring_gap + m.ring_width;
             const UiRect fill{r.left + inset, r.top + inset, r.right - inset, r.bottom - inset};
             const float radius = ui_inner_radius(s.style.control_radius, inset);
-            ok = paint_stream_push_rounded_border(paint, fill.left, fill.top, fill.right, fill.bottom, c,
-                                                  theme.interactive, radius, 1) &&
+            ok = paint_stream_push_rounded_border(paint, fill, c, theme.interactive, radius, 1) &&
                  (stop != s.selected_stop ||
                   ui_settings_ring_paint(paint, fill, radius, m.ring_gap, m.ring_width, tokens.color.brand));
         } else {
@@ -746,7 +743,7 @@ bool ui_theme_editor_text_output(const UiThemeEditorScene& s, const Theme& theme
         return true;
     if (!ui_text_output_valid(output))
         return false;
-    const auto tokens = ui_settings_tokens(theme);
+    const UiSettingsThemeTokens tokens(theme);
     for (u32 i = 0; i < kUiThemeEditorElements; ++i) {
         const auto e = static_cast<UiThemeEditorElement>(i);
         Utf8View text{};

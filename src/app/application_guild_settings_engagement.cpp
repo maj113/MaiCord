@@ -118,44 +118,41 @@ void project(Bank& bank) noexcept {
     const bool features = edit && names_available();
     const u64 stored_features = guild_features();
     if (p.engagement_conflict)
-        push(notice(utf8_literal("Changed elsewhere"),
-                    utf8_literal("Someone else updated these settings. Load the latest values or keep editing."),
-                    utf8_literal("Load latest")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error(utf8_literal("Changed elsewhere"),
+                   utf8_literal("Someone else updated these settings. Load the latest values or keep editing."),
+                   utf8_literal("Load latest"));
     if (stored_features & guild_feature_summaries_ga) {
-        push(category(control_summaries_category, utf8_literal("Channel Summaries"),
+        push_category(control_summaries_category, utf8_literal("Channel Summaries"),
                       utf8_literal("Members can see the topics being discussed in text channels and who is "
-                                   "taking part, to catch up quickly.")));
-        push({control_summaries, utf8_literal("Enable Channel Summaries"), utf8_literal("Beta"),
-              UiSettingsControlKind::toggle, features, (d.features & guild_feature_summaries_enabled) != 0, {}, 0,
-              {}, nullptr});
+                                   "taking part, to catch up quickly."));
+        push_row(control_summaries, utf8_literal("Enable Channel Summaries"), utf8_literal("Beta"),
+                 UiSettingsControlKind::toggle, features, (d.features & guild_feature_summaries_enabled) != 0);
     }
-    push(category(control_messages_category, utf8_literal("System Messages"),
-                  utf8_literal("Configure the system event messages sent to your server.")));
+    push_category(control_messages_category, utf8_literal("System Messages"),
+                  utf8_literal("Configure the system event messages sent to your server."));
     // Without a channel no system message is sent; the flags stay as they are.
     const bool messages = edit && d.system_channel_id;
     for (const auto& message : kMessages)
         if (message_shown(message.bit))
-            push({control_message + bit_index(message.bit), message.label, {}, UiSettingsControlKind::toggle,
-                  messages, guild_engagement_message_enabled(d, message.bit), {}, 0, {}, nullptr});
+            push_row(control_message + bit_index(message.bit), message.label, {}, UiSettingsControlKind::toggle,
+                     messages, guild_engagement_message_enabled(d, message.bit));
     p.system_choice[0] = channel_label(bank, d.system_channel_id, utf8_literal("No System Messages"));
     push({control_system_channel, utf8_literal("System Messages Channel"),
           utf8_literal("The channel system event messages are posted to."), UiSettingsControlKind::choice, edit,
           false, {p.system_choice, 1}, 0, {}, nullptr});
 
-    push(category(control_activity_category, utf8_literal("Activity Feed Settings"),
-                  utf8_literal("A feed of activity from games and connected apps in this server.")));
+    push_category(control_activity_category, utf8_literal("Activity Feed Settings"),
+                  utf8_literal("A feed of activity from games and connected apps in this server."));
     u32 members = 0;
     const bool count_known = member_count(&members);
-    push({control_activity_feed, utf8_literal("Display Activity Feed in this server"),
-          edit && !names_available() ? utf8_literal("Available once Discord sends this server's details again.")
-                                     : Utf8View{},
-          UiSettingsControlKind::toggle, features, guild_engagement_activity_feed(d, members, count_known), {}, 0,
-          {}, nullptr});
+    push_row(control_activity_feed, utf8_literal("Display Activity Feed in this server"),
+             edit && !names_available() ? utf8_literal("Available once Discord sends this server's details again.")
+                                        : Utf8View{},
+             UiSettingsControlKind::toggle, features, guild_engagement_activity_feed(d, members, count_known));
 
-    push(category(control_notifications_category, utf8_literal("Default Notification Settings"),
+    push_category(control_notifications_category, utf8_literal("Default Notification Settings"),
                   utf8_literal("Whether members who haven't chosen their own notification settings are notified "
-                               "for every message in this server or only for mentions.")));
+                               "for every message in this server or only for mentions."));
     push({control_notifications, utf8_literal("Default notifications"),
           count_known && members >= kGuildLargeNotificationMembers
               ? utf8_literal("Only @mentions is recommended for Community servers. With this many members, "
@@ -179,14 +176,13 @@ void project(Bank& bank) noexcept {
 
     if (!manage)
         return;
-    push(category(control_widget_category, utf8_literal("Server Widget"),
+    push_category(control_widget_category, utf8_literal("Server Widget"),
                   utf8_literal("Embed an HTML widget on your website showing online members, voice channels and an "
-                               "invite link.")));
+                               "invite link."));
     if (p.widget_failed)
-        push(notice(utf8_literal("Couldn't load the widget"), {}, utf8_literal("Try again")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error(utf8_literal("Couldn't load the widget"), {}, utf8_literal("Try again"));
     else if (!p.widget_loaded)
-        push(loading(utf8_literal("Loading the widget…")));
+        push_loading(utf8_literal("Loading the widget…"));
     // A failed read settles too: the notice then assumes a private profile.
     bool visibility_settled = false;
     const auto* profile = server_profile(&visibility_settled);
@@ -194,24 +190,24 @@ void project(Bank& bank) noexcept {
                          (profile->visibility == kVisibilityPublic ||
                           profile->visibility == kVisibilityPublicWithRecruitment);
     if (p.widget_loaded && visibility_settled && !visible && !d.widget_enabled)
-        push({control_widget_notice, {},
-              utf8_literal("Turning on the widget makes your server profile visible to people outside the server. "
-                           "Profile privacy is part of the Server Profile settings."),
-              UiSettingsControlKind::notice, true, false, {}, 0, {}, nullptr});
-    push({control_widget, utf8_literal("Enable Server Widget"), {}, UiSettingsControlKind::toggle,
-          edit && p.widget_loaded, d.widget_enabled, {}, 0, {}, nullptr});
+        push_row(control_widget_notice, {},
+                 utf8_literal("Turning on the widget makes your server profile visible to people outside the server. "
+                              "Profile privacy is part of the Server Profile settings."),
+                 UiSettingsControlKind::notice, true);
+    push_row(control_widget, utf8_literal("Enable Server Widget"), {}, UiSettingsControlKind::toggle,
+             edit && p.widget_loaded, d.widget_enabled);
     if (!d.widget_enabled)
         return;
     p.widget_choice[0] = channel_label(bank, d.widget_channel_id, utf8_literal("No Invite"));
     push({control_widget_channel, utf8_literal("Invite Channel"),
           utf8_literal("With a channel selected, the widget offers an invite link to it."),
           UiSettingsControlKind::choice, edit, false, {p.widget_choice, 1}, 0, {}, nullptr});
-    push({control_widget_id, utf8_literal("Server ID"), widget_text(bank, false), UiSettingsControlKind::action, true,
-          false, {}, 0, utf8_literal("Copy"), nullptr},
-         {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-    push({control_widget_json, utf8_literal("JSON API"), widget_text(bank, true), UiSettingsControlKind::action, true,
-          false, {}, 0, utf8_literal("Copy"), nullptr},
-         {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+    push_row(control_widget_id, utf8_literal("Server ID"), widget_text(bank, false), UiSettingsControlKind::action,
+             true, false, utf8_literal("Copy"),
+             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+    push_row(control_widget_json, utf8_literal("JSON API"), widget_text(bank, true), UiSettingsControlKind::action,
+             true, false, utf8_literal("Copy"),
+             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
 }
 
 void open_timeout_menu(UiRect anchor) noexcept {

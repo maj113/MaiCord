@@ -5,7 +5,7 @@ namespace maicord {
 // Copyright Unicode, Inc. Distributed under the Unicode License V3.
 // https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-data.txt
 inline bool text_emoji_scalar(u32 cp) noexcept {
-    constexpr struct Range {
+    static constexpr struct Range {
         u32 first, last;
     } ranges[]{
         {0x23, 0x23},       {0x2A, 0x2A},       {0x30, 0x39},       {0xA9, 0xA9},       {0xAE, 0xAE},

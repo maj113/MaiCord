@@ -1,6 +1,7 @@
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "maicord/ui/surface_elevation.hpp"
-#include "maicord/ui/background_surface.hpp"
+#include "maicord/ui/rect_edges.hpp"
+#include "maicord/ui/scene_text.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/spinner.hpp"
 #include "maicord/core/decimal.hpp"
@@ -38,22 +39,15 @@ bool current(const UiPinnedMessagesScene& s) noexcept {
                           s.source->count == s.measured_count &&
                           (!s.source->current || s.source->current(s.source->context))));
 }
-UiWidgetHandle add(UiPinnedMessagesScene& s, UiRect r, UiPinnedMessagesTarget target,
-                   Utf8View name, bool enabled, UiWidgetHandle parent) noexcept {
+UiWidgetHandle add(UiPinnedMessagesScene& s, const UiRect& r, const UiPinnedMessagesTarget& target,
+                   const Utf8View& name, bool enabled, UiWidgetHandle parent) noexcept {
     if (!ui_rect_has_area(r)) return {};
-    auto style = ui_layout_style();
-    style.width = ui_layout_fixed(ui_rect_width(r));
-    style.height = ui_layout_fixed(ui_rect_height(r));
     // During tree construction the parent has not been laid out yet.
     const auto parent_origin = s.body_owner.generation && parent.slot == s.body_owner.slot ? s.body : s.panel;
-    style.margin.left = r.left - parent_origin.left;
-    style.margin.top = r.top - parent_origin.top;
-    style.flags |= ui_layout_node_allow_overlap | ui_layout_node_clip_children;
-    const u32 id = s.widgets.count + 1;
-    const auto result = ui_widget_manager_add_prevalidated(&s.widgets, parent,
-        {id, target.action == UiPinnedMessagesAction::none ? UiWidgetKind::container : UiWidgetKind::button,
-         static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : 0),
-         {name, style, {}, 0, id}});
+    const auto result = ui_widget_manager_add_placed(&s.widgets, parent,
+        target.action == UiPinnedMessagesAction::none ? UiWidgetKind::container : UiWidgetKind::button,
+        static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : 0), name, r,
+        parent_origin);
     if (!result.ok()) return {};
     s.targets[result.handle.slot] = target;
     return result.handle;
@@ -89,7 +83,7 @@ bool rebuild(UiPinnedMessagesScene& s) noexcept {
         if (!s.source->resolve(s.source->context, i, &row) || !row_valid(row, s.content->channel_id)) return false;
         const UiRect card{s.body.left + card_inset, top, s.body.right - 24,
                           top + card_height(row)};
-        if (!ui_rect_has_area(ui_rect_intersection(card, s.body))) continue;
+        if (!ui_rect_intersects(card, s.body)) continue;
         const u32 slot = s.count++;
         s.visible[slot] = row;
         s.cards[slot] = card;
@@ -135,16 +129,10 @@ bool rebuild(UiPinnedMessagesScene& s) noexcept {
     return true;
 }
 bool text(UiTextOutput* out, const UiPinnedMessagesScene& s, UiWidgetHandle owner,
-          Utf8View value, UiRect r, Color color, u32 flags = 0, bool wrap = false,
-          bool row = false, UiTextAlignment alignment = UiTextAlignment::start) noexcept {
-    const auto clip = ui_rect_intersection(r, row ? s.body : s.panel);
-    return !value.bytes || !ui_rect_has_area(clip) || ui_text_output_push(out,
-        {value, {&s.widgets, owner}, r, clip, color, flags, alignment,
-         wrap ? UiTextAlignment::start : UiTextAlignment::center,
-         wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
-         UiTextFace::normal});
+          const Utf8View& value, const UiRect& r, const Color& color, u32 flags = 0, u32 mode = 0) noexcept {
+    return ui_scene_text(out, s.widgets, owner, value, r, (mode & ui_text_in_body) ? s.body : s.panel, color, flags, mode);
 }
-bool surface(PaintStream* out, UiRect r, const Theme& theme, Color fill, Color border, float radius = 8) noexcept {
+bool surface(PaintStream* out, const UiRect& r, const Theme& theme, const Color& fill, const Color& border, float radius = 8) noexcept {
     return ui_background_paint_surface(out, r, theme, fill, border, radius, 1, .9f,
         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high);
 }
@@ -351,27 +339,27 @@ bool ui_pinned_messages_scene_spinner_visible(const UiPinnedMessagesScene& s) no
     if (!s.measured_count && s.content->phase == UiPinnedMessagesPhase::loading) return true;
     for (u32 i = 0; i < s.count; ++i)
         if (s.visible[i].can_unpin && s.visible[i].unpin_pending &&
-            ui_rect_has_area(ui_rect_intersection(s.cards[i], s.body))) return true;
+            ui_rect_intersects(s.cards[i], s.body)) return true;
     return false;
 }
 bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme& theme,
                                     PaintStream* out) noexcept {
     if (!current(s)) return true;
     if (!out || !ui_surface_shadow_paint_isolated(out, s.panel, theme, UiElevation::popover, 0) ||
-        !paint_stream_push_clip(out, s.panel.left, s.panel.top, s.panel.right, s.panel.bottom)) return false;
+        !paint_stream_push_clip(out, s.panel)) return false;
     bool ok = ui_surface_paint_plate(out, s.panel, theme, UiElevation::popover, 0, nullptr, &theme.surface_high) &&
-        paint_stream_push(out, s.header.left, s.header.bottom - 1, s.header.right, s.header.bottom, theme.surface_high) &&
-        paint_stream_push(out, s.footer.left, s.footer.top, s.footer.right, s.footer.top + 1, theme.surface_high) &&
-        ui_icon_paint(out, UiIcon::pin, {s.panel.left + 12, s.panel.top + 16, s.panel.left + 36, s.panel.top + 40}, theme.text_secondary);
+        paint_stream_push(out, ui_rect_edges(s.header, ui_start(0), ui_end(-1), ui_end(0), ui_end(0)), theme.surface_high) &&
+        paint_stream_push(out, ui_rect_edges(s.footer, ui_start(0), ui_start(0), ui_end(0), ui_start(1)), theme.surface_high) &&
+        ui_icon_paint(out, UiIcon::pin, ui_rect_edges(s.panel, ui_start(12), ui_start(16), ui_start(36), ui_start(40)), theme.text_secondary);
     const UiWidgetHandle header_buttons[]{s.refresh, s.close};
     for (u32 i = 0; ok && i < 2; ++i) {
         const auto r = bounds(s, header_buttons[i]);
         if (hovered(s, header_buttons[i]) || focused(s, header_buttons[i]))
             ok = surface(out, r, theme, theme.surface_high, focused(s, header_buttons[i]) ? theme.tokens.border.focus : theme.surface_high, 6);
         ok = ok && ui_icon_paint(out, i ? UiIcon::close : UiIcon::refresh,
-            {r.left + 6, r.top + 6, r.right - 6, r.bottom - 6}, theme.text_secondary);
+            ui_rect_shrink(r, 6), theme.text_secondary);
     }
-    if (ok && !paint_stream_push_clip(out, s.body.left, s.body.top, s.body.right, s.body.bottom)) ok = false;
+    if (ok && !paint_stream_push_clip(out, s.body)) ok = false;
     if (ok) {
         for (u32 i = 0; ok && i < s.count; ++i) {
             const auto r = s.cards[i];
@@ -380,23 +368,22 @@ bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme&
                          selected ? theme.tokens.emphasis.outline : theme.surface_high);
             UiRect avatar{}, clip{};
             if (ok && ui_pinned_messages_scene_avatar(s, i, &avatar, &clip))
-                ok = paint_stream_push_rounded(out, avatar.left, avatar.top, avatar.right, avatar.bottom,
-                    theme.avatar_placeholder, theme.scale.radius_full) &&
-                    paint_stream_push_rounded(out, avatar.left + 10, avatar.top + 6, avatar.right - 10, avatar.top + 14,
+                ok = paint_stream_push_rounded(out, avatar, theme.avatar_placeholder, theme.scale.radius_full) &&
+                    paint_stream_push_rounded(out, ui_rect_edges(avatar, ui_start(10), ui_start(6), ui_end(-10), ui_start(14)),
                                               theme.text_secondary, theme.scale.radius_sm) &&
-                    paint_stream_push_rounded(out, avatar.left + 6, avatar.top + 16, avatar.right - 6, avatar.bottom - 4,
+                    paint_stream_push_rounded(out, ui_rect_edges(avatar, ui_start(6), ui_start(16), ui_end(-6), ui_end(-4)),
                                               theme.text_secondary, 6);
             const float action_top = r.bottom - 38;
             ok = ok && paint_stream_push(out, r.left + 12, action_top - 3, r.right - 12, action_top - 2, theme.surface_high) &&
                 ui_icon_paint(out, UiIcon::reply, {r.left + 12, action_top + 5, r.left + 30, action_top + 23},
                               s.visible[i].jump_enabled ? theme.tokens.emphasis.outline : theme.interactive);
             if (s.visible[i].can_unpin) {
-                const auto unpin = UiRect{r.right - 40, r.top + 8, r.right - 8, r.top + 40};
+                const auto unpin = ui_rect_edges(r, ui_end(-40), ui_start(8), ui_end(-8), ui_start(40));
                 if (hovered(s, s.unpin[i]) || focused(s, s.unpin[i]))
                     ok = ok && surface(out, unpin, theme, theme.surface_high, focused(s, s.unpin[i]) ? theme.tokens.border.focus : theme.surface_high, 6);
                 ok = ok && (s.visible[i].unpin_pending
-                    ? ui_spinner_paint(out, {unpin.left + 8, unpin.top + 8, unpin.right - 8, unpin.bottom - 8}, theme.text_secondary, s.spinner_phase)
-                    : ui_icon_paint(out, UiIcon::unpin, {unpin.left + 6, unpin.top + 6, unpin.right - 6, unpin.bottom - 6},
+                    ? ui_spinner_paint(out, ui_rect_shrink(unpin, 8), theme.text_secondary, s.spinner_phase)
+                    : ui_icon_paint(out, UiIcon::unpin, ui_rect_shrink(unpin, 6),
                         hovered(s, s.unpin[i]) ? theme.notification : theme.text_secondary));
             }
         }
@@ -416,8 +403,7 @@ bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme&
             ok = surface(out, bounds(s, button), theme, theme.surface_high,
                          focused(s, button) ? theme.tokens.border.focus : theme.interactive, 6);
     if (ok && ui_rect_has_area(s.status_rectangle))
-        ok = paint_stream_push(out, s.status_rectangle.left, s.status_rectangle.top,
-                               s.status_rectangle.right, s.status_rectangle.bottom, theme.base_lowest);
+        ok = paint_stream_push(out, s.status_rectangle, theme.base_lowest);
     if (ok) ok = ui_scrollbar_paint(out, ui_scrollbar_geometry(s.body, s.scroll_dips,
         s.offsets[s.measured_count]), theme);
     return paint_stream_pop_clip(out) && ok;
@@ -426,9 +412,9 @@ bool ui_pinned_messages_scene_text_output(const UiPinnedMessagesScene& s, const 
     if (!current(s)) return true;
     if (!ui_text_output_valid(out)) return false;
     const auto p = s.panel;
-    if (!text(out, s, s.root, utf8_literal("Pins"), {p.left + 44, p.top + 10, p.right - 84, p.top + 36},
+    if (!text(out, s, s.root, utf8_literal("Pins"), ui_rect_edges(p, ui_start(44), ui_start(10), ui_end(-84), ui_start(36)),
               theme.text_primary, text_style_bold) ||
-        !text(out, s, s.root, s.content->channel, {p.left + 16, p.top + 38, p.right - 16, p.top + 58},
+        !text(out, s, s.root, s.content->channel, ui_rect_edges(p, ui_start(16), ui_start(38), ui_end(-16), ui_start(58)),
               theme.text_secondary, text_style_subtext)) return false;
     for (u32 i = 0; i < s.count; ++i) {
         const auto& row = s.visible[i];
@@ -436,17 +422,17 @@ bool ui_pinned_messages_scene_text_output(const UiPinnedMessagesScene& s, const 
         const float body_bottom = r.top + 56 + excerpt_height(row);
         if (!text(out, s, s.rows[i], row.author.bytes ? row.author : utf8_literal("Unknown author"),
                   {r.left + 50, r.top + 8, r.right - (row.can_unpin ? 44 : 12), r.top + 30},
-                  theme.text_primary, text_style_bold, false, true) ||
-            !text(out, s, s.rows[i], row.timestamp, {r.left + 50, r.top + 30, r.right - 12, r.top + 48},
-                  theme.text_secondary, text_style_subtext, false, true) ||
+                  theme.text_primary, text_style_bold, ui_text_in_body) ||
+            !text(out, s, s.rows[i], row.timestamp, ui_rect_edges(r, ui_start(50), ui_start(30), ui_end(-12), ui_start(48)),
+                  theme.text_secondary, text_style_subtext, ui_text_in_body) ||
             !text(out, s, s.rows[i], row.body.bytes ? row.body : utf8_literal("Message has no text"),
-                  {r.left + 12, r.top + 56, r.right - 12, body_bottom}, theme.text_primary, 0, true, true) ||
+                  {r.left + 12, r.top + 56, r.right - 12, body_bottom}, theme.text_primary, 0, ui_text_wrap | ui_text_in_body) ||
             !text(out, s, s.rows[i], row.detail, {r.left + 12, body_bottom + 2, r.right - 12, body_bottom + 22},
-                  theme.text_secondary, text_style_subtext, false, true) ||
+                  theme.text_secondary, text_style_subtext, ui_text_in_body) ||
             !text(out, s, s.rows[i], utf8_literal("Jump to message"),
-                  {r.left + 36, r.bottom - 33, r.right - 12, r.bottom - 9},
+                  ui_rect_edges(r, ui_start(36), ui_end(-33), ui_end(-12), ui_end(-9)),
                   row.jump_enabled ? theme.tokens.emphasis.outline : theme.interactive,
-                  text_style_subtext | text_style_bold, false, true)) return false;
+                  text_style_subtext | text_style_bold, ui_text_in_body)) return false;
     }
     if (!s.measured_count) {
         const auto r = s.body;
@@ -459,34 +445,34 @@ bool ui_pinned_messages_scene_text_output(const UiPinnedMessagesScene& s, const 
                 ? Utf8View{}
                 : utf8_literal("Pinned messages will appear here.");
         if (!text(out, s, s.root, title, {r.left + 20, top, r.right - 20, top + 28}, theme.text_primary,
-                  text_style_bold, false, true, UiTextAlignment::center) ||
+                  text_style_bold, ui_text_in_body | ui_text_center) ||
             (s.content->phase != UiPinnedMessagesPhase::loading &&
              !text(out, s, s.root, detail, {r.left + 24, top + 36, r.right - 24, top + 108},
-                   theme.text_secondary, 0, true, true, UiTextAlignment::center))) return false;
+                   theme.text_secondary, 0, ui_text_wrap | ui_text_in_body | ui_text_center))) return false;
     }
     if (ui_rect_has_area(s.status_rectangle) && !text(out, s, s.root, s.content->status.bytes ? s.content->status
         : utf8_literal("Couldn't update this pin. Try again."),
-        {s.status_rectangle.left + 12, s.status_rectangle.top + 4, s.status_rectangle.right - 12,
-         s.status_rectangle.bottom - 4}, theme.notification, text_style_subtext)) return false;
+        ui_rect_edges(s.status_rectangle, ui_start(12), ui_start(4), ui_end(-12), ui_end(-4)),
+        theme.notification, text_style_subtext)) return false;
     if (s.retry.generation)
         return text(out, s, s.retry, utf8_literal("Retry"), bounds(s, s.retry), theme.text_primary,
-                    text_style_bold, false, false, UiTextAlignment::center);
+                    text_style_bold, ui_text_center);
     if (s.previous.generation || s.next.generation) {
         const bool ready = s.content->phase == UiPinnedMessagesPhase::ready && !s.content->loading_more;
         const Color previous_color = s.content->has_previous && ready ? theme.text_primary : theme.interactive;
         const Color next_color = s.content->has_next && ready ? theme.text_primary : theme.interactive;
         return text(out, s, s.previous, utf8_literal("Newer"), bounds(s, s.previous), previous_color,
-                    text_style_bold, false, false, UiTextAlignment::center) &&
+                    text_style_bold, ui_text_center) &&
             text(out, s, s.next, utf8_literal("Older"), bounds(s, s.next), next_color,
-                 text_style_bold, false, false, UiTextAlignment::center) &&
+                 text_style_bold, ui_text_center) &&
             text(out, s, s.root, s.content->loading_more ? utf8_literal("Loading…") : Utf8View{s.page_text, s.page_bytes},
                  {bounds(s, s.previous).right + 4, s.footer.top + 10,
                   bounds(s, s.next).left - 4, s.footer.bottom - 10}, theme.text_secondary,
-                 text_style_subtext, false, false, UiTextAlignment::center);
+                 text_style_subtext, ui_text_center);
     }
     if (s.content->phase == UiPinnedMessagesPhase::loading && !s.measured_count) return true;
     return text(out, s, s.root, s.content->status.bytes ? s.content->status : utf8_literal("Pinned in this channel"),
-        {s.footer.left + 16, s.footer.top + 10, s.footer.right - 16, s.footer.bottom - 10},
+        ui_rect_edges(s.footer, ui_start(16), ui_start(10), ui_end(-16), ui_end(-10)),
         s.content->mutation_failed ? theme.notification : theme.text_secondary, text_style_subtext);
 }
 } // namespace maicord

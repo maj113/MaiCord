@@ -66,12 +66,12 @@ Storage& labels(ProfileScene* s) noexcept {
 Color packed(u32 color, float alpha = 1) noexcept {
     return {((color >> 16) & 255) / 255.f, ((color >> 8) & 255) / 255.f, (color & 255) / 255.f, alpha};
 }
-Color over(Color top, Color bottom) noexcept {
+Color over(const Color& top, const Color& bottom) noexcept {
     const float a = top.alpha;
     return {top.red * a + bottom.red * (1 - a), top.green * a + bottom.green * (1 - a),
             top.blue * a + bottom.blue * (1 - a), 1};
 }
-Color mix(Color a, Color b, float t) noexcept {
+Color mix(const Color& a, const Color& b, float t) noexcept {
     return {a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t,
             a.alpha + (b.alpha - a.alpha) * t};
 }
@@ -197,7 +197,7 @@ const ProfilePart* inline_text_part(const ProfileScene& scene, UiWidgetHandle ha
                ? part
                : nullptr;
 }
-UiSize measure(ProfileScene* s, Utf8View text, float width, bool wrap, u32 flags = 0) noexcept {
+UiSize measure(ProfileScene* s, const Utf8View& text, float width, bool wrap, u32 flags = 0) noexcept {
     if (!text.bytes)
         return {};
     UiTextMeasureValue result{};
@@ -220,7 +220,7 @@ UiSize measure(ProfileScene* s, Utf8View text, float width, bool wrap, u32 flags
         return {minimum(width, natural), line};
     return {width, line * (1 + static_cast<u32>(natural / maximum(1.f, width)))};
 }
-float text_width(ProfileScene* s, Utf8View text, float limit, u32 flags) noexcept {
+float text_width(ProfileScene* s, const Utf8View& text, float limit, u32 flags) noexcept {
     return minimum(limit, static_cast<float>(static_cast<u32>(measure(s, text, 4096, false, flags).width + .999f)));
 }
 bool biography_revealed(void* context, u32 offset) noexcept {
@@ -250,7 +250,7 @@ void size_biography(ProfileScene* s, const TextStyleSpan* styles, u32 count) noe
     push(cursor, bytes - cursor, 0);
     s->bio_style_count = used;
 }
-bool prepare_biography(ProfileScene* s, Utf8View source) noexcept {
+bool prepare_biography(ProfileScene* s, const Utf8View& source) noexcept {
     u64 signature = hash64_bytes(kHash64Seed, source.data, source.bytes);
     signature = hash64_bytes(signature, s->bio_revealed, s->bio_revealed_count * sizeof(u32));
     if (s->bio_signature == signature)
@@ -277,7 +277,7 @@ bool prepare_biography(ProfileScene* s, Utf8View source) noexcept {
     s->bio_signature = signature;
     return true;
 }
-ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, Utf8View label = {},
+ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, const Utf8View& label = {},
                  ProfileAction action = ProfileAction::none, u32 flags = 0,
                  ProfileLook look = ProfileLook::plain, ProfileTone tone = ProfileTone::normal,
                  bool clip = false) noexcept {
@@ -325,12 +325,33 @@ ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, Utf8Vi
     part.icon = kProfileNoIcon;
     return &part;
 }
+// A label-less part: the common shape of backgrounds, rules, dots and hit areas.
+ProfilePart* blank(ProfileScene* s, UiWidgetHandle parent, const UiRect& r,
+                   ProfileAction action = ProfileAction::none, ProfileLook look = ProfileLook::plain) noexcept {
+    return add(s, parent, r, {}, action, 0, look);
+}
 ProfilePart* icon(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, UiIcon glyph, ProfileAction action,
                   ProfileTone tone = ProfileTone::subtle, ProfileLook look = ProfileLook::icon) noexcept {
     auto* part = add(s, parent, r, {}, action, 0, look, tone);
     if (part)
         part->icon = static_cast<u16>(glyph);
     return part;
+}
+// A plain label: no action, the usual shape of a text part.
+ProfilePart* caption(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, const Utf8View& label, u32 flags,
+                     ProfileTone tone = ProfileTone::normal) noexcept {
+    return add(s, parent, r, label, ProfileAction::none, flags, ProfileLook::plain, tone);
+}
+// A clipping container for scrolled or tabbed content.
+ProfilePart* clipped(ProfileScene* s, UiWidgetHandle parent, const UiRect& r) noexcept {
+    return add(s, parent, r, {}, ProfileAction::none, 0, ProfileLook::plain, ProfileTone::normal, true);
+}
+// The "could not load" notice with its retry action: its height, -1 on failure.
+float failed_notice(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
+    return add(s, owner, {left, top, left + width, top + 18}, utf8_literal("Unable to load parts of profile"),
+               ProfileAction::retry, kSm, ProfileLook::plain, ProfileTone::muted)
+               ? 18.f
+               : -1.f;
 }
 bool place(ProfileScene* s, UiWidgetHandle handle, const UiRect& r) noexcept {
     auto* widget = ui_widget_manager_resolve(&s->widgets, handle);
@@ -351,7 +372,7 @@ bool scroll_container(ProfileScene* scene, UiWidgetHandle handle, float offset) 
     node->spec.style.flags |= ui_layout_node_scroll_vertical;
     return ui_layout_engine_set_scroll(&scene->widgets.layout, widget->layout, {0, offset});
 }
-template <u32 N> bool append(ProfileString<N>* s, Utf8View text) noexcept {
+template <u32 N> bool append(ProfileString<N>* s, const Utf8View& text) noexcept {
     const u32 bytes = utf8_truncated_length(text, N - s->bytes);
     copy_bytes(s->data + s->bytes, text.data, bytes);
     s->bytes += static_cast<u16>(bytes);
@@ -411,7 +432,7 @@ u16 part_index(const ProfileScene& s, const ProfilePart* part) noexcept {
 }
 // One text line. Popout lines stay on one line and a cut-off line carries its
 // full text as a hint; full profile lines wrap. Returns its height, -1 on failure.
-float card_text(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, Utf8View text, u32 flags,
+float card_text(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, const Utf8View& text, u32 flags,
                 float line, u16 item) noexcept {
     if (!text.bytes)
         return 0;
@@ -432,7 +453,7 @@ float card_text(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
     return height;
 }
 // The width a changing time string needs at its length (digits as 8s).
-float clock_width(ProfileScene* s, Utf8View text, u32 flags) noexcept {
+float clock_width(ProfileScene* s, const Utf8View& text, u32 flags) noexcept {
     char widest[16];
     const u32 bytes = minimum<u32>(text.bytes, sizeof(widest));
     for (u32 i = 0; i < bytes; ++i)
@@ -458,13 +479,14 @@ bool application_icon(const ProfileScene& s, u64 application, bool* known) noexc
 }
 // A card's button: full width in the popout, its natural width (at most the
 // column) in the full profile. Returns its width, -1 on failure.
-float card_button(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool full, Utf8View label,
-                  UiIcon glyph, ProfileAction action, u16 item, u64 index, Utf8View hint) noexcept {
+float card_button(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool full,
+                  const Utf8View& label, UiIcon glyph, ProfileAction action, u16 item, u64 index,
+                  const Utf8View& hint) noexcept {
     const bool disabled = action == ProfileAction::activity_join;
     const float text = text_width(s, label, 400, kSm | text_style_bold);
     const float content = (glyph != UiIcon::count ? 24.f : 0.f) + text;
     const float w = full ? width : minimum(width, content + 32);
-    auto* b = add(s, owner, {left, top, left + w, top + 32}, {}, action, 0, ProfileLook::secondary);
+    auto* b = blank(s, owner, {left, top, left + w, top + 32}, action, ProfileLook::secondary);
     if (!b)
         return -1;
     b->media = ProfileMediaKind::activity_action;
@@ -478,8 +500,8 @@ float card_button(ProfileScene* s, UiWidgetHandle owner, float left, float top, 
             return -1;
         x += 24;
     }
-    if (!add(s, owner, {x, top, maximum(x + 1, minimum(x + text + 1, left + w - 16)), top + 32}, label,
-             ProfileAction::none, kSm | text_style_bold, ProfileLook::plain, tone))
+    if (!caption(s, owner, {x, top, maximum(x + 1, minimum(x + text + 1, left + w - 16)), top + 32}, label,
+                 kSm | text_style_bold, tone))
         return -1;
     return w;
 }
@@ -492,7 +514,7 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
     const auto m = card_metrics(large);
     if (!profile_activity_content(a, bot(*s), self(*s), &c))
         return 0;
-    auto* background = add(s, owner, {left, top, right, top + 1}, {}, action, 0, ProfileLook::card);
+    auto* background = blank(s, owner, {left, top, right, top + 1}, action, ProfileLook::card);
     if (!background)
         return -1;
     background->media = ProfileMediaKind::activity_card;
@@ -500,8 +522,8 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
     const u16 source = static_cast<u16>(item);
     float y = top + m.pad;
     if (c.heading.bytes) {
-        if (!add(s, owner, {left + m.pad, y, right - m.pad, y + 16}, c.heading.view(), ProfileAction::none,
-                 kXs | text_style_bold, ProfileLook::plain, ProfileTone::strong))
+        if (!caption(s, owner, {left + m.pad, y, right - m.pad, y + 16}, c.heading.view(), kXs | text_style_bold,
+                     ProfileTone::strong))
             return -1;
         y += 16 + 8;
     }
@@ -519,8 +541,8 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
                                     : art.large == UserActivityArt::small_image
                                         ? user_activity_text(a, UserActivityField::small_text)
                                         : Utf8View{};
-        auto* image = add(s, owner, {left + m.pad, row, left + m.pad + m.image, row + m.image}, {},
-                          large_hint.bytes ? hint_action(*s) : ProfileAction::none);
+        auto* image = blank(s, owner, {left + m.pad, row, left + m.pad + m.image, row + m.image},
+                            large_hint.bytes ? hint_action(*s) : ProfileAction::none);
         if (!image)
             return -1;
         image->media = ProfileMediaKind::activity_large;
@@ -531,8 +553,8 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
         if (art.badge) {
             const float x = left + m.pad + m.image + 4, sy = row + m.image + 4;
             const auto small_hint = user_activity_text(a, UserActivityField::small_text);
-            auto* corner = add(s, owner, {x - m.small, sy - m.small, x, sy}, {},
-                               small_hint.bytes ? hint_action(*s) : ProfileAction::none);
+            auto* corner = blank(s, owner, {x - m.small, sy - m.small, x, sy},
+                                 small_hint.bytes ? hint_action(*s) : ProfileAction::none);
             if (!corner)
                 return -1;
             corner->media = ProfileMediaKind::activity_small;
@@ -565,7 +587,7 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
         if (cy > row)
             cy += 4;
         float x = 0, line_top = cy;
-        const auto chip = [&](ProfileActivityGlyph glyph, Utf8View text, bool timed) noexcept {
+        const auto chip = [&](ProfileActivityGlyph glyph, const Utf8View& text, bool timed) noexcept {
             const float label = timed ? clock_width(s, text, kXs) : text_width(s, text, 4096, kXs);
             const float w = minimum(column, 16 + label);
             if (x > 0 && x + w > column) {
@@ -577,8 +599,8 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
             auto* glyph_part = icon(s, owner, {cx, line_top + 2, cx + 12, line_top + 14},
                                     profile_activity_glyph_icon(glyph), ProfileAction::none,
                                     timed ? ProfileTone::positive : ProfileTone::subtle);
-            auto* label_part = glyph_part ? add(s, owner, {cx + 16, line_top, cx + w, line_top + kCardLine}, text,
-                                                ProfileAction::none, kXs, ProfileLook::plain, tone)
+            auto* label_part = glyph_part ? caption(s, owner, {cx + 16, line_top, cx + w, line_top + kCardLine}, text,
+                                                    kXs, tone)
                                           : nullptr;
             if (!label_part)
                 return false;
@@ -615,11 +637,9 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
         // Digits as 8s size the ends; monospace would draw an inline-code box.
         const u32 flags = kXs;
         const float label = maximum(clock_width(s, elapsed.view(), flags), clock_width(s, total.view(), flags));
-        auto* left_label = add(s, owner, {text_left, cy, text_left + label, cy + kCardLine}, elapsed.view(),
-                               ProfileAction::none, flags);
-        auto* right_label = add(s, owner, {text_right - label, cy, text_right, cy + kCardLine}, total.view(),
-                                ProfileAction::none, flags);
-        auto* bar = add(s, owner, {text_left + label + 8, cy + 7, maximum(text_left + label + 9, text_right - label - 8), cy + 9});
+        auto* left_label = caption(s, owner, {text_left, cy, text_left + label, cy + kCardLine}, elapsed.view(), flags);
+        auto* right_label = caption(s, owner, {text_right - label, cy, text_right, cy + kCardLine}, total.view(), flags);
+        auto* bar = blank(s, owner, {text_left + label + 8, cy + 7, maximum(text_left + label + 9, text_right - label - 8), cy + 9});
         if (!left_label || !right_label || !bar)
             return -1;
         left_label->media = ProfileMediaKind::activity_text;
@@ -733,7 +753,7 @@ float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top
     }
     const float width = maximum(42.f, minimum(max_width, content_width + 26)),
                 height = content_height + 18;
-    if (!add(s, owner, {left, top, left + width, top + height}, {}, ProfileAction::none, 0, ProfileLook::bubble))
+    if (!blank(s, owner, {left, top, left + width, top + height}, ProfileAction::none, ProfileLook::bubble))
         return -1;
     const float x = left + 13, y = top + 9;
     if (emoji) {
@@ -747,8 +767,7 @@ float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top
             e->media = ProfileMediaKind::status_emoji;
     }
     if (text.bytes) {
-        auto* line = add(s, owner, {x + emoji_width, y, left + width - 13, y + content_height}, text,
-                         ProfileAction::none, kSm);
+        auto* line = caption(s, owner, {x + emoji_width, y, left + width - 13, y + content_height}, text, kSm);
         if (!line)
             return -1;
         line->wrap = content_height > 18;
@@ -820,26 +839,23 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
     // many show before "+N".
     const u32 room = capacity > s->part_count + 64 ? (capacity - s->part_count - 64) / 3 : 0;
     const bool collapse = clamp && s->roles_expanded && count <= room;
+    const auto set_more = [&](u32 hidden_count) noexcept {
+        more_text.bytes = 0;
+        append(&more_text, utf8_literal("+"));
+        append_number(&more_text, hidden_count);
+        more_width = maximum(24.f, text_width(s, more_text.view(), width, kXs) + 16);
+    };
     if (count > room && (!clamp || s->roles_expanded)) {
         visible = room;
-        append(&more_text, utf8_literal("+"));
-        append_number(&more_text, count - visible);
-        more_width = maximum(24.f, text_width(s, more_text.view(), width, kXs) + 16);
+        set_more(count - visible);
     } else if (clamp && !s->roles_expanded && lines(count, false, 0) > 2) {
         for (visible = count; visible > 0; --visible) {
-            more_text.bytes = 0;
-            append(&more_text, utf8_literal("+"));
-            append_number(&more_text, count - visible);
-            more_width = maximum(24.f, text_width(s, more_text.view(), width, kXs) + 16);
+            set_more(count - visible);
             if (lines(visible, true, more_width) <= 2)
                 break;
         }
-        if (!visible) {
-            more_text.bytes = 0;
-            append(&more_text, utf8_literal("+"));
-            append_number(&more_text, count);
-            more_width = maximum(24.f, text_width(s, more_text.view(), width, kXs) + 16);
-        }
+        if (!visible)
+            set_more(count);
     }
     float x = 0, y = 0;
     const auto slot = [&](float w) noexcept {
@@ -854,13 +870,13 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
     for (u32 i = 0; i < visible; ++i) {
         const auto& item = items[i];
         const auto r = slot(item.width);
-        auto* pill = add(s, owner, r, {}, ProfileAction::none, 0, ProfileLook::role);
+        auto* pill = blank(s, owner, r, ProfileAction::none, ProfileLook::role);
         if (!pill)
             return -1;
         pill->color = item.role->color ? packed(item.role->color) : Color{};
         pill->target = item.role->id;
-        if (!add(s, owner, {r.left + 22, r.top + 4, r.right - (item.removable ? 24.f : 8.f), r.bottom - 4},
-                 item.name, ProfileAction::none, kXs))
+        if (!caption(s, owner, {r.left + 22, r.top + 4, r.right - (item.removable ? 24.f : 8.f), r.bottom - 4},
+                     item.name, kXs))
             return -1;
         if (item.removable) {
             auto* remove = icon(s, owner, {r.right - 24, r.top, r.right, r.bottom}, UiIcon::close,
@@ -911,8 +927,8 @@ float plugin_section(ProfileScene* s, UiWidgetHandle owner, float left, float to
             x = 0;
             y += 30;
         }
-        auto* part = add(s, owner, {left + x, top + y, left + x + chip, top + y + 26}, {},
-                         node.kind == ui_plugin_node_button ? ProfileAction::plugin_slot : ProfileAction::none);
+        auto* part = blank(s, owner, {left + x, top + y, left + x + chip, top + y + 26},
+                           node.kind == ui_plugin_node_button ? ProfileAction::plugin_slot : ProfileAction::none);
         if (!part || !ui_badge_attach(&part->badge, &s->widgets, part->widget, label, {}, true, false,
                                       text_style_subtext))
             return -1;
@@ -963,7 +979,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     s->name_widget = name->widget;
     float x = left + name_width + 4;
     if (tag) {
-        auto* badge = add(s, owner, {x, top + (line - 20) * .5f, x + tag - 4, top + (line + 20) * .5f});
+        auto* badge = blank(s, owner, {x, top + (line - 20) * .5f, x + tag - 4, top + (line + 20) * .5f});
         if (!badge || !ui_badge_attach(&badge->badge, &s->widgets, badge->widget, utf8_literal("APP"), {}, false,
                                        false, text_style_subtext | text_style_bold))
             return -1;
@@ -991,7 +1007,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     const auto profile_display_info = profile_display(p);
     if (profile_display_info.guild_avatar && p.avatar.bytes) {
         const float size = p.nickname.bytes ? 16.f : 24.f;
-        auto* main = add(s, owner, slot(size, size));
+        auto* main = blank(s, owner, slot(size, size));
         if (!main)
             return -1;
         main->media = ProfileMediaKind::peer_avatar;
@@ -1002,11 +1018,10 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         return -1;
     if (pronouns.bytes) {
         auto dot = slot(6, 18);
-        if (!add(s, owner, {dot.left + 1, dot.top + 7, dot.left + 5, dot.top + 11}, {}, ProfileAction::none, 0,
-                 ProfileLook::dot))
+        if (!blank(s, owner, {dot.left + 1, dot.top + 7, dot.left + 5, dot.top + 11}, ProfileAction::none,
+                   ProfileLook::dot))
             return -1;
-        if (!add(s, owner, slot(text_width(s, pronouns, width, kSm) + 2, 18), pronouns, ProfileAction::none, kSm,
-                 ProfileLook::plain, ProfileTone::strong))
+        if (!caption(s, owner, slot(text_width(s, pronouns, width, kSm) + 2, 18), pronouns, kSm, ProfileTone::strong))
             return -1;
     }
     const auto& a = p.user_appearance;
@@ -1016,13 +1031,13 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         const auto r = slot(ui_rect_width(measured.outer), 20);
         // The chip opens the server tag popout (live cards only).
         const auto tag_action = interactive(*s) && a.primary_guild_id ? ProfileAction::guild_tag : ProfileAction::none;
-        auto* tag_part = add(s, owner, r, {}, tag_action);
+        auto* tag_part = blank(s, owner, r, tag_action);
         if (!tag_part || !ui_badge_attach(&tag_part->badge, &s->widgets, tag_part->widget, a.primary_tag.view(), {},
                                           true, false, text_style_subtext))
             return -1;
         tag_part->target = a.primary_guild_id;
         const auto layout = ui_badge_layout(s->measure, a.primary_tag.view(), r, true, text_style_subtext);
-        auto* glyph = add(s, owner, layout.icon, {}, tag_action);
+        auto* glyph = blank(s, owner, layout.icon, tag_action);
         if (!glyph)
             return -1;
         glyph->media = ProfileMediaKind::guild_icon;
@@ -1041,7 +1056,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
             if (bx + 20 > left + width)
                 continue;
             // Bare 20 DIP images, 2 apart; the description is the tooltip.
-            auto* b = add(s, owner, {bx, by, bx + 20, by + 20}, {}, ProfileAction::badge);
+            auto* b = blank(s, owner, {bx, by, bx + 20, by + 20}, ProfileAction::badge);
             if (!b)
                 return -1;
             b->media = ProfileMediaKind::badge;
@@ -1052,7 +1067,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     return row_top + row_height - top;
 }
 
-float button(ProfileScene* s, UiWidgetHandle owner, float left, float top, Utf8View label, UiIcon glyph,
+float button(ProfileScene* s, UiWidgetHandle owner, float left, float top, const Utf8View& label, UiIcon glyph,
              ProfileAction action, bool primary, float width = 0) noexcept;
 // Relationship notices: the incoming friend request
 // card with Accept, or "You blocked them".
@@ -1061,27 +1076,60 @@ float notices(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
         return 0;
     const float pad = large ? 12.f : 16.f;
     if (s->relation == 4) {
-        if (!add(s, owner, {left, top, left + width, top + 18 + pad * 2}, {}, ProfileAction::none, 0, ProfileLook::card) ||
-            !add(s, owner, {left + pad, top + pad, left + width - pad, top + pad + 18}, utf8_literal("You blocked them"),
-                 ProfileAction::none, kSm | text_style_bold))
+        if (!blank(s, owner, {left, top, left + width, top + 18 + pad * 2}, ProfileAction::none, ProfileLook::card) ||
+            !caption(s, owner, {left + pad, top + pad, left + width - pad, top + pad + 18}, utf8_literal("You blocked them"),
+                     kSm | text_style_bold))
             return -1;
         return 18 + pad * 2;
     }
     const float line = 18, button_top = top + pad + line + 8;
-    if (!add(s, owner, {left, top, left + width, button_top + 32 + pad}, {}, ProfileAction::none, 0, ProfileLook::card))
+    if (!blank(s, owner, {left, top, left + width, button_top + 32 + pad}, ProfileAction::none, ProfileLook::card))
         return -1;
     const auto name = s->profile->username.view();
     const float name_width = text_width(s, name, width - pad * 2, kSm | text_style_bold);
-    if (!add(s, owner, {left + pad, top + pad, left + pad + name_width, top + pad + line}, name, ProfileAction::none,
-             kSm | text_style_bold) ||
-        !add(s, owner, {left + pad + name_width, top + pad, left + width - pad, top + pad + line},
-             utf8_literal(" sent you a friend request."), ProfileAction::none, kSm))
+    if (!caption(s, owner, {left + pad, top + pad, left + pad + name_width, top + pad + line}, name,
+                 kSm | text_style_bold) ||
+        !caption(s, owner, {left + pad + name_width, top + pad, left + width - pad, top + pad + line},
+                 utf8_literal(" sent you a friend request."), kSm))
         return -1;
     if (interactive(*s) &&
         button(s, owner, left + pad, button_top, utf8_literal("Accept"), UiIcon::count, ProfileAction::accept_friend,
                true) < 0)
         return -1;
     return button_top + 32 + pad - top;
+}
+// A mutual peer's name; a server shows the guild's current name.
+Utf8View peer_name(const ProfileScene& s, bool friends, const ProfilePeer& peer) noexcept {
+    if (!friends && s.state)
+        if (const auto* guild = chat_state_store_find_guild(*s.state, peer.id))
+            return chat_state_store_guild_name(*s.state, *guild);
+    return peer.name.view();
+}
+// A mutual friend's or server's row with its face; both carry the peer's index.
+bool peer_row(ProfileScene* s, UiWidgetHandle owner, bool friends, u32 index, const UiRect& row_rect,
+              const UiRect& face_rect) noexcept {
+    auto* row = blank(s, owner, row_rect, friends ? ProfileAction::open_friend : ProfileAction::open_server,
+                      ProfileLook::row);
+    auto* face = row ? blank(s, owner, face_rect) : nullptr;
+    if (!face)
+        return false;
+    row->source = face->source = static_cast<u16>(index);
+    face->media = friends ? ProfileMediaKind::peer_avatar : ProfileMediaKind::peer_guild;
+    return true;
+}
+// One chip of the mutuals row: its hit area, the stacked faces and the count text.
+bool mutual_chip(ProfileScene* s, UiWidgetHandle owner, float x, float top, float w, float stack, u32 faces,
+                 ProfileAction action, ProfileMediaKind media, const Utf8View& text, u32 flags) noexcept {
+    if (!blank(s, owner, {x, top, x + w, top + 24}, action))
+        return false;
+    for (u32 i = faces; i > 0; --i) {
+        auto* face = blank(s, owner, {x + (i - 1) * 12.f, top + 4, x + (i - 1) * 12.f + 16, top + 20});
+        if (!face)
+            return false;
+        face->media = media;
+        face->source = static_cast<u16>(i - 1);
+    }
+    return caption(s, owner, {x + stack, top + 4, x + w, top + 20}, text, flags, ProfileTone::subtle) != nullptr;
 }
 // The popout's mutuals row.
 float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
@@ -1100,23 +1148,14 @@ float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
         const u32 faces = minimum<u32>(3, p.mutual_friends_count);
         const float stack = faces ? 16 + (faces - 1) * 12.f + 4 : 0;
         const float w = minimum(width, stack + text_width(s, text.view(), width, flags));
-        if (!add(s, owner, {x, top, x + w, top + 24}, {}, ProfileAction::friends, 0, ProfileLook::plain))
-            return -1;
-        for (u32 i = faces; i > 0; --i) {
-            auto* face = add(s, owner, {x + (i - 1) * 12.f, top + 4, x + (i - 1) * 12.f + 16, top + 20});
-            if (!face)
-                return -1;
-            face->media = ProfileMediaKind::peer_avatar;
-            face->source = static_cast<u16>(i - 1);
-        }
-        if (!add(s, owner, {x + stack, top + 4, x + w, top + 20}, text.view(), ProfileAction::none, flags,
-                 ProfileLook::plain, ProfileTone::subtle))
+        if (!mutual_chip(s, owner, x, top, w, stack, faces, ProfileAction::friends, ProfileMediaKind::peer_avatar,
+                         text.view(), flags))
             return -1;
         x += w + 6;
     }
     if (servers) {
         if (friends) {
-            if (!add(s, owner, {x, top + 10, x + 4, top + 14}, {}, ProfileAction::none, 0, ProfileLook::dot))
+            if (!blank(s, owner, {x, top + 10, x + 4, top + 14}, ProfileAction::none, ProfileLook::dot))
                 return -1;
             x += 10;
         }
@@ -1127,20 +1166,9 @@ float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
         const u32 icons = friends ? 0 : minimum<u32>(3, p.mutual_guild_count);
         const float stack = icons ? 16 + (icons - 1) * 12.f + 4 : 0;
         const float w = minimum(left + width - x, stack + text_width(s, text.view(), width, flags));
-        if (w > 0) {
-            if (!add(s, owner, {x, top, x + w, top + 24}, {}, ProfileAction::servers, 0, ProfileLook::plain))
-                return -1;
-            for (u32 i = icons; i > 0; --i) {
-                auto* face = add(s, owner, {x + (i - 1) * 12.f, top + 4, x + (i - 1) * 12.f + 16, top + 20});
-                if (!face)
-                    return -1;
-                face->media = ProfileMediaKind::peer_guild;
-                face->source = static_cast<u16>(i - 1);
-            }
-            if (!add(s, owner, {x + stack, top + 4, x + w, top + 20}, text.view(), ProfileAction::none, flags,
-                     ProfileLook::plain, ProfileTone::subtle))
-                return -1;
-        }
+        if (w > 0 && !mutual_chip(s, owner, x, top, w, stack, icons, ProfileAction::servers,
+                                  ProfileMediaKind::peer_guild, text.view(), flags))
+            return -1;
     }
     return 24;
 }
@@ -1182,8 +1210,7 @@ float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
     if (overflow)
         height = 54;
     // The text-sm size rides on the bio's own style spans.
-    auto* text = add(s, owner, {left, top, left + width, top + height}, bio, ProfileAction::none, 0,
-                     ProfileLook::plain, ProfileTone::strong);
+    auto* text = caption(s, owner, {left, top, left + width, top + height}, bio, 0, ProfileTone::strong);
     if (!text)
         return -1;
     text->wrap = true;
@@ -1192,23 +1219,22 @@ float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
         return height;
     constexpr auto label = utf8_literal("View Full Bio");
     const float w = text_width(s, label, width, kXs) + 24;
-    auto* button = add(s, owner, {left, top + height + 8, left + w, top + height + 40}, {}, ProfileAction::view_bio,
-                       0, ProfileLook::secondary);
-    if (!button || !add(s, owner, {left + 12, top + height + 8, left + w - 12, top + height + 40}, label,
-                        ProfileAction::none, kXs))
+    auto* button = blank(s, owner, {left, top + height + 8, left + w, top + height + 40}, ProfileAction::view_bio,
+                         ProfileLook::secondary);
+    if (!button || !caption(s, owner, {left + 12, top + height + 8, left + w - 12, top + height + 40}, label, kXs))
         return -1;
     return height + 40;
 }
 
 // A primary or secondary button with an optional leading icon; zero-width
 // labels make a square icon button. Returns its width.
-float button(ProfileScene* s, UiWidgetHandle owner, float left, float top, Utf8View label, UiIcon glyph,
+float button(ProfileScene* s, UiWidgetHandle owner, float left, float top, const Utf8View& label, UiIcon glyph,
              ProfileAction action, bool primary, float width) noexcept {
     const float text = label.bytes ? text_width(s, label, 400, kSm | text_style_bold) : 0;
     const float content = (glyph != UiIcon::count ? 16.f : 0.f) + (label.bytes && glyph != UiIcon::count ? 8.f : 0.f) + text;
     const float w = width ? width : label.bytes ? content + 32 : 32;
-    auto* b = add(s, owner, {left, top, left + w, top + 32}, {}, action, 0,
-                  primary ? ProfileLook::primary : ProfileLook::secondary);
+    auto* b = blank(s, owner, {left, top, left + w, top + 32}, action,
+                    primary ? ProfileLook::primary : ProfileLook::secondary);
     if (!b)
         return -1;
     float x = left + (w - content) * .5f;
@@ -1218,9 +1244,8 @@ float button(ProfileScene* s, UiWidgetHandle owner, float left, float top, Utf8V
             return -1;
         x += 24;
     }
-    if (label.bytes && !add(s, owner, {x, top, x + text + 1, top + 32}, label, ProfileAction::none,
-                            kSm | text_style_bold, ProfileLook::plain,
-                            primary ? ProfileTone::on_accent : ProfileTone::normal))
+    if (label.bytes && !caption(s, owner, {x, top, x + text + 1, top + 32}, label, kSm | text_style_bold,
+                                primary ? ProfileTone::on_accent : ProfileTone::normal))
         return -1;
     return w;
 }
@@ -1243,15 +1268,15 @@ bool header_parts(ProfileScene* s, UiWidgetHandle owner, const UiRect& origin, P
     const auto rel = [&](UiRect r) noexcept {
         return UiRect{r.left - origin.left, r.top - origin.top, r.right - origin.left, r.bottom - origin.top};
     };
-    auto* banner = add(s, owner, rel(s->banner));
-    auto* avatar = add(s, owner, rel(s->avatar), {}, avatar_action);
+    auto* banner = blank(s, owner, rel(s->banner));
+    auto* avatar = blank(s, owner, rel(s->avatar), avatar_action);
     if (!banner || !avatar)
         return false;
     banner->media = ProfileMediaKind::banner;
     avatar->media = ProfileMediaKind::avatar;
     if (!profile_display(*s->profile).decoration.bytes)
         return true;
-    auto* decoration = add(s, owner, rel(s->decoration));
+    auto* decoration = blank(s, owner, rel(s->decoration));
     if (!decoration)
         return false;
     decoration->media = ProfileMediaKind::decoration;
@@ -1269,7 +1294,7 @@ void resolve_theme(ProfileScene* s) noexcept {
 bool can_message(const ProfileScene& s) noexcept {
     return !self(s) && s.relation != 4;
 }
-bool finish(ProfileScene* s, UiRect viewport) noexcept {
+bool finish(ProfileScene* s, const UiRect& viewport) noexcept {
     ++s->revision;
     if (!ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok())
         return false;
@@ -1289,13 +1314,32 @@ bool finish(ProfileScene* s, UiRect viewport) noexcept {
     return true;
 }
 
+// The header rectangles from card coordinates to screen coordinates.
+void header_to_screen(ProfileScene* s, float dx, float dy) noexcept {
+    UiRect* const rects[]{&s->banner, &s->avatar, &s->decoration, &s->status};
+    for (auto* r : rects)
+        *r = {dx + r->left, dy + r->top, dx + r->right, dy + r->bottom};
+}
+// The More and relationship buttons of a live card; bx is the left of More.
+bool header_buttons(ProfileScene* s, float bx, float by) noexcept {
+    if (!icon(s, s->panel, {bx, by, bx + 32, by + 32}, UiIcon::ellipsis, ProfileAction::more, ProfileTone::normal,
+              ProfileLook::header_button))
+        return false;
+    bx -= 40;
+    if (bot(*s) || s->relation == 4)
+        return true;
+    const UiIcon glyph = s->relation == 1 ? UiIcon::user_check : s->relation >= 2 ? UiIcon::recent : UiIcon::user_plus;
+    return icon(s, s->panel, {bx, by, bx + 32, by + 32}, glyph,
+                s->relation ? ProfileAction::relationship : ProfileAction::add_friend, ProfileTone::normal,
+                ProfileLook::header_button) != nullptr;
+}
 // The popout (and the editor preview, which is the same card).
-bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
+bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
     const auto& p = *s->profile;
     const bool live = interactive(*s);
     const float W = kPopoutWidth, pad = s->themed ? 2.f : 0.f;
     const float inner = W - 2 * pad, content = inner - 32, x0 = pad + 16;
-    auto* panel = add(s, s->root, {0, 0, W, 1});
+    auto* panel = blank(s, s->root, {0, 0, W, 1});
     if (!panel)
         return false;
     s->panel = panel->widget;
@@ -1311,8 +1355,7 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
     const float header_bottom = maximum(140.f, bubble ? pad + kPopoutBanner - 10 + bubble : 0.f);
     // Body (scroller): padding 4 16 8, sections 12 apart.
     const float body_top = header_bottom + 8;
-    auto* body = add(s, s->panel, {0, body_top, W, body_top + 1}, {}, ProfileAction::none, 0, ProfileLook::plain,
-                     ProfileTone::normal, true);
+    auto* body = clipped(s, s->panel, {0, body_top, W, body_top + 1});
     if (!body)
         return false;
     s->body = body->widget;
@@ -1324,11 +1367,7 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
     };
     if (!section(name_block(s, s->body, x0, y, content, false)))
         return false;
-    if (s->phase == ProfilePhase::failed &&
-        !section(add(s, s->body, {x0, y, x0 + content, y + 18}, utf8_literal("Unable to load parts of profile"),
-                     ProfileAction::retry, kSm, ProfileLook::plain, ProfileTone::muted)
-                     ? 18.f
-                     : -1.f))
+    if (s->phase == ProfilePhase::failed && !section(failed_notice(s, s->body, x0, y, content)))
         return false;
     if (!section(notices(s, s->body, x0, y, content, false)) || !section(mutuals(s, s->body, x0, y, content)) ||
         !section(biography(s, s->body, x0, y, content, true)))
@@ -1340,8 +1379,8 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
         if (h < 0)
             return false;
         if (peek && h > 0 &&
-            !add(s, s->body, {x0 + 8, y + h - 8, x0 + content - 8, y + h + 8}, {}, ProfileAction::activity, 0,
-                 ProfileLook::peek))
+            !blank(s, s->body, {x0 + 8, y + h - 8, x0 + content - 8, y + h + 8}, ProfileAction::activity,
+                   ProfileLook::peek))
             return false;
         // The peek paints only below the first card, so its order is free.
         if (!section(h + (peek && h > 0 ? 8.f : 0.f)))
@@ -1365,8 +1404,8 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
                    content) < 0)
             return false;
     } else if (footer) {
-        auto* field = add(s, s->panel, {x0, footer_top, x0 + content, footer_top + footer_height}, {},
-                          ProfileAction::message, 0, ProfileLook::input);
+        auto* field = blank(s, s->panel, {x0, footer_top, x0 + content, footer_top + footer_height},
+                            ProfileAction::message, ProfileLook::input);
         auto* widget = field ? ui_widget_manager_resolve(&s->widgets, field->widget) : nullptr;
         if (!widget)
             return false;
@@ -1374,9 +1413,8 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
         s->message_field = field->widget;
     }
     if (s->message_failed && footer &&
-        !add(s, s->panel, {x0, footer_top - 26, x0 + content, footer_top - 6},
-             utf8_literal("Could not send. Press Enter to retry."), ProfileAction::none, kXs, ProfileLook::plain,
-             ProfileTone::muted))
+        !caption(s, s->panel, {x0, footer_top - 26, x0 + content, footer_top - 6},
+                 utf8_literal("Could not send. Press Enter to retry."), kXs, ProfileTone::muted))
         return false;
     // Placement: beside the anchor with 8 DIPs spacing,
     // inverted when it does not fit and nudged into the viewport.
@@ -1412,27 +1450,9 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
     // Header media and controls (relative to the card).
     if (!header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::expand))
         return false;
-    s->banner = absolute(s->banner);
-    s->avatar = absolute(s->avatar);
-    s->decoration = absolute(s->decoration);
-    s->status = absolute(s->status);
-    if (live && !self_card) {
-        float bx = W - pad - 12 - 32;
-        const float by = pad + 8;
-        if (!icon(s, s->panel, {bx, by, bx + 32, by + 32}, UiIcon::ellipsis, ProfileAction::more, ProfileTone::normal,
-                  ProfileLook::header_button))
-            return false;
-        bx -= 40;
-        if (!bot(*s) && s->relation != 4) {
-            const UiIcon glyph = s->relation == 1 ? UiIcon::user_check
-                                 : s->relation >= 2 ? UiIcon::recent
-                                                    : UiIcon::user_plus;
-            if (!icon(s, s->panel, {bx, by, bx + 32, by + 32}, glyph,
-                      s->relation ? ProfileAction::relationship : ProfileAction::add_friend, ProfileTone::normal,
-                      ProfileLook::header_button))
-                return false;
-        }
-    }
+    header_to_screen(s, x, top);
+    if (live && !self_card && !header_buttons(s, W - pad - 12 - 32, pad + 8))
+        return false;
     if (!place(s, s->panel, {x - viewport.left, top - viewport.top, x - viewport.left + W, top - viewport.top + H}) ||
         !place(s, s->body, {0, body_top, W, maximum(body_top + 1, body_bottom)}))
         return false;
@@ -1454,34 +1474,27 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
 }
 
 // Body sections
-float heading(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, Utf8View text) noexcept {
-    return add(s, owner, {left, top, left + width, top + 16}, text, ProfileAction::none, kXs | text_style_bold,
-               ProfileLook::plain, ProfileTone::subtle)
+float heading(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, const Utf8View& text) noexcept {
+    return caption(s, owner, {left, top, left + width, top + 16}, text, kXs | text_style_bold, ProfileTone::subtle)
                ? 24.f
                : -1.f;
 }
-Utf8View platform_name(Utf8View type) noexcept {
-    struct Name {
-        Utf8View type, name;
-    };
-    static constexpr Name names[] = {
-        {utf8_literal("battlenet"), utf8_literal("Battle.net")}, {utf8_literal("bluesky"), utf8_literal("Bluesky")},
-        {utf8_literal("bungie"), utf8_literal("Bungie.net")},    {utf8_literal("crunchyroll"), utf8_literal("Crunchyroll")},
-        {utf8_literal("domain"), utf8_literal("Domain")},        {utf8_literal("ebay"), utf8_literal("eBay")},
-        {utf8_literal("epicgames"), utf8_literal("Epic Games")}, {utf8_literal("facebook"), utf8_literal("Facebook")},
-        {utf8_literal("github"), utf8_literal("GitHub")},        {utf8_literal("instagram"), utf8_literal("Instagram")},
-        {utf8_literal("leagueoflegends"), utf8_literal("League of Legends")},
-        {utf8_literal("mastodon"), utf8_literal("Mastodon")},    {utf8_literal("paypal"), utf8_literal("PayPal")},
-        {utf8_literal("playstation"), utf8_literal("PlayStation")},
-        {utf8_literal("reddit"), utf8_literal("Reddit")},        {utf8_literal("riotgames"), utf8_literal("Riot Games")},
-        {utf8_literal("roblox"), utf8_literal("Roblox")},        {utf8_literal("skype"), utf8_literal("Skype")},
-        {utf8_literal("spotify"), utf8_literal("Spotify")},      {utf8_literal("steam"), utf8_literal("Steam")},
-        {utf8_literal("tiktok"), utf8_literal("TikTok")},        {utf8_literal("twitch"), utf8_literal("Twitch")},
-        {utf8_literal("twitter"), utf8_literal("X")},            {utf8_literal("xbox"), utf8_literal("Xbox")},
-        {utf8_literal("youtube"), utf8_literal("YouTube")}};
-    for (const auto& n : names)
-        if (utf8_equal(n.type, type))
-            return n.name;
+Utf8View platform_name(const Utf8View& type) noexcept {
+    // "type", "Display Name" pairs, each NUL-terminated.
+    static constexpr char names[] =
+        "battlenet\0Battle.net\0bluesky\0Bluesky\0bungie\0Bungie.net\0crunchyroll\0Crunchyroll\0domain\0Domain\0"
+        "ebay\0eBay\0epicgames\0Epic Games\0facebook\0Facebook\0github\0GitHub\0instagram\0Instagram\0"
+        "leagueoflegends\0League of Legends\0mastodon\0Mastodon\0paypal\0PayPal\0playstation\0PlayStation\0"
+        "reddit\0Reddit\0riotgames\0Riot Games\0roblox\0Roblox\0skype\0Skype\0spotify\0Spotify\0steam\0Steam\0"
+        "tiktok\0TikTok\0twitch\0Twitch\0twitter\0X\0xbox\0Xbox\0youtube\0YouTube";
+    for (const char* at = names; at < names + sizeof(names) - 1;) {
+        const u32 type_bytes = c_string_length(at);
+        const char* name = at + type_bytes + 1;
+        const u32 name_bytes = c_string_length(name);
+        if (utf8_equal({at, type_bytes}, type))
+            return {name, name_bytes};
+        at = name + name_bytes + 1;
+    }
     return type;
 }
 float member_since(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
@@ -1499,17 +1512,17 @@ float member_since(ProfileScene* s, UiWidgetHandle owner, float left, float top,
     l.member_since[0].bytes = 0;
     append_date(&l.member_since[0], ((p.user_id >> 22) + 1420070400000ull) / 1000);
     const float first = text_width(s, l.member_since[0].view(), width - (x - left), kSm);
-    if (!add(s, owner, {x, y, x + first, y + 18}, l.member_since[0].view(), ProfileAction::none, kSm))
+    if (!caption(s, owner, {x, y, x + first, y + 18}, l.member_since[0].view(), kSm))
         return -1;
     x += first;
     u64 joined = 0;
     const auto* guild = s->state && p.guild_id ? chat_state_store_find_guild(*s->state, p.guild_id) : nullptr;
     if (guild && p.joined_at.bytes && parse_iso_timestamp({p.joined_at.view(), 0, false}, &joined)) {
         x += 8;
-        if (!add(s, owner, {x, y + 7, x + 4, y + 11}, {}, ProfileAction::none, 0, ProfileLook::dot))
+        if (!blank(s, owner, {x, y + 7, x + 4, y + 11}, ProfileAction::none, ProfileLook::dot))
             return -1;
         x += 12;
-        auto* glyph = add(s, owner, {x, y + 1, x + 16, y + 17});
+        auto* glyph = blank(s, owner, {x, y + 1, x + 16, y + 17});
         if (!glyph)
             return -1;
         glyph->media = ProfileMediaKind::member_guild;
@@ -1517,7 +1530,7 @@ float member_since(ProfileScene* s, UiWidgetHandle owner, float left, float top,
         l.member_since[1].bytes = 0;
         append_date(&l.member_since[1], joined / 1000);
         if (left + width > x &&
-            !add(s, owner, {x, y, left + width, y + 18}, l.member_since[1].view(), ProfileAction::none, kSm))
+            !caption(s, owner, {x, y, left + width, y + 18}, l.member_since[1].view(), kSm))
             return -1;
     }
     return h + 18;
@@ -1535,20 +1548,20 @@ float connections(ProfileScene* s, UiWidgetHandle owner, float left, float top, 
         if (i)
             y += 16;
         // No platform icons are shipped: the box carries the platform initial.
-        auto* box = add(s, owner, {left, y, left + 24, y + 24}, {}, ProfileAction::none, 0, ProfileLook::box);
+        auto* box = blank(s, owner, {left, y, left + 24, y + 24}, ProfileAction::none, ProfileLook::box);
         const auto platform = platform_name(c.type.view());
         l.connection_initial[i][0] = platform.bytes ? platform.data[0] : '?';
         if (l.connection_initial[i][0] >= 'a' && l.connection_initial[i][0] <= 'z')
             l.connection_initial[i][0] = static_cast<char>(l.connection_initial[i][0] - 32);
-        auto* initial = box ? add(s, owner, {left, y, left + 24, y + 24}, {l.connection_initial[i], 1},
-                                  ProfileAction::none, kXs | text_style_bold)
+        auto* initial = box ? caption(s, owner, {left, y, left + 24, y + 24}, {l.connection_initial[i], 1},
+                                      kXs | text_style_bold)
                             : nullptr;
         if (!initial)
             return -1;
         initial->centered = true;
         const float info = left + 32;
         const float name = text_width(s, c.name.view(), width - 32 - (c.verified ? 20.f : 0.f), kSm);
-        if (!add(s, owner, {info, y, info + name, y + 18}, c.name.view(), ProfileAction::none, kSm))
+        if (!caption(s, owner, {info, y, info + name, y + 18}, c.name.view(), kSm))
             return -1;
         if (c.verified && !icon(s, owner, {info + name + 4, y + 1, info + name + 20, y + 17}, UiIcon::badge_check,
                                 ProfileAction::none))
@@ -1561,8 +1574,7 @@ float connections(ProfileScene* s, UiWidgetHandle owner, float left, float top, 
             append_date(&line, created / 1000);
         } else
             append(&line, platform);
-        if (!add(s, owner, {info, y + 22, left + width, y + 38}, line.view(), ProfileAction::none, kXs,
-                 ProfileLook::plain, ProfileTone::subtle))
+        if (!caption(s, owner, {info, y + 22, left + width, y + 38}, line.view(), kXs, ProfileTone::subtle))
             return -1;
         y += 38;
     }
@@ -1577,7 +1589,7 @@ float note_section(ProfileScene* s, UiWidgetHandle owner, float left, float top,
     s->note_offset = top;
     const float y = top + h;
     if (s->note_editing) {
-        auto* field = add(s, owner, {left - 4, y, left + width, y + 34}, {}, ProfileAction::note, 0, ProfileLook::input);
+        auto* field = blank(s, owner, {left - 4, y, left + width, y + 34}, ProfileAction::note, ProfileLook::input);
         auto* widget = field ? ui_widget_manager_resolve(&s->widgets, field->widget) : nullptr;
         if (!widget)
             return -1;
@@ -1628,7 +1640,7 @@ float modal_buttons(ProfileScene* s, UiWidgetHandle owner, float left, float top
     return 32;
 }
 // The tab panel.
-bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad, const u8* order, u32 cards) noexcept {
+bool tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8* order, u32 cards) noexcept {
     const auto& p = *s->profile;
     auto& l = labels(s);
     const bool mutuals = !self(*s) && !bot(*s);
@@ -1658,23 +1670,22 @@ bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad, const u8* order,
         const float w = text_width(s, titles[i], panel.right - x, kSm | text_style_bold);
         if (w <= 0)
             break;
-        auto* tab = add(s, s->panel, {x, tab_top, x + w, tab_top + 30}, {}, actions[i], 0, ProfileLook::tab);
-        if (!tab || !add(s, s->panel, {x, tab_top, x + w + 1, tab_top + 14}, titles[i], ProfileAction::none,
-                         kSm | text_style_bold, ProfileLook::plain,
-                         i == s->tab ? (s->themed ? ProfileTone::strong : ProfileTone::link) : ProfileTone::subtle))
+        auto* tab = blank(s, s->panel, {x, tab_top, x + w, tab_top + 30}, actions[i], ProfileLook::tab);
+        if (!tab || !caption(s, s->panel, {x, tab_top, x + w + 1, tab_top + 14}, titles[i], kSm | text_style_bold,
+                             i == s->tab ? (s->themed ? ProfileTone::strong : ProfileTone::link) : ProfileTone::subtle))
             return false;
         tab->source = static_cast<u16>(i);
         x += w + 24;
     }
-    if (!add(s, s->panel, {panel.left, tab_top + 30, panel.right, tab_top + 31}, {}, ProfileAction::none, 0,
-             ProfileLook::rule))
+    if (!blank(s, s->panel, {panel.left, tab_top + 30, panel.right, tab_top + 31}, ProfileAction::none,
+               ProfileLook::rule))
         return false;
     const UiRect list{panel.left, tab_top + 31 + 20, panel.right, panel.bottom - bottom_pad};
     if (!ui_rect_has_area(list))
         return true;
     s->secondary_viewport = {s->rectangle.left + list.left, s->rectangle.top + list.top,
                              s->rectangle.left + list.right, s->rectangle.top + list.bottom};
-    auto* container = add(s, s->panel, list, {}, ProfileAction::none, 0, ProfileLook::plain, ProfileTone::normal, true);
+    auto* container = clipped(s, s->panel, list);
     if (!container)
         return false;
     const float width = ui_rect_width(list) - 16;
@@ -1692,8 +1703,8 @@ bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad, const u8* order,
         if (y > 0)
             y -= 8;
         else {
-            if (!add(s, container->widget, {0, 0, width, 18}, utf8_literal("No current activity"), ProfileAction::none,
-                     kSm, ProfileLook::plain, ProfileTone::muted))
+            if (!caption(s, container->widget, {0, 0, width, 18}, utf8_literal("No current activity"), kSm,
+                         ProfileTone::muted))
                 return false;
             y = 18;
         }
@@ -1708,35 +1719,24 @@ bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad, const u8* order,
                   last = minimum(n, first + static_cast<u32>(ui_rect_height(list) / 50) + 2);
         for (u32 i = first; i < last; ++i) {
             const auto& peer = friends ? p.mutual_friends[i] : p.mutual_guilds[i];
-            Utf8View name = peer.name.view();
-            if (!friends && s->state)
-                if (const auto* guild = chat_state_store_find_guild(*s->state, peer.id))
-                    name = chat_state_store_guild_name(*s->state, *guild);
+            const auto name = peer_name(*s, friends, peer);
             const float y = i * 50.f + 1;
-            auto* row = add(s, container->widget, {0, y, width, y + 48}, {},
-                            friends ? ProfileAction::open_friend : ProfileAction::open_server, 0, ProfileLook::row);
-            if (!row)
+            if (!peer_row(s, container->widget, friends, i, {0, y, width, y + 48}, {4, y + 4, 44, y + 44}))
                 return false;
-            row->source = static_cast<u16>(i);
-            auto* face = add(s, container->widget, {4, y + 4, 44, y + 44});
-            if (!face)
-                return false;
-            face->media = friends ? ProfileMediaKind::peer_avatar : ProfileMediaKind::peer_guild;
-            face->source = static_cast<u16>(i);
             const auto* status =
                 friends && s->users ? user_appearance_find_activity(s->users->appearance, peer.id) : nullptr;
             const bool second = status && status->activity.bytes;
             const float name_top = second ? y + 6 : y + 14;
             if (name.bytes &&
-                !add(s, container->widget, {54, name_top, width - 4, name_top + 20}, name, ProfileAction::none, kMd))
+                !caption(s, container->widget, {54, name_top, width - 4, name_top + 20}, name, kMd))
                 return false;
-            if (second && !add(s, container->widget, {54, y + 26, width - 4, y + 42}, status->activity.view(),
-                               ProfileAction::none, kXs, ProfileLook::plain, ProfileTone::subtle))
+            if (second && !caption(s, container->widget, {54, y + 26, width - 4, y + 42}, status->activity.view(), kXs,
+                                   ProfileTone::subtle))
                 return false;
         }
-        if (!n && !add(s, container->widget, {0, 0, width, 18},
-                       friends ? utf8_literal("No Mutual Friends") : utf8_literal("No Mutual Servers"),
-                       ProfileAction::none, kSm, ProfileLook::plain, ProfileTone::muted))
+        if (!n && !caption(s, container->widget, {0, 0, width, 18},
+                           friends ? utf8_literal("No Mutual Friends") : utf8_literal("No Mutual Servers"), kSm,
+                           ProfileTone::muted))
             return false;
     }
     s->secondary_scroll =
@@ -1745,7 +1745,7 @@ bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad, const u8* order,
 }
 
 // The full profile modal.
-bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
+bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept {
     const float vw = ui_rect_width(viewport), vh = ui_rect_height(viewport);
     const bool wide = vw >= 929, tall = vh >= 785;
     const float mw = wide ? minimum(962.f, vw - 96) : vw;
@@ -1758,8 +1758,8 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     const float card_w = minimum(maximum(300.f, .455f * vw - (wide ? .91f * 48 : 0.f)), 400.f);
     const float cp = card_w <= 380 ? 24.f : 32.f;
     const float size = card_w <= 350 ? 96.f : 120.f;
-    auto* panel = add(s, s->root, {x - viewport.left, top - viewport.top, x - viewport.left + mw, top - viewport.top + mh},
-                      {}, ProfileAction::none, 0, ProfileLook::plain, ProfileTone::normal, true);
+    auto* panel = clipped(s, s->root, {x - viewport.left, top - viewport.top, x - viewport.left + mw,
+                                       top - viewport.top + mh});
     if (!panel)
         return false;
     s->panel = panel->widget;
@@ -1779,8 +1779,7 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
         return false;
     const float header_bottom = maximum(s->avatar.bottom + 12, bubble ? bubble_top + bubble + 8 : 0.f);
     // Card body: gap 24, padding 4 cp cp (end cp - 8), scrolled with fade.
-    auto* body = add(s, s->panel, {card.left, header_bottom, card.right, mh}, {}, ProfileAction::none, 0,
-                     ProfileLook::plain, ProfileTone::normal, true);
+    auto* body = clipped(s, s->panel, {card.left, header_bottom, card.right, mh});
     if (!body)
         return false;
     s->body = body->widget;
@@ -1793,11 +1792,7 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     };
     if (!section(name_block(s, s->body, cp, y, content, true)))
         return false;
-    if (s->phase == ProfilePhase::failed &&
-        !section(add(s, s->body, {cp, y, cp + content, y + 18}, utf8_literal("Unable to load parts of profile"),
-                     ProfileAction::retry, kSm, ProfileLook::plain, ProfileTone::muted)
-                     ? 18.f
-                     : -1.f))
+    if (s->phase == ProfilePhase::failed && !section(failed_notice(s, s->body, cp, y, content)))
         return false;
     if (!section(notices(s, s->body, cp, y, content, true)) ||
         !section(interactive(*s) ? modal_buttons(s, s->body, cp, y) : 0.f) ||
@@ -1838,13 +1833,7 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     if (interactive(*s) && !icon(s, s->panel, {mw - 40, 8, mw - 8, 40}, UiIcon::close, ProfileAction::close,
                                  ProfileTone::normal, ProfileLook::header_button))
         return false;
-    const auto absolute = [&](UiRect r) noexcept {
-        return UiRect{x + r.left, top + r.top, x + r.right, top + r.bottom};
-    };
-    s->banner = absolute(s->banner);
-    s->avatar = absolute(s->avatar);
-    s->decoration = absolute(s->decoration);
-    s->status = absolute(s->status);
+    header_to_screen(s, x, top);
     s->preview_height = mh;
     return finish(s, viewport);
 }
@@ -1864,10 +1853,9 @@ float panel_mutual_section(ProfileScene* s, UiWidgetHandle owner, float left, fl
     append(&text, friends ? utf8_literal("Mutual Friends \xE2\x80\x94 ") : utf8_literal("Mutual Servers \xE2\x80\x94 "));
     append_number(&text, count);
     const bool open = s->sections & (friends ? 2u : 1u);
-    if (!add(s, owner, {left - 8, top, left + width + 8, top + 32}, {},
-             friends ? ProfileAction::friends : ProfileAction::servers, 0, ProfileLook::row) ||
-        !add(s, owner, {left, top + 7, left + width - 24, top + 25}, text.view(), ProfileAction::none, kSm,
-             ProfileLook::plain, ProfileTone::strong) ||
+    if (!blank(s, owner, {left - 8, top, left + width + 8, top + 32},
+               friends ? ProfileAction::friends : ProfileAction::servers, ProfileLook::row) ||
+        !caption(s, owner, {left, top + 7, left + width - 24, top + 25}, text.view(), kSm, ProfileTone::strong) ||
         !icon(s, owner, {left + width - 16, top + 8, left + width, top + 24},
               open ? UiIcon::chevron_down : UiIcon::chevron_right, ProfileAction::none))
         return -1;
@@ -1879,23 +1867,16 @@ float panel_mutual_section(ProfileScene* s, UiWidgetHandle owner, float left, fl
         if (y + kPanelRow < visible_top || y > visible_bottom)
             continue;
         const auto& peer = friends ? p.mutual_friends[i] : p.mutual_guilds[i];
-        Utf8View name = peer.name.view();
-        if (!friends && s->state)
-            if (const auto* guild = chat_state_store_find_guild(*s->state, peer.id))
-                name = chat_state_store_guild_name(*s->state, *guild);
-        auto* row = add(s, owner, {left - 8, y, left + width + 8, y + kPanelRow}, {},
-                        friends ? ProfileAction::open_friend : ProfileAction::open_server, 0, ProfileLook::row);
-        auto* face = row ? add(s, owner, {left, y + 6, left + 28, y + 34}) : nullptr;
-        if (!face)
+        const auto name = peer_name(*s, friends, peer);
+        if (!peer_row(s, owner, friends, i, {left - 8, y, left + width + 8, y + kPanelRow},
+                      {left, y + 6, left + 28, y + 34}))
             return -1;
-        row->source = face->source = static_cast<u16>(i);
-        face->media = friends ? ProfileMediaKind::peer_avatar : ProfileMediaKind::peer_guild;
-        if (name.bytes && !add(s, owner, {left + 40, y + 11, left + width, y + 29}, name, ProfileAction::none, kSm))
+        if (name.bytes && !caption(s, owner, {left + 40, y + 11, left + width, y + 29}, name, kSm))
             return -1;
     }
     return y - top;
 }
-bool layout_panel(ProfileScene* s, UiRect viewport) noexcept {
+bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
     const UiRect outer = ui_rect_inset(s->anchor, {kPanelInset, kPanelInset, kPanelInset, kPanelInset});
     const UiRect slot = ui_rect_inset(outer, {kPanelBorder, kPanelBorder, kPanelBorder, kPanelBorder});
     const float W = ui_rect_width(slot), H = ui_rect_height(slot);
@@ -1904,8 +1885,8 @@ bool layout_panel(ProfileScene* s, UiRect viewport) noexcept {
     const float x0 = 16, content = W - 32;
     s->rectangle = outer;
     s->card = s->effect_area = slot;
-    auto* frame = add(s, s->root, {slot.left - viewport.left, slot.top - viewport.top, slot.right - viewport.left,
-                                   slot.bottom - viewport.top});
+    auto* frame = blank(s, s->root, {slot.left - viewport.left, slot.top - viewport.top, slot.right - viewport.left,
+                                     slot.bottom - viewport.top});
     if (!frame)
         return false;
     s->panel = frame->widget;
@@ -1921,8 +1902,7 @@ bool layout_panel(ProfileScene* s, UiRect viewport) noexcept {
     // Header: banner plus 39 (the avatar's lower half), 8 below.
     const float header_bottom = maximum(kPanelBanner + 39, bubble ? kPanelBanner - 7 + bubble : 0.f) + 8;
     const float footer_top = H - kPanelFooter;
-    auto* body = add(s, s->panel, {0, header_bottom, W, maximum(header_bottom + 1, footer_top)}, {},
-                     ProfileAction::none, 0, ProfileLook::plain, ProfileTone::normal, true);
+    auto* body = clipped(s, s->panel, {0, header_bottom, W, maximum(header_bottom + 1, footer_top)});
     if (!body)
         return false;
     s->body = body->widget;
@@ -1933,11 +1913,7 @@ bool layout_panel(ProfileScene* s, UiRect viewport) noexcept {
             y += height + 12;
         return height >= 0;
     };
-    if (s->phase == ProfilePhase::failed &&
-        !section(add(s, s->body, {x0, y, x0 + content, y + 18}, utf8_literal("Unable to load parts of profile"),
-                     ProfileAction::retry, kSm, ProfileLook::plain, ProfileTone::muted)
-                     ? 18.f
-                     : -1.f))
+    if (s->phase == ProfilePhase::failed && !section(failed_notice(s, s->body, x0, y, content)))
         return false;
     if (!section(name_block(s, s->body, x0, y, content, false)) || !section(notices(s, s->body, x0, y, content, false)))
         return false;
@@ -1947,7 +1923,7 @@ bool layout_panel(ProfileScene* s, UiRect viewport) noexcept {
     {
         // Bio and Member Since share one card (12 inside, 12 apart).
         const u32 first = s->part_count;
-        auto* card = add(s, s->body, {x0, y, x0 + content, y + 1}, {}, ProfileAction::none, 0, ProfileLook::card);
+        auto* card = blank(s, s->body, {x0, y, x0 + content, y + 1}, ProfileAction::none, ProfileLook::card);
         if (!card)
             return false;
         const float inner = content - 24;
@@ -1974,7 +1950,7 @@ bool layout_panel(ProfileScene* s, UiRect viewport) noexcept {
             return false;
         y += servers;
         if (servers && s->profile->mutual_friend_count) {
-            if (!add(s, s->body, {x0, y + 4, x0 + content, y + 5}, {}, ProfileAction::none, 0, ProfileLook::rule))
+            if (!blank(s, s->body, {x0, y + 4, x0 + content, y + 5}, ProfileAction::none, ProfileLook::rule))
                 return false;
             y += 9;
         }
@@ -1987,37 +1963,20 @@ bool layout_panel(ProfileScene* s, UiRect viewport) noexcept {
         return false;
     const float body_content = y > 0 ? y - 12 + 16 : 16;
     // "View Full Profile": a full-width bar under a 1 DIP rule.
-    if (!add(s, s->panel, {0, footer_top, W, footer_top + 1}, {}, ProfileAction::none, 0, ProfileLook::rule) ||
-        !add(s, s->panel, {8, footer_top + 6, W - 8, H - 6}, {}, ProfileAction::expand, 0, ProfileLook::row))
+    if (!blank(s, s->panel, {0, footer_top, W, footer_top + 1}, ProfileAction::none, ProfileLook::rule) ||
+        !blank(s, s->panel, {8, footer_top + 6, W - 8, H - 6}, ProfileAction::expand, ProfileLook::row))
         return false;
     constexpr auto label = utf8_literal("View Full Profile");
     const float label_width = text_width(s, label, W - 32, kSm | text_style_bold) + 1;
-    if (!add(s, s->panel, {(W - label_width) * .5f, footer_top + 1, (W + label_width) * .5f, H}, label,
-             ProfileAction::none, kSm | text_style_bold))
+    if (!caption(s, s->panel, {(W - label_width) * .5f, footer_top + 1, (W + label_width) * .5f, H}, label,
+                 kSm | text_style_bold))
         return false;
-    if (interactive(*s) && !self(*s)) {
-        float bx = W - 12 - 32;
-        if (!icon(s, s->panel, {bx, 12, bx + 32, 44}, UiIcon::ellipsis, ProfileAction::more, ProfileTone::normal,
-                  ProfileLook::header_button))
-            return false;
-        bx -= 40;
-        if (!bot(*s) && s->relation != 4) {
-            const UiIcon glyph = s->relation == 1 ? UiIcon::user_check
-                                 : s->relation >= 2 ? UiIcon::recent
-                                                    : UiIcon::user_plus;
-            if (!icon(s, s->panel, {bx, 12, bx + 32, 44}, glyph,
-                      s->relation ? ProfileAction::relationship : ProfileAction::add_friend, ProfileTone::normal,
-                      ProfileLook::header_button))
-                return false;
-        }
-    }
+    if (interactive(*s) && !self(*s) && !header_buttons(s, W - 12 - 32, 12))
+        return false;
     const auto absolute = [&](UiRect r) noexcept {
         return UiRect{slot.left + r.left, slot.top + r.top, slot.left + r.right, slot.top + r.bottom};
     };
-    s->banner = absolute(s->banner);
-    s->avatar = absolute(s->avatar);
-    s->decoration = absolute(s->decoration);
-    s->status = absolute(s->status);
+    header_to_screen(s, slot.left, slot.top);
     s->scroll_viewport = absolute({0, header_bottom, W, footer_top});
     s->content_height = body_content;
     s->scroll = minimum(s->scroll, maximum(0.f, s->content_height - ui_rect_height(s->scroll_viewport)));
@@ -2050,7 +2009,7 @@ float profile_scene_effect_opacity(const ProfileScene& s, u64 now) noexcept {
     return from + (to - from) * ui_motion_curve_sample(UiMotionCurve::linear, t);
 }
 bool profile_scene_open(ProfileScene* s, const UserProfile* p, const ChatStateStore* state, const UserStore* users,
-                        u64 self_id, UiRect anchor, UiRect viewport) noexcept {
+                        u64 self_id, const UiRect& anchor, const UiRect& viewport) noexcept {
     if (!s || !p || !p->user_id || !ui_rect_has_area(viewport))
         return false;
     if (!s->storage.base && !arena_initialize(&s->storage, sizeof(Storage), sizeof(Storage), 4096))
@@ -2079,7 +2038,8 @@ bool profile_scene_open(ProfileScene* s, const UserProfile* p, const ChatStateSt
     s->tab = 0;
     return profile_scene_layout(s, viewport, true);
 }
-bool profile_scene_layout(ProfileScene* s, UiRect viewport, bool force) noexcept {
+bool profile_scene_layout(ProfileScene* s, const UiRect& viewport_view, bool force) noexcept {
+    const UiRect viewport = viewport_view; // the scene is written below
     if (!s || !s->active || !s->profile || !ui_rect_has_area(viewport))
         return false;
     // Guild presences that skip users->revision still move activities.
@@ -2132,8 +2092,8 @@ bool profile_scene_layout(ProfileScene* s, UiRect viewport, bool force) noexcept
         for (const u16 part : shown) {
             const auto* node = part < s->part_count ? ui_widget_manager_layout_node(s->widgets, s->parts[part].widget)
                                                     : nullptr;
-            if (node && ui_rect_has_area(ui_rect_intersection(
-                            node->rectangle, ui_rect_intersection(node->clip_rectangle, s->rectangle))))
+            if (node && ui_rect_intersects(
+                            node->rectangle, ui_rect_intersection(node->clip_rectangle, s->rectangle)))
                 s->activity_timed = true;
         }
     }
@@ -2259,8 +2219,8 @@ void profile_scene_release(ProfileScene* s) noexcept {
         reset_value(s);
     }
 }
-void profile_scene_publish_text_hit(const ProfileScene& scene, UiWidgetReference owner, UiRect layout, UiRect ink,
-                                    UiRect clip) noexcept {
+void profile_scene_publish_text_hit(const ProfileScene& scene, UiWidgetReference owner, const UiRect& layout,
+                                    const UiRect& ink, const UiRect& clip) noexcept {
     if (!scene.active || owner.manager != &scene.widgets || !inline_text_part(scene, owner.handle))
         return;
     const auto* node = ui_widget_manager_layout_node(scene.widgets, owner.handle);
@@ -2333,7 +2293,7 @@ Color card_backdrop(const ProfileScene& s, const Palette& c, float y, bool hot) 
 // The rounded-top banner fill (its bottom corners square).
 bool banner_fill(PaintStream* paint, const UiRect& r, float radius, const Color& color) noexcept {
     if (!radius)
-        return paint_stream_push(paint, r.left, r.top, r.right, r.bottom, color);
+        return paint_stream_push(paint, r, color);
     return paint_stream_push_rounded(paint, r.left, r.top, r.right, minimum(r.bottom, r.top + radius * 2), color,
                                      radius) &&
            paint_stream_push(paint, r.left, r.top + radius, r.right, r.bottom, color);
@@ -2342,11 +2302,11 @@ bool banner_fill(PaintStream* paint, const UiRect& r, float radius, const Color&
 bool bubble_paint(PaintStream* paint, const UiRect& r, const Palette& c, float radius) noexcept {
     const UiRect big{r.left + 10, r.top - 8, r.left + 30, r.top + 12}, small{r.left - 3, r.top - 15, r.left + 7, r.top - 5};
     const float small_radius = ui_rect_width(small) * .5f, big_radius = ui_rect_width(big) * .5f;
-    return paint_stream_push_rounded_border(paint, small.left, small.top, small.right, small.bottom, c.bubble,
+    return paint_stream_push_rounded_border(paint, small, c.bubble,
                                             c.bubble_border, small_radius, 1) &&
-           paint_stream_push_rounded_border(paint, big.left, big.top, big.right, big.bottom, c.bubble,
+           paint_stream_push_rounded_border(paint, big, c.bubble,
                                             c.bubble_border, big_radius, 1) &&
-           paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, c.bubble, c.bubble_border,
+           paint_stream_push_rounded_border(paint, r, c.bubble, c.bubble_border,
                                             minimum(radius, ui_rect_height(r) * .5f), 1) &&
            // The body covers the big circle's border where they join.
            paint_stream_push_rounded(paint, big.left + 1, r.top + 1, big.right - 1, big.bottom - 1, c.bubble,
@@ -2359,15 +2319,14 @@ bool panel_background(const ProfileScene& s, const Theme& theme, const Palette& 
     const float radius = theme.scale.radius_md;
     const auto r = s.rectangle;
     if (!s.themed)
-        return paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, c.surface,
+        return paint_stream_push_rounded_border(paint, r, c.surface,
                                                 theme.tokens.border.subtle, radius, 1);
     const auto inner = profile_scene_card_mask(s, theme);
     const float split = minimum(r.bottom, s.banner.bottom);
-    return paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.primary, radius) &&
+    return paint_stream_push_rounded(paint, r, c.primary, radius) &&
            (split >= r.bottom ||
             paint_stream_push_gradient(paint, {r.left, split, r.right, r.bottom}, c.primary, c.secondary, radius)) &&
-           paint_stream_push_rounded(paint, inner.rectangle.left, inner.rectangle.top, inner.rectangle.right,
-                                     inner.rectangle.bottom, c.overlay, inner.radius);
+           paint_stream_push_rounded(paint, inner.rectangle, c.overlay, inner.radius);
 }
 bool card_background(const ProfileScene& s, const Theme& theme, const Palette& c, PaintStream* paint) noexcept {
     if (panel(s))
@@ -2381,18 +2340,16 @@ bool card_background(const ProfileScene& s, const Theme& theme, const Palette& c
     const auto inner = profile_scene_card_mask(s, theme);
     const float split = minimum(r.bottom, r.top + 2 + kPopoutBanner);
     return ui_surface_shadow_paint(paint, r, theme, UiElevation::popover, radius) &&
-           paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.primary, radius) &&
+           paint_stream_push_rounded(paint, r, c.primary, radius) &&
            (split >= r.bottom || paint_stream_push_gradient(paint, {r.left, split, r.right, r.bottom}, c.primary,
                                                             c.secondary, radius)) &&
-           paint_stream_push_rounded(paint, inner.rectangle.left, inner.rectangle.top, inner.rectangle.right,
-                                     inner.rectangle.bottom, c.overlay, inner.radius);
+           paint_stream_push_rounded(paint, inner.rectangle, c.overlay, inner.radius);
 }
 bool modal_background(const ProfileScene& s, const Theme& theme, const Palette& c, PaintStream* paint) noexcept {
     const float radius = s.modal_rounded ? theme.scale.radius_xl : 0.f;
     const auto r = s.rectangle;
-    if (!paint_stream_push(paint, s.viewport.left, s.viewport.top, s.viewport.right, s.viewport.bottom,
-                           theme.tokens.overlay.scrim_strong) ||
-        !paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.modal, radius))
+    if (!paint_stream_push(paint, s.viewport, theme.tokens.overlay.scrim_strong) ||
+        !paint_stream_push_rounded(paint, r, c.modal, radius))
         return false;
     if (s.themed) {
         // Inner veil: the overlay at 80% alpha fading to 20% over the top 300 DIPs.
@@ -2402,7 +2359,7 @@ bool modal_background(const ProfileScene& s, const Theme& theme, const Palette& 
         constant.alpha = low;
         top.alpha = (high - low) / (1 - low);
         clear.alpha = 0;
-        if (!paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, constant, radius) ||
+        if (!paint_stream_push_rounded(paint, r, constant, radius) ||
             !paint_stream_push_gradient(paint, {r.left, r.top, r.right, minimum(r.bottom, r.top + 300)}, top, clear,
                                         radius))
             return false;
@@ -2466,11 +2423,11 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
     const bool large = modal(s);
     if (!(large ? modal_background(s, theme, c, paint) : card_background(s, theme, c, paint)))
         return false;
-    if (!paint_stream_push_clip(paint, s.rectangle.left, s.rectangle.top, s.rectangle.right, s.rectangle.bottom))
+    if (!paint_stream_push_clip(paint, s.rectangle))
         return false;
     // Banner colour (the first theme colour, else the accent) under its image, and the
     // avatar's cut-out disc in the card colour.
-    bool ok = paint_stream_push_clip(paint, s.card.left, s.card.top, s.card.right, s.card.bottom) &&
+    bool ok = paint_stream_push_clip(paint, s.card) &&
               banner_fill(paint, s.banner, profile_scene_card_mask(s, theme).radius, c.banner);
     const float ring = s.avatar_stroke, half = ui_rect_width(s.avatar) * .5f + ring;
     ok = ok && paint_stream_push_rounded(paint, s.avatar.left - ring, s.avatar.top - ring, s.avatar.right + ring,
@@ -2494,7 +2451,7 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
             return false;
         const auto r = n->rectangle;
         const auto visible = ui_rect_intersection(n->clip_rectangle, s.rectangle);
-        if (!ui_rect_has_area(ui_rect_intersection(r, visible)))
+        if (!ui_rect_intersects(r, visible))
             continue;
         if (p.badge.owner.generation) {
             const Theme local = card_theme(theme, c);
@@ -2504,13 +2461,13 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
                      : ui_badge_paint(p.badge, s.widgets, local, paint, false);
             continue;
         }
-        if (!paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom))
+        if (!paint_stream_push_clip(paint, visible))
             return false;
         const bool hot = hovered(s, p);
         switch (p.look) {
         case ProfileLook::card: {
             const bool activity = p.media == ProfileMediaKind::activity_card;
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom,
+            ok = paint_stream_push_rounded(paint, r,
                                            (activity ? card_hot(s, p) : hot) ? c.card_hover : c.card,
                                            activity ? activity_radius : card_radius);
             break;
@@ -2519,25 +2476,25 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
             // Only the strip below the first card shows.
             const float cut = r.top + 8;
             ok = paint_stream_push_clip(paint, r.left, cut, r.right, r.bottom) &&
-                 paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, hot ? c.card_hover : c.card,
+                 paint_stream_push_rounded(paint, r, hot ? c.card_hover : c.card,
                                            activity_radius) &&
                  paint_stream_pop_clip(paint);
             break;
         }
         case ProfileLook::row:
-            ok = !hot || paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.hover, theme.scale.radius_sm);
+            ok = !hot || paint_stream_push_rounded(paint, r, c.hover, theme.scale.radius_sm);
             break;
         case ProfileLook::role: {
             const Color border = c.border;
             const float cy = (r.top + r.bottom) * .5f;
-            ok = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, Color{}, border,
+            ok = paint_stream_push_rounded_border(paint, r, Color{}, border,
                                                   theme.scale.radius_md, 1) &&
                  paint_stream_push_rounded(paint, r.left + 6, cy - 6, r.left + 18, cy + 6,
                                            p.color.alpha ? p.color : c.subtle, theme.scale.radius_full);
             break;
         }
         case ProfileLook::pill:
-            ok = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, hot ? c.hover : Color{},
+            ok = paint_stream_push_rounded_border(paint, r, hot ? c.hover : Color{},
                                                   c.border, theme.scale.radius_md, 1);
             break;
         case ProfileLook::tab:
@@ -2547,23 +2504,23 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
             }
             break;
         case ProfileLook::dot:
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, large ? c.subtle : c.text,
+            ok = paint_stream_push_rounded(paint, r, large ? c.subtle : c.text,
                                            theme.scale.radius_full);
             break;
         case ProfileLook::rule:
-            ok = paint_stream_push(paint, r.left, r.top, r.right, r.bottom, c.border);
+            ok = paint_stream_push(paint, r, c.border);
             break;
         case ProfileLook::input:
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.input, theme.scale.radius_md);
+            ok = paint_stream_push_rounded(paint, r, c.input, theme.scale.radius_md);
             break;
         case ProfileLook::primary:
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, hot ? c.accent_hover : c.accent,
+            ok = paint_stream_push_rounded(paint, r, hot ? c.accent_hover : c.accent,
                                            theme.scale.radius_md);
             break;
         case ProfileLook::secondary: {
             // Ask to Join stays disabled: no hover.
             const bool lit = hot && p.action != ProfileAction::activity_join;
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, lit ? c.button_hover : c.button,
+            ok = paint_stream_push_rounded(paint, r, lit ? c.button_hover : c.button,
                                            p.media == ProfileMediaKind::activity_action ? inner_radius
                                                                                         : theme.scale.radius_md);
             break;
@@ -2572,7 +2529,7 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
             ok = bubble_paint(paint, r, c, theme.scale.radius_xl);
             break;
         case ProfileLook::box:
-            ok = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, c.card, c.border,
+            ok = paint_stream_push_rounded_border(paint, r, c.card, c.border,
                                                   theme.scale.radius_md, 1);
             break;
         default:
@@ -2580,7 +2537,7 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
         }
         if (ok && p.media == ProfileMediaKind::activity_large)
             // Artwork placeholder; the image draws over it once decoded.
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.card, inner_radius) &&
+            ok = paint_stream_push_rounded(paint, r, c.card, inner_radius) &&
                  ui_icon_paint(paint,
                                profile_activity_glyph_icon(
                                    s.activity_set && p.source < s.activity_set->count
@@ -2591,7 +2548,7 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
                                c.muted);
         else if (ok && p.media == ProfileMediaKind::activity_progress) {
             const float fill = r.left + maximum(4.f, ui_rect_width(r) * maximum(0.f, minimum(1.f, p.color.red)));
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.border, theme.scale.radius_xs) &&
+            ok = paint_stream_push_rounded(paint, r, c.border, theme.scale.radius_xs) &&
                  paint_stream_push_rounded(paint, r.left, r.top, minimum(fill, r.right), r.bottom, c.strong,
                                            theme.scale.radius_xs);
         }
@@ -2612,7 +2569,7 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
     if (!s.active)
         return true;
     const auto c = palette(s, theme);
-    if (!paint_stream_push_clip(paint, s.rectangle.left, s.rectangle.top, s.rectangle.right, s.rectangle.bottom))
+    if (!paint_stream_push_clip(paint, s.rectangle))
         return false;
     bool ok = true;
     bool decoration = false;
@@ -2622,7 +2579,7 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
     // it) and the status bubble where it overlaps the banner.
     const auto banner = ui_rect_intersection(s.banner, s.card);
     if (ui_rect_has_area(banner)) {
-        ok = paint_stream_push_clip(paint, banner.left, banner.top, banner.right, banner.bottom);
+        ok = paint_stream_push_clip(paint, banner);
         const float ring = s.avatar_stroke, half = ui_rect_width(s.avatar) * .5f + ring;
         if (ok && !decoration)
             ok = paint_stream_push_rounded_border(paint, s.avatar.left - ring, s.avatar.top - ring, s.avatar.right + ring,
@@ -2637,7 +2594,7 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
     for (u32 i = 0; ok && i < s.part_count; ++i) {
         const auto& p = s.parts[i];
         if (p.media == ProfileMediaKind::avatar && hovered(s, p))
-            ok = paint_stream_push_rounded(paint, s.avatar.left, s.avatar.top, s.avatar.right, s.avatar.bottom,
+            ok = paint_stream_push_rounded(paint, s.avatar,
                                            theme.tokens.overlay.shadow, ui_rect_width(s.avatar) * .5f);
     }
     // Status: the cut-out (a phone shape when mobile), then the dot.
@@ -2645,7 +2602,7 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
         const float ring = s.avatar_stroke, extent = ui_rect_width(s.status);
         if (s.presence_mobile && s.presence == UiPresence::online) {
             const auto g = ui_presence_mobile_geometry(s.status, ring);
-            ok = paint_stream_push_rounded(paint, g.cutout.left, g.cutout.top, g.cutout.right, g.cutout.bottom, c.surface,
+            ok = paint_stream_push_rounded(paint, g.cutout, c.surface,
                                            g.cutout_radius);
         } else
             ok = paint_stream_push_rounded(paint, s.status.left - ring, s.status.top - ring, s.status.right + ring,
@@ -2663,14 +2620,14 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
             continue;
         const auto clip = ui_rect_intersection(n->clip_rectangle, s.rectangle);
         const auto r = n->rectangle;
-        if (!ui_rect_has_area(ui_rect_intersection(ui_rect_inset(r, {-ring, -ring, -ring, -ring}), clip)))
+        if (!ui_rect_intersects(ui_rect_inset(r, {-ring, -ring, -ring, -ring}), clip))
             continue;
         bool hot = false;
         for (u32 k = 0; k < s.part_count && !hot; ++k)
             hot = s.parts[k].media == ProfileMediaKind::activity_card && s.parts[k].source == p.source &&
                   card_hot(s, s.parts[k]);
         const float half = ui_rect_width(r) * .5f;
-        ok = paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom) &&
+        ok = paint_stream_push_clip(paint, clip) &&
              paint_stream_push_rounded_border(paint, r.left - ring, r.top - ring, r.right + ring, r.bottom + ring,
                                               Color{}, card_backdrop(s, c, (r.top + r.bottom) * .5f, hot),
                                               half + ring, ring) &&
@@ -2696,18 +2653,18 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
                 return false;
             const auto r = n->rectangle;
             const auto visible = ui_rect_intersection(n->clip_rectangle, s.rectangle);
-            if (!ui_rect_has_area(ui_rect_intersection(r, visible)))
+            if (!ui_rect_intersects(r, visible))
                 continue;
             const bool hot = hovered(s, p);
             // The note button shows only while the card is hovered or focused.
             if (p.action == ProfileAction::open_note && !s.hovered && !ui_widget_handle_equal(s.widgets.focused, p.widget))
                 continue;
-            ok = paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom);
+            ok = paint_stream_push_clip(paint, visible);
             Color glyph = tone_color(c, theme, p);
             float size = 16;
             if (p.look == ProfileLook::header_button) {
                 const float half = ui_rect_width(r) * .5f;
-                ok = ok && paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom,
+                ok = ok && paint_stream_push_rounded_border(paint, r,
                                                             c.control, c.control_border, half, 1);
                 glyph = c.control_icon;
                 size = p.action == ProfileAction::close ? 20.f : 16.f;
@@ -2747,7 +2704,7 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
             return false;
         const auto r = n->rectangle;
         const auto clip = ui_rect_intersection(s.rectangle, n->clip_rectangle);
-        if (!ui_rect_has_area(ui_rect_intersection(r, clip)))
+        if (!ui_rect_intersects(r, clip))
             continue;
         const bool name = ui_widget_handle_equal(p.widget, s.name_widget);
         const auto* style = name ? appearance(s, appearance_name) : nullptr;

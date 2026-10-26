@@ -112,8 +112,8 @@ constexpr UiWidgetReference ui_widget_invalid_reference() noexcept {
     return UiWidgetReference{nullptr, ui_widget_invalid_handle()};
 }
 
-bool ui_widget_manager_initialize(UiWidgetManager* manager, Slice<UiWidget> widget_storage,
-                                  Slice<UiLayoutNode> layout_storage) noexcept;
+bool ui_widget_manager_initialize(UiWidgetManager* manager, const Slice<UiWidget>& widget_storage,
+                                  const Slice<UiLayoutNode>& layout_storage) noexcept;
 void ui_widget_manager_reset(UiWidgetManager* manager) noexcept;
 bool ui_widget_manager_bind_growable_storage(UiWidgetManager* manager, UiWidgetStorageGrowCallback callback,
                                              void* context) noexcept;
@@ -125,6 +125,17 @@ UiWidgetResult ui_widget_manager_add(UiWidgetManager* manager, UiWidgetHandle pa
 // For builders that have already checked the complete ID batch for collisions.
 UiWidgetResult ui_widget_manager_add_prevalidated(UiWidgetManager* manager, UiWidgetHandle parent,
                                                   const UiWidgetDesc& description) noexcept;
+// The same for a node whose layout key is its widget ID; the style is copied once, inside.
+UiWidgetResult ui_widget_manager_add_keyed(UiWidgetManager* manager, UiWidgetHandle parent, u32 id,
+                                           UiWidgetKind kind, u16 flags, const char* name, u32 name_bytes,
+                                           const UiLayoutStyle& style) noexcept;
+template <usize Count>
+__forceinline UiWidgetResult ui_widget_manager_add_keyed(UiWidgetManager* manager, UiWidgetHandle parent,
+                                                         u32 id, UiWidgetKind kind, u16 flags,
+                                                         const char (&name)[Count],
+                                                         const UiLayoutStyle& style) noexcept {
+    return ui_widget_manager_add_keyed(manager, parent, id, kind, flags, name, Count - 1, style);
+}
 // Initializes the manager with one container that fills the viewport and points `owner` at it.
 bool ui_widget_manager_initialize_fill_root(UiWidgetManager* manager, Slice<UiWidget> widget_storage,
                                             Slice<UiLayoutNode> layout_storage, Utf8View name, u16 flags,
@@ -133,6 +144,11 @@ bool ui_widget_manager_initialize_fill_root(UiWidgetManager* manager, Slice<UiWi
 // next free one, so the scene's builder owns the ID space.
 UiWidgetResult ui_widget_manager_add_part(UiWidgetManager* manager, UiWidgetHandle parent,
                                           UiWidgetKind kind, Utf8View name) noexcept;
+// A part sized to `rectangle` and offset from `origin` by margins, clipped and free to overlap; its ID is the
+// next free one. For scenes that register their controls while building a retained tree.
+UiWidgetResult ui_widget_manager_add_placed(UiWidgetManager* manager, UiWidgetHandle parent, UiWidgetKind kind,
+                                            u16 flags, Utf8View name, const UiRect& rectangle,
+                                            const UiRect& origin) noexcept;
 // Pins a part to `rectangle`, offset from `origin`. A part that is not visible collapses; one that is not
 // visible and enabled takes no input. True when its layout changed.
 bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handle, UiRect rectangle,

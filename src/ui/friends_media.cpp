@@ -23,7 +23,7 @@ bool friends_avatar_media_resolve(const UiFriendsScene& scene, const UserStore& 
         if (!ui_friends_scene_active_avatar(scene, slot - rows, &active)) return false;
         user_id = active.user_id;owner = {&scene.widgets, scene.heading};avatar = active.rectangle;clip = active.clip;
     }
-    if (!ui_rect_has_area(ui_rect_intersection(avatar, clip))) return false;
+    if (!ui_rect_intersects(avatar, clip)) return false;
     const auto* user = user_store_find(users, user_id);
     if (!user) return false;
     const auto hash = user_store_avatar_hash(*user);

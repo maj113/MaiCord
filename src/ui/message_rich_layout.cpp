@@ -908,21 +908,21 @@ float message_rich_reaction_layout_height(const MessageRichRecord& rich, float a
            static_cast<float>(rows - 1) * kDefaultMessageReactionLayoutMetrics.gap;
 }
 
-MessageRichItemLayout message_rich_estimate_item_layout(const MessageRichStore* store,
-                                                        const MessageRichRecord* rich,
-                                                        float available_width,
-                                                        const UiResolvedThemeStyles* styles) noexcept {
-    MessageRichItemLayout result{};
+void message_rich_fill_item_layout(const MessageRichStore* store, const MessageRichRecord* rich,
+                                   float available_width, const UiResolvedThemeStyles* styles,
+                                   MessageRichItemLayout& result) noexcept {
+    reset_value(&result);
     if (!store || !rich || available_width <= 0.0f) {
-        return result;
+        return;
     }
     for (u32 index = 0; index < rich->attachment_count; ++index) {
         float height = 42.0f;
         float preview_width = 0.0f;
         float preview_height = 0.0f;
         if (message_rich_attachment_audio_supported(*store, rich->attachments[index])) {
-            const float audio_height =
-                ui_audio_card_height(ui_theme_audio_style(styles), available_width, rich->voice_message);
+            UiAudioControlsStyle audio_style;
+            ui_theme_fill_audio_style(styles, &audio_style);
+            const float audio_height = ui_audio_card_height(audio_style, available_width, rich->voice_message);
             if (audio_height > 0)
                 height = audio_height;
         } else if (message_rich_attachment_preview_extent(*store, rich->attachments[index], available_width,
@@ -980,6 +980,14 @@ MessageRichItemLayout message_rich_estimate_item_layout(const MessageRichStore* 
     if (rich->truncations != 0) {
         result.heights[kMessageRichNoticeItemOffset] = 22.0f;
     }
+}
+
+MessageRichItemLayout message_rich_estimate_item_layout(const MessageRichStore* store,
+                                                        const MessageRichRecord* rich,
+                                                        float available_width,
+                                                        const UiResolvedThemeStyles* styles) noexcept {
+    MessageRichItemLayout result;
+    message_rich_fill_item_layout(store, rich, available_width, styles, result);
     return result;
 }
 

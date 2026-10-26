@@ -237,22 +237,18 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
 
     const u64 restore_focus = focused_channel(*scene);
     ui_widget_manager_reset(&scene->widgets);
-    const UiWidgetResult root = ui_widget_manager_add_prevalidated(
-        &scene->widgets, ui_widget_invalid_handle(),
-        UiWidgetDesc{kNavigationRootWidgetId, UiWidgetKind::scroll_view, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("ChannelNavigation"), ui_layout_scroll_root_style(), UiSize{}, 0.0f,
-                                      kNavigationRootWidgetId}});
+    const UiWidgetResult root = ui_widget_manager_add_keyed(
+        &scene->widgets, ui_widget_invalid_handle(), kNavigationRootWidgetId, UiWidgetKind::scroll_view,
+        ui_widget_enabled, "ChannelNavigation", ui_layout_scroll_root_style());
     if (!root.ok()) {
         clear_materialization(scene);
         return scene_error(scene, ShellNavigationSceneError::widget);
     }
     scene->root = root.handle;
     if (include_spacer) {
-        const UiWidgetResult spacer = ui_widget_manager_add_prevalidated(
-            &scene->widgets, root.handle,
-            UiWidgetDesc{kNavigationSpacerWidgetId, UiWidgetKind::container, ui_widget_enabled,
-                         UiLayoutNodeSpec{utf8_literal("TopInset"), ui_layout_spacer_style(inset), UiSize{}, 0.0f,
-                                          kNavigationSpacerWidgetId}});
+        const UiWidgetResult spacer = ui_widget_manager_add_keyed(
+            &scene->widgets, root.handle, kNavigationSpacerWidgetId, UiWidgetKind::container, ui_widget_enabled,
+            "TopInset", ui_layout_spacer_style(inset));
         if (!spacer.ok()) {
             clear_materialization(scene);
             return scene_error(scene, ShellNavigationSceneError::widget);
@@ -264,38 +260,29 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
         const u16 flags = static_cast<u16>(ui_widget_enabled | ui_widget_hit_test |
                                            (row_focusable(source) ? ui_widget_focusable : 0));
         const u32 widget_id = source_index * 4u + 3u;
-        const UiWidgetResult added = ui_widget_manager_add_prevalidated(
-            &scene->widgets, root.handle,
-            UiWidgetDesc{widget_id, UiWidgetKind::button, flags,
-                         UiLayoutNodeSpec{source.type == 4 ? utf8_literal("ChannelCategory")
-                                                           : utf8_literal("ChannelRow"),
-                                          row_style(source), UiSize{}, 0.0f, widget_id}});
+        const Utf8View row_name = source.type == 4 ? utf8_literal("ChannelCategory") : utf8_literal("ChannelRow");
+        const UiWidgetResult added = ui_widget_manager_add_keyed(
+            &scene->widgets, root.handle, widget_id, UiWidgetKind::button, flags, row_name.data, row_name.bytes,
+            row_style(source));
         if (!added.ok()) {
             clear_materialization(scene);
             return scene_error(scene, ShellNavigationSceneError::widget);
         }
-        const UiWidgetResult icon = ui_widget_manager_add_prevalidated(
-            &scene->widgets, added.handle,
-            UiWidgetDesc{widget_id + 1u, UiWidgetKind::image, ui_widget_enabled,
-                         UiLayoutNodeSpec{utf8_literal("ChannelIcon"), icon_style(source), UiSize{}, 0.0f,
-                                          widget_id + 1u}});
-        const UiWidgetResult label = ui_widget_manager_add_prevalidated(
-            &scene->widgets, added.handle,
-            UiWidgetDesc{widget_id + 2u, UiWidgetKind::text, ui_widget_enabled,
-                         UiLayoutNodeSpec{utf8_literal("ChannelLabel"), label_style(source), UiSize{}, 0.0f,
-                                          widget_id + 2u}});
+        const UiWidgetResult icon = ui_widget_manager_add_keyed(
+            &scene->widgets, added.handle, widget_id + 1u, UiWidgetKind::image, ui_widget_enabled, "ChannelIcon",
+            icon_style(source));
+        const UiWidgetResult label = ui_widget_manager_add_keyed(
+            &scene->widgets, added.handle, widget_id + 2u, UiWidgetKind::text, ui_widget_enabled, "ChannelLabel",
+            label_style(source));
         if (!icon.ok() || !label.ok()) {
             clear_materialization(scene);
             return scene_error(scene, ShellNavigationSceneError::widget);
         }
         UiWidgetHandle mention_badge = ui_widget_invalid_handle();
         if (source.mention_count != 0) {
-            const UiWidgetResult badge = ui_widget_manager_add_prevalidated(
-                &scene->widgets, added.handle,
-                UiWidgetDesc{widget_id + 3u, UiWidgetKind::custom, ui_widget_enabled,
-                             UiLayoutNodeSpec{utf8_literal("MentionBadge"),
-                                              mention_badge_style(source.mention_count, channel_is_private(source.type)), UiSize{}, 0.0f,
-                                              widget_id + 3u}});
+            const UiWidgetResult badge = ui_widget_manager_add_keyed(
+                &scene->widgets, added.handle, widget_id + 3u, UiWidgetKind::custom, ui_widget_enabled,
+                "MentionBadge", mention_badge_style(source.mention_count, channel_is_private(source.type)));
             if (!badge.ok()) {
                 clear_materialization(scene);
                 return scene_error(scene, ShellNavigationSceneError::widget);

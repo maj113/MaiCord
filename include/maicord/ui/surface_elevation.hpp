@@ -165,7 +165,7 @@ inline bool ui_surface_shadow_paint_isolated(PaintStream* stream, UiRect rectang
     if (!ui_surface_casts_shadow(elevation) || !(alpha > 0))
         return true;
     const auto bounds = ui_surface_shadow_bounds(rectangle, theme);
-    return stream && paint_stream_push_clip(stream, bounds.left, bounds.top, bounds.right, bounds.bottom) &&
+    return stream && paint_stream_push_clip(stream, bounds) &&
            ui_surface_shadow_paint(stream, rectangle, theme, elevation, radius, alpha) &&
            paint_stream_pop_clip(stream);
 }

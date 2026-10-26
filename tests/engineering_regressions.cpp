@@ -2,6 +2,13 @@
 #include "maicord/model/message_composer.hpp"
 #include "maicord/render/raster_clip.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/app/channel_overview_controller.hpp"
+#include "maicord/app/message_reaction_controller.hpp"
+#include "maicord/app/poll_controller.hpp"
+#include "maicord/app/voice_message.hpp"
+#include "maicord/media/mp4_fragment.hpp"
+#include "maicord/ui/download_scene.hpp"
 
 namespace maicord {
 namespace {
@@ -259,6 +266,23 @@ void test_mailbox_regressions(Check check) noexcept {
     check(discarded_external, "mailbox: discarding an external record releases only its descriptor");
 }
 
+// reset_value clears the bytes of a kZeroDefault type: its value-initialized form must be all zero bytes.
+template <typename T> bool zero_default_holds() noexcept {
+    static_assert(requires { T::kZeroDefault; });
+    alignas(T) static u8 storage[sizeof(T)];
+    clear_bytes(storage, static_cast<u32>(sizeof(T)));
+    ::new (static_cast<void*>(storage)) T{};
+    return bytes_zero(storage, sizeof(T));
+}
+void test_zero_default_types(Check check) noexcept {
+    check(zero_default_holds<ChannelOverviewController>(), "zero default: channel overview controller");
+    check(zero_default_holds<MessageReactionController>(), "zero default: message reaction controller");
+    check(zero_default_holds<PollController>(), "zero default: poll controller");
+    check(zero_default_holds<VoiceMessageRecorder>(), "zero default: voice message recorder");
+    check(zero_default_holds<Mp4MediaSegment>(), "zero default: mp4 media segment");
+    check(zero_default_holds<UiDownloadScene>(), "zero default: download scene");
+}
+
 } // namespace
 
 void test_mailbox_release_races(Check check) noexcept;
@@ -270,6 +294,7 @@ void test_engineering_regressions(Check check) noexcept {
     test_mailbox_regressions(check);
     test_mailbox_release_races(check);
     test_responsiveness(check);
+    test_zero_default_types(check);
     MessageComposer owned{};
     check(message_composer_initialize_owned(&owned, 128), "composer regression: initialize owned history");
     if (owned.text) {

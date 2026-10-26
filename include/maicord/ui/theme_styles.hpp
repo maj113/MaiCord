@@ -125,7 +125,7 @@ struct UiThemeMotionDescriptor {
 ConstSlice<UiThemeMotionDescriptor> ui_theme_motion_descriptors() noexcept;
 UiMotionStyle* ui_theme_motion_slot(UiThemeMotion*, UiThemeMotionToken) noexcept;
 // WCAG 2 contrast of an opaque or translucent foreground over a background.
-float ui_theme_contrast_ratio(Color foreground, Color background) noexcept;
+float ui_theme_contrast_ratio(const Color& foreground, const Color& background) noexcept;
 struct UiThemeContrastWarning {
     UiThemeToken foreground, background;
     float ratio, minimum;

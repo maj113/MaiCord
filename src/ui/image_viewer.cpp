@@ -498,10 +498,9 @@ bool ui_image_viewer_paint(const UiImageViewer& v, const Theme& theme, PaintStre
     if (!v.active)
         return true;
     const auto r = v.viewport;
-    if (!paint_stream_push_clip(paint, r.left, r.top, r.right, r.bottom))
+    if (!paint_stream_push_clip(paint, r))
         return false;
-    bool ok = paint_stream_push(paint, r.left, r.top, r.right, r.bottom,
-                                ui_theme_color_alpha(theme.tokens.overlay.media, v.reveal));
+    bool ok = paint_stream_push(paint, r, ui_theme_color_alpha(theme.tokens.overlay.media, v.reveal));
     // The media scrim is always black, so its toolbar uses light foregrounds
     // independently of the application's selected appearance.
     const Theme& toolbar_theme = kDefaultTheme;
@@ -533,7 +532,7 @@ bool ui_image_viewer_paint_overlay(const UiImageViewer& v, const Theme& theme, P
     if (!v.active)
         return true;
     const auto r = v.viewport;
-    if (!paint_stream_push_clip(paint, r.left, r.top, r.right, r.bottom))
+    if (!paint_stream_push_clip(paint, r))
         return false;
     bool ok = true;
     const Theme& ink_theme = kDefaultTheme;
@@ -558,9 +557,7 @@ bool ui_image_viewer_paint_overlay(const UiImageViewer& v, const Theme& theme, P
                            v.widgets.focused.generation == handle.generation;
         const float radius = ui_rect_width(button) * .5f;
         const Color fill = hover ? theme.tokens.overlay.scrim_strong : theme.tokens.overlay.scrim_light;
-        ok = paint_stream_push_rounded_border(paint, button.left, button.top, button.right, button.bottom, fill,
-                                              focus ? theme.tokens.border.focus : theme.tokens.border.subtle, radius,
-                                              focus ? 2.0f : 1.0f);
+        ok = paint_stream_push_rounded_border(paint, button, fill, focus ? theme.tokens.border.focus : theme.tokens.border.subtle, radius, focus ? 2.0f : 1.0f);
         const float extent = 24, x = (button.left + button.right - extent) * .5f,
                     y = (button.top + button.bottom - extent) * .5f + (pressed ? 1 : 0);
         Color ink = ink_theme.text_primary;

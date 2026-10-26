@@ -2,6 +2,7 @@
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/search_scene.hpp"
 #include "maicord/ui/background_surface.hpp"
+#include "maicord/ui/rect_edges.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -51,6 +52,41 @@ UiRect rich_item_clip(const UiSearchScene&, const UiRect&, const UiRect&) noexce
 bool rich_enabled(const UiSearchScene& s) noexcept {
     return s.source && s.source->rich_timeline;
 }
+const MessageRichRecord* rich_scoped(const MessageRichStore& store, u64 message_id, bool snapshot) noexcept {
+    return snapshot ? message_rich_store_snapshot(store, message_id)
+                    : message_rich_store_find(store, message_id);
+}
+void block_input(UiWidgetManager* widgets, UiWidgetHandle handle, bool blocked) noexcept {
+    if (auto* widget = ui_widget_manager_resolve(widgets, handle)) {
+        if (blocked)
+            widget->flags |= ui_widget_block_input;
+        else
+            widget->flags &= static_cast<u16>(~ui_widget_block_input);
+    }
+}
+UiSearchTarget source_target(const UiSearchScene& s, UiSearchAction action, u64 channel_id, u64 message_id,
+                             u32 source_index) noexcept {
+    UiSearchTarget target{action, channel_id, message_id};
+    target.source_revision = s.source_revision;
+    target.source_index = source_index;
+    return target;
+}
+UiSearchTarget rich_target(const UiSearchScene& s, u64 channel_id, u64 message_id, u32 source_index,
+                           MessageSceneRichItemKind kind, u32 index, bool snapshot) noexcept {
+    auto target = source_target(s, UiSearchAction::rich_item, channel_id, message_id, source_index);
+    target.rich_kind = kind;
+    target.rich_index = static_cast<u16>(index);
+    target.snapshot = snapshot;
+    return target;
+}
+bool chooser_action(UiSearchAction action) noexcept {
+    return action == UiSearchAction::filter_value || ui_search_action_filter(action) ||
+           action == UiSearchAction::more_filters || action == UiSearchAction::clear_recent ||
+           action == UiSearchAction::recent;
+}
+bool sort_action(UiSearchAction action) noexcept {
+    return action >= UiSearchAction::newest && action <= UiSearchAction::relevance;
+}
 UiRect rich_viewport(const UiSearchScene& s) noexcept {
     return {s.body.left + 8, s.body.top, s.body.right - 20, s.body.bottom};
 }
@@ -72,23 +108,11 @@ void configure_rich_input(MessageScene& scene, const UiSearchSource& source) noe
                 scene.dirty = true;
                 ++scene.data_updates;
             }
-            if (auto* widget = ui_widget_manager_resolve(&scene.widgets, row->widget)) {
-                if (redacted)
-                    widget->flags |= ui_widget_block_input;
-                else
-                    widget->flags &= static_cast<u16>(~ui_widget_block_input);
-            }
-            if (auto* widget = ui_widget_manager_resolve(&scene.widgets, row->poll)) {
-                if (redacted)
-                    widget->flags |= ui_widget_block_input;
-                else
-                    widget->flags &= static_cast<u16>(~ui_widget_block_input);
-            }
+            block_input(&scene.widgets, row->widget, redacted);
+            block_input(&scene.widgets, row->poll, redacted);
             if (redacted)
                 continue;
-            const auto* rich =
-                child ? message_rich_store_snapshot(*scene.timeline->rich_store, row->message_id)
-                      : message_rich_store_find(*scene.timeline->rich_store, row->message_id);
+            const auto* rich = rich_scoped(*scene.timeline->rich_store, row->message_id, child != 0);
             if (!rich)
                 continue;
             for (u32 j = 0; j < rich->embed_count; ++j) {
@@ -391,8 +415,7 @@ MessageHandle source_handle(const UiSearchScene& s, u32 index) noexcept {
 }
 const MessageRichRecord* item_rich(const UiSearchScene& s, const UiSearchItem& item) noexcept {
     const auto& store = *s.source->rich_timeline->rich_store;
-    return item.snapshot ? message_rich_store_snapshot(store, item.message_id)
-                         : message_rich_store_find(store, item.message_id);
+    return rich_scoped(store, item.message_id, item.snapshot);
 }
 const MessageRichAttachment* item_attachment(const UiSearchScene& s, const UiSearchItem& item) noexcept {
     const auto* rich = item.kind == UiSearchItemKind::attachment ? item_rich(s, item) : nullptr;
@@ -504,8 +527,7 @@ bool build_items(UiSearchScene& s) noexcept {
         };
         u32 links = 0;
         for (u32 scope = 0; scope < 2; ++scope) {
-            const auto* rich = scope ? message_rich_store_snapshot(store, record->id)
-                                     : message_rich_store_find(store, record->id);
+            const auto* rich = rich_scoped(store, record->id, scope != 0);
             if (!rich)
                 continue;
             if (s.layout != UiSearchLayout::links)
@@ -592,9 +614,7 @@ UiRect tile_cover(const UiSearchScene& s, const UiSearchItem& item, const UiRect
     return {cx - cw * .5f, cy - ch * .5f, cx + cw * .5f, cy + ch * .5f};
 }
 UiSearchTarget item_target(const UiSearchScene& s, const UiSearchItem& item, bool primary) noexcept {
-    UiSearchTarget target{UiSearchAction::result, item.channel_id, item.message_id};
-    target.source_revision = s.source_revision;
-    target.source_index = item.source_index;
+    auto target = source_target(s, UiSearchAction::result, item.channel_id, item.message_id, item.source_index);
     // Files open by jumping; their secondary action saves. Links open their embed,
     // or jump when the link only lives in message text. Media activation first
     // passes through the host's reveal/block decision.
@@ -734,27 +754,25 @@ Utf8View label(UiSearchAction a) noexcept {
         return {};
     }
 }
-UiWidgetHandle add(UiSearchScene& s, const UiRect& rectangle, UiSearchTarget target, Utf8View name,
+UiWidgetHandle add(UiSearchScene& s, const UiRect& rectangle, const UiSearchTarget& target, const Utf8View& name,
                    bool enabled = true, UiWidgetHandle parent = ui_widget_invalid_handle()) noexcept {
-    auto style = ui_layout_style();
-    style.width = ui_layout_fixed(ui_rect_width(rectangle));
-    style.height = ui_layout_fixed(ui_rect_height(rectangle));
     const auto origin = parent.generation ? bounds(s, parent) : widget_viewport(s);
-    style.margin.left = rectangle.left - origin.left;
-    style.margin.top = rectangle.top - origin.top;
-    style.flags |= ui_layout_node_clip_children | ui_layout_node_allow_overlap;
-    const u32 id = s.widgets.count + 1;
-    const auto result = ui_widget_manager_add_prevalidated(
+    const auto result = ui_widget_manager_add_placed(
         &s.widgets, parent.generation ? parent : s.root,
-        {id,
-         target.action == UiSearchAction::edit ? UiWidgetKind::text_field : UiWidgetKind::button,
-         static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
-                                  : ui_widget_none),
-         {name, style, {}, 0, id}});
+        target.action == UiSearchAction::edit ? UiWidgetKind::text_field : UiWidgetKind::button,
+        static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
+                                 : ui_widget_none),
+        name, rectangle, origin);
     if (!result.ok())
         return ui_widget_invalid_handle();
     s.targets[result.handle.slot] = target;
     return result.handle;
+}
+UiWidgetHandle add_action(UiSearchScene& s, const UiRect& rectangle, UiSearchAction action, const Utf8View& name,
+                          bool enabled = true, u32 source_index = ~u32{0}) noexcept {
+    UiSearchTarget target{action, 0, 0};
+    target.source_index = source_index;
+    return add(s, rectangle, target, name, enabled);
 }
 void count_label(UiSearchScene& s) noexcept {
     auto append = [&](u64 value) noexcept {
@@ -788,23 +806,33 @@ void count_label(UiSearchScene& s) noexcept {
     CopyMemory(s.count_text + s.count_bytes, suffix.data, suffix.bytes);
     s.count_bytes += static_cast<u8>(suffix.bytes);
 }
-UiRect overlay_clip(const UiSearchScene& s, const UiRect& rectangle) noexcept {
+UiRect overlay_region(const UiSearchScene& s, const UiRect& rectangle) noexcept {
     auto region = s.body;
-    if (chooser_open(s) && ui_rect_has_area(ui_rect_intersection(rectangle, s.chooser)))
+    if (chooser_open(s) && ui_rect_intersects(rectangle, s.chooser))
         region.top = maximum(region.top, s.chooser.bottom);
-    if (s.content->sort_menu && ui_rect_has_area(ui_rect_intersection(rectangle, s.sort_chooser))) {
+    if (s.content->sort_menu && ui_rect_intersects(rectangle, s.sort_chooser)) {
         if (rectangle.left < s.sort_chooser.left)
             region.right = minimum(region.right, s.sort_chooser.left);
         else
             region.top = maximum(region.top, s.sort_chooser.bottom);
     }
-    return ui_rect_intersection(rectangle, region);
+    return region;
+}
+UiRect overlay_clip(const UiSearchScene& s, const UiRect& rectangle) noexcept {
+    return ui_rect_intersection(rectangle, overlay_region(s, rectangle));
+}
+bool menu_hit(const UiSearchScene& s, float x, float y) noexcept {
+    return (chooser_open(s) && ui_rect_contains(s.chooser, x, y)) ||
+           (s.content->sort_menu && ui_rect_contains(s.sort_chooser, x, y));
+}
+bool menus_closed(const UiSearchScene& s) noexcept {
+    return !chooser_open(s) && !s.content->sort_menu;
 }
 UiRect item_save_rectangle(const UiRect& row) noexcept {
-    return {row.right - 44, row.top + 12, row.right - 12, row.top + 44};
+    return ui_rect_edges(row, ui_end(-44), ui_start(12), ui_end(-12), ui_start(44));
 }
 UiRect item_jump_rectangle(const UiRect& row) noexcept {
-    return {row.right - 64, row.top + 16, row.right - 12, row.top + 40};
+    return ui_rect_edges(row, ui_end(-64), ui_start(16), ui_end(-12), ui_start(40));
 }
 Utf8View item_title(const UiSearchScene& s, const UiSearchItem& item) noexcept {
     const auto& store = *s.source->rich_timeline->rich_store;
@@ -865,7 +893,7 @@ UiIcon item_icon(const UiSearchScene& s, const UiSearchItem& item) noexcept {
 bool add_items(UiSearchScene& s) noexcept {
     auto& p = *s.rich_projection;
     p.visible_count = 0;
-    const bool enabled = !chooser_open(s) && !s.content->sort_menu;
+    const bool enabled = menus_closed(s);
     for (u32 k = 0; k < p.item_count && p.visible_count < kUiSearchVisibleItems; ++k) {
         const auto& item = p.items[k];
         const auto screen = item_screen(s, item);
@@ -928,8 +956,7 @@ bool paint_items(const UiSearchScene& s, const Theme& theme, PaintStream* out,
             const MessageMediaObscure obscure = item_obscure(s, item);
             // Tiles round with the card radius token; media quads are masked to the same corners.
             const float tile_radius = theme.scale.radius_md;
-            if (!paint_stream_push_rounded(out, screen.left, screen.top, screen.right, screen.bottom,
-                                           theme.surface_high, tile_radius))
+            if (!paint_stream_push_rounded(out, screen, theme.surface_high, tile_radius))
                 return false;
             if (message_media_obscure_notice(obscure)) {
                 const float cx = (screen.left + screen.right) * .5f,
@@ -986,11 +1013,10 @@ bool paint_items(const UiSearchScene& s, const Theme& theme, PaintStream* out,
                                          focus ? theme.tokens.border.focus : theme.surface_high, theme.scale.radius_md, 1, 1,
                                          UiBackgroundSurfaceMode::gradient, UiBackgroundTier::low))
             return false;
-        const UiRect icon_box{screen.left + 12, screen.top + 12, screen.left + 44, screen.top + 44};
-        if (!paint_stream_push_rounded(out, icon_box.left, icon_box.top, icon_box.right, icon_box.bottom,
-                                       theme.surface_high, 6) ||
+        const UiRect icon_box = ui_rect_edges(screen, ui_start(12), ui_start(12), ui_start(44), ui_start(44));
+        if (!paint_stream_push_rounded(out, icon_box, theme.surface_high, 6) ||
             !ui_icon_paint(out, item_icon(s, item),
-                           {icon_box.left + 6, icon_box.top + 6, icon_box.right - 6, icon_box.bottom - 6},
+                           ui_rect_shrink(icon_box, 6),
                            s.layout == UiSearchLayout::links ? theme.tokens.emphasis.outline : theme.text_secondary))
             return false;
         if (!p.secondary[v].generation)
@@ -1001,14 +1027,12 @@ bool paint_items(const UiSearchScene& s, const Theme& theme, PaintStream* out,
         const auto r =
             s.layout == UiSearchLayout::files ? item_save_rectangle(screen) : item_jump_rectangle(screen);
         const bool active = hovered_widget(s, p.secondary[v]) || focused_widget(s, p.secondary[v]);
-        if (!paint_stream_push_rounded(out, r.left, r.top, r.right, r.bottom,
-                                       active
-                                           ? ui_background_hover_color(theme, theme.interactive_hover, .28f)
-                                           : theme.surface_high,
-                                       6))
+        if (!paint_stream_push_rounded(out, r, active
+            ? ui_background_hover_color(theme, theme.interactive_hover, .28f)
+            : theme.surface_high, 6))
             return false;
         if (s.layout == UiSearchLayout::files &&
-            !ui_icon_paint(out, UiIcon::download, {r.left + 6, r.top + 6, r.right - 6, r.bottom - 6},
+            !ui_icon_paint(out, UiIcon::download, ui_rect_shrink(r, 6),
                            active ? theme.text_primary : theme.text_secondary))
             return false;
     }
@@ -1052,45 +1076,43 @@ bool rebuild(UiSearchScene& s) noexcept {
     if (!root.ok())
         return false;
     s.root = root.handle;
-    s.edit = add(s, s.field, {UiSearchAction::edit, 0, 0}, utf8_literal("Search messages"));
+    s.edit = add_action(s, s.field, UiSearchAction::edit, utf8_literal("Search messages"));
     // After the edit: the chip wins hit tests over the field it sits in.
     s.scope = ui_rect_has_area(s.scope_chip)
-                  ? add(s, s.scope_chip, {UiSearchAction::scope, 0, 0}, utf8_literal("Remove search scope"))
+                  ? add_action(s, s.scope_chip, UiSearchAction::scope, utf8_literal("Remove search scope"))
                   : UiWidgetHandle{};
     const UiRect submit{s.field.right - 32, s.field.top, s.field.right, s.field.bottom};
-    s.buttons[0] = add(s, submit, {UiSearchAction::submit, 0, 0}, utf8_literal("Search"));
+    s.buttons[0] = add_action(s, submit, UiSearchAction::submit, utf8_literal("Search"));
     s.count = 0;
     s.first = 0;
     s.page_count = 0;
     if (s.content->panel) {
         const auto p = s.panel;
         // Icon button (× with a "Close search" tooltip), a 32-DIP square like the header buttons.
-        s.buttons[1] = add(s, ui_search_close_rectangle(p), {UiSearchAction::close, 0, 0},
-                           utf8_literal("Close search"));
-        s.buttons[2] = add(s, {p.right - 196, p.top + 40, p.right - 124, p.top + 72},
-                           {UiSearchAction::filters, 0, 0}, label(UiSearchAction::filters));
-        s.buttons[8] = add(s, {p.right - 120, p.top + 40, p.right - 8, p.top + 72},
-                           {UiSearchAction::sort, 0, 0}, label(UiSearchAction::sort));
+        s.buttons[1] = add_action(s, ui_search_close_rectangle(p), UiSearchAction::close,
+                                  utf8_literal("Close search"));
+        s.buttons[2] = add_action(s, ui_rect_edges(p, ui_end(-196), ui_start(40), ui_end(-124), ui_start(72)),
+                                  UiSearchAction::filters, label(UiSearchAction::filters));
+        s.buttons[8] = add_action(s, ui_rect_edges(p, ui_end(-120), ui_start(40), ui_end(-8), ui_start(72)),
+                                  UiSearchAction::sort, label(UiSearchAction::sort));
         for (u32 i = 0; i < 5; ++i) {
             reset_value(&s.tabs[i]);
             if (!s.content->tabs)
                 continue;
             const float width = (ui_rect_width(p) - 16) / 5;
-            UiSearchTarget target{UiSearchAction::tab, 0, 0};
-            target.source_index = i;
-            s.tabs[i] =
-                add(s, {p.left + 8 + i * width, p.top + 76, p.left + 8 + (i + 1) * width, p.top + 116},
-                    target, tab_label(i), !chooser_open(s) && !s.content->sort_menu);
+            s.tabs[i] = add_action(
+                s, {p.left + 8 + i * width, p.top + 76, p.left + 8 + (i + 1) * width, p.top + 116},
+                UiSearchAction::tab, tab_label(i), menus_closed(s), i);
         }
         const UiSearchAction sorts[] = {UiSearchAction::newest, UiSearchAction::oldest,
                                         UiSearchAction::relevance};
         for (u32 i = 0; i < 3; ++i)
             reset_value(&s.buttons[3 + i]);
-        s.buttons[6] =
-            add(s, {p.left + 8, p.bottom - 36, p.left + 76, p.bottom - 8}, {UiSearchAction::previous, 0, 0},
-                label(UiSearchAction::previous), s.content->previous);
-        s.buttons[7] = add(s, {p.right - 72, p.bottom - 36, p.right - 8, p.bottom - 8},
-                           {UiSearchAction::next, 0, 0}, label(UiSearchAction::next), s.content->next);
+        s.buttons[6] = add_action(s, ui_rect_edges(p, ui_start(8), ui_end(-36), ui_start(76), ui_end(-8)),
+                                  UiSearchAction::previous, label(UiSearchAction::previous),
+                                  s.content->previous);
+        s.buttons[7] = add_action(s, ui_rect_edges(p, ui_end(-72), ui_end(-36), ui_end(-8), ui_end(-8)),
+                                  UiSearchAction::next, label(UiSearchAction::next), s.content->next);
         s.page_count = 0;
         const u32 page_size = s.content->page_size ? s.content->page_size : 25;
         const u64 total_pages = s.content->total / page_size + (s.content->total % page_size != 0);
@@ -1143,14 +1165,12 @@ bool rebuild(UiSearchScene& s) noexcept {
                 const auto r = ui_rect_intersection({card.left, y, card.right, card.bottom}, s.body);
                 if (!ui_rect_has_area(r))
                     continue;
-                UiSearchTarget target{UiSearchAction::result, row.channel_id, row.message_id};
-                target.source_revision = s.source_revision;
-                target.source_index = i;
+                UiSearchTarget target = source_target(s, UiSearchAction::result, row.channel_id, row.message_id, i);
                 s.rows[s.count] = add(
                     s, rich ? ui_rect_intersection(jump, s.body) : r, target,
                     rich ? (row.access_check ? utf8_literal("Check access") : utf8_literal("Jump"))
                          : row.author,
-                    (!row.unavailable || row.access_check) && !chooser_open(s) && !s.content->sort_menu);
+                    (!row.unavailable || row.access_check) && menus_closed(s));
                 if (rich && !row.unavailable) {
                     const auto& native = s.rich_projection->scene;
                     const auto* outer = message_scene_find_row(native, i);
@@ -1159,11 +1179,8 @@ bool rebuild(UiSearchScene& s) noexcept {
                     for (u32 child = 0; child < 2; ++child) {
                         const auto* rich_row = projected[child];
                         const auto* record = !rich_row ? nullptr
-                                             : child
-                                                 ? message_rich_store_snapshot(*native.timeline->rich_store,
-                                                                               rich_row->message_id)
-                                                 : message_rich_store_find(*native.timeline->rich_store,
-                                                                           rich_row->message_id);
+                                             : rich_scoped(*native.timeline->rich_store,
+                                                           rich_row->message_id, child != 0);
                         if (!record)
                             continue;
                         for (u32 item = 0; item < record->attachment_count; ++item) {
@@ -1179,8 +1196,9 @@ bool rebuild(UiSearchScene& s) noexcept {
                             if (message_rich_attachment_audio_supported(*native.timeline->rich_store,
                                                                         record->attachments[item])) {
                                 UiAudioCardGeometry geometry{};
-                                if (!ui_audio_card_geometry(node->content_rectangle,
-                                                            ui_theme_audio_style(native.theme_styles),
+                                UiAudioControlsStyle audio_style;
+                                ui_theme_fill_audio_style(native.theme_styles, &audio_style);
+                                if (!ui_audio_card_geometry(node->content_rectangle, audio_style,
                                                             &geometry, message_rich_record_voice(*record)))
                                     continue;
                                 save_rectangle = geometry.download;
@@ -1194,15 +1212,12 @@ bool rebuild(UiSearchScene& s) noexcept {
                             const auto save = rich_item_clip(s, save_rectangle, node->clip_rectangle);
                             if (!ui_rect_has_area(save))
                                 continue;
-                            UiSearchTarget save_target{UiSearchAction::rich_item, row.channel_id,
-                                                       row.message_id};
-                            save_target.source_revision = s.source_revision;
-                            save_target.source_index = i;
-                            save_target.rich_index = static_cast<u16>(item);
-                            save_target.snapshot = child != 0;
+                            auto save_target = rich_target(s, row.channel_id, row.message_id, i,
+                                                           MessageSceneRichItemKind::attachment, item,
+                                                           child != 0);
                             save_target.save = true;
                             if (!add(s, save, save_target, utf8_literal("Save attachment"),
-                                     !chooser_open(s) && !s.content->sort_menu)
+                                     menus_closed(s))
                                      .generation)
                                 return false;
                         }
@@ -1217,8 +1232,8 @@ bool rebuild(UiSearchScene& s) noexcept {
                 const float bottom = minimum(top + 40, s.sort_chooser.bottom - 4);
                 if (bottom <= top)
                     break;
-                s.buttons[3 + i] = add(s, {s.sort_chooser.left + 4, top, s.sort_chooser.right - 4, bottom},
-                                       {sorts[i], 0, 0}, label(sorts[i]));
+                s.buttons[3 + i] = add_action(s, {s.sort_chooser.left + 4, top, s.sort_chooser.right - 4, bottom},
+                                              sorts[i], label(sorts[i]));
             }
     }
     if (s.choice_source) {
@@ -1251,24 +1266,21 @@ bool rebuild(UiSearchScene& s) noexcept {
                             bottom = minimum(top + row, s.chooser.bottom - 4);
                 if (bottom <= top)
                     break;
-                add(s, {s.chooser.left + 4, top, s.chooser.right - 4, bottom}, {action, 0, 0},
-                    label(action));
+                add_action(s, {s.chooser.left + 4, top, s.chooser.right - 4, bottom}, action, label(action));
             }
         if (chooser_open(s) && recent_shown(s)) {
             const float heading = recent_top(s);
             if (heading + 28 <= s.chooser.bottom - 4 &&
-                !add(s, {s.chooser.right - 68, heading, s.chooser.right - 8, heading + 28},
-                     {UiSearchAction::clear_recent, 0, 0}, label(UiSearchAction::clear_recent))
+                !add_action(s, {s.chooser.right - 68, heading, s.chooser.right - 8, heading + 28},
+                            UiSearchAction::clear_recent, label(UiSearchAction::clear_recent))
                      .generation)
                 return false;
             for (u32 i = 0; i < s.content->recent_count; ++i) {
                 const float top = heading + 28 + i * 36, bottom = minimum(top + 36, s.chooser.bottom - 4);
                 if (bottom <= top)
                     break;
-                UiSearchTarget target{UiSearchAction::recent, 0, 0};
-                target.source_index = i;
-                if (!add(s, {s.chooser.left + 4, top, s.chooser.right - 4, bottom}, target,
-                         s.content->recent[i])
+                if (!add_action(s, {s.chooser.left + 4, top, s.chooser.right - 4, bottom},
+                                UiSearchAction::recent, s.content->recent[i], true, i)
                          .generation)
                     return false;
             }
@@ -1284,40 +1296,25 @@ bool rebuild(UiSearchScene& s) noexcept {
     return true;
 }
 bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8View value, const UiRect& r,
-          const Color& color, u32 flags = 0, UiTextWrapping wrap = UiTextWrapping::no_wrap,
-          UiTextAlignment alignment = UiTextAlignment::start, bool chooser_text = false) noexcept {
+          const Color& color, u32 flags, UiTextWrapping wrap, UiTextAlignment alignment,
+          bool chooser_text) noexcept {
     if (!value.bytes || !ui_rect_has_area(r))
         return true;
-    const bool row = owner.generation && owner.slot < s.storage.widgets.count &&
-                     (s.targets[owner.slot].action == UiSearchAction::result ||
-                      s.targets[owner.slot].action == UiSearchAction::rich_item);
     const auto action = owner.generation && owner.slot < s.storage.widgets.count
                             ? s.targets[owner.slot].action
                             : UiSearchAction::none;
-    const bool filter = chooser_text || action == UiSearchAction::filter_value ||
-                        ui_search_action_filter(action) || action == UiSearchAction::more_filters ||
-                        action == UiSearchAction::clear_recent || action == UiSearchAction::recent ||
+    const bool row = action == UiSearchAction::result || action == UiSearchAction::rich_item;
+    const bool filter = chooser_text || chooser_action(action) ||
                         (owner.slot == s.root.slot && utf8_equal(value, utf8_literal("Filters")));
-    const bool sort = action == UiSearchAction::newest || action == UiSearchAction::oldest ||
-                      action == UiSearchAction::relevance;
-    if (!row && !filter && chooser_open(s) && ui_rect_has_area(ui_rect_intersection(r, s.chooser)))
+    const bool sort = sort_action(action);
+    if (!row && !filter && chooser_open(s) && ui_rect_intersects(r, s.chooser))
         return true;
-    if (!row && !sort && s.content->sort_menu && ui_rect_has_area(ui_rect_intersection(r, s.sort_chooser)))
+    if (!row && !sort && s.content->sort_menu && ui_rect_intersects(r, s.sort_chooser))
         return true;
-    auto region = row ? s.body : widget_viewport(s);
+    auto region = row ? overlay_region(s, r) : widget_viewport(s);
     if (chooser_text || action == UiSearchAction::filter_value || action == UiSearchAction::clear_recent ||
         action == UiSearchAction::recent)
         region = ui_rect_intersection(region, s.chooser);
-    if (row && chooser_open(s) && ui_rect_has_area(ui_rect_intersection(r, s.chooser)))
-        region.top = maximum(region.top, s.chooser.bottom);
-    if (row && s.content->sort_menu && ui_rect_has_area(ui_rect_intersection(r, s.sort_chooser))) {
-        // The right-aligned Sort menu covers timestamps, not the author to its
-        // left. Preserve the visible left strip rather than hiding the row.
-        if (r.left < s.sort_chooser.left)
-            region.right = minimum(region.right, s.sort_chooser.left);
-        else
-            region.top = maximum(region.top, s.sort_chooser.bottom);
-    }
     const auto clip = ui_rect_intersection(r, region);
     if (!ui_rect_has_area(clip))
         return true;
@@ -1335,6 +1332,14 @@ bool text(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8V
               UiTextFace::normal,
               {},
               {}});
+}
+bool line(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8View value, const UiRect& r,
+          const Color& color, u32 flags, UiTextAlignment alignment = UiTextAlignment::start) noexcept {
+    return text(out, s, owner, value, r, color, flags, UiTextWrapping::no_wrap, alignment, false);
+}
+bool centered(UiTextOutput* out, const UiSearchScene& s, UiWidgetHandle owner, Utf8View value, const UiRect& r,
+              const Color& color, u32 flags = text_style_subtext) noexcept {
+    return line(out, s, owner, value, r, color, flags, UiTextAlignment::center);
 }
 } // namespace
 } // namespace maicord
@@ -1449,8 +1454,7 @@ bool ui_search_scene_target_current(const UiSearchScene& s, UiSearchTarget targe
     const auto& store = *native->timeline->rich_store;
     const auto* record = message_store_resolve(*native->timeline->store,
                                                message_scene_source_handle(*native, target.source_index));
-    const auto* rich = target.snapshot ? message_rich_store_snapshot(store, target.message_id)
-                                       : message_rich_store_find(store, target.message_id);
+    const auto* rich = rich_scoped(store, target.message_id, target.snapshot);
     if (!record || !rich || record->revision != rich->message_revision ||
         (target.save && target.rich_kind != MessageSceneRichItemKind::attachment) ||
         (target.resource != MediaEmbedResource::none &&
@@ -1483,10 +1487,8 @@ UiSearchTarget ui_search_scene_rich_widget_target(const UiSearchScene& s, UiWidg
     if (!record || outer->redacted)
         return {};
     if (outer->poll.slot == handle.slot && outer->poll.generation == handle.generation) {
-        UiSearchTarget target{UiSearchAction::rich_item, record->channel_id, record->id};
-        target.source_revision = s.source_revision;
-        target.source_index = outer->source_index;
-        target.rich_kind = MessageSceneRichItemKind::poll;
+        const auto target = rich_target(s, record->channel_id, record->id, outer->source_index,
+                                        MessageSceneRichItemKind::poll, 0, false);
         return ui_search_scene_target_current(s, target) ? target : UiSearchTarget{};
     }
     const MessageSceneRowWidget* rows[]{outer, message_scene_snapshot_row(*scene, *outer)};
@@ -1503,16 +1505,11 @@ UiSearchTarget ui_search_scene_rich_widget_target(const UiSearchScene& s, UiWidg
                 if (item.slot != handle.slot || item.generation != handle.generation ||
                     !ui_widget_manager_input_enabled(scene->widgets, handle))
                     continue;
-                UiSearchTarget target{UiSearchAction::rich_item, record->channel_id, record->id};
-                target.source_revision = s.source_revision;
-                target.source_index = outer->source_index;
-                target.rich_kind = static_cast<MessageSceneRichItemKind>(kind);
-                target.rich_index = static_cast<u16>(index);
-                target.snapshot = child != 0;
+                auto target = rich_target(s, record->channel_id, record->id, outer->source_index,
+                                          static_cast<MessageSceneRichItemKind>(kind), index, child != 0);
                 if (target.rich_kind == MessageSceneRichItemKind::embed) {
                     const auto& store = *scene->timeline->rich_store;
-                    const auto* rich = child ? message_rich_store_snapshot(store, record->id)
-                                             : message_rich_store_find(store, record->id);
+                    const auto* rich = rich_scoped(store, record->id, child != 0);
                     MessageRichEmbedGallery gallery{};
                     if (rich && message_rich_embed_gallery(store, *rich, index, &gallery)) {
                         MessageRichEmbedMediaSelection selected{};
@@ -1537,16 +1534,7 @@ UiRect ui_search_scene_content_clip(const UiSearchScene& s, UiRect rectangle) no
     // Item layouts hide the message projection, including its text and emoji.
     if (!current(s) || tiled(s))
         return {};
-    auto region = s.body;
-    if (chooser_open(s) && ui_rect_has_area(ui_rect_intersection(rectangle, s.chooser)))
-        region.top = maximum(region.top, s.chooser.bottom);
-    if (s.content->sort_menu && ui_rect_has_area(ui_rect_intersection(rectangle, s.sort_chooser))) {
-        if (rectangle.left < s.sort_chooser.left)
-            region.right = minimum(region.right, s.sort_chooser.left);
-        else
-            region.top = maximum(region.top, s.sort_chooser.bottom);
-    }
-    return ui_rect_intersection(rectangle, region);
+    return overlay_clip(s, rectangle);
 }
 namespace {
 const MessageSceneRowWidget* rich_target_row(const UiSearchScene& s, UiSearchTarget target,
@@ -1589,8 +1577,7 @@ bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, UiSearchTarge
     if (!node)
         return false;
     const auto& store = *scene->timeline->rich_store;
-    const auto* rich = target.snapshot ? message_rich_store_snapshot(store, target.message_id)
-                                       : message_rich_store_find(store, target.message_id);
+    const auto* rich = rich_scoped(store, target.message_id, target.snapshot);
     if (!rich)
         return false;
     if (target.rich_kind == MessageSceneRichItemKind::attachment &&
@@ -1598,7 +1585,9 @@ bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, UiSearchTarge
         const auto& attachment = rich->attachments[target.rich_index];
         if (message_rich_attachment_audio_supported(store, attachment)) {
             UiAudioCardGeometry geometry{};
-            if (!ui_audio_card_geometry(node->content_rectangle, ui_theme_audio_style(scene->theme_styles),
+            UiAudioControlsStyle audio_style;
+            ui_theme_fill_audio_style(scene->theme_styles, &audio_style);
+            if (!ui_audio_card_geometry(node->content_rectangle, audio_style,
                                         &geometry, message_rich_record_voice(*rich)))
                 return false;
             *rectangle = geometry.bounds;
@@ -1705,6 +1694,7 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
                             (content->sort_menu ? 1u << 11 : 0) | (content->tabs ? 1u << 12 : 0) |
                             (static_cast<u16>(item_layout) << 13) | (recent ? 1u << 15 : 0);
     const auto* choices = content->filter_choices;
+    const u32 source_revision = source ? source->revision : 0;
     const u32 geometry_revision =
         s->theme_styles && s->theme_styles->ready ? s->theme_styles->geometry_revision : 0;
     const bool same_publication =
@@ -1719,15 +1709,12 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
         return false;
     }
     const bool same_choices = same_publication && s->choice_geometry_revision == geometry_revision;
-    if (!s->media_policy_dirty && same_choices && s->active && s->source == source &&
-        s->content == content && s->source_revision == (source ? source->revision : 0) &&
-        s->content_revision == content->revision && ui_rect_equal(s->viewport, viewport) &&
-        ui_rect_equal(s->field, field) && ui_rect_equal(s->text, text_area))
+    const bool warm = !s->media_policy_dirty && same_choices && s->active && s->source == source &&
+                      s->source_revision == source_revision && ui_rect_equal(s->viewport, viewport) &&
+                      ui_rect_equal(s->field, field) && ui_rect_equal(s->text, text_area);
+    if (warm && s->content == content && s->content_revision == content->revision)
         return true;
-    if (!s->media_policy_dirty && same_choices && s->active && s->source == source &&
-        s->source_revision == (source ? source->revision : 0) && s->content_layout == menu_layout &&
-        ui_rect_equal(s->viewport, viewport) && ui_rect_equal(s->field, field) &&
-        ui_rect_equal(s->text, text_area) && s->pagination_total == content->total &&
+    if (warm && s->content_layout == menu_layout && s->pagination_total == content->total &&
         s->pagination_offset == content->offset && s->pagination_page_size == content->page_size) {
         s->content = content;
         s->content_revision = content->revision;
@@ -1763,9 +1750,7 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
     s->chooser = {chooser_right - chooser_width, field.bottom + 8, chooser_right,
                   minimum(viewport.bottom - 8,
                           field.bottom + 8 + 32 + (content->filters ? 12 * 40 : 5 * 48) +
-                              (!content->filters && content->recent_count && !content->edit.text.bytes
-                                   ? 32 + content->recent_count * 36
-                                   : 0))};
+                              (recent ? 32 + content->recent_count * 36 : 0))};
     const u16 prior_first = s->choice_source == choices ? s->choice_first : u16{};
     s->choice_source = choices;
     s->choice_rows = choices ? choices->rows.data : nullptr;
@@ -1801,7 +1786,7 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
     s->overlay = ui_rect_width(viewport) < 680;
     s->source = source;
     s->content = content;
-    s->source_revision = source ? source->revision : 0;
+    s->source_revision = source_revision;
     s->content_revision = content->revision;
     s->content_layout = menu_layout;
     s->pagination_total = content->total;
@@ -1825,7 +1810,8 @@ void ui_search_scene_release(UiSearchScene* s) noexcept {
         ui_widget_storage_release(&s->rich_projection->widgets);
     }
     arena_release(&s->rich_projection_storage);
-    reset_value(s);
+    ZeroMemory(s, sizeof(*s));
+    s->choice_selected = kUiSearchFilterNoSelection;
 }
 bool ui_search_scene_scroll(UiSearchScene* s, float offset) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(offset))
@@ -1879,46 +1865,51 @@ bool ui_search_scene_filter_choice_avatar(const UiSearchScene& scene, u32 source
     }
     return false;
 }
-UiSearchTarget ui_search_scene_hit_test(const UiSearchScene& s, float x, float y) noexcept {
+namespace {
+void hit_test(const UiSearchScene& s, float x, float y, UiSearchTarget* out) noexcept {
     if (!current(s))
-        return {};
+        return;
     const auto hit = ui_widget_manager_hit_test(s.widgets, x, y);
     const auto target =
         hit.generation && hit.slot < s.storage.widgets.count ? s.targets[hit.slot] : UiSearchTarget{};
     if ((target.action == UiSearchAction::result || target.action == UiSearchAction::rich_item) &&
-        ((chooser_open(s) && ui_rect_contains(s.chooser, x, y)) ||
-         (s.content->sort_menu && ui_rect_contains(s.sort_chooser, x, y))))
-        return {};
-    if (target.action != UiSearchAction::none)
-        return ui_search_scene_target_current(s, target) ? target : UiSearchTarget{};
+        menu_hit(s, x, y))
+        return;
+    if (target.action != UiSearchAction::none) {
+        if (ui_search_scene_target_current(s, target))
+            *out = target;
+        return;
+    }
     const auto* rich_scene = tiled(s) ? nullptr : ui_search_scene_message_scene(s);
     if (!rich_scene || !ui_rect_contains(s.body, x, y) ||
-        (chooser_open(s) && ui_rect_contains(s.chooser, x, y)) ||
-        (s.content->sort_menu && ui_rect_contains(s.sort_chooser, x, y)))
-        return {};
+        menu_hit(s, x, y))
+        return;
     const auto rich_hit = message_scene_hit_test(*rich_scene, x, y);
     const auto* outer =
         rich_hit.message_id ? message_scene_find_row(*rich_scene, rich_hit.source_index) : nullptr;
     if (outer && outer->redacted)
-        return {};
+        return;
     const auto* record =
         outer ? message_store_resolve(*rich_scene->timeline->store, outer->message) : nullptr;
     if (!record)
-        return {};
+        return;
     if (outer->poll_content_revision) {
         const auto* node = message_scene_layout_node(*rich_scene, outer->poll);
         if (node && ui_rect_contains(rich_item_clip(s, node->rectangle, node->clip_rectangle), x, y)) {
-            UiSearchTarget poll_target{UiSearchAction::rich_item, record->channel_id, record->id};
-            poll_target.source_revision = s.source_revision;
-            poll_target.source_index = outer->source_index;
-            poll_target.rich_kind = MessageSceneRichItemKind::poll;
-            return ui_search_scene_target_current(s, poll_target) ? poll_target : UiSearchTarget{};
+            const auto poll_target = rich_target(s, record->channel_id, record->id, outer->source_index,
+                                                 MessageSceneRichItemKind::poll, 0, false);
+            if (ui_search_scene_target_current(s, poll_target))
+                *out = poll_target;
+            return;
         }
     }
     const MessageSceneRowWidget* projected[]{outer, message_scene_snapshot_row(*rich_scene, *outer)};
     for (u32 child = 0; child < 2; ++child) {
         const auto* row = projected[child];
         if (!row)
+            continue;
+        const auto* rich = rich_scoped(*rich_scene->timeline->rich_store, record->id, child != 0);
+        if (!rich)
             continue;
         const u32 counts[]{row->attachment_item_count, row->embed_item_count, row->sticker_item_count,
                            row->component_item_count, row->notice_item_count};
@@ -1929,11 +1920,6 @@ UiSearchTarget ui_search_scene_hit_test(const UiSearchScene& s, float x, float y
                 const auto* node = message_scene_layout_node(*rich_scene, item);
                 if (!node ||
                     !ui_rect_contains(rich_item_clip(s, node->rectangle, node->clip_rectangle), x, y))
-                    continue;
-                const auto* rich =
-                    child ? message_rich_store_snapshot(*rich_scene->timeline->rich_store, record->id)
-                          : message_rich_store_find(*rich_scene->timeline->rich_store, record->id);
-                if (!rich)
                     continue;
                 bool actionable =
                     kind == 0 && index < rich->attachment_count && rich->attachments[index].url.bytes;
@@ -1952,24 +1938,21 @@ UiSearchTarget ui_search_scene_hit_test(const UiSearchScene& s, float x, float y
                                  !rich->components[index].disabled;
                 if (!actionable)
                     continue;
-                UiSearchTarget result{UiSearchAction::rich_item, record->channel_id, record->id};
-                result.source_revision = s.source_revision;
-                result.source_index = outer->source_index;
-                result.rich_kind = item_kind;
-                result.rich_index = static_cast<u16>(index);
-                result.snapshot = child != 0;
+                auto result = rich_target(s, record->channel_id, record->id, outer->source_index, item_kind,
+                                          index, child != 0);
                 if (item_kind == MessageSceneRichItemKind::attachment &&
                     message_rich_attachment_audio_supported(*rich_scene->timeline->rich_store,
                                                             rich->attachments[index])) {
                     UiAudioCardGeometry geometry{};
-                    if (!ui_audio_card_geometry(node->content_rectangle,
-                                                ui_theme_audio_style(rich_scene->theme_styles), &geometry,
+                    UiAudioControlsStyle audio_style;
+                    ui_theme_fill_audio_style(rich_scene->theme_styles, &audio_style);
+                    if (!ui_audio_card_geometry(node->content_rectangle, audio_style, &geometry,
                                                 message_rich_record_voice(*rich)))
-                        return {};
+                        return;
                     if (ui_rect_contains(geometry.download, x, y))
                         result.save = true;
                     else if (!ui_rect_contains(geometry.play_pause, x, y))
-                        return {};
+                        return;
                 }
                 if (item_kind == MessageSceneRichItemKind::embed) {
                     MessageRichEmbedGallery gallery{};
@@ -1986,11 +1969,13 @@ UiSearchTarget ui_search_scene_hit_test(const UiSearchScene& s, float x, float y
                             result.rich_index = gallery.members[tile];
                             if (message_rich_embed_gallery_select(store, rich->embeds[result.rich_index], &selected))
                                 result.resource = selected.resource;
-                            return result;
+                            *out = result;
+                            return;
                         }
                         if (ui_rect_contains(rich_item_clip(s, block, node->clip_rectangle), x, y))
-                            return {};
-                        return result;
+                            return;
+                        *out = result;
+                        return;
                     }
                     UiRect preview{}, preview_clip{};
                     result.resource = MediaEmbedResource::thumbnail;
@@ -2007,10 +1992,16 @@ UiSearchTarget ui_search_scene_hit_test(const UiSearchScene& s, float x, float y
                             result.resource = MediaEmbedResource::none;
                     }
                 }
-                return result;
+                *out = result;
+                return;
             }
     }
-    return {};
+}
+} // namespace
+UiSearchTarget ui_search_scene_hit_test(const UiSearchScene& s, float x, float y) noexcept {
+    UiSearchTarget target{};
+    hit_test(s, x, y, &target);
+    return target;
 }
 bool ui_search_scene_contains(const UiSearchScene& s, float x, float y) noexcept {
     return current(s) &&
@@ -2030,16 +2021,7 @@ bool ui_search_scene_avatar(const UiSearchScene& s, u32 slot, UiRect* rectangle,
         *rectangle = avatar->rectangle;
     } else
         *rectangle = {r.left + 12, r.top + 12, r.left + 44, r.top + 44};
-    auto region = s.body;
-    if (chooser_open(s) && ui_rect_has_area(ui_rect_intersection(*rectangle, s.chooser)))
-        region.top = maximum(region.top, s.chooser.bottom);
-    if (s.content->sort_menu && ui_rect_has_area(ui_rect_intersection(*rectangle, s.sort_chooser))) {
-        if (rectangle->left < s.sort_chooser.left)
-            region.right = minimum(region.right, s.sort_chooser.left);
-        else
-            region.top = maximum(region.top, s.sort_chooser.bottom);
-    }
-    *clip = ui_rect_intersection(*rectangle, region);
+    *clip = overlay_clip(s, *rectangle);
     return ui_rect_has_area(*clip);
 }
 bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStream* out,
@@ -2051,7 +2033,7 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
                              8))
         return false;
     if (!ui_icon_paint(out, UiIcon::search,
-                       {s.field.right - 26, s.field.top + 6, s.field.right - 6, s.field.bottom - 6},
+                       ui_rect_edges(s.field, ui_end(-26), ui_start(6), ui_end(-6), ui_end(-6)),
                        theme.text_secondary))
         return false;
     if (s.scope.generation) {
@@ -2066,7 +2048,7 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
                                          theme.scale.radius_sm, focus || hover ? 1.f : 0.f, 1,
                                          UiBackgroundSurfaceMode::gradient,
                                          UiBackgroundTier::high) ||
-            !ui_icon_paint(out, UiIcon::close, {chip.right - 18, chip.top + 6, chip.right - 6, chip.bottom - 6},
+            !ui_icon_paint(out, UiIcon::close, ui_rect_edges(chip, ui_end(-18), ui_start(6), ui_end(-6), ui_end(-6)),
                            hover || focus ? theme.text_primary : theme.text_secondary))
             return false;
     }
@@ -2076,7 +2058,7 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
                                          UiBackgroundSurfaceMode::gradient, UiBackgroundTier::chat))
             return false;
         if (!paint_tabs(s, theme, out) ||
-            !paint_stream_push_clip(out, s.body.left, s.body.top, s.body.right, s.body.bottom))
+            !paint_stream_push_clip(out, s.body))
             return false;
         bool rows_ok = !tiled(s) || paint_items(s, theme, out, rich_media);
         for (u32 i = 0; rows_ok && i < s.count; ++i) {
@@ -2139,11 +2121,10 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
         if (action == UiSearchAction::tab ||
             (tiled(s) && (action == UiSearchAction::result || action == UiSearchAction::rich_item)))
             continue;
+        const bool filter = chooser_action(action), sort = sort_action(action);
         const bool selected =
             (action == UiSearchAction::filter_value && s.targets[i].source_index == s.choice_selected) ||
-            (action == UiSearchAction::newest && s.content->sort == 0) ||
-            (action == UiSearchAction::oldest && s.content->sort == 1) ||
-            (action == UiSearchAction::relevance && s.content->sort == 2) ||
+            (sort && static_cast<u8>(action) - static_cast<u8>(UiSearchAction::newest) == s.content->sort) ||
             (action == UiSearchAction::page &&
              s.targets[i].page_offset / (s.content->page_size ? s.content->page_size : 25) ==
                  s.content->offset / (s.content->page_size ? s.content->page_size : 25));
@@ -2151,13 +2132,8 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
                        s.widgets.hovered.generation == s.widgets.generation && s.widgets.hovered.slot == i,
                    captured = s.widgets.captured.generation == s.widgets.generation &&
                               s.widgets.captured.slot == i;
-        const bool filter = action == UiSearchAction::filter_value || ui_search_action_filter(action) ||
-                            action == UiSearchAction::more_filters ||
-                            action == UiSearchAction::clear_recent || action == UiSearchAction::recent;
-        const bool sort = action == UiSearchAction::newest || action == UiSearchAction::oldest ||
-                          action == UiSearchAction::relevance;
-        if ((!filter && chooser_open(s) && ui_rect_has_area(ui_rect_intersection(r, s.chooser))) ||
-            (!sort && s.content->sort_menu && ui_rect_has_area(ui_rect_intersection(r, s.sort_chooser))))
+        if ((!filter && chooser_open(s) && ui_rect_intersects(r, s.chooser)) ||
+            (!sort && s.content->sort_menu && ui_rect_intersects(r, s.sort_chooser)))
             continue;
         // Jump buttons under an open menu stay hidden with the rest of their card.
         if (rich_enabled(s) && action == UiSearchAction::result &&
@@ -2176,21 +2152,20 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
                                          UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
                                          UiBackgroundBorderTone::palette))
             return false;
-        if ((hovered || captured) &&
-            !paint_stream_push_rounded(
-                out, r.left, r.top, r.right, r.bottom,
-                ui_background_hover_color(theme, captured ? theme.interactive : theme.interactive_hover,
-                                          captured ? .32f : .20f),
-                action == UiSearchAction::filter_value ? ui_theme_metrics(s.theme_styles).compact_radius
-                                                       : 4.f))
-            return false;
-        if (selected &&
-            !paint_stream_push_rounded(out, r.left, r.top, r.right, r.bottom,
-                                       ui_background_hover_color(theme, theme.interactive, .28f),
-                                       action == UiSearchAction::filter_value
-                                           ? ui_theme_metrics(s.theme_styles).compact_radius
-                                           : 4.f))
-            return false;
+        if (hovered || captured || selected) {
+            const float radius =
+                action == UiSearchAction::filter_value ? ui_theme_metrics(s.theme_styles).compact_radius : 4.f;
+            if (((hovered || captured) &&
+                 !paint_stream_push_rounded(
+                     out, r,
+                     ui_background_hover_color(theme, captured ? theme.interactive : theme.interactive_hover,
+                                               captured ? .32f : .20f),
+                     radius)) ||
+                (selected &&
+                 !paint_stream_push_rounded(out, r, ui_background_hover_color(theme, theme.interactive, .28f),
+                                            radius)))
+                return false;
+        }
         if (action == UiSearchAction::close) {
             const float icon = ui_icon_button_extent(ui_rect_width(r) - 8);
             const float x = (r.left + r.right - icon) * .5f, y = (r.top + r.bottom - icon) * .5f;
@@ -2210,16 +2185,14 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
         if (action == UiSearchAction::filter_value) {
             UiMenuRowGeometry choice_geometry{};
             if (!choice_menu_geometry(s, r, &choice_geometry) ||
-                !paint_stream_push_clip(out, choice_geometry.clip.left, choice_geometry.clip.top,
-                                        choice_geometry.clip.right, choice_geometry.clip.bottom))
+                !paint_stream_push_clip(out, choice_geometry.clip))
                 return false;
             const auto index = s.targets[i].source_index;
             const auto& choice = s.choice_source->rows[index];
             const UiRect avatar = choice_avatar_rectangle(choice_geometry, r);
             const bool icon =
                 choice_person(*s.choice_source, choice)
-                    ? paint_stream_push_rounded(out, avatar.left, avatar.top, avatar.right, avatar.bottom,
-                                                theme.avatar_placeholder, ui_rect_height(avatar) * .5f)
+                    ? paint_stream_push_rounded(out, avatar, theme.avatar_placeholder, ui_rect_height(avatar) * .5f)
                     : ui_icon_paint(out, choice_icon(*s.choice_source, choice), choice_geometry.icon,
                                     theme.text_secondary);
             if (!paint_stream_pop_clip(out) || !icon)
@@ -2244,7 +2217,7 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
                                     UiIcon::mention,    UiIcon::calendar,  UiIcon::date_before,
                                     UiIcon::date_after, UiIcon::pin,       UiIcon::link,
                                     UiIcon::file,       UiIcon::file_text, UiIcon::bot};
-            if (!paint_stream_push_clip(out, r.left, r.top, r.right, r.bottom))
+            if (!paint_stream_push_clip(out, r))
                 return false;
             const float cy = (r.top + r.bottom) * .5f;
             const bool icon_ok = ui_icon_paint(
@@ -2283,24 +2256,24 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
         return false;
     if (s.scope.generation) {
         const auto chip = bounds(s, s.scope);
-        if (!text(out, s, s.scope, s.content->scope_chip, {chip.left + 8, chip.top, chip.right - 20, chip.bottom},
+        if (!line(out, s, s.scope, s.content->scope_chip, ui_rect_edges(chip, ui_start(8), ui_start(0), ui_end(-20), ui_end(0)),
                   theme.text_primary, text_style_subtext))
             return false;
     }
     if (s.content->panel) {
         const auto p = s.panel;
-        if (!text(out, s, s.root,
+        if (!line(out, s, s.root,
                   s.content->heading.bytes ? s.content->heading : utf8_literal("Search results"),
-                  {p.left + 12, p.top + 8, p.right - 64, p.top + 32}, theme.text_primary,
+                  ui_rect_edges(p, ui_start(12), ui_start(8), ui_end(-64), ui_start(32)), theme.text_primary,
                   text_style_bold) ||
-            !text(out, s, s.root, {s.count_text, s.count_bytes},
-                  {p.left + 12, p.top + 40, p.right - 200, p.top + 72}, theme.text_secondary,
+            !line(out, s, s.root, {s.count_text, s.count_bytes},
+                  ui_rect_edges(p, ui_start(12), ui_start(40), ui_end(-200), ui_start(72)), theme.text_secondary,
                   text_style_subtext) ||
             (!chooser_open(s) &&
-             !text(out, s, s.root,
+             !line(out, s, s.root,
                    s.content->filter_summary.bytes ? s.content->filter_summary : s.content->status,
-                   s.content->tabs ? UiRect{p.left + 12, p.top + 118, p.right - 12, p.top + 142}
-                                   : UiRect{p.left + 12, p.top + 76, p.right - 12, p.top + 100},
+                   s.content->tabs ? ui_rect_edges(p, ui_start(12), ui_start(118), ui_end(-12), ui_start(142))
+                                   : ui_rect_edges(p, ui_start(12), ui_start(76), ui_end(-12), ui_start(100)),
                    theme.text_secondary, text_style_subtext)))
             return false;
         if (tiled(s)) {
@@ -2312,9 +2285,8 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                 if (s.layout == UiSearchLayout::grid) {
                     const MessageMediaObscure obscure = item_obscure(s, item);
                     if (obscure != MessageMediaObscure::none &&
-                        !text(out, s, owner, message_media_obscure_label(obscure),
-                              {r.left + 4, r.bottom - 28, r.right - 4, r.bottom - 6}, theme.text_secondary,
-                              text_style_subtext, UiTextWrapping::no_wrap, UiTextAlignment::center))
+                        !centered(out, s, owner, message_media_obscure_label(obscure),
+                                  ui_rect_edges(r, ui_start(4), ui_end(-28), ui_end(-4), ui_end(-6)), theme.text_secondary))
                         return false;
                     continue;
                 }
@@ -2324,26 +2296,24 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                                         ? Utf8View{projection.details[v], projection.detail_bytes[v]}
                                         : url_hostname(link);
                 const auto title = item_title(s, item);
-                if (!text(out, s, owner, title.bytes ? title : utf8_literal("Untitled"),
+                if (!line(out, s, owner, title.bytes ? title : utf8_literal("Untitled"),
                           {r.left + 56, r.top + 9, right, r.top + 29}, theme.text_primary,
                           text_style_bold) ||
-                    !text(out, s, owner, detail, {r.left + 56, r.top + 29, right, r.top + 47},
+                    !line(out, s, owner, detail, {r.left + 56, r.top + 29, right, r.top + 47},
                           theme.text_secondary, text_style_subtext))
                     return false;
                 if (s.layout == UiSearchLayout::links && projection.secondary[v].generation &&
-                    !text(out, s, projection.secondary[v], utf8_literal("Jump"), item_jump_rectangle(r),
-                          theme.text_primary, text_style_subtext, UiTextWrapping::no_wrap,
-                          UiTextAlignment::center))
+                    !centered(out, s, projection.secondary[v], utf8_literal("Jump"), item_jump_rectangle(r),
+                              theme.text_primary))
                     return false;
             }
             if (!projection.item_count && s.content->phase == UiSearchPhase::ready && !s.content->stale &&
-                !text(out, s, s.root,
-                      s.layout == UiSearchLayout::grid    ? utf8_literal("No media on this page.")
-                      : s.layout == UiSearchLayout::files ? utf8_literal("No files on this page.")
-                                                          : utf8_literal("No links on this page."),
-                      {s.body.left + 12, s.body.top + 16, s.body.right - 12, s.body.top + 40},
-                      theme.text_secondary, text_style_subtext, UiTextWrapping::no_wrap,
-                      UiTextAlignment::center))
+                !centered(out, s, s.root,
+                          s.layout == UiSearchLayout::grid    ? utf8_literal("No media on this page.")
+                          : s.layout == UiSearchLayout::files ? utf8_literal("No files on this page.")
+                                                              : utf8_literal("No links on this page."),
+                          ui_rect_edges(s.body, ui_start(12), ui_start(16), ui_end(-12), ui_start(40)),
+                          theme.text_secondary))
                 return false;
         }
         for (u32 i = 0; s.content->tabs && i < 5; ++i) {
@@ -2353,15 +2323,13 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
             const auto color = s.content->tab == i ? theme.text_primary : theme.text_secondary;
             const bool counted = s.tab_bytes[i] != 0;
             const float mid = (r.top + r.bottom - 3) * .5f;
-            if (!text(out, s, s.tabs[i], tab_label(i),
-                      counted ? UiRect{r.left + 2, r.top + 3, r.right - 2, mid + 2}
-                              : UiRect{r.left + 2, r.top, r.right - 2, r.bottom - 3},
-                      color,
-                      s.content->tab == i ? text_style_bold | text_style_subtext : text_style_subtext,
-                      UiTextWrapping::no_wrap, UiTextAlignment::center) ||
-                (counted && !text(out, s, s.tabs[i], {s.tab_text[i], s.tab_bytes[i]},
-                                  {r.left + 2, mid, r.right - 2, r.bottom - 5}, theme.text_secondary,
-                                  text_style_subtext, UiTextWrapping::no_wrap, UiTextAlignment::center)))
+            if (!centered(out, s, s.tabs[i], tab_label(i),
+                          counted ? UiRect{r.left + 2, r.top + 3, r.right - 2, mid + 2}
+                                  : UiRect{r.left + 2, r.top, r.right - 2, r.bottom - 3},
+                          color,
+                          s.content->tab == i ? text_style_bold | text_style_subtext : text_style_subtext) ||
+                (counted && !centered(out, s, s.tabs[i], {s.tab_text[i], s.tab_bytes[i]},
+                                      {r.left + 2, mid, r.right - 2, r.bottom - 5}, theme.text_secondary)))
                 return false;
         }
         for (u32 i = 0; i < s.count; ++i) {
@@ -2369,38 +2337,38 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
             const auto r = s.row_rectangles[i];
             if (rich_enabled(s)) {
                 if (row.unavailable) {
-                    if (!text(out, s, s.root, row.body,
+                    if (!line(out, s, s.root, row.body,
                               {r.left + 16, r.top + 12, r.right - (row.access_check ? 88 : 16), r.bottom - 12},
                               theme.text_secondary,
                               text_style_subtext))
                         return false;
                     if (row.access_check) {
                         const auto* check = ui_widget_manager_layout_node(s.widgets, s.rows[i]);
-                        if (check && !text(out, s, s.rows[i], utf8_literal("Check access"),
-                                           check->rectangle, theme.text_primary, text_style_subtext,
-                                           UiTextWrapping::no_wrap, UiTextAlignment::center))
+                        if (check && !centered(out, s, s.rows[i], utf8_literal("Check access"),
+                                               check->rectangle, theme.text_primary))
                             return false;
                     }
                     continue;
                 }
                 const auto* jump = ui_widget_manager_layout_node(s.widgets, s.rows[i]);
-                if (!text(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
+                if (!line(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
                           text_style_subtext | text_style_bold) ||
                     (jump &&
-                     !text(out, s, s.rows[i], utf8_literal("Jump"), jump->rectangle, theme.text_primary,
-                           text_style_subtext, UiTextWrapping::no_wrap, UiTextAlignment::center)))
+                     !centered(out, s, s.rows[i], utf8_literal("Jump"), jump->rectangle, theme.text_primary)))
                     return false;
                 continue;
             }
+            const auto header = plain_header(r, row);
             if ((ui_rect_has_area(s.group_rectangles[i]) &&
-                 !text(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
+                 !line(out, s, s.rows[i], row.channel, s.group_rectangles[i], theme.text_secondary,
                        text_style_subtext | text_style_bold)) ||
-                !text(out, s, s.rows[i], row.author, plain_header(r, row).name,
+                !line(out, s, s.rows[i], row.author, header.name,
                       row.hit ? theme.text_primary : theme.text_secondary, text_style_bold) ||
-                !text(out, s, s.rows[i], row.detail, plain_header(r, row).timestamp,
+                !line(out, s, s.rows[i], row.detail, header.timestamp,
                       theme.text_secondary, text_style_subtext) ||
-                !text(out, s, s.rows[i], row.body, {r.left + 52, r.top + 36, r.right - 12, r.bottom - 12},
-                      row.hit ? theme.text_primary : theme.text_secondary, 0, UiTextWrapping::wrap))
+                !text(out, s, s.rows[i], row.body, ui_rect_edges(r, ui_start(52), ui_start(36), ui_end(-12), ui_end(-12)),
+                      row.hit ? theme.text_primary : theme.text_secondary, 0, UiTextWrapping::wrap,
+                      UiTextAlignment::start, false))
                 return false;
         }
     }
@@ -2426,8 +2394,8 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
             return false;
     } else {
         if (chooser_open(s) &&
-            !text(out, s, s.root, utf8_literal("Filters"),
-                  {s.chooser.left + 12, s.chooser.top + 4, s.chooser.right - 12, s.chooser.top + 26},
+            !line(out, s, s.root, utf8_literal("Filters"),
+                  ui_rect_edges(s.chooser, ui_start(12), ui_start(4), ui_end(-12), ui_start(26)),
                   theme.text_secondary, text_style_subtext | text_style_bold))
             return false;
         if (chooser_open(s) && recent_shown(s) &&
@@ -2452,8 +2420,8 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                 return false;
             const auto& choice = s.choice_source->rows[s.targets[i].source_index];
             const UiWidgetHandle owner{static_cast<u16>(i), s.widgets.generation};
-            if (!text(out, s, owner, choice.label, geometry.primary, theme.text_primary, text_style_bold) ||
-                !text(out, s, owner, choice.detail, geometry.detail, theme.text_secondary,
+            if (!line(out, s, owner, choice.label, geometry.primary, theme.text_primary, text_style_bold) ||
+                !line(out, s, owner, choice.detail, geometry.detail, theme.text_secondary,
                       text_style_subtext))
                 return false;
             continue;
@@ -2461,14 +2429,13 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
         if (a == UiSearchAction::page) {
             for (u32 page = 0; page < s.page_count; ++page)
                 if (s.pages[page].slot == i &&
-                    !text(out, s, s.pages[page], {s.page_text[page], s.page_bytes[page]}, r,
-                          theme.text_primary, text_style_subtext, UiTextWrapping::no_wrap,
-                          UiTextAlignment::center))
+                    !centered(out, s, s.pages[page], {s.page_text[page], s.page_bytes[page]}, r,
+                              theme.text_primary))
                     return false;
             continue;
         }
         if (ui_search_action_filter(a) || a == UiSearchAction::more_filters) {
-            const Utf8View hints[] = {utf8_literal("from:"),
+            static constexpr Utf8View hints[] = {utf8_literal("from:"),
                                       utf8_literal("in:"),
                                       utf8_literal("has:image"),
                                       utf8_literal("mentions:"),
@@ -2486,9 +2453,9 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                     ? utf8_literal("Dates, files, links and more")
                     : hints[static_cast<u8>(a) - static_cast<u8>(UiSearchAction::filter_from)];
             const float mid = (r.top + r.bottom) * .5f;
-            if (!text(out, s, {static_cast<u16>(i), s.widgets.generation}, label(a),
+            if (!line(out, s, {static_cast<u16>(i), s.widgets.generation}, label(a),
                       {r.left, r.top + 2, r.right, mid + 2}, theme.text_primary, text_style_subtext) ||
-                !text(out, s, {static_cast<u16>(i), s.widgets.generation}, hint,
+                !line(out, s, {static_cast<u16>(i), s.widgets.generation}, hint,
                       {r.left, mid, r.right, r.bottom - 2}, theme.text_secondary, text_style_subtext))
                 return false;
             continue;
@@ -2498,10 +2465,10 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                 a == UiSearchAction::recent && s.targets[i].source_index < s.content->recent_count
                     ? s.content->recent[s.targets[i].source_index]
                     : label(a);
-            if (!text(out, s, {static_cast<u16>(i), s.widgets.generation}, value,
+            if (!line(out, s, {static_cast<u16>(i), s.widgets.generation}, value,
                       a == UiSearchAction::recent ? UiRect{r.left + 28, r.top, r.right, r.bottom} : r,
                       a == UiSearchAction::recent ? theme.text_primary : theme.text_secondary,
-                      text_style_subtext, UiTextWrapping::no_wrap,
+                      text_style_subtext,
                       a == UiSearchAction::recent ? UiTextAlignment::start : UiTextAlignment::center))
                 return false;
             continue;
@@ -2509,21 +2476,19 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
         if (a == UiSearchAction::sort) {
             const Utf8View sorts[] = {label(UiSearchAction::newest), label(UiSearchAction::oldest),
                                       label(UiSearchAction::relevance)};
-            if (!text(out, s, {static_cast<u16>(i), s.widgets.generation},
-                      sorts[s.content->sort < 3 ? s.content->sort : 0],
-                      {r.left + 4, r.top, r.right - 20, r.bottom}, theme.text_primary, text_style_subtext,
-                      UiTextWrapping::no_wrap, UiTextAlignment::center))
+            if (!centered(out, s, {static_cast<u16>(i), s.widgets.generation},
+                          sorts[s.content->sort < 3 ? s.content->sort : 0],
+                          {r.left + 4, r.top, r.right - 20, r.bottom}, theme.text_primary))
                 return false;
             continue;
         }
         if (a == UiSearchAction::close)
             continue;
-        if (a == UiSearchAction::newest || a == UiSearchAction::oldest || a == UiSearchAction::relevance)
+        if (sort_action(a))
             r.right -= 28;
         const bool enabled = (s.widgets.storage[i].flags & ui_widget_enabled) != 0;
-        if (!text(out, s, {static_cast<u16>(i), s.widgets.generation}, label(a), r,
+        if (!line(out, s, {static_cast<u16>(i), s.widgets.generation}, label(a), r,
                   enabled ? theme.text_primary : theme.text_secondary, text_style_subtext,
-                  UiTextWrapping::no_wrap,
                   a == UiSearchAction::filters || a == UiSearchAction::sort ||
                           a == UiSearchAction::previous || a == UiSearchAction::next ||
                           a == UiSearchAction::close

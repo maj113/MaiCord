@@ -511,10 +511,18 @@ void start_pick(Pick pick) noexcept;
 u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation = {}) noexcept;
 // Fills popup row `index` (enabled plus `flags`); the action is kMenuChoiceBase + action.
 void popup_row(u32 index, Utf8View label, u32 action, u32 flags = 0) noexcept;
-UiSettingsControl category(u64 id, Utf8View label, Utf8View description = {}) noexcept;
-UiSettingsControl notice(Utf8View label, Utf8View description, Utf8View action = {}) noexcept;
+// A control with no choices or editor: an optional action button label.
+u32 push_row(u64 id, Utf8View label, Utf8View description, UiSettingsControlKind kind, bool enabled,
+             bool checked = false, Utf8View action = {}, UiSettingsControlPresentation presentation = {}) noexcept;
+u32 push_category(u64 id, Utf8View label, Utf8View description = {}) noexcept;
+// A plain notice row.
+u32 push_notice(Utf8View description, Utf8View label = {}) noexcept;
+// A critical notice; `action` labels its retry button.
+u32 push_error(Utf8View label, Utf8View description, Utf8View action = {}) noexcept;
 // A notice with the loading spinner.
-UiSettingsControl loading(Utf8View description) noexcept;
+u32 push_loading(Utf8View description, u64 id = control_notice) noexcept;
+// The list heading "<title><count>".
+u32 push_count_heading(Bank& bank, Utf8View title, u32 count) noexcept;
 Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept;
 UiSettingsEditor& editor_view(Editor index, u64 control, Utf8View placeholder, bool enabled) noexcept;
 u32 person_color(u64 user_id) noexcept;

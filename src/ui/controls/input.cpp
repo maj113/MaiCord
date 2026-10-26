@@ -4,25 +4,24 @@
 
 namespace maicord {
 
-UiRect ui_settings_ring_rect(UiRect shape, float gap, float width) noexcept {
+UiRect ui_settings_ring_rect(const UiRect& shape, float gap, float width) noexcept {
     const float out = gap + width;
     return {shape.left - out, shape.top - out, shape.right + out, shape.bottom + out};
 }
 
-bool ui_settings_ring_paint(PaintStream* paint, UiRect shape, float radius, float gap, float width,
-                            Color color) noexcept {
+bool ui_settings_ring_paint(PaintStream* paint, const UiRect& shape, float radius, float gap, float width,
+                            const Color& color) noexcept {
     const auto ring = ui_settings_ring_rect(shape, gap, width);
-    return paint_stream_push_rounded_border(paint, ring.left, ring.top, ring.right, ring.bottom, {}, color,
-                                            radius + gap + width, width);
+    return paint_stream_push_rounded_border(paint, ring, {}, color, radius + gap + width, width);
 }
 
-bool ui_settings_focus_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect shape,
+bool ui_settings_focus_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& shape,
                              float radius) noexcept {
     return ui_settings_ring_paint(paint, shape, radius, tokens.metric.focus_gap, tokens.metric.focus_width,
                                   tokens.color.focus_ring);
 }
 
-bool ui_input_shell_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect field, UiControlState state,
+bool ui_input_shell_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& field, UiControlState state,
                           bool error) noexcept {
     const auto& c = tokens.color;
     const float radius = tokens.metric.control_radius, alpha = state.enabled ? 1.f : tokens.disabled_alpha;
@@ -30,22 +29,19 @@ bool ui_input_shell_paint(PaintStream* paint, const UiSettingsTokens& tokens, Ui
                          : state.pressed ? c.border_normal
                          : state.hovered ? c.border_normal
                                          : c.input_border;
-    bool ok = paint_stream_push_rounded_border(paint, field.left, field.top, field.right, field.bottom,
-                                               ui_settings_color_alpha(c.input_background, alpha),
-                                               ui_settings_color_alpha(border, alpha), radius, 1);
+    bool ok = paint_stream_push_rounded_border(paint, field, ui_settings_color_alpha(c.input_background, alpha), ui_settings_color_alpha(border, alpha), radius, 1);
     if (ok && state.focused && state.enabled)
-        ok = paint_stream_push_rounded_border(paint, field.left, field.top, field.right, field.bottom, {},
-                                              error ? c.critical_text : c.brand, radius, 2);
+        ok = paint_stream_push_rounded_border(paint, field, {}, error ? c.critical_text : c.brand, radius, 2);
     return ok;
 }
 
 // Select text and chevron share the field's inner padding: the chevron sits
 // in a square end cell as tall as the field.
-UiRect ui_select_text_rect(const UiSettingsLayoutTokens& tokens, UiRect field) noexcept {
+UiRect ui_select_text_rect(const UiSettingsLayoutTokens& tokens, const UiRect& field) noexcept {
     return {field.left + tokens.metric.field_padding, field.top, field.right - ui_rect_height(field), field.bottom};
 }
 
-bool ui_select_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect field, bool open,
+bool ui_select_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& field, bool open,
                      UiControlState state, bool error) noexcept {
     if (!ui_input_shell_paint(paint, tokens, field,
                               {state.enabled, state.hovered, state.pressed, state.focused || open}, error))
@@ -64,7 +60,7 @@ float ui_settings_button_width(const UiSettingsLayoutTokens& tokens, UiSettingsB
     return maximum(compact ? 60.f : 100.f, label_width + padding * 2);
 }
 
-bool ui_settings_button_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect rect,
+bool ui_settings_button_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& rect,
                               UiSettingsButtonVariant variant, UiControlState state) noexcept {
     const auto& c = tokens.color;
     Color fill{}, border{};
@@ -86,9 +82,7 @@ bool ui_settings_button_paint(PaintStream* paint, const UiSettingsTokens& tokens
     }
     const float alpha = state.enabled ? 1.f : tokens.disabled_alpha;
     const float radius = tokens.metric.control_radius;
-    bool ok = paint_stream_push_rounded_border(paint, rect.left, rect.top, rect.right, rect.bottom,
-                                               ui_settings_color_alpha(fill, alpha),
-                                               ui_settings_color_alpha(border, alpha), radius, 1);
+    bool ok = paint_stream_push_rounded_border(paint, rect, ui_settings_color_alpha(fill, alpha), ui_settings_color_alpha(border, alpha), radius, 1);
     if (ok && state.focused)
         ok = ui_settings_focus_paint(paint, tokens, rect, radius);
     return ok;
@@ -104,7 +98,7 @@ Color ui_settings_button_text(const UiSettingsTokens& tokens, UiSettingsButtonVa
     return ui_settings_color_alpha(color, state.enabled ? 1.f : tokens.disabled_alpha);
 }
 
-bool ui_settings_shadow_paint(PaintStream* paint, UiRect rect, float radius, float spread, float alpha) noexcept {
+bool ui_settings_shadow_paint(PaintStream* paint, const UiRect& rect, float radius, float spread, float alpha) noexcept {
     // Three widening layers approximate a blurred drop shadow offset downward.
     for (u32 i = 0; i < 3; ++i) {
         const float grow = spread * (i + 1) / 3.f, offset = spread * .5f;

@@ -81,6 +81,7 @@ Mp4DemuxError mp4_fragment_initialize(ConstSlice<u8> prefix, u64 source_offset, 
 void mp4_fragment_reset(Mp4Fragment*) noexcept;
 Mp4DemuxError mp4_fragment_next(Mp4Fragment*, Mp4FragmentSample*) noexcept;
 struct Mp4MediaSegment {
+    static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
     Mp4FragmentRange range{};
     Mp4Fragment fragment{};
     u64 presentation_end{};

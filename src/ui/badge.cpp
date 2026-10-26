@@ -46,16 +46,13 @@ bool ui_badge_paint(const UiBadgeWidget& b, const UiWidgetManager& manager, cons
     if (!n)
         return false;
     const auto r = ui_badge_geometry(b, manager);
-    if (!paint_stream_push_clip(paint, n->clip_rectangle.left, n->clip_rectangle.top,
-                                n->clip_rectangle.right, n->clip_rectangle.bottom))
+    if (!paint_stream_push_clip(paint, n->clip_rectangle))
         return false;
     auto fill = b.accent ? theme.tokens.emphasis.fill : Color{};
     fill.alpha *= b.opacity;
-    bool ok = paint_stream_push_rounded_border(paint, r.outer.left, r.outer.top, r.outer.right,
-                                               r.outer.bottom, fill, ui_theme_color_alpha(theme.tokens.border.strong, b.opacity), 7, 1);
+    bool ok = paint_stream_push_rounded_border(paint, r.outer, fill, ui_theme_color_alpha(theme.tokens.border.strong, b.opacity), 7, 1);
     if (ok && b.leading && b.marker.alpha)
-        ok = paint_stream_push_rounded(paint, r.icon.left, r.icon.top, r.icon.right, r.icon.bottom,
-                                       b.marker, 7);
+        ok = paint_stream_push_rounded(paint, r.icon, b.marker, 7);
     if (ok && b.removable && controls)
         ok = ui_button_icon_paint(paint, manager, b.remove, UiIcon::close, theme, false, false,
                                   UiButtonSurface::icon_only);

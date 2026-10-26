@@ -55,7 +55,7 @@ u32 append_unsigned(Slice<char> output, u32 used, u64 value, u32 minimum_digits 
 }
 
 bool clip_push(PaintStream* paint, UiRect clip) noexcept {
-    return paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom);
+    return paint_stream_push_clip(paint, clip);
 }
 
 UiRect centered(UiRect area, float extent) noexcept {
@@ -419,7 +419,7 @@ bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView
     for (u32 i = 0; ok && i < view.tiles.count; ++i) {
         const auto& tile = view.tiles[i];
         const auto geometry = ui_composer_attachment_tile_geometry(view.strip, tile, i, view.scroll, style);
-        if (!ui_rect_has_area(ui_rect_intersection(geometry.card, view.strip)))
+        if (!ui_rect_intersects(geometry.card, view.strip))
             continue;
         const bool hovered = view.hovered == i;
         const Color border = tile.phase == UiComposerAttachmentPhase::failed ? theme.tokens.accent.danger
@@ -428,8 +428,7 @@ bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView
         ok = ui_background_paint_surface(paint, geometry.card, theme, theme.surface, border, theme.scale.radius_sm, 1,
                                          .9f, UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
                                          UiBackgroundBorderTone::semantic) &&
-             paint_stream_push_rounded(paint, geometry.media.left, geometry.media.top, geometry.media.right,
-                                       geometry.media.bottom, theme.base_lowest, theme.scale.radius_sm);
+             paint_stream_push_rounded(paint, geometry.media, theme.base_lowest, theme.scale.radius_sm);
         if (ok && view.owner.manager)
             ok = paint_stream_record_content(paint, view.owner, ui_rect_intersection(geometry.card, view.strip),
                                              UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap);
@@ -455,25 +454,22 @@ bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripV
     for (u32 i = 0; ok && i < view.tiles.count; ++i) {
         const auto& tile = view.tiles[i];
         const auto geometry = ui_composer_attachment_tile_geometry(view.strip, tile, i, view.scroll, style);
-        if (!ui_rect_has_area(ui_rect_intersection(geometry.card, view.strip)) &&
-            !ui_rect_has_area(ui_rect_intersection(geometry.actions, view.strip)))
+        if (!ui_rect_intersects(geometry.card, view.strip) &&
+            !ui_rect_intersects(geometry.actions, view.strip))
             continue;
         UiComposerAttachmentTag tags[kUiComposerAttachmentTags];
         char duration[16];
         const u32 tag_count =
             ui_composer_attachment_tile_tags(tile, geometry.media, {tags, kUiComposerAttachmentTags}, {duration, 16}, style);
         for (u32 t = 0; ok && t < tag_count; ++t)
-            ok = paint_stream_push_rounded(paint, tags[t].rectangle.left, tags[t].rectangle.top,
-                                           tags[t].rectangle.right, tags[t].rectangle.bottom,
-                                           theme.tokens.overlay.dense, theme.scale.radius_xs);
+            ok = paint_stream_push_rounded(paint, tags[t].rectangle, theme.tokens.overlay.dense, theme.scale.radius_xs);
         if (ok && ui_rect_has_area(geometry.progress)) {
             const float fraction =
                 tile.bytes ? minimum(1.f, static_cast<float>(static_cast<double>(tile.uploaded_bytes) /
                                                              static_cast<double>(tile.bytes)))
                            : 0.f;
             const auto& bar = geometry.progress;
-            ok = paint_stream_push_rounded(paint, bar.left, bar.top, bar.right, bar.bottom, theme.tokens.overlay.dense,
-                                           theme.scale.radius_full);
+            ok = paint_stream_push_rounded(paint, bar, theme.tokens.overlay.dense, theme.scale.radius_full);
             if (ok && fraction > 0)
                 ok = paint_stream_push_rounded(paint, bar.left, bar.top, bar.left + ui_rect_width(bar) * fraction,
                                                bar.bottom, theme.tokens.emphasis.fill, theme.scale.radius_full);
@@ -495,8 +491,7 @@ bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripV
                 const bool hot = view.hovered == i && view.hovered_part == part;
                 const UiRect button = geometry.buttons[b];
                 if (hot)
-                    ok = paint_stream_push_rounded(paint, button.left, button.top, button.right, button.bottom,
-                                                   theme.tokens.state.hover, theme.scale.radius_xs);
+                    ok = paint_stream_push_rounded(paint, button, theme.tokens.state.hover, theme.scale.radius_xs);
                 const Color ink = part == UiComposerAttachmentPart::remove && hot ? theme.tokens.text.danger
                                   : part == UiComposerAttachmentPart::spoiler && tile.spoiler
                                       ? theme.tokens.text.link

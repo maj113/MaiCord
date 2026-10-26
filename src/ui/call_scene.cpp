@@ -889,7 +889,7 @@ Utf8View ui_call_scene_tooltip(const UiCallScene& s, float x, float y, UiRect* a
 
 bool ui_call_scene_tile_visible(const UiCallScene& s, u32 tile) noexcept {
     return s.active && tile < s.tile_count &&
-           ui_rect_has_area(ui_rect_intersection(s.tiles[tile].target, s.tiles[tile].clip));
+           ui_rect_intersects(s.tiles[tile].target, s.tiles[tile].clip);
 }
 
 const UiCallTile* ui_call_scene_find_tile(const UiCallScene& s, u64 user_id) noexcept {
@@ -940,7 +940,7 @@ bool ui_call_scene_paint(const UiCallScene& s, const Theme& theme, PaintStream* 
     if (!paint)
         return false;
     const auto v = s.viewport;
-    if (!paint_stream_push_clip(paint, v.left, v.top, v.right, v.bottom))
+    if (!paint_stream_push_clip(paint, v))
         return false;
     bool ok = ui_background_paint_canvas(paint, v, theme, theme.base_lowest, UiBackgroundTier::lowest);
     const float middle = (s.header.top + s.header.bottom) * .5f;
@@ -958,11 +958,11 @@ bool ui_call_scene_paint(const UiCallScene& s, const Theme& theme, PaintStream* 
         if (!p || !ui_rect_has_area(visible_part(tile)))
             continue;
         const auto r = tile.display;
-        ok = paint_stream_push_clip(paint, tile.clip.left, tile.clip.top, tile.clip.right, tile.clip.bottom);
+        ok = paint_stream_push_clip(paint, tile.clip);
         if (stream_tile(*p)) {
             // Streams sit on the media plate; a screen glyph shows until a
             // preview or picture covers it.
-            ok = ok && paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, black, kTileRadius);
+            ok = ok && paint_stream_push_rounded(paint, r, black, kTileRadius);
             const bool glyph = !video_ready(*p) && !stream_spinner(*p) && p->stream != UiCallStream::ended &&
                                !(p->stream == UiCallStream::live && p->paused);
             const float extent = ui_rect_height(r) >= 120 ? 40.f : 24.f;
@@ -982,20 +982,17 @@ bool ui_call_scene_paint(const UiCallScene& s, const Theme& theme, PaintStream* 
                                        ink);
             }
         } else if (video_ready(*p))
-            ok = ok && paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, black, kTileRadius);
+            ok = ok && paint_stream_push_rounded(paint, r, black, kTileRadius);
         else {
             // Avatar tiles: the card plate tinted with the participant's identity
             // colour. The host draws a custom avatar over the placeholder.
             const Color fill = theme.surface;
             ok = ok && ui_surface_paint(paint, r, theme, UiElevation::card, kTileRadius, &fill,
                                         &theme.tokens.border.subtle) &&
-                 paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom,
-                                           ui_call_tile_tint(theme, p->user_id), kTileRadius);
+                 paint_stream_push_rounded(paint, r, ui_call_tile_tint(theme, p->user_id), kTileRadius);
             const auto a = avatar_rect(tile);
-            ok = ok && paint_stream_push_rounded(paint, a.left, a.top, a.right, a.bottom,
-                                                 p->has_avatar ? theme.avatar_placeholder
-                                                               : ui_call_identity_color(theme, p->user_id),
-                                                 ui_rect_width(a) * .5f);
+            ok = ok && paint_stream_push_rounded(paint, a, p->has_avatar ? theme.avatar_placeholder
+                          : ui_call_identity_color(theme, p->user_id), ui_rect_width(a) * .5f);
         }
         ok = paint_stream_pop_clip(paint) && ok;
     }
@@ -1009,7 +1006,7 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
     if (!paint)
         return false;
     const auto v = s.viewport;
-    if (!paint_stream_push_clip(paint, v.left, v.top, v.right, v.bottom))
+    if (!paint_stream_push_clip(paint, v))
         return false;
     bool ok = true;
     const Color success = ui_icon_role_color(theme, UiIconRole::success);
@@ -1021,12 +1018,11 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
         if (!p || !ui_rect_has_area(visible_part(tile)))
             continue;
         const auto r = tile.display;
-        ok = paint_stream_push_clip(paint, tile.clip.left, tile.clip.top, tile.clip.right, tile.clip.bottom);
+        ok = paint_stream_push_clip(paint, tile.clip);
         const bool hovered = s.hovered_user == tile.user_id;
         const auto controls = tile_controls(s, tile, *p, hovered);
         if (ok && stream_scrim(*p) && p->stream != UiCallStream::ended)
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, theme.tokens.overlay.scrim_light,
-                                           kTileRadius);
+            ok = paint_stream_push_rounded(paint, r, theme.tokens.overlay.scrim_light, kTileRadius);
         if (ok && stream_spinner(*p))
             ok = ui_spinner_paint(paint, state_glyph(tile, ui_rect_has_area(status_line(tile, true)) &&
                                                                stream_status(*p).bytes),
@@ -1039,12 +1035,10 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
             ok = ui_icon_paint(paint, glyph, state_glyph(tile, ui_rect_has_area(status_line(tile, true))), ink);
         }
         if (ok && p->speaking)
-            ok = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, {0, 0, 0, 0}, success,
-                                                  kTileRadius, 2);
+            ok = paint_stream_push_rounded_border(paint, r, {0, 0, 0, 0}, success, kTileRadius, 2);
         const auto pill = name_pill(tile, *p, controls);
         if (ok && ui_rect_has_area(pill)) {
-            ok = paint_stream_push_rounded(paint, pill.left, pill.top, pill.right, pill.bottom,
-                                           theme.tokens.overlay.scrim, theme.scale.radius_md);
+            ok = paint_stream_push_rounded(paint, pill, theme.tokens.overlay.scrim, theme.scale.radius_md);
             float x = pill.right - 6;
             const float y = (pill.top + pill.bottom) * .5f;
             if (ok && stream_tile(*p))
@@ -1058,26 +1052,21 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
         }
         const auto live = live_badge(tile, *p);
         if (ok && ui_rect_has_area(live))
-            ok = paint_stream_push_rounded(paint, live.left, live.top, live.right, live.bottom,
-                                           theme.tokens.accent.danger, theme.scale.radius_sm);
+            ok = paint_stream_push_rounded(paint, live, theme.tokens.accent.danger, theme.scale.radius_sm);
         const auto effect = effect_pill(tile, *p);
         if (ok && ui_rect_has_area(effect))
-            ok = paint_stream_push_rounded(paint, effect.left, effect.top, effect.right, effect.bottom,
-                                           theme.tokens.overlay.scrim_strong, theme.scale.radius_md);
+            ok = paint_stream_push_rounded(paint, effect, theme.tokens.overlay.scrim_strong, theme.scale.radius_md);
         const auto viewers = viewer_pill(tile, *p);
         if (ok && ui_rect_has_area(viewers)) {
             const float y = (viewers.top + viewers.bottom) * .5f;
-            ok = paint_stream_push_rounded(paint, viewers.left, viewers.top, viewers.right, viewers.bottom,
-                                           theme.tokens.overlay.scrim, theme.scale.radius_sm) &&
+            ok = paint_stream_push_rounded(paint, viewers, theme.tokens.overlay.scrim, theme.scale.radius_sm) &&
                  ui_icon_paint(paint, UiIcon::eye, {viewers.left + 6, y - 7, viewers.left + 20, y + 7}, light);
         }
         const auto round_button = [&](UiRect button, UiCallControl control, UiIcon icon) noexcept {
             if (!ui_rect_has_area(button))
                 return true;
             const bool hot = hovered && s.hovered == control;
-            return paint_stream_push_rounded(paint, button.left, button.top, button.right, button.bottom,
-                                             hot ? theme.tokens.overlay.scrim_strong : theme.tokens.overlay.scrim,
-                                             ui_rect_height(button) * .5f) &&
+            return paint_stream_push_rounded(paint, button, hot ? theme.tokens.overlay.scrim_strong : theme.tokens.overlay.scrim, ui_rect_height(button) * .5f) &&
                    ui_icon_paint(paint, icon, ui_rect_inset(button, {7, 7, 7, 7}), light);
         };
         // Filled pills: "Watch stream" (brand) and "Stop watching" (danger).
@@ -1089,8 +1078,7 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
             fill.red *= shade;
             fill.green *= shade;
             fill.blue *= shade;
-            return paint_stream_push_rounded(paint, button.left, button.top, button.right, button.bottom, fill,
-                                             theme.scale.radius_sm);
+            return paint_stream_push_rounded(paint, button, fill, theme.scale.radius_sm);
         };
         if (ok)
             ok = round_button(controls.fullscreen, UiCallControl::tile_fullscreen,
@@ -1162,13 +1150,11 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
             fill.red *= shade;
             fill.green *= shade;
             fill.blue *= shade;
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, fill, radius);
+            ok = paint_stream_push_rounded(paint, r, fill, radius);
         } else if (control == UiCallControl::close || control == UiCallControl::fullscreen ||
                    control == UiCallControl::chat) {
             if (hovered || active)
-                ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom,
-                                               pressed ? theme.tokens.state.pressed : theme.tokens.state.hover,
-                                               theme.scale.radius_sm);
+                ok = paint_stream_push_rounded(paint, r, pressed ? theme.tokens.state.pressed : theme.tokens.state.hover, theme.scale.radius_sm);
             ink = hovered || active ? theme.text_primary : theme.text_secondary;
         } else {
             // Idle: the subtle plate; hover/press add the state overlay.
@@ -1190,7 +1176,7 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
             }
             ok = ui_surface_paint(paint, r, theme, UiElevation::banner, radius, &fill, &theme.tokens.border.subtle);
             if (ok && tint.alpha > 0)
-                ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, tint, radius);
+                ok = paint_stream_push_rounded(paint, r, tint, radius);
         }
         const float extent = control == UiCallControl::close || control == UiCallControl::fullscreen ||
                                      control == UiCallControl::chat
@@ -1255,7 +1241,7 @@ bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextO
             const u32 size = ui_rect_width(a) >= 80   ? text_style_heading_1
                              : ui_rect_width(a) >= 48 ? text_style_heading_2
                                                       : text_style_none;
-            if (initials.bytes && ui_rect_has_area(ui_rect_intersection(a, clip)))
+            if (initials.bytes && ui_rect_intersects(a, clip))
                 ok = ui_text_output_push_owned(text, {initials, s.owner, a, ui_rect_intersection(clip, a),
                                                       theme.tokens.text.on_accent, size | text_style_bold,
                                                       UiTextAlignment::center, UiTextAlignment::center,

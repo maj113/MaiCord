@@ -28,7 +28,7 @@ float ui_slider_position(const UiSliderGeometry& geometry, u32 count, u32 index)
     return geometry.track_left + (geometry.track_right - geometry.track_left) * fraction;
 }
 
-UiSliderGeometry ui_slider_geometry(const UiSettingsLayoutTokens& tokens, UiRect bounds, u32 count, u32 index,
+UiSliderGeometry ui_slider_geometry(const UiSettingsLayoutTokens& tokens, const UiRect& bounds, u32 count, u32 index,
                                     bool marks) noexcept {
     UiSliderGeometry g{};
     g.bounds = bounds;
@@ -57,7 +57,7 @@ u32 ui_slider_page_step(u32 count) noexcept {
     return maximum(1u, (range + 5) / 10);
 }
 
-float ui_slider_grab_offset(UiRect grabber, float x, float y) noexcept {
+float ui_slider_grab_offset(const UiRect& grabber, float x, float y) noexcept {
     return ui_rect_contains(grabber, x, y) ? x - (grabber.left + grabber.right) * .5f : 0.f;
 }
 
@@ -76,11 +76,9 @@ bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const U
     const float bar_radius = ui_rect_height(g.bar) * .5f;
     const Color fill = c.brand;
     const float grab_radius = ui_rect_width(g.grabber) * .5f;
-    bool ok = paint_stream_push_rounded(paint, g.bar.left, g.bar.top, g.bar.right, g.bar.bottom,
-                                        ui_settings_color_alpha(c.slider_track, alpha), bar_radius) &&
+    bool ok = paint_stream_push_rounded(paint, g.bar, ui_settings_color_alpha(c.slider_track, alpha), bar_radius) &&
               (ui_rect_width(g.fill) <= 0 ||
-               paint_stream_push_rounded(paint, g.fill.left, g.fill.top, g.fill.right, g.fill.bottom,
-                                         ui_settings_color_alpha(fill, alpha), bar_radius));
+               paint_stream_push_rounded(paint, g.fill, ui_settings_color_alpha(fill, alpha), bar_radius));
     // Stop marks span the control row centred on the resting bar, over the
     // track and under the grabber.
     if (ok && g.marks && count >= 2 && count <= 32) {
@@ -94,9 +92,7 @@ bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const U
         }
     }
     ok = ok && ui_settings_shadow_paint(paint, g.grabber, grab_radius, 2, .14f * alpha) &&
-         paint_stream_push_rounded_border(paint, g.grabber.left, g.grabber.top, g.grabber.right, g.grabber.bottom,
-                                          ui_settings_color_alpha(c.thumb, alpha),
-                                          ui_settings_color_alpha(c.border_normal, alpha), grab_radius, 1);
+         paint_stream_push_rounded_border(paint, g.grabber, ui_settings_color_alpha(c.thumb, alpha), ui_settings_color_alpha(c.border_normal, alpha), grab_radius, 1);
     if (ok && state.focused)
         ok = ui_settings_focus_paint(paint, tokens, g.grabber, grab_radius);
     return ok;
@@ -114,16 +110,13 @@ bool ui_slider_meter_paint(PaintStream* paint, const UiSettingsTokens& tokens, c
     Color faint = c.positive;
     faint.alpha *= .35f * alpha;
     const float grab_radius = ui_rect_width(g.grabber) * .5f;
-    bool ok = paint_stream_push_rounded(paint, g.bar.left, g.bar.top, g.bar.right, g.bar.bottom,
-                                        ui_settings_color_alpha(c.slider_track, alpha), radius) &&
+    bool ok = paint_stream_push_rounded(paint, g.bar, ui_settings_color_alpha(c.slider_track, alpha), radius) &&
               (quiet <= g.bar.left ||
                paint_stream_push_rounded(paint, g.bar.left, g.bar.top, quiet, g.bar.bottom, faint, radius)) &&
               (lit <= thumb || paint_stream_push_rounded(paint, thumb, g.bar.top, lit, g.bar.bottom,
                                                          ui_settings_color_alpha(c.positive, alpha), radius)) &&
               ui_settings_shadow_paint(paint, g.grabber, grab_radius, 2, .14f * alpha) &&
-              paint_stream_push_rounded_border(paint, g.grabber.left, g.grabber.top, g.grabber.right,
-                                               g.grabber.bottom, ui_settings_color_alpha(c.thumb, alpha),
-                                               ui_settings_color_alpha(c.border_normal, alpha), grab_radius, 1);
+              paint_stream_push_rounded_border(paint, g.grabber, ui_settings_color_alpha(c.thumb, alpha), ui_settings_color_alpha(c.border_normal, alpha), grab_radius, 1);
     if (ok && state.focused)
         ok = ui_settings_focus_paint(paint, tokens, g.grabber, grab_radius);
     return ok;

@@ -373,20 +373,12 @@ UiWidgetHandle add(UiMediaPickerScene& scene, UiRect rectangle,
                    UiWidgetHandle parent = ui_widget_invalid_handle()) noexcept {
     const auto origin =
         parent.generation ? ui_widget_manager_layout_node(scene.widgets, parent)->rectangle : scene.panel;
-    auto style = ui_layout_style();
-    style.width = ui_layout_fixed(ui_rect_width(rectangle));
-    style.height = ui_layout_fixed(ui_rect_height(rectangle));
-    style.margin.left = rectangle.left - origin.left;
-    style.margin.top = rectangle.top - origin.top;
-    style.flags |= ui_layout_node_clip_children | ui_layout_node_allow_overlap;
-    const u32 id = scene.widgets.count + 1;
-    const auto result = ui_widget_manager_add_prevalidated(
+    const auto result = ui_widget_manager_add_placed(
         &scene.widgets, parent.generation ? parent : scene.root,
-        {id,
-         mapping.action == UiMediaPickerAction::edit ? UiWidgetKind::text_field : UiWidgetKind::button,
-         static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
-                                  : ui_widget_none),
-         {label, style, {}, 0, id}});
+        mapping.action == UiMediaPickerAction::edit ? UiWidgetKind::text_field : UiWidgetKind::button,
+        static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
+                                 : ui_widget_none),
+        label, rectangle, origin);
     if (!result.ok() || result.handle.slot >= kUiMediaPickerWidgetCapacity)
         return ui_widget_invalid_handle();
     scene.projection->targets[result.handle.slot] = mapping;
@@ -544,9 +536,8 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
         ++scene.generation;
     auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_clip_children |
                                       ui_layout_node_allow_overlap);
-    const auto root = ui_widget_manager_add_prevalidated(
-        &scene.widgets, ui_widget_invalid_handle(),
-        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Media picker"), style, {}, 0, 1}});
+    const auto root = ui_widget_manager_add_keyed(&scene.widgets, ui_widget_invalid_handle(), 1,
+                                                  UiWidgetKind::container, ui_widget_none, "Media picker", style);
     if (!root.ok() || !ui_widget_manager_layout_rectangle(&scene.widgets, scene.panel).ok())
         return false;
     scene.root = root.handle;

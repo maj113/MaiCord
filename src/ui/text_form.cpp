@@ -281,8 +281,7 @@ Color button_fill(const TextFormScene& scene, TextFormElement element, const The
     return pressed ? shade(fill, .82f) : hovered ? shade(fill, .9f) : fill;
 }
 bool fill(PaintStream* stream, UiRect rectangle, Color color) noexcept {
-    return !ui_rect_has_area(rectangle) || paint_stream_push(stream, rectangle.left, rectangle.top,
-                                                             rectangle.right, rectangle.bottom, color);
+    return !ui_rect_has_area(rectangle) || paint_stream_push(stream, rectangle, color);
 }
 } // namespace
 
@@ -424,7 +423,7 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
         content.focus_visible != scene->content.focus_visible || content.error != scene->content.error ||
         content.swatch_rgba != scene->content.swatch_rgba ||
         !utf8_equal(content.placeholder, scene->content.placeholder);
-    scene->content = content;
+    copy_value(&scene->content, content);
     scene->measure = measure;
     if ((!scene->widgets.count || present_mask(content) != scene->built) && !build(scene)) {
         text_form_release(scene);
@@ -606,8 +605,7 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
         return true;
     const auto* panel = text_form_node(scene, TextFormElement::panel);
     if (!paint || !panel ||
-        !paint_stream_push_clip(paint, scene.viewport.left, scene.viewport.top, scene.viewport.right,
-                                scene.viewport.bottom))
+        !paint_stream_push_clip(paint, scene.viewport))
         return false;
     bool valid =
         fill(paint, scene.viewport, theme.tokens.overlay.scrim) &&
@@ -633,7 +631,7 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
             bounds = ui_rect_intersection(
                 {bounds.left - ring, bounds.top - ring, bounds.right + ring, bounds.bottom + ring}, panel->rectangle);
         }
-        if (!paint_stream_push_clip(paint, bounds.left, bounds.top, bounds.right, bounds.bottom)) {
+        if (!paint_stream_push_clip(paint, bounds)) {
             valid = false;
             break;
         }
@@ -643,18 +641,13 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
         if (element == TextFormElement::edit) {
             // An error keeps its outline while focused, like settings fields.
             const bool error = scene.content.error;
-            valid = paint_stream_push_rounded_border(
-                paint, node->rectangle.left, node->rectangle.top, node->rectangle.right,
-                node->rectangle.bottom, theme.base_lowest,
-                error ? theme.tokens.text.danger : outlined ? theme.tokens.border.focus : theme.interactive,
-                metrics.compact_radius, error || outlined ? 2.0f : 1.0f);
+            valid = paint_stream_push_rounded_border(paint, node->rectangle, theme.base_lowest, error ? theme.tokens.text.danger : outlined ? theme.tokens.border.focus : theme.interactive, metrics.compact_radius, error || outlined ? 2.0f : 1.0f);
             const auto swatch = text_form_swatch_box(scene);
             if (valid && ui_rect_has_area(swatch)) {
                 const u32 rgba = scene.content.swatch_rgba;
                 const Color color{static_cast<float>(rgba >> 24) / 255.f, static_cast<float>((rgba >> 16) & 255) / 255.f,
                                   static_cast<float>((rgba >> 8) & 255) / 255.f, static_cast<float>(rgba & 255) / 255.f};
-                valid = paint_stream_push_rounded_border(paint, swatch.left, swatch.top, swatch.right, swatch.bottom,
-                                                         color, theme.tokens.border.strong, theme.scale.radius_xs, 1);
+                valid = paint_stream_push_rounded_border(paint, swatch, color, theme.tokens.border.strong, theme.scale.radius_xs, 1);
             }
         } else if (radio(element)) {
             // A radio circle with a dot when chosen.
@@ -665,11 +658,9 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
             const bool chosen = choice ? scene.content.choice_selected == at : scene.content.select_selected == at;
             const auto r = text_form_choice_marker(scene, element);
             const float radius = ui_rect_width(r) * .5f;
-            valid = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, theme.base_lowest,
-                                                     outlined ? theme.tokens.border.focus
-                                                     : chosen ? theme.tokens.emphasis.fill
-                                                              : theme.text_secondary,
-                                                     radius, outlined ? 2.0f : 1.5f);
+            valid = paint_stream_push_rounded_border(paint, r, theme.base_lowest, outlined ? theme.tokens.border.focus
+            : chosen ? theme.tokens.emphasis.fill
+                     : theme.text_secondary, radius, outlined ? 2.0f : 1.5f);
             if (valid && chosen) {
                 const float inset = ui_rect_width(r) * .28f;
                 valid = paint_stream_push_rounded(paint, r.left + inset, r.top + inset, r.right - inset,
@@ -679,9 +670,7 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
             // A field like the editor, its chevron pointing at the open state.
             const auto r = node->rectangle;
             const float icon = kOptionBox * .8f, cy = (r.top + r.bottom) * .5f;
-            valid = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, theme.base_lowest,
-                                                     outlined ? theme.tokens.border.focus : theme.interactive,
-                                                     metrics.compact_radius, outlined ? 2.0f : 1.0f) &&
+            valid = paint_stream_push_rounded_border(paint, r, theme.base_lowest, outlined ? theme.tokens.border.focus : theme.interactive, metrics.compact_radius, outlined ? 2.0f : 1.0f) &&
                     ui_icon_paint(paint, scene.content.select_expanded ? UiIcon::chevron_up : UiIcon::chevron_down,
                                   {r.right - metrics.form_field_padding - icon, cy - icon * .5f,
                                    r.right - metrics.form_field_padding, cy + icon * .5f},
@@ -691,11 +680,9 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
             const auto r = text_form_option_box(scene);
             const bool checked = scene.content.option_checked;
             const Color fill = checked ? theme.tokens.emphasis.fill : theme.base_lowest;
-            valid = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, fill,
-                                                     outlined ? theme.tokens.border.focus
-                                                     : checked ? fill
-                                                               : theme.text_secondary,
-                                                     metrics.compact_radius, outlined ? 2.0f : 1.0f);
+            valid = paint_stream_push_rounded_border(paint, r, fill, outlined ? theme.tokens.border.focus
+            : checked ? fill
+                      : theme.text_secondary, metrics.compact_radius, outlined ? 2.0f : 1.0f);
             if (valid && checked) {
                 const float s = ui_rect_width(r) / 20.0f;
                 const Color mark = theme.tokens.emphasis.text;
@@ -710,8 +697,7 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
             const auto r = node->rectangle;
             const Color fill = button_fill(scene, element, theme);
             const float ring = theme.scale.space_2 * .75f;
-            valid = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, fill,
-                                              metrics.control_radius) &&
+            valid = paint_stream_push_rounded(paint, r, fill, metrics.control_radius) &&
                     (!outlined || paint_stream_push_rounded_border(
                                       paint, r.left - ring, r.top - ring, r.right + ring, r.bottom + ring,
                                       ui_theme_color_alpha(fill, 0), theme.tokens.border.focus,

@@ -10,7 +10,7 @@ bool text_composition_paint_mark(PaintStream* stream, const TextCompositionMark&
         constexpr float scale = 1.0f / 255;
         const Color color{((span.background_rgb >> 16) & 255) * scale,
             ((span.background_rgb >> 8) & 255) * scale, (span.background_rgb & 255) * scale, 1};
-        if (!paint_stream_push(stream, rectangle.left, rectangle.top, rectangle.right, rectangle.bottom, color)) return false;
+        if (!paint_stream_push(stream, rectangle, color)) return false;
     }
     return text_composition_paint_line(stream, rectangle, span, fallback);
 }

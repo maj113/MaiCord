@@ -139,7 +139,8 @@ bool ui_motion_style_valid(const UiMotionStyle& style) noexcept {
            static_cast<u8>(style.curve) <= static_cast<u8>(UiMotionCurve::spring);
 }
 
-void ui_motion_transition_reset(UiMotionTransition* transition, UiMotionScope scope, float value) noexcept {
+void ui_motion_transition_reset(UiMotionTransition* transition, const UiMotionScope& scope_view, float value) noexcept {
+    const UiMotionScope scope = scope_view; // *transition is cleared first
     if (!transition)
         return;
     reset_value(transition);
@@ -153,9 +154,10 @@ void ui_motion_transition_cancel(UiMotionTransition* transition) noexcept {
         reset_value(transition);
 }
 
-bool ui_motion_transition_tick(UiMotionTransition* transition, UiMotionScope scope, float requested,
+bool ui_motion_transition_tick(UiMotionTransition* transition, const UiMotionScope& scope_view, float requested,
                                u64 now_ms, const UiMotionStyle& requested_style, bool reduced_motion,
                                bool visible) noexcept {
+    const UiMotionScope scope = scope_view; // *transition is written below
     if (!transition || !motion_scope_matches(*transition, scope))
         return false;
     const float previous = transition->value;

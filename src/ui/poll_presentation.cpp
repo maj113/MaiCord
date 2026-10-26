@@ -10,28 +10,31 @@ bool owner_current(UiWidgetReference owner) noexcept {
     const auto* widget = owner.manager ? ui_widget_manager_resolve(*owner.manager, owner.handle) : nullptr;
     return widget && (widget->flags & ui_widget_enabled) && !(widget->flags & ui_widget_block_input);
 }
-bool rounded(PaintStream* stream, UiRect bounds, Color color, float radius) noexcept {
+bool rounded(PaintStream* stream, const UiRect& bounds, const Color& color, float radius) noexcept {
     return !ui_rect_has_area(bounds) ||
-           paint_stream_push_rounded(stream, bounds.left, bounds.top, bounds.right, bounds.bottom, color,
-                                     radius);
+           paint_stream_push_rounded(stream, bounds, color, radius);
 }
-bool border(PaintStream* stream, UiRect bounds, Color fill, Color line, float radius,
+bool border(PaintStream* stream, const UiRect& bounds, const Color& fill, const Color& line, float radius,
             float width = 1) noexcept {
     return !ui_rect_has_area(bounds) ||
-           paint_stream_push_rounded_border(stream, bounds.left, bounds.top, bounds.right, bounds.bottom,
-                                            fill, line, radius, width);
+           paint_stream_push_rounded_border(stream, bounds, fill, line, radius, width);
 }
 UiRect centered(UiRect bounds, float extent) noexcept {
     const float x = (bounds.left + bounds.right) * .5f, y = (bounds.top + bounds.bottom) * .5f;
     return {x - extent * .5f, y - extent * .5f, x + extent * .5f, y + extent * .5f};
 }
-bool label(UiTextOutput* output, Utf8View text, UiRect bounds, UiRect clip, UiWidgetReference owner,
-           Color color, u32 flags, bool wrap = true, UiTextAlignment horizontal = UiTextAlignment::start,
-           UiTextAlignment vertical = UiTextAlignment::start) noexcept {
-    if (!text.bytes || !ui_rect_has_area(ui_rect_intersection(bounds, clip)))
+// Label placement bits: unwrapped, then the horizontal alignment in bits 2-3 and the vertical in bits 4-5
+// (UiTextAlignment values).
+constexpr u32 label_nowrap = 1, label_center = 1u << 2, label_end = 2u << 2, label_middle = 1u << 4;
+bool label(UiTextOutput* output, const Utf8View& text, const UiRect& bounds, const UiRect& clip,
+           const UiWidgetReference& owner, const Color& color, u32 flags, u32 placement = 0) noexcept {
+    if (!text.bytes || !ui_rect_intersects(bounds, clip))
         return true;
-    return ui_text_output_push_owned(output, {text, owner, bounds, clip, color, flags, horizontal, vertical,
-                                              wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,
+    return ui_text_output_push_owned(output, {text, owner, bounds, clip, color, flags,
+                                              static_cast<UiTextAlignment>((placement >> 2) & 3u),
+                                              static_cast<UiTextAlignment>((placement >> 4) & 3u),
+                                              placement & label_nowrap ? UiTextWrapping::no_wrap
+                                                                       : UiTextWrapping::wrap,
                                               UiTextOverflow::ellipsis});
 }
 // The prompt line: a status replaces it; the prompt is hidden when closed.
@@ -80,15 +83,15 @@ bool own_check(PaintStream* paint, UiRect marker, Color fill, Color ink) noexcep
            ui_icon_paint(paint, UiIcon::check, centered(circle, ui_rect_width(circle) * .7f), ink);
 }
 u64 geometry_hash(u64 hash, const UiPollGeometry& geometry) noexcept {
-    const UiRect rectangles[]{
-        geometry.bounds, geometry.question, geometry.instruction, geometry.status,  geometry.summary,
-        geometry.expiry, geometry.vote,     geometry.remove_vote, geometry.results, geometry.retry};
-    hash = hash64_bytes(hash, rectangles, sizeof(rectangles));
-    for (const auto& answer : geometry.answers) {
-        const UiRect parts[]{answer.bounds, answer.marker, answer.emoji, answer.text, answer.result, answer.percent};
-        hash = hash64_bytes(hash, parts, sizeof(parts));
-    }
-    return hash;
+    // The rectangles are consecutive members: six, the answers (six rectangles each), then four.
+    static_assert(__builtin_offsetof(UiPollGeometry, answers) == 6 * sizeof(UiRect));
+    static_assert(sizeof(UiPollAnswerGeometry) == 6 * sizeof(UiRect));
+    static_assert(__builtin_offsetof(UiPollGeometry, vote) ==
+                  __builtin_offsetof(UiPollGeometry, answers) + sizeof(geometry.answers));
+    static_assert(__builtin_offsetof(UiPollGeometry, retry) == __builtin_offsetof(UiPollGeometry, vote) + 3 * sizeof(UiRect));
+    hash = hash64_bytes(hash, &geometry.bounds, 6 * sizeof(UiRect));
+    hash = hash64_bytes(hash, &geometry.vote, 4 * sizeof(UiRect));
+    return hash64_bytes(hash, geometry.answers, sizeof(geometry.answers));
 }
 } // namespace
 
@@ -100,7 +103,7 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
     const auto visible = ui_rect_intersection(clip, projection.geometry.bounds);
     if (!ui_rect_has_area(visible))
         return true;
-    if (!paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom))
+    if (!paint_stream_push_clip(paint, visible))
         return false;
     const auto& state = projection.state;
     const bool results = ui_poll_counts_visible(state);
@@ -210,11 +213,11 @@ bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPo
     if (!label(output, state.question.bytes ? state.question : style.question_fallback, geometry.question,
                visible, owner, projection.foreground, style.question_style) ||
         !label(output, status_text.bytes ? Utf8View{} : instruction(projection, style), geometry.instruction,
-               visible, owner, projection.secondary, style.detail_style, false) ||
+               visible, owner, projection.secondary, style.detail_style, label_nowrap) ||
         !label(output, status_text, geometry.status, visible, owner,
-               state.error ? projection.error : projection.secondary, style.detail_style, false) ||
+               state.error ? projection.error : projection.secondary, style.detail_style, label_nowrap) ||
         !label(output, ui_poll_summary_label(projection), geometry.summary, visible, owner, projection.secondary,
-               style.detail_style, false))
+               style.detail_style, label_nowrap))
         return false;
     for (u32 i = 0; i < state.answers.count; ++i) {
         const auto& answer = state.answers[i];
@@ -222,21 +225,20 @@ bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPo
         const auto text = answer.text.bytes                            ? answer.text
                           : answer.emoji_id || answer.emoji_name.bytes ? Utf8View{}
                                                                        : style.answer_fallback;
-        if (!label(output, text, row.text, visible, owner, projection.foreground, style.answer_style, true,
-                   UiTextAlignment::start, UiTextAlignment::center))
+        if (!label(output, text, row.text, visible, owner, projection.foreground, style.answer_style,
+                   label_middle))
             return false;
         if (!answer.emoji_id && answer.emoji_name.bytes &&
             !label(output, answer.emoji_name, row.emoji, visible, owner, projection.foreground, text_style_none,
-                   false, UiTextAlignment::center, UiTextAlignment::center))
+                   label_nowrap | label_center | label_middle))
             return false;
         if (!results)
             continue;
         if (!label(output, ui_poll_count_label(projection, i), row.result, visible, owner, projection.foreground,
-                   style.count_style, false, UiTextAlignment::end, UiTextAlignment::center) ||
+                   style.count_style, label_nowrap | label_end | label_middle) ||
             (answer.count_known &&
              !label(output, {projection.percent_text[i], projection.percent_bytes[i]}, row.percent, visible, owner,
-                    projection.foreground, style.percent_style, false, UiTextAlignment::end,
-                    UiTextAlignment::center)))
+                    projection.foreground, style.percent_style, label_nowrap | label_end | label_middle)))
             return false;
     }
     const UiPollTarget targets[]{{UiPollControl::vote},
@@ -259,8 +261,8 @@ bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPo
         const u32 flags = style.button_style |
                           (text_action && enabled && ui_poll_target_equal(targets[i], hover) ? text_style_underline
                                                                                              : 0u);
-        if (!label(output, texts[i], bounds, visible, owner, color, flags, false,
-                   text_action ? UiTextAlignment::end : UiTextAlignment::center, UiTextAlignment::center))
+        if (!label(output, texts[i], bounds, visible, owner, color, flags,
+                   label_nowrap | (text_action ? label_end : label_center) | label_middle))
             return false;
     }
     return true;
@@ -282,14 +284,12 @@ u64 ui_poll_scene_paint_revision(const UiPollScene& scene) noexcept {
     hash = hash64_mix(hash, reinterpret_cast<usize>(scene.owner.manager));
     hash = hash64_mix(hash, scene.owner.handle.slot);
     hash = hash64_mix(hash, scene.owner.handle.generation);
-    const Color colors[]{scene.projection.surface,     scene.projection.foreground,
-                         scene.projection.secondary,   scene.projection.accent,
-                         scene.projection.primary_foreground, scene.projection.border,
-                         scene.projection.selected,    scene.projection.answer_fill,
-                         scene.projection.outline,     scene.projection.outline_hover,
-                         scene.projection.bar,         scene.projection.bar_voted,
-                         scene.projection.bar_victor,  scene.projection.victor};
-    hash = hash64_bytes(hash, colors, sizeof(colors));
+    static_assert(__builtin_offsetof(UiPollProjection, selected) ==
+                  __builtin_offsetof(UiPollProjection, surface) + 6 * sizeof(Color));
+    static_assert(__builtin_offsetof(UiPollProjection, victor) ==
+                  __builtin_offsetof(UiPollProjection, answer_fill) + 6 * sizeof(Color));
+    hash = hash64_bytes(hash, &scene.projection.surface, 7 * sizeof(Color));
+    hash = hash64_bytes(hash, &scene.projection.answer_fill, 7 * sizeof(Color));
     for (u32 i = 0; i < scene.projection.state.answers.count; ++i) {
         const auto& answer = scene.projection.state.answers[i];
         hash = hash64_mix(hash, answer.id);
@@ -337,8 +337,7 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
     Color dim = theme.base_lowest;
     dim.alpha = scene.style.backdrop_opacity;
     if (!rounded(paint, geometry.viewport, dim, 0) ||
-        !paint_stream_push_clip(paint, geometry.panel.left, geometry.panel.top, geometry.panel.right,
-                                geometry.panel.bottom))
+        !paint_stream_push_clip(paint, geometry.panel))
         return false;
     const auto draw = [&]() noexcept {
         if (!ui_background_paint_surface(paint, geometry.panel, theme, scene.surface, theme.interactive,
@@ -361,8 +360,7 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
                                            theme.interactive, scene.style.radius))
                 return false;
         }
-        if (!paint_stream_push_clip(paint, geometry.body.left, geometry.body.top, geometry.body.right,
-                                    geometry.body.bottom))
+        if (!paint_stream_push_clip(paint, geometry.body))
             return false;
         bool rows_ok = true;
         for (u32 i = scene.first; rows_ok && i < scene.first + scene.visible; ++i) {
@@ -413,7 +411,7 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
         return false;
     const auto& geometry = scene.geometry;
     if (!label(output, scene.style.title, geometry.title, geometry.panel, scene.owner, scene.foreground,
-               text_style_bold, false, UiTextAlignment::start, UiTextAlignment::center) ||
+               text_style_bold, label_nowrap | label_middle) ||
         !label(output, scene.state.question, geometry.question, geometry.panel, scene.owner,
                scene.secondary, text_style_subtext))
         return false;
@@ -439,11 +437,11 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
                                   : answer.emoji_name.bytes ? answer.emoji_name
                                                             : utf8_literal("Answer");
             if (!label(output, text, text_box, geometry.panel, scene.owner, scene.foreground,
-                       answer.id == scene.state.answer_id ? text_style_bold : text_style_none, false,
-                       UiTextAlignment::start, UiTextAlignment::center) ||
+                       answer.id == scene.state.answer_id ? text_style_bold : text_style_none,
+                       label_nowrap | label_middle) ||
                 (count_bytes && !label(output, {count, count_bytes}, count_box, geometry.panel, scene.owner,
-                                       scene.secondary, text_style_subtext, false, UiTextAlignment::end,
-                                       UiTextAlignment::center)))
+                                       scene.secondary, text_style_subtext,
+                                       label_nowrap | label_end | label_middle)))
                 return false;
             continue;
         }
@@ -454,7 +452,7 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
         text[bytes++] = static_cast<char>('0' + (i + 1) % 10);
         const auto color = answer.id == scene.state.answer_id ? scene.accent_foreground : scene.foreground;
         if (!label(output, {text, bytes}, geometry.answers[i], geometry.panel, scene.owner, color,
-                   text_style_none, false, UiTextAlignment::center, UiTextAlignment::center))
+                   text_style_none, label_nowrap | label_center | label_middle))
             return false;
     }
     const auto status_text = scene.state.status.bytes    ? scene.state.status
@@ -474,8 +472,7 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
         const auto name =
             scene.state.voters[i].name.bytes ? scene.state.voters[i].name : utf8_literal("User");
         if (!label(output, name, text_bounds, geometry.body, scene.owner,
-                   scene.state.loading ? scene.secondary : scene.foreground, text_style_none, true,
-                   UiTextAlignment::start, UiTextAlignment::center))
+                   scene.state.loading ? scene.secondary : scene.foreground, text_style_none, label_middle))
             return false;
     }
     const UiPollVotersTarget buttons[]{
@@ -488,8 +485,8 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
                            : enabled ? scene.foreground
                                      : scene.secondary;
         if (!label(output, texts[i], ui_rect_shrink(ui_poll_voters_target_rectangle(scene, buttons[i]), 8),
-                   geometry.panel, scene.owner, color, text_style_none, false, UiTextAlignment::center,
-                   UiTextAlignment::center))
+                   geometry.panel, scene.owner, color, text_style_none,
+                   label_nowrap | label_center | label_middle))
             return false;
     }
     return true;
@@ -507,9 +504,11 @@ u64 ui_poll_voters_scene_paint_revision(const UiPollVotersScene& scene) noexcept
     if (!scene.active || !owner_current(scene.owner))
         return 0;
     const auto& g = scene.geometry;
-    const UiRect bounds[]{g.viewport, g.panel, g.title,    g.close, g.question, g.answer,
-                          g.status,   g.body,  g.previous, g.next,  g.retry,    g.page};
-    u64 hash = hash64_bytes(kHash64Seed, bounds, sizeof(bounds));
+    static_assert(__builtin_offsetof(UiPollVotersGeometry, body) == 7 * sizeof(UiRect));
+    static_assert(__builtin_offsetof(UiPollVotersGeometry, page) ==
+                  __builtin_offsetof(UiPollVotersGeometry, previous) + 3 * sizeof(UiRect));
+    u64 hash = hash64_bytes(kHash64Seed, &g.viewport, 8 * sizeof(UiRect));
+    hash = hash64_bytes(hash, &g.previous, 4 * sizeof(UiRect));
     hash = hash64_bytes(hash, g.answers, sizeof(g.answers));
     hash = hash64_mix(hash, reinterpret_cast<usize>(scene.owner.manager));
     hash = hash64_mix(hash, scene.owner.handle.slot);
@@ -522,8 +521,8 @@ u64 ui_poll_voters_scene_paint_revision(const UiPollVotersScene& scene) noexcept
     hash = hash64_mix(hash, scene.first);
     hash = hash64_mix(hash, scene.visible);
     hash = hash64_bytes(hash, &scene.scroll, sizeof(scene.scroll));
-    const Color colors[]{scene.surface, scene.foreground, scene.secondary, scene.accent};
-    hash = hash64_bytes(hash, colors, sizeof(colors));
+    static_assert(__builtin_offsetof(UiPollVotersScene, accent) == __builtin_offsetof(UiPollVotersScene, surface) + 3 * sizeof(Color));
+    hash = hash64_bytes(hash, &scene.surface, 4 * sizeof(Color));
     const float metrics[]{scene.style.radius, scene.style.row_height, scene.style.avatar_extent,
                           scene.style.backdrop_opacity};
     hash = hash64_bytes(hash, metrics, sizeof(metrics));

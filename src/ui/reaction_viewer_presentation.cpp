@@ -16,14 +16,13 @@ constexpr Utf8View kApp = utf8_literal("APP");
 
 bool push(PaintStream* paint, UiRect rectangle, const Color& fill, const Color& border, float radius,
           float border_width) noexcept {
-    return paint_stream_push_rounded_border(paint, rectangle.left, rectangle.top, rectangle.right,
-                                            rectangle.bottom, fill, border, radius, border_width);
+    return paint_stream_push_rounded_border(paint, rectangle, fill, border, radius, border_width);
 }
 
 bool text_command(const ReactionViewer& viewer, UiTextOutput* text, Utf8View value, UiRect rectangle,
                   UiRect clip, const Color& color, u32 style = text_style_none,
                   UiTextAlignment horizontal = UiTextAlignment::start) noexcept {
-    if (!ui_rect_has_area(ui_rect_intersection(rectangle, clip)))
+    if (!ui_rect_intersects(rectangle, clip))
         return true;
     return ui_text_output_push(text, UiTextCommand{value, viewer.text_owner, rectangle, clip, color, style,
                                                    horizontal, UiTextAlignment::center,
@@ -38,13 +37,11 @@ bool reaction_viewer_presentation_build(const ReactionViewer& viewer, const Them
         return true;
     }
     if (!paint || !ui_rect_has_area(viewer.viewport) || !ui_rect_has_area(viewer.panel) ||
-        !paint_stream_push_clip(paint, viewer.viewport.left, viewer.viewport.top, viewer.viewport.right,
-                                viewer.viewport.bottom)) {
+        !paint_stream_push_clip(paint, viewer.viewport)) {
         return false;
     }
     const Color scrim = theme.tokens.overlay.dense;
-    bool success = paint_stream_push(paint, viewer.viewport.left, viewer.viewport.top,
-                                     viewer.viewport.right, viewer.viewport.bottom, scrim) &&
+    bool success = paint_stream_push(paint, viewer.viewport, scrim) &&
                    ui_surface_paint(paint, viewer.panel, theme, UiElevation::dialog, theme.scale.radius_md,
                                     nullptr, &theme.interactive);
     if (success) {
@@ -52,8 +49,7 @@ bool reaction_viewer_presentation_build(const ReactionViewer& viewer, const Them
         success =
             paint_stream_push(paint, viewer.panel.left, y, viewer.panel.right, y + 1.0f, theme.interactive);
     }
-    if (!paint_stream_push_clip(paint, viewer.body.left, viewer.body.top, viewer.body.right,
-                                viewer.body.bottom)) {
+    if (!paint_stream_push_clip(paint, viewer.body)) {
         paint_stream_pop_clip(paint);
         return false;
     }

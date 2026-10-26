@@ -10,12 +10,8 @@
 
 namespace maicord {
 namespace {
-bool measure_field(TextEditLayoutOwner* owner, TextEditMetric* selections,
-                   const UiEditView& edit, UiRect r, const TextSystem& text) noexcept {
-    if (!edit.active) {
-        text_edit_layout_release(owner);
-        return true;
-    }
+__declspec(noinline) bool measure_text(TextEditLayoutOwner* owner, TextEditMetric* selections,
+                                       const UiEditView& edit, const UiRect& r, const TextSystem& text) noexcept {
     u32 anchor = 0, caret = 0;
     if (!utf8_utf16_position_for_byte_offset(edit.text, edit.anchor, &anchor) ||
         !utf8_utf16_position_for_byte_offset(edit.text, edit.caret, &caret))
@@ -29,22 +25,35 @@ bool measure_field(TextEditLayoutOwner* owner, TextEditMetric* selections,
          text_edit_layout_center_vertically | text_edit_layout_scroll_to_caret},
         text);
 }
-UiEditGeometry field_geometry(const TextEditLayoutOwner& o) noexcept {
+// Fills a cleared `geometry` from an active layout.
+__declspec(noinline) void fill_geometry(const TextEditLayoutOwner& o, UiEditGeometry* geometry) noexcept {
     if (!o.active)
-        return {};
-    UiEditGeometry geometry{};
-    geometry.text = {o.origin_x, o.origin_y, o.origin_x + maximum(o.width, 1.0f),
-                     o.origin_y + maximum(o.layout_height, 1.0f)};
-    geometry.caret = {o.caret.left, o.caret.top, o.caret.left + 1, o.caret.top + o.caret.height};
-    static_assert(kTextEditSelectionCapacity == sizeof(geometry.selections) / sizeof(UiRect));
-    geometry.selection_count = o.selection_count;
+        return;
+    geometry->text = {o.origin_x, o.origin_y, o.origin_x + maximum(o.width, 1.0f),
+                      o.origin_y + maximum(o.layout_height, 1.0f)};
+    geometry->caret = {o.caret.left, o.caret.top, o.caret.left + 1, o.caret.top + o.caret.height};
+    static_assert(kTextEditSelectionCapacity == sizeof(geometry->selections) / sizeof(UiRect));
+    geometry->selection_count = o.selection_count;
     for (u32 i = 0; i < o.selection_count; ++i) {
         const auto& s = o.selections[i];
-        geometry.selections[i] = {s.left, s.top, s.left + s.width, s.top + s.height};
+        geometry->selections[i] = {s.left, s.top, s.left + s.width, s.top + s.height};
     }
-    return geometry;
 }
 } // namespace
+bool d3d11_renderer_measure_search_edit(TextEditLayoutOwner* layout, TextEditMetric* selections,
+                                        const UiEditView& edit, const UiRect& bounds, const TextSystem& text,
+                                        bool invalidate_on_failure, UiEditGeometry* geometry) noexcept {
+    if (ui_rect_has_area(bounds) && measure_text(layout, selections, edit, bounds, text)) {
+        fill_geometry(*layout, geometry);
+        // A long query may scroll its origin more than one viewport width. Keep
+        // the draw rectangle intersecting the actual visible text clip.
+        geometry->text.right = maximum(bounds.right, geometry->text.right);
+        return true;
+    }
+    if (invalidate_on_failure)
+        text_edit_layout_invalidate(layout);
+    return false;
+}
 bool d3d11_renderer_measure_popup_edit(D3D11Renderer* renderer) noexcept {
     if (d3d11_renderer_message_forward_visible(*renderer)) {
         const auto& forward = *renderer->message_forward_scene;
@@ -53,8 +62,7 @@ bool d3d11_renderer_measure_popup_edit(D3D11Renderer* renderer) noexcept {
         auto caption = forward.content->caption;
         if (!caption.active || forward.content->committed || forward.content->sending)
             caption.anchor = caption.caret = 0;
-        caption.active = true;
-        return measure_field(&renderer->popup_edit_layout, renderer->popup_edit_selections,
+        return measure_text(&renderer->popup_edit_layout, renderer->popup_edit_selections,
             caption, forward.caption_text, renderer->glyph_text.system);
     }
     text_edit_layout_release(&renderer->popup_edit_layout);
@@ -63,14 +71,22 @@ bool d3d11_renderer_measure_popup_edit(D3D11Renderer* renderer) noexcept {
 bool d3d11_renderer_measure_profile_edit(D3D11Renderer* renderer) noexcept {
     const auto* scene = renderer->profile_scene;
     const UiEditView view = scene && scene->active ? scene->edit : UiEditView{};
-    return measure_field(&renderer->profile_edit_layout, renderer->profile_edit_selections, view,
-                         scene ? scene->edit_content : UiRect{}, renderer->glyph_text.system);
+    if (!view.active) {
+        text_edit_layout_release(&renderer->profile_edit_layout);
+        return true;
+    }
+    return measure_text(&renderer->profile_edit_layout, renderer->profile_edit_selections, view,
+                        scene->edit_content, renderer->glyph_text.system);
 }
 PopupEditGeometry d3d11_renderer_popup_edit_geometry(const D3D11Renderer& renderer) noexcept {
-    return field_geometry(renderer.popup_edit_layout);
+    UiEditGeometry geometry{};
+    fill_geometry(renderer.popup_edit_layout, &geometry);
+    return geometry;
 }
 UiEditGeometry d3d11_renderer_profile_edit_geometry(const D3D11Renderer& renderer) noexcept {
-    return field_geometry(renderer.profile_edit_layout);
+    UiEditGeometry geometry{};
+    fill_geometry(renderer.profile_edit_layout, &geometry);
+    return geometry;
 }
 bool d3d11_renderer_measure_settings_edit(D3D11Renderer* renderer) noexcept {
     reset_value(&renderer->media_picker_edit_geometry);
@@ -99,7 +115,7 @@ bool d3d11_renderer_measure_settings_edit(D3D11Renderer* renderer) noexcept {
     const u8 options=text_edit_layout_scroll_to_caret | (geometry.multiline ? text_edit_layout_wrap : text_edit_layout_center_vertically);
     if (!text_edit_layout_measure(&layout,{edit.text,text_edit_signature(edit.text),anchor,caret,
         r.left,r.top,ui_rect_width(r),ui_rect_height(r),kMaximumUiCoordinate,options},renderer->glyph_text.system)) return false;
-    renderer->media_picker_edit_geometry=field_geometry(layout);
+    fill_geometry(layout, &renderer->media_picker_edit_geometry);
     return true;
 }
 namespace {

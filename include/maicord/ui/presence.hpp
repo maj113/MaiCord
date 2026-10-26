@@ -47,13 +47,10 @@ inline bool ui_presence_paint(PaintStream* paint, UiRect r, UiPresence status, C
     if (mobile && status == UiPresence::online) {
         const auto g = ui_presence_mobile_geometry(r, 2.f);
         const float button = ui_rect_width(g.button) * .5f;
-        return paint_stream_push_rounded(paint, g.cutout.left, g.cutout.top, g.cutout.right, g.cutout.bottom,
-                                         background, g.cutout_radius) &&
-               paint_stream_push_rounded(paint, g.body.left, g.body.top, g.body.right, g.body.bottom, tokens.online,
-                                         g.body_radius) &&
-               paint_stream_push(paint, g.screen.left, g.screen.top, g.screen.right, g.screen.bottom, background) &&
-               paint_stream_push_rounded(paint, g.button.left, g.button.top, g.button.right, g.button.bottom,
-                                         background, button);
+        return paint_stream_push_rounded(paint, g.cutout, background, g.cutout_radius) &&
+               paint_stream_push_rounded(paint, g.body, tokens.online, g.body_radius) &&
+               paint_stream_push(paint, g.screen, background) &&
+               paint_stream_push_rounded(paint, g.button, background, button);
     }
     const Color color = status == UiPresence::online ? tokens.online
                         : status == UiPresence::idle ? tokens.idle

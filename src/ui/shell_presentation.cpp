@@ -92,7 +92,7 @@ bool paint_drag_visual(PaintStream* stream, const NavigationDragVisual& drag, co
         return true;
     const UiRect& r = drag.indicator;
     if (!drag.ring)
-        return paint_stream_push_rounded(stream, r.left, r.top, r.right, r.bottom, theme.accent, kNavigationDragLine * .5f);
+        return paint_stream_push_rounded(stream, r, theme.accent, kNavigationDragLine * .5f);
     constexpr float inset = 3.0f;
     Color clear = theme.accent;
     clear.alpha = 0;
@@ -140,8 +140,7 @@ bool paint_voice_participants(PaintStream* stream, const ShellNavigationScene& s
                                            ui_icon_role_color(theme, UiIconRole::success),
                                            ui_rect_width(a) * 0.5f + 2))
             return false;
-        if (!paint_stream_push_rounded(stream, user.avatar.left, user.avatar.top, user.avatar.right, user.avatar.bottom,
-                          theme.avatar_placeholder, ui_rect_width(user.avatar) * 0.5f) ||
+        if (!paint_stream_push_rounded(stream, user.avatar, theme.avatar_placeholder, ui_rect_width(user.avatar) * 0.5f) ||
             !record_content(stream, scene.widgets, row_widget.widget, user.avatar, UiLayoutContentKind::media,
                             ui_layout_content_bounds_allow_overlap))
             return false;
@@ -162,8 +161,7 @@ bool paint_voice_participants(PaintStream* stream, const ShellNavigationScene& s
         // Go Live badge; its label is emitted with the row text. Hovering the
         // row previews the stream, clicking the badge watches it.
         if (const auto& live = user.live; ui_rect_has_area(live) &&
-            (!paint_stream_push_rounded(stream, live.left, live.top, live.right, live.bottom, theme.tokens.accent.danger,
-                          theme.scale.radius_sm) ||
+            (!paint_stream_push_rounded(stream, live, theme.tokens.accent.danger, theme.scale.radius_sm) ||
              !record_content(stream, scene.widgets, row_widget.widget, live, UiLayoutContentKind::control,
                              ui_layout_content_bounds_allow_overlap)))
             return false;
@@ -193,15 +191,13 @@ bool paint_voice_extras(PaintStream* stream, const ShellNavigationScene& scene,
         return true;
     const auto& r = invite.row;
     if (extras.invite_hovered &&
-        (!paint_stream_push_rounded(stream, r.left, r.top, r.right, r.bottom,
-                       ui_background_hover_color(theme, theme.surface_high, .20f), theme.scale.radius_sm) ||
+        (!paint_stream_push_rounded(stream, r, ui_background_hover_color(theme, theme.surface_high, .20f), theme.scale.radius_sm) ||
          !record_content(stream, scene.widgets, row_widget.widget, r, UiLayoutContentKind::decoration,
                          ui_layout_content_bounds_allow_overlap)))
         return false;
     const UiRect& disc = invite.icon;
     const float cx = (disc.left + disc.right) * 0.5f, cy = (disc.top + disc.bottom) * 0.5f;
-    if (!paint_stream_push_rounded(stream, disc.left, disc.top, disc.right, disc.bottom, theme.surface_high,
-                      ui_rect_width(disc) * 0.5f) ||
+    if (!paint_stream_push_rounded(stream, disc, theme.surface_high, ui_rect_width(disc) * 0.5f) ||
         !ui_icon_paint(stream, UiIcon::user_plus, {cx - 7.0f, cy - 7.0f, cx + 7.0f, cy + 7.0f},
                        extras.invite_hovered ? theme.text_primary : theme.text_secondary) ||
         !record_content(stream, scene.widgets, row_widget.widget, disc, UiLayoutContentKind::icon,
@@ -246,8 +242,7 @@ bool paint_folder_groups(PaintStream* stream, const GuildRailScene& scene, const
                 return false;
             const UiRect plate{top->rectangle.left - 4, top->rectangle.top - 4, top->rectangle.right + 4,
                                bottom->rectangle.bottom + 4};
-            if (!paint_stream_push_rounded(stream, plate.left, plate.top, plate.right, plate.bottom,
-                              folder_color(theme, first.view, .15f), theme.scale.radius_xl) ||
+            if (!paint_stream_push_rounded(stream, plate, folder_color(theme, first.view, .15f), theme.scale.radius_xl) ||
                 !record_content(stream, scene.widgets, first.widget, plate, UiLayoutContentKind::decoration,
                                 static_cast<u16>(ui_layout_content_bounds_allow_overflow |
                                                  ui_layout_content_bounds_allow_overlap)))
@@ -265,13 +260,11 @@ bool paint_folder_header(PaintStream* stream, const NavigationView* navigation,
     if (row.folder_expanded) {
         const float half = kUiNavigationIconExtent * .5f;
         const float x = (rectangle.left + rectangle.right) * .5f, y = (rectangle.top + rectangle.bottom) * .5f;
-        return (!hovered || paint_stream_push_rounded(stream, rectangle.left, rectangle.top, rectangle.right, rectangle.bottom,
-                                         folder_color(theme, row, .25f), theme.scale.radius_lg)) &&
+        return (!hovered || paint_stream_push_rounded(stream, rectangle, folder_color(theme, row, .25f), theme.scale.radius_lg)) &&
                ui_icon_paint(stream, UiIcon::folder, {x - half, y - half, x + half, y + half},
                              folder_color(theme, row, 1));
     }
-    if (!paint_stream_push_rounded(stream, rectangle.left, rectangle.top, rectangle.right, rectangle.bottom,
-                      folder_color(theme, row, hovered ? .55f : .4f), 13))
+    if (!paint_stream_push_rounded(stream, rectangle, folder_color(theme, row, hovered ? .55f : .4f), 13))
         return false;
     // Members without artwork get a neutral disc; icons are queued as media.
     for (u32 k = 0; navigation && k < 4 && k < row.folder_size; ++k) {
@@ -279,8 +272,7 @@ bool paint_folder_header(PaintStream* stream, const NavigationView* navigation,
         if (source >= navigation->guild_count || navigation->guild_rows[source].has_icon)
             continue;
         const UiRect mini = guild_rail_folder_preview_rectangle(rectangle, k);
-        if (!paint_stream_push_rounded(stream, mini.left, mini.top, mini.right, mini.bottom, theme.surface_high,
-                          ui_rect_width(mini) * .5f))
+        if (!paint_stream_push_rounded(stream, mini, theme.surface_high, ui_rect_width(mini) * .5f))
             return false;
     }
     return true;
@@ -403,9 +395,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     }
 
     if (guild_scene && guild_scene->active) {
-        if (!paint_stream_push_clip(stream, guild_navigation->rectangle.left,
-                                    guild_navigation->rectangle.top, guild_navigation->rectangle.right,
-                                    guild_navigation->rectangle.bottom)) {
+        if (!paint_stream_push_clip(stream, guild_navigation->rectangle)) {
             return false;
         }
         if (!paint_folder_groups(stream, *guild_scene, theme))
@@ -452,13 +442,11 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             // The fallback tile belongs to guilds without artwork. Painting it
             // below an icon replaces the rail backdrop in transparent pixels.
             if (!header && !row.has_icon &&
-                !paint_stream_push_rounded(stream, rectangle.left, rectangle.top, rectangle.right, rectangle.bottom,
-                              row_hovered       ? ui_background_hover_color(theme, theme.interactive, .32f)
-                              : row.unavailable ? theme.interactive
-                              // A light rail needs the raised white tile to separate the acronym.
-                              : theme.appearance == ThemeAppearance::light ? theme.surface
-                                                                           : theme.surface_high,
-                              guild_rail_icon_radius(rectangle, &row_widget.indicator, row.selected, row_hovered))) {
+                !paint_stream_push_rounded(stream, rectangle, row_hovered       ? ui_background_hover_color(theme, theme.interactive, .32f)
+                : row.unavailable ? theme.interactive
+                // A light rail needs the raised white tile to separate the acronym.
+                : theme.appearance == ThemeAppearance::light ? theme.surface
+                                                             : theme.surface_high, guild_rail_icon_radius(rectangle, &row_widget.indicator, row.selected, row_hovered))) {
                 return false;
             }
             if (!header && !record_content(stream, guild_scene->widgets, row_widget.widget, rectangle,
@@ -502,13 +490,11 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             Color placeholder = theme.tokens.state.pressed;
             placeholder.alpha *= banner.opacity;
             if (banner.opacity > 0 && ui_rect_has_area(clip) &&
-                !paint_stream_push(stream, clip.left, clip.top, clip.right, clip.bottom, placeholder))
+                !paint_stream_push(stream, clip, placeholder))
                 return false;
         }
         if (navigation && channel_scene && channel_scene->active) {
-            if (!paint_stream_push_clip(
-                    stream, channel_navigation->rectangle.left, channel_navigation->rectangle.top,
-                    channel_navigation->rectangle.right, channel_navigation->rectangle.bottom)) {
+            if (!paint_stream_push_clip(stream, channel_navigation->rectangle)) {
                 return false;
             }
             for (u32 index = 0; index < channel_scene->count; ++index) {
@@ -560,12 +546,9 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                 if (row_rectangle.bottom > channel_navigation->rectangle.top &&
                     row_rectangle.top < channel_navigation->rectangle.bottom) {
                     if ((row_selected || row_hovered) &&
-                        !paint_stream_push_rounded(stream, selected_rectangle.left, selected_rectangle.top,
-                                      selected_rectangle.right, selected_rectangle.bottom,
-                                      ui_background_hover_color(
-                                          theme, row_selected ? theme.interactive : theme.surface_high,
-                                          row_selected ? .28f : .20f),
-                                      theme.scale.radius_sm)) {
+                        !paint_stream_push_rounded(stream, selected_rectangle, ui_background_hover_color(
+                            theme, row_selected ? theme.interactive : theme.surface_high,
+                            row_selected ? .28f : .20f), theme.scale.radius_sm)) {
                         return false;
                     }
                     if ((row_selected || row_hovered) &&
@@ -608,9 +591,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                         return false;
                     }
                     if (row.mention_count != 0 &&
-                        !paint_stream_push_rounded(stream, badge_layout->rectangle.left, badge_layout->rectangle.top,
-                                      badge_layout->rectangle.right, badge_layout->rectangle.bottom,
-                                      theme.notification, theme.scale.radius_md)) {
+                        !paint_stream_push_rounded(stream, badge_layout->rectangle, theme.notification, theme.scale.radius_md)) {
                         return false;
                     }
                     if (row.mention_count != 0 &&
@@ -683,36 +664,20 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             return false;
         }
     }
-    if (const auto* pins = ui_scene_resolve_semantic(scene, UiSemantic::pins_toggle)) {
-        if (!ui_button_icon_paint(stream, scene.widgets, pins->widget, UiIcon::pin, theme, false, false,
-                                  UiButtonSurface::palette) ||
-            !record_content(stream, scene.widgets, pins->widget, pins->rectangle,
-                            UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap))
-            return false;
-    }
-    if (const auto* inbox = ui_scene_resolve_semantic(scene, UiSemantic::inbox_toggle)) {
-        if (!ui_button_icon_paint(stream, scene.widgets, inbox->widget, UiIcon::inbox, theme, false, false,
-                                  UiButtonSurface::palette) ||
-            !record_content(stream, scene.widgets, inbox->widget, inbox->rectangle,
-                            UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap))
-            return false;
-    }
-    if (const auto* settings = ui_scene_resolve_semantic(scene, UiSemantic::settings)) {
-        if (!ui_button_icon_paint(stream, scene.widgets, settings->widget, UiIcon::settings, theme) ||
-            !record_content(stream, scene.widgets, settings->widget, settings->rectangle,
-                            UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap))
-            return false;
-    }
-    const struct {
+    // Toolbar icon buttons, each its own semantic node.
+    static constexpr struct {
         UiSemantic semantic;
         UiIcon icon;
-    } private_buttons[]{{UiSemantic::private_add, UiIcon::user_plus}, {UiSemantic::private_call, UiIcon::phone}};
-    for (const auto& item : private_buttons) {
+        UiButtonSurface surface;
+    } toolbar_buttons[]{{UiSemantic::pins_toggle, UiIcon::pin, UiButtonSurface::palette},
+                        {UiSemantic::inbox_toggle, UiIcon::inbox, UiButtonSurface::palette},
+                        {UiSemantic::settings, UiIcon::settings, UiButtonSurface::opaque},
+                        {UiSemantic::private_add, UiIcon::user_plus, UiButtonSurface::palette},
+                        {UiSemantic::private_call, UiIcon::phone, UiButtonSurface::palette}};
+    for (const auto& item : toolbar_buttons) {
         if (const auto* button = ui_scene_resolve_semantic(scene, item.semantic);
-            button && (!ui_button_icon_paint(stream, scene.widgets, button->widget, item.icon, theme, false, false,
-                                             UiButtonSurface::palette) ||
-                       !record_content(stream, scene.widgets, button->widget, button->rectangle,
-                                       UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap)))
+            button && !ui_button_icon_paint(stream, scene.widgets, button->widget, item.icon, theme, false, false,
+                                            item.surface))
             return false;
     }
     if (const auto* create = ui_scene_resolve_semantic(scene, UiSemantic::private_create)) {
@@ -734,9 +699,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                              scene.widgets.hovered.generation == menu->widget.generation;
         const UiRect r = menu->rectangle;
         if ((hovered || scene.guild_menu_expanded) &&
-            !paint_stream_push_rounded(stream, r.left, r.top, r.right, r.bottom,
-                          ui_background_hover_color(theme, theme.surface_high, scene.guild_menu_expanded ? .28f : .20f),
-                          kUiShellGuildMenuRadius))
+            !paint_stream_push_rounded(stream, r, ui_background_hover_color(theme, theme.surface_high, scene.guild_menu_expanded ? .28f : .20f), kUiShellGuildMenuRadius))
             return false;
         const float extent = kUiShellGuildMenuChevron;
         const float right = maximum(r.left + extent, r.right - 8.f);
@@ -767,9 +730,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             const bool hovered = g_ui_plugin_slot_hover.active &&
                                  g_ui_plugin_slot_hover.surface == kUiPluginSlotAccountPanel &&
                                  g_ui_plugin_slot_hover.index == i;
-            if ((hovered && !paint_stream_push_rounded(stream, r.left, r.top, r.right, r.bottom,
-                                          ui_background_hover_color(theme, theme.surface_high, .20f),
-                                          theme.scale.radius_sm)) ||
+            if ((hovered && !paint_stream_push_rounded(stream, r, ui_background_hover_color(theme, theme.surface_high, .20f), theme.scale.radius_sm)) ||
                 !ui_icon_paint(stream, ui_plugin_slot_icon(plugin_nodes[i]),
                                {r.left + 7, r.top + 7, r.right - 7, r.bottom - 7},
                                ui_plugin_slot_ink(theme, plugin_nodes[i].tone, theme.text_secondary)) ||
@@ -781,20 +742,16 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     if (const auto* friends = ui_scene_resolve_semantic(scene, UiSemantic::friends_button)) {
         const bool hovered = scene.widgets.hovered.slot == friends->widget.slot &&
                              scene.widgets.hovered.generation == friends->widget.generation;
-        if (!paint_stream_push_rounded(stream, friends->rectangle.left, friends->rectangle.top, friends->rectangle.right,
-                          friends->rectangle.bottom,
-                          scene.view == UiShellView::friends
-                              ? ui_background_hover_color(theme, theme.interactive, .28f)
-                          : hovered ? ui_background_hover_color(theme, theme.surface_high, .20f)
-                                    : ui_background_surface_color(theme, theme.base_lower, .12f),
-                          theme.scale.radius_sm) ||
+        if (!paint_stream_push_rounded(stream, friends->rectangle, scene.view == UiShellView::friends
+            ? ui_background_hover_color(theme, theme.interactive, .28f)
+        : hovered ? ui_background_hover_color(theme, theme.surface_high, .20f)
+                  : ui_background_surface_color(theme, theme.base_lower, .12f), theme.scale.radius_sm) ||
             !record_content(stream, scene.widgets, friends->widget, friends->rectangle,
                             UiLayoutContentKind::control))
             return false;
     }
     if (members && member_scene && member_scene->active) {
-        if (!paint_stream_push_clip(stream, members->rectangle.left, members->rectangle.top,
-                                    members->rectangle.right, members->rectangle.bottom)) {
+        if (!paint_stream_push_clip(stream, members->rectangle)) {
             return false;
         }
         for (u32 index = 0; index < member_scene->count; ++index) {
@@ -811,9 +768,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             }
             const UiLayoutNode* avatar_layout = member_list_scene_layout_node(*member_scene, row.avatar);
             if (!avatar_layout ||
-                !paint_stream_push_rounded(stream, avatar_layout->rectangle.left, avatar_layout->rectangle.top,
-                              avatar_layout->rectangle.right, avatar_layout->rectangle.bottom,
-                              theme.avatar_placeholder, theme.scale.radius_xl) ||
+                !paint_stream_push_rounded(stream, avatar_layout->rectangle, theme.avatar_placeholder, theme.scale.radius_xl) ||
                 !record_content(stream, member_scene->widgets, row.avatar, avatar_layout->rectangle,
                                 UiLayoutContentKind::media)) {
                 paint_stream_pop_clip(stream);
@@ -901,12 +856,9 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                 ? composer_enabled
                                 : voice_mode != UiComposerVoiceMode::sending;
     if (!attachment || !edit || !emoji || !send || !typing ||
-        !paint_stream_push_rounded_border(stream, edit->rectangle.left, edit->rectangle.top,
-                                          edit->rectangle.right, edit->rectangle.bottom,
-                                          background         ? Color{}
-                                          : composer_enabled ? theme.surface_high
-                                                             : theme.base_low,
-                                          Color{}, kUiControlCornerRadius, 0.0f) ||
+        !paint_stream_push_rounded_border(stream, edit->rectangle, background         ? Color{}
+        : composer_enabled ? theme.surface_high
+                           : theme.base_low, Color{}, kUiControlCornerRadius, 0.0f) ||
         (voice_bar && !ui_composer_voice_bar_paint(*composer_scene->voice, edit->content_rectangle, theme, stream)) ||
         (!composer_scene->command.bot_id &&
          !ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->add_attachment,
@@ -1030,8 +982,7 @@ bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene
         const auto* typing = message_composer_scene_layout_node(*scene, MessageComposerControl::typing_indicator);
         const UiRect row = typing ? ui_typing_dots_row(typing->rectangle) : UiRect{};
         const u32 first = paint ? paint->count : 0;
-        if (typing && (!paint_stream_push_clip(paint, typing->rectangle.left, typing->rectangle.top,
-                                               typing->rectangle.right, typing->rectangle.bottom) ||
+        if (typing && (!paint_stream_push_clip(paint, typing->rectangle) ||
                        !ui_typing_dots_paint(paint, row, theme.text_primary, scene->typing_phase)))
             return false;
         if (typing && dots) {
@@ -1047,8 +998,7 @@ bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene
     if (!scene || !scene->active || !scene->model || !input.geometry_active || (!focused && !input.composition.count))
         return true;
     const auto* edit = message_composer_scene_layout_node(*scene, MessageComposerControl::edit);
-    if (!edit || !paint_stream_push_clip(paint, edit->content_rectangle.left, edit->content_rectangle.top,
-                                         edit->content_rectangle.right, edit->content_rectangle.bottom))
+    if (!edit || !paint_stream_push_clip(paint, edit->content_rectangle))
         return false;
     bool ok = true;
     for (u32 i = 0; ok && i < input.composition.count; ++i) {
@@ -1068,7 +1018,7 @@ bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene
         if (!input.caret_visible)
             color.alpha = 0;
         if (ui_rect_has_area(r))
-            ok = paint_stream_push(paint, r.left, r.top, r.right, r.bottom, color);
+            ok = paint_stream_push(paint, r, color);
     }
     return paint_stream_pop_clip(paint) && ok;
 }
@@ -1116,9 +1066,7 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
                          scene.widgets.hovered.generation == menu->widget.generation;
     const UiRect r = menu->rectangle;
     if ((hovered || scene.guild_menu_expanded) &&
-        !paint_stream_push_rounded(stream, r.left, r.top, r.right, r.bottom,
-                      scene.guild_menu_expanded ? theme.tokens.state.pressed : theme.tokens.state.hover,
-                      kUiShellGuildMenuRadius))
+        !paint_stream_push_rounded(stream, r, scene.guild_menu_expanded ? theme.tokens.state.pressed : theme.tokens.state.hover, kUiShellGuildMenuRadius))
         return false;
     const float extent = kUiShellGuildMenuChevron;
     const float right = maximum(r.left + extent, r.right - 8.f);
@@ -1138,8 +1086,7 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
         return true;
     }
     if (!ui_rect_has_area(member_scene->viewport) ||
-        !paint_stream_push_clip(stream, member_scene->viewport.left, member_scene->viewport.top,
-                                member_scene->viewport.right, member_scene->viewport.bottom)) {
+        !paint_stream_push_clip(stream, member_scene->viewport)) {
         return false;
     }
     for (u32 index = 0; index < member_scene->count; ++index) {
@@ -1210,8 +1157,7 @@ bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const Gui
     const UiNode* navigation = ui_scene_resolve_semantic(scene, UiSemantic::guild_navigation);
     if (!guild_scene || !guild_scene->active || !guild || !navigation)
         return true;
-    if (!paint_stream_push_clip(stream, navigation->rectangle.left, navigation->rectangle.top,
-                                navigation->rectangle.right, navigation->rectangle.bottom))
+    if (!paint_stream_push_clip(stream, navigation->rectangle))
         return false;
     // A rail-coloured ring drawn over the icon's media separates the lower
     // badge from the icon.

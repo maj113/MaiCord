@@ -21,11 +21,11 @@ void project_emoji(Bank& bank) noexcept {
     bank.number(slots);
     bank.add(utf8_literal(". PNG, GIF, JPEG or WebP up to 256 KB; larger PNGs are resized to 128×128."));
     const bool full = counts.static_count >= slots && counts.animated_count >= slots;
-    push({control_upload, utf8_literal("Emoji"), bank.since(start), UiSettingsControlKind::action, can && !full, false,
-          {}, 0, utf8_literal("Upload emoji"), nullptr},
-         {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
+    push_row(control_upload, utf8_literal("Emoji"), bank.since(start), UiSettingsControlKind::action,
+             can && !full, false, utf8_literal("Upload emoji"),
+             {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
     if (p.failed && p.status.bytes)
-        push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error({}, p.status);
     push({control_search, utf8_literal("Search emoji"), {}, UiSettingsControlKind::edit, editable(), false, {}, 0, {},
           &editor_view(editor_search, control_search, utf8_literal("Search emoji"), editable())});
     const auto query = editor_text(editor_search);
@@ -38,13 +38,10 @@ void project_emoji(Bank& bank) noexcept {
         p.member_order[p.row_count] = i;
         p.row_ids[p.row_count++] = emoji.id;
     }
-    const u32 heading = bank.used;
-    bank.add(utf8_literal("Emoji — "));
-    bank.number(counts.static_count + counts.animated_count);
-    push(category(control_list_category, bank.since(heading)));
+    push_count_heading(bank, utf8_literal("Emoji — "), counts.static_count + counts.animated_count);
     if (!p.row_count)
-        push(notice({}, query.bytes ? utf8_literal("No emoji match this search.")
-                                    : utf8_literal("This server has no custom emoji yet.")));
+        push_notice(query.bytes ? utf8_literal("No emoji match this search.")
+                                : utf8_literal("This server has no custom emoji yet."));
     for (u32 row = 0; row < p.row_count; ++row) {
         const CustomEmojiRecord* emoji = &s.emojis[p.member_order[row]];
         const u32 label = bank.used;
@@ -63,11 +60,11 @@ void project_emoji(Bank& bank) noexcept {
             bank.add(utf8_literal(" · Limited to some roles"));
         const bool editable_row = p.access.manage_expressions && !managed;
         const u32 index =
-            push({kRowBase + row, name, bank.since(detail), UiSettingsControlKind::action, can && editable_row, false,
-                  {}, 0, editable_row ? utf8_literal("Edit") : Utf8View{}, nullptr},
-                 {UiSettingsVariant::standard,
-                  static_cast<u8>(ui_settings_presentation_compact | ui_settings_presentation_avatar),
-                  kUiSettingsNoDefault});
+            push_row(kRowBase + row, name, bank.since(detail), UiSettingsControlKind::action, can && editable_row,
+                     false, editable_row ? utf8_literal("Edit") : Utf8View{},
+                     {UiSettingsVariant::standard,
+                      static_cast<u8>(ui_settings_presentation_compact | ui_settings_presentation_avatar),
+                      kUiSettingsNoDefault});
         // The emoji image in place of the row's avatar.
         if (index < kControlCapacity)
             p.avatar_media[index].key = media_asset_custom_emoji(emoji->id, (emoji->flags & custom_emoji_animated) != 0);
@@ -83,22 +80,18 @@ void project_stickers(Bank& bank) noexcept {
     bank.add(utf8_literal(" of "));
     bank.number(slots);
     bank.add(utf8_literal(" slots used. PNG, APNG, GIF or Lottie JSON, 320×320 and up to 512 KB."));
-    push({control_upload, utf8_literal("Stickers"), bank.since(start), UiSettingsControlKind::action,
-          can && p.stickers_loaded && p.sticker_count < slots, false, {}, 0, utf8_literal("Upload sticker"), nullptr},
-         {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
+    push_row(control_upload, utf8_literal("Stickers"), bank.since(start), UiSettingsControlKind::action,
+             can && p.stickers_loaded && p.sticker_count < slots, false, utf8_literal("Upload sticker"),
+             {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
     if (p.stickers_failed)
-        push(notice(utf8_literal("Couldn't load stickers"), p.status, utf8_literal("Try again")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error(utf8_literal("Couldn't load stickers"), p.status, utf8_literal("Try again"));
     else if (p.failed && p.status.bytes)
-        push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error({}, p.status);
     else if (!p.stickers_loaded)
-        push(loading(utf8_literal("Loading stickers…")));
-    const u32 heading = bank.used;
-    bank.add(utf8_literal("Stickers — "));
-    bank.number(p.sticker_count);
-    push(category(control_list_category, bank.since(heading)));
+        push_loading(utf8_literal("Loading stickers…"));
+    push_count_heading(bank, utf8_literal("Stickers — "), p.sticker_count);
     if (p.stickers_loaded && !p.sticker_count)
-        push(notice({}, utf8_literal("This server has no stickers yet.")));
+        push_notice(utf8_literal("This server has no stickers yet."));
     static constexpr Utf8View formats[]{{}, utf8_literal("PNG"), utf8_literal("APNG"), utf8_literal("Lottie"),
                                  utf8_literal("GIF")};
     for (u32 i = 0; i < p.sticker_count; ++i) {
@@ -117,10 +110,12 @@ void project_stickers(Bank& bank) noexcept {
             bank.add(utf8_literal(" · Unavailable"));
         // Lottie stickers have no still preview.
         const bool preview = sticker.format_type != 3;
-        const u32 index = push(
-            {kRowBase + i, bank.add({sticker.name, sticker.name_bytes}), bank.since(detail),
-             UiSettingsControlKind::action, can && p.access.manage_expressions, false, {}, 0,
-             p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{}, nullptr},
+        // The row's label is appended after its detail text, which the detail range then covers.
+        const Utf8View name = bank.add({sticker.name, sticker.name_bytes});
+        const Utf8View description = bank.since(detail);
+        const u32 index = push_row(
+            kRowBase + i, name, description, UiSettingsControlKind::action, can && p.access.manage_expressions, false,
+            p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{},
             {UiSettingsVariant::standard,
              static_cast<u8>(ui_settings_presentation_compact | (preview ? ui_settings_presentation_avatar : 0)),
              kUiSettingsNoDefault});
@@ -142,21 +137,18 @@ void project_soundboard(Bank& bank) noexcept {
     bank.add(utf8_literal(" of "));
     bank.number(slots);
     bank.add(utf8_literal(" slots used. MP3 or Ogg, up to 512 KB and 5.2 seconds."));
-    push({control_upload, utf8_literal("Soundboard"), bank.since(start), UiSettingsControlKind::action,
-          can && view.loaded && !view.busy && view.count < slots, false, {}, 0, utf8_literal("Upload sound"), nullptr},
-         {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
+    push_row(control_upload, utf8_literal("Soundboard"), bank.since(start), UiSettingsControlKind::action,
+             can && view.loaded && !view.busy && view.count < slots, false, utf8_literal("Upload sound"),
+             {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
     if (view.notice.bytes)
-        push(notice({}, view.notice), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error({}, view.notice);
     else if (view.busy)
-        push(notice({}, utf8_literal("Saving…")));
+        push_notice(utf8_literal("Saving…"));
     else if (!view.loaded)
-        push(notice({}, view.loading ? utf8_literal("Loading sounds…") : utf8_literal("Couldn't load sounds yet.")));
-    const u32 heading = bank.used;
-    bank.add(utf8_literal("Sounds — "));
-    bank.number(view.count);
-    push(category(control_list_category, bank.since(heading)));
+        push_notice(view.loading ? utf8_literal("Loading sounds…") : utf8_literal("Couldn't load sounds yet."));
+    push_count_heading(bank, utf8_literal("Sounds — "), view.count);
     if (view.loaded && !view.count)
-        push(notice({}, utf8_literal("This server has no sounds yet.")));
+        push_notice(utf8_literal("This server has no sounds yet."));
     const u32 count = minimum(view.count, kRowCapacity);
     for (u32 i = 0; i < count; ++i) {
         const auto& sound = view.sounds[i];
@@ -170,10 +162,12 @@ void project_soundboard(Bank& bank) noexcept {
         if (!sound.available)
             bank.add(utf8_literal(" · Unavailable"));
         p.row_ids[i] = sound.sound_id;
-        push({kRowBase + i, bank.add({sound.name, sound.name_bytes}), bank.since(detail),
-              UiSettingsControlKind::action, can && p.access.manage_expressions && !view.busy, false, {}, 0,
-              p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{}, nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        const Utf8View name = bank.add({sound.name, sound.name_bytes});
+        const Utf8View description = bank.since(detail);
+        push_row(kRowBase + i, name, description, UiSettingsControlKind::action,
+                 can && p.access.manage_expressions && !view.busy, false,
+                 p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{},
+                 {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
     }
     p.row_count = count;
 }

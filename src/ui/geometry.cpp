@@ -34,6 +34,10 @@ UiRect ui_rect_intersection(const UiRect& left, const UiRect& right) noexcept {
     return result;
 }
 
+bool ui_rect_intersects(const UiRect& left, const UiRect& right) noexcept {
+    return ui_rect_has_area(ui_rect_intersection(left, right));
+}
+
 UiRect ui_rect_overlap(const UiRect& a, const UiRect& b) noexcept {
     return {maximum(a.left, b.left), maximum(a.top, b.top), minimum(a.right, b.right), minimum(a.bottom, b.bottom)};
 }

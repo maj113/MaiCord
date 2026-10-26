@@ -289,21 +289,17 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         indicator_ids[i] = scene->rows[i].view.id;
     }
     ui_widget_manager_reset(&scene->widgets);
-    const UiWidgetResult root = ui_widget_manager_add_prevalidated(
-        &scene->widgets, ui_widget_invalid_handle(),
-        UiWidgetDesc{kGuildRailRootWidgetId, UiWidgetKind::scroll_view, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("GuildRail"), ui_layout_scroll_root_style(), UiSize{}, 0.0f,
-                                      kGuildRailRootWidgetId}});
+    const UiWidgetResult root = ui_widget_manager_add_keyed(
+        &scene->widgets, ui_widget_invalid_handle(), kGuildRailRootWidgetId, UiWidgetKind::scroll_view,
+        ui_widget_enabled, "GuildRail", ui_layout_scroll_root_style());
     if (!root.ok()) {
         clear_materialization(scene);
         return scene_error(scene, GuildRailSceneError::widget);
     }
     scene->root = root.handle;
-    const UiWidgetResult spacer = ui_widget_manager_add_prevalidated(
-        &scene->widgets, root.handle,
-        UiWidgetDesc{kGuildRailSpacerWidgetId, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("TopInset"), ui_layout_spacer_style(range.spacer), UiSize{}, 0.0f,
-                                      kGuildRailSpacerWidgetId}});
+    const UiWidgetResult spacer = ui_widget_manager_add_keyed(
+        &scene->widgets, root.handle, kGuildRailSpacerWidgetId, UiWidgetKind::container, ui_widget_enabled,
+        "TopInset", ui_layout_spacer_style(range.spacer));
     if (!spacer.ok()) {
         clear_materialization(scene);
         return scene_error(scene, GuildRailSceneError::widget);
@@ -315,10 +311,9 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         const GuildViewRow& source = view->guild_rows[index];
         const float reveal = reveal_of(scene, source);
         const u32 widget_id = index + 3;
-        const UiWidgetResult added = ui_widget_manager_add_prevalidated(
-            &scene->widgets, root.handle,
-            UiWidgetDesc{widget_id, UiWidgetKind::button, row_flags(source),
-                         UiLayoutNodeSpec{utf8_literal("GuildRow"), row_style(reveal), UiSize{}, 0.0f, widget_id}});
+        const UiWidgetResult added = ui_widget_manager_add_keyed(
+            &scene->widgets, root.handle, widget_id, UiWidgetKind::button, row_flags(source), "GuildRow",
+            row_style(reveal));
         if (!added.ok()) {
             added_all = false;
             return;
@@ -335,12 +330,9 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
     }
     scene->add_button = ui_widget_invalid_handle();
     if (range.add) {
-        const UiWidgetResult add = ui_widget_manager_add_prevalidated(
-            &scene->widgets, root.handle,
-            UiWidgetDesc{kGuildRailAddWidgetId, UiWidgetKind::button,
-                         static_cast<u16>(ui_widget_enabled | ui_widget_hit_test),
-                         UiLayoutNodeSpec{utf8_literal("AddServer"), row_style(1.0f), UiSize{}, 0.0f,
-                                          kGuildRailAddWidgetId}});
+        const UiWidgetResult add = ui_widget_manager_add_keyed(
+            &scene->widgets, root.handle, kGuildRailAddWidgetId, UiWidgetKind::button,
+            static_cast<u16>(ui_widget_enabled | ui_widget_hit_test), "AddServer", row_style(1.0f));
         if (!add.ok()) {
             clear_materialization(scene);
             return scene_error(scene, GuildRailSceneError::widget);

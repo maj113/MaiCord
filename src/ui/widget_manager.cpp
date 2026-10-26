@@ -60,8 +60,10 @@ UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const
 
 } // namespace
 
-bool ui_widget_manager_initialize(UiWidgetManager* manager, Slice<UiWidget> widget_storage,
-                                  Slice<UiLayoutNode> layout_storage) noexcept {
+bool ui_widget_manager_initialize(UiWidgetManager* manager, const Slice<UiWidget>& widget_view,
+                                  const Slice<UiLayoutNode>& layout_view) noexcept {
+    const Slice<UiWidget> widget_storage = widget_view; // *manager is initialized below
+    const Slice<UiLayoutNode> layout_storage = layout_view;
     if (!manager || !widget_storage.data || widget_storage.count == 0 ||
         widget_storage.count > kInvalidUiWidgetSlot || widget_storage.count > layout_storage.count) {
         return false;
@@ -138,6 +140,12 @@ UiWidgetResult ui_widget_manager_add_prevalidated(UiWidgetManager* manager, UiWi
     return add_widget(manager, parent, description, true);
 }
 
+UiWidgetResult ui_widget_manager_add_keyed(UiWidgetManager* manager, UiWidgetHandle parent, u32 id,
+                                           UiWidgetKind kind, u16 flags, const char* name, u32 name_bytes,
+                                           const UiLayoutStyle& style) noexcept {
+    return add_widget(manager, parent, {id, kind, flags, {{name, name_bytes}, style, {}, 0, id}}, true);
+}
+
 bool ui_widget_manager_initialize_fill_root(UiWidgetManager* manager, Slice<UiWidget> widget_storage,
                                             Slice<UiLayoutNode> layout_storage, Utf8View name, u16 flags,
                                             UiWidgetReference* owner) noexcept {
@@ -159,6 +167,19 @@ UiWidgetResult ui_widget_manager_add_part(UiWidgetManager* manager, UiWidgetHand
                    ui_layout_node_allow_zero_size;
     return ui_widget_manager_add_prevalidated(manager, parent,
                                               {manager->count + 1, kind, ui_widget_none, {name, style}});
+}
+
+UiWidgetResult ui_widget_manager_add_placed(UiWidgetManager* manager, UiWidgetHandle parent, UiWidgetKind kind,
+                                            u16 flags, Utf8View name, const UiRect& rectangle,
+                                            const UiRect& origin) noexcept {
+    auto style = ui_layout_style();
+    style.width = ui_layout_fixed(ui_rect_width(rectangle));
+    style.height = ui_layout_fixed(ui_rect_height(rectangle));
+    style.margin.left = rectangle.left - origin.left;
+    style.margin.top = rectangle.top - origin.top;
+    style.flags |= ui_layout_node_allow_overlap | ui_layout_node_clip_children;
+    const u32 id = manager->count + 1;
+    return ui_widget_manager_add_prevalidated(manager, parent, {id, kind, flags, {name, style, {}, 0, id}});
 }
 
 bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handle, UiRect rectangle,

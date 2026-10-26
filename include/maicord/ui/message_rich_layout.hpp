@@ -315,6 +315,10 @@ MessageRichItemLayout message_rich_estimate_item_layout(const MessageRichStore* 
                                                         const MessageRichRecord* rich,
                                                         float available_width,
                                                         const UiResolvedThemeStyles* = nullptr) noexcept;
+// Writes the estimate straight into result (no by-value copy of the large struct).
+void message_rich_fill_item_layout(const MessageRichStore* store, const MessageRichRecord* rich,
+                                   float available_width, const UiResolvedThemeStyles* styles,
+                                   MessageRichItemLayout& result) noexcept;
 MessageRichLayout message_rich_aggregate_layout(const MessageRichRecord& rich,
                                                 const MessageRichItemLayout& items, float available_width,
                                                 ConstSlice<float> reaction_widths = {}) noexcept;

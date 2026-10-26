@@ -305,7 +305,7 @@ void push_filter(Bank& bank, u32 slot, u64 id, Utf8View label, Menu menu, bool e
 void project_members(Bank& bank) noexcept {
     auto& p = *owner;
     if (!ensure_bank()) {
-        push(notice({}, utf8_literal("Couldn't open the member list.")), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error({}, utf8_literal("Couldn't open the member list."));
         return;
     }
     const bool edit = editable();
@@ -343,25 +343,25 @@ void project_members(Bank& bank) noexcept {
               {}, nullptr});
     }
     if (p.bulk_notice.bytes)
-        push(notice({}, p.bulk_notice),
-             {p.bulk_failed ? UiSettingsVariant::critical : UiSettingsVariant::positive, 0, kUiSettingsNoDefault});
-    push(category(control_list_category,
-                  default_filters() ? utf8_literal("Recent Members") : utf8_literal("Search Results")));
+        push_row(control_notice, {}, p.bulk_notice, UiSettingsControlKind::notice, true, false, {},
+                 {p.bulk_failed ? UiSettingsVariant::critical : UiSettingsVariant::positive, 0, kUiSettingsNoDefault});
+    push_category(control_list_category,
+                  default_filters() ? utf8_literal("Recent Members") : utf8_literal("Search Results"));
     if (bulk) {
         u32 actionable, chosen;
         page_selection(&actionable, &chosen);
-        push({control_select_page, utf8_literal("Select all members on this page"),
-              actionable ? Utf8View{} : utf8_literal("There are no actionable members"), UiSettingsControlKind::toggle,
-              edit && actionable, actionable && chosen == actionable, {}, 0, {}, nullptr});
+        push_row(control_select_page, utf8_literal("Select all members on this page"),
+                 actionable ? Utf8View{} : utf8_literal("There are no actionable members"),
+                 UiSettingsControlKind::toggle, edit && actionable, actionable && chosen == actionable);
     }
     if (!p.page_row_count) {
         const auto phase = s.phase;
         if (phase == GuildMemberSearchPhase::indexing)
-            push(loading(utf8_literal("Before searching, we need to index this server. Give us a bit.")));
+            push_loading(utf8_literal("Before searching, we need to index this server. Give us a bit."));
         else if (phase == GuildMemberSearchPhase::loading || phase == GuildMemberSearchPhase::idle)
-            push(loading(utf8_literal("Loading members…")));
+            push_loading(utf8_literal("Loading members…"));
         else
-            push(notice({}, utf8_literal("No members match these search results.")));
+            push_notice(utf8_literal("No members match these search results."));
     }
     auto& chips = p.chips;
     auto& chip_colors = p.chip_colors;
@@ -447,7 +447,7 @@ void project_members(Bank& bank) noexcept {
         bank.add(utf8_literal("Showing "));
         bank.number(count);
         bank.add(count == 1 ? utf8_literal(" member") : utf8_literal(" members"));
-        push(notice({}, bank.since(start)));
+        push_notice(bank.since(start));
     }
     if (count > s.page_size || s.phase == GuildMemberSearchPhase::loading) {
         const u32 pages = guild_member_search_pages(s);

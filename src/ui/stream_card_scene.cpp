@@ -197,7 +197,7 @@ bool ui_stream_card_paint(const UiStreamCardScene& s, const Theme& theme, PaintS
     Color plate = theme.tokens.overlay.media;
     plate.alpha = a;
     const auto t = s.thumbnail;
-    ok = ok && paint_stream_push_rounded(paint, t.left, t.top, t.right, t.bottom, plate, theme.scale.radius_sm);
+    ok = ok && paint_stream_push_rounded(paint, t, plate, theme.scale.radius_sm);
     if (ok && s.preview_state == UiStreamCardPreview::unavailable) {
         Color ink = kDefaultTheme.text_secondary;
         ink.alpha *= .6f * a;
@@ -210,16 +210,14 @@ bool ui_stream_card_paint(const UiStreamCardScene& s, const Theme& theme, PaintS
         ok = ui_spinner_paint(paint, {cx - 14, cy - 14, cx + 14, cy + 14}, ui_theme_color_alpha(kDefaultTheme.text_primary, a),
                               s.spinner_phase);
     }
-    ok = ok && paint_stream_push_rounded(paint, s.live.left, s.live.top, s.live.right, s.live.bottom,
-                                         ui_theme_color_alpha(theme.tokens.accent.danger, a), theme.scale.radius_sm);
+    ok = ok && paint_stream_push_rounded(paint, s.live, ui_theme_color_alpha(theme.tokens.accent.danger, a), theme.scale.radius_sm);
     Color button = theme.tokens.accent.brand;
     const float shade = s.pressed && s.hovered ? .8f : s.hovered ? .9f : 1.f;
     button.red *= shade;
     button.green *= shade;
     button.blue *= shade;
     const auto b = s.button;
-    ok = ok && paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom, ui_theme_color_alpha(button, a),
-                                         theme.scale.radius_sm);
+    ok = ok && paint_stream_push_rounded(paint, b, ui_theme_color_alpha(button, a), theme.scale.radius_sm);
     const float y = (b.top + b.bottom) * .5f;
     const float label = s.watching ? 96.f : 104.f; // Estimated label width keeps the glyph beside it.
     const float x = (b.left + b.right - label) * .5f - 12;

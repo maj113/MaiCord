@@ -16,7 +16,7 @@ u32 ui_swatch_columns(const UiSettingsLayoutTokens& tokens, float width) noexcep
     return maximum(1u, static_cast<u32>((width + tokens.metric.swatch_gap) / pitch));
 }
 
-UiRect ui_swatch_rect(const UiSettingsLayoutTokens& tokens, UiRect field, u32 index, u32 columns) noexcept {
+UiRect ui_swatch_rect(const UiSettingsLayoutTokens& tokens, const UiRect& field, u32 index, u32 columns) noexcept {
     columns = maximum(1u, columns);
     const float size = tokens.metric.swatch, pitch_x = size + tokens.metric.swatch_gap + 12;
     const float pitch_y = size + kLabelHeight + tokens.metric.swatch_gap * .5f;
@@ -24,7 +24,7 @@ UiRect ui_swatch_rect(const UiSettingsLayoutTokens& tokens, UiRect field, u32 in
     return {left, top, left + size, top + size};
 }
 
-bool ui_swatch_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect swatch, Color fill,
+bool ui_swatch_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiRect& swatch, const Color& fill,
                      const BackgroundTheme* gradient, bool selected, UiControlState state) noexcept {
     const auto& c = tokens.color;
     const auto& m = tokens.metric;
@@ -32,11 +32,9 @@ bool ui_swatch_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect 
     const float alpha = state.enabled ? 1.f : tokens.disabled_alpha;
     bool ok = gradient && background_theme_valid(*gradient)
                   ? paint_stream_push_palette_gradient(paint, swatch, *gradient, radius)
-                  : paint_stream_push_rounded(paint, swatch.left, swatch.top, swatch.right, swatch.bottom,
-                                              ui_settings_color_alpha(fill, alpha), radius);
+                  : paint_stream_push_rounded(paint, swatch, ui_settings_color_alpha(fill, alpha), radius);
     const Color edge = state.hovered && !selected ? c.text_subtle : ui_settings_color_alpha(c.text_subtle, .5f);
-    ok = ok && paint_stream_push_rounded_border(paint, swatch.left, swatch.top, swatch.right, swatch.bottom, {},
-                                                ui_settings_color_alpha(edge, alpha), radius, 1);
+    ok = ok && paint_stream_push_rounded_border(paint, swatch, {}, ui_settings_color_alpha(edge, alpha), radius, 1);
     // Selection is a brand ring around the tile; keyboard focus rings the
     // selection (or the bare tile) from outside. All rings are concentric.
     const float outside = selected ? m.ring_gap + m.ring_width : 0;

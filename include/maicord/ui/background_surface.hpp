@@ -22,12 +22,12 @@ inline bool ui_background_canvas_quad(const PaintQuad& quad) noexcept {
 // draws the selected effect over it, before the widgets that follow. Static
 // widgets and modal surfaces use the surface material below.
 __declspec(noinline) inline bool ui_background_paint_canvas(
-    PaintStream* stream, UiRect rectangle, const Theme& theme, Color fill,
+    PaintStream* stream, const UiRect& rectangle, const Theme& theme, const Color& fill,
     UiBackgroundTier tier = UiBackgroundTier::chat) noexcept {
     if (!stream || static_cast<u8>(tier) > static_cast<u8>(UiBackgroundTier::highest))
         return false;
     const u32 first = stream->count;
-    if (!paint_stream_push(stream, rectangle.left, rectangle.top, rectangle.right, rectangle.bottom, fill))
+    if (!paint_stream_push(stream, rectangle, fill))
         return false;
     if (stream->count == first)
         return true;
@@ -42,7 +42,7 @@ __declspec(noinline) inline bool ui_background_paint_canvas(
 // Static caller tokens remain opaque; only gradientable controls
 // sample the global palette. Semantic borders keep focus/status/brand RGB.
 __declspec(noinline) inline bool ui_background_paint_surface(
-    PaintStream* stream, UiRect rectangle, const Theme& theme, Color fill, Color border, float radius,
+    PaintStream* stream, const UiRect& rectangle, const Theme& theme, const Color& fill, const Color& border, float radius,
     float border_width, float palette_share = .9f,
     UiBackgroundSurfaceMode mode = UiBackgroundSurfaceMode::tinted,
     UiBackgroundTier tier = UiBackgroundTier::highest,
@@ -53,8 +53,7 @@ __declspec(noinline) inline bool ui_background_paint_surface(
         static_cast<u8>(border_tone) > static_cast<u8>(UiBackgroundBorderTone::palette))
         return false;
     const u32 first = stream->count;
-    if (!paint_stream_push_rounded_border(stream, rectangle.left, rectangle.top, rectangle.right,
-                                          rectangle.bottom, fill, border, radius, border_width))
+    if (!paint_stream_push_rounded_border(stream, rectangle, fill, border, radius, border_width))
         return false;
     if (stream->count != first && ui_background_active(theme) &&
         mode == UiBackgroundSurfaceMode::gradient) {

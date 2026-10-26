@@ -54,23 +54,24 @@ bool matches(const BanQuery& query, u64 user_id, Utf8View name) noexcept {
     return query.text.bytes && guild_settings_text_matches(query.text, name);
 }
 
-void push_row(Bank& bank, u64 user_id, Utf8View name, Utf8View reason, bool can_unban, Utf8View avatar,
-              u16 discriminator) noexcept {
+void push_ban_row(Bank& bank, u64 user_id, Utf8View name, Utf8View reason, bool can_unban, Utf8View avatar,
+                  u16 discriminator) noexcept {
     auto& p = *owner;
     char id_text[24];
     Bank id{id_text, sizeof(id_text), 0};
     id.number(user_id);
     p.row_ids[p.row_count] = user_id;
     // Members who can lift bans open the ban's details; others read its reason here.
-    const u32 index = push({kRowBase + p.row_count, name.bytes ? bank.add(name) : bank.add(id.since(0)),
-                            can_unban           ? Utf8View{}
-                            : reason.bytes      ? bank.add(reason)
-                                                : utf8_literal("No reason provided"),
-                            UiSettingsControlKind::action, can_unban, false, {}, 0, {}, nullptr},
-                           {UiSettingsVariant::standard,
-                            static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_compact |
-                                            ui_settings_presentation_accent),
-                            kUiSettingsNoDefault});
+    const Utf8View label = name.bytes ? bank.add(name) : bank.add(id.since(0));
+    const Utf8View detail = can_unban      ? Utf8View{}
+                            : reason.bytes ? bank.add(reason)
+                                           : utf8_literal("No reason provided");
+    const u32 index =
+        push_row(kRowBase + p.row_count, label, detail, UiSettingsControlKind::action, can_unban, false, {},
+                 {UiSettingsVariant::standard,
+                  static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_compact |
+                                  ui_settings_presentation_accent),
+                  kUiSettingsNoDefault});
     if (index < kControlCapacity)
         p.avatar_media[index] = avatar.bytes || discriminator
                                     ? application_listed_user_avatar_media(user_id, avatar, discriminator)
@@ -81,10 +82,10 @@ void push_row(Bank& bank, u64 user_id, Utf8View name, Utf8View reason, bool can_
 
 void project_bans(Bank& bank) noexcept {
     auto& p = *owner;
-    push(category(control_list_category, utf8_literal("Server Ban List"),
+    push_category(control_list_category, utf8_literal("Server Ban List"),
                   utf8_literal("Bans by default are by account and IP. A user can circumvent an IP ban by using a "
                                "proxy. Ban circumvention can be made very hard by enabling phone verification in "
-                               "Safety Setup.")));
+                               "Safety Setup."));
     // The search field with its Search button beside it.
     push({control_search, {}, {}, UiSettingsControlKind::edit, editable(), false, {}, 0, utf8_literal("Search"),
           &editor_view(editor_search, control_search, utf8_literal("Search Bans by User Id or Username"),
@@ -92,12 +93,11 @@ void project_bans(Bank& bank) noexcept {
     const bool searching = busy() && p.request.op == Op::ban_search;
     const auto& store = p.bans;
     if (p.bans_failed)
-        push(notice(utf8_literal("Couldn't load bans"), p.status, utf8_literal("Try again")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        push_error(utf8_literal("Couldn't load bans"), p.status, utf8_literal("Try again"));
     else if (!store.complete)
-        push(loading(utf8_literal("Loading bans…")));
+        push_loading(utf8_literal("Loading bans…"));
     else if (searching)
-        push(loading(utf8_literal("Searching bans…")));
+        push_loading(utf8_literal("Searching bans…"));
     // Typing filters the loaded bans at once; Enter or Search also asks the server.
     const Utf8View typed = trim(editor_text(editor_search));
     const BanQuery query = parse(typed);
@@ -109,18 +109,18 @@ void project_bans(Bank& bank) noexcept {
         const Utf8View name{ban.name, ban.name_bytes};
         if (filtered && !matches(query, ban.user_id, name))
             continue;
-        push_row(bank, ban.user_id, name, {ban.reason, ban.reason_bytes}, can_unban, {}, 0);
+        push_ban_row(bank, ban.user_id, name, {ban.reason, ban.reason_bytes}, can_unban, {}, 0);
     }
     for (u32 i = 0; filtered && i < p.ban_search_count && p.row_count < kRowCapacity; ++i) {
         const auto& ban = p.ban_search[i];
         if (guild_ban_store_find(store, ban.user.id) || !matches(query, ban.user.id, user_name(ban.user)))
             continue;
-        push_row(bank, ban.user.id, user_name(ban.user), {ban.reason, ban.reason_bytes}, can_unban,
-                 {ban.user.avatar, ban.user.avatar_bytes}, ban.user.discriminator);
+        push_ban_row(bank, ban.user.id, user_name(ban.user), {ban.reason, ban.reason_bytes}, can_unban,
+                     {ban.user.avatar, ban.user.avatar_bytes}, ban.user.discriminator);
     }
     if (store.complete && !p.row_count)
-        push(notice(utf8_literal("No Bans"),
-                    utf8_literal("You haven't banned anybody... but if and when you must, do not hesitate!")));
+        push_notice(utf8_literal("You haven't banned anybody... but if and when you must, do not hesitate!"),
+                    utf8_literal("No Bans"));
 }
 
 // The ban's details, as the official dialog shows them: its reason, Revoke

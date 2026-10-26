@@ -13,6 +13,7 @@
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/theme_styles.hpp"
+#include "maicord/ui/visit_ref.hpp"
 
 namespace maicord {
 namespace {
@@ -82,9 +83,12 @@ float section_trailing(const UiSettingsPageContent& content, u32 index) noexcept
         return 0;
     return kSectionGap * 2 + 1;
 }
-UiSettingsLayoutTokens layout_tokens(const UiSettingsScene& scene) noexcept {
-    return ui_settings_layout_tokens(scene.theme_styles);
-}
+// The scene's layout tokens, computed in place (a by-value return would be copied).
+struct SceneTokens : UiSettingsLayoutTokens {
+    explicit SceneTokens(const UiSettingsScene& scene) noexcept {
+        ui_settings_fill_layout_tokens(scene.theme_styles, this);
+    }
+};
 const UiSettingsControlPresentation* presentation(const UiSettingsPageContent& content, u32 index) noexcept {
     return content.presentation && index < content.controls.count ? &content.presentation[index] : nullptr;
 }
@@ -166,7 +170,7 @@ bool progress(const UiSettingsPageContent& content, u32 index) noexcept {
     return content.controls[index].kind == UiSettingsControlKind::action && content.meters &&
            content.meters[index] != kUiSettingsNoMeter && !list_item(content, index);
 }
-float button_label_width(Utf8View label) noexcept {
+float button_label_width(const Utf8View& label) noexcept {
     return ui_settings_text_width(label, kUiSettingsDescriptionEm) * 1.08f;
 }
 // A field shows its error state when its row is critical or an error row
@@ -177,7 +181,7 @@ bool field_error(const UiSettingsPageContent& content, u32 index) noexcept {
            (index + 1 < content.controls.count && content.controls[index + 1].kind == UiSettingsControlKind::error);
 }
 // Slider labels are estimated generously so a value never ellipsizes.
-float slider_label_width(Utf8View label) noexcept {
+float slider_label_width(const Utf8View& label) noexcept {
     return ui_settings_text_width(label, kUiSettingsDescriptionEm) * 1.25f + 4;
 }
 // The value label of a slider without marks sits at the end of its label
@@ -300,7 +304,7 @@ float lead_width(const UiSettingsLayoutTokens& t, const UiSettingsPageContent& c
         width += m.accent_dot + m.lead_gap;
     return width;
 }
-float text_block(const UiSettingsMetrics& m, Utf8View label, Utf8View description, float width) noexcept {
+float text_block(const UiSettingsMetrics& m, const Utf8View& label, const Utf8View& description, float width) noexcept {
     float height = label.bytes ? kUiSettingsLabelLine : 0;
     if (description.bytes)
         height += (label.bytes ? m.label_gap : 0) +
@@ -542,8 +546,7 @@ bool owner_named(const UiSettingsScene& scene, u64 owner) noexcept {
 }
 // Flat sidebar rows: bound entries with contributed entries expanded, or a
 // header plus every registered page when nothing is bound.
-template <class Visit>
-void visit_nav(const UiSettingsScene& scene, Visit visit) noexcept {
+void visit_nav(const UiSettingsScene& scene, UiVisitRef<const NavRow&> visit) noexcept {
     if (scene.presentation == UiSettingsPresentation::dialog)
         return;
     if (!scene.navigation.count) {
@@ -752,7 +755,7 @@ bool current(const UiSettingsScene& scene) noexcept {
     const auto* content = static_cast<const UiSettingsPageContent*>(selected->context);
     return content->format == kUiSettingsPageFormat && content->revision == scene.content_revision;
 }
-bool valid_text(Utf8View text) noexcept {
+bool valid_text(const Utf8View& text) noexcept {
     return (!text.bytes || text.data) && utf8_validate(text).valid;
 }
 bool valid_content(const UiSettingsPageContent& content) noexcept {
@@ -834,7 +837,7 @@ bool valid_navigation(ConstSlice<UiSettingsNavEntry> navigation) noexcept {
     }
     return true;
 }
-const UiSettingsControl* find_control(const UiSettingsScene& scene, UiSettingsTarget target,
+const UiSettingsControl* find_control(const UiSettingsScene& scene, const UiSettingsTarget& target,
                                       u32* index = nullptr) noexcept {
     if (target.kind != UiSettingsTargetKind::control || !ui_page_key_equal(target.page, scene.selected_page))
         return nullptr;
@@ -868,7 +871,7 @@ bool focusable_control(const UiSettingsScene& scene, u32 index) noexcept {
         return c.action_label.bytes != 0;
     return c.kind != UiSettingsControlKind::error;
 }
-bool target_exists(const UiSettingsScene& scene, UiSettingsTarget target) noexcept {
+bool target_exists(const UiSettingsScene& scene, const UiSettingsTarget& target) noexcept {
     switch (target.kind) {
     case UiSettingsTargetKind::close:
         return !target.page.owner_id && !target.page.page_id && !target.control_id;
@@ -901,14 +904,14 @@ UiSettingsTarget fallback_focus(const UiSettingsScene& scene) noexcept {
         return {UiSettingsTargetKind::search, {}, 0};
     return {UiSettingsTargetKind::close, {}, 0};
 }
-UiWidgetHandle target_handle(const UiSettingsScene& scene, UiSettingsTarget target) noexcept {
+UiWidgetHandle target_handle(const UiSettingsScene& scene, const UiSettingsTarget& target) noexcept {
     for (u32 i = 0; i < scene.widgets.count; ++i)
         if (ui_settings_target_equal(entries(scene)[i].target, target))
             return {static_cast<u16>(i), scene.widgets.generation};
     return ui_widget_invalid_handle();
 }
-UiWidgetHandle add(UiSettingsScene* scene, UiWidgetHandle parent, UiWidgetKind kind, Utf8View name,
-                   const UiLayoutStyle& style, UiSettingsTarget target = {}, u32 source_index = 0,
+UiWidgetHandle add(UiSettingsScene* scene, UiWidgetHandle parent, UiWidgetKind kind, const Utf8View& name,
+                   const UiLayoutStyle& style, const UiSettingsTarget& target = {}, u32 source_index = 0,
                    bool enabled = true, EntryRole role = EntryRole::normal) noexcept {
     const u32 id = scene->widgets.count + 1;
     const auto result = ui_widget_manager_add_prevalidated(
@@ -939,7 +942,7 @@ UiLayoutStyle placed(const UiRect& rect, const UiRect& origin) noexcept {
 bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHandle handle, float x,
                         float y) noexcept;
 bool build(UiSettingsScene* scene) noexcept {
-    const auto t = layout_tokens(*scene);
+    const SceneTokens t(*scene);
     const auto& m = t.metric;
     const u32 navs = nav_count(*scene);
     const float min_row = kUiSettingsLabelLine + m.row_padding * 2 - 8;
@@ -1156,7 +1159,7 @@ bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHan
     // (and the button beside an edit field).
     RowLayout row{};
     UiRect clip{};
-    return row_layout_for(scene, layout_tokens(scene), handle, index, &row, &clip) &&
+    return row_layout_for(scene, SceneTokens(scene), handle, index, &row, &clip) &&
            (ui_rect_contains(ui_rect_overlap(row.control, clip), x, y) ||
             (c.kind == UiSettingsControlKind::edit && ui_rect_contains(ui_rect_overlap(row.value, clip), x, y)));
 }
@@ -1213,7 +1216,7 @@ void synchronize_input(UiSettingsScene& scene) noexcept {
         scene.focus = fallback_focus(scene);
     ui_widget_manager_focus(&scene.widgets, target_handle(scene, scene.focus));
 }
-bool text(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle handle, Utf8View label, const UiRect& rectangle,
+bool text(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle handle, const Utf8View& label, const UiRect& rectangle,
           const Color& color, u32 style = text_style_none, UiTextAlignment alignment = UiTextAlignment::start,
           UiTextWrapping wrapping = UiTextWrapping::no_wrap,
           UiTextAlignment vertical = UiTextAlignment::center) noexcept {
@@ -1234,7 +1237,18 @@ bool text(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle han
                                         wrapping,
                                         UiTextOverflow::ellipsis});
 }
-UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle, UiSettingsTarget target,
+// A wrapped, top-aligned description.
+bool describe(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle handle, const Utf8View& label,
+              const UiRect& rectangle, const Color& color) noexcept {
+    return text(stream, scene, handle, label, rectangle, color, text_description, UiTextAlignment::start,
+                UiTextWrapping::wrap, UiTextAlignment::start);
+}
+// The control's state as seen by option `index`: hovered only when the pointer is on that option.
+UiControlState hover_option(const UiSettingsScene& scene, UiControlState state, u32 index) noexcept {
+    state.hovered = state.hovered && scene.palette_hovered_index == index;
+    return state;
+}
+UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle, const UiSettingsTarget& target,
                             bool enabled) noexcept {
     const bool hovered = ui_widget_manager_input_enabled(scene.widgets, handle) &&
                          scene.widgets.hovered.slot == handle.slot &&
@@ -1243,7 +1257,7 @@ UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle,
                          scene.widgets.captured.generation == handle.generation;
     return {enabled, hovered, pressed, scene.focus_visible && ui_settings_target_equal(scene.focus, target)};
 }
-float toggle_motion(const UiSettingsScene& scene, UiSettingsTarget target, const UiSettingsLayoutTokens& t,
+float toggle_motion(const UiSettingsScene& scene, const UiSettingsTarget& target, const UiSettingsLayoutTokens& t,
                     bool* checked) noexcept {
     for (const auto& animation : scene.animations) {
         if (!animation.started_ms || animation.control_id != target.control_id)
@@ -1268,7 +1282,7 @@ void reveal_range(UiSettingsScene* scene, bool sidebar, float first, float last,
         offset = last - first + padding * 2 > visible ? first - padding : last + padding - visible;
     offset = clamp_offset(*scene, sidebar, offset, m);
 }
-float nav_offset_of(const UiSettingsScene& scene, const UiSettingsMetrics& m, UiSettingsTarget target,
+float nav_offset_of(const UiSettingsScene& scene, const UiSettingsMetrics& m, const UiSettingsTarget& target,
                     float* height) noexcept {
     float offset = 0;
     NavRow row{};
@@ -1300,8 +1314,8 @@ bool apply_scroll(UiSettingsScene* scene, bool sidebar, float previous) noexcept
     return true;
 }
 // Ordered focus targets per zone, appended through a visitor.
-template <class Visit>
-bool visit_targets(const UiSettingsScene& scene, UiSettingsFocusZone zone, Visit visit) noexcept {
+bool visit_targets(const UiSettingsScene& scene, UiSettingsFocusZone zone,
+                   UiVisitRef<UiSettingsTarget> visit) noexcept {
     if (zone == UiSettingsFocusZone::search)
         return scene.presentation == UiSettingsPresentation::modal && visit(UiSettingsTarget{UiSettingsTargetKind::search, {}, 0});
     if (zone == UiSettingsFocusZone::close)
@@ -1325,7 +1339,7 @@ bool visit_targets(const UiSettingsScene& scene, UiSettingsFocusZone zone, Visit
     }
     return false;
 }
-UiSettingsFocusZone zone_of(UiSettingsTarget target) noexcept {
+UiSettingsFocusZone zone_of(const UiSettingsTarget& target) noexcept {
     switch (target.kind) {
     case UiSettingsTargetKind::search:
     case UiSettingsTargetKind::search_clear:
@@ -1345,7 +1359,7 @@ UiSettingsFocusZone zone_of(UiSettingsTarget target) noexcept {
 }
 } // namespace
 
-UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens& tokens, UiRect viewport,
+UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens& tokens, const UiRect& viewport,
                                                UiSettingsPresentation presentation) noexcept {
     const auto& m = tokens.metric;
     UiSettingsModalLayout l{};
@@ -1417,7 +1431,7 @@ UiSettingsModalLayout ui_settings_modal_layout(const UiSettingsLayoutTokens& tok
     return l;
 }
 
-void ui_settings_dialog_fit(UiSettingsModalLayout* layout, UiRect viewport, float content_height) noexcept {
+void ui_settings_dialog_fit(UiSettingsModalLayout* layout, const UiRect& viewport, float content_height) noexcept {
     if (!layout || layout->compact || !(content_height > 0))
         return;
     const float spare = ui_rect_height(layout->modal) - content_height;
@@ -1509,7 +1523,7 @@ bool ui_settings_scene_search_geometry(const UiSettingsScene& scene, UiSettingsC
                            : nullptr;
     if (!node)
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     const UiSettingsTarget target{UiSettingsTargetKind::search, {}, 0};
     *output = {target,
                {&scene.widgets, scene.search_field},
@@ -1538,7 +1552,7 @@ bool ui_settings_scene_set_flash(UiSettingsScene* scene, u64 control_id, float s
     return true;
 }
 
-bool ui_settings_scene_animate_toggle(UiSettingsScene* scene, UiSettingsTarget target, bool checked,
+bool ui_settings_scene_animate_toggle(UiSettingsScene* scene, const UiSettingsTarget& target, bool checked,
                                       u64 now_ms) noexcept {
     if (!scene || target.kind != UiSettingsTargetKind::control || !now_ms)
         return false;
@@ -1564,7 +1578,7 @@ bool ui_settings_scene_tick(UiSettingsScene* scene, u64 now_ms, bool reduced_mot
         return false;
     scene->reduced_motion = reduced_motion;
     bool animating = false;
-    const auto t = layout_tokens(*scene);
+    const SceneTokens t(*scene);
     const u32 duration = reduced_motion ? t.duration.switch_reduced_ms : t.duration.switch_ms;
     for (auto& animation : scene->animations) {
         if (!animation.started_ms)
@@ -1591,7 +1605,8 @@ bool ui_settings_scene_animating(const UiSettingsScene& scene) noexcept {
 bool ui_settings_page_content_valid(const UiSettingsPageContent& content) noexcept {
     return valid_content(content);
 }
-bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, UiRect viewport) noexcept {
+bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, const UiRect& viewport_view) noexcept {
+    const UiRect viewport = viewport_view; // the scene is written below
     if (!scene || !registry || !ui_rect_valid(viewport) || ui_rect_width(viewport) < 320 ||
         ui_rect_height(viewport) < 200 || ui_rect_height(viewport) > 8192 || registry->count > 16384)
         return false;
@@ -1622,7 +1637,7 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
     if ((!scene->active || changed_page) && scene->page_generation == ~u64{0})
         return false;
     // Validate once before touching retained state, then reuse the same geometry.
-    const auto tokens = layout_tokens(*scene);
+    const SceneTokens tokens(*scene);
     const auto layout = ui_settings_modal_layout(tokens, viewport, scene->presentation);
     const float width = maximum(1.f, ui_rect_width(layout.column));
     float rows = 0;
@@ -1636,7 +1651,7 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
     const u64 previous_signature = scene->layout_signature;
     const u32 previous_theme = scene->projected_theme_geometry_revision;
     scene->registry = registry;
-    scene->content = content;
+    copy_value(&scene->content, content);
     scene->style = style;
     scene->footer = content.footer ? *content.footer : UiSettingsFooter{};
     scene->viewport = viewport;
@@ -1706,7 +1721,7 @@ UiSettingsTarget ui_settings_scene_hit_test(const UiSettingsScene& scene, float 
         return {};
     const auto target = entries(scene)[handle.slot].target;
     if (target.kind == UiSettingsTargetKind::search && scene.search.view.text.bytes) {
-        const auto t = layout_tokens(scene);
+        const SceneTokens t(scene);
         const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
         if (node && ui_rect_contains(ui_settings_search_clear_rect(t, node->rectangle), x, y))
             return {UiSettingsTargetKind::search_clear, {}, 0};
@@ -1719,10 +1734,10 @@ UiSettingsTarget ui_settings_scene_focused(const UiSettingsScene& scene) noexcep
 UiSettingsFocusZone ui_settings_scene_focus_zone(const UiSettingsScene& scene) noexcept {
     return current(scene) ? zone_of(scene.focus) : UiSettingsFocusZone::none;
 }
-bool ui_settings_scene_reveal(UiSettingsScene* scene, UiSettingsTarget target) noexcept {
+bool ui_settings_scene_reveal(UiSettingsScene* scene, const UiSettingsTarget& target) noexcept {
     if (!scene || !current(*scene))
         return false;
-    const auto t = layout_tokens(*scene);
+    const SceneTokens t(*scene);
     const auto& m = t.metric;
     if (target.kind == UiSettingsTargetKind::page || target.kind == UiSettingsTargetKind::action) {
         float height = 0;
@@ -1865,7 +1880,7 @@ bool ui_settings_scene_select(UiSettingsScene* scene, UiPageKey page) noexcept {
 bool ui_settings_scene_scroll(UiSettingsScene* scene, bool sidebar, float delta) noexcept {
     if (!scene || !current(*scene) || !ui_coordinate_valid(delta))
         return false;
-    const auto t = layout_tokens(*scene);
+    const SceneTokens t(*scene);
     auto& offset = sidebar ? scene->sidebar_offset : scene->content_offset;
     const float previous = offset;
     offset = clamp_offset(*scene, sidebar, offset + delta, t.metric);
@@ -1877,14 +1892,14 @@ UiScrollbarGeometry ui_settings_scene_scrollbar(const UiSettingsScene& scene, bo
     const auto* node = ui_widget_manager_layout_node(scene.widgets, sidebar ? scene.sidebar : scene.body);
     if (!node)
         return {};
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     auto viewport = ui_rect_overlap(node->rectangle, node->clip_rectangle);
     if (sidebar)
         viewport.right = minimum(scene.layout.sidebar.right, viewport.right + 12);
     return ui_scrollbar_geometry(viewport, sidebar ? scene.sidebar_offset : scene.content_offset,
                                  sidebar ? nav_extent(scene, t.metric) : content_extent(scene, t.metric));
 }
-bool ui_settings_scene_activation(const UiSettingsScene& scene, UiSettingsTarget target, bool reverse,
+bool ui_settings_scene_activation(const UiSettingsScene& scene, const UiSettingsTarget& target, bool reverse,
                                   UiSettingsActivation* activation) noexcept {
     if (!activation || !current(scene) || !target_exists(scene, target))
         return false;
@@ -1914,11 +1929,11 @@ bool ui_settings_scene_activation(const UiSettingsScene& scene, UiSettingsTarget
             reverse ? (c.selected_choice ? c.selected_choice - 1 : 0) : minimum(c.selected_choice + 1, count - 1);
     return true;
 }
-const UiSettingsControl* ui_settings_scene_control(const UiSettingsScene& scene, UiSettingsTarget target,
+const UiSettingsControl* ui_settings_scene_control(const UiSettingsScene& scene, const UiSettingsTarget& target,
                                                    u32* index) noexcept {
     return current(scene) ? find_control(scene, target, index) : nullptr;
 }
-bool ui_settings_scene_control_anchor(const UiSettingsScene& scene, UiSettingsTarget target, UiRect* anchor) noexcept {
+bool ui_settings_scene_control_anchor(const UiSettingsScene& scene, const UiSettingsTarget& target, UiRect* anchor) noexcept {
     const auto* control = ui_settings_scene_control(scene, target);
     if (!control || !anchor || !control->enabled)
         return false;
@@ -1928,7 +1943,7 @@ bool ui_settings_scene_control_anchor(const UiSettingsScene& scene, UiSettingsTa
     *anchor = geometry.clip;
     return true;
 }
-bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, UiSettingsTarget target,
+bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, const UiSettingsTarget& target,
                                         UiSettingsControlGeometry* output) noexcept {
     if (output)
         reset_value(output);
@@ -1937,7 +1952,7 @@ bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, UiSettings
     if (!output || !control)
         return false;
     const auto handle = target_handle(scene, target);
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     RowLayout row{};
     UiRect clip{};
     if (!row_layout_for(scene, t, handle, index, &row, &clip))
@@ -1988,7 +2003,14 @@ bool ui_settings_scene_bind_palette(UiSettingsScene* scene, UiSettingsPaletteSou
     ++scene->revision;
     return true;
 }
-bool ui_settings_scene_slider_geometry(const UiSettingsScene& scene, UiSettingsTarget target,
+namespace {
+// Fills the semantic request of choice `choice` on a control.
+bool report(const UiSettingsTarget& target, const UiSettingsControl& c, u32 choice, UiSettingsActivation* output) noexcept {
+    *output = {target, c.kind, c.checked, choice};
+    return true;
+}
+} // namespace
+bool ui_settings_scene_slider_geometry(const UiSettingsScene& scene, const UiSettingsTarget& target,
                                        UiSettingsSliderGeometry* output) noexcept {
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
@@ -1996,16 +2018,16 @@ bool ui_settings_scene_slider_geometry(const UiSettingsScene& scene, UiSettingsT
     if (!output || !c || c->kind != UiSettingsControlKind::slider ||
         !ui_settings_scene_control_geometry(scene, target, &geometry))
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     const auto slider = ui_slider_geometry(t, geometry.field, c->choices.count, c->selected_choice,
                                            marks(scene.content, index));
     const UiRect track{slider.track_left, slider.bar.top, slider.track_right, slider.bar.bottom};
-    if (!ui_rect_has_area(track) || !ui_rect_has_area(ui_rect_intersection(slider.bar, geometry.clip)))
+    if (!ui_rect_has_area(track) || !ui_rect_intersects(slider.bar, geometry.clip))
         return false;
     *output = {geometry, track, slider.grabber};
     return true;
 }
-bool ui_settings_scene_slider_pointer(const UiSettingsScene& scene, UiSettingsTarget target, float x,
+bool ui_settings_scene_slider_pointer(const UiSettingsScene& scene, const UiSettingsTarget& target, float x,
                                       UiSettingsActivation* output) noexcept {
     UiSettingsSliderGeometry geometry{};
     if (!output || !ui_coordinate_valid(x) || !ui_settings_scene_slider_geometry(scene, target, &geometry) ||
@@ -2013,10 +2035,9 @@ bool ui_settings_scene_slider_pointer(const UiSettingsScene& scene, UiSettingsTa
         return false;
     const auto* c = ui_settings_scene_control(scene, target);
     const float fraction = maximum(0.f, minimum(1.f, (x - geometry.track.left) / ui_rect_width(geometry.track)));
-    *output = {target, c->kind, c->checked, static_cast<u32>(fraction * (c->choices.count - 1) + .5f)};
-    return true;
+    return report(target, *c, static_cast<u32>(fraction * (c->choices.count - 1) + .5f), output);
 }
-bool ui_settings_scene_slider_hit(const UiSettingsScene& scene, UiSettingsTarget target, float x, float y) noexcept {
+bool ui_settings_scene_slider_hit(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y) noexcept {
     UiSettingsSliderGeometry geometry{};
     if (!ui_coordinate_valid(x) || !ui_coordinate_valid(y) ||
         !ui_settings_scene_slider_geometry(scene, target, &geometry) || !geometry.control.enabled)
@@ -2027,7 +2048,7 @@ bool ui_settings_scene_slider_hit(const UiSettingsScene& scene, UiSettingsTarget
                                                  geometry.control.clip),
                             x, y);
 }
-bool ui_settings_scene_slider_key(const UiSettingsScene& scene, UiSettingsTarget target, UiSettingsSliderKey key,
+bool ui_settings_scene_slider_key(const UiSettingsScene& scene, const UiSettingsTarget& target, UiSettingsSliderKey key,
                                   UiSettingsActivation* output) noexcept {
     const auto* c = ui_settings_scene_control(scene, target);
     if (!output || !c || !c->enabled || !target_exists(scene, target) ||
@@ -2045,10 +2066,9 @@ bool ui_settings_scene_slider_key(const UiSettingsScene& scene, UiSettingsTarget
                       : key == UiSettingsSliderKey::end ? last
                       : !up ? (selected > step ? minimum(selected - step, last) : 0)
                             : (selected == ~0u ? 0 : minimum(selected + step, last));
-    *output = {target, c->kind, c->checked, value};
-    return true;
+    return report(target, *c, value, output);
 }
-bool ui_settings_scene_palette_pointer(const UiSettingsScene& scene, UiSettingsTarget target, float x, float y,
+bool ui_settings_scene_palette_pointer(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y,
                                        UiSettingsActivation* output) noexcept {
     const auto* c = ui_settings_scene_control(scene, target);
     UiSettingsControlGeometry geometry{};
@@ -2056,19 +2076,18 @@ bool ui_settings_scene_palette_pointer(const UiSettingsScene& scene, UiSettingsT
         c->kind != UiSettingsControlKind::palette || !c->enabled ||
         !ui_settings_scene_control_geometry(scene, target, &geometry) || !ui_rect_contains(geometry.clip, x, y))
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     const u32 columns = ui_swatch_columns(t, ui_rect_width(geometry.field));
     for (u32 i = 0; i < c->choices.count; ++i) {
         auto swatch = ui_swatch_rect(t, geometry.field, i, columns);
         swatch.bottom += ui_swatch_label_height();
         if (ui_rect_contains(swatch, x, y)) {
-            *output = {target, c->kind, c->checked, i};
-            return true;
+            return report(target, *c, i, output);
         }
     }
     return false;
 }
-bool ui_settings_scene_radio_pointer(const UiSettingsScene& scene, UiSettingsTarget target, float x, float y,
+bool ui_settings_scene_radio_pointer(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y,
                                      UiSettingsActivation* output) noexcept {
     const auto* c = ui_settings_scene_control(scene, target);
     UiSettingsControlGeometry geometry{};
@@ -2076,20 +2095,19 @@ bool ui_settings_scene_radio_pointer(const UiSettingsScene& scene, UiSettingsTar
         c->kind != UiSettingsControlKind::radio || !c->enabled ||
         !ui_settings_scene_control_geometry(scene, target, &geometry) || !ui_rect_contains(geometry.clip, x, y))
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     const u32 choice = ui_radio_hit(t, geometry.field, c->choices.count, x, y);
     if (choice == ~0u)
         return false;
-    *output = {target, c->kind, c->checked, choice};
-    return true;
+    return report(target, *c, choice, output);
 }
-bool ui_settings_scene_button_hit(const UiSettingsScene& scene, UiSettingsTarget target, float x, float y) noexcept {
+bool ui_settings_scene_button_hit(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y) noexcept {
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
     if (c && c->kind == UiSettingsControlKind::edit && c->action_label.bytes && c->enabled) {
         RowLayout row{};
         UiRect clip{};
-        return row_layout_for(scene, layout_tokens(scene), target_handle(scene, target), index, &row, &clip) &&
+        return row_layout_for(scene, SceneTokens(scene), target_handle(scene, target), index, &row, &clip) &&
                ui_rect_contains(ui_rect_overlap(row.value, clip), x, y);
     }
     UiSettingsControlGeometry geometry{};
@@ -2141,7 +2159,7 @@ u32 option_hit(const UiSettingsLayoutTokens& t, const UiSettingsControl& c, cons
     return ~0u;
 }
 } // namespace
-bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, UiSettingsTarget target, float x, float y,
+bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y,
                                       UiSettingsActivation* output) noexcept {
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
@@ -2151,7 +2169,7 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, UiSettingsTa
     if ((list_item(scene.content, index) && c->kind == UiSettingsControlKind::action) ||
         (c->kind == UiSettingsControlKind::edit && c->action_label.bytes)) {
         // List rows report their part; an edit row its button as choice 0.
-        const auto t = layout_tokens(scene);
+        const SceneTokens t(scene);
         RowLayout row{};
         UiRect clip{};
         if (!row_layout_for(scene, t, target_handle(scene, target), index, &row, &clip) ||
@@ -2162,13 +2180,12 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, UiSettingsTa
                              : list_part(t, scene.content, index, row.row, x, y);
         if (part == ~0u)
             return false;
-        *output = {target, c->kind, c->checked, part};
-        return true;
+        return report(target, *c, part, output);
     }
     if (!option_kind(c->kind) || !ui_settings_scene_control_geometry(scene, target, &geometry) ||
         !ui_rect_contains(geometry.clip, x, y))
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     const bool tristate = has_flag(scene.content, index, ui_settings_presentation_tristate);
     const u32 choice = c->kind == UiSettingsControlKind::segments
                            ? (tristate ? ui_tristate_hit(t, geometry.field, x, y)
@@ -2178,16 +2195,15 @@ bool ui_settings_scene_option_pointer(const UiSettingsScene& scene, UiSettingsTa
                            : option_hit(t, *c, geometry.field, x, y);
     if (choice == ~0u)
         return false;
-    *output = {target, c->kind, c->checked, choice};
-    return true;
+    return report(target, *c, choice, output);
 }
-bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, UiSettingsTarget target, u32 choice,
+bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, const UiSettingsTarget& target, u32 choice,
                                         UiRect* output) noexcept {
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
     UiSettingsControlGeometry geometry{};
     if (output && c && list_style(scene.content, index, UiSettingsListStyle::row)) {
-        const auto t = layout_tokens(scene);
+        const SceneTokens t(scene);
         RowLayout row{};
         if (!row_layout_for(scene, t, target_handle(scene, target), index, &row))
             return false;
@@ -2205,7 +2221,7 @@ bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, UiSettings
          c->kind != UiSettingsControlKind::colors) ||
         !ui_settings_scene_control_geometry(scene, target, &geometry))
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     const bool tristate = has_flag(scene.content, index, ui_settings_presentation_tristate);
     *output = c->kind == UiSettingsControlKind::radio ? ui_radio_option(t, geometry.field, choice)
               : c->kind == UiSettingsControlKind::segments
@@ -2214,12 +2230,12 @@ bool ui_settings_scene_choice_rectangle(const UiSettingsScene& scene, UiSettings
                   : option_rect(t, *c, geometry.field, choice);
     return ui_rect_has_area(*output);
 }
-bool ui_settings_scene_grip_hit(const UiSettingsScene& scene, UiSettingsTarget target, float x, float y) noexcept {
+bool ui_settings_scene_grip_hit(const UiSettingsScene& scene, const UiSettingsTarget& target, float x, float y) noexcept {
     u32 index = 0;
     const auto* c = ui_settings_scene_control(scene, target, &index);
     if (!c || !c->enabled || !has_flag(scene.content, index, ui_settings_presentation_grip))
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     RowLayout row{};
     UiRect clip{};
     if (!row_layout_for(scene, t, target_handle(scene, target), index, &row, &clip))
@@ -2230,7 +2246,7 @@ bool ui_settings_scene_grip_hit(const UiSettingsScene& scene, UiSettingsTarget t
 bool ui_settings_scene_drop_target(const UiSettingsScene& scene, float y, u64* control_id, bool* after) noexcept {
     if (!control_id || !after || !current(scene) || !ui_coordinate_valid(y))
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     float best = kMaximumUiCoordinate;
     bool found = false;
     for (u32 i = 0; i < scene.widgets.count; ++i) {
@@ -2241,7 +2257,7 @@ bool ui_settings_scene_drop_target(const UiSettingsScene& scene, float y, u64* c
         UiRect clip{};
         if (!row_layout_for(scene, t, {static_cast<u16>(i), scene.widgets.generation}, entry.source_index,
                             &row, &clip) ||
-            !ui_rect_has_area(ui_rect_intersection(row.row, clip)))
+            !ui_rect_intersects(row.row, clip))
             continue;
         const float middle = (row.row.top + row.row.bottom) * .5f;
         const float distance = y < row.row.top ? row.row.top - y : y > row.row.bottom ? y - row.row.bottom : 0;
@@ -2289,7 +2305,7 @@ bool ui_settings_scene_set_footer_motion(UiSettingsScene* scene, float shift, fl
     ++scene->revision;
     return true;
 }
-bool ui_settings_scene_palette_hover(UiSettingsScene* scene, UiSettingsTarget target, float x, float y) noexcept {
+bool ui_settings_scene_palette_hover(UiSettingsScene* scene, const UiSettingsTarget& target, float x, float y) noexcept {
     if (!scene)
         return false;
     UiSettingsActivation activation{};
@@ -2311,7 +2327,7 @@ bool ui_settings_scene_aside(const UiSettingsScene& scene, UiRect* heading, UiRe
     const auto aside = aside_layout(scene);
     if (!aside.active)
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     const auto f = frame(scene, t.metric);
     const auto& content = scene.content;
     const float label = content.aside_label.bytes ? kUiSettingsLabelLine + kAsideHeadingGap : 0;
@@ -2365,7 +2381,7 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
                                    UiSettingsAvatarGeometry* output) noexcept {
     if (!cursor || !output || !current(scene) || !scene.content.avatar_media)
         return false;
-    const auto t = layout_tokens(scene);
+    const SceneTokens t(scene);
     for (; *cursor < scene.widgets.count; ++*cursor) {
         const auto& entry = entries(scene)[*cursor];
         const u32 index = entry.source_index;
@@ -2410,10 +2426,10 @@ bool paint_list_row(const UiSettingsScene& scene, const Theme& theme, const UiSe
         const auto box = parts.content;
         const float radius = t.metric.control_radius;
         const float tile_radius = maximum(radius - t.metric.notice_padding, theme.scale.radius_sm);
-        ok = paint_stream_push_rounded_border(paint, box.left, box.top, box.right, box.bottom,
+        ok = paint_stream_push_rounded_border(paint, box,
                                               state.hovered && c.enabled ? tc.mod_normal : tc.mod_subtle,
                                               tc.border_subtle, radius, 1) &&
-             paint_stream_push_rounded(paint, parts.icon.left, parts.icon.top, parts.icon.right, parts.icon.bottom,
+             paint_stream_push_rounded(paint, parts.icon,
                                        tc.mod_strong, tile_radius);
         if (ok && item.lead != UiIcon::count) {
             const float inset = (ui_rect_width(parts.icon) - t.metric.list_icon) * .5f;
@@ -2462,7 +2478,7 @@ bool paint_list_row(const UiSettingsScene& scene, const Theme& theme, const UiSe
             continue;
         const auto b = parts.actions[i];
         const bool hot = hovered_part == ui_settings_list_action + i;
-        ok = paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom,
+        ok = paint_stream_push_rounded(paint, b,
                                        hot ? (state.pressed ? tc.mod_strong : tc.mod_normal) : tc.mod_subtle,
                                        t.metric.control_radius);
         const float inset = (ui_rect_width(b) - t.metric.list_icon * .75f) * .5f;
@@ -2533,7 +2549,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             const UiRect avatar{lead.left, cy - size * .5f, lead.left + size, cy + size * .5f};
             // The renderer hides this placeholder under the loaded image.
             ok = avatar_backed(scene.content, index)
-                     ? paint_stream_push_rounded(paint, avatar.left, avatar.top, avatar.right, avatar.bottom,
+                     ? paint_stream_push_rounded(paint, avatar,
                                                  theme.avatar_placeholder, size * .5f)
                      : ui_admin_avatar_paint(paint, t, avatar, fill, alpha);
         } else if (ok && accent(scene.content, index)) {
@@ -2560,7 +2576,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     if (ok && progress(scene.content, index) && ui_rect_has_area(r.value)) {
         const float level = static_cast<float>(minimum<u16>(scene.content.meters[index], 1000)) / 1000.f;
         const float radius = ui_rect_height(r.value) * .5f;
-        ok = paint_stream_push_rounded(paint, r.value.left, r.value.top, r.value.right, r.value.bottom, tc.slider_track,
+        ok = paint_stream_push_rounded(paint, r.value, tc.slider_track,
                                        radius);
         if (ok && level > 0)
             ok = paint_stream_push_rounded(paint, r.value.left, r.value.top,
@@ -2594,8 +2610,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                                  state.hovered ? scene.palette_hovered_index : ~0u, state);
     case UiSettingsControlKind::swatches:
         for (u32 i = 0; i < c.choices.count; ++i) {
-            UiControlState option = state;
-            option.hovered = state.hovered && scene.palette_hovered_index == i;
+            UiControlState option = hover_option(scene, state, i);
             option.focused = state.focused && (c.selected_choice == i || (c.selected_choice >= c.choices.count && !i));
             Color fill = tc.mod_strong;
             resolve_color(scene, c.id, i, &fill);
@@ -2622,8 +2637,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     }
     case UiSettingsControlKind::buttons:
         for (u32 i = 0; i < c.choices.count; ++i) {
-            UiControlState option = state;
-            option.hovered = state.hovered && scene.palette_hovered_index == i;
+            UiControlState option = hover_option(scene, state, i);
             option.focused = state.focused && i == (c.selected_choice < c.choices.count ? c.selected_choice : 0);
             if (!ui_settings_button_paint(paint, t, option_rect(t, c, r.control, i),
                                           i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
@@ -2642,7 +2656,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                 fill.alpha *= .3f;
             const bool focused = state.focused && scene.focus_visible &&
                                  i == (c.selected_choice < c.choices.count ? c.selected_choice : 0);
-            ok = paint_stream_push_rounded_border(paint, swatch.left, swatch.top, swatch.right, swatch.bottom, fill,
+            ok = paint_stream_push_rounded_border(paint, swatch, fill,
                                                   focused ? tc.focus_ring : ui_settings_color_alpha(fill, 1),
                                                   theme.scale.radius_sm, focused ? 2.f : 1.f);
             const float icon = 14;
@@ -2652,8 +2666,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                                                              c.enabled ? 1.f : .3f));
         }
         if (ok && c.action_label.bytes) {
-            UiControlState option = state;
-            option.hovered = state.hovered && scene.palette_hovered_index == c.choices.count;
+            const UiControlState option = hover_option(scene, state, c.choices.count);
             ok = ui_settings_button_paint(paint, t, option_rect(t, c, r.control, c.choices.count),
                                           UiSettingsButtonVariant::secondary, option);
         }
@@ -2681,8 +2694,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         if (!ui_settings_scene_control_geometry(scene, entry.target, &geometry))
             return true;
         if (ui_rect_has_area(r.value)) {
-            UiControlState button = state;
-            button.hovered = state.hovered && scene.palette_hovered_index == 0;
+            UiControlState button = hover_option(scene, state, 0);
             button.focused = false;
             if (!ui_settings_button_paint(paint, t, r.value, UiSettingsButtonVariant::primary, button))
                 return false;
@@ -2703,8 +2715,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     case UiSettingsControlKind::radio:
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto option = ui_radio_option(t, r.control, i);
-            UiControlState option_state = state;
-            option_state.hovered = state.hovered && scene.palette_hovered_index == i;
+            UiControlState option_state = hover_option(scene, state, i);
             option_state.focused = state.focused && (c.selected_choice == i ||
                                                      (c.selected_choice >= c.choices.count && i == 0));
             if (!ui_radio_paint(paint, t, ui_radio_indicator(t, option), c.selected_choice == i, option_state))
@@ -2724,8 +2735,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                  scene.palette.resolve != palette.resolve || scene.palette.revision != palette.revision ||
                  scene.revision != before_resolve))
                 return false;
-            UiControlState option_state = state;
-            option_state.hovered = state.hovered && scene.palette_hovered_index == i;
+            UiControlState option_state = hover_option(scene, state, i);
             option_state.focused = state.focused && c.selected_choice == i;
             Color fill = theme.base_lowest;
             if (resolved && background_theme_valid(colors) && colors.color_count >= 2 &&
@@ -2748,10 +2758,10 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                          r.row.bottom - t.metric.row_padding * .5f};
         // Critical notices outline the tinted box, sharing its corners.
         ok = tone == UiSettingsVariant::critical
-                 ? paint_stream_push_rounded_border(paint, box.left, box.top, box.right, box.bottom, fill,
+                 ? paint_stream_push_rounded_border(paint, box, fill,
                                                     ui_settings_color_alpha(tc.critical_text, .5f),
                                                     t.metric.control_radius, 1)
-                 : paint_stream_push_rounded(paint, box.left, box.top, box.right, box.bottom, fill,
+                 : paint_stream_push_rounded(paint, box, fill,
                                              t.metric.control_radius);
         if (ok && c.action_label.bytes)
             ok = ui_settings_button_paint(paint, t, r.control, UiSettingsButtonVariant::secondary, state);
@@ -2824,7 +2834,7 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
         return true;
     if (!paint || !current(scene))
         return false;
-    const auto t = ui_settings_tokens(theme);
+    const UiSettingsThemeTokens t(theme);
     const auto& tc = t.color;
     const auto& l = scene.layout;
     const bool dialog = scene.presentation == UiSettingsPresentation::dialog;
@@ -2974,12 +2984,10 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
         return text(stream, scene, handle, c.label, r.label,
                     is_link && state.hovered ? tc.text_strong : ui_settings_color_alpha(tc.text_strong, dim),
                     text_heading) &&
-               text(stream, scene, handle, c.description, r.description, tc.text_subtle, text_description,
-                    UiTextAlignment::start, UiTextWrapping::wrap, UiTextAlignment::start);
+               describe(stream, scene, handle, c.description, r.description, tc.text_subtle);
     }
     if (c.kind == UiSettingsControlKind::error)
-        return text(stream, scene, handle, c.label, r.label, tc.critical_text, text_description, UiTextAlignment::start,
-                    UiTextWrapping::wrap, UiTextAlignment::start);
+        return describe(stream, scene, handle, c.label, r.label, tc.critical_text);
     if (c.kind == UiSettingsControlKind::tabs) {
         for (u32 i = 0; i < c.choices.count; ++i) {
             const auto tab = option_rect(t, c, r.control, i);
@@ -2996,8 +3004,7 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
     }
     if (list_style(scene.content, entry.source_index, UiSettingsListStyle::card))
         return text(stream, scene, handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), text_heading) &&
-               text(stream, scene, handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim),
-                    text_description, UiTextAlignment::start, UiTextWrapping::wrap, UiTextAlignment::start);
+               describe(stream, scene, handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim));
     if (list_style(scene.content, entry.source_index, UiSettingsListStyle::row)) {
         const bool count_hovered = state.hovered && scene.palette_hovered_index == ui_settings_list_count;
         return text(stream, scene, handle, c.label, r.label, ui_settings_color_alpha(tc.text_strong, dim), text_label) &&
@@ -3010,8 +3017,7 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
                                   ? tc.critical_text
                                   : ui_settings_color_alpha(tc.text_strong, dim);
     if (!text(stream, scene, handle, c.label, r.label, label_color, text_label) ||
-        !text(stream, scene, handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim),
-              text_description, UiTextAlignment::start, UiTextWrapping::wrap, UiTextAlignment::start))
+        !describe(stream, scene, handle, c.description, r.description, ui_settings_color_alpha(tc.text_subtle, dim)))
         return false;
     const u32 index = entry.source_index;
     // Initials only for avatar rows without an image to draw.
@@ -3050,8 +3056,7 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
         return true;
     case UiSettingsControlKind::buttons:
         for (u32 i = 0; i < c.choices.count; ++i) {
-            UiControlState option = state;
-            option.hovered = state.hovered && scene.palette_hovered_index == i;
+            const UiControlState option = hover_option(scene, state, i);
             if (!text(stream, scene, handle, c.choices[i], option_rect(t, c, r.control, i),
                       ui_settings_button_text(t, i ? UiSettingsButtonVariant::secondary : UiSettingsButtonVariant::primary,
                                               option),
@@ -3068,8 +3073,7 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
                 return false;
         }
         if (c.action_label.bytes) {
-            UiControlState option = state;
-            option.hovered = state.hovered && scene.palette_hovered_index == c.choices.count;
+            const UiControlState option = hover_option(scene, state, c.choices.count);
             if (!text(stream, scene, handle, c.action_label, option_rect(t, c, r.control, c.choices.count),
                       ui_settings_button_text(t, UiSettingsButtonVariant::secondary, option), text_button,
                       UiTextAlignment::center))
@@ -3137,8 +3141,7 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
     case UiSettingsControlKind::edit:
     case UiSettingsControlKind::multiline: {
         if (ui_rect_has_area(r.value) && c.action_label.bytes) {
-            UiControlState button = state;
-            button.hovered = state.hovered && scene.palette_hovered_index == 0;
+            const UiControlState button = hover_option(scene, state, 0);
             if (!text(stream, scene, handle, c.action_label, r.value,
                       ui_settings_button_text(t, UiSettingsButtonVariant::primary, button), text_button,
                       UiTextAlignment::center))
@@ -3189,7 +3192,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
         return true;
     if (!stream || !current(scene))
         return false;
-    const auto t = ui_settings_tokens(theme);
+    const UiSettingsThemeTokens t(theme);
     const auto& tc = t.color;
     // Chrome text first; page-owned text stays contiguous for the page layer.
     for (u32 i = 0; i < scene.widgets.count; ++i) {
@@ -3256,8 +3259,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
     if (!title || !description ||
         !text(stream, scene, scene.title, scene.content.title, title->rectangle, tc.text_strong,
               text_style_heading_2 | text_style_bold) ||
-        !text(stream, scene, scene.description, scene.content.description, description->rectangle, tc.text_subtle,
-              text_description, UiTextAlignment::start, UiTextWrapping::wrap, UiTextAlignment::start))
+        !describe(stream, scene, scene.description, scene.content.description, description->rectangle, tc.text_subtle))
         return false;
     for (u32 i = 0; i < scene.widgets.count; ++i) {
         const auto& entry = entries(scene)[i];

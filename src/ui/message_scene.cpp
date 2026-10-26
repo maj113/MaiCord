@@ -145,7 +145,7 @@ UiLayoutStyle region_style(float height, bool text) noexcept {
     return style;
 }
 
-u64 hash_mix(u64 hash, u64 value) noexcept {
+__forceinline u64 hash_mix(u64 hash, u64 value) noexcept {
     return hash64_mix(hash, value);
 }
 
@@ -366,9 +366,11 @@ bool poll_height(const MessageScene& scene, const MessageRecord& record, Message
     UiPollAnswer answers[kUiPollMaximumAnswers]{};
     UiPollState state{};
     UiPollLayout layout{};
+    UiPollStyle style;
+    ui_theme_fill_poll_style(scene.theme_styles, &style);
     if (!scene.polls->measure ||
         !poll_state(scene, record, handle, {answers, kUiPollMaximumAnswers}, &state) ||
-        !ui_poll_measure_layout(state, width, ui_theme_poll_style(scene.theme_styles), scene.polls->measure,
+        !ui_poll_measure_layout(state, width, style, scene.polls->measure,
                                 scene.polls->backend_revision, &layout))
         return false;
     *out = layout.height + metrics(scene).message_rich_gap;
@@ -750,7 +752,7 @@ bool prepare_resident_measurements(MessageScene* scene, UiRect viewport) noexcep
             reset_value(cached);
             cached->signature = key;
             cached->content_height = content_height(scene);
-            cached->items = message_rich_estimate_item_layout(rich_store, rich, width, scene->theme_styles);
+            message_rich_fill_item_layout(rich_store, rich, width, scene->theme_styles, cached->items);
             cached->rich = rich ? message_rich_aggregate_layout(*rich, cached->items, width)
                                 : MessageSceneRichLayout{};
             for (u32 i = 0; rich && i < rich->reaction_count; ++i)
@@ -885,11 +887,15 @@ bool row_identity_matches(const MessageScene& scene, const MessageSceneRowWidget
                                                                 2 * snapshot_padding(scene)) ||
                       !message_rich_widgets_structure_matches(*child, snapshot))))
         return false;
+    // A current negative scan result already proves the message has no invite links.
+    const bool no_invites = record && row.invite_scan_negative && row.message_id == record->id &&
+                            row.message_revision == record->revision && record->revision != ~u32{0};
     InviteLink invites[kMessageInviteCardMaximum];
     return record && row.source_index == source_index && row.message_id == record->id &&
            message_rich_widgets_structure_matches(
                row, rich, record && (row_poll(scene, *record) || unavailable_poll(scene, *record)),
-               message_scene_invite_codes(scene, *record, {invites, kMessageInviteCardMaximum}));
+               no_invites ? 0u
+                          : message_scene_invite_codes(scene, *record, {invites, kMessageInviteCardMaximum}));
 }
 
 bool materialization_matches(const MessageScene& scene, u32 first, u32 count) noexcept {
@@ -972,42 +978,42 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
     if (const auto* child = message_scene_snapshot_row(*scene, *row))
         row->snapshot_height = row_required_height(*scene, *child, snapshot_rich(*scene, record->id)) +
                                snapshot_following_gap(scene, rich);
-    const MessageSceneRichItemLayout estimated_items =
-        cached ? cached->items
-               : message_rich_estimate_item_layout(scene->timeline->rich_store, rich, width,
-                                                   scene->theme_styles);
-    const MessageSceneRichLayout estimated_rich =
-        rich ? message_rich_aggregate_layout(*rich, estimated_items, width) : MessageSceneRichLayout{};
-    if (text_identity_changed) {
-        copy_value(&row->rich_layout, estimated_rich);
-        row->rich_item_layout = estimated_items;
-        row->measured_width = width;
-        row->measured_reply_height = 0.0f;
-        row->measured_content_height = content_height(scene);
-        row->rich_layout_measured = false;
-        row->text_measured = false;
-        for (u32 index = 0; index < kGatewayMessageReactionMaximum; ++index) {
-            row->reaction_widths[index] = rich && index < rich->reaction_count
-                                              ? message_rich_reaction_button_width(rich->reactions[index])
-                                              : 0.0f;
+    if (text_identity_changed || !row->rich_layout_measured) {
+        // A cached measurement overwrites both layouts below (restore_measurement).
+        if (!cached) {
+            message_rich_fill_item_layout(scene->timeline->rich_store, rich, width, scene->theme_styles,
+                                          row->rich_item_layout);
+            row->rich_layout = rich ? message_rich_aggregate_layout(*rich, row->rich_item_layout, width)
+                                    : MessageSceneRichLayout{};
         }
-    } else if (!row->rich_layout_measured) {
-        copy_value(&row->rich_layout, estimated_rich);
-        row->rich_item_layout = estimated_items;
+        if (text_identity_changed) {
+            row->measured_width = width;
+            row->measured_reply_height = 0.0f;
+            row->measured_content_height = content_height(scene);
+            row->rich_layout_measured = false;
+            row->text_measured = false;
+            for (u32 index = 0; index < kGatewayMessageReactionMaximum; ++index) {
+                row->reaction_widths[index] = rich && index < rich->reaction_count
+                                                  ? message_rich_reaction_button_width(rich->reactions[index])
+                                                  : 0.0f;
+            }
+        }
     }
     if (cached)
         message_scene_detail::restore_measurement(row, *cached);
     return true;
 }
 
-UiWidgetResult add_region(MessageScene* scene, UiWidgetHandle parent, u32 id, const char* name,
-                          float height, bool text) noexcept {
-    const u32 bytes = c_string_length(name);
-    return ui_widget_manager_add_prevalidated(
-        &scene->widgets, parent,
-        UiWidgetDesc{
-            id, text ? UiWidgetKind::text : UiWidgetKind::container, ui_widget_enabled,
-            UiLayoutNodeSpec{Utf8View{name, bytes}, region_style(height, text), UiSize{}, 0.0f, id}});
+UiWidgetResult add_region_named(MessageScene* scene, UiWidgetHandle parent, u32 id, const char* name, u32 bytes,
+                                float height, bool text) noexcept {
+    return ui_widget_manager_add_keyed(&scene->widgets, parent, id,
+                                       text ? UiWidgetKind::text : UiWidgetKind::container, ui_widget_enabled, name,
+                                       bytes, region_style(height, text));
+}
+template <usize Count>
+__forceinline UiWidgetResult add_region(MessageScene* scene, UiWidgetHandle parent, u32 id,
+                                        const char (&name)[Count], float height, bool text) noexcept {
+    return add_region_named(scene, parent, id, name, Count - 1, height, text);
 }
 
 void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
@@ -1047,10 +1053,14 @@ void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
 }
 
 bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
-    const MessageSceneRowWidget retained = scene->rows[local];
+    const MessageSceneRowWidget& retained = scene->rows[local];
     const bool preserve_measurement =
         scene->active && retained.message_id != 0 && retained.source_index == source_index;
-    MessageSceneRowWidget row = preserve_measurement ? retained : MessageSceneRowWidget{};
+    MessageSceneRowWidget row;
+    if (preserve_measurement)
+        copy_value(&row, retained);
+    else
+        reset_value(&row);
     row.widget = ui_widget_invalid_handle();
     row.avatar = ui_widget_invalid_handle();
     row.body = ui_widget_invalid_handle();
@@ -1073,25 +1083,16 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     // rich children stay inside that range.  Validate the arithmetic once and
     // avoid an O(widget_count) duplicate scan for every widget in the row.
     const u32 id = 2u + source_index * kMessageSceneWidgetsPerRow;
-    const UiWidgetResult root = ui_widget_manager_add_prevalidated(
-        &scene->widgets, scene->root,
-        UiWidgetDesc{
-            id, UiWidgetKind::container,
-            static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
-            UiLayoutNodeSpec{utf8_literal("MessageRow"),
-                             row_style(scene, height, row.grouped,
-                                       row_leading(*scene, row) + result_card_leading(*scene)),
-                             UiSize{}, 0.0f, id}});
-    const UiWidgetResult avatar = ui_widget_manager_add_prevalidated(
-        &scene->widgets, root.handle,
-        UiWidgetDesc{id + 1u, UiWidgetKind::image, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("Avatar"),
-                                      avatar_style(scene, row.grouped, row_reply_height(scene, row, rich)),
-                                      UiSize{}, 0.0f, id + 1u}});
-    const UiWidgetResult body = ui_widget_manager_add_prevalidated(
-        &scene->widgets, root.handle,
-        UiWidgetDesc{id + 2u, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("Body"), body_style(), UiSize{}, 0.0f, id + 2u}});
+    const UiWidgetResult root = ui_widget_manager_add_keyed(
+        &scene->widgets, scene->root, id, UiWidgetKind::container,
+        static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable), "MessageRow",
+        row_style(scene, height, row.grouped, row_leading(*scene, row) + result_card_leading(*scene)));
+    const UiWidgetResult avatar = ui_widget_manager_add_keyed(
+        &scene->widgets, root.handle, id + 1u, UiWidgetKind::image, ui_widget_enabled, "Avatar",
+        avatar_style(scene, row.grouped, row_reply_height(scene, row, rich)));
+    const UiWidgetResult body = ui_widget_manager_add_keyed(&scene->widgets, root.handle, id + 2u,
+                                                            UiWidgetKind::container, ui_widget_enabled, "Body",
+                                                            body_style());
     if (!root.ok() || !avatar.ok() || !body.ok()) {
         return false;
     }
@@ -1134,8 +1135,8 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
         child.measured_width =
             maximum(1.f, available_text_width(scene, scene->viewport) - 2 * snapshot_padding(scene));
         child.measured_content_height = content_height(scene);
-        child.rich_item_layout = message_rich_estimate_item_layout(
-            scene->timeline->rich_store, snapshot, child.measured_width, scene->theme_styles);
+        message_rich_fill_item_layout(scene->timeline->rich_store, snapshot, child.measured_width,
+                                      scene->theme_styles, child.rich_item_layout);
         child.rich_layout =
             message_rich_aggregate_layout(*snapshot, child.rich_item_layout, child.measured_width);
         auto* cached =
@@ -1158,12 +1159,9 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
         snapshot_style.padding = {snapshot_padding(scene), snapshot_padding(scene), snapshot_padding(scene),
                                   snapshot_padding(scene)};
         const u32 child_id = id + kMessageSceneWidgetsPerContent;
-        const auto frame = ui_widget_manager_add_prevalidated(
-            &scene->widgets, body.handle,
-            {child_id,
-             UiWidgetKind::container,
-             ui_widget_enabled,
-             {utf8_literal("ForwardedSnapshot"), snapshot_style, {}, 0, child_id}});
+        const auto frame = ui_widget_manager_add_keyed(&scene->widgets, body.handle, child_id,
+                                                       UiWidgetKind::container, ui_widget_enabled,
+                                                       "ForwardedSnapshot", snapshot_style);
         if (!frame.ok())
             return false;
         child.widget = child.body = frame.handle;
@@ -1395,7 +1393,9 @@ bool message_scene_poll_projection(const MessageScene& scene, const MessageScene
         row.poll_result_revision != poll->result_revision || !node ||
         !poll_state(scene, *record, row.message, answers, &state))
         return false;
-    return ui_poll_controls_project(state, node->content_rectangle, ui_theme_poll_style(scene.theme_styles),
+    UiPollStyle style;
+    ui_theme_fill_poll_style(scene.theme_styles, &style);
+    return ui_poll_controls_project(state, node->content_rectangle, style,
                                     theme, scene.polls->measure, scene.polls->backend_revision, out);
 }
 
@@ -1673,15 +1673,21 @@ struct IntroWriter {
     MessageSceneIntro* intro;
     u32 used;
     // Appends whole UTF-8 sequences while they fit.
-    void add(Utf8View text) noexcept {
-        for (u32 offset = 0; text.data && offset < text.bytes;) {
-            const Utf8DecodeResult decoded = utf8_decode_one(text.data + offset, text.bytes - offset);
+    __declspec(noinline) void append(const char* source, u32 count) noexcept {
+        for (u32 offset = 0; source && offset < count;) {
+            const Utf8DecodeResult decoded = utf8_decode_one(source + offset, count - offset);
             if (!decoded.valid || decoded.width > kMessageSceneIntroTextBytes - used)
                 return;
-            copy_bytes(intro->text + used, text.data + offset, decoded.width);
+            copy_bytes(intro->text + used, source + offset, decoded.width);
             used += decoded.width;
             offset += decoded.width;
         }
+    }
+    void add(const Utf8View& text) noexcept {
+        append(text.data, text.bytes);
+    }
+    template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
+        append(text, Count - 1);
     }
     void bold(u32 description_begin, Utf8View text) noexcept {
         const u32 begin = used;
@@ -1705,9 +1711,9 @@ bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind
     IntroWriter out{intro, 0};
     // Header (channel welcome / thread name / conversation name).
     if (kind == MessageSceneIntroKind::channel) {
-        out.add(utf8_literal("Welcome to #"));
+        out.add("Welcome to #");
         out.add(name);
-        out.add(utf8_literal("!"));
+        out.add("!");
     } else if (kind != MessageSceneIntroKind::no_history) {
         out.add(name);
     }
@@ -1721,37 +1727,37 @@ bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind
     const u32 description = out.used;
     switch (kind) {
     case MessageSceneIntroKind::channel:
-        out.add(utf8_literal("This is the start of the #"));
+        out.add("This is the start of the #");
         out.add(name);
         if (locked) {
-            out.add(utf8_literal(" "));
+            out.add(" ");
             out.bold(description, utf8_literal("private"));
         }
-        out.add(utf8_literal(" channel."));
+        out.add(" channel.");
         break;
     case MessageSceneIntroKind::thread:
         if (locked)
-            out.add(utf8_literal("@mention users to add them to this private thread."));
+            out.add("@mention users to add them to this private thread.");
         break;
     case MessageSceneIntroKind::direct_message:
-        out.add(utf8_literal("This is the beginning of your direct message history with "));
+        out.add("This is the beginning of your direct message history with ");
         out.bold(description, name);
-        out.add(utf8_literal("."));
+        out.add(".");
         break;
     case MessageSceneIntroKind::group_direct_message:
-        out.add(utf8_literal("Welcome to the beginning of the "));
+        out.add("Welcome to the beginning of the ");
         out.bold(description, name);
-        out.add(utf8_literal(" group."));
+        out.add(" group.");
         break;
     case MessageSceneIntroKind::no_history: {
-        out.add(utf8_literal("You do not have permission to view the message history of "));
+        out.add("You do not have permission to view the message history of ");
         const u32 begin = out.used;
-        out.add(utf8_literal("#"));
+        out.add("#");
         out.add(name);
         if (out.used > begin && intro->description_span_count < kMessageSceneIntroSpanMaximum)
             intro->description_spans[intro->description_span_count++] = {begin - description, out.used - begin,
                                                                          text_style_bold, 0, {}};
-        out.add(utf8_literal("."));
+        out.add(".");
         break;
     }
     default:
@@ -1851,7 +1857,8 @@ UiRect message_scene_message_rectangle(const MessageScene& scene,
     return rectangle;
 }
 
-MessageSceneResult message_scene_update(MessageScene* scene, UiRect viewport) noexcept {
+MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewport_view) noexcept {
+    const UiRect viewport = viewport_view; // the scene is written below
     if (!scene || !scene->timeline || !scene->timeline->store || !scene->timeline->list ||
         !scene->rows.data || !scene->widgets.storage.data || !ui_rect_valid_or_empty(viewport) ||
         message_scene_source_count(*scene) != scene->timeline->list->count) {
@@ -2086,7 +2093,7 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
     const float measured_reply = rich && message_rich_has_header(*rich) ? reply_height : 0.0f;
     const float measured_content = maximum(content_height, content_present ? 16.0f : 0.0f) + 5.0f;
     MessageSceneRichLayout measured_rich = rich_layout ? *rich_layout : row->rich_layout;
-    const MessageSceneRichItemLayout measured_items =
+    const MessageSceneRichItemLayout& measured_items =
         rich_item_layout ? *rich_item_layout : row->rich_item_layout;
     float intrinsic_reaction_widths[kGatewayMessageReactionMaximum]{};
     if (rich && reaction_widths.count >= rich->reaction_count) {
@@ -2130,7 +2137,8 @@ bool message_scene_set_text_metrics(MessageScene* scene, u32 source_index, float
     row->measured_reply_height = measured_reply;
     row->measured_content_height = measured_content;
     copy_value(&row->rich_layout, measured_rich);
-    row->rich_item_layout = measured_items;
+    if (&measured_items != &row->rich_item_layout)
+        copy_value(&row->rich_item_layout, measured_items);
     row->rich_layout_measured = row->rich_layout_measured || rich_layout != nullptr;
     row->measured_width = available_text_width(scene, scene->viewport);
     row->text_measured = true;
@@ -2207,7 +2215,7 @@ bool message_scene_set_snapshot_text_metrics(MessageScene* scene, u32 source_ind
     if (!child || !rich)
         return false;
     const float content = maximum(content_height, content_present ? 16.f : 0.f) + 5.f;
-    const auto items = rich_item_layout ? *rich_item_layout : child->rich_item_layout;
+    const MessageSceneRichItemLayout& items = rich_item_layout ? *rich_item_layout : child->rich_item_layout;
     const auto layout = rich_layout ? *rich_layout : child->rich_layout;
     if (rich_layout && rich_item_layout &&
         !message_rich_layout_equal(layout,
@@ -2218,7 +2226,8 @@ bool message_scene_set_snapshot_text_metrics(MessageScene* scene, u32 source_ind
                !message_rich_item_layout_equal(child->rich_item_layout, items);
     child->measured_content_height = content;
     child->rich_layout = layout;
-    copy_value(&child->rich_item_layout, items);
+    if (&items != &child->rich_item_layout)
+        copy_value(&child->rich_item_layout, items);
     child->rich_layout_measured = rich_layout != nullptr || child->rich_layout_measured;
     child->text_measured = true;
     message_scene_detail::retain_measurement(scene, *child);

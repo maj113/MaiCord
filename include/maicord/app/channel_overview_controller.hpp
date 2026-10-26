@@ -51,6 +51,7 @@ struct ChannelOverviewRequest {
 // Two copied banks only. Saving locks edits, so no third bank is needed.
 // Cancelled responses must be taken before the controller can be rebound.
 struct ChannelOverviewController {
+    static constexpr bool kZeroDefault = true; // Every member defaults to zero: reset_value clears bytes.
     ChannelOverviewSnapshot baseline{}, draft{};
     ChannelOverviewScope scope{};
     u64 revision{}, remote_revision{}, request_id{}, submitted_remote_revision{}, retry_at_ms{};

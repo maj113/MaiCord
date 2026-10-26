@@ -452,7 +452,7 @@ UiMotionStyle* ui_theme_motion_slot(UiThemeMotion* motion, UiThemeMotionToken id
         return nullptr;
     }
 }
-float ui_theme_contrast_ratio(Color foreground, Color background) noexcept {
+float ui_theme_contrast_ratio(const Color& foreground, const Color& background) noexcept {
     const float a = foreground.alpha;
     const Color composed{foreground.red * a + background.red * (1 - a),
                          foreground.green * a + background.green * (1 - a),

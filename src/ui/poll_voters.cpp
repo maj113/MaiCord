@@ -3,6 +3,7 @@
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/ui/style_lengths.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
@@ -44,12 +45,10 @@ bool valid(const UiPollVotersState& state) noexcept {
     return selected;
 }
 bool style_valid(const UiPollVotersStyle& style) noexcept {
-    const float lengths[]{
-        style.preferred_width, style.preferred_height, style.margin,     style.padding,       style.gap,
-        style.header_height,   style.target,           style.row_height, style.avatar_extent, style.radius};
-    for (float value : lengths)
-        if (!ui_coordinate_valid(value) || value < 0)
-            return false;
+    // The ten lengths lead the style, in this order.
+    static_assert(__builtin_offsetof(UiPollVotersStyle, radius) == 9 * sizeof(float));
+    if (!ui_lengths_valid(&style.preferred_width, 10))
+        return false;
     if (style.preferred_width < 160 || style.preferred_height < 200 || style.header_height < 40 ||
         style.target < 32 || style.row_height < style.target || style.avatar_extent < 16 ||
         style.avatar_extent > style.row_height || !ui_coordinate_valid(style.backdrop_opacity) ||
@@ -291,7 +290,7 @@ bool ui_poll_voters_avatar(const UiPollVotersScene& scene, u32 index, UiRect* re
     const float top = row.top + (scene.style.row_height - scene.style.avatar_extent) * .5f;
     *rectangle = {row.left, top, row.left + scene.style.avatar_extent, top + scene.style.avatar_extent};
     *clip = scene.geometry.body;
-    return ui_rect_has_area(ui_rect_intersection(*rectangle, *clip));
+    return ui_rect_intersects(*rectangle, *clip);
 }
 UiRect ui_poll_voters_target_rectangle(const UiPollVotersScene& scene, UiPollVotersTarget target) noexcept {
     switch (target.control) {

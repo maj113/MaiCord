@@ -382,7 +382,7 @@ bool message_scene_set_result_card_style(MessageScene*, const MessageResultCardS
 bool message_scene_set_source_order(MessageScene*, ConstSlice<MessageHandle>, u32 revision) noexcept;
 MessageHandle message_scene_source_handle(const MessageScene&, u32 source_index) noexcept;
 u32 message_scene_source_count(const MessageScene&) noexcept;
-MessageSceneResult message_scene_update(MessageScene* scene, UiRect viewport) noexcept;
+MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewport) noexcept;
 // Whether an update has a change to apply, a scroll included.
 constexpr bool message_scene_pending(const MessageScene& scene) noexcept {
     return scene.dirty || scene.scroll_dirty;

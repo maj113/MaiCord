@@ -246,7 +246,7 @@ bool ui_toast_paint(const UiToastScene& s, const Theme& theme, PaintStream* pain
     if (!ui_toast_visible(s))
         return true;
     const auto v = s.viewport, r = s.rectangle;
-    if (!paint || !paint_stream_push_clip(paint, v.left, v.top, v.right, v.bottom))
+    if (!paint || !paint_stream_push_clip(paint, v))
         return false;
     const float radius = theme.scale.radius_md;
     const auto kind = s.entries[0].kind;
