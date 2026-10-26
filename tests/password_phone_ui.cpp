@@ -222,7 +222,7 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
         const bool advised = sink.store && sink.store->AdviseSink(__uuidof(ITextStoreACPSink), &sink, TS_AS_ALL_SINKS) == S_OK;
         check(advised, "phone TSF fixture advises native ACP sink");
         if (advised) {
-            const WCHAR* cases[]{L"1234567", L"12a456", L"\xff11" L"23456", L"123456"};
+            const WCHAR* cases[]{L"1234567", L"12a456", (L"\xff11" L"23456"), L"123456"};
             const u32 counts[]{7, 6, 6, 6};
             for (u32 i = 0; i < 4; ++i) {
                 sink.insertion = cases[i]; sink.units = counts[i]; HRESULT session = E_FAIL;

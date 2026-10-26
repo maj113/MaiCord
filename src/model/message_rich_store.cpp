@@ -1551,6 +1551,13 @@ bool parse_record(ConstSlice<u8> input, MessageRichRecord* record, ConstSlice<u8
     cursor += kRichHead;
     copy_bytes(reinterpret_cast<u8*>(record) + kRichTailBegin, cursor, kRichTail);
     cursor += kRichTail;
+    // The store branches on these flags; a byte other than 0 or 1 is not a bool.
+    const auto* raw = reinterpret_cast<const u8*>(record);
+    if (raw[__builtin_offsetof(MessageRichRecord, occupied)] > 1 ||
+        raw[__builtin_offsetof(MessageRichRecord, forwarded_snapshot_child)] > 1 ||
+        raw[__builtin_offsetof(MessageRichRecord, has_forwarded_snapshot)] > 1 ||
+        raw[__builtin_offsetof(MessageRichRecord, voice_message)] > 1)
+        return false;
     if (record->reaction_count > kGatewayMessageReactionMaximum ||
         record->attachment_count > kGatewayMessageAttachmentMaximum ||
         record->embed_count > kGatewayMessageEmbedMaximum ||

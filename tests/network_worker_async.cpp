@@ -65,7 +65,7 @@ void test_network_worker_async(void (*check)(bool, const char*) noexcept) noexce
             "asynchronously started worker stops and drains normally");
     }
     if (!worker.thread) {
-        ResetEvent(context.callback); context.failed = context.correct_thread = 0;
+        ResetEvent(context.callback); context.correct_thread = 0; context.failed = 0;
         worker.ready_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         worker.handler = handler; worker.context = &context; worker.asynchronous_start = true;
         worker.thread = CreateThread(nullptr, 256 * 1024, fail_bootstrap, &worker, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);

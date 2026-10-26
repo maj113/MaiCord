@@ -10,7 +10,7 @@ SfntPosition eager[capacity],coalesced[capacity];SfntCursiveChainNode eager_node
 SfntGposAttachment attachment;SfntGposAttachmentLookup lookup;
 u64 comparisons=0,budget_checks=0,long_eager_work=0,long_deferred_work=0,program_work=0;u32 guards=0;
 const u8 cursive_bytes[]{0,1,0,10,0,1,0,16,0,22,0,1,0,1,0,1,0,1,0,10,0,20,0,1,2,18,0,90};
-SfntGlyphView view(u32 n) noexcept {SfntGlyphBuffer buffer{};sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),n*sizeof(SfntGsubGlyph)},sizeof(SfntGsubGlyph),n,&buffer);return sfnt_glyph_buffer_view(buffer);}
+SfntGlyphView view(u32 n) noexcept {SfntGlyphBuffer buffer{};sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),static_cast<u32>(n*sizeof(SfntGsubGlyph))},sizeof(SfntGsubGlyph),n,&buffer);return sfnt_glyph_buffer_view(buffer);}
 void reset(u32 n,u32 kind=0) noexcept {
     for(u32 i=0;i<n;++i){glyphs[i]={1,SfntGlyphClass::base,0};nominal[i]=600;flags[i]=2;
         double y=kind==1?static_cast<double>(i%7)/8:kind==2?1099511627776.0+i:kind==3?-1099511627776.0+i:kind==4?static_cast<double>(i%7)-3:kind==5 && i==n/2?1e16:kind==6 && i==n/2?0.1:0;

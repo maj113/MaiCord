@@ -128,11 +128,13 @@ bool matrix_validation_cases() noexcept {
         const u32 encoded=magnitude|sign;float value=0;copy_bytes(&value,&encoded,4);
         ColrPaintElement root{};root.kind=ColrPaintKind::transform;
         root.paint.transform={value,0,0,1,0,0};visits=0;
-        // Preserve the strict finite cutoff and the existing /fp:fast
-        // nonfinite behavior; these callbacks observe traversal, not pixels.
-        const bool traversed=magnitude>bits;
+        // Finite scales keep the strict cutoff. An infinite or NaN scale makes the
+        // composed matrix's products with zero NaN, which the floating-point model
+        // may or may not fold away; either outcome must be one clean node.
+        const bool finite=magnitude<0x7f800000u;
         const bool built=colr_program_build(&program,callbacks,root,{},32);
         const auto* node=built?reinterpret_cast<const ColrPaintOp*>(program.storage.base+program.first):nullptr;
+        const bool traversed=finite?magnitude>bits:node && node->kind==0u;
         if(!built || program.nodes!=1 || program.stack!=1 || visits!=(traversed?1u:0u) ||
            node->kind!=(traversed?0u:7u)) {
             char message[]="matrix boundary 00000000 build=0 visits=0 kind=0\n";

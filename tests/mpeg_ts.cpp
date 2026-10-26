@@ -182,7 +182,7 @@ void codecs() noexcept {
         frame.payload.count==3 && frame.payload.data==encoded+7 && frame.sample_rate==48000 && frame.channels==2 &&
         frame.configuration[0]==17 && frame.configuration[1]==144,
         "ADTS frame borrows raw AAC and derives native stereo48k ASC");
-    check(mpeg_ts_aac_frame({encoded+frame.bytes,sizeof(encoded)-frame.bytes},&frame)==E::none && frame.bytes==8 &&
+    check(mpeg_ts_aac_frame({encoded+frame.bytes,static_cast<u32>(sizeof(encoded)-frame.bytes)},&frame)==E::none && frame.bytes==8 &&
         frame.payload.count==1 && frame.payload.data[0]==44, "multiple ADTS frames in one PES are split at their declared lengths");
     const auto saved=frame; u8 invalid[sizeof(encoded)];
     const auto reject=[&](u32 index,u8 value,E error,const char* label) noexcept {

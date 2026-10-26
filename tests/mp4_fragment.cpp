@@ -1829,7 +1829,7 @@ void dash_probe() noexcept {
     if (file == INVALID_HANDLE_VALUE) { check(false, "DASH probe opens bounded capture"); return; }
     static u8 data[2 * 1024 * 1024];
     Win32LargeInteger size{}; DWORD bytes{};
-    const bool loaded = GetFileSizeEx(file, size.native()) && size.QuadPart >= 16 && size.QuadPart <= sizeof(data) &&
+    const bool loaded = GetFileSizeEx(file, size.native()) && size.QuadPart >= 16 && static_cast<u64>(size.QuadPart) <= sizeof(data) &&
         ReadFile(file, data, static_cast<DWORD>(size.QuadPart), &bytes, nullptr) && bytes == size.QuadPart;
     CloseHandle(file);
     if (!loaded || !bytes_equal(data, "MCDASH01", 8) || byte_load_le32(data + 8) != 2 ||
@@ -1916,7 +1916,7 @@ void probe() noexcept {
     static u8 data[1024 * 1024];
     Win32LargeInteger size{}; DWORD bytes{};
     const bool loaded = GetFileSizeEx(file, size.native()) && size.QuadPart >= 12 &&
-        size.QuadPart <= sizeof(data) && ReadFile(file, data, static_cast<DWORD>(size.QuadPart), &bytes, nullptr) &&
+        static_cast<u64>(size.QuadPart) <= sizeof(data) && ReadFile(file, data, static_cast<DWORD>(size.QuadPart), &bytes, nullptr) &&
         bytes == size.QuadPart;
     CloseHandle(file);
     const bool version2 = loaded && bytes_equal(data, "MCFRAG02", 8);

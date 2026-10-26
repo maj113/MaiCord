@@ -17,7 +17,7 @@ set(maicord_sys_headers
     include/maicord/core/win32_image.hpp include/maicord/core/win32_process_launch.hpp
     include/maicord/core/win32_threadpool.hpp include/maicord/core/win32_system_time.hpp
     include/maicord/core/win32_file_info.hpp include/maicord/core/win32_user.hpp
-    include/maicord/sys/crt.hpp include/maicord/sys/intrin.hpp include/maicord/sys/simd.hpp
+    include/maicord/sys/crt.hpp include/maicord/sys/intrin.hpp
     include/maicord/sys/com.hpp include/maicord/sys/ole.hpp include/maicord/sys/registry.hpp
     include/maicord/sys/gdi.hpp include/maicord/sys/winsock.hpp include/maicord/sys/crypto.hpp
     include/maicord/sys/sspi.hpp include/maicord/sys/shell.hpp include/maicord/sys/winrt.hpp
@@ -41,6 +41,8 @@ endforeach()
 add_library(maicord_sys_conformance OBJECT ${maicord_sys_conformance_sources})
 target_link_libraries(maicord_sys_conformance PRIVATE maicord_compile_contract)
 target_include_directories(maicord_sys_conformance PRIVATE src/sys)
+# The checks name every vtable slot, including members the SDK deprecates.
+target_compile_options(maicord_sys_conformance PRIVATE -Wno-deprecated-declarations)
 set_target_properties(maicord_sys_conformance PROPERTIES MAICORD_SDK_INCLUDES ON)
 
 maicord_library(maicord_compression src/media/deflate.cpp src/media/zstd.cpp LIBS maicord_core)
@@ -54,6 +56,7 @@ set(MAIOPUS_DECODER_TARGET maicord_opus_decoder)
 set(MAIOPUS_ENCODER_TARGET maicord_opus_encoder)
 set(MAIOPUS_LINK_CONTRACT maicord_link_contract)
 set(MAIOPUS_LTCG ON)
+set(MAIOPUS_LTCG_OPTION ${MAICORD_WHOLE_PROGRAM_OPTION})
 set(MAIOPUS_ARCH /arch:AVX)
 set(MAIOPUS_SSE4_1 ON)
 add_subdirectory(third_party/opus)
@@ -315,17 +318,15 @@ maicord_library(maicord_font
     src/text/font_store.cpp src/text/font_instance.cpp src/text/tt_interpreter.cpp src/text/tt_outline.cpp
     src/text/colr_variations.cpp src/text/font_axes.cpp
     LIBS maicord_core maicord_unicode ntdll)
-# Compact the shared Indic ordering routine; keep /O2, /Ob1 and LTCG.
-set_property(SOURCE src/text/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTIONS /Os)
+# Compact the shared Indic ordering routine; keep /O2, /Ob1 and LTO.
+set_property(SOURCE src/text/devanagari_order.cpp APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
 
 maicord_library(maicord_text
     src/ui/text.cpp src/ui/native_text_candidate.cpp src/ui/native_text_catalog.cpp src/core/log.cpp
     LIBS maicord_core maicord_font maicord_ui advapi32 gdi32)
-# Keep the native layout adapter compact while retaining optimization and LTCG,
+# Keep the native layout adapter compact while retaining optimization and LTO,
 # and compact only the explicitly scoped cold catalog discovery/publication.
-set_property(SOURCE src/ui/native_text_candidate.cpp APPEND PROPERTY COMPILE_OPTIONS /Os)
-set_property(SOURCE src/ui/native_text_candidate.cpp APPEND PROPERTY
-    COMPILE_DEFINITIONS MAICORD_COMPACT_TEXT_ADAPTER=1)
+set_property(SOURCE src/ui/native_text_candidate.cpp APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
 set_property(SOURCE src/ui/native_text_catalog.cpp APPEND PROPERTY
     COMPILE_DEFINITIONS MAICORD_COMPACT_CATALOG_SETUP=1)
 

@@ -264,7 +264,7 @@ void capture(bool live = false) noexcept {
     const HANDLE file = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) { check(false, "HLS capture opens"); return; }
     static char bytes[256 * 1024]; Win32LargeInteger size{}; DWORD read{};
-    const bool loaded = GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= sizeof(bytes) &&
+    const bool loaded = GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && static_cast<u64>(size.QuadPart) <= sizeof(bytes) &&
         ReadFile(file, bytes, static_cast<DWORD>(size.QuadPart), &read, nullptr) && read == size.QuadPart;
     CloseHandle(file);
     HlsMediaPlaylist playlist{}; HlsMediaSegment current{};

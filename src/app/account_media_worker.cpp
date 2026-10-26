@@ -232,7 +232,7 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
         work.local_snapshot,
         work.local_content.context ? ConstSlice<wchar_t>{}
                                    : ConstSlice<wchar_t>{reinterpret_cast<const wchar_t*>(work.text),
-                                                         work.text_bytes / sizeof(wchar_t)},
+                                                         static_cast<u32>(work.text_bytes / sizeof(wchar_t))},
         work.key,
         work.catalog_scope,
         work.catalog_generation,

@@ -51,7 +51,6 @@ struct Fixture {
 };
 Fixture g;
 
-u32 length(const char* s) noexcept { u32 n = 0; while (s[n]) ++n; return n; }
 bool digest(const u8* data, u32 bytes, u8* out) noexcept {
     const ConstSlice<u8> part{data, bytes};
     return sha256(g.workspace, {&part, 1}, {out, 32}).ok();

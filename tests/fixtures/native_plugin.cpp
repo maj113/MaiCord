@@ -25,7 +25,6 @@ u32 mode = 0;
 u64 owner = native_plugin_fixture::owner_id;
 bool active = false;
 
-mc_str text(const char* data, u32 bytes) noexcept { return {data, bytes}; }
 template <u32 N> mc_str literal(const char (&data)[N]) noexcept { return {data, N - 1}; }
 
 mc_status publish(FixtureState* state) noexcept {

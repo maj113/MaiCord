@@ -146,7 +146,7 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,
         u32 f=0,independent=0,n=0,expected_count=0,em_bits=1148846080,rtl=1;ConstSlice<u8> scalar_bytes{},expected{},clusters{},floats{};
         if((sized && !r.word(&em_bits))||(directed && !r.word(&rtl))||rtl>1||!r.word(&f)||f>=font_count||!r.word(&independent)||independent>1||!r.word(&n)||n>128||!r.word(&expected_count)||expected_count>256||
            !r.take(n*4,&scalar_bytes)||!r.take(expected_count*2,&expected)||!r.take(n*4,&clusters)||!r.take(expected_count*12,&floats))return false;
-        SfntFace face{};SfntCmap cmap{};SfntHorizontalMetrics metrics{};SfntGdef gdef{};ConstSlice<u8> gdef_bytes{},gs_bytes{},gp_bytes{};
+        SfntFace face{};SfntCmap cmap{};SfntHorizontalMetrics metrics{};SfntGdef gdef{};ConstSlice<u8> gdef_bytes{};
         if(sfnt_open(fonts[f],0,&face)!=SfntStatus::ok || sfnt_cmap_open(face,&cmap)!=SfntStatus::ok || sfnt_horizontal_metrics_open(face,&metrics)!=SfntStatus::ok ||
            sfnt_table(face,sfnt_tag('G','D','E','F'),&gdef_bytes)!=SfntStatus::ok || sfnt_gdef_open(gdef_bytes,metrics.glyph_count,&gdef)!=SfntStatus::ok)return fail(c,1);
         SfntGsubProgram gs{};SfntGposProgram gp{};SfntLookupStep steps[768],gp_steps[768];u16 gp_roots[768];u8 scratch[256];u32 gs_count=0,gp_count=0;bool generic=false;

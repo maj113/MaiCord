@@ -65,7 +65,7 @@ void local_sample(Check check, const wchar_t* name, bool gif) noexcept {
     DWORD bytes = 0;
     LARGE_INTEGER size{};
     const bool loaded = file != INVALID_HANDLE_VALUE && GetFileSizeEx(file, &size) && size.QuadPart > 0 &&
-                        size.QuadPart <= sizeof(encoded) &&
+                        static_cast<u64>(size.QuadPart) <= sizeof(encoded) &&
                         ReadFile(file, encoded, static_cast<DWORD>(size.QuadPart), &bytes, nullptr) &&
                         bytes == size.QuadPart;
     if (file != INVALID_HANDLE_VALUE)

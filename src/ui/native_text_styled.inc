@@ -822,9 +822,6 @@ u32 native_text_candidate_hit_style_capacity(const TextSystem& system) noexcept 
     return owner&&owner->last_valid&&owner->last_styled&&(owner->last_mode&1)?owner->styled_parts.count:0;
 }
 // Retained-layout publication is a hot path even when shape preparation is cached.
-#if defined(MAICORD_COMPACT_TEXT_ADAPTER)
-#pragma optimize("t",on)
-#endif
 bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,
     ShapedText* output,TextMeasureResult* measure,TextWrapping wrapping,TextOverflow overflow,ConstSlice<TextHitRange> hits,NativeParagraphHitStorage* editor,
     Slice<NativeParagraphLineFit> fit,NativeParagraphLayout* planning,NativeTrimPlanScratch* plan_storage=nullptr,bool require_styled=false) noexcept {
@@ -838,7 +835,7 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
     u32 style_flags=0;
     // Vectorizing this short, strided reduction would gather eight style
     // records plus a scalar remainder; the scalar loop is smaller.
-#pragma loop(no_vector)
+#pragma clang loop vectorize(disable)
     // Spans arrive folded (text_fold_style_sizes): sizes are heading-bit codes.
     for(u32 i=0;i<styles.count;++i){if((styles[i].flags&~supported)||styles[i].size)return false;style_flags|=styles[i].flags;}
     const bool decorations=(style_flags&native_decoration_flags)!=0;
@@ -930,10 +927,6 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
     }else{*measure={S_OK,layout.width,layout.extent,layout.height,shape.source_units,layout.line_count,TextShapeError::none};++owner.measured;++owner.paragraphs_measured;}
     return true;
 }
-
-#if defined(MAICORD_COMPACT_TEXT_ADAPTER)
-#pragma optimize("",on)
-#endif
 
 bool native_text_candidate_styled_once(const TextSystem& system,Utf8View text,ConstSlice<TextStyleSpan> styles,float width,float height,
     ShapedText* output,TextMeasureResult* measure,TextWrapping wrapping,TextOverflow overflow,ConstSlice<TextHitRange> hits,NativeParagraphHitStorage* editor) noexcept {

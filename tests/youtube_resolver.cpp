@@ -1315,7 +1315,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_youtube_resolver_entry() noe
         char small[2]{};
         const bool compact = GetEnvironmentVariableA("MAICORD_TWITCH_COMPACT_PROBE", small, sizeof(small)) == 1 && small[0] == '1';
         const bool high = GetEnvironmentVariableA("MAICORD_TWITCH_HIGH_PROBE", small, sizeof(small)) == 1 && small[0] == '1';
-        maicord::live_decode({url, sizeof(prefix) - 1 + channel_bytes}, high ? 1080 : compact ? 300 : 480);
+        maicord::live_decode({url, static_cast<maicord::u32>(sizeof(prefix) - 1 + channel_bytes)}, high ? 1080 : compact ? 300 : 480);
     }
     maicord::scanner(); maicord::headers(); maicord::resolver(); maicord::steam_resolver_test(); maicord::vod_resolver_test(); maicord::resident_selection(); maicord::paired_ranges(); maicord::live_probe();
     char live[2];

@@ -18,7 +18,7 @@ bool sequence_audit(const SfntComponentForest& forest,u32 root,u32 count) noexce
 SfntStatus sequence_edit(SfntComponentForest* forest,u32 count,u32 outputs,bool ligature,SfntComponentEdit* result,u64 work=1000000,u32 capacity=65536) noexcept {
     u32 indices[64];for(u32 i=0;i<count;++i)indices[i]=i;for(u32 i=0;i<outputs;++i)sequence_outputs[i]=sequence_inputs[0];
     const SfntGlyphView view{&sequence_inputs[0].glyph,nullptr,count,0,sizeof(SfntComponentGlyph)};
-    return sfnt_components_edit(forest,view,{indices,count},ligature,{reinterpret_cast<u8*>(sequence_outputs),outputs*sizeof(SfntComponentGlyph)},{sequence_journal,capacity},result,work);
+    return sfnt_components_edit(forest,view,{indices,count},ligature,{reinterpret_cast<u8*>(sequence_outputs),static_cast<u32>(outputs*sizeof(SfntComponentGlyph))},{sequence_journal,capacity},result,work);
 }
 bool sequence_units() noexcept {
     constexpr u32 count=4096;for(u32 i=0;i<count;++i){sequence_glyphs[i]={{1,SfntGlyphClass::base,0},i,0,0};sequence_order[i]=i;}

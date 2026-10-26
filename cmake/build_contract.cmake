@@ -17,8 +17,8 @@ if(NOT WIN32)
     message(FATAL_ERROR "MaiCord targets Windows 10 or newer.")
 endif()
 
-if(NOT MSVC)
-    message(FATAL_ERROR "The bootstrap build requires the Microsoft ABI (MSVC or clang-cl).")
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    message(FATAL_ERROR "MaiCord builds with clang-cl, lld-link and llvm-lib (tools/build.ps1 -LlvmBin).")
 endif()
 
 # The contract owns every code generation option: no CMake defaults (/EHsc,
@@ -36,26 +36,23 @@ foreach(lang C CXX)
     set(CMAKE_${lang}_CREATE_CONSOLE_EXE "")
 endforeach()
 
-# One policy owns every final PE's freestanding, mitigation, dead-code and
-# link contract. Archive/object reproducibility does not add a hash directory
-# to the final PE; omit LINK's /Brepro, which does add that directory.
-set(CMAKE_STATIC_LINKER_FLAGS_RELEASE /Brepro)
+# Whole-program optimization: full LTO in every shipping object, linked by
+# lld-link. Cold code is compiled for size with MAICORD_SIZE_OPTION.
+set(MAICORD_WHOLE_PROGRAM_OPTION -flto)
+set(MAICORD_SIZE_OPTION /clang:-Oz)
 
+# One policy owns every final PE's freestanding, mitigation, dead-code and
+# link contract.
 add_library(maicord_link_contract INTERFACE)
 target_link_options(maicord_link_contract INTERFACE
     /NODEFAULTLIB
     /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /CETCOMPAT
     /OPT:REF /OPT:ICF=8 /INCREMENTAL:NO
-    /DEBUG:NONE
-    # /DEBUG:NONE still emits LTCG group and volatile-access diagnostics.
-    # Suppress those records while retaining unwind and CET metadata.
-    /NOCOFFGRPINFO
-    /EMITVOLATILEMETADATA:NO
-    /EMITTOOLVERSIONINFO:NO
-    /NOVCFEATURE
-    # Temporary test targets set MAICORD_TEST_CODEGEN and link without LTCG
-    # (see maicord_add_test_codegen_twins); shipping targets always use it.
-    $<$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>:/LTCG>)
+    # No bound imports (nothing binds them since Windows 8); lld-link then also
+    # omits the import lookup tables and writes import DLL names without their
+    # ".dll", which the loader appends.
+    /ALLOWBIND:NO
+    /DEBUG:NONE)
 
 add_library(maicord_compile_contract INTERFACE)
 target_link_libraries(maicord_compile_contract INTERFACE maicord_link_contract)
@@ -89,10 +86,11 @@ target_compile_options(maicord_compile_contract INTERFACE
     $<$<COMPILE_LANGUAGE:CXX>:/GS->
     $<$<COMPILE_LANGUAGE:CXX>:/GR->
     $<$<COMPILE_LANGUAGE:CXX>:/EHs-c->
-    $<$<COMPILE_LANGUAGE:CXX>:/fp:fast>
+    # Strict IEEE semantics: text metrics and hit tests are bit-exact and NaN and
+    # infinity guards hold.
+    $<$<COMPILE_LANGUAGE:CXX>:/fp:precise>
     $<$<COMPILE_LANGUAGE:CXX>:/arch:AVX>
     $<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>
-    $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>
     $<$<COMPILE_LANGUAGE:CXX>:/Zc:inline>
     $<$<COMPILE_LANGUAGE:CXX>:/Zc:threadSafeInit->
     $<$<COMPILE_LANGUAGE:CXX>:/Gy>
@@ -101,21 +99,20 @@ target_compile_options(maicord_compile_contract INTERFACE
     $<$<COMPILE_LANGUAGE:CXX>:/Brepro>
     $<$<COMPILE_LANGUAGE:ASM_MASM>:/Brepro>)
 target_compile_options(maicord_compile_contract INTERFACE
-    # MAICORD_INLINE_ANY: /Ob2 instead. MAICORD_NO_WHOLE_PROGRAM: no /GL, for
-    # code kept outside LTCG in an image that links with it.
+    # MAICORD_INLINE_ANY: /Ob2 instead. MAICORD_NO_WHOLE_PROGRAM: no LTO, for
+    # code kept outside it in an image that links with it.
     "$<$<COMPILE_LANGUAGE:CXX>:/O2;/Ob$<IF:$<BOOL:$<TARGET_PROPERTY:MAICORD_INLINE_ANY>>,2,1>>"
-    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:/GL>)
-
-
-# tools/build.ps1 -AnalysisLog: MSVC code analysis reports C6xxx warnings (not
-# errors) and writes one SARIF log per source into the directory.
-set(MAICORD_ANALYSIS_LOG "" CACHE PATH "MSVC code analysis SARIF directory (empty: off)")
-if(MAICORD_ANALYSIS_LOG)
-    file(TO_NATIVE_PATH "${MAICORD_ANALYSIS_LOG}/" maicord_analysis_log)
-    file(MAKE_DIRECTORY "${MAICORD_ANALYSIS_LOG}")
-    target_compile_options(maicord_compile_contract INTERFACE
-        "$<$<COMPILE_LANGUAGE:CXX>:/analyze;/analyze:WX-;/analyze:quiet;/analyze:log:format:sarif;/analyze:log;${maicord_analysis_log}>")
-endif()
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>
+    # Compact C++ EH metadata (FH4).
+    $<$<COMPILE_LANGUAGE:CXX>:/d2FH4>
+    # Diagnostics beyond the house /W4 set: on declarations that mirror the SDK
+    # (uuid typedefs, hidden COM overloads, extern "C" extern), on intended
+    # aggregate value-initialization and layout asserts, and layout heuristics
+    # for the dense one-line style (indentation, && in ||, elided subobject
+    # braces) and deliberate non-short-circuit bool |.
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wno-missing-field-initializers;-Wno-invalid-offsetof;-Wno-ignored-attributes;-Wno-overloaded-virtual;-Wno-duplicate-decl-specifier;-Wno-misleading-indentation;-Wno-logical-op-parentheses;-Wno-missing-braces;-Wno-bitwise-instead-of-logical>"
+    # No C library: LLVM must not turn string-length loops into strlen/wcslen calls.
+    "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-builtin-strlen;-fno-builtin-wcslen>")
 
 add_library(maicord_runtime OBJECT
     src/core/runtime_x64.asm)

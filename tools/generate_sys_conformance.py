@@ -528,7 +528,13 @@ def render(header, relative):
     out.append('')
     for name in header.macros:
         out += [f'#if !defined({name})', f'#error "{name}: the SDK does not define it"', '#endif']
-    for name in header.functions + header.typedefs + header.tags + header.guids:
+    # A compiler builtin (the interlocked and other intrinsics) has no header
+    # declaration; redeclaring it with another type is still an error.
+    for name in header.functions:
+        out += [f'#if !__has_builtin({name})',
+                f'__if_not_exists(::{name}) {{ static_assert(false, "{name}: the SDK does not declare it"); }}',
+                '#endif']
+    for name in header.typedefs + header.tags + header.guids:
         out.append(f'__if_not_exists(::{name}) {{ static_assert(false, "{name}: the SDK does not declare it"); }}')
     out += ['', f'#include "{relative[len("include/"):]}"', '', 'namespace maicord_sdk_mirror {}',
             'namespace M = maicord_sdk_mirror;', 'using namespace maicord_sys_check;', '']

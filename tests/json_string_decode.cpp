@@ -154,10 +154,10 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
         u64 remaining = number; u32 start = sizeof(integer_input) - 1;
         do { integer_input[--start] = static_cast<char>('0' + remaining % 10); remaining /= 10; } while (remaining);
         u64 parsed = 0;
-        integer_valid = integer_valid && json_string_to_u64({{integer_input + start, sizeof(integer_input) - 1 - start}, 0, false}, &parsed) && parsed == number;
-        integer_valid = integer_valid && json_value_to_u64({{integer_input + start, sizeof(integer_input) - 1 - start}, 0, JsonValueKind::number}, &parsed) && parsed == number;
+        integer_valid = integer_valid && json_string_to_u64({{integer_input + start, static_cast<u32>(sizeof(integer_input) - 1 - start)}, 0, false}, &parsed) && parsed == number;
+        integer_valid = integer_valid && json_value_to_u64({{integer_input + start, static_cast<u32>(sizeof(integer_input) - 1 - start)}, 0, JsonValueKind::number}, &parsed) && parsed == number;
         integer_input[sizeof(integer_input) - 1] = static_cast<char>('0' + run % 10);
-        integer_valid = integer_valid && compare_integer({integer_input + start, sizeof(integer_input) - start});
+        integer_valid = integer_valid && compare_integer({integer_input + start, static_cast<u32>(sizeof(integer_input) - start)});
     }
     check(integer_valid, "JSON integer agrees with scalar reference on randomized inputs and u64 round trips");
     auto* integer_guard = static_cast<char*>(VirtualAlloc(nullptr, 8192, MEM_RESERVE, PAGE_NOACCESS));

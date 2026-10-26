@@ -9,7 +9,7 @@ inline bool glyph_effect_space(u32 cp) noexcept {
 // Ordinal of one glyph: the count of preceding non-space, non-color scalars.
 // Used when glyph_effect_prepare rejects the input.
 #if defined(NDEBUG)
-#pragma optimize("s",on)
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 #endif
 __declspec(noinline) inline u32 glyph_effect_ordinal(const ShapedText& text,Utf8View source,u32 glyph,GlyphEffectColor color,void* context) noexcept {
     if((source.bytes&&!source.data)||(text.cluster_count&&!text.clusters)||!color)return 0;
@@ -23,7 +23,7 @@ __declspec(noinline) inline u32 glyph_effect_ordinal(const ShapedText& text,Utf8
     return logical;
 }
 #if defined(NDEBUG)
-#pragma optimize("",on)
+#pragma clang attribute pop
 #endif
 // Caller owns writable glyph storage. Only TextGlyph::reserved is changed.
 // 0 = no cluster start, 1 = mapped only by a skipped UTF-16 unit, n+2 = first

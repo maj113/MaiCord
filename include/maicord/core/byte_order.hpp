@@ -4,8 +4,6 @@
 #include "maicord/sys/crt.hpp"
 #include "maicord/sys/intrin.hpp"
 
-#pragma intrinsic(memcpy, _byteswap_ushort, _byteswap_ulong, _byteswap_uint64)
-
 namespace maicord {
 
 // Loads and stores accept unaligned input and touch exactly the named width.

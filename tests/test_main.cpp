@@ -201,7 +201,6 @@ namespace maicord {
 namespace {
 
 u32 g_failures = 0;
-u32 g_checks = 0;
 using RuntimeCopyFunction = void*(__cdecl*)(void*, const void*, unsigned long long);
 using RuntimeSetFunction = void*(__cdecl*)(void*, int, unsigned long long);
 RuntimeCopyFunction volatile g_runtime_copy = &memcpy;
@@ -298,7 +297,6 @@ template <usize Count> constexpr ConstSlice<u8> byte_literal(const char (&text)[
 const char* volatile g_last_check = "none";
 
 void expect(bool condition, const char* name) noexcept {
-    ++g_checks;
     g_last_check = name;
     if (!condition) {
         ++g_failures;
@@ -22741,7 +22739,6 @@ void test_gateway_commands() noexcept {
     }
     bool unchanged = true;
     const char invalid_utf8[] = {static_cast<char>(0xC0), static_cast<char>(0xAF)};
-    GatewayEnvelope envelope{};
 
     const GatewayUserIdentify user_identify{
         utf8_literal("user\"\n-token"),

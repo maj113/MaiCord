@@ -111,7 +111,7 @@ u32 poll_batch_count, poll_batch_next;
 bool scoped_gateway_replace_scope;
 u8 scoped_gateway_payload[kGatewayBulkDeleteMaximumIds * sizeof(u64)]{};
 u32 scoped_gateway_payload_bytes;
-u32 navigation_fetches, navigation_cancels, navigation_moves, navigation_composer_refreshes;
+u32 navigation_fetches, navigation_cancels, navigation_moves;
 u64 navigation_cancelled_id;
 bool navigation_cancel_before_reset;
 u32 forum_gateway_notifications;
@@ -196,7 +196,6 @@ GatewayClientPopResult WINAPI diagnostic_pop(void* source, GatewayClientEvent* e
 void application_log_account_observations(const AccountModuleStatus&, u32) noexcept {
 }
 bool refresh_message_composer_ui() noexcept {
-    ++navigation_composer_refreshes;
     return true;
 }
 bool application_navigate_known_message(u64 channel, u64 message) noexcept {

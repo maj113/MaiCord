@@ -66,7 +66,6 @@ foreach(target MaiCordColrReference MaiCordColrBuildBenchmark)
         "$<TARGET_PROPERTY:maicord_compile_contract,INTERFACE_COMPILE_DEFINITIONS>")
     target_compile_features(${target} PRIVATE cxx_std_23)
     target_compile_options(${target} PRIVATE /GR- /utf-8 /fp:fast /arch:AVX)
-    target_link_options(${target} PRIVATE /LTCG)
     foreach(library maicord_renderer maicord_text maicord_paint_program maicord_font maicord_render_core
             maicord_core maicord_unicode maicord_ui maicord_media_core)
         target_link_libraries(${target} PRIVATE "$<TARGET_FILE:${library}>")

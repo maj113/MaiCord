@@ -3,8 +3,6 @@
 #include "maicord/media/deflate.hpp"
 #include "maicord/sys/d3d11.hpp"
 
-#pragma intrinsic(_alloca)
-
 namespace maicord {
 namespace {
 struct PackedShader { u32 offset, packed_bytes, raw_bytes; };

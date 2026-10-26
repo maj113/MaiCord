@@ -8,5 +8,5 @@
 #include <limits.h>
 #endif
 
-#define INT_MAX 2147483647
-#define UINT_MAX 0xffffffff
+#define INT_MAX __INT_MAX__
+#define UINT_MAX (__INT_MAX__ *2U +1U)

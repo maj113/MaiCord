@@ -2787,6 +2787,8 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                                                       2);
         }
         return ok;
+    case UiSettingsControlKind::error:
+        break;
     }
     return true;
 }

@@ -3,7 +3,7 @@
 #include "maicord/text/font_names.hpp"
 #include "maicord/sys/intrin.hpp"
 // Font-family discovery is outside warm drawing; keep its parser compact.
-#pragma optimize("s",on)
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace maicord::family_reference {namespace {
 bool separator(u16 c) noexcept {return c==32||c==9||c==10||c==13||c=='.'||c=='-'||c=='_';}
 u16 lower(u16 c) noexcept {return c>='A'&&c<='Z'?static_cast<u16>(c+32):c;}
@@ -115,4 +115,4 @@ SfntStatus reference_font_family(const SfntFace& face,Slice<u16> output,NativeFo
 }
 }
 
-#pragma optimize("",on)
+#pragma clang attribute pop

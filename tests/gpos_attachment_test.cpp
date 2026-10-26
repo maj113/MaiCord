@@ -6,7 +6,7 @@ namespace maicord {namespace {
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
 void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
-u64 glyph_queries=0,anchor_checks=0,null_anchors=0,device_samples=0,target_rows=0,budget_checks=0;u32 failures=0;
+u64 glyph_queries=0,anchor_checks=0,null_anchors=0,device_samples=0,target_rows=0,budget_checks=0;
 volatile u32 observations=0;
 struct Reader {ConstSlice<u8> data;u32 at=0;
     bool word(u32* v) noexcept {if(data.count-at<4)return false;*v=byte_load_le32(data.data+at);at+=4;return true;}

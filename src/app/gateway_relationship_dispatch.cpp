@@ -133,7 +133,7 @@ bool publish_presence(void* opaque, u32, JsonValue value) noexcept {
         bool has_activities = false;
         if (user_activities_decode(document, root, presence.value.user_id, &activities, &has_activities) &&
             has_activities && activities.count) {
-            rich = user_activities_write(activities, {extra + extra_bytes, sizeof(extra) - extra_bytes});
+            rich = user_activities_write(activities, {extra + extra_bytes, static_cast<u32>(sizeof(extra) - extra_bytes)});
             extra_bytes += rich;
         }
     }

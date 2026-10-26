@@ -42,7 +42,7 @@ bool units() noexcept {
     if(!unreachable_units())return false;
     Fixture f{};SfntGsubProgram program{};if(!fixture(1,&f) || !prepare(f,&program))return false;
     for(u32 mode=0;mode<4;++mode){copy_bytes(glyphs,f.input.data,f.input.count);SfntGlyphBuffer buffer{};
-        if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),(f.count+(mode?8u:0u))*sizeof(SfntGsubGlyph)},sizeof(SfntGsubGlyph),f.count,&buffer)!=SfntStatus::ok)return false;
+        if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),static_cast<u32>((f.count+(mode?8u:0u))*sizeof(SfntGsubGlyph))},sizeof(SfntGsubGlyph),f.count,&buffer)!=SfntStatus::ok)return false;
         auto temp=scratch();if(mode==1)temp.replacements.count=sizeof(SfntGsubGlyph);SfntGsubExecutionResult result{};
         const auto status=sfnt_gsub_execute_lookup(program,0,&buffer,0,f.count,0,temp,{mode==2?f.count:1000000u,mode==3?0u:100000u},&result);
         if(status!=(mode<2?SfntStatus::output_too_small:SfntStatus::resource_limit) || result.edits || !bytes_equal(glyphs,f.input.data,f.input.count) || buffer.gap_begin!=f.count)return false;
@@ -111,7 +111,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         for(u32 mode=0;mode<3;++mode){auto* directory=mode?direct_lookups:lookups;program.lookups.data=mode==2?nullptr:directory;program.source=mode==2?&sparse:nullptr;
         for(u32 gate=0;gate<3;++gate){for(u32 i=0;i<program.lookups.count;++i)directory[i].bounds.ready=gate==2?prepared_bounds[i]:static_cast<u16>(gate);
         for(u32 split=0;split<=n;++split){copy_bytes(glyphs,input.data,input.count);SfntGlyphBuffer buffer{};const u32 capacity=maximum(n,expected_count)+8;
-            if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),capacity*sizeof(SfntGsubGlyph)},sizeof(SfntGsubGlyph),n,&buffer)!=SfntStatus::ok || sfnt_glyph_buffer_seek(&buffer,split)!=SfntStatus::ok)return false;
+            if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),static_cast<u32>(capacity*sizeof(SfntGsubGlyph))},sizeof(SfntGsubGlyph),n,&buffer)!=SfntStatus::ok || sfnt_glyph_buffer_seek(&buffer,split)!=SfntStatus::ok)return false;
             SfntGsubExecutionResult result{};const auto status=sfnt_gsub_execute_lookup(program,static_cast<u16>(index),&buffer,start,end,alt,scratch(),{1000000,100000},&result);
             const auto view=sfnt_glyph_buffer_view(buffer);bool pass=status==SfntStatus::ok && sfnt_glyph_count(view)==expected_count && result.input_end==expected_count;
             for(u32 i=0;i<minimum(expected_count,sfnt_glyph_count(view));++i){const u16 want=static_cast<u16>(expected.data[i*2]|(static_cast<u16>(expected.data[i*2+1])<<8));if(sfnt_glyph_at(view,i).glyph!=want)pass=false;++checked;}
@@ -122,7 +122,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
             if(!pass){++failures;print(utf8_literal("case="));number(c);print(utf8_literal(" split="));number(split);print(utf8_literal(" status="));number(static_cast<u32>(status));print(utf8_literal(" actual="));for(u32 i=0;i<sfnt_glyph_count(view);++i){number(sfnt_glyph_at(view,i).glyph);print(utf8_literal(" "));}print(utf8_literal("\n"));}
             if(pass&&gate&&split==0&&directory[index].subtables.count>=16){const u64 budgets[]{result.operations-1,result.operations,result.operations+1};
                 for(u64 budget:budgets){copy_bytes(glyphs,input.data,input.count);SfntGlyphBuffer limited{};
-                    if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),capacity*sizeof(SfntGsubGlyph)},sizeof(SfntGsubGlyph),n,&limited)!=SfntStatus::ok||sfnt_glyph_buffer_seek(&limited,0)!=SfntStatus::ok)return false;
+                    if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),static_cast<u32>(capacity*sizeof(SfntGsubGlyph))},sizeof(SfntGsubGlyph),n,&limited)!=SfntStatus::ok||sfnt_glyph_buffer_seek(&limited,0)!=SfntStatus::ok)return false;
                     SfntGsubExecutionResult check{};const auto limited_status=sfnt_gsub_execute_lookup(program,static_cast<u16>(index),&limited,start,end,alt,scratch(),{budget,100000},&check);++budget_checks;
                     if(check.operations>budget||limited_status!=(budget<result.operations?SfntStatus::resource_limit:SfntStatus::ok))return false;
                 }

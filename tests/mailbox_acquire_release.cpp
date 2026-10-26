@@ -47,8 +47,10 @@ bool run(bool pin) noexcept {
     stress.count = 10'000;
     // Cross the descriptor counter rollover while independently wrapping the
     // non-power-of-two byte ring thousands of times.
-    stress.mailbox.read_sequence = stress.mailbox.write_sequence = static_cast<LONG>(0xfffffff0u);
-    stress.mailbox.payload_read_sequence = stress.mailbox.payload_write_sequence = 251;
+    stress.mailbox.write_sequence = static_cast<LONG>(0xfffffff0u);
+    stress.mailbox.read_sequence = static_cast<LONG>(0xfffffff0u);
+    stress.mailbox.payload_write_sequence = 251;
+    stress.mailbox.payload_read_sequence = 251;
     DWORD_PTR allowed = 0, system = 0, previous_cpu = 0;
     if (pin && GetProcessAffinityMask(GetCurrentProcess(), &allowed, &system) && allowed) {
         const DWORD_PTR first = allowed & (~allowed + 1);

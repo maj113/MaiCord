@@ -568,7 +568,7 @@ void test_local_preview_thumbnail(void (*check)(bool, const char*) noexcept) noe
     static u8 movie[4096]{};
     u32 at = 0;
     put32(movie + at, 16);
-    copy_bytes(movie + at + 4, "ftypisom    ", 12);
+    copy_bytes(movie + at + 4, "ftypisom\0\0\0\0", 12);
     at += 16;
     put32(movie + at, 1);
     copy_bytes(movie + at + 4, "mdat", 4);

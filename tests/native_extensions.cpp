@@ -170,9 +170,8 @@ void test_gateway_self_status(void (*check)(bool, const char*) noexcept) noexcep
 void test_application_plugin_settings_projection(void (*check)(bool, const char*) noexcept) noexcept;
 void test_plugin_preferences(void (*check)(bool, const char*) noexcept) noexcept;
 namespace {
-u32 checks = 0, failures = 0;
+u32 failures = 0;
 void check(bool success, const char* name) noexcept {
-    ++checks;
     if (success)
         return;
     ++failures;

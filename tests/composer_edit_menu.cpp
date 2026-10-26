@@ -8,7 +8,7 @@
 #include "../src/app/account_ui_runtime.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord::app_detail {
-namespace { bool composing; u32 applied; }
+namespace { bool composing; }
 bool application_composer_text_input_composing() noexcept { return composing; }
 void end_message_composer_pointer_selection() noexcept {}
 bool focus_message_composer_control(MessageComposerControl control) noexcept {
@@ -18,7 +18,6 @@ bool focus_message_composer_control(MessageComposerControl control) noexcept {
     return true;
 }
 bool composer_apply_result(MessageComposerResult result, bool) noexcept {
-    if (result == MessageComposerResult::changed) ++applied;
     return result == MessageComposerResult::changed || result == MessageComposerResult::unchanged || result == MessageComposerResult::capacity;
 }
 bool dismiss_popup() noexcept { popup_scene_close(&g_app.popup_scene); g_app.popup_owner_kind = PopupOwnerKind::none; return true; }

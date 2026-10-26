@@ -6,6 +6,7 @@
 // reached through their vtables. Nothing here ships.
 #include "perf_startup.hpp"
 #include "perf_owners.hpp"
+#include "perf_imports.hpp"
 
 #include "maicord/core/base.hpp"
 
@@ -721,12 +722,6 @@ bool same_name(const char* a, const char* b) noexcept {
 }
 
 void install_hooks() noexcept {
-    auto* base = reinterpret_cast<u8*>(GetModuleHandleW(nullptr));
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-    const auto& directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (!directory.VirtualAddress)
-        return;
     struct Hook {
         const char* name;
         void* replacement;
@@ -748,40 +743,24 @@ void install_hooks() noexcept {
                     MC_ENTRY(WaitForSingleObject),   MC_ENTRY(WaitForSingleObjectEx),
                     MC_ENTRY(WaitForMultipleObjects), MC_ENTRY(MsgWaitForMultipleObjectsEx)};
 #undef MC_ENTRY
-    const auto patch = [&](const IMAGE_THUNK_DATA64* names, IMAGE_THUNK_DATA64* slots) noexcept {
-        for (; names->u1.AddressOfData; ++names, ++slots) {
-            if (IMAGE_SNAP_BY_ORDINAL64(names->u1.Ordinal))
-                continue;
-            const auto* by_name = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
-            for (Hook& hook : hooks) {
-                if (!same_name(reinterpret_cast<const char*>(by_name->Name), hook.name))
-                    continue;
-                DWORD old = 0;
-                if (!VirtualProtect(&slots->u1.Function, sizeof(u64), PAGE_READWRITE, &old))
-                    continue;
-                if (!*hook.original)
-                    *hook.original = reinterpret_cast<void*>(slots->u1.Function);
-                slots->u1.Function = reinterpret_cast<u64>(hook.replacement);
-                VirtualProtect(&slots->u1.Function, sizeof(u64), old, &old);
-            }
-        }
-    };
-    for (auto* import = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(base + directory.VirtualAddress);
-         import->Name; ++import)
-        patch(reinterpret_cast<const IMAGE_THUNK_DATA64*>(
-                  base + (import->OriginalFirstThunk ? import->OriginalFirstThunk : import->FirstThunk)),
-              reinterpret_cast<IMAGE_THUNK_DATA64*>(base + import->FirstThunk));
     // Delay-loaded imports: the slot still holds the image's resolver thunk.
     // Calling it as the "original" resolves the import (overwriting this hook
     // with the real address), so only the first call of each is timed, which
     // includes mapping the DLL when nothing loaded it before.
-    const auto& delayed = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT];
-    if (delayed.VirtualAddress)
-        for (auto* entry = reinterpret_cast<const IMAGE_DELAYLOAD_DESCRIPTOR*>(base + delayed.VirtualAddress);
-             entry->DllNameRVA; ++entry)
-            if (entry->Attributes.RvaBased)
-                patch(reinterpret_cast<const IMAGE_THUNK_DATA64*>(base + entry->ImportNameTableRVA),
-                      reinterpret_cast<IMAGE_THUNK_DATA64*>(base + entry->ImportAddressTableRVA));
+    for_each_import_slot(
+        reinterpret_cast<u8*>(GetModuleHandleW(nullptr)), static_cast<u32>(sizeof(hooks) / sizeof(hooks[0])),
+        [&](u32 i) noexcept { return hooks[i].name; }, true,
+        [&](u32 i, IMAGE_THUNK_DATA64* slot) noexcept {
+            Hook& hook = hooks[i];
+            DWORD old = 0;
+            if (!VirtualProtect(&slot->u1.Function, sizeof(u64), PAGE_READWRITE, &old))
+                return false;
+            if (!*hook.original)
+                *hook.original = reinterpret_cast<void*>(slot->u1.Function);
+            slot->u1.Function = reinterpret_cast<u64>(hook.replacement);
+            VirtualProtect(&slot->u1.Function, sizeof(u64), old, &old);
+            return true;
+        });
 }
 
 struct Line {

@@ -8,9 +8,9 @@
 #include <stddef.h>
 #include "maicord/sys/process_info.hpp"
 namespace maicord {namespace {
-u32 checks=0;bool released=true;
+bool released=true;
 void print(const char* text) noexcept {u32 n=0;while(text[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,n,&written,nullptr);}
-#define CHECK(x) do{++checks;if(!(x)){print("FAIL native format line " #x "\n");return false;}}while(0)
+#define CHECK(x) do{if(!(x)){print("FAIL native format line " #x "\n");return false;}}while(0)
 TextGlyph glyphs[256];TextRun runs[256];u16 clusters[256];TextDecoration decorations[256];TextHitRegion regions[256];
 NativeParagraphHitCluster hit_clusters[256];NativeParagraphHitLine hit_lines[257];float advances[1280];SfntFontLineParts parts[16];
 ShapedText output() noexcept {ShapedText out{};out.glyphs=glyphs;out.glyph_capacity=256;out.runs=runs;out.run_capacity=256;out.clusters=clusters;out.cluster_capacity=256;

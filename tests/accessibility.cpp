@@ -444,7 +444,7 @@ void test_provider(const Scene& scene, UiAccessTree* tree) noexcept {
     IRawElementProviderSimple* disabled = element(&host, ui_access_key(kSurface, widget_identity(45)));
     IInvokeProvider* disabled_invoke = pattern<IInvokeProvider>(disabled, UIA_InvokePatternId);
     const u32 calls = context.act.calls;
-    check(disabled_invoke && disabled_invoke->Invoke() == UIA_E_ELEMENTNOTENABLED && context.act.calls == calls &&
+    check(disabled_invoke && disabled_invoke->Invoke() == static_cast<HRESULT>(UIA_E_ELEMENTNOTENABLED) && context.act.calls == calls &&
               int_property(disabled, UIA_IsEnabledPropertyId) == 0,
           "disabled elements refuse Invoke");
 
@@ -479,7 +479,7 @@ void test_provider(const Scene& scene, UiAccessTree* tree) noexcept {
     const u64 removed_key = ui_access_key(kSurface, 999);
     IRawElementProviderSimple* stale = element(&host, removed_key);
     VARIANT stale_value{};
-    check(stale && stale->GetPropertyValue(UIA_NamePropertyId, &stale_value) == UIA_E_ELEMENTNOTAVAILABLE,
+    check(stale && stale->GetPropertyValue(UIA_NamePropertyId, &stale_value) == static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE),
           "elements for missing keys report ElementNotAvailable");
 
     IUnknown* release[]{root, fragment_root, focus, focused, root_fragment, first, list, row0, row1, back,

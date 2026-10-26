@@ -134,7 +134,7 @@ void test_image_viewer_keys(void (*check)(bool, const char*) noexcept) noexcept 
     using Key = UiImageViewerKey;
     using Command = UiImageViewerCommand;
     UiImageViewer v{};
-    const UiImageViewerKeyModifiers none{}, control{true, false, false}, shift{false, true, false}, alt{false, false, true};
+    const UiImageViewerKeyModifiers control{true, false, false}, shift{false, true, false}, alt{false, false, true};
     check(ui_image_viewer_open(&v, {0, 0, 1280, 800}, {1600, 900}) &&
               ui_image_viewer_set_item(&v, {1600, 900}, 0, 3, false),
           "viewer keys: gallery opens");

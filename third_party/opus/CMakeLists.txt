@@ -3,7 +3,8 @@
 # (no CRT, no heap). The parent project may set:
 #   MAIOPUS_DECODER_TARGET / MAIOPUS_ENCODER_TARGET  target names
 #   MAIOPUS_LINK_CONTRACT  an INTERFACE target linked privately (link options)
-#   MAIOPUS_LTCG           compile with /GL for whole-program optimization
+#   MAIOPUS_LTCG           compile for whole-program optimization with
+#                          MAIOPUS_LTCG_OPTION (default -flto)
 #   MAIOPUS_SSE4_1         use the x86 SSE4.1 kernels (compile-time selection,
 #                          no runtime CPU dispatch)
 #   MAIOPUS_ARCH           extra code generation option, e.g. /arch:AVX
@@ -21,8 +22,11 @@ set(maiopus_definitions
 # heap or float math path.
 set(maiopus_options /W3 /Zl /GS- /Gy /Gw /GF /Oi /utf-8 /Brepro)
 if(MAIOPUS_LTCG)
-    # A literal option: test builds strip /GL with list(REMOVE_ITEM).
-    list(APPEND maiopus_options /GL)
+    # A literal option: test builds strip it with list(REMOVE_ITEM).
+    if(NOT DEFINED MAIOPUS_LTCG_OPTION)
+        set(MAIOPUS_LTCG_OPTION -flto)
+    endif()
+    list(APPEND maiopus_options ${MAIOPUS_LTCG_OPTION})
 endif()
 if(MAIOPUS_ARCH)
     list(APPEND maiopus_options ${MAIOPUS_ARCH})

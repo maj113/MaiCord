@@ -4,8 +4,6 @@
 #include "maicord/sys/crt.hpp"
 #include "maicord/sys/intrin.hpp"
 
-#pragma intrinsic(__stosb)
-
 namespace maicord {
 
 // The runtime's memmove and memset accept a zero count with any pointers.

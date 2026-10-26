@@ -1828,7 +1828,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
 # The constinit probe state (renderer plus every scene owner) exceeds the
 # default constant-evaluation step budget.
 set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/showcase_probe.cpp
-    PROPERTIES COMPILE_OPTIONS "/constexpr:steps8388608")
+    PROPERTIES COMPILE_OPTIONS /clang:-fconstexpr-steps=8388608)
 # The caption probe decodes the client's own icon resource.
 add_dependencies(MaiCordUiProbe maicord_app_icon)
 # The single-scene WIN32 probes link the renderer stack and run with GPU metrics.

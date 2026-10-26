@@ -6,6 +6,7 @@
 // output. tools/perf/run_perf.ps1 aggregates several runs.
 #include "perf_probe.hpp"
 #include "perf_owners.hpp"
+#include "perf_imports.hpp"
 #include "perf_startup.hpp"
 #include "../../src/app/application_state.hpp"
 #include "../../src/app/application_account_presentation.hpp"
@@ -621,27 +622,9 @@ BOOL WINAPI hook_heap_free(HANDLE heap, DWORD flags, LPVOID memory) noexcept {
     return g_heap_free(heap, flags, memory);
 }
 
-bool name_equals(const char* a, const char* b) noexcept {
-    while (*a && *b) {
-        char x = *a++, y = *b++;
-        if (x >= 'A' && x <= 'Z')
-            x = static_cast<char>(x + 32);
-        if (y >= 'A' && y <= 'Z')
-            y = static_cast<char>(y + 32);
-        if (x != y)
-            return false;
-    }
-    return *a == *b;
-}
-
 u32 install_import_hooks() noexcept {
     auto* base = reinterpret_cast<u8*>(GetModuleHandleW(nullptr));
     g_image_base = reinterpret_cast<u64>(base);
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-    const auto& directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (!directory.VirtualAddress)
-        return 0;
     struct Hook {
         const char* name;
         void* replacement;
@@ -655,28 +638,19 @@ u32 install_import_hooks() noexcept {
         {"HeapFree", reinterpret_cast<void*>(hook_heap_free), reinterpret_cast<void**>(&g_heap_free)},
     };
     u32 installed = 0;
-    for (auto* import = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(base + directory.VirtualAddress);
-         import->Name; ++import) {
-        auto* names = reinterpret_cast<const IMAGE_THUNK_DATA64*>(
-            base + (import->OriginalFirstThunk ? import->OriginalFirstThunk : import->FirstThunk));
-        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA64*>(base + import->FirstThunk);
-        for (; names->u1.AddressOfData; ++names, ++slots) {
-            if (IMAGE_SNAP_BY_ORDINAL64(names->u1.Ordinal))
-                continue;
-            const auto* by_name = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
-            for (Hook& hook : hooks) {
-                if (!name_equals(reinterpret_cast<const char*>(by_name->Name), hook.name))
-                    continue;
-                DWORD old = 0;
-                if (!VirtualProtect(&slots->u1.Function, sizeof(u64), PAGE_READWRITE, &old))
-                    continue;
-                *hook.original = reinterpret_cast<void*>(slots->u1.Function);
-                slots->u1.Function = reinterpret_cast<u64>(hook.replacement);
-                VirtualProtect(&slots->u1.Function, sizeof(u64), old, &old);
-                ++installed;
-            }
-        }
-    }
+    for_each_import_slot(
+        base, static_cast<u32>(sizeof(hooks) / sizeof(hooks[0])), [&](u32 i) noexcept { return hooks[i].name; },
+        false, [&](u32 i, IMAGE_THUNK_DATA64* slot) noexcept {
+            Hook& hook = hooks[i];
+            DWORD old = 0;
+            if (!VirtualProtect(&slot->u1.Function, sizeof(u64), PAGE_READWRITE, &old))
+                return false;
+            *hook.original = reinterpret_cast<void*>(slot->u1.Function);
+            slot->u1.Function = reinterpret_cast<u64>(hook.replacement);
+            VirtualProtect(&slot->u1.Function, sizeof(u64), old, &old);
+            ++installed;
+            return true;
+        });
     return installed;
 }
 

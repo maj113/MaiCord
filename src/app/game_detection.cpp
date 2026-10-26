@@ -273,7 +273,7 @@ bool registered_games_load(RegisteredGames* games) noexcept {
     u8 record[5 + kRegisteredGameMaximum * (2 + kRegisteredGameNameBytes + kRegisteredGameExecutableBytes)];
     LARGE_INTEGER size{};
     u32 native = 0;
-    const bool read = GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart <= sizeof(record) &&
+    const bool read = GetFileSizeEx(file, &size) && size.QuadPart > 0 && static_cast<u64>(size.QuadPart) <= sizeof(record) &&
                       file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native);
     CloseHandle(file);
     return read && registered_games_decode({record, static_cast<u32>(size.QuadPart)}, games);

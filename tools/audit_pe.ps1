@@ -78,12 +78,18 @@ if ($MaximumInitializedDataBytes -ge 0) {
     }
 }
 
-# dumpbin lists static imports first, then a delay-load section.
+# dumpbin lists static imports first, then a delay-load section. A DLL name
+# line is followed by the descriptor's Import Address Table (static) or
+# Characteristics (delay-load) line. The loader appends ".dll" to a name
+# without an extension, so the image may omit it; names compare with it.
 $importParts = $imports -split 'Section contains the following delay load imports:', 2
-$staticDlls = @([regex]::Matches($importParts[0], '(?im)^\s+([^\s]+\.dll)\s*$') | ForEach-Object { $_.Groups[1].Value })
-$delayDlls = @(if ($importParts.Count -gt 1) {
-    [regex]::Matches($importParts[1], '(?im)^\s+([^\s]+\.dll)\s*$') | ForEach-Object { $_.Groups[1].Value }
-})
+$dllNames = {
+    param($text)
+    [regex]::Matches($text, '(?im)^\s+(\S+)\s*\r?\n\s+[0-9A-F]+ (Import Address Table|Characteristics)\s*$') |
+        ForEach-Object { $name = $_.Groups[1].Value; if ($name -match '\.[^.\\/]*$') { $name } else { "$name.dll" } }
+}
+$staticDlls = @(& $dllNames $importParts[0])
+$delayDlls = @(if ($importParts.Count -gt 1) { & $dllNames $importParts[1] })
 $expectedDelay = @($DelayLoad | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
 $actualDelay = @($delayDlls | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
 if (($expectedDelay -join ',') -ne ($actualDelay -join ',')) {
@@ -95,30 +101,23 @@ foreach ($name in $expectedDelay) {
     }
 }
 
-$forbidden = @(
-    'ucrtbase.dll',
-    'vcruntime',
-    'msvcp',
-    'api-ms-win-crt',
-    'd3dcompiler',
-    'dxcompiler',
-    'webauthn.dll',
-    'libcrypto',
-    'libssl',
-    'libcef.dll',
-    'chrome_elf.dll',
-    'WebView2Loader.dll',
-    'electron.dll'
-)
+$forbiddenDlls = @('ucrtbase.dll', 'webauthn.dll', 'libcef.dll', 'chrome_elf.dll', 'WebView2Loader.dll', 'electron.dll')
+$forbiddenText = @('vcruntime', 'msvcp', 'api-ms-win-crt', 'd3dcompiler', 'dxcompiler', 'libcrypto', 'libssl')
 if ($ForbidMediaFoundation) {
-    $forbidden += @('mf.dll', 'mfplat.dll', 'mfreadwrite.dll', 'msmpg2vdec.dll',
-                    'MFStartup', 'MFCreate', 'MFTEnum')
+    $forbiddenDlls += @('mf.dll', 'mfplat.dll', 'mfreadwrite.dll', 'msmpg2vdec.dll')
+    $forbiddenText += @('MFStartup', 'MFCreate', 'MFTEnum')
 }
 if ($ForbidDirectWrite) {
-    $forbidden += @('dwrite.dll', 'dwritecore.dll', 'DWriteCreateFactory', 'DWriteCoreCreateFactory')
+    $forbiddenDlls += @('dwrite.dll', 'dwritecore.dll')
+    $forbiddenText += @('DWriteCreateFactory', 'DWriteCoreCreateFactory')
 }
 
-foreach ($name in $forbidden) {
+foreach ($name in $forbiddenDlls) {
+    if (@($staticDlls + $delayDlls | Where-Object { $_ -ieq $name }).Count) {
+        throw "Forbidden runtime import found: $name"
+    }
+}
+foreach ($name in $forbiddenText) {
     if ($imports -match [regex]::Escape($name)) {
         throw "Forbidden runtime import found: $name"
     }

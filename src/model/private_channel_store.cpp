@@ -2,7 +2,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/sys/crt.hpp"
-#pragma intrinsic(_alloca)
 
 namespace maicord {
 namespace {

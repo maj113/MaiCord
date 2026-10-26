@@ -608,7 +608,7 @@ GuildModerationResult guild_moderation_write_target(const GuildModerationRequest
         if (ok && text.bytes) {
             ok = protocol_writer_append_literal(&w, "&query=");
             const auto encoded =
-                ok ? rest_encode_audit_reason(text, {target + w.used, sizeof(target) - w.used}) : RestAuditReasonResult{};
+                ok ? rest_encode_audit_reason(text, {target + w.used, static_cast<u32>(sizeof(target) - w.used)}) : RestAuditReasonResult{};
             ok = ok && encoded.ok;
             w.used += ok ? encoded.bytes : 0;
         }

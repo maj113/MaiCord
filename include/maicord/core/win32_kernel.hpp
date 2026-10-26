@@ -17,7 +17,14 @@
 #define TEXT(quote) __TEXT(quote)
 #define STDMETHODCALLTYPE __stdcall
 #define MAXDWORD 0xffffffff
+#ifdef __has_builtin
+#if __has_builtin(__builtin_offsetof)
+#define FIELD_OFFSET(type, field) ((LONG)__builtin_offsetof(type, field))
+#endif
+#endif
+#ifndef FIELD_OFFSET
 #define FIELD_OFFSET(type, field) ((LONG)(LONG_PTR)&(((type *)0)->field))
+#endif
 #define LOCALE_NAME_MAX_LENGTH 85
 #define STATUS_WAIT_0 ((DWORD )0x00000000L)
 #define STATUS_ABANDONED_WAIT_0 ((DWORD )0x00000080L)

@@ -1,8 +1,5 @@
-"""Merge static-analysis SARIF for code scanning and gate releases on new findings.
+"""Gate releases on new static-analysis (CodeQL) SARIF findings.
 
-merge: combines MSVC /analyze logs (one per source) into one deduplicated run with
-repository-relative paths, dropping rules listed with --ignore and results outside
-the repository (SDK headers).
 check: fails on gated findings that the baseline does not list. A finding is gated
 when its rule is in --rules or its security severity is at least --min-severity.
 Baseline entries are rule|path|message (no line numbers, which move with edits);
@@ -23,7 +20,7 @@ def sarif_files(inputs):
 
 def relative_uri(run, location, root):
     artifact = location.get('physicalLocation', {}).get('artifactLocation', {})
-    if 'uri' not in artifact and 'index' in artifact:  # MSVC: an index into the run's artifacts.
+    if 'uri' not in artifact and 'index' in artifact:  # An index into the run's artifacts.
         artifact = run.get('artifacts', [])[artifact['index']].get('location', {})
     uri = artifact.get('uri', '')
     if artifact.get('uriBaseId') or not uri:
@@ -72,29 +69,6 @@ def fingerprint(result, path):
     return f"{result.get('ruleId')}|{path}|{message(result)}"
 
 
-def merge(args, root):
-    driver, rules, results = None, {}, []
-    for run, run_rules, result, path in findings(sarif_files(args.input), root, set(args.ignore)):
-        driver = driver or run['tool']['driver']
-        rules.update({k: v for k, v in run_rules.items() if k == result.get('ruleId')})
-        for location in result['locations']:
-            location.get('physicalLocation', {})['artifactLocation'] = {'uri': path}
-        result.pop('ruleIndex', None)
-        result.pop('relatedLocations', None)  # Indexes into the per-source artifact tables.
-        results.append(result)
-    # MSVC logs carry no rule metadata; give each rule its documentation page.
-    for rule_id in sorted({result.get('ruleId') for result in results} - rules.keys()):
-        rules[rule_id] = {'id': rule_id, 'helpUri': f'https://learn.microsoft.com/cpp/code-quality/{rule_id.lower()}'}
-    tool = {'name': (driver or {}).get('name', args.tool), 'rules': list(rules.values())}
-    for field in ('version', 'semanticVersion', 'informationUri'):
-        if driver and driver.get(field):
-            tool[field] = driver[field]
-    sarif = {'version': '2.1.0', '$schema': 'https://json.schemastore.org/sarif-2.1.0.json',
-             'runs': [{'tool': {'driver': tool}, 'results': results}]}
-    Path(args.output).write_text(json.dumps(sarif), encoding='utf-8')
-    print(f'{len(results)} findings, {len(rules)} rules -> {args.output}')
-
-
 def check(args, root):
     gated = {}
     for _, rules, result, path in findings(sarif_files(args.input), root, set(args.ignore)):
@@ -120,24 +94,16 @@ def check(args, root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
-    for name in ('merge', 'check'):
-        command = commands.add_parser(name)
-        command.add_argument('--input', nargs='+', required=True)
-        command.add_argument('--ignore', nargs='*', default=[])
-        command.add_argument('--root', default='.')
-    commands.choices['merge'].add_argument('--output', required=True)
-    commands.choices['merge'].add_argument('--tool', default='MSVC Code Analysis')
-    gate = commands.choices['check']
+    gate = commands.add_parser('check')
+    gate.add_argument('--input', nargs='+', required=True)
+    gate.add_argument('--ignore', nargs='*', default=[])
+    gate.add_argument('--root', default='.')
     gate.add_argument('--baseline', required=True)
     gate.add_argument('--rules', nargs='*', default=[])
     gate.add_argument('--min-severity', type=float)
     gate.add_argument('--write-baseline', action='store_true')
     args = parser.parse_args()
-    root = Path(args.root).resolve()
-    if args.command == 'merge':
-        merge(args, root)
-        return 0
-    return check(args, root)
+    return check(args, Path(args.root).resolve())
 
 
 if __name__ == '__main__':

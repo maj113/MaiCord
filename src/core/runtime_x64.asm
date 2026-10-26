@@ -272,6 +272,42 @@ set_done:
     ret
 memset ENDP
 
+; LLVM merges chains of equality comparisons into memcmp calls and keeps some
+; of them as calls when optimizing for size.
+PUBLIC memcmp
+memcmp PROC
+    sub rdx, rcx
+    cmp r8, 8
+    jb compare_tail
+compare_words:
+    mov rax, QWORD PTR [rcx]
+    cmp rax, QWORD PTR [rcx+rdx]
+    jne compare_word_bytes
+    add rcx, 8
+    sub r8, 8
+    cmp r8, 8
+    jae compare_words
+compare_tail:
+    test r8, r8
+    jz compare_equal
+compare_bytes:
+    movzx eax, BYTE PTR [rcx]
+    movzx r9d, BYTE PTR [rcx+rdx]
+    sub eax, r9d
+    jnz compare_done
+    inc rcx
+    dec r8
+    jnz compare_bytes
+compare_equal:
+    xor eax, eax
+compare_done:
+    ret
+compare_word_bytes:
+    ; The words differ, so the byte loop stops within them.
+    mov r8d, 8
+    jmp compare_bytes
+memcmp ENDP
+
 ; Probe every intervening stack page before a large compiler-generated frame.
 ; Entry: RAX = requested frame size. Exit: RAX and all GPRs preserved; flags are
 ; clobbered. The caller performs the actual RSP subtraction after this returns.

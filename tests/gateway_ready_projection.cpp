@@ -1138,7 +1138,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
         self_thread.thread.thread_id==41&&self_thread.flags==gateway_notification_channel_metadata&&(self_thread.gates&notification_gate_age_access),
         "full guild validates clear age defaults and sparse sensitive or manageable rows only");
     const u32 ordinary_age_bytes=ordinary_payload.count;
-    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,ordinary_age_bytes+sizeof(GatewayClientNotificationSidecar)},{},1,&guild_event,&guild_payload).ok()&&
+    check(gateway_client_route_dispatch(envelope,{records,16384},64,{payload,static_cast<u32>(ordinary_age_bytes+sizeof(GatewayClientNotificationSidecar))},{},1,&guild_event,&guild_payload).ok()&&
         gateway_client_notification_trim(guild_event,guild_payload,&ordinary,&ordinary_payload)&&
         gateway_client_notification_sidecar({guild_payload.data+ordinary_payload.count,guild_event.notification_payload_bytes},&side,&side_rows)&&
         (side.flags&gateway_notification_incomplete)&&!(side.flags&gateway_notification_channel_age_baseline_complete)&&side.thread_count==0&&side.known_gates==0,

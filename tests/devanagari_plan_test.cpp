@@ -46,7 +46,7 @@ ConstSlice<u32> indic_input_fixture(u16 id) noexcept {
     if(!size||size%sizeof(u32))return {};
     const auto data=LockResource(LoadResource(nullptr,resource));
     if(!data)return {};
-    return {static_cast<const u32*>(data),size/sizeof(u32)};
+    return {static_cast<const u32*>(data),static_cast<u32>(size/sizeof(u32))};
 }
 #include "tamil_plan_units.inc"
 #include "bengali_plan_units.inc"

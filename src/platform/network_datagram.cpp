@@ -18,7 +18,7 @@ NetworkResult network_datagram_open(NetworkLoop* loop, NetworkDatagram* datagram
                                     i32 peer_bytes) noexcept {
     if (!loop || !loop->completion_port || !datagram || datagram->open || !network_datagram_idle(*datagram) ||
         datagram->generation == ~u32{0} || !peer ||
-        peer_bytes < sizeof(ADDRESS_FAMILY))
+        static_cast<u64>(peer_bytes) < sizeof(ADDRESS_FAMILY))
         return fail(NetworkError::invalid_argument);
     const bool v4 = peer->sa_family == AF_INET && peer_bytes == sizeof(sockaddr_in) &&
                     reinterpret_cast<const sockaddr_in*>(peer)->sin_port;

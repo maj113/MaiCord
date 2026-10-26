@@ -18,12 +18,19 @@ void check(bool passed, const char* label) noexcept {
 char lower(char c) noexcept {
     return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c;
 }
+// b names a DLL with its ".dll" extension. The loader appends ".dll" to a
+// module name without an extension, so a may omit it.
 bool same_name(const char* a, const char* b, u32 b_length) noexcept {
     u32 i = 0;
-    for (; i < b_length; ++i)
-        if (!a[i] || lower(a[i]) != lower(b[i]))
+    for (; i < b_length && a[i]; ++i)
+        if (lower(a[i]) != lower(b[i]))
             return false;
-    return a[i] == 0;
+    if (a[i])
+        return false;
+    if (i == b_length)
+        return true;
+    return b_length - i == 4 && b[i] == '.' && lower(b[i + 1]) == 'd' && lower(b[i + 2]) == 'l' &&
+           lower(b[i + 3]) == 'l';
 }
 
 struct Image {

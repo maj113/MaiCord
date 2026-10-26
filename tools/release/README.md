@@ -67,7 +67,7 @@ not involved.
 
 - **Stable** (`release.yml`, on a `vX.Y.Z` tag): the release is created as a
   draft and every asset is uploaded while static analysis (`analysis.yml`:
-  CodeQL and MSVC code analysis) runs beside the build. If analysis finds a
+  CodeQL) runs beside the build. If analysis finds a
   gated finding missing from its baseline in `tools/analysis`, the draft is
   deleted and the tag stays for a rerun; otherwise it is published as latest. Then
   `changelogs` writes the stable changelog from the published release notes and

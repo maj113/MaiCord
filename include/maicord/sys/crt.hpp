@@ -26,6 +26,9 @@ extern "C" void* __cdecl memset(void* _Dst, int _Val, size_t _Size);
 
 // <malloc.h>
 extern "C" void* __cdecl _alloca(size_t _Size);
+// clang-cl's <mm_malloc.h> keeps these instead of defining its own.
+#define _mm_free(a)      _aligned_free(a)
+#define _mm_malloc(a, b) _aligned_malloc(a, b)
 
 // <vcruntime_new.h>: placement new.
 #ifndef __PLACEMENT_NEW_INLINE

@@ -300,8 +300,8 @@ int http_tests() noexcept {
         "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\n\r\n",
         "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\nContent-Range: bytes 100-149/*\r\n\r\n",
         "HTTP/1.1 206 Partial Content\r\nContent-Type: video/mp4\r\nContent-Range: bytes 100-149/120\r\n\r\n",
-        "HTTP/1.1 206 Partial Content\r\nContent-Type: multipart/byteranges; boundary=x\r\n"
-        "Content-Range: bytes 100-149/1000\r\n\r\n",
+        ("HTTP/1.1 206 Partial Content\r\nContent-Type: multipart/byteranges; boundary=x\r\n"
+         "Content-Range: bytes 100-149/1000\r\n\r\n"),
     };
     for (const char* text : invalid)
         if (validate(text, 50, range).ok())

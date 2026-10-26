@@ -896,7 +896,9 @@ bool replay_once(PhaseTotals (&totals)[kPhases], u64* committed_peak) noexcept {
     if (!start_runtime()) return false;
     consumer.client = &client;
     consumer.stop = 0;
-    consumer.events = consumer.payload_bytes = consumer.wakes = 0;
+    consumer.wakes = 0;
+    consumer.payload_bytes = 0;
+    consumer.events = 0;
     consumer.errors = 0;
     consumer.thread = CreateThread(nullptr, 256 * 1024, consumer_main, nullptr, 0, nullptr);
     if (!consumer.thread) return false;

@@ -273,7 +273,7 @@ void voice_send_flush(VoiceSend* send, const VoiceSendTransport& t) noexcept {
                                                                                kVoiceFrameSamples,
                                                     t.ssrc);
                 const auto sealed = t.seal(t.context, {packet.opus, packet.bytes},
-                                           {send->datagram + header, sizeof(send->datagram) - header});
+                                           {send->datagram + header, static_cast<u32>(sizeof(send->datagram) - header)});
                 const auto sent = sealed.ok() ? t.send(t.context, {send->datagram, header + sealed.bytes})
                                               : VoiceUdpMediaSend::invalid;
                 if (sent == VoiceUdpMediaSend::busy)

@@ -35,8 +35,9 @@ param(
     [switch]$StartupProbe,
     # Print shipping PE sections and linker-map code extents before cleanup.
     [switch]$SizeReport,
-    # Compile with MSVC code analysis; one SARIF log per source goes to this directory.
-    [string]$AnalysisLog = '',
+    # The LLVM toolchain directory: clang-cl, lld-link and llvm-lib (default: $env:MAICORD_LLVM_BIN, else the sibling
+    # ..\llvm-pe-build\bin). Another toolchain directory reconfigures the build directory from scratch.
+    [string]$LlvmBin = '',
     [hashtable]$PerfArguments = @{}
 )
 
@@ -64,6 +65,12 @@ $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
 $testProfile = $null
 $restoreClient = $false
+$llvm = [IO.Path]::GetFullPath($(if ($LlvmBin) { $LlvmBin } elseif ($env:MAICORD_LLVM_BIN) { $env:MAICORD_LLVM_BIN } else { "$repository\..\llvm-pe-build\bin" }))
+foreach ($tool in 'clang-cl.exe', 'lld-link.exe', 'llvm-lib.exe') {
+    if (!(Test-Path -LiteralPath "$llvm\$tool" -PathType Leaf)) { throw "The build needs $tool in $llvm (-LlvmBin)." }
+}
+$toolchainOptions = @("-DCMAKE_C_COMPILER=$llvm\clang-cl.exe", "-DCMAKE_CXX_COMPILER=$llvm\clang-cl.exe",
+    "-DCMAKE_LINKER=$llvm\lld-link.exe", "-DCMAKE_AR=$llvm\llvm-lib.exe")
 
 function Invoke-Native([string]$Command, [string[]]$Arguments) {
     & $Command @Arguments
@@ -71,7 +78,7 @@ function Invoke-Native([string]$Command, [string[]]$Arguments) {
 }
 function Invoke-Configure([string[]]$Options) {
     if ($NoUpdater) { $Options += '-DMAICORD_UPDATE_REPOSITORY=', '-DMAICORD_UPDATE_PUBLIC_KEY=' }
-    Invoke-Native cmake (@('-S', $repository, '--preset', 'x64-release') + $Options)
+    Invoke-Native cmake (@('-S', $repository, '--preset', 'x64-release') + $toolchainOptions + $Options)
 }
 function Invoke-Build([string[]]$Targets) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
@@ -112,6 +119,17 @@ try {
     $env:PATH = "$installer;$env:PATH"
     Import-Module "$installation\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
     Enter-VsDevShell -VsInstallPath $installation -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+    # CMake fixes the compiler in its cache: another toolchain starts from a fresh cache.
+    $compiler = "$llvm\clang-cl.exe"
+    $cache = Join-Path $build 'CMakeCache.txt'
+    if (Test-Path -LiteralPath $cache) {
+        $cached = [regex]::Match([IO.File]::ReadAllText($cache), '(?m)^CMAKE_CXX_COMPILER:[A-Z]+=(.+?)\r?$')
+        if (!$cached.Success -or [IO.Path]::GetFullPath($cached.Groups[1].Value) -ne [IO.Path]::GetFullPath($compiler)) {
+            Write-Host "Reconfiguring $build for $compiler."
+            Remove-Item -LiteralPath $cache
+            Remove-Item -LiteralPath (Join-Path $build 'CMakeFiles') -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 
     $targets = @(if (!$SkipClient) { 'MaiCord' })
     if ($Test -or $PerfProbe -or $StartupProbe) {
@@ -122,7 +140,7 @@ try {
     }
     $on = { param($value) if ($value) { 'ON' } else { 'OFF' } }
     Invoke-Configure @("-DMAICORD_BUILD_TESTS=$(& $on $Test)", "-DMAICORD_BUILD_PERF_PROBE=$(& $on $PerfProbe)",
-        "-DMAICORD_SIZE_REPORT=$(& $on $SizeReport)", "-DMAICORD_ANALYSIS_LOG=$AnalysisLog",
+        "-DMAICORD_SIZE_REPORT=$(& $on $SizeReport)",
         "-DMAICORD_STARTUP_PROBE=$(& $on $StartupProbe)", "-DMAICORD_TEST_AUDIO_PLAYBACK=$(& $on $AudioPlaybackProbe)",
         "-DMAICORD_TEST_PREBUILT_CLIENT=$(& $on $SkipClient)", "-DMAICORD_TEST_TIMEOUT_SCALE=$TestTimeoutScale",
         "-DMAICORD_TEST_PROFILE_DIRECTORY=$(if ($Test) { $testProfile })", "-DMAICORD_TEST_PROFILE_NAMES=$($TestNames -join ';')")

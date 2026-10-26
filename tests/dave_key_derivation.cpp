@@ -31,8 +31,8 @@ void rfc_vectors(Check check, KdfSha256Workspace& workspace) noexcept {
                                  "19ef24a32c717b167f33a91d6f648bdf96596776afdb6377ac434c1c293ccb04"};
     constexpr const char* okms[]{
         "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865",
-        "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da"
-        "3275600c2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87",
+        ("b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da"
+         "3275600c2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87"),
         "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8"};
     for (u32 test = 0; test != 3; ++test) {
         u8 input[80], salt[80], info[80], prk[40], output[96], expected[96];

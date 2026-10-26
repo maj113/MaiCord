@@ -11,7 +11,7 @@ using Check = void (*)(bool, const char*) noexcept;
 using C = PluginCompatibility;
 using O = PluginUpdateOutcome;
 constexpr PluginIndexArch x64 = PluginIndexArch::x64, arm64 = PluginIndexArch::arm64;
-constexpr u64 settings = 1ull << 0, store = 1ull << 5, timer = 1ull << 6, notify = 1ull << 19, clipboard = 1ull << 17;
+constexpr u64 settings = 1ull << 0, store = 1ull << 5, timer = 1ull << 6, notify = 1ull << 19;
 constexpr u64 owner = 0x4242;
 
 PluginIndexVersion make_version(u32 abi, u32 min_host, u32 max_host, bool has_x64, bool has_arm64, u64 code = 1999,

@@ -1,5 +1,6 @@
 // Allocation owners outside the client image (see perf_owners.hpp). Nothing here ships.
 #include "perf_owners.hpp"
+#include "perf_imports.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/intrin.hpp"
@@ -386,14 +387,6 @@ Hook g_hooks[] = {
     OWNER_CRT(Provider::ucrt),
 };
 
-bool same_name(const char* a, const char* b) noexcept {
-    while (*a && *a == *b) {
-        ++a;
-        ++b;
-    }
-    return *a == *b;
-}
-
 bool wide_has(const wchar_t* name, const wchar_t* needle) noexcept {
     for (const wchar_t* at = name; *at; ++at) {
         u32 k = 0;
@@ -417,71 +410,34 @@ bool slot_in(u64 value, u32 module) noexcept {
     return module != kOwnerNone && value - g_modules[module].base < g_modules[module].size;
 }
 
-// False while the loader has not bound the module's imports yet.
-bool imports_bound(u8* base) noexcept {
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-    const auto& directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (!directory.VirtualAddress)
-        return true;
-    for (auto* import = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(base + directory.VirtualAddress);
-         import->Name; ++import) {
-        if (!import->OriginalFirstThunk)
-            continue;
-        const auto* names = reinterpret_cast<const IMAGE_THUNK_DATA64*>(base + import->OriginalFirstThunk);
-        const auto* slots = reinterpret_cast<const IMAGE_THUNK_DATA64*>(base + import->FirstThunk);
-        if (names->u1.AddressOfData)
-            return slots->u1.Function != names->u1.AddressOfData;
-    }
-    return true;
-}
-
 void patch_module(u32 index) noexcept {
     OwnerModule& module = g_modules[index];
-    auto* base = reinterpret_cast<u8*>(module.base);
-    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
-    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
-    const auto& directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
     module.patched = true;
-    if (!directory.VirtualAddress)
-        return;
     const u32 msvcrt = module_named(L"msvcrt.dll");
     const u32 ucrt = module_named(L"ucrtbase.dll");
-    for (auto* import = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(base + directory.VirtualAddress);
-         import->Name; ++import) {
-        if (!import->OriginalFirstThunk)
-            continue;
-        auto* names = reinterpret_cast<const IMAGE_THUNK_DATA64*>(base + import->OriginalFirstThunk);
-        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA64*>(base + import->FirstThunk);
-        for (; names->u1.AddressOfData; ++names, ++slots) {
-            if (IMAGE_SNAP_BY_ORDINAL64(names->u1.Ordinal))
-                continue;
-            const char* name = reinterpret_cast<const char*>(
-                reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData)->Name);
-            const u64 current = slots->u1.Function;
-            for (Hook& hook : g_hooks) {
-                if (!same_name(name, hook.name))
-                    continue;
-                if ((hook.provider == Provider::msvcrt && !slot_in(current, msvcrt)) ||
-                    (hook.provider == Provider::ucrt && !slot_in(current, ucrt)) ||
-                    (hook.provider == Provider::any &&
-                     (slot_in(current, msvcrt) || slot_in(current, ucrt))))
-                    continue;
-                void** original = static_cast<void**>(hook.original);
-                if (!*original)
-                    *original = reinterpret_cast<void*>(current);
-                if (*original != reinterpret_cast<void*>(current))
-                    break;
-                DWORD old = 0;
-                if (VirtualProtect(&slots->u1.Function, sizeof(u64), PAGE_READWRITE, &old)) {
-                    slots->u1.Function = reinterpret_cast<u64>(hook.replacement);
-                    VirtualProtect(&slots->u1.Function, sizeof(u64), old, &old);
-                    ++g_patched_slots;
-                }
-                break;
+    for_each_import_slot(
+        reinterpret_cast<u8*>(module.base), static_cast<u32>(sizeof(g_hooks) / sizeof(g_hooks[0])),
+        [](u32 i) noexcept { return g_hooks[i].name; }, false,
+        [&](u32 i, IMAGE_THUNK_DATA64* slot) noexcept {
+            const Hook& hook = g_hooks[i];
+            const u64 current = slot->u1.Function;
+            if ((hook.provider == Provider::msvcrt && !slot_in(current, msvcrt)) ||
+                (hook.provider == Provider::ucrt && !slot_in(current, ucrt)) ||
+                (hook.provider == Provider::any && (slot_in(current, msvcrt) || slot_in(current, ucrt))))
+                return false;
+            void** original = static_cast<void**>(hook.original);
+            if (!*original)
+                *original = reinterpret_cast<void*>(current);
+            if (*original != reinterpret_cast<void*>(current))
+                return true;
+            DWORD old = 0;
+            if (VirtualProtect(&slot->u1.Function, sizeof(u64), PAGE_READWRITE, &old)) {
+                slot->u1.Function = reinterpret_cast<u64>(hook.replacement);
+                VirtualProtect(&slot->u1.Function, sizeof(u64), old, &old);
+                ++g_patched_slots;
             }
-        }
-    }
+            return true;
+        });
 }
 
 void scan_modules() noexcept {

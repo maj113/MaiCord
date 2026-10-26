@@ -7,7 +7,6 @@
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/sys/crt.hpp"
-#pragma intrinsic(_alloca)
 
 namespace maicord {
 namespace {

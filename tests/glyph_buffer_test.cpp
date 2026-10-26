@@ -26,7 +26,7 @@ bool exercise(u32 initial,u32 seed) noexcept {
         if(start<count && (random(&seed)&3)){positions[consumed++]=start;u32 cursor=start;while(consumed<16){const u32 skip=1+random(&seed)%5;if(skip>=count-cursor)break;cursor+=skip;if(random(&seed)&1)positions[consumed++]=cursor;else break;}}
         const u32 inserted=random(&seed)%9;for(u32 i=0;i<inserted;++i)replacement[i]=make_record(0x10000+step*8+i);
         const auto previous=buffer;copy_bytes(before,storage,sizeof(storage));SfntGlyphEdit edit{};
-        const auto status=sfnt_glyph_buffer_replace(&buffer,start,{positions,consumed},{reinterpret_cast<const u8*>(replacement),inserted*sizeof(Record)},&edit);
+        const auto status=sfnt_glyph_buffer_replace(&buffer,start,{positions,consumed},{reinterpret_cast<const u8*>(replacement),static_cast<u32>(inserted*sizeof(Record))},&edit);
         const u32 after=count-consumed+inserted;
         if(after>capacity){if(status!=SfntStatus::output_too_small || edit.consumed.data || edit.moved_records || !bytes_equal(&buffer,&previous,sizeof(buffer)) || !bytes_equal(before,storage,sizeof(storage)))return false;continue;}
         if(status!=SfntStatus::ok || edit.old_count!=count || edit.new_count!=after || edit.start!=start || edit.replacement_count!=inserted || edit.consumed.count!=consumed)return false;
@@ -76,7 +76,7 @@ bool guards() noexcept {
     Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
     bool ok=true;Record replacement=make_record(17);
     for(u32 capacity=1;capacity<=32 && ok;++capacity){auto* b=memory+page-capacity*sizeof(Record);SfntGlyphBuffer buffer{};for(u32 i=0;i<capacity;++i)copy_bytes(b+i*sizeof(Record),&replacement,sizeof(Record));
-        ok=sfnt_glyph_buffer_open({b,capacity*sizeof(Record)},sizeof(Record),capacity,&buffer)==SfntStatus::ok;
+        ok=sfnt_glyph_buffer_open({b,static_cast<u32>(capacity*sizeof(Record))},sizeof(Record),capacity,&buffer)==SfntStatus::ok;
         for(u32 start=0;start<capacity && ok;++start){const u32 consumed=start;SfntGlyphEdit edit{};ok=sfnt_glyph_buffer_seek(&buffer,start)==SfntStatus::ok && sfnt_glyph_buffer_replace(&buffer,start,{&consumed,1},{reinterpret_cast<const u8*>(&replacement),sizeof(replacement)},&edit)==SfntStatus::ok;}}
     VirtualFree(memory,0,MEM_RELEASE);return ok;
 }

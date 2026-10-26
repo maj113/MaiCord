@@ -309,8 +309,8 @@ function(maicord_copy_fonts)
 endfunction()
 maicord_copy_fonts(MaiCord)
 
-# Cold code is compiled for size: source-level /Os lands after the contract's
-# /O2 /Ob1 /GL. Parsing, crypto, codecs, compression and text shaping stay
+# Cold code is compiled for size: source-level -Oz lands after the contract's
+# /O2 /Ob1 -flto. Parsing, crypto, codecs, compression and text shaping stay
 # /O2; each exclusion below is a hot byte or frame loop.
 function(maicord_compact_sources)
     cmake_parse_arguments(ARG "" "" "TARGETS;SOURCES;EXCLUDE" ${ARGN})
@@ -324,11 +324,11 @@ function(maicord_compact_sources)
         list(FILTER files EXCLUDE REGEX "${pattern}")
     endforeach()
     list(REMOVE_DUPLICATES files)
-    # A source listed twice keeps one /Os.
+    # A source listed twice keeps one size option.
     foreach(file IN LISTS files)
         get_source_file_property(options "${file}" COMPILE_OPTIONS)
-        if(NOT options MATCHES "/Os")
-            set_property(SOURCE "${file}" APPEND PROPERTY COMPILE_OPTIONS /Os)
+        if(NOT options MATCHES "${MAICORD_SIZE_OPTION}")
+            set_property(SOURCE "${file}" APPEND PROPERTY COMPILE_OPTIONS ${MAICORD_SIZE_OPTION})
         endif()
     endforeach()
 endfunction()
@@ -347,7 +347,7 @@ maicord_compact_sources(
     EXCLUDE
         "/application_(frame_presentation|scheduler|video)\\.cpp$"
         "/model/message_(rich_)?store\\.cpp$"
-        "/protocol/(message_history|websocket_frame|websocket_message|http1|http_response_stream|json_write|writer|json_ids|gateway_payload|gateway_events|gateway_message_events|gateway_message_rich|gateway_reaction_events|gateway_typing_events|media_packet|dave_frame|dave_replay|voice_media_events|p256_signature)\\.cpp$")
+        "/protocol/(message_history|websocket_frame|websocket_message|http1|http_response_stream|json_write|writer|json_ids|gateway_payload|gateway_events|gateway_message_events|gateway_message_rich|gateway_reaction_events|gateway_typing_events|media_packet|dave_frame|dave_replay|voice_media_events|p256_signature|etf)\\.cpp$")
 # UI scenes, presentation, renderer and the message runtime: the offline perf
 # probe measured equal or lower main-thread CPU in every phase at /Os (smaller
 # code and no chained unwind records). The parsers and tokenizers they run per
@@ -498,8 +498,8 @@ endfunction()
 # MaiCord's application sources share a precompiled header (src/app/
 # application_pch.hpp: application_state.hpp), about half of each source's
 # front-end time. A /Yu object also leaves the header's inline code
-# to the PCH object, which shrinks the LTCG link input. One PCH per
-# optimization mode, since cold sources carry /Os and MSVC rejects a PCH built
+# to the PCH object, which shrinks the LTO link input. One PCH per
+# optimization mode, since cold sources carry -Oz and clang rejects a PCH built
 # with other options. A source qualifies when it reaches application_state.hpp
 # (directly or through another src/app header) before any #define, #undef or
 # #pragma of its own and has no definitions of its own, so the PCH holds only
@@ -531,7 +531,7 @@ function(maicord_precompile_application_sources target)
         endif()
         get_source_file_property(options "${path}" COMPILE_OPTIONS)
         set(mode O2)
-        if(options MATCHES "/Os")
+        if(options MATCHES "${MAICORD_SIZE_OPTION}")
             set(mode Os)
         endif()
         list(APPEND modes ${mode})
@@ -548,10 +548,10 @@ function(maicord_precompile_application_sources target)
         set(stub "${directory}/application_pch_${mode}.cpp")
         set(pch "${directory}/application_pch_${mode}.pch")
         file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${header}\"\n")
-        # The Os stub carries /Os first, the position of the cold sources' own option.
+        # The Os stub carries the size option first, the position of the cold sources' own option.
         set(options "/Yc${header}" "/Fp${pch}")
         if(mode STREQUAL "Os")
-            list(PREPEND options /Os)
+            list(PREPEND options ${MAICORD_SIZE_OPTION})
         endif()
         set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" OBJECT_OUTPUTS "${pch}")
         # The PCH object holds the header's code; every image using the PCH links it.
