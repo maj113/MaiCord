@@ -449,7 +449,6 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
     case SettingBinding::update_status:
     case SettingBinding::update_channel:
     case SettingBinding::update_interval:
-    case SettingBinding::update_rollback:
     case SettingBinding::update_notice:
     case SettingBinding::update_problem:
     case SettingBinding::update_available:
@@ -1378,7 +1377,6 @@ bool activate(const UiSettingsTarget& target, bool reverse, const NativePluginUi
     case SettingBinding::update_status:
     case SettingBinding::update_channel:
     case SettingBinding::update_interval:
-    case SettingBinding::update_rollback:
         return settled(*settings, application_updates_activate(binding, request.selected_choice));
     default:
         break;

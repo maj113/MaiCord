@@ -48,9 +48,9 @@ UpdateAcceptanceResult update_acceptance_load(ConstSlice<wchar_t> trusted_absolu
 // exist and must be protected from hostile rename/reparse/write/delete. Rejects
 // device/UNC/ADS/dot/trailing-dot paths, observed ancestor and final reparse points.
 // These path checks do not secure writable ancestors against replacement races.
-// Missing returns `missing` by default. Explicit first-use provisioning may pass
-// allow_first_use=true to begin with record_present=false and empty state. Never
-// infer first use from a missing record: enrolled storage erasure must fail closed.
+// Missing returns `missing` by default. A caller that treats a missing record
+// as first use passes allow_first_use=true to begin with record_present=false
+// and empty state (the updater does: it keeps no other install record).
 // All corrupt/unreadable records fail closed. No automatic reset or repair.
 // Output must own no handle. Siblings .lock and .new are reserved to this API.
 UpdateAcceptanceResult update_acceptance_begin(ConstSlice<wchar_t> trusted_absolute_path,

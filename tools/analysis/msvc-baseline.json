@@ -19,7 +19,6 @@
  "C6385|src/app/plugin_manifest.cpp|Reading invalid data from 'digits': the readable size is '20' bytes, but '-1' bytes may be read.",
  "C6385|src/app/quick_switcher_controller.cpp|Reading invalid data from 'c->rows': the readable size is '34400' bytes, but '-344' bytes may be read.",
  "C6385|src/app/regional_flag_assets.cpp|Reading invalid data from 'text': the readable size is '10' bytes, but '-1' bytes may be read.",
- "C6385|src/app/update_generation.cpp|Reading invalid data from 't->ancestors': the readable size is '256' bytes, but '-8' bytes may be read.",
  "C6385|src/media/mp3_stream.cpp|Reading invalid data from 'rates': the readable size is '6' bytes, but '8' bytes may be read.",
  "C6385|src/media/png_encode.cpp|Reading invalid data from 'count': the readable size is '132' bytes, but '-4' bytes may be read.",
  "C6385|src/model/guild_member_store.cpp|Reading invalid data from 'store->lists': the readable size is '384' bytes, but '12288' bytes may be read.",

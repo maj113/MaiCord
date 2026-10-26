@@ -9,6 +9,7 @@
 #include "maicord/platform/random.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process_launch.hpp"
 #include "maicord/core/win32_records.hpp"
 
 namespace maicord::app_detail {
@@ -33,7 +34,7 @@ struct Worker {
     u64 progress_at_ms;
     UpdateSchedule schedule; // worker thread
     u32 failures;
-    bool check_requested, restart_requested, revert_requested, channel_requested, interval_requested, ready_requested, quit;
+    bool check_requested, channel_requested, interval_requested, ready_requested, restart, quit;
     UpdateChangelogDownload download; // worker thread
     UpdateChangelog published;        // guarded by lock
     ApplicationUpdatesChangelogRows rows; // UI thread
@@ -41,9 +42,12 @@ struct Worker {
 };
 Worker* g_worker;
 ApplicationUpdatesView g_view;
-ApplicationUpdatesText g_text[7];
+ApplicationUpdatesText g_text[6];
 u64 g_seen_revision;
 bool g_quit_reported, g_ready_reported;
+// The executable a Restart starts once the exit swapped it; empty otherwise.
+wchar_t g_relaunch[kUpdatePathCapacity];
+u32 g_relaunch_count;
 
 bool busy_state(State state) noexcept {
     return state == State::checking || state == State::downloading || state == State::installing ||
@@ -105,23 +109,6 @@ void offered(void* context, const UpdateManifest& manifest, const UpdateChangelo
         ++v.changelog_revision;
     }, &c);
 }
-// Ready/rollback availability from the installed journal.
-void refresh_installed(Worker* w) noexcept {
-    UpdateInstalledState installed{};
-    if (update_service_inspect(&w->service, &installed) != UpdateServiceError::none) return;
-    struct C { UpdateInstalledState i; u64 own; } c{installed, w->config.own_version};
-    publish(w, [](Worker* worker, void* p) noexcept {
-        const auto& c = *static_cast<C*>(p);
-        auto& v = worker->view;
-        const bool stable = c.i.phase == UpdateGenerationPhase::stable;
-        v.rollback_version = c.i.journal && stable && c.i.previous_version && c.i.previous_version < c.i.active_version &&
-            c.i.active_version == c.own ? c.i.previous_version : 0;
-        u64 ready = 0;
-        if (c.i.journal && c.i.phase == UpdateGenerationPhase::prepared) ready = c.i.candidate_version;
-        else if (c.i.journal && stable && c.i.active_version > c.own) ready = c.i.active_version;
-        if (ready) { v.ready_version = ready; if (v.state == State::idle || v.state == State::up_to_date) v.state = State::ready; }
-    }, &c);
-}
 // Wraps the HTTPS transport to report download progress at a bounded rate.
 struct Relay { Worker* worker; UpdateBodySink sink; void* context; };
 bool relay_sink(void* context, ConstSlice<u8> bytes) noexcept {
@@ -131,8 +118,8 @@ bool relay_sink(void* context, ConstSlice<u8> bytes) noexcept {
     const u64 now = clock_monotonic_milliseconds();
     const LONG64 total = read_acquire(&w->service.progress.total);
     const LONG64 received = read_acquire(&w->service.progress.received);
-    // The last bytes switch to "installing" at once: staging and the
-    // generation install follow, and a stale percentage would read as a stall.
+    // The last bytes switch to "installing" at once: verification and staging
+    // follow, and a stale percentage would read as a stall.
     const bool done = total && received >= total;
     if (total && (done || now - w->progress_at_ms >= kProgressIntervalMs)) {
         w->progress_at_ms = now;
@@ -156,21 +143,26 @@ u64 run_check(Worker* w, UpdateChannel channel) noexcept {
     set_state(w, State::checking);
     InterlockedExchange64(&w->service.progress.total, 0);
     const auto result = update_service_check(&w->service, {w, relay_get}, channel, now_unix());
-    if (result.outcome == UpdateCheckOutcome::failed) {
-        ++w->failures;
+    // A stage verified by an earlier check stays ready, whatever this check
+    // found, until the user installs it with Restart to update.
+    const u64 staged = w->service.staged.file ? w->service.staged.version : 0;
+    if (result.outcome == UpdateCheckOutcome::failed) ++w->failures;
+    else w->failures = 0;
+    if (result.outcome == UpdateCheckOutcome::failed && !staged) {
         set_state(w, result.error == UpdateServiceError::rate_limited ? State::rate_limited : State::error, result.error);
     } else {
-        w->failures = 0;
+        struct C { const UpdateCheckResult* r; u64 staged; } c{&result, staged};
         publish(w, [](Worker* worker, void* p) noexcept {
-            const auto& r = *static_cast<const UpdateCheckResult*>(p);
+            const auto& c = *static_cast<C*>(p);
             auto& v = worker->view;
             v.error = UpdateServiceError::none; v.received = v.total = 0;
-            v.state = r.outcome == UpdateCheckOutcome::ready ? State::ready : State::up_to_date;
-            if (r.outcome == UpdateCheckOutcome::ready) v.ready_version = r.version;
+            const bool ready = c.r->outcome == UpdateCheckOutcome::ready || c.staged;
+            v.state = ready ? State::ready : State::up_to_date;
+            if (c.r->outcome == UpdateCheckOutcome::ready) v.ready_version = c.r->version;
+            else if (c.staged) v.ready_version = c.staged;
             else clear_offer(worker);
-        }, const_cast<UpdateCheckResult*>(&result));
+        }, &c);
     }
-    refresh_installed(w);
     return result.retry_at_unix;
 }
 UpdateCheckInterval current_interval(Worker* w) noexcept {
@@ -181,7 +173,6 @@ UpdateCheckInterval current_interval(Worker* w) noexcept {
 }
 DWORD WINAPI worker_main(void* parameter) noexcept {
     auto* w = static_cast<Worker*>(parameter);
-    refresh_installed(w);
     auto& schedule = w->schedule;
     schedule.next_unix = now_unix() + kFallbackCheckDelaySeconds + random32() % kFallbackCheckJitterSeconds;
     for (;;) {
@@ -192,12 +183,11 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         const DWORD waited = WaitForMultipleObjects(2, handles, FALSE, timeout);
         if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED) break;
         AcquireSRWLockExclusive(w->lock.native());
-        const bool check = w->check_requested, restart = w->restart_requested, revert = w->revert_requested;
+        const bool check = w->check_requested, quit = w->quit;
         const bool channel_changed = w->channel_requested, interval_changed = w->interval_requested, ready = w->ready_requested;
         const UpdateChannel channel = w->view.channel;
         const UpdateCheckInterval interval = w->view.interval;
-        w->check_requested = w->restart_requested = w->revert_requested = w->channel_requested = false;
-        w->interval_requested = w->ready_requested = false;
+        w->check_requested = w->channel_requested = w->interval_requested = w->ready_requested = false;
         ReleaseSRWLockExclusive(w->lock.native());
         if (channel_changed) update_channel_save(w->paths, channel);
         if (ready && !schedule.checked_unix)
@@ -206,18 +196,8 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
             update_interval_save(w->paths, interval);
             update_schedule_retarget(&schedule, update_check_interval_seconds(interval), random32());
         }
-        if (revert || restart) {
-            set_state(w, State::restarting);
-            UpdateServiceError error = revert ? update_service_revert(&w->service) : UpdateServiceError::none;
-            if (error == UpdateServiceError::none) error = update_service_restart(&w->service);
-            if (error == UpdateServiceError::none) {
-                publish(w, [](Worker* worker, void*) noexcept { worker->quit = true; }, nullptr);
-                break;
-            }
-            set_state(w, State::error, error);
-            refresh_installed(w);
-            continue;
-        }
+        // Restart to update: the window closes and the exit swaps the stage in.
+        if (quit) break;
         if (!check && !channel_changed && !update_schedule_due(schedule, now_unix())) continue;
         const u64 retry_at = run_check(w, channel);
         update_schedule_finish(&schedule, now_unix(), w->failures, retry_at, random32(),
@@ -290,17 +270,17 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
             label.add("Downloading update");
             if (v.total) { label.add(" "); label.number(minimum<u64>(100, v.received * 100 / v.total)); label.add("%"); }
             break;
-        case State::installing: label.add("Installing update…"); break;
+        case State::installing: label.add("Verifying update…"); break;
         case State::up_to_date: label.add("You're up to date"); break;
         case State::ready:
             label.add("Update ready");
             description.used = 0;
-            description.add("Restart MaiCord to finish updating to "); add_build(description, v.ready_version);
-            description.add(".");
-            control->action_label = utf8_literal("Restart");
+            description.add("MaiCord "); add_build(description, v.ready_version);
+            description.add(" installs when you choose Restart to update. Until then, closing MaiCord keeps this version.");
+            control->action_label = utf8_literal("Restart to update");
             presentation->variant = UiSettingsVariant::primary;
             break;
-        case State::restarting: label.add("Restarting…"); control->action_label = utf8_literal("Restart"); break;
+        case State::restarting: label.add("Restarting…"); control->action_label = utf8_literal("Restart to update"); break;
         case State::error:
         case State::rate_limited:
             label.add(v.state == State::rate_limited ? utf8_literal("Couldn't check for updates") : utf8_literal("Couldn't update"));
@@ -337,12 +317,12 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
             if (meter && v.total) *meter = static_cast<u16>(minimum<u64>(1000, v.received * 1000 / v.total));
             break;
         case State::installing:
-            description.add("Checking the download and installing it…");
+            description.add("Checking the download…");
             if (meter) *meter = 1000;
             break;
         case State::ready:
         case State::restarting:
-            description.add("Downloaded and verified. Restart MaiCord to finish.");
+            description.add("Downloaded and verified. It installs when you choose Restart to update.");
             break;
         case State::error:
         case State::rate_limited:
@@ -392,13 +372,6 @@ bool application_updates_project_view(const ApplicationUpdatesView& v, SettingBi
         control->choices = {interval_names, kUpdateCheckIntervalCount};
         control->enabled = true;
         return !disabled;
-    case SettingBinding::update_rollback:
-        if (disabled || !v.rollback_version) return false;
-        description.add("Go back to "); add_build(description, v.rollback_version);
-        description.add(". Newer releases install again when they come out.");
-        control->description = description.view();
-        control->enabled = !busy;
-        return true;
     case SettingBinding::update_notice:
         return !disabled;
     default:
@@ -520,6 +493,7 @@ bool application_updates_initialize(const UpdateServiceConfig& config, Utf8View 
     UpdateLog("updater").field("configured", config.configured).field("located", located).field("own", config.own_version)
         .field("channel", static_cast<u8>(w->view.channel))
         .field("interval", static_cast<u8>(w->view.interval)).write();
+    if (located) update_paths_cleanup(w->paths);
     if (!config.configured || !located) return true;
     w->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     w->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -533,23 +507,47 @@ bool application_updates_initialize(const UpdateServiceConfig& config, Utf8View 
     if (!w->thread) { w->view.state = State::error; w->view.error = UpdateServiceError::storage; g_view = w->view; }
     return w->thread != nullptr;
 }
-void application_updates_release() noexcept {
+void application_updates_release(bool normal_exit) noexcept {
     Worker* w = g_worker;
     if (!w) return;
     g_worker = nullptr;
+    const auto plan = application_updates_exit(normal_exit, w->restart);
+    // Restart to update starts the executable path at the very end of the exit.
+    if (plan.relaunch) {
+        g_relaunch_count = w->paths.executable_count;
+        copy_bytes(g_relaunch, w->paths.executable, (g_relaunch_count + 1) * sizeof(wchar_t));
+    }
     if (w->thread) {
         SetEvent(w->stop);
         update_https_cancel(&w->https);
-        // A restart confirmation or journal commit in flight finishes or is
-        // recovered cold; never free storage the worker may still touch.
+        // Staging in flight finishes first: never swap from or free storage
+        // the worker may still touch.
         if (WaitForSingleObject(w->thread, 3000) != WAIT_OBJECT_0) return;
         CloseHandle(w->thread);
     }
+    // Restart to update: the executable this process verified replaces the
+    // running one, so the relaunch starts the new version. Any other exit
+    // keeps the running version; the service keeps the package.
+    if (plan.install) update_service_swap(&w->service);
     update_service_release(&w->service);
     update_https_release(&w->https);
     const HANDLE events[]{w->wake, w->stop, w->notify};
     for (HANDLE h : events) if (h) CloseHandle(h);
     VirtualFree(w, 0, MEM_RELEASE);
+}
+void application_updates_relaunch() noexcept {
+    if (!g_relaunch_count) return;
+    wchar_t command[kUpdatePathCapacity + 2];
+    const u32 count = g_relaunch_count;
+    command[0] = L'"';
+    copy_bytes(command + 1, g_relaunch, count * sizeof(wchar_t));
+    command[count + 1] = L'"'; command[count + 2] = 0;
+    STARTUPINFOW startup{}; startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    const bool started = CreateProcessW(g_relaunch, command, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process) != FALSE;
+    const DWORD native = started ? 0 : GetLastError();
+    if (started) { CloseHandle(process.hThread); CloseHandle(process.hProcess); }
+    UpdateLog("relaunch").field("started", started).field("native", native).write(started ? LogLevel::info : LogLevel::warning);
 }
 void application_updates_ready() noexcept {
     Worker* w = g_worker;
@@ -590,13 +588,12 @@ bool application_updates_project(SettingBinding binding, UiSettingsControl* cont
     u16* meter) noexcept {
     if (binding == SettingBinding::update_changelog)
         return g_worker && application_updates_changelog_heading(g_worker->rows, control, nullptr);
-    u32 slot = 6;
+    u32 slot = 5;
     switch (binding) {
     case SettingBinding::update_status: slot = 0; break;
     case SettingBinding::update_channel: slot = 1; break;
-    case SettingBinding::update_rollback: slot = 2; break;
-    case SettingBinding::update_notice: slot = 3; break;
-    case SettingBinding::update_available: slot = 4; break;
+    case SettingBinding::update_notice: slot = 2; break;
+    case SettingBinding::update_available: slot = 3; break;
     default: break;
     }
     return application_updates_project_view(g_view, binding, &g_text[slot], control, presentation, meter);
@@ -618,7 +615,7 @@ u16 application_updates_meter() noexcept {
     UiSettingsControl control{};
     UiSettingsControlPresentation presentation{};
     u16 meter = kUiSettingsNoMeter;
-    application_updates_project_view(g_view, SettingBinding::update_available, &g_text[5], &control, &presentation, &meter);
+    application_updates_project_view(g_view, SettingBinding::update_available, &g_text[4], &control, &presentation, &meter);
     return meter;
 }
 ApplicationUpdatesSettingsBank* application_updates_settings_bank() noexcept {
@@ -645,9 +642,12 @@ bool application_updates_activate(SettingBinding binding, u32 choice) noexcept {
             ++w->revision;
         }
     } else if (accepted) {
-        if (binding == SettingBinding::update_status) {
-            if (state == State::ready) w->restart_requested = true; else w->check_requested = true;
-        } else if (binding == SettingBinding::update_rollback && w->view.rollback_version) w->revert_requested = true;
+        if (binding == SettingBinding::update_status && state == State::ready) {
+            // The window closes for real; its normal exit installs the stage.
+            w->restart = w->quit = true;
+            w->view.state = State::restarting;
+            ++w->revision;
+        } else if (binding == SettingBinding::update_status) w->check_requested = true;
         else if (binding == SettingBinding::update_channel && choice <= 1 && choice != static_cast<u32>(w->view.channel)) {
             // The other channel's offer and changelog are unknown until its check.
             w->view.channel = static_cast<UpdateChannel>(choice); w->channel_requested = true;

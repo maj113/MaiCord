@@ -22,8 +22,8 @@ enum class UiCaptionPart : u8 {
     close,
 };
 
-// The update badge: hidden unless an update is on its way, ready, or failed
-// to download or install.
+// The update badge: hidden unless an update is on its way, being verified
+// (installing), ready to install, or failed to download or stage.
 enum class UiCaptionUpdate : u8 {
     hidden,
     downloading,

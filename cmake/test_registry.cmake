@@ -94,11 +94,8 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         tests/pinned_message_controller.cpp tests/quick_switcher_controller.cpp
         tests/message_forward_controller.cpp tests/bounded_edit.cpp tests/gif_favorites.cpp
         tests/emoji_preferences.cpp tests/thread_starter.cpp tests/update_manifest.cpp tests/update_artifact.cpp
-        tests/page_registry.cpp tests/plugin_host.cpp tests/update_acceptance.cpp tests/update_stage.cpp
-        tests/update_prepare.cpp tests/update_package.cpp tests/update_generation.cpp
-        tests/update_generation_authentication.cpp tests/update_generation_failures.cpp tests/update_generation_legacy.cpp
-        tests/update_install.cpp
-        tests/update_signed_handoff.cpp tests/reaction_sections.cpp tests/message_reaction_controller.cpp
+        tests/page_registry.cpp tests/plugin_host.cpp tests/update_acceptance.cpp
+        tests/update_prepare.cpp tests/update_package.cpp tests/reaction_sections.cpp tests/message_reaction_controller.cpp
         tests/thread_authority_model.cpp tests/thread_header.cpp tests/application_thread_header_activation.cpp
         src/app/application_thread_header_activation.cpp tests/regional_flag_media.cpp tests/flag_surfaces.cpp
         tests/composer_source_spans.cpp tests/application_login_geometry.cpp tests/tsf_end_edit.cpp
@@ -142,7 +139,7 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         tests/message_create.cpp tests/message_composer_controller.cpp tests/application_video_request.cpp
         tests/widget_builder.cpp tests/staged_file.cpp tests/menu_row.cpp tests/icon_pack.cpp
         tests/aac_decoder.cpp tests/media_audio.cpp tests/browser_sign_in.cpp tests/browser_sign_in_receiver.cpp
-        tests/browser_login_ui.cpp tests/gateway_self_status.cpp tests/application_update_startup.cpp
+        tests/browser_login_ui.cpp tests/gateway_self_status.cpp
         tests/desktop_integration.cpp src/app/plugin_bundle_install.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_plugin_host
         maicord_client_preferences maicord_account_host maicord_account_paths maicord_account_media
@@ -150,13 +147,11 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         maicord_model kernel32 user32 bcrypt crypt32 ws2_32 maicord_sspicli ole32 ntdll
     INCLUDES src/app third_party/opus/include
     DEFINES MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE=1
-        "MAICORD_UPDATE_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
-        "MAICORD_UPDATE_HANDOFF_TEST_PEER=L\"$<TARGET_FILE:MaiCordUpdateHandoffPeer>\""
         "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\""
-    DEPENDS MaiCordPluginFixture MaiCordUpdateHandoffPeer
+    DEPENDS MaiCordPluginFixture
     USES_CLIENT MaiCord)
-# The same 173 fixtures run once across four private process/profile owners.
-# Shard 0 keeps all 13 durable update fixtures serial and runs 40 other fixtures;
+# The same 165 fixtures run once across four private process/profile owners.
+# Shard 0 keeps all 5 durable update fixtures serial and runs 40 other fixtures;
 # the remaining shards each run 40. Every shard checks its exact function count.
 foreach(maicord_extension_shard RANGE 0 3)
     set(maicord_extension_test maicord_native_extensions)
@@ -164,15 +159,12 @@ foreach(maicord_extension_shard RANGE 0 3)
     if(maicord_extension_shard)
         string(APPEND maicord_extension_test "_shard_${maicord_extension_shard}")
     else()
-        set(maicord_extension_fixture_count 53)
+        set(maicord_extension_fixture_count 45)
     endif()
     maicord_add_tests(MaiCordNativeExtensionTests
-        PASS_REGULAR_EXPRESSION "PASS native extensions shard=${maicord_extension_shard}/4 fixtures=${maicord_extension_fixture_count}/173"
+        PASS_REGULAR_EXPRESSION "PASS native extensions shard=${maicord_extension_shard}/4 fixtures=${maicord_extension_fixture_count}/165"
         TEST ${maicord_extension_test} --fixture-shard ${maicord_extension_shard} 4)
 endforeach()
-maicord_test(MaiCordUpdateHandoffPeer ENTRY maicord_update_handoff_peer_entry
-    SOURCES tests/update_handoff_peer.cpp
-    LIBS maicord_core maicord_platform maicord_app_core maicord_account_host kernel32 bcrypt crypt32)
 # Theme ratchets: presentation literals in src/ui and the generated example theme.
 add_test(NAME maicord_theme_literals COMMAND "${Python3_EXECUTABLE}" -B tools/check_theme_literals.py
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -198,13 +190,6 @@ if(MAICORD_TEST_AUDIO_PLAYBACK)
     maicord_add_tests(MaiCordAccountVideoSessionProbe TIMEOUT 5 COST 51 RESOURCE_LOCK native_audio
         TEST maicord_account_audio_playback --audio)
 endif()
-maicord_test(MaiCordUpdateHandoffTests ENTRY maicord_update_handoff_tests_entry
-    SOURCES tests/update_handoff.cpp
-    LIBS maicord_core maicord_platform maicord_app_core kernel32
-    DEFINES "MAICORD_UPDATE_HANDOFF_TEST_PEER=L\"$<TARGET_FILE:MaiCordUpdateHandoffPeer>\""
-    DEPENDS MaiCordUpdateHandoffPeer
-    TIMEOUT 20
-    TEST maicord_update_handoff)
 maicord_test(MaiCordUpdateClientTests ENTRY maicord_update_client_tests_entry
     SOURCES tests/update_client.cpp src/app/application_updates.cpp src/app/settings_catalog.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_client_preferences kernel32 bcrypt

@@ -2,17 +2,12 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/app/update_log.hpp"
 #include "maicord/core/data_path.hpp"
-#include "maicord/platform/random.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace {
 using SE = UpdateServiceError;
-constexpr u8 enrollment_magic[8]{'M', 'C', 'U', 'P', 'E', 'N', 'R', '1'};
-constexpr u32 kEnrollmentBytes = 64;
-constexpr u32 kHandoffWaitMs = 60000;
 
 bool join(wchar_t* out, const wchar_t* base, u32 base_count, const wchar_t* leaf, u32* count = nullptr) noexcept {
     const u32 leaf_count = wide_length(leaf, kUpdatePathCapacity);
@@ -22,8 +17,23 @@ bool join(wchar_t* out, const wchar_t* base, u32 base_count, const wchar_t* leaf
     if (count) *count = base_count + 1 + leaf_count;
     return true;
 }
-bool same_path(const wchar_t* a, u32 a_count, const wchar_t* b, u32 b_count) noexcept {
-    return a_count == b_count && CompareStringOrdinal(a, static_cast<int>(a_count), b, static_cast<int>(b_count), TRUE) == CSTR_EQUAL;
+// <path><suffix>, NUL-terminated.
+bool suffixed(wchar_t* out, ConstSlice<wchar_t> path, const wchar_t* suffix, u32* count = nullptr) noexcept {
+    const u32 suffix_count = wide_length(suffix, kUpdatePathCapacity);
+    if (path.count + suffix_count >= kUpdatePathCapacity) return false;
+    copy_bytes(out, path.data, path.count * sizeof(wchar_t));
+    copy_bytes(out + path.count, suffix, (suffix_count + 1) * sizeof(wchar_t));
+    if (count) *count = path.count + suffix_count;
+    return true;
+}
+// An absolute drive path: "X:\..." with no trailing separator, forward
+// slash, control character or later colon.
+bool drive_path(ConstSlice<wchar_t> path) noexcept {
+    if (!path.data || path.count < 4 || path.count >= kUpdatePathCapacity || path[1] != L':' || path[2] != L'\\' ||
+        path[path.count - 1] == L'\\' || !((path[0] >= L'A' && path[0] <= L'Z') || (path[0] >= L'a' && path[0] <= L'z')))
+        return false;
+    for (u32 i = 0; i < path.count; ++i) if (!path[i] || path[i] == L'/' || path[i] < 32 || (i > 1 && path[i] == L':')) return false;
+    return true;
 }
 bool exists(const wchar_t* path) noexcept { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
 bool read_exact(HANDLE h, void* out, u32 bytes) noexcept {
@@ -55,79 +65,16 @@ bool regular_size(HANDLE h, u64* bytes) noexcept {
     *bytes = static_cast<u64>(size.QuadPart); return true;
 }
 void close(HANDLE* h) noexcept { if (*h) { CloseHandle(*h); *h = nullptr; } }
-// Directory identities of every component, drive root first (enrollment ancestry).
-bool ancestry(const wchar_t* root, u32 count, UpdateGenerationDirectoryIdentity* ids, u32* id_count) noexcept {
-    wchar_t path[kUpdatePathCapacity]{}; copy_bytes(path, root, (count + 1) * sizeof(wchar_t)); *id_count = 0;
-    for (u32 i = 2; i <= count; ++i) if (i == 2 || i == count || path[i] == L'\\') {
-        const u32 end = i == 2 ? 3 : i; const wchar_t saved = path[end]; path[end] = 0;
-        const HANDLE h = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-        path[end] = saved;
-        if (h == INVALID_HANDLE_VALUE) return false;
-        BY_HANDLE_FILE_INFORMATION info{}; const bool ok = GetFileInformationByHandle(h, &info) != FALSE;
-        CloseHandle(h);
-        if (!ok || *id_count == kUpdateGenerationMaximumAncestors) return false;
-        ids[(*id_count)++] = {info.dwVolumeSerialNumber, static_cast<u64>(info.nFileIndexHigh) << 32 | info.nFileIndexLow};
-    }
-    return true;
-}
-// Rebuild paths from the final normalized name so the generation root's
-// canonical-path check holds for short names or differing case.
-bool canonicalize(UpdatePaths* paths) noexcept {
-    const HANDLE h = CreateFileW(paths->base, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-        FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return false;
-    wchar_t final[kUpdatePathCapacity + 8]{};
-    const DWORD n = GetFinalPathNameByHandleW(h, final, kUpdatePathCapacity + 8, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
-    CloseHandle(h);
-    if (!n || n >= kUpdatePathCapacity + 8 || n < 7 || final[0] != L'\\' || final[1] != L'\\' || final[2] != L'?' || final[3] != L'\\' ||
-        final[5] != L':') return false;
-    const u32 count = wide_length(paths->base, kUpdatePathCapacity);
-    if (n - 4 == count && bytes_equal(final + 4, paths->base, count * sizeof(wchar_t))) return true;
-    UpdatePaths rebuilt{};
-    if (!update_paths_build({final + 4, n - 4}, &rebuilt)) return false;
-    *paths = rebuilt; return true;
-}
-bool ensure_storage(UpdatePaths* paths) noexcept {
+// Creates base and work (work is base\work).
+bool ensure_storage(const UpdatePaths& paths) noexcept {
     wchar_t partial[kUpdatePathCapacity]{};
-    const u32 count = wide_length(paths->base, kUpdatePathCapacity);
-    copy_bytes(partial, paths->base, (count + 1) * sizeof(wchar_t));
-    for (u32 i = 3; i <= count; ++i) if (i == count || partial[i] == L'\\') {
+    copy_bytes(partial, paths.work, (paths.work_count + 1) * sizeof(wchar_t));
+    for (u32 i = 3; i <= paths.work_count; ++i) if (i == paths.work_count || partial[i] == L'\\') {
         const wchar_t saved = partial[i]; partial[i] = 0;
         if (!CreateDirectoryW(partial, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
         partial[i] = saved;
     }
-    if (!canonicalize(paths)) return false;
-    const wchar_t* directories[]{paths->root, paths->work};
-    for (const wchar_t* dir : directories)
-        if (!CreateDirectoryW(dir, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
-    wchar_t drive[]{paths->base[0], L':', L'\\', 0};
-    return GetDriveTypeW(drive) == DRIVE_FIXED;
-}
-bool read_enrollment(const UpdatePaths& paths, const u8* inventory, UpdateGenerationIdentity* installation) noexcept {
-    HANDLE h = open_read(paths.enrollment); u64 bytes = 0; u8 record[kEnrollmentBytes]{};
-    const bool ok = regular_size(h, &bytes) && bytes == kEnrollmentBytes && read_exact(h, record, kEnrollmentBytes) &&
-        bytes_equal(record, enrollment_magic, 8) && bytes_equal(record + 32, inventory, 32);
-    close(&h);
-    u8 any = 0; for (u32 i = 0; i < 16; ++i) any |= record[16 + i];
-    if (!ok || !any) return false;
-    copy_bytes(installation->bytes, record + 16, 16); return true;
-}
-bool create_enrollment(const UpdatePaths& paths, const u8* inventory) noexcept {
-    u8 record[kEnrollmentBytes]{};
-    copy_bytes(record, enrollment_magic, 8);
-    u8 any = 0;
-    do { if (!secure_random_fill({record + 16, 16}).ok()) return false; any = 0; for (u32 i = 0; i < 16; ++i) any |= record[16 + i]; } while (!any);
-    copy_bytes(record + 32, inventory, 32);
-    HANDLE h = CreateFileW(paths.enrollment, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return GetLastError() == ERROR_FILE_EXISTS;
-    const bool ok = write_exact(h, record, kEnrollmentBytes) && FlushFileBuffers(h);
-    CloseHandle(h);
-    if (!ok) DeleteFileW(paths.enrollment);
-    return ok;
-}
-UpdateInstallLimits limits(const UpdateService& s) noexcept {
-    return {s.config.maximum_artifact_bytes, kUpdateMaximumValiditySeconds, kUpdateInstallMaximumRetainedBytes, kUpdateFreeSpaceReserveBytes};
+    return true;
 }
 bool file_sink(void* context, ConstSlice<u8> bytes) noexcept {
     auto* s = static_cast<UpdateService*>(context);
@@ -165,44 +112,24 @@ UpdateCheckResult report(UpdateCheckResult r, const char* phase) noexcept {
     line.write(LogLevel::warning);
     return r;
 }
-UpdateCheckResult up_to_date(u64 floor, u64 offered) noexcept {
-    UpdateLog("up_to_date").field("floor", floor).field("offered", offered).write();
+// Nothing newer to install: a package an earlier session kept is stale.
+UpdateCheckResult up_to_date(const UpdateService* s, u64 floor, u64 offered) noexcept {
+    UpdateLog line("up_to_date");
+    line.field("floor", floor).field("offered", offered);
+    if (DeleteFileW(s->paths.download)) line.field("dropped_package", 1);
+    line.write();
     return outcome(UpdateCheckOutcome::up_to_date, floor);
 }
-void log_install(const char* event, const UpdateInstallResult& i) noexcept {
-    UpdateLog line(event);
-    line.field("error", static_cast<u8>(i.error));
-    if (!i.ok()) line.field("native", i.native_error).field("manifest", static_cast<u8>(i.manifest_error))
-        .field("generation", static_cast<u8>(i.generation.error)).field("generation_native", i.generation.native_error)
-        .field("package", static_cast<u8>(i.package.error)).field("package_native", i.package.native_error)
-        .field("package_crypto", static_cast<u32>(i.package.crypto_status)).field("package_manifest", static_cast<u8>(i.package.manifest_error));
-    line.write(i.ok() ? LogLevel::info : LogLevel::warning);
-}
-void log_handoff(const char* event, const UpdateHandoffResult& h) noexcept {
-    UpdateLog(event).field("error", static_cast<u8>(h.error)).field("native", h.native_error)
-        .field("outcome", static_cast<u8>(h.outcome)).write(h.ok() ? LogLevel::info : LogLevel::warning);
-}
-void stage_path(const UpdatePaths& paths, const u8* digest, wchar_t* out) noexcept {
-    wchar_t name[kUpdatePreparedStageFilenameCharacters + 1]{};
-    update_prepare_stage_name(digest, name);
-    join(out, paths.work, paths.work_count, name);
-}
+// Keeps the package file: a failed check deletes it, a staged one keeps it
+// until the update is installed or superseded.
 void release_work(UpdateService* s) noexcept {
-    update_stage_cleanup_release(&s->preparation_result.stage);
-    if (s->stage.file) update_stage_release(&s->stage, true);
-    clear_bytes(&s->stage, sizeof(s->stage));
     update_preparation_release(&s->preparation);
-    clear_bytes(&s->preparation, sizeof(s->preparation)); clear_bytes(&s->preparation_result, sizeof(s->preparation_result));
+    clear_bytes(&s->preparation, sizeof(s->preparation));
     close(&s->download);
-    DeleteFileW(s->paths.download);
 }
-bool random_identity(UpdateGenerationIdentity* id) noexcept {
-    for (u32 attempt = 0; attempt < 4; ++attempt) {
-        if (!secure_random_fill({id->bytes, 16}).ok()) return false;
-        u8 any = 0; for (auto b : id->bytes) any |= b;
-        if (any) return true;
-    }
-    return false;
+void discard_work(UpdateService* s) noexcept {
+    release_work(s);
+    DeleteFileW(s->paths.download);
 }
 // Best effort: the changelog is display data, so any failure only leaves it out.
 void offer_changelog(UpdateService* s, const UpdateTransport& transport, Utf8View repository, UpdateChannel channel,
@@ -227,18 +154,6 @@ void offer_changelog(UpdateService* s, const UpdateTransport& transport, Utf8Vie
     }
     if (s->observer.offered) s->observer.offered(s->observer.context, manifest, verified);
 }
-// A protocol-1 generation runs only against the v2 journal it reads; a v3
-// journal is never handed to one, so it is neither activated nor reverted to.
-bool launchable(const UpdateGenerationTransaction& t, const UpdateGenerationReference& r) noexcept {
-    return r.present && (t.record_legacy || !update_package_descriptor_legacy(r.package));
-}
-bool hex_name(const wchar_t* name, const u8* digest) noexcept {
-    static constexpr wchar_t hex[] = L"0123456789abcdef";
-    if (name[0] != L'g' || name[1] != L'-') return false;
-    for (u32 i = 0; i < 32; ++i)
-        if (name[2 + i * 2] != hex[digest[i] >> 4] || name[3 + i * 2] != hex[digest[i] & 15]) return false;
-    return true;
-}
 } // namespace
 
 bool update_service_config(Utf8View repository, Utf8View key_hex, u64 own_version, UpdateServiceConfig* out) noexcept {
@@ -254,35 +169,36 @@ bool update_service_config(Utf8View repository, Utf8View key_hex, u64 own_versio
     *out = c; return true;
 }
 
-bool update_paths_build(ConstSlice<wchar_t> base, UpdatePaths* out) noexcept {
-    // Generation paths add "\g-<64>\<member name of at most 32>" below a root of at most 511.
-    if (!out || !base.data || base.count < 4 || base.count > 400 || base[1] != L':' || base[2] != L'\\' ||
-        base[base.count - 1] == L'\\' || !((base[0] >= L'A' && base[0] <= L'Z') || (base[0] >= L'a' && base[0] <= L'z')))
-        return false;
-    for (u32 i = 0; i < base.count; ++i) if (!base[i] || base[i] == L'/' || base[i] < 32 || (i > 1 && base[i] == L':')) return false;
+bool update_paths_build(ConstSlice<wchar_t> base, ConstSlice<wchar_t> executable, UpdatePaths* out) noexcept {
+    if (!out || !drive_path(base) || !drive_path(executable)) return false;
     UpdatePaths p{};
     copy_bytes(p.base, base.data, base.count * sizeof(wchar_t));
-    const bool ok = join(p.root, p.base, base.count, L"generations", &p.root_count) &&
-        join(p.work, p.base, base.count, L"work", &p.work_count) &&
-        join(p.enrollment, p.base, base.count, L"enrollment.bin") && join(p.channel, p.base, base.count, L"channel") &&
-        join(p.interval, p.base, base.count, L"interval") &&
-        join(p.journal, p.root, p.root_count, L"install.state") &&
+    copy_bytes(p.executable, executable.data, executable.count * sizeof(wchar_t));
+    p.executable_count = executable.count;
+    const bool ok = join(p.work, p.base, base.count, L"work", &p.work_count) &&
+        join(p.channel, p.base, base.count, L"channel") && join(p.interval, p.base, base.count, L"interval") &&
         join(p.acceptance, p.work, p.work_count, L"acceptance.bin", &p.acceptance_count) &&
-        join(p.download, p.work, p.work_count, L"package.download", &p.download_count);
+        join(p.download, p.work, p.work_count, L"package.download", &p.download_count) &&
+        suffixed(p.staged, executable, L".update", &p.staged_count) && suffixed(p.replaced, executable, L".old");
     if (!ok) return false;
     *out = p; return true;
 }
 bool update_paths_default(UpdatePaths* out) noexcept {
-    wchar_t base[kUpdatePathCapacity]{};
+    wchar_t base[kUpdatePathCapacity]{}, executable[kUpdatePathCapacity]{};
     const DataPathResult built = data_path(base, kUpdatePathCapacity, L"updates");
-    return built.ok() && update_paths_build({base, built.length}, out);
+    const DWORD n = GetModuleFileNameW(nullptr, executable, kUpdatePathCapacity);
+    return built.ok() && n && n < kUpdatePathCapacity && update_paths_build({base, built.length}, {executable, n}, out);
+}
+void update_paths_cleanup(const UpdatePaths& paths) noexcept {
+    const bool replaced = DeleteFileW(paths.replaced) != FALSE;
+    const bool stale = DeleteFileW(paths.staged) != FALSE;
+    if (replaced || stale) UpdateLog("cleanup").field("replaced", replaced).field("stale_stage", stale).write();
 }
 
 Utf8View update_service_error_text(UpdateServiceError e) noexcept {
     switch (e) {
     case SE::none: return {};
     case SE::configuration: return utf8_literal("Updates aren't configured for this build.");
-    case SE::busy: return utf8_literal("Another MaiCord window is installing an update.");
     case SE::transport: return utf8_literal("Couldn't reach GitHub. Check your connection.");
     case SE::rate_limited: return utf8_literal("GitHub is limiting requests. MaiCord will try again later.");
     case SE::not_found: return utf8_literal("No update is published for this channel yet.");
@@ -291,8 +207,6 @@ Utf8View update_service_error_text(UpdateServiceError e) noexcept {
     case SE::signature: return utf8_literal("The update isn't signed by the MaiCord publisher.");
     case SE::expired: return utf8_literal("The update information has expired. Check your clock.");
     case SE::manifest: return utf8_literal("The update information isn't valid.");
-    case SE::disk: return utf8_literal("Not enough disk space to install the update.");
-    case SE::launch: case SE::startup: return utf8_literal("The new version didn't start. You're still on this version.");
     case SE::state: return utf8_literal("There's no update to apply.");
     default: return utf8_literal("Couldn't install the update.");
     }
@@ -302,13 +216,10 @@ UpdateServiceError update_service_initialize(UpdateService* s, const UpdateServi
     if (!s || s->initialized) return SE::state;
     clear_bytes(s, sizeof(*s));
     s->config = config; s->paths = paths;
-    if (exists(s->paths.base)) canonicalize(&s->paths);
-    if (config.configured) {
-        if (!kdf_sha256_initialize(&s->workspace).ok() || !p256_import_public(&s->key, P256Kind::ecdsa, {config.public_key, 65}).ok() ||
-            !update_generation_inventory_fingerprint(s->key, s->workspace, {s->inventory, 32}).ok()) {
-            p256_release(&s->key); kdf_sha256_release(&s->workspace); clear_bytes(s, sizeof(*s));
-            return SE::configuration;
-        }
+    if (config.configured && (!kdf_sha256_initialize(&s->workspace).ok() ||
+        !p256_import_public(&s->key, P256Kind::ecdsa, {config.public_key, 65}).ok())) {
+        p256_release(&s->key); kdf_sha256_release(&s->workspace); clear_bytes(s, sizeof(*s));
+        return SE::configuration;
     }
     s->initialized = true;
     return SE::none;
@@ -316,77 +227,17 @@ UpdateServiceError update_service_initialize(UpdateService* s, const UpdateServi
 void update_service_release(UpdateService* s) noexcept {
     if (!s || !s->initialized) return;
     release_work(s);
-    update_service_close(s);
+    update_package_release(&s->staged, true);
     p256_release(&s->key); kdf_sha256_release(&s->workspace);
     SecureZeroMemory(s, sizeof(*s));
-}
-
-UpdateServiceError update_service_open(UpdateService* s, bool provision) noexcept {
-    if (!s || !s->initialized) return SE::state;
-    if (!s->config.configured) return SE::configuration;
-    if (s->open) return SE::none;
-    if (!read_enrollment(s->paths, s->inventory, &s->installation)) { UpdateLog("open_failed enrollment").write(LogLevel::warning); return SE::enrollment; }
-    UpdateGenerationDirectoryIdentity ids[kUpdateGenerationMaximumAncestors]{}; u32 count = 0;
-    if (!ancestry(s->paths.root, s->paths.root_count, ids, &count)) {
-        UpdateLog("open_failed ancestry").field("native", GetLastError()).write(LogLevel::warning); return SE::storage;
-    }
-    UpdateGenerationEnrollment enrollment{};
-    enrollment.root = {s->paths.root, s->paths.root_count}; enrollment.installation = s->installation;
-    enrollment.ancestors = {ids, count}; enrollment.explicitly_enrolled = true;
-    copy_bytes(enrollment.publisher_inventory_sha256, s->inventory, 32);
-    clear_bytes(&s->transaction, sizeof(s->transaction)); clear_bytes(&s->install, sizeof(s->install));
-    const auto begun = update_generation_begin(enrollment, &s->transaction, provision);
-    if (!begun.ok()) {
-        UpdateLog("open_failed generation").field("error", static_cast<u8>(begun.error)).field("native", begun.native_error)
-            .field("provision", provision).write(LogLevel::warning);
-        update_generation_release(&s->transaction); clear_bytes(&s->transaction, sizeof(s->transaction));
-        return begun.error == UpdateGenerationError::gate && begun.native_error == ERROR_SHARING_VIOLATION ? SE::busy : SE::storage;
-    }
-    const auto initialized = update_install_initialize(&s->install, &s->transaction, s->key, s->workspace, limits(*s));
-    if (!initialized.ok()) {
-        log_install("open_failed install", initialized);
-        update_generation_release(&s->transaction); clear_bytes(&s->transaction, sizeof(s->transaction));
-        return SE::enrollment;
-    }
-    s->open = true;
-    return SE::none;
-}
-void update_service_close(UpdateService* s) noexcept {
-    if (!s || !s->open) return;
-    update_package_release(&s->package, false); clear_bytes(&s->package, sizeof(s->package));
-    update_install_release(&s->install);
-    update_generation_release(&s->transaction);
-    // A failed release leaks its handles; never keep a half-released owner.
-    clear_bytes(&s->install, sizeof(s->install)); clear_bytes(&s->transaction, sizeof(s->transaction)); s->open = false;
-}
-
-UpdateServiceError update_service_inspect(UpdateService* s, UpdateInstalledState* out) noexcept {
-    if (!s || !out || !s->initialized) return SE::state;
-    reset_value(out);
-    if (!s->config.configured) return SE::configuration;
-    if (!exists(s->paths.journal)) return SE::none;
-    const SE opened = update_service_open(s, false); if (opened != SE::none) return opened;
-    const auto& st = s->transaction.state;
-    out->journal = true; out->phase = st.phase; out->active_version = st.active.package.version;
-    // Activating or reverting rewrites the journal, so a protocol-1 candidate
-    // or previous generation is not offered.
-    out->previous_version = st.previous.present && !update_package_descriptor_legacy(st.previous.package) ? st.previous.package.version : 0;
-    out->candidate_version = st.candidate.present && !update_package_descriptor_legacy(st.candidate.package) ? st.candidate.package.version : 0;
-    update_service_close(s);
-    return SE::none;
 }
 
 UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& transport, UpdateChannel channel, u64 now) noexcept {
     if (!s || !s->initialized || channel > UpdateChannel::preview) return failed(SE::state);
     if (!s->config.configured) return failed(SE::configuration);
-    UpdateInstalledState installed{};
-    const SE inspected = update_service_inspect(s, &installed);
-    if (inspected != SE::none) return report(failed(inspected), "inspect");
-    const bool journal = installed.journal;
-    const u64 floor = maximum(s->config.own_version, installed.active_version);
-    const bool was_reverted = installed.phase == UpdateGenerationPhase::stable && installed.previous_version > installed.active_version;
-    UpdateLog("check").field("channel", static_cast<u8>(channel)).field("own", s->config.own_version)
-        .field("active", installed.active_version).field("phase", static_cast<u8>(installed.phase)).field("journal", journal).write();
+    const u64 floor = s->config.own_version;
+    const u64 staged = s->staged.file ? s->staged.version : 0;
+    UpdateLog("check").field("channel", static_cast<u8>(channel)).field("own", floor).field("staged", staged).write();
     const Utf8View repository{s->config.repository, s->config.repository_bytes};
     UpdateLocation location{};
     UpdateManifest manifest{};
@@ -404,7 +255,7 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     const Utf8View text{s->document, s->document_bytes};
     // 2. Publisher signature and schema first: an older or equal signed
     //    version is "up to date" and never reaches durable state.
-    auto verified = update_manifest_verify_installed(text, {s->signature, 64}, s->key, s->workspace,
+    auto verified = update_manifest_authenticate(text, {s->signature, 64}, s->key, s->workspace,
         s->config.maximum_artifact_bytes, kUpdateMaximumValiditySeconds, {s->scratch, 256}, &manifest);
     if (!verified.ok()) { auto r = failed(manifest_error(verified.error)); r.manifest_error = verified.error; return report(r, "verify"); }
     UpdateLog("offer").field("channel", static_cast<u8>(manifest.channel)).field("version", manifest.version)
@@ -413,18 +264,18 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     if (manifest.channel != channel || (channel == UpdateChannel::stable && update_version_channel(manifest.version) != UpdateChannel::stable)) {
         auto r = failed(SE::manifest); r.manifest_error = UpdateManifestError::unsupported; return report(r, "channel");
     }
-    if (manifest.version <= floor) return up_to_date(floor, manifest.version);
-    // An explicit rollback skips releases up to the version left behind.
-    if (was_reverted && manifest.version <= installed.previous_version) return up_to_date(floor, manifest.version);
+    if (manifest.version <= floor) return up_to_date(s, floor, manifest.version);
     offer_changelog(s, transport, repository, channel, manifest, now);
-    if (installed.phase == UpdateGenerationPhase::prepared && installed.candidate_version >= manifest.version) {
-        UpdateLog("ready").field("version", installed.candidate_version).field("prepared", 1).write();
-        return outcome(UpdateCheckOutcome::ready, installed.candidate_version);
+    if (staged >= manifest.version) {
+        UpdateLog("ready").field("version", staged).field("staged", 1).write();
+        return outcome(UpdateCheckOutcome::ready, staged);
     }
-    // 3. Freshness and the durable rollback floor.
-    // Before the first install no record exists; afterwards it is required.
+    // 3. Freshness and the durable rollback floor. A missing record means no
+    //    version was admitted yet: there is no other install record, and
+    //    deleting it takes the same local write access as replacing the
+    //    executable. The installed version stays the floor either way.
     UpdateAcceptanceState accepted{};
-    if (journal || exists(s->paths.acceptance)) {
+    if (exists(s->paths.acceptance)) {
         const auto loaded = update_acceptance_load({s->paths.acceptance, s->paths.acceptance_count}, &accepted);
         if (!loaded.ok()) {
             UpdateLog("acceptance_load").field("error", static_cast<u8>(loaded.error)).field("native", loaded.native_error).write(LogLevel::warning);
@@ -436,13 +287,12 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
         kUpdateMaximumValiditySeconds, channel, {}, lane.present};
     if (lane.present) copy_bytes(policy.accepted_manifest_sha256, lane.manifest_sha256, 32);
     verified = update_manifest_verify(text, {s->signature, 64}, s->key, s->workspace, policy, {s->scratch, 256}, &manifest);
-    if (verified.error == UpdateManifestError::rollback) return up_to_date(floor, manifest.version);
+    if (verified.error == UpdateManifestError::rollback) return up_to_date(s, floor, manifest.version);
     if (!verified.ok()) { auto r = failed(manifest_error(verified.error)); r.manifest_error = verified.error; return report(r, "freshness"); }
     // 4. Durable admission before any package byte is fetched.
-    if (!ensure_storage(&s->paths)) return report(failed(SE::storage), "storage");
-    if (!exists(s->paths.enrollment) && (journal || !create_enrollment(s->paths, s->inventory))) return report(failed(SE::enrollment), "enrollment");
+    if (!ensure_storage(s->paths)) { auto r = failed(SE::storage); r.native_error = GetLastError(); return report(r, "storage"); }
     UpdateAcceptanceTransaction acceptance{};
-    auto admitted = update_acceptance_begin({s->paths.acceptance, s->paths.acceptance_count}, &acceptance, !journal);
+    auto admitted = update_acceptance_begin({s->paths.acceptance, s->paths.acceptance_count}, &acceptance, true);
     UpdateManifest approved{};
     if (admitted.ok()) admitted = update_acceptance_verify_commit(&acceptance, text, {s->signature, 64}, s->key, s->workspace,
         &policy, {s->scratch, 256}, &approved);
@@ -455,244 +305,107 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
         return report(r, "admission");
     }
     UpdateLog("admitted").field("version", manifest.version).write();
-    // 5. Package from the version's immutable release, capped at the signed size.
+    // 5. Package from the version's immutable release, capped at the signed
+    //    size. The package an earlier session staged and left uninstalled is
+    //    used again while it still has the signed size and digest; step 6
+    //    verifies it once more under the acceptance lock.
     if (!update_asset_location(repository, channel, UpdateAsset::package, manifest.version, &location)) {
         auto r = failed(SE::manifest); r.manifest_error = UpdateManifestError::unsupported; return report(r, "tag");
     }
-    s->download = CreateFileW(s->paths.download, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (s->download == INVALID_HANDLE_VALUE) {
-        s->download = nullptr; auto r = failed(SE::storage); r.native_error = GetLastError(); return report(r, "download_file");
+    UpdateArtifact kept{};
+    const bool reused = update_artifact_verify({s->paths.download, s->paths.download_count}, manifest, &kept).ok();
+    update_artifact_release(&kept);
+    if (reused) UpdateLog("package").field("version", manifest.version).field("reused", 1).write();
+    else {
+        s->download = CreateFileW(s->paths.download, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (s->download == INVALID_HANDLE_VALUE) {
+            s->download = nullptr; auto r = failed(SE::storage); r.native_error = GetLastError(); return report(r, "download_file");
+        }
+        InterlockedExchange64(&s->progress.received, 0);
+        InterlockedExchange64(&s->progress.total, static_cast<LONG64>(manifest.artifact_bytes));
+        fetched = update_fetch(transport, location, manifest.artifact_bytes, manifest.artifact_bytes, file_sink, s, now);
+        const bool flushed = FlushFileBuffers(s->download) != FALSE;
+        const DWORD flush_error = flushed ? 0 : GetLastError();
+        close(&s->download);
+        if (!fetched.ok() || !flushed) {
+            DeleteFileW(s->paths.download);
+            // A 404 here means the signed version's release is gone, unpublished or private.
+            auto r = !flushed ? failed(SE::storage) : fetched.error == UpdateFetchError::not_found ? failed(SE::unavailable) : fetch_failed(fetched);
+            r.fetch_error = fetched.error; r.retry_at_unix = fetched.retry_at_unix;
+            if (!flushed) r.native_error = flush_error;
+            return report(r, "package");
+        }
     }
-    InterlockedExchange64(&s->progress.received, 0);
-    InterlockedExchange64(&s->progress.total, static_cast<LONG64>(manifest.artifact_bytes));
-    fetched = update_fetch(transport, location, manifest.artifact_bytes, manifest.artifact_bytes, file_sink, s, now);
-    const bool flushed = FlushFileBuffers(s->download) != FALSE;
-    const DWORD flush_error = flushed ? 0 : GetLastError();
-    close(&s->download);
-    if (!fetched.ok() || !flushed) {
-        DeleteFileW(s->paths.download);
-        // A 404 here means the signed version's release is gone, unpublished or private.
-        auto r = !flushed ? failed(SE::storage) : fetched.error == UpdateFetchError::not_found ? failed(SE::unavailable) : fetch_failed(fetched);
-        r.fetch_error = fetched.error; r.retry_at_unix = fetched.retry_at_unix;
-        if (!flushed) r.native_error = flush_error;
-        return report(r, "package");
-    }
-    // 6. Stage under the live acceptance lock (re-verifies signature and size).
-    wchar_t stale[kUpdatePathCapacity]{};
-    stage_path(s->paths, manifest.manifest_sha256, stale);
-    DeleteFileW(stale);
-    const UpdatePreparationRequest request{{s->paths.acceptance, s->paths.acceptance_count}, {s->paths.download, s->paths.download_count},
-        {s->paths.work, s->paths.work_count}, {s->document, s->document_bytes}, {s->signature, 64}, !journal};
-    clear_bytes(&s->preparation, sizeof(s->preparation)); clear_bytes(&s->stage, sizeof(s->stage));
-    s->preparation_result = update_prepare_stage(&s->preparation, request, s->key, s->workspace, &policy, {s->scratch, 256}, &s->stage);
+    // 6. Admission again under the live acceptance lock, then the download's
+    //    signed size and digest.
+    const UpdatePreparationRequest request{{s->paths.acceptance, s->paths.acceptance_count},
+        {s->paths.download, s->paths.download_count}, {s->document, s->document_bytes}, {s->signature, 64}, true};
+    clear_bytes(&s->preparation, sizeof(s->preparation));
+    const auto prepared = update_prepare_artifact(&s->preparation, request, s->key, s->workspace, &policy, {s->scratch, 256});
     {
-        const auto& p = s->preparation_result;
-        UpdateLog line("stage");
-        line.field("error", static_cast<u8>(p.error)).field("phase", static_cast<u8>(p.phase));
-        if (!p.ok()) line.field("acceptance", static_cast<u8>(p.acceptance.error)).field("acceptance_native", p.acceptance.native_error)
-            .field("artifact", static_cast<u8>(p.artifact.error)).field("artifact_native", p.artifact.native_error)
-            .field("stage", static_cast<u8>(p.stage.error)).field("stage_native", p.stage.native_error);
-        line.write(p.ok() ? LogLevel::info : LogLevel::warning);
+        UpdateLog line("prepare");
+        line.field("error", static_cast<u8>(prepared.error)).field("phase", static_cast<u8>(prepared.phase));
+        if (!prepared.ok()) line.field("acceptance", static_cast<u8>(prepared.acceptance.error)).field("acceptance_native", prepared.acceptance.native_error)
+            .field("artifact", static_cast<u8>(prepared.artifact.error)).field("artifact_native", prepared.artifact.native_error);
+        line.write(prepared.ok() ? LogLevel::info : LogLevel::warning);
     }
-    if (!s->preparation_result.ok()) { release_work(s); return report(failed(SE::stage), "stage"); }
-    // 7. Generation install: provision the first generation, else prepare.
-    SE opened = update_service_open(s, !journal);
-    if (opened != SE::none) { release_work(s); return report(failed(opened), "open"); }
-    UpdateInstallResult installed_result{};
-    const HANDLE retained[]{s->preparation.artifact.file, s->preparation.acceptance.lock};
+    if (!prepared.ok()) { discard_work(s); return report(failed(SE::stage), "prepare"); }
+    // 7. The package's executable, verified and staged beside the running one.
+    //    An earlier stage is replaced only now; a stale file from an earlier
+    //    session is never adopted.
+    update_package_release(&s->staged, true);
+    if (!s->staged.file) DeleteFileW(s->paths.staged);
+    UpdatePackage package{};
     const UpdatePackageOffer offer{{s->document, s->document_bytes}, {s->signature, 64}};
-    if (journal) {
-        installed_result = update_install_recover(&s->install);
-        auto& st = s->transaction.state;
-        if (installed_result.ok() && st.phase == UpdateGenerationPhase::prepared) installed_result = update_install_cancel(&s->install);
-        if (installed_result.ok() && st.phase == UpdateGenerationPhase::stable && st.previous.present)
-            installed_result = update_install_forget_previous(&s->install);
-        UpdateGenerationIdentity id{};
-        if (installed_result.ok()) installed_result = random_identity(&id) ?
-            update_install_prepare(&s->install, &s->stage, offer, policy, s->preparation.acceptance, id, {retained, 2}) :
-            UpdateInstallResult{UpdateInstallError::state};
-    } else {
-        installed_result = update_install_provision_current(&s->install, &s->stage, offer, policy, s->preparation.acceptance, {retained, 2});
+    const auto extracted = update_package_extract(&s->preparation.artifact, offer, s->key, s->workspace, policy,
+        s->preparation.acceptance, {s->scratch, 256}, {s->paths.staged, s->paths.staged_count}, &package);
+    {
+        UpdateLog line("stage");
+        line.field("error", static_cast<u8>(extracted.error));
+        if (!extracted.ok()) line.field("native", extracted.native_error).field("crypto", static_cast<u32>(extracted.crypto_status))
+            .field("manifest", static_cast<u8>(extracted.manifest_error)).field("cleanup", extracted.cleanup_error);
+        line.write(extracted.ok() ? LogLevel::info : LogLevel::warning);
     }
-    log_install("install", installed_result);
-    update_service_close(s);
+    if (!extracted.ok()) {
+        discard_work(s);
+        auto r = failed(SE::install); r.manifest_error = extracted.manifest_error; r.native_error = extracted.native_error;
+        return report(r, "stage");
+    }
+    // The package stays until the update is installed or superseded, so a
+    // later session stages it again without downloading it.
     release_work(s);
-    if (!installed_result.ok()) {
-        auto r = failed(installed_result.error == UpdateInstallError::disk || installed_result.error == UpdateInstallError::budget ? SE::disk : SE::install);
-        r.manifest_error = installed_result.manifest_error; r.native_error = installed_result.native_error; return report(r, "install");
-    }
+    s->staged = package;
     UpdateLog("ready").field("version", manifest.version).write();
     return outcome(UpdateCheckOutcome::ready, manifest.version);
 }
 
-UpdateServiceError update_service_restart(UpdateService* s) noexcept {
-    if (!s || !s->initialized) return SE::state;
-    if (!s->config.configured) return SE::configuration;
-    if (!exists(s->paths.journal)) return SE::state;
-    SE opened = update_service_open(s, false); if (opened != SE::none) return opened;
-    auto& st = s->transaction.state;
-    UpdateLog("restart").field("phase", static_cast<u8>(st.phase)).field("active", st.active.package.version)
-        .field("candidate", st.candidate.present ? st.candidate.package.version : 0).write();
-    if (st.phase == UpdateGenerationPhase::pending || st.phase == UpdateGenerationPhase::acknowledged ||
-        st.phase == UpdateGenerationPhase::rollback) {
-        const auto recovered = update_install_recover(&s->install);
-        if (!recovered.ok()) { log_install("restart_recover", recovered); update_service_close(s); return SE::install; }
+UpdateSwapResult update_swap(const UpdatePaths& paths) noexcept {
+    UpdateSwapResult r{};
+    if (!MoveFileExW(paths.executable, paths.replaced, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        r.error = UpdateSwapError::replace; r.native_error = GetLastError(); return r;
     }
-    UpdateGenerationLaunchAdmission admission{};
-    bool pending = false;
-    UpdateInstallResult selected{};
-    if (st.phase == UpdateGenerationPhase::prepared && !update_package_descriptor_legacy(st.candidate.package)) {
-        selected = update_install_activate(&s->install);
-        if (selected.ok()) selected = update_install_activation_admission(&s->install, &admission);
-        if (selected.ok()) selected = update_install_select_activation_package(&s->install, &s->package);
-        pending = st.phase == UpdateGenerationPhase::pending;
-    } else if (st.phase == UpdateGenerationPhase::stable && st.active.package.version != s->config.own_version &&
-        launchable(s->transaction, st.active)) {
-        selected = update_install_select_package(&s->install, &s->package);
-    } else { update_service_close(s); return SE::state; }
-    if (!selected.ok()) log_install("restart_select", selected);
-    bool acknowledged = false;
-    SE error = SE::launch;
-    if (selected.ok()) {
-        clear_bytes(&s->handoff, sizeof(s->handoff));
-        const auto launched = update_handoff_launch(&s->transaction, &s->install.authentication, s->package, true,
-            pending ? &admission : nullptr, &s->handoff);
-        log_handoff("handoff_launch", launched);
-        if (launched.ok()) {
-            AllowSetForegroundWindow(GetProcessId(s->handoff.process));
-            const auto waited = update_handoff_wait(&s->handoff, kHandoffWaitMs);
-            log_handoff("handoff_wait", waited);
-            acknowledged = waited.ok() && waited.outcome == UpdateHandoffOutcome::acknowledged;
-            if (!acknowledged) {
-                // A child that never confirmed is not left running beside us.
-                if (WaitForSingleObject(s->handoff.process, 0) == WAIT_TIMEOUT) TerminateProcess(s->handoff.process, 1);
-                WaitForSingleObject(s->handoff.process, 5000);
-                error = SE::startup;
-            } else if (pending) {
-                UpdateGenerationIdentity transaction = s->handoff.expected.transaction;
-                u8 digest[32]{}; copy_bytes(digest, s->handoff.expected.document_sha256, 32);
-                if (update_install_acknowledge(&s->install, transaction, {digest, 32}).ok()) update_install_recover(&s->install);
-            }
-        }
-        update_handoff_release(&s->handoff); clear_bytes(&s->handoff, sizeof(s->handoff));
+    if (MoveFileExW(paths.staged, paths.executable, MOVEFILE_WRITE_THROUGH)) return r;
+    r.error = UpdateSwapError::install; r.native_error = GetLastError();
+    // Put the running executable back; a copy is the last resort.
+    if (!MoveFileExW(paths.replaced, paths.executable, MOVEFILE_WRITE_THROUGH)) {
+        r.restore_error = GetLastError();
+        if (CopyFileW(paths.replaced, paths.executable, TRUE)) r.restore_error = 0;
     }
-    update_package_release(&s->package, false); clear_bytes(&s->package, sizeof(s->package));
-    // Pending without confirmation rolls back and discards the candidate.
-    if (!acknowledged && st.phase == UpdateGenerationPhase::pending) update_install_recover(&s->install);
-    update_service_close(s);
-    return acknowledged ? SE::none : error;
+    return r;
 }
-
-UpdateServiceError update_service_revert(UpdateService* s) noexcept {
-    if (!s || !s->initialized) return SE::state;
-    if (!s->config.configured) return SE::configuration;
-    if (!exists(s->paths.journal)) return SE::state;
-    SE opened = update_service_open(s, false); if (opened != SE::none) return opened;
-    const auto& st = s->transaction.state;
-    const bool allowed = st.phase == UpdateGenerationPhase::stable && st.previous.present && !update_package_descriptor_legacy(st.previous.package) &&
-        st.previous.package.version < st.active.package.version && st.disposal.target == UpdateGenerationDisposalTarget::none;
-    const auto reverted_result = allowed ? update_install_revert(&s->install) : UpdateInstallResult{UpdateInstallError::state};
-    const bool ok = allowed && reverted_result.ok();
-    log_install("revert", reverted_result);
-    update_service_close(s);
-    return !allowed ? SE::state : ok ? SE::none : SE::install;
-}
-
-bool update_service_dispatch(UpdateService* s) noexcept {
-    if (!s || !s->initialized || !s->config.configured || !exists(s->paths.journal)) return false;
-    if (update_service_open(s, false) != SE::none) return false;
-    const auto recovered = update_install_recover(&s->install);
-    if (!recovered.ok()) log_install("dispatch_recover", recovered);
-    const auto& st = s->transaction.state;
-    bool launched = false;
-    UpdateLog("dispatch").field("phase", static_cast<u8>(st.phase)).field("active", st.active.package.version)
-        .field("own", s->config.own_version).write();
-    UpdateInstallResult selected{UpdateInstallError::state};
-    if (st.phase == UpdateGenerationPhase::stable && st.active.package.version > s->config.own_version && launchable(s->transaction, st.active)) {
-        selected = update_install_select_package(&s->install, &s->package);
-        if (!selected.ok()) log_install("dispatch_select", selected);
-    }
-    if (selected.ok()) {
-        clear_bytes(&s->handoff, sizeof(s->handoff));
-        const auto started = update_handoff_launch(&s->transaction, &s->install.authentication, s->package, true, nullptr, &s->handoff);
-        log_handoff("dispatch_launch", started);
-        if (started.ok()) {
-            AllowSetForegroundWindow(GetProcessId(s->handoff.process));
-            const auto waited = update_handoff_wait(&s->handoff, kHandoffWaitMs);
-            log_handoff("dispatch_wait", waited);
-            launched = waited.ok() && waited.outcome == UpdateHandoffOutcome::acknowledged;
-            if (!launched && WaitForSingleObject(s->handoff.process, 0) == WAIT_TIMEOUT) {
-                TerminateProcess(s->handoff.process, 1); WaitForSingleObject(s->handoff.process, 5000);
-            }
-        }
-        update_handoff_release(&s->handoff); clear_bytes(&s->handoff, sizeof(s->handoff));
-    }
-    update_service_close(s);
-    return launched;
-}
-
-UpdateServiceError update_service_child_open(const UpdateServiceConfig& config, const UpdatePaths& input_paths,
-    ConstSlice<wchar_t> module, ConstSlice<wchar_t> command_line, UpdateHandoffChild* child) noexcept {
-    if (!child || !config.configured) return SE::configuration;
-    UpdatePaths paths = input_paths;
-    if (!canonicalize(&paths)) return SE::storage;
-    // <root>\g-<64 lowercase hex>\MaiCord.exe, root from trusted configuration.
-    static constexpr wchar_t exe[] = L"\\MaiCord.exe";
-    constexpr u32 exe_count = sizeof(exe) / sizeof(wchar_t) - 1;
-    if (!module.data || module.count != paths.root_count + 1 + 66 + exe_count ||
-        !same_path(module.data, paths.root_count, paths.root, paths.root_count) || module[paths.root_count] != L'\\' ||
-        !same_path(module.data + paths.root_count + 67, exe_count, exe, exe_count)) return SE::state;
-    KdfSha256Workspace workspace{}; P256Key key{}; u8 inventory[32]{};
-    struct Owners {
-        KdfSha256Workspace& w; P256Key& k; HANDLE journal{}; HANDLE files[kUpdateGenerationMaximumFiles]{}; UpdatePackageResult verification{};
-        ~Owners() noexcept {
-            update_package_cleanup_release(&verification); close(&journal);
-            for (auto& h : files) close(&h); p256_release(&k); kdf_sha256_release(&w);
-        }
-    } owners{workspace, key};
-    if (!kdf_sha256_initialize(&workspace).ok() || !p256_import_public(&key, P256Kind::ecdsa, {config.public_key, 65}).ok() ||
-        !update_generation_inventory_fingerprint(key, workspace, {inventory, 32}).ok()) return SE::configuration;
-    UpdateGenerationIdentity installation{};
-    if (!read_enrollment(paths, inventory, &installation)) return SE::enrollment;
-    u64 bytes = 0; u8 record[kUpdateGenerationRecordBytes]{}; UpdateGenerationState state{};
-    owners.journal = open_read(paths.journal);
-    // A v2 journal is still current while its writer, a release up to 0.4.x, coordinates.
-    if (!regular_size(owners.journal, &bytes) || (bytes != sizeof(record) && bytes != kUpdateGenerationLegacyRecordBytes) ||
-        !read_exact(owners.journal, record, static_cast<u32>(bytes)) ||
-        !update_generation_decode({record, static_cast<u32>(bytes)}, &state).ok() || !state.active.present ||
-        (state.phase != UpdateGenerationPhase::stable && state.phase != UpdateGenerationPhase::pending) ||
-        !bytes_equal(state.installation.bytes, installation.bytes, 16)) return SE::state;
-    const auto& active = state.active.package;
-    if (!hex_name(module.data + paths.root_count + 1, active.document_sha256)) return SE::state;
-    wchar_t generation[kUpdatePathCapacity]{}, path[kUpdatePathCapacity]{}, name[kUpdatePackageMaximumNameBytes + 1]{};
-    copy_bytes(generation, module.data, (paths.root_count + 67) * sizeof(wchar_t));
-    const u32 count = update_generation_file_count(active);
-    u64 sizes[kUpdateGenerationMaximumFiles]{};
-    for (u32 i = 0; i < count; ++i) {
-        const Utf8View file = update_generation_file_name(active, i);
-        for (u32 c = 0; c < file.bytes; ++c) name[c] = static_cast<wchar_t>(file.data[c]);
-        name[file.bytes] = 0;
-        if (!join(path, generation, paths.root_count + 67, name)) return SE::state;
-        owners.files[i] = open_read(path);
-        if (!regular_size(owners.files[i], &sizes[i])) return SE::state;
-    }
-    const u64 document_bytes = sizes[kUpdateGenerationOfferSlot], package_bytes = sizes[kUpdateGenerationPackageSlot];
-    if (!document_bytes || document_bytes > kUpdateManifestMaximumBytes || sizes[kUpdateGenerationSignatureSlot] != 64 ||
-        package_bytes != active.package_bytes || package_bytes > config.maximum_artifact_bytes) return SE::state;
-    char document[kUpdateManifestMaximumBytes]{}; u8 signature[64]{}; u32 scratch[256]{};
-    if (!read_exact(owners.files[kUpdateGenerationOfferSlot], document, static_cast<u32>(document_bytes)) ||
-        !read_exact(owners.files[kUpdateGenerationSignatureSlot], signature, 64)) return SE::state;
-    UpdateStage stage{}; stage.file = owners.files[kUpdateGenerationPackageSlot]; stage.bytes = package_bytes;
-    UpdatePackageDescriptor derived{};
-    owners.verification = update_package_verify_installed(&stage, {{document, static_cast<u32>(document_bytes)}, {signature, 64}},
-        key, workspace, kUpdateMaximumValiditySeconds, {scratch, 256},
-        {owners.files + kUpdateGenerationFirstMemberSlot, active.member_count}, &derived);
-    if (!owners.verification.ok() || !update_package_descriptor_equal(derived, active)) return SE::signature;
-    // The parent replaces the journal when it records acknowledgement.
-    close(&owners.journal);
-    UpdateHandoffIdentity identity{installation, state.transaction, {}};
-    copy_bytes(identity.document_sha256, derived.document_sha256, 32);
-    return update_handoff_child_open(command_line, identity, true, child).ok() ? SE::none : SE::launch;
+UpdateSwapResult update_service_swap(UpdateService* s) noexcept {
+    UpdateSwapResult r{};
+    if (!s || !s->initialized || !s->staged.file) { r.error = UpdateSwapError::nothing_staged; return r; }
+    const u64 version = s->staged.version;
+    // Close (not discard) the verified stage: the moves need it unopened.
+    const auto released = update_package_release(&s->staged, false);
+    if (!released.ok()) { r.error = UpdateSwapError::release; r.native_error = released.native_error; }
+    else r = update_swap(s->paths);
+    // Installed: the package it came from is not needed again.
+    if (r.ok()) DeleteFileW(s->paths.download);
+    UpdateLog("swap").field("version", version).field("error", static_cast<u8>(r.error)).field("native", r.native_error)
+        .field("restore", r.restore_error).write(r.ok() ? LogLevel::info : LogLevel::warning);
+    return r;
 }
 
 namespace {
@@ -702,9 +415,8 @@ u8 load_choice(const wchar_t* path, u8 maximum, u8 fallback) noexcept {
     close(&h);
     return ok && value <= maximum ? value : fallback;
 }
-bool save_choice(const UpdatePaths& input, bool interval, u8 value) noexcept {
-    UpdatePaths paths = input;
-    if (!ensure_storage(&paths)) return false;
+bool save_choice(const UpdatePaths& paths, bool interval, u8 value) noexcept {
+    if (!ensure_storage(paths)) return false;
     HANDLE h = CreateFileW(interval ? paths.interval : paths.channel, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
         FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) return false;

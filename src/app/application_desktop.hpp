@@ -4,7 +4,6 @@
 #include "maicord/platform/system_tray.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "application_state.hpp"
-#include "application_update_startup.hpp"
 #include "settings_catalog.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -28,14 +27,13 @@ inline TrayIconPalette application_tray_palette() noexcept {
 // Desktop integration: single instance, discord:// links, the notification
 // area icon, close-to-tray and the System settings page.
 
-// Before the update dispatcher: an ordinary launch while this profile's
-// client runs hands its link (or a "show" request) to that window. True
-// means the request was delivered and this process should exit.
+// An ordinary launch while this profile's client runs hands its link (or a
+// "show" request) to that window. True means the request was delivered and
+// this process should exit.
 bool application_desktop_forward_existing(ConstSlice<wchar_t> command_line) noexcept;
-// After the update gate admitted this process to run the client. An update
-// child takes its launch (startup flag, link) from the dispatcher's
-// environment; every launch clears it so restarts never replay a link.
-void application_desktop_prepare(ConstSlice<wchar_t> command_line, bool update_child) noexcept;
+// Before the client starts: its launch (startup flag, link) and the profile's
+// single-instance claim.
+void application_desktop_prepare(ConstSlice<wchar_t> command_line) noexcept;
 // SW_* for the first ShowWindow (Start minimized).
 int application_desktop_initial_show() noexcept;
 // Publishes the window for later launches and creates the tray icon.
@@ -52,24 +50,16 @@ void application_desktop_release() noexcept;
 // Queues a discord:// link for navigation once the account is ready.
 bool application_desktop_open_link(ConstSlice<wchar_t> url) noexcept;
 
-// The executable that startup, protocol and notification registrations name. A
-// generation folder is deleted by a later update, so this is the dispatcher
-// (the stable MaiCord.exe). Empty when it does not fit `capacity`.
+// The executable that startup, protocol and notification registrations name:
+// this process's MaiCord.exe, which an update replaces in place. Empty when it
+// does not fit `capacity`.
 inline ConstSlice<wchar_t> application_desktop_registration_executable(wchar_t* buffer, u32 capacity) noexcept {
-    wchar_t module[1024], inherited[1024];
-    const u32 m = GetModuleFileNameW(nullptr, module, 1024);
-    if (!buffer || !m || m >= 1024)
+    if (!buffer || !capacity)
         return {};
-    u32 d = GetEnvironmentVariableW(kApplicationUpdateDispatcherVariable, inherited, 1024);
-    const DWORD attributes = d && d < 1024 ? GetFileAttributesW(inherited) : INVALID_FILE_ATTRIBUTES;
-    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY))
-        d = 0;
-    const auto path = application_update_startup_registration_path({module, m}, {inherited, d});
-    if (!path.count || path.count >= capacity)
+    const u32 count = GetModuleFileNameW(nullptr, buffer, capacity);
+    if (!count || count >= capacity)
         return {};
-    copy_bytes(buffer, path.data, path.count * sizeof(wchar_t));
-    buffer[path.count] = 0;
-    return {buffer, path.count};
+    return {buffer, count};
 }
 
 // Settings → System (application_desktop_settings.cpp).

@@ -63,16 +63,8 @@ void test_icon_pack(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_manifest(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_stage(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept;
 void test_update_package(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_generation(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_generation_authentication(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_generation_failures(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_generation_legacy(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_install(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_signed_handoff(void (*check)(bool, const char*) noexcept) noexcept;
-void test_application_update_startup(void (*check)(bool, const char*) noexcept) noexcept;
 void test_regional_flag_media(void (*check)(bool, const char*) noexcept) noexcept;
 void test_flag_surfaces(void (*check)(bool, const char*) noexcept) noexcept;
 void test_composer_source_spans(void (*check)(bool, const char*) noexcept) noexcept;
@@ -196,16 +188,8 @@ constexpr ExtensionFixture extension_fixtures[]{
     test_update_manifest,
     test_update_artifact,
     test_update_acceptance,
-    test_update_stage,
     test_update_prepare,
     test_update_package,
-    test_update_generation,
-    test_update_generation_authentication,
-    test_update_generation_failures,
-    test_update_generation_legacy,
-    test_update_install,
-    test_update_signed_handoff,
-    test_application_update_startup,
     test_desktop_integration,
     test_regional_flag_media,
     test_flag_surfaces,
@@ -381,10 +365,10 @@ constexpr ExtensionFixture extension_fixtures[]{
 };
 constexpr u32 kExtensionFixtureCount = sizeof(extension_fixtures) / sizeof(extension_fixtures[0]);
 constexpr u32 kExtensionShardCount = 4;
-constexpr u32 kUpdateFixtureCount = 13;
-static_assert(kExtensionFixtureCount == 173);
+constexpr u32 kUpdateFixtureCount = 5;
+static_assert(kExtensionFixtureCount == 165);
 static_assert(extension_fixtures[0] == test_update_manifest &&
-              extension_fixtures[kUpdateFixtureCount - 1] == test_application_update_startup &&
+              extension_fixtures[kUpdateFixtureCount - 1] == test_update_package &&
               extension_fixtures[kUpdateFixtureCount] == test_desktop_integration);
 static_assert((kExtensionFixtureCount - kUpdateFixtureCount) % kExtensionShardCount == 0);
 
@@ -397,7 +381,7 @@ constexpr u32 shard_fixture_count(u32 shard) noexcept {
         count += fixture_shard(index) == shard;
     return count;
 }
-static_assert(shard_fixture_count(0) == 53 && shard_fixture_count(1) == 40 &&
+static_assert(shard_fixture_count(0) == 45 && shard_fixture_count(1) == 40 &&
               shard_fixture_count(2) == 40 && shard_fixture_count(3) == 40);
 static_assert(shard_fixture_count(0) + shard_fixture_count(1) + shard_fixture_count(2) +
                   shard_fixture_count(3) == kExtensionFixtureCount);

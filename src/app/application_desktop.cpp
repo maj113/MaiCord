@@ -4,7 +4,6 @@
 #include "application_guild_invite.hpp"
 #include "application_state.hpp"
 #include "application_taskbar_attention.hpp"
-#include "application_update_startup.hpp"
 #include "application_voice.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
@@ -17,8 +16,6 @@
 namespace maicord::app_detail {
 namespace {
 constexpr UINT kTrayMessage = WM_APP + 0x3C;
-constexpr wchar_t kLaunchUrlVariable[] = L"MAICORD_LAUNCH_URL";
-constexpr wchar_t kLaunchStartupVariable[] = L"MAICORD_LAUNCH_STARTUP";
 constexpr u32 kForwardTimeoutMs = 5'000;
 // A link waits this long for sign-in and the Gateway snapshot.
 constexpr u64 kLinkAccountWaitMs = 120'000;
@@ -51,10 +48,6 @@ void take_mutex(const wchar_t* name) noexcept {
     bool existed = false;
     g_desktop.mutex = desktop_instance_mutex(name, &existed);
     g_desktop.owns_mutex = g_desktop.mutex && !existed;
-}
-void clear_launch_environment() noexcept {
-    SetEnvironmentVariableW(kLaunchUrlVariable, nullptr);
-    SetEnvironmentVariableW(kLaunchStartupVariable, nullptr);
 }
 
 bool same_palette(const TrayIconPalette& a, const TrayIconPalette& b) noexcept {
@@ -208,22 +201,9 @@ void tick_link(u64 now_ms) noexcept {
 } // namespace
 
 bool application_desktop_forward_existing(ConstSlice<wchar_t> command_line) noexcept {
-    if (application_update_startup_classify(command_line) != ApplicationUpdateStartupCommandKind::ordinary)
-        return false;
     DesktopLaunch& launch = g_desktop.launch;
     if (!desktop_launch_parse(command_line, &launch))
         clear_bytes(&launch, sizeof(launch));
-    // A dispatched generation child receives only the updater's protocol
-    // arguments; it reads the launch from the inherited environment.
-    clear_launch_environment();
-    if (launch.url_present && launch.url_units < kDesktopUrlCapacity) {
-        wchar_t url[kDesktopUrlCapacity + 1];
-        copy_bytes(url, launch.url, launch.url_units * sizeof(wchar_t));
-        url[launch.url_units] = 0;
-        SetEnvironmentVariableW(kLaunchUrlVariable, url);
-    }
-    if (launch.startup)
-        SetEnvironmentVariableW(kLaunchStartupVariable, L"1");
     wchar_t mutex_name[kNameCapacity], window_name[kNameCapacity];
     if (!instance_names(mutex_name, window_name))
         return false;
@@ -247,21 +227,10 @@ bool application_desktop_forward_existing(ConstSlice<wchar_t> command_line) noex
     return false;
 }
 
-void application_desktop_prepare(ConstSlice<wchar_t> command_line, bool update_child) noexcept {
+void application_desktop_prepare(ConstSlice<wchar_t> command_line) noexcept {
     DesktopLaunch& launch = g_desktop.launch;
-    if (update_child) {
+    if (!g_desktop.mutex && !desktop_launch_parse(command_line, &launch))
         clear_bytes(&launch, sizeof(launch));
-        wchar_t flag[4];
-        launch.startup = GetEnvironmentVariableW(kLaunchStartupVariable, flag, 4) == 1 && flag[0] == L'1';
-        const DWORD units = GetEnvironmentVariableW(kLaunchUrlVariable, launch.url, kDesktopUrlCapacity);
-        if (units && units < kDesktopUrlCapacity) {
-            launch.url_present = true;
-            launch.url_units = units;
-        }
-    } else if (!g_desktop.mutex && !desktop_launch_parse(command_line, &launch)) {
-        clear_bytes(&launch, sizeof(launch));
-    }
-    clear_launch_environment();
     wchar_t mutex_name[kNameCapacity], window_name[kNameCapacity];
     if (instance_names(mutex_name, window_name))
         take_mutex(mutex_name);
@@ -283,7 +252,8 @@ void application_desktop_window_created() noexcept {
 void application_desktop_tick(u64 now_ms) noexcept {
     if (!g_app.window)
         return;
-    // An update child starts beside the exiting parent; claim the profile once it is gone.
+    // A launch that started while another instance was exiting claims the
+    // profile once that instance is gone.
     if (g_desktop.mutex && !g_desktop.owns_mutex) {
         const DWORD waited = WaitForSingleObject(g_desktop.mutex, 0);
         g_desktop.owns_mutex = waited == WAIT_OBJECT_0 || waited == WAIT_ABANDONED;

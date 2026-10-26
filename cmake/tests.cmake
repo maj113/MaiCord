@@ -105,7 +105,7 @@ foreach(maicord_long_test
     maicord_native_extensions_shard_3
     maicord_native_bidi_emoji
     maicord_native_directional_editor_cuts
-    maicord_update_handoff maicord_account_logout_runtime
+    maicord_account_logout_runtime
     maicord_native_bidi_styles
     maicord_native_mixed_emoji
     maicord_native_style_clusters

@@ -5,7 +5,6 @@
 #include "application_state.hpp"
 #include "application_friends.hpp"
 #include "application_content_input.hpp"
-#include "application_update_startup.hpp"
 #include "maicord/platform/desktop_notifications.hpp"
 #include "maicord/platform/notification_identity.hpp"
 #include "maicord/platform/system_tray.hpp"

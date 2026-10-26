@@ -17,9 +17,6 @@ namespace maicord {
 // are dropped, so the updater core never links the log itself.
 using UpdateLogSink = void (*)(LogLevel, const char* category, const char* line) noexcept;
 inline UpdateLogSink g_update_log_sink = nullptr;
-// Opens (true) or closes (false) the application log around startup work that
-// runs before the application opens it.
-inline void (*g_update_log_session)(bool open) noexcept = nullptr;
 
 struct UpdateLog {
     char text[400];

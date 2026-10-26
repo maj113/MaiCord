@@ -31,7 +31,7 @@ concurrency:
 # independent, so three jobs run side by side for about 10 minutes each:
 #   client     MaiCord.exe, PE audits and the artifact;
 #   tests/app  tests whose executables link the application core or exercise
-#              the shipping client itself (update staging and handoff); they
+#              the shipping client itself (update staging and the exit swap); they
 #              use the client job's artifact, which arrives while the tests
 #              build (build.ps1 -PrebuiltClient), instead of building the
 #              client a second time;
@@ -74,13 +74,14 @@ jobs:
           minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
 
       # A commit after the last stable tag builds as X.Y.Z-dev.N, the preview
-      # channel's version; without an identity the project version is used.
+      # channel's version; without an identity cmake/client.cmake builds the
+      # project version with the updater disabled.
       - name: Build identity
         id: identity
         shell: powershell
         run: |
           python -B tools/release/maicord_release.py identity --repository .
-          if ($LASTEXITCODE) { Write-Host '::warning::No build identity; building as the project version.' }
+          if ($LASTEXITCODE) { Write-Host '::warning::No build identity; building as the project version without the updater.' }
           exit 0
 
       - name: Release tooling self-test

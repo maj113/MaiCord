@@ -15,14 +15,12 @@ any Windows machine with Python 3.10 or newer will do.
 
 ## Formats (they match the client's verifiers)
 
-- **Update package**: `MaiCord-x64-p2-<version>.zip`. One to four *stored*
-  members, `MaiCord.exe` first, with no flags, extra fields or comments. Member
-  names are 1–32 ASCII letters, digits, `.`, `-` or `_`, start with a letter or
-  digit, differ ignoring case and are never device names, `offer.json`,
-  `offer.sig`, `package.zip` or `MaiCordAccount.dll` (which marks protocol 1); `.exe` and `.dll` members must be AMD64 images
-  of that kind. `MEMBER_NAMES` lists what a release ships (today only
-  `MaiCord.exe`). Timestamps are fixed, so the same binaries always give the same
-  bytes. At most 64 MiB. Checked by `src/app/update_package.cpp`.
+- **Update package**: `MaiCord-x64-p2-<version>.zip`. Exactly one *stored*
+  member, `MaiCord.exe`, an AMD64 executable image, with no flags, extra
+  fields or comments. The client swaps that one file in place of itself, so a
+  release can't add other files (`PACKAGE_EXECUTABLE`). Timestamps are fixed,
+  so the same binary always gives the same bytes. At most 64 MiB. Checked by
+  `src/app/update_package.cpp`.
 - **Manifest**: `maicord-<channel>.manifest.json`. Compact JSON with exactly the
   fields `format` (the update protocol, 2), `product`, `arch`, `channel`,
   `version`, `issued`, `expires`, `bytes`, `sha256` and `artifact`; at most 4096
@@ -43,7 +41,8 @@ any Windows machine with Python 3.10 or newer will do.
   after that tag, or the CMake project version if it was already bumped
   further. So `0.3.3` = `3003999` < `0.3.4-dev.16` = `3004016` < `0.3.4` =
   `3004999`. The commit travels in the build (`MAICORD_UPDATE_COMMIT`) and the
-  changelog, and the client shows `0.3.4-dev.16+581fd44`.
+  changelog, and the client shows `0.3.4-dev.16+581fd44`. Local builds are
+  numbered the same way from their checkout (see Client configuration).
 - **Validity**: `issued` is 10 minutes before signing, to allow for clock skew;
   `expires` is 90 days later by default. `manifest-refresh.yml` re-signs a
   manifest weekly once it is within 30 days of expiry. Changelogs don't expire;
@@ -109,21 +108,17 @@ the newest release in their directory. To move them on, also publish a bridge
 there: a build of the new protocol, packaged and signed in the old format. Old
 clients install it like any update, and from then on it reads the new
 directory, so a 0.5 client reaches 1.0 through a 0.9 bridge without ever being
-offered a package it cannot install. `MaiCord.exe` in the original folder stays
-the dispatcher across updates (see Client behaviour), so a bridge must keep the
-generation record and handoff that dispatcher reads.
+offered a package it cannot install.
 
-Releases up to 0.4.0 use protocol 1: they read `updates/maicord-*.json` and
-install only the two-file `MaiCord.exe` and `MaiCordAccount.dll` package, which
-no later release has. Replace such an install's `MaiCord.exe` once by hand with
-that of a newer release. The newer client continues the existing installation:
-it reads the v2 generation journal 0.4.x wrote, still verifies the protocol-1
-generations under their signed offers, installs the next release beside them
-and rewrites the journal as v3, then disposes the old generation with the
-following update. A 0.4.x generation is never activated or rolled back to once
-the journal is v3, because it cannot read that journal. A protocol-1 bridge
-would not help without replacing the dispatcher: a 0.4.x dispatcher reads only
-v2 journals and protocol-1 generations.
+Two earlier updaters are not migrated. Releases up to 0.4.0 use protocol 1:
+they read `updates/maicord-*.json` and install only a `MaiCord.exe` and
+`MaiCordAccount.dll` pair, which no later release has. Master builds after
+0.4.0 that predate the in-place swap installed protocol-2 packages as
+"generations" under `%LOCALAPPDATA%\MaiCord\updates\generations` and started
+them through a dispatcher that waits for a startup handoff, which current
+builds don't perform. Replace such an install's `MaiCord.exe` once by hand
+with a current release's, then delete that `generations` folder; a bridge
+can't help either.
 
 ## Provenance
 
@@ -173,8 +168,7 @@ Preview builds are not attested; their signed manifest is their provenance.
    repository variable to the build as the CMake cache variable
    `MAICORD_UPDATE_PUBLIC_KEY`, together with `MAICORD_UPDATE_REPOSITORY`
    (`github.repository`). CI builds use the defaults in `cmake/client.cmake`,
-   which must name the same point. The tool also prints the publisher-inventory
-   fingerprint that `update_generation_inventory_fingerprint` computes from it.
+   which must name the same point.
 
 Never commit a private key. `*.jwk` is git-ignored.
 
@@ -191,13 +185,22 @@ for this build. `cmake/client.cmake` defaults them to the official publisher.
 | --- | --- |
 | `MAICORD_UPDATE_REPOSITORY` | `owner/repo` that publishes the releases; the owner also names the Pages host |
 | `MAICORD_UPDATE_PUBLIC_KEY` | the 130-digit hex point from `generate_update_key.py` |
-| `MAICORD_UPDATE_VERSION` | `X.Y.Z` or `X.Y.Z-dev.N` (`maicord_release.py identity`); empty for the project version |
-| `MAICORD_UPDATE_COMMIT` | the 40-digit source commit, shown with dev builds; may be empty |
+| `MAICORD_UPDATE_VERSION` | `X.Y.Z` or `X.Y.Z-dev.N` (`maicord_release.py identity`); empty for the checkout's git build identity |
+| `MAICORD_UPDATE_COMMIT` | the 40-digit source commit, shown with dev builds; empty for `HEAD` with a git build identity |
 
 Each defaults to the environment variable of the same name when the cache is
 first created. Set the repository and key empty to build the updater disabled.
-The installed version selects the default channel. For a local build, configure
-once:
+The installed version selects the default channel.
+
+CI and `release.yml` pass the version and commit. A local build leaves them
+empty, and every configure (each `tools/build.ps1` run) numbers it with
+`maicord_release.py identity` from git, exactly as CI numbers master builds:
+a build of the published commit, with or without uncommitted edits, is the
+same version, and one with commits after it is newer, so the updater never
+offers a local build an older one. Without a git build identity (no stable
+tag reachable, a shallow clone, more than 998 commits since the tag) the
+configure warns and builds the project version with the updater disabled. For
+a local build of another publisher, configure once:
 
 ```powershell
 cmake --preset x64-release -DMAICORD_UPDATE_REPOSITORY=owner/repo -DMAICORD_UPDATE_PUBLIC_KEY=04...
@@ -227,22 +230,32 @@ Client behaviour:
   comes out; preview moves to a stable release whenever that is the newest.
 - Every phase writes one `[update]` line to `%LOCALAPPDATA%\MaiCord\logs\maicord.log`:
   each HTTP response (host, status, sizes; never paths or query strings), the
-  offer, changelog, admission, staging and install results with their error
-  codes, and restart, handoff and startup dispatch outcomes. The numbers are the
-  ordinals of the result enums in `include/maicord/app/update_*.hpp`.
-- Updates live in `%LOCALAPPDATA%\MaiCord\updates`. The first update creates
-  the generation root and provisions a stable generation. Later updates are
-  prepared beside it and activated by **Restart**. The new process must confirm
-  that it started, or the client rolls back. **Roll back to previous version**
-  swaps back to the retained generation. The version you left is not reinstalled until
-  a newer release appears.
-- `MaiCord.exe` in the original folder acts as the dispatcher. On start, it
-  launches the newest authenticated generation and exits once that generation
-  confirms startup. That dispatcher is never replaced, so the package checks,
-  the generation record and the handoff must stay acceptable to every
-  released version of its protocol.
-- A package carries the members in `MEMBER_NAMES`, today only `MaiCord.exe`.
-  New fonts or licenses need a fresh download of the portable zip.
+  offer, changelog, admission, preparation and staging results with their
+  error codes, the exit swap, the restart launch and startup cleanup. The
+  numbers are the ordinals of the result enums in `include/maicord/app/update_*.hpp`.
+- The acceptance record and the package download live in
+  `%LOCALAPPDATA%\MaiCord\updates\work`. After the download's size and SHA-256
+  match the signed manifest, the package's `MaiCord.exe` is checked (ZIP layout,
+  CRC, AMD64 executable image), written beside the running executable as
+  `MaiCord.exe.update`, read back and held open so nothing can change it. The
+  install folder must be writable. Settings then reads **Update ready**.
+- Nothing is installed until you choose **Restart to update** in Settings >
+  Updates or on the title bar badge. MaiCord then exits normally, renames the
+  running `MaiCord.exe` to `MaiCord.exe.old`, moves the stage to `MaiCord.exe`
+  (if that second move fails it moves the old executable back), deletes the
+  package and starts `MaiCord.exe`, now the new version. Any other exit keeps
+  the running version. Only a stage the exiting process verified itself is ever
+  moved; the next start deletes `MaiCord.exe.old` and any stage an earlier
+  session left behind. There is no rollback: an older release is never
+  installed over a newer one.
+- An update you haven't installed keeps its package. The next start's first
+  check fetches the manifest as usual and, when the kept package still has the
+  signed size and SHA-256, verifies and stages it again exactly like a fresh
+  download instead of downloading it; otherwise it downloads the package. A
+  check that finds nothing newer than the installed version deletes the kept
+  package, and a newer offer replaces it.
+- A package carries only `MaiCord.exe`. New fonts or licenses need a fresh
+  download of the portable zip.
 
 ## Local dry run
 

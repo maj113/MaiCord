@@ -43,7 +43,6 @@ enum class SettingBinding : u16 {
     update_status,
     update_channel,
     update_interval,
-    update_rollback,
     update_notice,
     voice_input_device,
     voice_output_device,

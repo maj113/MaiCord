@@ -202,7 +202,7 @@ maicord_library(maicord_webauthn src/platform/webauthn.cpp LIBS maicord_core mai
 maicord_library(maicord_app_core
     src/app/poll_controller.cpp src/app/poll_draft.cpp src/app/gateway_state_dispatch.cpp
     src/app/gateway_payload_writer.cpp src/app/gateway_user_payload.cpp src/app/browser_login.cpp
-    src/app/browser_sign_in_receiver.cpp src/app/captcha_bridge.cpp src/app/loopback_server.cpp src/app/application_update_startup.cpp
+    src/app/browser_sign_in_receiver.cpp src/app/captcha_bridge.cpp src/app/loopback_server.cpp
     src/app/login_continuations.cpp src/app/input_layers.cpp src/app/navigation_shortcuts.cpp
     src/app/shortcut_registry.cpp src/app/account_profile.cpp src/app/account_credential_forget.cpp
     src/app/account_logout.cpp src/app/account_profile_promotion.cpp src/app/account_session_store.cpp
@@ -235,9 +235,8 @@ maicord_library(maicord_app_core
     src/app/member_list_channel_binding.cpp src/app/remote_auth_client.cpp src/app/remote_auth_handshake.cpp
     src/app/remote_auth_ticket_exchange.cpp src/app/user_client_configuration.cpp
     src/app/user_account_coordinator.cpp src/app/user_auth_coordinator.cpp src/app/update_manifest.cpp
-    src/app/update_artifact.cpp src/app/update_acceptance.cpp src/app/update_stage.cpp
-    src/app/update_prepare.cpp src/app/update_package.cpp src/app/update_generation.cpp
-    src/app/update_generation_authentication.cpp src/app/update_handoff.cpp src/app/update_install.cpp
+    src/app/update_artifact.cpp src/app/update_acceptance.cpp
+    src/app/update_prepare.cpp src/app/update_package.cpp
     src/app/update_fetch.cpp src/app/update_https.cpp src/app/update_service.cpp src/app/search_recent.cpp
     src/app/channel_memory.cpp
     src/app/link_trust.cpp src/app/voice_dave_route.cpp src/app/voice_jitter_buffer.cpp src/app/voice_mixer.cpp

@@ -153,19 +153,54 @@ set(MAICORD_UPDATE_REPOSITORY "${maicord_default_update_repository}" CACHE STRIN
     "GitHub owner/repo whose releases publish signed MaiCord updates")
 set(MAICORD_UPDATE_PUBLIC_KEY "${maicord_default_update_public_key}" CACHE STRING
     "Update publisher ECDSA P-256 public key: 130 hex digits (uncompressed SEC1 point)")
-# The installed version: empty builds as the project version. CI passes the
-# commit's identity (tools/release/maicord_release.py identity): X.Y.Z-dev.N
-# for master builds, the tag's X.Y.Z for releases.
+# The installed version. CI and release builds pass it (MAICORD_UPDATE_VERSION
+# and MAICORD_UPDATE_COMMIT). Left empty, it is this checkout's build identity
+# (tools/release/maicord_release.py identity), numbered exactly as CI numbers
+# master builds: X.Y.Z-dev.N for N commits after the last stable tag, X.Y.Z on
+# the tag. A local build is then never older than the published build of its
+# commit, so the updater never offers it an older one. tools/build.ps1
+# configures on every run, so each build is numbered for the current HEAD.
 set(MAICORD_UPDATE_VERSION "$ENV{MAICORD_UPDATE_VERSION}" CACHE STRING
-    "Installed version X.Y.Z or X.Y.Z-dev.N (N 1-998); empty for the project version")
+    "Installed version X.Y.Z or X.Y.Z-dev.N (N 1-998); empty for this checkout's git build identity")
 set(MAICORD_UPDATE_COMMIT "$ENV{MAICORD_UPDATE_COMMIT}" CACHE STRING
-    "Source commit (40 lowercase hex digits) shown with the version; may be empty")
+    "Source commit (40 lowercase hex digits) shown with the version; empty for HEAD with a git build identity")
+set(maicord_update_version "${MAICORD_UPDATE_VERSION}")
+set(maicord_update_commit "${MAICORD_UPDATE_COMMIT}")
+set(maicord_update_repository "${MAICORD_UPDATE_REPOSITORY}")
+set(maicord_update_public_key "${MAICORD_UPDATE_PUBLIC_KEY}")
+if(NOT maicord_update_version)
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env --unset=GITHUB_OUTPUT
+            "${Python3_EXECUTABLE}" -B tools/release/maicord_release.py identity --repository .
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        RESULT_VARIABLE maicord_identity_result
+        OUTPUT_VARIABLE maicord_identity
+        ERROR_VARIABLE maicord_identity_error
+        ERROR_STRIP_TRAILING_WHITESPACE)
+    string(REGEX MATCH "version=([^\r\n]+)" maicord_identity_version "${maicord_identity}")
+    set(maicord_identity_version "${CMAKE_MATCH_1}")
+    string(REGEX MATCH "commit=([0-9a-f]+)" maicord_identity_commit "${maicord_identity}")
+    set(maicord_identity_commit "${CMAKE_MATCH_1}")
+    if(maicord_identity_result EQUAL 0 AND maicord_identity_version)
+        set(maicord_update_version "${maicord_identity_version}")
+        if(NOT maicord_update_commit)
+            set(maicord_update_commit "${maicord_identity_commit}")
+        endif()
+        message(STATUS "MaiCord build identity: ${maicord_update_version} (${maicord_update_commit})")
+    else()
+        # Without its number a build can't tell whether a release is newer.
+        message(WARNING "No git build identity (${maicord_identity_error}). MaiCord builds as the project version "
+            "${PROJECT_VERSION} with the updater disabled; set MAICORD_UPDATE_VERSION to number it.")
+        set(maicord_update_repository "")
+        set(maicord_update_public_key "")
+    endif()
+endif()
 set(maicord_update_dev 0)
-if(NOT MAICORD_UPDATE_VERSION)
+if(NOT maicord_update_version)
     set(maicord_update_major ${PROJECT_VERSION_MAJOR})
     set(maicord_update_minor ${PROJECT_VERSION_MINOR})
     set(maicord_update_patch ${PROJECT_VERSION_PATCH})
-elseif(MAICORD_UPDATE_VERSION MATCHES "^(0|[1-9][0-9]?[0-9]?)\\.(0|[1-9][0-9]?[0-9]?)\\.(0|[1-9][0-9]?[0-9]?)(-dev\\.([1-9][0-9]?[0-9]?))?$"
+elseif(maicord_update_version MATCHES "^(0|[1-9][0-9]?[0-9]?)\\.(0|[1-9][0-9]?[0-9]?)\\.(0|[1-9][0-9]?[0-9]?)(-dev\\.([1-9][0-9]?[0-9]?))?$"
         AND NOT CMAKE_MATCH_5 STREQUAL "999")
     set(maicord_update_major ${CMAKE_MATCH_1})
     set(maicord_update_minor ${CMAKE_MATCH_2})
@@ -176,8 +211,8 @@ elseif(MAICORD_UPDATE_VERSION MATCHES "^(0|[1-9][0-9]?[0-9]?)\\.(0|[1-9][0-9]?[0
 else()
     message(FATAL_ERROR "MAICORD_UPDATE_VERSION must be empty, X.Y.Z or X.Y.Z-dev.N (components 0-999, N 1-998).")
 endif()
-string(LENGTH "${MAICORD_UPDATE_COMMIT}" maicord_update_commit_length)
-if(MAICORD_UPDATE_COMMIT AND (NOT maicord_update_commit_length EQUAL 40 OR NOT MAICORD_UPDATE_COMMIT MATCHES "^[0-9a-f]+$"))
+string(LENGTH "${maicord_update_commit}" maicord_update_commit_length)
+if(maicord_update_commit AND (NOT maicord_update_commit_length EQUAL 40 OR NOT maicord_update_commit MATCHES "^[0-9a-f]+$"))
     message(FATAL_ERROR "MAICORD_UPDATE_COMMIT must be empty or 40 lowercase hex digits.")
 endif()
 if(MAICORD_UPDATE_REPOSITORY OR MAICORD_UPDATE_PUBLIC_KEY)
@@ -194,7 +229,7 @@ if(MAICORD_UPDATE_REPOSITORY OR MAICORD_UPDATE_PUBLIC_KEY)
     endif()
 endif()
 set_source_files_properties(src/app/application_update_entry.cpp PROPERTIES COMPILE_DEFINITIONS
-    "MAICORD_UPDATE_REPOSITORY=\"${MAICORD_UPDATE_REPOSITORY}\";MAICORD_UPDATE_PUBLIC_KEY=\"${MAICORD_UPDATE_PUBLIC_KEY}\";MAICORD_UPDATE_DEV=${maicord_update_dev};MAICORD_UPDATE_COMMIT=\"${MAICORD_UPDATE_COMMIT}\";MAICORD_VERSION_MAJOR=${maicord_update_major};MAICORD_VERSION_MINOR=${maicord_update_minor};MAICORD_VERSION_PATCH=${maicord_update_patch}")
+    "MAICORD_UPDATE_REPOSITORY=\"${maicord_update_repository}\";MAICORD_UPDATE_PUBLIC_KEY=\"${maicord_update_public_key}\";MAICORD_UPDATE_DEV=${maicord_update_dev};MAICORD_UPDATE_COMMIT=\"${maicord_update_commit}\";MAICORD_VERSION_MAJOR=${maicord_update_major};MAICORD_VERSION_MINOR=${maicord_update_minor};MAICORD_VERSION_PATCH=${maicord_update_patch}")
 
 # Official plugin catalog (maj113/MaiCord-plugins on GitHub Pages): the current
 # and the next (offline) P-256 key. No key compiles the official catalog as

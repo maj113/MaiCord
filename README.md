@@ -89,12 +89,13 @@ own interface on the GPU.
 
 1. Download `MaiCord-<version>-windows-x64.zip` from the
    [latest release](https://github.com/maj113/MaiCord/releases/latest).
-2. Extract it anywhere, for example `%LOCALAPPDATA%\Programs\MaiCord`.
+2. Extract it anywhere you can write to, for example `%LOCALAPPDATA%\Programs\MaiCord`.
 3. Run `MaiCord.exe`. No installer or admin rights are needed.
 
 MaiCord keeps its settings and saved sign-ins in `%LOCALAPPDATA%\MaiCord` and
 updates itself. Every update is checked against a signature built into the
-client before it is installed.
+client before it is installed, and it replaces `MaiCord.exe` in place when
+MaiCord quits or restarts, so the folder must stay writable.
 
 ### Requirements
 

@@ -233,7 +233,7 @@ constexpr Utf8View update_intervals[]{utf8_literal("Every hour"), utf8_literal("
                                       utf8_literal("Every 12 hours"), utf8_literal("Once a day")};
 constexpr UiSettingsSchemaNode updates[]{
     node(utf8_literal("updates.status"), K::action, utf8_literal("Check for updates"), {},
-         utf8_literal("update upgrade version new release download restart"), SettingBinding::update_status, {}, none,
+         utf8_literal("update upgrade version new release download restart install"), SettingBinding::update_status, {}, none,
          utf8_literal("Check now"), dynamic),
     node(utf8_literal("updates.problem"), K::notice, utf8_literal("Update problem"), {}, {},
          SettingBinding::update_problem, {}, none, {}, dynamic | hidden),
@@ -248,9 +248,6 @@ constexpr UiSettingsSchemaNode updates[]{
          utf8_literal("MaiCord also checks shortly after it starts."),
          utf8_literal("frequency interval schedule automatic background hourly daily hour day often how often"),
          SettingBinding::update_interval, {update_intervals, 4}, none, {}, dynamic),
-    node(utf8_literal("updates.rollback"), K::action, utf8_literal("Roll back to previous version"), {},
-         utf8_literal("downgrade revert undo previous version"), SettingBinding::update_rollback, {}, none,
-         utf8_literal("Roll back"), dynamic),
     node(utf8_literal("updates.assets"), K::notice, utf8_literal("What updates include"),
          utf8_literal("Updates replace the app and its account module. Download a fresh copy to get new fonts and licenses."),
          {}, SettingBinding::update_notice, {}, none, {}, dynamic | hidden),

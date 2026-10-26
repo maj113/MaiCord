@@ -15,9 +15,9 @@ bool disjoint(ConstSlice<ConstSlice<u8>> ranges) noexcept {
     for (u32 i = 0; i < ranges.count; ++i) {
         if (!byte_range_valid(ranges[i])) return false;
         for (u32 j = 0; j < i; ++j) {
-            // Indices 2..4 are borrowed, immutable path views. A parent prefix
-            // may share an artifact/acceptance backing buffer without mutation.
-            const bool readonly_paths = i >= 2 && i <= 4 && j >= 2 && j <= 4;
+            // Indices 2..3 are borrowed, immutable path views that may share
+            // backing storage without mutation.
+            const bool readonly_paths = i >= 2 && i <= 3 && j >= 2 && j <= 3;
             if (!readonly_paths && byte_ranges_overlap(ranges[i], ranges[j])) return false;
         }
     }
@@ -39,24 +39,12 @@ bool fresh(const UpdatePreparationContext& context) noexcept {
 }
 } // namespace
 
-void update_prepare_stage_name(const u8* digest, wchar_t* name) noexcept {
-    static constexpr wchar_t prefix[] = L"maicord-", hex[] = L"0123456789abcdef", suffix[] = L".stage";
-    for (u32 i = 0; i < 8; ++i) name[i] = prefix[i];
-    for (u32 i = 0; i < 32; ++i) {
-        name[8 + i * 2] = hex[digest[i] >> 4];
-        name[9 + i * 2] = hex[digest[i] & 15];
-    }
-    for (u32 i = 0; i < 7; ++i) name[72 + i] = suffix[i];
-}
-
-UpdatePreparationResult update_prepare_stage(UpdatePreparationContext* context,
+UpdatePreparationResult update_prepare_artifact(UpdatePreparationContext* context,
     const UpdatePreparationRequest& request, const P256Key& key, KdfSha256Workspace& workspace,
-    UpdateManifestPolicy* policy, Slice<u32> scratch, UpdateStage* output) noexcept {
-    if (!context || !policy || !output || !request.acceptance_path.data || !request.acceptance_path.count ||
+    UpdateManifestPolicy* policy, Slice<u32> scratch) noexcept {
+    if (!context || !policy || !request.acceptance_path.data || !request.acceptance_path.count ||
         request.acceptance_path.count > kUpdateAcceptanceMaximumPathCharacters - 5 ||
         !request.artifact_path.data || !request.artifact_path.count || request.artifact_path.count > kUpdateArtifactMaximumPathCharacters ||
-        !request.stage_parent.data || !request.stage_parent.count ||
-        request.stage_parent.count > kUpdateArtifactMaximumPathCharacters - kUpdatePreparedStageFilenameCharacters - 1 ||
         !request.document.data || !request.document.bytes || request.document.bytes > kUpdateManifestMaximumBytes ||
         !request.signature.data || request.signature.count != 64 || !scratch.data || !scratch.count ||
         scratch.count > ~u32{0} / sizeof(u32))
@@ -66,14 +54,12 @@ UpdatePreparationResult update_prepare_stage(UpdatePreparationContext* context,
         {reinterpret_cast<const u8*>(&request), sizeof(request)},
         {reinterpret_cast<const u8*>(request.acceptance_path.data), request.acceptance_path.count * static_cast<u32>(sizeof(wchar_t))},
         {reinterpret_cast<const u8*>(request.artifact_path.data), request.artifact_path.count * static_cast<u32>(sizeof(wchar_t))},
-        {reinterpret_cast<const u8*>(request.stage_parent.data), request.stage_parent.count * static_cast<u32>(sizeof(wchar_t))},
         {reinterpret_cast<const u8*>(request.document.data), request.document.bytes}, request.signature,
         {reinterpret_cast<const u8*>(&key), sizeof(key)},
         {reinterpret_cast<const u8*>(&workspace), sizeof(workspace)}, {workspace.storage.data, workspace.storage.capacity},
         {reinterpret_cast<const u8*>(policy), sizeof(*policy)},
-        {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))},
-        {reinterpret_cast<const u8*>(output), sizeof(*output)}};
-    if (!disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])}) || !fresh(*context) || output->file ||
+        {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))}};
+    if (!disjoint({ranges, sizeof(ranges) / sizeof(ranges[0])}) || !fresh(*context) ||
         !key.handle || key.kind != P256Kind::ecdsa || !workspace.storage.data || !workspace.storage.capacity ||
         !policy->now_unix_seconds || !policy->maximum_artifact_bytes || !policy->maximum_validity_seconds ||
         policy->channel > UpdateChannel::preview)
@@ -98,15 +84,6 @@ UpdatePreparationResult update_prepare_stage(UpdatePreparationContext* context,
     if (!result.artifact.ok()) {
         result.error = UpdatePreparationError::artifact;
         result.phase = UpdatePreparationPhase::artifact_verify;
-        return result;
-    }
-    wchar_t name[kUpdatePreparedStageFilenameCharacters + 1];
-    update_prepare_stage_name(approved.manifest_sha256, name);
-    result.stage = update_stage_copy(&context->artifact, approved, request.stage_parent,
-        {name, kUpdatePreparedStageFilenameCharacters}, output);
-    if (!result.stage.ok()) {
-        result.error = UpdatePreparationError::stage;
-        result.phase = UpdatePreparationPhase::stage_copy;
     }
     return result;
 }

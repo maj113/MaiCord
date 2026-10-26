@@ -7,8 +7,6 @@ namespace {
 constexpr u8 kPreparedAbcDigest[32]{
     0xba,0x78,0x16,0xbf,0x8f,0x01,0xcf,0xea,0x41,0x41,0x40,0xde,0x5d,0xae,0x22,0x23,
     0xb0,0x03,0x61,0xa3,0x96,0x17,0x7a,0x9c,0xb4,0x10,0xff,0x61,0xf2,0x00,0x15,0xad};
-constexpr wchar_t kExpectedStableName[] =
-    L"maicord-6ea655ca305e23a3540ce3b1cc2758d49cdaf55193efb73b3546c01cbae139f5.stage";
 u32 characters(const wchar_t* text) noexcept { u32 count = 0; while (text[count]) ++count; return count; }
 void append(const wchar_t* base, const wchar_t* suffix, wchar_t* output) noexcept {
     u32 i = 0, j = 0;
@@ -33,34 +31,29 @@ bool read_abc(HANDLE file) noexcept {
 
 void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
     wchar_t temporary[MAX_PATH]{}, directory[MAX_PATH]{}, record_path[MAX_PATH]{}, artifact_path[MAX_PATH]{};
-    wchar_t lock_path[MAX_PATH + 8]{}, new_path[MAX_PATH + 8]{}, stable_path[MAX_PATH + 96]{};
+    wchar_t lock_path[MAX_PATH + 8]{}, new_path[MAX_PATH + 8]{};
     const DWORD temp_count = GetTempPathW(MAX_PATH, temporary);
     const bool reserved = temp_count && temp_count < MAX_PATH && GetTempFileNameW(temporary, L"MUP", 0, directory);
     check(reserved, "prepare: reserve isolated external temporary directory");
     if (!reserved) return;
     const bool created = DeleteFileW(directory) && CreateDirectoryW(directory, nullptr);
-    check(created, "prepare: create owned external enrollment and artifact fixture directory");
+    check(created, "prepare: create owned external acceptance and artifact fixture directory");
     if (!created) return;
     append(directory, L"\\acceptance.bin", record_path);
     append(directory, L"\\artifact.bin", artifact_path);
     append(record_path, L".lock", lock_path); append(record_path, L".new", new_path);
-    append(directory, L"\\", stable_path);
-    const u32 stable_prefix = characters(stable_path);
-    for (u32 i = 0; i < sizeof(kExpectedStableName) / sizeof(wchar_t); ++i) stable_path[stable_prefix + i] = kExpectedStableName[i];
     UpdatePreparationContext context{};
-    UpdateStage stage{};
     UpdatePreparationResult prepared{};
     struct Cleanup {
-        UpdatePreparationContext& context; UpdateStage& stage; UpdatePreparationResult& result;
+        UpdatePreparationContext& context;
         const wchar_t* directory; const wchar_t* record; const wchar_t* artifact;
-        const wchar_t* lock; const wchar_t* temporary; const wchar_t* preserved_stage;
+        const wchar_t* lock; const wchar_t* temporary;
         ~Cleanup() noexcept {
-            update_stage_cleanup_release(&result.stage); update_stage_release(&stage, true);
             update_preparation_release(&context);
-            DeleteFileW(preserved_stage); DeleteFileW(temporary); DeleteFileW(artifact); DeleteFileW(record); DeleteFileW(lock);
+            DeleteFileW(temporary); DeleteFileW(artifact); DeleteFileW(record); DeleteFileW(lock);
             RemoveDirectoryW(directory);
         }
-    } cleanup{context, stage, prepared, directory, record_path, artifact_path, lock_path, new_path, stable_path};
+    } cleanup{context, directory, record_path, artifact_path, lock_path, new_path};
     constexpr u8 abc[]{'a','b','c'}, wrong_bytes[]{'x','b','c'};
     check(write_fixture(artifact_path, abc, 3), "prepare: write known SHA-256 abc artifact fixture");
 
@@ -88,42 +81,36 @@ void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
         return sha256(workspace, {parts, 2}, {digest, 32}).ok() && p256_sign_digest(signer, {digest, 32}, {signature, 64}).ok();
     };
     const ConstSlice<wchar_t> storage{record_path, characters(record_path)};
-    UpdatePreparationRequest request{storage, {artifact_path, characters(artifact_path)},
-        {directory, characters(directory)}, six, {signature, 64}, true};
+    UpdatePreparationRequest request{storage, {artifact_path, characters(artifact_path)}, six, {signature, 64}, true};
     UpdateManifestPolicy policy{4, 0, 100, 65536, 1000, UpdateChannel::stable};
     u32 scratch[256]{};
-    UpdateStage sentinel{}; sentinel.version = 99; sentinel.bytes = ~u64{0};
-    stage = sentinel;
     auto run = [&]() noexcept {
-        // The test explicitly disposes result cleanup owners before replacement.
-        if (!update_stage_cleanup_release(&prepared.stage).ok()) return false;
-        prepared = update_prepare_stage(&context, request, trusted, workspace, &policy, {scratch, 256}, &stage);
+        prepared = update_prepare_artifact(&context, request, trusted, workspace, &policy, {scratch, 256});
         return true;
     };
     check(sign(six), "prepare: signed stable abc plan prepared");
     const auto before_policy = policy;
     const auto empty_context = context;
-    const auto alias = update_prepare_stage(&context, request, trusted, workspace, &policy,
-        {reinterpret_cast<u32*>(&stage), 8}, &stage);
-    auto oversized_parent = request;
-    oversized_parent.stage_parent.count = ~u32{0};
-    const auto overflow = update_prepare_stage(&context, oversized_parent, trusted, workspace, &policy, {scratch, 256}, &stage);
-    auto mutable_parent_alias = request;
-    mutable_parent_alias.stage_parent = {reinterpret_cast<const wchar_t*>(&stage), 3};
-    const auto path_alias = update_prepare_stage(&context, mutable_parent_alias, trusted, workspace, &policy, {scratch, 256}, &stage);
+    const auto alias = update_prepare_artifact(&context, request, trusted, workspace, &policy,
+        {reinterpret_cast<u32*>(&context), 8});
+    auto oversized_path = request;
+    oversized_path.artifact_path.count = ~u32{0};
+    const auto overflow = update_prepare_artifact(&context, oversized_path, trusted, workspace, &policy, {scratch, 256});
+    auto mutable_path_alias = request;
+    mutable_path_alias.artifact_path = {reinterpret_cast<const wchar_t*>(&context), 3};
+    const auto path_alias = update_prepare_artifact(&context, mutable_path_alias, trusted, workspace, &policy, {scratch, 256});
     check(alias.error == UpdatePreparationError::invalid_input && overflow.error == UpdatePreparationError::invalid_input &&
         path_alias.error == UpdatePreparationError::invalid_input &&
         bytes_equal(&context, &empty_context, sizeof(context)) && bytes_equal(&policy, &before_policy, sizeof(policy)) &&
-        bytes_equal(&stage, &sentinel, sizeof(stage)) && GetFileAttributesW(lock_path) == INVALID_FILE_ATTRIBUTES,
-        "prepare: scratch/output and path/output aliases and overflowing parent count fail before storage or authority mutation");
+        GetFileAttributesW(lock_path) == INVALID_FILE_ATTRIBUTES,
+        "prepare: scratch/context and path/context aliases and an overflowing path count fail before storage or authority mutation");
     signature[3] ^= 1;
     check(run() && prepared.error == UpdatePreparationError::acceptance &&
         prepared.phase == UpdatePreparationPhase::acceptance_commit &&
         prepared.acceptance.manifest_error == UpdateManifestError::signature && !prepared.acceptance_admitted &&
         context.acceptance.lock && !context.artifact.file && bytes_equal(&policy, &before_policy, sizeof(policy)) &&
-        bytes_equal(&stage, &sentinel, sizeof(stage)) && GetFileAttributesW(record_path) == INVALID_FILE_ATTRIBUTES &&
-        GetFileAttributesW(stable_path) == INVALID_FILE_ATTRIBUTES,
-        "prepare: bad publisher signature retains only caller-owned lock and admits no record, artifact or stage");
+        GetFileAttributesW(record_path) == INVALID_FILE_ATTRIBUTES,
+        "prepare: bad publisher signature retains only caller-owned lock and admits no record or artifact");
     // A failed release must not discard a real later owner. A real protected
     // event exercises CloseHandle failure without process pseudo-handle values.
     const HANDLE owned_lock = context.acceptance.lock;
@@ -145,16 +132,15 @@ void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
         "prepare: explicit owner retry closes the still-owned lock and clears context");
 
     check(sign(six) && run() && prepared.ok() && prepared.acceptance_admitted &&
-        context.acceptance.lock && context.artifact.file && stage.file && stage.version == 6 && stage.bytes == 3 &&
-        bytes_equal(stage.sha256, kPreparedAbcDigest, 32) && read_abc(stage.file) &&
-        GetFileAttributesW(stable_path) != INVALID_FILE_ATTRIBUTES,
-        "prepare: durable current disk admission leads to retained abc artifact and expected digest-derived stage filename");
-    if (!prepared.ok() || !stage.file) return;
+        context.acceptance.lock && context.artifact.file && context.artifact.version == 6 && context.artifact.bytes == 3 &&
+        bytes_equal(context.artifact.sha256, kPreparedAbcDigest, 32) && read_abc(context.artifact.file),
+        "prepare: durable current disk admission leads to the retained abc artifact and its expected digest");
+    if (!prepared.ok() || !context.artifact.file) return;
     DWORD written = 0;
     const u8 byte = 'x';
-    check(!WriteFile(stage.file, &byte, 1, &written, nullptr) && GetLastError() == ERROR_ACCESS_DENIED,
-        "prepare: prepared stage owner has no write capability");
-    HANDLE writer = CreateFileW(stable_path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    check(!WriteFile(context.artifact.file, &byte, 1, &written, nullptr) && GetLastError() == ERROR_ACCESS_DENIED,
+        "prepare: prepared artifact owner has no write capability");
+    HANDLE writer = CreateFileW(artifact_path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_EXISTING, 0, nullptr);
     const DWORD writer_error = writer == INVALID_HANDLE_VALUE ? GetLastError() : 0;
     if (writer != INVALID_HANDLE_VALUE) CloseHandle(writer);
@@ -162,49 +148,27 @@ void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
     const auto competing = update_acceptance_begin(storage, &competitor);
     check(writer == INVALID_HANDLE_VALUE && writer_error == ERROR_SHARING_VIOLATION &&
         competing.error == UpdateAcceptanceError::lock && !competitor.lock,
-        "prepare: stage denies writers and preparation retains admission serialization until explicit release");
-    const auto successful_stage = stage;
+        "prepare: the artifact denies writers and preparation retains admission serialization until explicit release");
     const auto successful_policy = policy;
     const auto owned_context = context;
-    const auto reused = update_prepare_stage(&context, request, trusted, workspace, &policy, {scratch, 256}, &stage);
+    const auto reused = update_prepare_artifact(&context, request, trusted, workspace, &policy, {scratch, 256});
     check(reused.error == UpdatePreparationError::invalid_input &&
-        bytes_equal(&context, &owned_context, sizeof(context)) && bytes_equal(&stage, &successful_stage, sizeof(stage)) &&
-        bytes_equal(&policy, &successful_policy, sizeof(policy)), "prepare: live stage/context cannot be overwritten or leaked by reuse");
-    check(update_stage_release(&stage, false).ok() && update_preparation_release(&context).ok(),
-        "prepare: explicit preserve release leaves complete stage on disk and closes admission/artifact owners");
+        bytes_equal(&context, &owned_context, sizeof(context)) &&
+        bytes_equal(&policy, &successful_policy, sizeof(policy)), "prepare: a live context cannot be overwritten or leaked by reuse");
+    check(update_preparation_release(&context).ok(), "prepare: explicit release closes admission and artifact owners");
 
     request.allow_first_use = false;
-    policy = {4, 0, 100, 65536, 1000, UpdateChannel::stable}; stage = sentinel;
-    check(sign(six) && run() && prepared.error == UpdatePreparationError::stage &&
-        prepared.phase == UpdatePreparationPhase::stage_copy && prepared.acceptance_admitted &&
-        prepared.stage.error == UpdateStageError::create && prepared.stage.native_error == ERROR_FILE_EXISTS &&
-        context.artifact.file && context.acceptance.lock && policy.highest_accepted_version == 6 &&
-        bytes_equal(&stage, &sentinel, sizeof(stage)),
-        "prepare: restarted same-offer retry reuses durable admission but refuses an existing stage without overwrite");
-    HANDLE preserved = CreateFileW(stable_path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    check(preserved != INVALID_HANDLE_VALUE && read_abc(preserved), "prepare: existing stage retains complete prior bytes after CREATE_NEW failure");
-    if (preserved != INVALID_HANDLE_VALUE) CloseHandle(preserved);
-    check(update_stage_cleanup_release(&prepared.stage).ok() && update_preparation_release(&context).ok() && DeleteFileW(stable_path),
-        "prepare: explicit cleanup releases failed preparation owners and removes only its previously preserved test stage");
     policy = {4, 0, 100, 65536, 1000, UpdateChannel::stable};
     check(sign(six) && run() && prepared.ok() && prepared.acceptance_admitted && policy.highest_accepted_version == 6 &&
-        read_abc(stage.file) && update_stage_release(&stage, true).ok() && update_preparation_release(&context).ok(),
-        "prepare: fresh-owner restart retry succeeds after explicit stage cleanup using exact accepted signed bytes");
-    const auto separate_parent = request.stage_parent;
-    request.stage_parent = {artifact_path, characters(directory)};
-    policy = {4, 0, 100, 65536, 1000, UpdateChannel::stable};
-    check(sign(six) && run() && prepared.ok() && prepared.acceptance_admitted && stage.version == 6 &&
-        GetFileAttributesW(stable_path) != INVALID_FILE_ATTRIBUTES && read_abc(stage.file) &&
-        update_stage_release(&stage, true).ok() && update_preparation_release(&context).ok(),
-        "prepare: readonly stage-parent prefix shares artifact-path storage through real verified durable preparation");
-    request.stage_parent = separate_parent;
+        read_abc(context.artifact.file) && update_preparation_release(&context).ok(),
+        "prepare: a restarted same-offer retry reuses the durable admission of the exact accepted signed bytes");
 
     request.document = seven;
     check(write_fixture(artifact_path, wrong_bytes, 3) && sign(seven) && run() &&
         prepared.error == UpdatePreparationError::artifact && prepared.phase == UpdatePreparationPhase::artifact_verify &&
         prepared.artifact.error == UpdateArtifactError::digest && prepared.acceptance_admitted &&
         policy.highest_accepted_version == 7 && policy.has_accepted_manifest_digest && !context.artifact.file &&
-        context.acceptance.lock && !stage.file,
+        context.acceptance.lock,
         "prepare: wrong artifact bytes fail admission while keeping successfully committed rollback advancement");
     UpdateAcceptanceState stored{};
     check(update_acceptance_load(storage, &stored).ok() && stored.channels[0].highest_version == 7 &&
@@ -227,29 +191,29 @@ void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept {
         "prepare: lower signed offer remains rejected after committed acceptance and failed artifact verification");
     request.document = seven;
     check(write_fixture(artifact_path, abc, 3) && sign(seven) && run() && prepared.ok() &&
-        prepared.acceptance_admitted && stage.version == 7 && read_abc(stage.file) &&
-        update_stage_release(&stage, true).ok() && update_preparation_release(&context).ok(),
+        prepared.acceptance_admitted && context.artifact.version == 7 && read_abc(context.artifact.file) &&
+        update_preparation_release(&context).ok(),
         "prepare: correcting downloaded bytes permits identical signed-offer retry without lowering acceptance");
 
     check(DeleteFileW(record_path) && sign(seven) && run() && prepared.error == UpdatePreparationError::acceptance &&
         prepared.phase == UpdatePreparationPhase::acceptance_begin && prepared.acceptance.error == UpdateAcceptanceError::missing &&
-        !prepared.acceptance_admitted && !context.acceptance.lock && !context.artifact.file && !stage.file &&
+        !prepared.acceptance_admitted && !context.acceptance.lock && !context.artifact.file &&
         bytes_equal(&policy, &admitted_policy, sizeof(policy)),
-        "prepare: missing enrolled storage fails closed before artifact open, preserving prior global authority");
+        "prepare: a missing record without first-use provisioning fails closed before artifact open, preserving prior authority");
     u8 record[kUpdateAcceptanceRecordBytes]{};
     check(update_acceptance_encode(stored, {record, sizeof(record)}).ok() && write_fixture(record_path, record, sizeof(record)),
-        "prepare: test restores only its previously captured owned enrollment fixture");
+        "prepare: test restores only its previously captured owned acceptance fixture");
     request.document = preview;
     policy = {4, 0, 100, 65536, 1000, UpdateChannel::preview};
-    check(sign(preview) && run() && prepared.ok() && prepared.acceptance_admitted && stage.version == 9 &&
+    check(sign(preview) && run() && prepared.ok() && prepared.acceptance_admitted && context.artifact.version == 9 &&
         update_acceptance_load(storage, &stored).ok() && stored.channels[0].highest_version == 7 && stored.channels[1].highest_version == 9 &&
-        update_stage_release(&stage, true).ok() && update_preparation_release(&context).ok(),
+        update_preparation_release(&context).ok(),
         "prepare: real signed preview preparation retains stable acceptance independently in one record");
     request.document = seven;
     policy = {4, 0, 100, 65536, 1000, UpdateChannel::stable};
-    check(sign(seven) && run() && prepared.ok() && stage.version == 7 &&
+    check(sign(seven) && run() && prepared.ok() && context.artifact.version == 7 &&
         update_acceptance_load(storage, &stored).ok() && stored.channels[0].highest_version == 7 && stored.channels[1].highest_version == 9 &&
-        update_stage_release(&stage, true).ok() && update_preparation_release(&context).ok(),
+        update_preparation_release(&context).ok(),
         "prepare: stable retry after preview preserves both channel histories and releases all owners");
     check(update_preparation_release(&context).ok() &&
         update_preparation_release(nullptr).error == UpdatePreparationError::invalid_input,

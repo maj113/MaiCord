@@ -2,17 +2,15 @@
 
 #include "maicord/app/update_changelog.hpp"
 #include "maicord/app/update_fetch.hpp"
-#include "maicord/app/update_handoff.hpp"
-#include "maicord/app/update_install.hpp"
+#include "maicord/app/update_package.hpp"
 
 namespace maicord {
 
 // Application updater: GitHub fetch -> signed manifest -> durable admission
-// -> package download -> stage -> generation install, plus the restart,
-// rollback, startup dispatcher and child confirmation around the generation
-// and handoff backends. Trust comes only from the compiled publisher key.
+// -> package download -> verified executable staged beside the running one,
+// swapped in when the user chooses to install it. Trust comes only from the
+// compiled publisher key.
 inline constexpr u32 kUpdatePathCapacity = 512;
-inline constexpr u64 kUpdateFreeSpaceReserveBytes = 16ull * 1024 * 1024;
 
 struct UpdateServiceConfig {
     char repository[kUpdateRepositoryMaximumBytes + 1];
@@ -27,29 +25,32 @@ struct UpdateServiceConfig {
 // malformed pair, or an invalid version, is refused.
 bool update_service_config(Utf8View repository, Utf8View public_key_hex, u64 own_version, UpdateServiceConfig*) noexcept;
 
-// <base>\enrollment.bin, channel, interval, generations\ (journal + g-*), work\
-// (acceptance record, download, stage). All on one local fixed volume.
+// <base>\channel, interval and work\ (acceptance record, package download),
+// and beside the executable its stage <executable>.update and the executable a
+// swap replaced, <executable>.old. The stage shares the executable's
+// directory, so the swap's renames stay on one volume.
 struct UpdatePaths {
-    wchar_t base[kUpdatePathCapacity], root[kUpdatePathCapacity], work[kUpdatePathCapacity];
-    wchar_t enrollment[kUpdatePathCapacity], channel[kUpdatePathCapacity], interval[kUpdatePathCapacity];
-    wchar_t journal[kUpdatePathCapacity];
+    wchar_t base[kUpdatePathCapacity], work[kUpdatePathCapacity];
+    wchar_t channel[kUpdatePathCapacity], interval[kUpdatePathCapacity];
     wchar_t acceptance[kUpdatePathCapacity], download[kUpdatePathCapacity];
-    u32 root_count, work_count, acceptance_count, download_count;
+    wchar_t executable[kUpdatePathCapacity], staged[kUpdatePathCapacity], replaced[kUpdatePathCapacity];
+    u32 work_count, acceptance_count, download_count, executable_count, staged_count;
 };
-bool update_paths_build(ConstSlice<wchar_t> base, UpdatePaths*) noexcept;
-bool update_paths_default(UpdatePaths*) noexcept; // %LOCALAPPDATA%\MaiCord\updates
+// base and executable are absolute drive paths without a trailing separator.
+bool update_paths_build(ConstSlice<wchar_t> base, ConstSlice<wchar_t> executable, UpdatePaths*) noexcept;
+// %LOCALAPPDATA%\MaiCord\updates and this process's executable.
+bool update_paths_default(UpdatePaths*) noexcept;
+// Startup: deletes <executable>.old and a stage an earlier session left
+// behind. A stage is only ever swapped in by the process that verified it; a
+// package that session kept is verified and staged again by the next check.
+void update_paths_cleanup(const UpdatePaths&) noexcept;
 
 enum class UpdateServiceError : u8 {
-    none, configuration, storage, enrollment, busy, transport, rate_limited, not_found, redirect, oversize,
-    size, signature, expired, manifest, acceptance, stage, install, disk, launch, startup, state, unavailable,
+    none, configuration, storage, transport, rate_limited, not_found, redirect, oversize,
+    size, signature, expired, manifest, acceptance, stage, install, state, unavailable,
 };
 Utf8View update_service_error_text(UpdateServiceError) noexcept;
 
-struct UpdateInstalledState {
-    u64 active_version, previous_version, candidate_version;
-    UpdateGenerationPhase phase;
-    bool journal;
-};
 enum class UpdateCheckOutcome : u8 { failed, up_to_date, ready };
 struct UpdateCheckResult {
     UpdateServiceError error;
@@ -84,15 +85,10 @@ struct UpdateService {
     UpdatePaths paths;
     P256Key key;
     KdfSha256Workspace workspace;
-    u8 inventory[32];
-    UpdateGenerationIdentity installation;
-    UpdateGenerationTransaction transaction;
-    UpdateInstallContext install;
     UpdatePreparationContext preparation;
-    UpdatePreparationResult preparation_result;
-    UpdateStage stage;
-    UpdatePackage package;
-    UpdateHandoff handoff;
+    // The executable this service verified and staged at paths.staged; held
+    // until the swap so nothing can write or delete it meanwhile.
+    UpdatePackage staged;
     UpdateProgress progress;
     // Optional: a changelog buffer (null skips the changelog) and an observer.
     UpdateChangelogDownload* changelog;
@@ -102,31 +98,38 @@ struct UpdateService {
     char document[kUpdateManifestMaximumBytes];
     u8 signature[64];
     u32 scratch[256];
-    bool initialized, open;
+    bool initialized;
 };
 UpdateServiceError update_service_initialize(UpdateService*, const UpdateServiceConfig&, const UpdatePaths&) noexcept;
+// Discards a stage that was not swapped in and keeps the verified package it
+// came from for the next session's check.
 void update_service_release(UpdateService*) noexcept;
-// Opens the enrolled generation root under its exclusive gate (busy when
-// another process holds it). provision admits a missing journal once.
-UpdateServiceError update_service_open(UpdateService*, bool provision) noexcept;
-void update_service_close(UpdateService*) noexcept;
-// A protocol-1 (0.4.x) previous or candidate generation reports version 0:
-// it is never reverted to or activated.
-UpdateServiceError update_service_inspect(UpdateService*, UpdateInstalledState*) noexcept;
+// A newer signed offer is admitted, downloaded, verified and staged; ready
+// reports the staged version. A stage from an earlier check that is at least
+// the offered version stays and is ready without downloading again, and a
+// package an earlier session kept is staged again, without downloading, while
+// it still matches the signed offer. An offer no newer than the installed
+// version deletes a kept package.
 UpdateCheckResult update_service_check(UpdateService*, const UpdateTransport&, UpdateChannel, u64 now_unix) noexcept;
-// Launches the prepared (live activation) or newer/reverted stable package and
-// waits for its startup confirmation. none means the caller should exit. A
-// protocol-1 package launches only while the journal is still v2.
-UpdateServiceError update_service_restart(UpdateService*) noexcept;
-// Stable with a retained older previous package: make it active again.
-UpdateServiceError update_service_revert(UpdateService*) noexcept;
-// Startup: launch an authenticated newer active generation. true when it
-// confirmed startup and this process should exit.
-bool update_service_dispatch(UpdateService*) noexcept;
-// Child startup: independently validate the own module path, journal and
-// signed installed package, then import the handoff capabilities.
-UpdateServiceError update_service_child_open(const UpdateServiceConfig&, const UpdatePaths&,
-    ConstSlice<wchar_t> module_path, ConstSlice<wchar_t> command_line, UpdateHandoffChild*) noexcept;
+
+enum class UpdateSwapError : u8 { none, nothing_staged, release, replace, install };
+struct UpdateSwapResult {
+    UpdateSwapError error;
+    DWORD native_error;
+    // install only: the error restoring the executable when that failed too.
+    DWORD restore_error;
+    constexpr bool ok() const noexcept { return error == UpdateSwapError::none; }
+};
+// The swap: <executable> -> <executable>.old (replacing a leftover one), then
+// <staged> -> <executable>, both MOVEFILE_WRITE_THROUGH. When the second move
+// fails, the first is undone (or, failing that, <executable>.old is copied
+// back), so the executable path names a MaiCord.exe on every path. Windows
+// allows renaming the running image; its file is deleted at the next start.
+UpdateSwapResult update_swap(const UpdatePaths&) noexcept;
+// Exit after the user chose to install: swaps in the executable this service
+// staged, then deletes its package. Never moves a stage it did not verify
+// (nothing_staged); the stage handle is closed just before the moves.
+UpdateSwapResult update_service_swap(UpdateService*) noexcept;
 
 UpdateChannel update_channel_load(const UpdatePaths&, UpdateChannel fallback) noexcept;
 bool update_channel_save(const UpdatePaths&, UpdateChannel) noexcept;

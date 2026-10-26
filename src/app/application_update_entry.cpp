@@ -1,9 +1,5 @@
 #include "application_updates.hpp"
-#include "application_update_startup.hpp"
-#include "maicord/app/account_host.hpp"
 #include "maicord/app/update_log.hpp"
-
-#include "maicord/core/win32_kernel.hpp"
 
 // Build inputs from CMake (MAICORD_UPDATE_REPOSITORY, MAICORD_UPDATE_PUBLIC_KEY,
 // MAICORD_UPDATE_DEV, MAICORD_UPDATE_COMMIT and the version). Only this
@@ -39,13 +35,11 @@ static_assert(update_version_components_valid(MAICORD_VERSION_MAJOR, MAICORD_VER
 constexpr u64 installed_version =
     update_version_number(MAICORD_VERSION_MAJOR, MAICORD_VERSION_MINOR, MAICORD_VERSION_PATCH, MAICORD_UPDATE_DEV);
 void write_update_log(LogLevel level, const char* category, const char* line) noexcept { log_write(level, category, line); }
-void update_log_session(bool open) noexcept { if (open) log_open(); else log_close(); }
 } // namespace
 
 UpdateServiceConfig application_update_build_config() noexcept {
     // Every updater path starts here, so this routes its diagnostics.
     g_update_log_sink = write_update_log;
-    g_update_log_session = update_log_session;
     UpdateServiceConfig config{};
     if (!update_service_config({repository, sizeof(repository) - 1}, {public_key, sizeof(public_key) - 1}, installed_version, &config))
         update_service_config({}, {}, installed_version, &config);
@@ -54,20 +48,6 @@ UpdateServiceConfig application_update_build_config() noexcept {
 
 Utf8View application_update_build_commit() noexcept {
     return {commit, sizeof(commit) == 41 ? kApplicationUpdatesCommitChars : 0u};
-}
-
-void application_updates_confirm_startup() noexcept {
-    UpdateHandoffChild* child = application_update_startup_child();
-    if (!child) return;
-    // Local admission of the linked account module's API; no account start,
-    // login or network is involved.
-    AccountHost host{};
-    const bool admitted = account_host_load(&host).ok() && account_host_api_valid(host.api) && !host.instance && !host.login_instance;
-    const bool confirmed = admitted && update_handoff_child_acknowledge(child, true).ok();
-    account_host_release(&host);
-    update_handoff_child_release(child);
-    // An unconfirmed child exits promptly so the coordinator rolls back.
-    if (!confirmed) ExitProcess(kApplicationUpdateStartupRefusalExitCode);
 }
 
 } // namespace maicord::app_detail

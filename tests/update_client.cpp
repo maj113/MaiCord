@@ -1,10 +1,10 @@
 // Updater client: version derivation and channel rules, update locations
 // (Pages manifests and changelogs, release and Pages packages), the fetch
 // state machine and the HTTP response reader against fakes, updater logging,
-// the full check/install pipeline into a temporary generation root with a
-// throwaway publisher key, rollback, the Settings rows and changelog
-// sections, and an offline replay of a synthetic preview build. Nothing here
-// contacts the network.
+// the full check pipeline staging the built executable beside a temporary
+// one with a throwaway publisher key, the exit swap and its failure paths,
+// startup cleanup, the Settings rows and changelog sections, and an offline
+// replay of a synthetic preview build. Nothing here contacts the network.
 //
 // Offline replay of published files: set MAICORD_UPDATE_REPLAY_DIR to a
 // directory holding maicord-<channel>.manifest.json, its .sig, optionally
@@ -472,12 +472,12 @@ void test_offer_rows() noexcept {
         same(c.choices[3], "Signature verified") && !c.action_label.bytes,
         "update settings: a preview offer shows its build, size, date, verification and download progress");
     v.state = ApplicationUpdateState::installing;
-    check(row(SettingBinding::update_available) && meter == 1000 && contains(c.description, "installing"),
-        "update settings: installing fills the progress bar");
+    check(row(SettingBinding::update_available) && meter == 1000 && same(c.description, "Checking the download…"),
+        "update settings: verifying fills the progress bar");
     v.state = ApplicationUpdateState::ready; v.ready_version = v.offer_version;
     check(row(SettingBinding::update_available) && meter == kUiSettingsNoMeter &&
-        same(c.description, "Downloaded and verified. Restart MaiCord to finish."),
-        "update settings: a ready update reads as verified with no bar");
+        same(c.description, "Downloaded and verified. It installs when you choose Restart to update."),
+        "update settings: a ready update reads as verified, installed on Restart to update, with no bar");
     v.state = ApplicationUpdateState::error; v.error = UpdateServiceError::unavailable;
     check(row(SettingBinding::update_available) && contains(c.description, "tries again") && row(SettingBinding::update_problem) &&
         same(c.description, "The update's download isn't available yet. MaiCord will try again later."),
@@ -578,31 +578,31 @@ void test_settings_rows() noexcept {
     v.state = ApplicationUpdateState::disabled;
     check(row(SettingBinding::update_status) && same(c.label, "Updates aren't configured for this build") &&
         c.kind == UiSettingsControlKind::notice && !c.enabled && contains(c.description, "0.1.0") &&
-        !row(SettingBinding::update_channel) && !row(SettingBinding::update_rollback) && !row(SettingBinding::update_notice),
-        "update settings: an unconfigured build says so and hides channel and rollback");
+        !row(SettingBinding::update_channel) && !row(SettingBinding::update_notice),
+        "update settings: an unconfigured build says so and hides the channel");
     v.state = ApplicationUpdateState::up_to_date; v.channel = UpdateChannel::stable;
     check(row(SettingBinding::update_status) && same(c.label, "You're up to date") && same(c.action_label, "Check now") && c.enabled &&
         same(c.description, "MaiCord 0.1.0, stable channel.") && row(SettingBinding::update_channel) && c.selected_choice == 0 &&
-        c.choices.count == 2 && row(SettingBinding::update_notice) && !row(SettingBinding::update_rollback),
+        c.choices.count == 2 && row(SettingBinding::update_notice),
         "update settings: current version, channel and Check now");
     v.state = ApplicationUpdateState::downloading; v.received = 42; v.total = 100;
     check(row(SettingBinding::update_status) && same(c.label, "Downloading update 42%") && c.kind == UiSettingsControlKind::notice &&
         c.checked && !c.action_label.bytes && row(SettingBinding::update_channel) && !c.enabled,
         "update settings: a download in flight reads as a loading notice and locks the channel");
     v.state = ApplicationUpdateState::installing; v.received = 100;
-    check(row(SettingBinding::update_status) && same(c.label, "Installing update…") && c.kind == UiSettingsControlKind::notice &&
-        c.checked && row(SettingBinding::update_channel) && !c.enabled, "update settings: staging and install after the download say so");
+    check(row(SettingBinding::update_status) && same(c.label, "Verifying update…") && c.kind == UiSettingsControlKind::notice &&
+        c.checked && row(SettingBinding::update_channel) && !c.enabled, "update settings: verifying and staging after the download say so");
     v.state = ApplicationUpdateState::ready; v.ready_version = update_version_number(0, 2, 0, 0);
-    check(row(SettingBinding::update_status) && same(c.label, "Update ready") && same(c.action_label, "Restart") &&
-        p.variant == UiSettingsVariant::primary && same(c.description, "Restart MaiCord to finish updating to 0.2.0."),
-        "update settings: a ready update offers Restart");
-    v.state = ApplicationUpdateState::error; v.error = UpdateServiceError::signature; v.rollback_version = update_version_number(0, 0, 9, 0);
+    check(row(SettingBinding::update_status) && same(c.label, "Update ready") && same(c.action_label, "Restart to update") &&
+        p.variant == UiSettingsVariant::primary &&
+        same(c.description, "MaiCord 0.2.0 installs when you choose Restart to update. Until then, closing MaiCord keeps this version."),
+        "update settings: a ready update installs only on Restart to update, and says so");
+    v.state = ApplicationUpdateState::error; v.error = UpdateServiceError::signature;
     check(row(SettingBinding::update_status) && same(c.label, "Couldn't update") && same(c.action_label, "Try again") &&
         same(c.description, "MaiCord 0.1.0, stable channel.") && row(SettingBinding::update_problem) &&
         c.kind == UiSettingsControlKind::notice && p.variant == UiSettingsVariant::critical &&
-        same(c.description, "The update isn't signed by the MaiCord publisher.") &&
-        row(SettingBinding::update_rollback) && contains(c.description, "0.0.9") && c.enabled,
-        "update settings: errors offer Try again, explain themselves in a critical notice, and rollback names the previous version");
+        same(c.description, "The update isn't signed by the MaiCord publisher."),
+        "update settings: errors offer Try again and explain themselves in a critical notice");
     test_offer_rows();
     test_changelog_rows();
     v.state = ApplicationUpdateState::up_to_date; v.interval = kUpdateDefaultCheckInterval;
@@ -705,7 +705,7 @@ void test_check_schedule() noexcept {
 
 // ---------------------------------------------------------------- service
 struct Temp {
-    wchar_t root[MAX_PATH], base[MAX_PATH], package[MAX_PATH];
+    wchar_t root[MAX_PATH], base[MAX_PATH], package[MAX_PATH], executable[MAX_PATH];
 };
 void remove_tree(wchar_t* path, u32 n) noexcept {
     if (n + 3 >= MAX_PATH) return;
@@ -738,11 +738,49 @@ bool temporary_root(Temp* t) noexcept {
     wchar_t temp[MAX_PATH]{};
     const DWORD tn = GetTempPathW(MAX_PATH, temp);
     if (!tn || tn >= MAX_PATH - 40 || !GetTempFileNameW(temp, L"MUC", 0, t->root) || !DeleteFileW(t->root) || !CreateDirectoryW(t->root, nullptr)) return false;
-    child(t->root, L"updates", t->base); child(t->root, L"package.zip", t->package);
+    child(t->root, L"updates", t->base); child(t->root, L"package.zip", t->package); child(t->root, L"MaiCord.exe", t->executable);
     return true;
 }
 void remove_root(const Temp& t) noexcept { wchar_t path[MAX_PATH]{}; const u32 n = length(t.root); copy_bytes(path, t.root, (n + 1) * sizeof(wchar_t)); remove_tree(path, n); }
-constexpr u64 kV4 = 999, kV5 = 1999, kV6 = 2999, kV7 = 3999, kV8 = 4999;
+// The temporary profile's update storage and its stand-in for the running executable.
+bool temporary_paths(const Temp& t, UpdatePaths* paths) noexcept {
+    return update_paths_build({t.base, length(t.base)}, {t.executable, length(t.executable)}, paths);
+}
+bool put_file(const wchar_t* path, const void* data, u32 bytes) noexcept {
+    const HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD put = 0; const bool ok = WriteFile(h, data, bytes, &put, nullptr) && put == bytes;
+    return CloseHandle(h) && ok;
+}
+bool present(const wchar_t* path) noexcept { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
+// Whether the files at a and b hold the same bytes. A held stage's file object
+// keeps its creating write access, so readers share writing as well.
+bool same_file(const wchar_t* a, const wchar_t* b) noexcept {
+    constexpr DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+    const HANDLE x = CreateFileW(a, GENERIC_READ, share, nullptr, OPEN_EXISTING, 0, nullptr);
+    const HANDLE y = CreateFileW(b, GENERIC_READ, share, nullptr, OPEN_EXISTING, 0, nullptr);
+    bool same = x != INVALID_HANDLE_VALUE && y != INVALID_HANDLE_VALUE;
+    static u8 left[kFixtureIoBufferBytes], right[kFixtureIoBufferBytes];
+    while (same) {
+        DWORD l = 0, r = 0;
+        same = ReadFile(x, left, sizeof(left), &l, nullptr) && ReadFile(y, right, sizeof(right), &r, nullptr) && l == r &&
+            bytes_equal(left, right, l);
+        if (!l) break;
+    }
+    if (x != INVALID_HANDLE_VALUE) CloseHandle(x);
+    if (y != INVALID_HANDLE_VALUE) CloseHandle(y);
+    return same;
+}
+// Whether the file at path holds exactly text.
+bool holds(const wchar_t* path, const char* text) noexcept {
+    const HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    char buffer[64]{}; DWORD got = 0;
+    const bool ok = ReadFile(h, buffer, sizeof(buffer), &got, nullptr) && got == length8(text) && bytes_equal(buffer, text, got);
+    CloseHandle(h);
+    return ok;
+}
+constexpr u64 kV4 = 999, kV5 = 1999, kV6 = 2999, kV7 = 3999;
 constexpr char pages_manifest[] = "/repo/updates/p2/maicord-stable.manifest.json";
 constexpr char pages_current[] = "/repo/updates/current.json";
 constexpr char pages_signature[] = "/repo/updates/p2/maicord-stable.manifest.json.sig";
@@ -751,7 +789,7 @@ constexpr char pages_signature[] = "/repo/updates/p2/maicord-stable.manifest.jso
 void test_interval_store() noexcept {
     static Temp t{};
     UpdatePaths paths{};
-    const bool dirs = temporary_root(&t) && update_paths_build({t.base, length(t.base)}, &paths);
+    const bool dirs = temporary_root(&t) && temporary_paths(t, &paths);
     check(dirs, "update interval: isolated temporary storage"); if (!dirs) return;
     struct Cleanup { ~Cleanup() noexcept { remove_root(t); } } cleanup;
     const auto load = [&]() noexcept { return update_interval_load(paths, kUpdateDefaultCheckInterval); };
@@ -778,6 +816,64 @@ void test_interval_store() noexcept {
         "update interval: an invalid value gives the fallback");
     check(write(longer, 2) && load() == UpdateCheckInterval::four_hours, "update interval: a file of the wrong size gives the fallback");
     check(write(&invalid, 0) && load() == UpdateCheckInterval::four_hours, "update interval: an empty file gives the fallback");
+}
+
+// The exit swap on plain files in a temporary install: the stage paths,
+// success, a failed second move that puts the executable back, a failed
+// first move, startup cleanup, and a stage this process never verified.
+void test_swap() noexcept {
+    static Temp t{};
+    UpdatePaths paths{};
+    const bool dirs = temporary_root(&t) && temporary_paths(t, &paths);
+    check(dirs, "update swap: isolated temporary install"); if (!dirs) return;
+    struct Cleanup { ~Cleanup() noexcept { remove_root(t); } } cleanup;
+    const u32 n = length(t.executable);
+    check(paths.executable_count == n && paths.staged_count == n + 7 && bytes_equal(paths.executable, t.executable, (n + 1) * sizeof(wchar_t)) &&
+        bytes_equal(paths.staged, t.executable, n * sizeof(wchar_t)) && bytes_equal(paths.staged + n, L".update", 8 * sizeof(wchar_t)) &&
+        bytes_equal(paths.replaced, t.executable, n * sizeof(wchar_t)) && bytes_equal(paths.replaced + n, L".old", 5 * sizeof(wchar_t)),
+        "update swap: the stage and the replaced executable sit beside the executable");
+    UpdatePaths rejected{};
+    check(!update_paths_build({t.base, length(t.base)}, {L"MaiCord.exe", 11}, &rejected) &&
+        !update_paths_build({t.base, length(t.base)}, {L"C:\\MaiCord\\", 11}, &rejected) &&
+        !update_paths_build({L"updates", 7}, {t.executable, n}, &rejected),
+        "update swap: storage and executable must be absolute drive paths");
+    check(put_file(t.executable, "old", 3) && put_file(paths.staged, "new", 3) && update_swap(paths).ok() &&
+        holds(t.executable, "new") && holds(paths.replaced, "old") && !present(paths.staged),
+        "update swap: the stage replaces the executable, which stays beside it as .old");
+    check(put_file(paths.staged, "newer", 5) && update_swap(paths).ok() && holds(t.executable, "newer") &&
+        holds(paths.replaced, "new") && !present(paths.staged),
+        "update swap: a leftover .old is replaced by the next swap");
+    // Another handle on the stage without delete sharing fails the second move.
+    const bool files = put_file(t.executable, "old", 3) && put_file(paths.staged, "new", 3);
+    HANDLE pinned = CreateFileW(paths.staged, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    const auto failed_install = update_swap(paths);
+    if (pinned != INVALID_HANDLE_VALUE) CloseHandle(pinned);
+    check(files && pinned != INVALID_HANDLE_VALUE && failed_install.error == UpdateSwapError::install && failed_install.native_error &&
+        !failed_install.restore_error && holds(t.executable, "old") && !present(paths.replaced) && holds(paths.staged, "new"),
+        "update swap: a failed second move restores the executable, so the install always keeps one");
+    HANDLE running = CreateFileW(t.executable, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    const auto failed_replace = update_swap(paths);
+    if (running != INVALID_HANDLE_VALUE) CloseHandle(running);
+    check(running != INVALID_HANDLE_VALUE && failed_replace.error == UpdateSwapError::replace && holds(t.executable, "old") &&
+        holds(paths.staged, "new") && !present(paths.replaced),
+        "update swap: a failed first move leaves the executable and the stage in place");
+    const bool leftovers = put_file(paths.replaced, "older", 5);
+    update_paths_cleanup(paths);
+    check(leftovers && !present(paths.replaced) && !present(paths.staged) && holds(t.executable, "old"),
+        "update swap: startup deletes the replaced executable and a stale stage");
+    // A configured service that verified nothing in this process.
+    char key[130]{}; constexpr char digits[] = "0123456789abcdef";
+    for (u32 i = 0; i < 65; ++i) { key[i * 2] = digits[public_point[i] >> 4]; key[i * 2 + 1] = digits[public_point[i] & 15]; }
+    UpdateServiceConfig config{};
+    static UpdateService service{};
+    const bool configured = update_service_config(utf8_literal("owner/repo"), {key, 130}, kV5, &config) &&
+        update_service_initialize(&service, config, paths) == UpdateServiceError::none;
+    struct Service { ~Service() noexcept { update_service_release(&service); } } service_owner;
+    check(configured && put_file(paths.staged, "stale", 5) && update_service_swap(&service).error == UpdateSwapError::nothing_staged &&
+        holds(t.executable, "old") && holds(paths.staged, "stale") && !present(paths.replaced),
+        "update swap: a stage this process did not verify is never swapped in");
+    update_paths_cleanup(paths);
+    check(!present(paths.staged) && holds(t.executable, "old"), "update swap: the next start deletes that stale stage");
 }
 
 void test_service() noexcept {
@@ -820,9 +916,12 @@ void test_service() noexcept {
     UpdatePaths paths{};
     static UpdateService service{};
     const bool configured = update_service_config(utf8_literal("owner/repo"), {key_hex, 130}, kV5, &config) &&
-        update_paths_build({t.base, length(t.base)}, &paths) && update_service_initialize(&service, config, paths) == UpdateServiceError::none;
+        temporary_paths(t, &paths) && update_service_initialize(&service, config, paths) == UpdateServiceError::none;
     struct Service { ~Service() noexcept { update_service_release(&service); } } service_owner;
     check(configured, "update service: configuration from repository and compiled public key"); if (!configured) return;
+    // The running executable's stand-in, and a stage an earlier session left.
+    const bool laid_out = put_file(t.executable, "old exe", 7) && put_file(paths.staged, "stale stage", 11);
+    check(laid_out, "update service: a temporary install with a stale stage"); if (!laid_out) return;
 
     // 0 Pages manifest (same-origin redirect), 1 its current copy, 2 Pages
     // signature, 3 release download redirect, 4 release-asset bytes.
@@ -894,52 +993,80 @@ void test_service() noexcept {
     serve(v6, signatures[0], package_target);
     g_line_count = 0;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    UpdateInstalledState installed{};
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && fake.routes[4].hits == 1 &&
-        update_service_inspect(&service, &installed) == UpdateServiceError::none && installed.journal &&
-        installed.phase == UpdateGenerationPhase::stable && installed.active_version == kV6 && !installed.previous_version &&
-        GetFileAttributesW(paths.download) == INVALID_FILE_ATTRIBUTES,
-        "update service: the first release provisions a stable generation from the versioned release");
-    check(logged("check channel=0 own=1999") && logged("offer channel=0 version=2999") && logged("stage error=0") &&
-        logged("install error=0") && logged("ready version=2999"), "update log: every phase of a successful check is recorded");
-    if (!installed.journal) { g_update_log_sink = nullptr; return; }
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && fake.routes[4].hits == 1 && service.staged.file &&
+        service.staged.version == kV6 && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe") &&
+        present(paths.download),
+        "update service: the first release replaces a stale stage with the verified executable beside the running one");
+    check(logged("check channel=0 own=1999 staged=0") && logged("offer channel=0 version=2999") && logged("prepare error=0") &&
+        logged("stage error=0") && logged("ready version=2999"), "update log: every phase of a successful check is recorded");
+    if (!service.staged.file) { g_update_log_sink = nullptr; return; }
+    // A plain exit, without Restart to update, installs nothing.
+    update_service_release(&service);
+    check(holds(t.executable, "old exe") && !present(paths.staged) && !present(paths.replaced) && present(paths.download),
+        "update service: a plain exit keeps the running executable, discards the stage and keeps the verified package");
+    // The next launch: startup cleanup, then the first check verifies the kept
+    // package against the signed offer and stages it without downloading.
+    update_paths_cleanup(paths);
+    serve(v6, signatures[0], package_target);
+    g_line_count = 0;
+    r = update_service_initialize(&service, config, paths) == UpdateServiceError::none
+        ? update_service_check(&service, transport, UpdateChannel::stable, 100) : UpdateCheckResult{};
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && !fake.routes[3].hits && !fake.routes[4].hits &&
+        service.staged.file && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe") &&
+        logged("package version=2999 reused=1") && logged("prepare error=0") && logged("stage error=0"),
+        "update service: the next launch stages the kept package again after verifying it, without downloading");
+    // A kept package that no longer matches the signed digest is downloaded again.
+    update_service_release(&service);
+    const bool tampered = put_file(paths.download, "tampered", 8);
+    serve(v6, signatures[0], package_target);
+    r = update_service_initialize(&service, config, paths) == UpdateServiceError::none
+        ? update_service_check(&service, transport, UpdateChannel::stable, 100) : UpdateCheckResult{};
+    check(tampered && r.outcome == UpdateCheckOutcome::ready && r.version == kV6 && fake.routes[4].hits == 1 &&
+        service.staged.file && same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE),
+        "update service: a kept package that changed is downloaded again");
+    if (!service.staged.file) { g_update_log_sink = nullptr; return; }
     serve(v7, signatures[1], package_target7);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
-        installed.phase == UpdateGenerationPhase::prepared && installed.candidate_version == kV7 && installed.active_version == kV6,
-        "update service: the next release downloads, stages and prepares a candidate beside the active package");
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && service.staged.version == kV7 &&
+        same_file(paths.staged, MAICORD_UPDATE_TEST_EXECUTABLE) && holds(t.executable, "old exe"),
+        "update service: the next release verifies and replaces the earlier stage");
     const u32 package_hits = fake.routes[4].hits;
+    g_line_count = 0;
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && fake.routes[4].hits == package_hits,
-        "update service: a prepared candidate is ready without downloading again");
-    // Live activation and the child's confirmation, without launching a process.
-    UpdateGenerationLaunchAdmission admission{};
-    bool acknowledged = update_service_open(&service, false) == UpdateServiceError::none &&
-        update_install_activate(&service.install).ok() && update_install_activation_admission(&service.install, &admission).ok();
-    if (acknowledged) {
-        const auto id = service.transaction.state.transaction;
-        u8 doc[32]{}; copy_bytes(doc, service.transaction.state.active.package.document_sha256, 32);
-        acknowledged = update_install_acknowledge(&service.install, id, {doc, 32}).ok() && update_install_recover(&service.install).ok();
-    }
-    update_service_close(&service);
-    check(acknowledged && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
-        installed.phase == UpdateGenerationPhase::stable && installed.active_version == kV7 && installed.previous_version == kV6,
-        "update service: a confirmed activation keeps the previous package for rollback");
-    check(update_service_revert(&service) == UpdateServiceError::none && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
-        installed.active_version == kV6 && installed.previous_version == kV7 && update_service_revert(&service) == UpdateServiceError::state,
-        "update service: roll back makes the previous package active once");
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && fake.routes[4].hits == package_hits &&
+        logged("ready version=3999 staged=1"), "update service: a staged version is ready without downloading again");
+    serve(v6, signatures[0], package_target);
+    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
+    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && !fake.routes[3].hits && service.staged.version == kV7,
+        "update service: an older offer leaves the newer stage ready");
+    g_line_count = 0;
+    check(update_service_swap(&service).ok() && !service.staged.file && same_file(t.executable, MAICORD_UPDATE_TEST_EXECUTABLE) &&
+        holds(paths.replaced, "old exe") && !present(paths.staged) && !present(paths.download) && logged("swap version=3999 error=0"),
+        "update service: installing moves the verified stage over the executable, keeps the replaced one as .old and drops the package");
+    check(update_service_swap(&service).error == UpdateSwapError::nothing_staged && same_file(t.executable, MAICORD_UPDATE_TEST_EXECUTABLE),
+        "update service: a second swap finds nothing verified to move");
+    update_paths_cleanup(paths);
+    check(!present(paths.replaced) && same_file(t.executable, MAICORD_UPDATE_TEST_EXECUTABLE),
+        "update service: the next start deletes the replaced executable");
     serve(v7, signatures[1], package_target7);
     r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::up_to_date && !fake.routes[3].hits,
-        "update service: after a rollback the version left behind is not reinstalled");
+    const bool restaged = r.outcome == UpdateCheckOutcome::ready && present(paths.staged);
+    update_service_release(&service);
+    check(restaged && !present(paths.staged) && present(paths.download),
+        "update service: a stage that was never swapped is discarded on release");
+    // Once that version is installed, its check deletes the kept package.
+    UpdateServiceConfig installed{};
+    serve(v7, signatures[1], package_target7);
+    g_line_count = 0;
+    r = update_service_config(utf8_literal("owner/repo"), {key_hex, 130}, kV7, &installed) &&
+            update_service_initialize(&service, installed, paths) == UpdateServiceError::none
+        ? update_service_check(&service, transport, UpdateChannel::stable, 100) : UpdateCheckResult{};
+    check(r.outcome == UpdateCheckOutcome::up_to_date && !fake.routes[3].hits && !present(paths.download) &&
+        logged("dropped_package=1"), "update service: an offer no newer than the installed version deletes the kept package");
     g_update_log_sink = nullptr;
-    wchar_t module[MAX_PATH]{}; child(t.root, L"MaiCord.exe", module);
-    UpdateHandoffChild handoff{};
-    check(update_service_child_open(config, paths, {module, length(module)}, {L"x", 1}, &handoff) == UpdateServiceError::state &&
-        !handoff.parent, "update service: a child outside the enrolled generation root is refused");
     check(update_channel_save(paths, UpdateChannel::preview) &&
         update_channel_load(paths, UpdateChannel::stable) == UpdateChannel::preview,
-        "update service: channel choice persists beside the generation root");
+        "update service: channel choice persists in the update storage");
 #else
     check(false, "update service: build must supply the built EXE fixture path");
 #endif
@@ -969,9 +1096,9 @@ void replay_offered(void* context, const UpdateManifest& manifest, const UpdateC
     offer->changelog = changelog != nullptr;
     offer->entries = changelog ? changelog->count : 0;
 }
-// Runs the published files in dir through the real pipeline into a fresh
-// generation root: the channel's manifest and signature, its changelog when
-// present, and the package from its release (stable) or the preview feed.
+// Runs the published files in dir through the real pipeline, staging beside a
+// temporary executable: the channel's manifest and signature, its changelog
+// when present, and the package from its release (stable) or the preview feed.
 UpdateCheckResult replay(const wchar_t* dir, u64 own, ReplayOffer* offer) noexcept {
     static u8 document[kUpdateManifestMaximumBytes + 1]; u8 signature[65]{}; char key[132]{};
     static u8 changelog[kUpdateChangelogMaximumBytes + 1]; u8 changelog_signature[65]{};
@@ -1007,7 +1134,7 @@ UpdateCheckResult replay(const wchar_t* dir, u64 own, ReplayOffer* offer) noexce
     static UpdateService service{};
     static UpdateChangelogDownload download{};
     const bool configured = update_service_config(utf8_literal("owner/repo"), {key, 130}, own, &config) &&
-        update_paths_build({t.base, length(t.base)}, &paths) && update_service_initialize(&service, config, paths) == UpdateServiceError::none;
+        temporary_paths(t, &paths) && update_service_initialize(&service, config, paths) == UpdateServiceError::none;
     struct Service { ~Service() noexcept { update_service_release(&service); } } service_owner;
     check(configured, "update replay: configuration from public-key.txt"); if (!configured) return failed_result;
     service.changelog = &download;
@@ -1070,7 +1197,7 @@ void test_replay() noexcept {
     test_write_metric("update replay outcome=", static_cast<u64>(r.outcome));
     test_write_metric("update replay error=", static_cast<u64>(r.error));
     test_write_metric("update replay changelog entries=", offer.entries);
-    check(r.outcome == UpdateCheckOutcome::ready, "update replay: the published release installs into a fresh generation root");
+    check(r.outcome == UpdateCheckOutcome::ready, "update replay: the published release is verified and staged beside a temporary executable");
 }
 bool write_file(const wchar_t* dir, const wchar_t* name, const void* data, u32 bytes) noexcept {
     wchar_t path[MAX_PATH]{}; child(dir, name, path);
@@ -1137,156 +1264,25 @@ void test_preview_replay() noexcept {
     const auto r = replay(files.root, 1999, &offer);
     check(r.outcome == UpdateCheckOutcome::ready && r.version == version && offer.version == version && offer.changelog &&
         offer.entries == 3 && logged("changelog fetched=1 error=0 matches=1 entries=3") && logged("http host=owner.github.io status=200"),
-        "preview replay: a stable build on the preview channel installs the master build from the feed with its changelog");
+        "preview replay: a stable build on the preview channel stages the master build from the feed with its changelog");
     // The same files offered to a newer build install nothing.
     offer = {};
     const auto newer = replay(files.root, update_version_number(0, 0, 2, 0), &offer);
     check(newer.outcome == UpdateCheckOutcome::up_to_date && !offer.version,
         "preview replay: a release newer than the dev build ignores it");
+    // Local builds are numbered like CI (maicord_release.py identity): a build
+    // with commits after the published master build, or of that same commit,
+    // is never offered it.
+    const u64 local_builds[]{update_version_number(0, 0, 2, 5), version};
+    for (const u64 local : local_builds) {
+        offer = {};
+        const auto built = replay(files.root, local, &offer);
+        check(built.outcome == UpdateCheckOutcome::up_to_date && !offer.version && !logged("admitted") &&
+            logged("up_to_date floor="), "preview replay: a local build at or after the published master build is up to date");
+    }
 #else
     check(false, "preview replay: build must supply the built EXE fixture path");
 #endif
-}
-// A 0.4.x installation as that release left it: enrollment, acceptance, a v2
-// journal and a protocol-1 MaiCord.exe/MaiCordAccount.dll generation, opened
-// by a current dispatcher older than that generation. It inspects, verifies
-// and selects the old pair, installs the next release, writes v3, never offers
-// the old pair as a rollback target and disposes it with the next update.
-void test_legacy_service() noexcept {
-    KdfSha256Workspace workspace{}; P256Key signer{}, key{};
-    char key_hex[130]{}; u8 point[65]{}, inventory[32]{};
-    const bool keys = kdf_sha256_initialize(&workspace).ok() && p256_generate(&signer, P256Kind::ecdsa).ok() && hex_key(signer, key_hex) &&
-        p256_export_public(signer, {point, 65}).ok() && p256_import_public(&key, P256Kind::ecdsa, {point, 65}).ok() &&
-        update_generation_inventory_fingerprint(key, workspace, {inventory, 32}).ok();
-    struct Keys { KdfSha256Workspace& w; P256Key& a; P256Key& b; ~Keys() noexcept { p256_release(&a); p256_release(&b); kdf_sha256_release(&w); } }
-        key_owner{workspace, signer, key};
-    check(keys, "legacy service: throwaway publisher key and its enrolled inventory"); if (!keys) return;
-    static Temp t{};
-    UpdatePaths paths{};
-    const bool dirs = temporary_root(&t) && update_paths_build({t.base, length(t.base)}, &paths) && CreateDirectoryW(t.base, nullptr) &&
-        CreateDirectoryW(paths.root, nullptr) && CreateDirectoryW(paths.work, nullptr);
-    struct Cleanup { ~Cleanup() noexcept { remove_root(t); } } cleanup;
-    check(dirs, "legacy service: isolated profile with the 0.4.x updates layout"); if (!dirs) return;
-
-    // Synthetic never-executed images: the old pair, and the next release's
-    // single executable.
-    u8 exe[kNativeImageBytes]{}, dll[kNativeImageBytes]{};
-    native_image(exe, false); native_image(dll, true);
-    const bool images = write_file(t.root, L"image.exe", exe, kNativeImageBytes) && write_file(t.root, L"image.dll", dll, kNativeImageBytes);
-    wchar_t exe_path[MAX_PATH]{}, dll_path[MAX_PATH]{}, legacy_zip[MAX_PATH]{};
-    child(t.root, L"image.exe", exe_path); child(t.root, L"image.dll", dll_path); child(t.root, L"legacy.zip", legacy_zip);
-    HANDLE legacy_file = nullptr, package_file = nullptr, sources[2]{}; BCRYPT_HASH_HANDLE hash = nullptr;
-    u64 legacy_bytes = 0, package_bytes = 0; u8 legacy_digest[32]{}, digest[32]{};
-    const wchar_t* pair_paths[]{exe_path, dll_path}; const char* pair_names[]{"MaiCord.exe", "MaiCordAccount.dll"};
-    bool packaged = images && package(legacy_zip, pair_paths, pair_names, 2, &legacy_file, sources, &legacy_bytes, legacy_digest, &hash);
-    for (auto& h : sources) close(&h);
-    packaged = packaged && package(t.package, pair_paths, pair_names, 1, &package_file, sources, &package_bytes, digest, &hash);
-    for (auto& h : sources) close(&h);
-    struct Files { HANDLE& a; HANDLE& b; ~Files() noexcept { close(&a); close(&b); } } file_owner{legacy_file, package_file};
-    check(packaged, "legacy service: a stored protocol-1 pair and a current single-executable package"); if (!packaged) return;
-
-    // The 0.4.x state: offer, generation files, enrollment, acceptance, v2 journal.
-    char legacy_document[512]{}, documents[2][512]{}; u8 legacy_signature[64]{}, signatures[2][64]{};
-    u8 document_digest[32]{}, exe_digest[32]{}, dll_digest[32]{};
-    const Utf8View legacy_text = manifest(legacy_document, legacy_bytes, legacy_digest, kV6, kUpdateLegacyProtocol);
-    const ConstSlice<u8> document_parts[]{{reinterpret_cast<const u8*>(kUpdateManifestSignatureDomain.data), kUpdateManifestSignatureDomain.bytes},
-        {reinterpret_cast<const u8*>(legacy_text.data), legacy_text.bytes}};
-    const ConstSlice<u8> exe_part[]{{exe, kNativeImageBytes}}, dll_part[]{{dll, kNativeImageBytes}};
-    const Utf8View v7 = manifest(documents[0], package_bytes, digest, kV7), v8 = manifest(documents[1], package_bytes, digest, kV8);
-    const bool signed_all = sign(legacy_text, signer, workspace, legacy_signature) && sign(v7, signer, workspace, signatures[0]) &&
-        sign(v8, signer, workspace, signatures[1]) && sha256(workspace, {document_parts, 2}, {document_digest, 32}).ok() &&
-        sha256(workspace, {exe_part, 1}, {exe_digest, 32}).ok() && sha256(workspace, {dll_part, 1}, {dll_digest, 32}).ok();
-    const auto pair = legacy_pair(kV6, legacy_bytes, document_digest, legacy_digest, kNativeImageBytes, exe_digest, kNativeImageBytes, dll_digest);
-    wchar_t generation[MAX_PATH]{}, generation_name[67]{}, legacy_zip_copy[MAX_PATH]{};
-    constexpr wchar_t hex[] = L"0123456789abcdef"; generation_name[0] = L'g'; generation_name[1] = L'-';
-    for (u32 i = 0; i < 32; ++i) { generation_name[2 + i * 2] = hex[document_digest[i] >> 4]; generation_name[3 + i * 2] = hex[document_digest[i] & 15]; }
-    child(paths.root, generation_name, generation); child(generation, L"package.zip", legacy_zip_copy);
-    HANDLE copied = INVALID_HANDLE_VALUE;
-    bool laid_out = signed_all && CreateDirectoryW(generation, nullptr) &&
-        write_file(generation, L"offer.json", legacy_text.data, legacy_text.bytes) && write_file(generation, L"offer.sig", legacy_signature, 64) &&
-        write_file(generation, L"MaiCord.exe", exe, kNativeImageBytes) && write_file(generation, L"MaiCordAccount.dll", dll, kNativeImageBytes);
-    if (laid_out) copied = CreateFileW(legacy_zip_copy, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-    laid_out = laid_out && copied != INVALID_HANDLE_VALUE && copy(legacy_file, copied, legacy_bytes) && FlushFileBuffers(copied);
-    if (copied != INVALID_HANDLE_VALUE) CloseHandle(copied);
-    u8 enrollment[64]{}; copy_bytes(enrollment, "MCUPENR1", 8); enrollment[16] = 0x5a; enrollment[31] = 0xa5; copy_bytes(enrollment + 32, inventory, 32);
-    UpdateAcceptanceState accepted{}; accepted.channels[0] = {kV6, {}, true}; copy_bytes(accepted.channels[0].manifest_sha256, document_digest, 32);
-    u8 acceptance[kUpdateAcceptanceRecordBytes]{};
-    UpdateGenerationState v2{}; copy_bytes(v2.installation.bytes, enrollment + 16, 16); v2.sequence = 1; v2.active = {pair, true};
-    u8 journal[kUpdateGenerationLegacyRecordBytes]{}; legacy_record(v2, 135, journal);
-    wchar_t updates[MAX_PATH]{}; copy_bytes(updates, t.base, (length(t.base) + 1) * sizeof(wchar_t));
-    laid_out = laid_out && update_acceptance_encode(accepted, {acceptance, sizeof(acceptance)}).ok() &&
-        write_file(updates, L"enrollment.bin", enrollment, 64) && write_file(paths.work, L"acceptance.bin", acceptance, sizeof(acceptance)) &&
-        write_file(paths.root, L"install.state", journal, sizeof(journal));
-    check(laid_out, "legacy service: the 0.4.x enrollment, acceptance, v2 journal and five-file generation are on disk"); if (!laid_out) return;
-
-    UpdateServiceConfig config{};
-    static UpdateService service{};
-    const bool configured = update_service_config(utf8_literal("owner/repo"), {key_hex, 130}, kV5, &config) &&
-        update_service_initialize(&service, config, paths) == UpdateServiceError::none;
-    struct Service { ~Service() noexcept { update_service_release(&service); } } service_owner;
-    check(configured, "legacy service: a current client older than the installed 0.4.x generation"); if (!configured) return;
-    g_update_log_sink = capture; g_line_count = 0;
-    UpdateInstalledState installed{};
-    check(update_service_inspect(&service, &installed) == UpdateServiceError::none && installed.journal &&
-        installed.phase == UpdateGenerationPhase::stable && installed.active_version == kV6 && !logged("open_failed"),
-        "legacy service: a 768-byte install.state no longer fails every check with a size error");
-
-    wchar_t module[MAX_PATH]{}; child(service.paths.root, generation_name, module); child(module, L"MaiCord.exe", module);
-    UpdateHandoffChild handoff{};
-    check(update_service_child_open(config, paths, {module, length(module)}, {L"x", 1}, &handoff) == UpdateServiceError::launch && !handoff.parent,
-        "legacy service: a child of the 0.4.x generation passes journal and signed-package checks before the handoff command");
-    update_handoff_child_release(&handoff);
-    bool selected = update_service_open(&service, false) == UpdateServiceError::none && service.transaction.record_legacy &&
-        update_install_select_package(&service.install, &service.package).ok() && service.package.descriptor.member_count == 2 &&
-        service.package.files[0] && service.package.files[1] && update_package_descriptor_equal(service.package.descriptor, pair);
-    update_service_close(&service);
-    check(selected, "legacy service: the dispatcher authenticates and pins the 0.4.x pair while the journal is v2");
-
-    static UpdateLocation location7{}, location8{};
-    static char target7[96]{}, target8[96]{};
-    const bool located = update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, kV7, &location7) &&
-        update_asset_location(utf8_literal("owner/repo"), UpdateChannel::stable, UpdateAsset::package, kV8, &location8);
-    check(located, "legacy service: release package locations"); if (!located) return;
-    copy_bytes(target7, location7.target, location7.target_bytes); copy_bytes(target8, location8.target, location8.target_bytes);
-    static Fake fake{};
-    const auto serve = [&](const Utf8View& document, const u8* signature, const char* target) noexcept {
-        fake = {}; fake.origin = "owner.github.io";
-        fake.routes[fake.count++] = route(UpdateHost::pages, pages_manifest, 200, nullptr, document.data, document.bytes);
-        fake.routes[fake.count++] = route(UpdateHost::pages, pages_signature, 200, nullptr, signature, 64);
-        fake.routes[fake.count++] = route(UpdateHost::github, target, 302, "https://release-assets.githubusercontent.com/package?sig=3");
-        fake.routes[fake.count] = route(UpdateHost::release_assets, "/package?sig=3", 200);
-        fake.routes[fake.count].file = package_file; fake.routes[fake.count++].body_bytes = package_bytes;
-    };
-    const UpdateTransport transport{&fake, fake_get};
-    serve(v7, signatures[0], target7);
-    auto r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    HANDLE journal_file = CreateFileW(paths.journal, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
-    LARGE_INTEGER journal_size{};
-    const bool rewritten = journal_file != INVALID_HANDLE_VALUE && GetFileSizeEx(journal_file, &journal_size) && journal_size.QuadPart == kUpdateGenerationRecordBytes;
-    if (journal_file != INVALID_HANDLE_VALUE) CloseHandle(journal_file);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV7 && rewritten && update_service_inspect(&service, &installed) == UpdateServiceError::none &&
-        installed.phase == UpdateGenerationPhase::prepared && installed.active_version == kV6 && installed.candidate_version == kV7,
-        "legacy service: the next release prepares beside the authenticated 0.4.x pair and the journal is rewritten as v3");
-    UpdateGenerationLaunchAdmission admission{};
-    bool acknowledged = update_service_open(&service, false) == UpdateServiceError::none &&
-        update_install_activate(&service.install).ok() && update_install_activation_admission(&service.install, &admission).ok();
-    if (acknowledged) {
-        u8 document[32]{}; copy_bytes(document, service.transaction.state.active.package.document_sha256, 32);
-        acknowledged = update_install_acknowledge(&service.install, service.transaction.state.transaction, {document, 32}).ok() &&
-            update_install_recover(&service.install).ok() && service.transaction.state.previous.present &&
-            update_package_descriptor_legacy(service.transaction.state.previous.package);
-    }
-    update_service_close(&service);
-    check(acknowledged && update_service_inspect(&service, &installed) == UpdateServiceError::none && installed.phase == UpdateGenerationPhase::stable &&
-        installed.active_version == kV7 && !installed.previous_version && update_service_revert(&service) == UpdateServiceError::state,
-        "legacy service: once confirmed, the retained 0.4.x pair is not offered as a rollback target, which it could not start from");
-    serve(v8, signatures[1], target8);
-    r = update_service_check(&service, transport, UpdateChannel::stable, 100);
-    check(r.outcome == UpdateCheckOutcome::ready && r.version == kV8 && GetFileAttributesW(generation) == INVALID_FILE_ATTRIBUTES &&
-        update_service_inspect(&service, &installed) == UpdateServiceError::none && installed.phase == UpdateGenerationPhase::prepared &&
-        installed.active_version == kV7 && installed.candidate_version == kV8 && !fake.wrong_host,
-        "legacy service: the following update disposes the 0.4.x generation and its five files");
-    g_update_log_sink = nullptr;
 }
 // The caption's update badge: when it shows, what a click does, its progress.
 void test_caption_badge() noexcept {
@@ -1321,6 +1317,14 @@ void test_caption_badge() noexcept {
     check(app_detail::application_update_progress(view) == 1, "progress clamps");
     view.total = 0;
     check(app_detail::application_update_progress(view) == 0, "unknown size shows no progress");
+    // Closing MaiCord installs only after Restart to update.
+    using app_detail::application_updates_exit;
+    check(!application_updates_exit(true, false).install && !application_updates_exit(true, false).relaunch &&
+              !application_updates_exit(false, false).install,
+          "a plain exit with a staged update installs nothing and starts nothing");
+    check(application_updates_exit(true, true).install && application_updates_exit(true, true).relaunch,
+          "Restart to update installs the staged update on a normal exit and starts MaiCord again");
+    check(!application_updates_exit(false, true).install, "a failed exit after Restart to update installs nothing");
 }
 
 // Settings before sign-in: account-independent pages only, Updates among them.
@@ -1376,8 +1380,8 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_client_tests_entry() 
     maicord::test_settings_rows();
     maicord::test_check_schedule();
     maicord::test_interval_store();
+    maicord::test_swap();
     maicord::test_service();
-    maicord::test_legacy_service();
     maicord::test_preview_replay();
     maicord::test_replay();
     ExitProcess(maicord::failures ? 1 : 0);

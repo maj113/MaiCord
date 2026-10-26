@@ -189,7 +189,7 @@ Utf8View ui_caption_bar_part_name(UiCaptionPart part, const UiCaptionBarState& s
         return utf8_literal("System menu");
     case UiCaptionPart::update:
         return state.update == UiCaptionUpdate::ready         ? utf8_literal("Restart to update")
-               : state.update == UiCaptionUpdate::installing  ? utf8_literal("Installing update")
+               : state.update == UiCaptionUpdate::installing  ? utf8_literal("Verifying update")
                : state.update == UiCaptionUpdate::downloading ? utf8_literal("Downloading update")
                : state.update == UiCaptionUpdate::failed      ? utf8_literal("Couldn't update")
                                                               : Utf8View{};

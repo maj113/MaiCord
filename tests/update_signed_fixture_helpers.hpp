@@ -1,17 +1,12 @@
 #pragma once
-// Bounded, test-only publisher/install helpers. No key/origin/enrollment here
+// Bounded, test-only publisher/package helpers. No key or origin here
 // authorizes production. The public point is the fixture scalar-one signer.
-#include "maicord/app/update_install.hpp"
+#include "maicord/app/update_service.hpp"
 #include "test_output.hpp"
-#include "maicord/core/byte_order.hpp"
-#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/crypto.hpp"
 
 namespace maicord::signed_update_fixture {
-// Generated, never-executed native package ZIP. Defined once beside the parser's
-// corruption fixtures in update_package.cpp; requires 4096 output bytes.
-u32 native_package(Slice<u8> output) noexcept;
 // Stream the complete shipping package with fewer fixture-only I/O calls.
 inline constexpr u32 kFixtureIoBufferBytes = 64 * 1024;
 inline constexpr u8 public_point[65]{
@@ -23,11 +18,6 @@ inline u32 length(const wchar_t* s) noexcept { u32 n = 0; while (s[n]) ++n; retu
 inline void child(const wchar_t* root, const wchar_t* name, wchar_t* out) noexcept {
     u32 n = 0; while (root[n]) { out[n] = root[n]; ++n; } out[n++] = L'\\';
     for (u32 i = 0;; ++i) { out[n + i] = name[i]; if (!name[i]) return; }
-}
-inline bool dispose(HANDLE* h) noexcept {
-    if (!*h) return true; FILE_DISPOSITION_INFO info{TRUE};
-    if (!SetFileInformationByHandle(*h, FileDispositionInfo, &info, sizeof(info)) || !CloseHandle(*h)) return false;
-    *h = nullptr; return true;
 }
 inline bool close(HANDLE* h) noexcept { if (!*h) return true; if (!CloseHandle(*h)) return false; *h = nullptr; return true; }
 inline bool write(HANDLE h, const void* data, u32 bytes) noexcept {
@@ -82,13 +72,15 @@ inline bool hash_file(HANDLE h, u64 bytes, u8* digest, BCRYPT_HASH_HANDLE* owner
     if (ok) ok = BCryptFinishHash(*owner, digest, 32, 0) >= 0;
     if (BCryptDestroyHash(*owner) < 0) return false; *owner = nullptr; return ok;
 }
-// Stored regular members names[i] from paths[i], at most
-// kUpdatePackageMaximumMembers. All failed file/CNG owners stay explicit.
+// Stored regular members names[i] from paths[i], at most kFixtureMaximumMembers
+// (a release package has exactly one, MaiCord.exe). All failed file/CNG owners
+// stay explicit.
+inline constexpr u32 kFixtureMaximumMembers = 2;
 inline bool package(const wchar_t* destination, const wchar_t* const* paths, const char* const* names, u32 count, HANDLE* output,
     HANDLE* sources, u64* package_bytes, u8* digest, BCRYPT_HASH_HANDLE* hash_owner) noexcept {
-    if (!count || count > kUpdatePackageMaximumMembers) return false;
-    u32 sizes[kUpdatePackageMaximumMembers]{}, checksums[kUpdatePackageMaximumMembers]{}, offsets[kUpdatePackageMaximumMembers]{},
-        counts[kUpdatePackageMaximumMembers]{};
+    if (!count || count > kFixtureMaximumMembers) return false;
+    u32 sizes[kFixtureMaximumMembers]{}, checksums[kFixtureMaximumMembers]{}, offsets[kFixtureMaximumMembers]{},
+        counts[kFixtureMaximumMembers]{};
     u8 buffer[kFixtureIoBufferBytes]{};
     for (u32 i = 0; i < count; ++i) {
         while (names[i][counts[i]]) ++counts[i];
@@ -118,84 +110,18 @@ inline bool package(const wchar_t* destination, const wchar_t* const* paths, con
     if (!write(*output, end, sizeof(end)) || !FlushFileBuffers(*output)) return false; *package_bytes = next + sizeof(end);
     return hash_file(*output, *package_bytes, digest, hash_owner);
 }
-// The built shipping executable as member 0, then the optional data file as
-// "notes.txt". No execution, mmap, archive library, compression or heap.
-inline bool real_package(const wchar_t* path, const wchar_t* data, HANDLE* package_owner, HANDLE* sources, u64* package_bytes, u8* digest) noexcept {
-#if defined(MAICORD_UPDATE_TEST_EXECUTABLE)
-    const wchar_t* paths[]{MAICORD_UPDATE_TEST_EXECUTABLE, data}; const char* names[]{"MaiCord.exe", "notes.txt"};
-    BCRYPT_HASH_HANDLE hash = nullptr;
-    const bool ok = package(path, paths, names, data ? 2 : 1, package_owner, sources, package_bytes, digest, &hash);
-    return (!hash || BCryptDestroyHash(hash) >= 0) && ok;
-#else
-    (void)path; (void)data; (void)package_owner; (void)sources; (void)package_bytes; (void)digest;
-    return false; // Root must supply the built shipping executable path.
-#endif
-}
-inline bool ancestry(const wchar_t* root, UpdateGenerationDirectoryIdentity* ids, u32* count) noexcept {
-    wchar_t path[MAX_PATH]{}; const u32 n = length(root); copy_bytes(path, root, (n + 1) * sizeof(wchar_t)); *count = 0;
-    for (u32 i = 2; i <= n; ++i) if (i == 2 || i == n || path[i] == L'\\') { const u32 end = i == 2 ? 3 : i; const wchar_t saved = path[end]; path[end] = 0;
-        HANDLE h = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr); path[end] = saved;
-        if (h == INVALID_HANDLE_VALUE) return false; BY_HANDLE_FILE_INFORMATION info{};
-        const bool ok = GetFileInformationByHandle(h, &info) != FALSE; const bool closed = CloseHandle(h) != FALSE;
-        if (!ok || !closed || *count == kUpdateGenerationMaximumAncestors) return false;
-        ids[(*count)++] = {info.dwVolumeSerialNumber, static_cast<u64>(info.nFileIndexHigh) << 32 | info.nFileIndexLow}; }
-    return true;
-}
 inline u32 decimal(char* out, u64 value) noexcept {
     char reverse[20]{}; u32 n = 0; do { reverse[n++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
     for (u32 i = 0; i < n; ++i) out[i] = reverse[n - i - 1]; return n;
 }
-// kUpdateLegacyProtocol gives the offer schema releases up to 0.4.x installed.
-inline Utf8View manifest(char* out, u64 bytes, const u8* digest, u64 version, u32 protocol = kUpdateProtocol) noexcept {
+inline Utf8View manifest(char* out, u64 bytes, const u8* digest, u64 version) noexcept {
     u32 n = 0; auto add = [&](Utf8View text) noexcept { copy_bytes(out + n, text.data, text.bytes); n += text.bytes; };
-    add(utf8_literal(R"({"format":)")); n += decimal(out + n, protocol);
+    add(utf8_literal(R"({"format":)")); n += decimal(out + n, kUpdateProtocol);
     add(utf8_literal(R"(,"product":"MaiCord","arch":"x64","channel":"stable","version":)")); n += decimal(out + n, version);
     add(utf8_literal(R"(,"issued":90,"expires":200,"bytes":)")); n += decimal(out + n, bytes); add(utf8_literal(R"(,"sha256":")")); constexpr char digits[] = "0123456789abcdef";
     for (u32 i = 0; i < 32; ++i) { out[n++] = digits[digest[i] >> 4]; out[n++] = digits[digest[i] & 15]; }
-    add(utf8_literal(R"(","artifact":")")); add(protocol == kUpdateProtocol ? kUpdateArtifactPrefix : kUpdateLegacyArtifactPrefix);
+    add(utf8_literal(R"(","artifact":")")); add(kUpdateArtifactPrefix);
     n += decimal(out + n, version); add(utf8_literal(R"(.zip"})")); return {out,n};
-}
-// The 768-byte v2 journal record exactly as releases up to 0.4.x encoded it,
-// from a state whose references are MaiCord.exe/MaiCordAccount.dll pairs. Pair
-// references carry the account DLL's export ordinal; the disposal intent lists
-// its files as exe, dll, offer, signature, package.
-inline void legacy_record(const UpdateGenerationState& s, u16 ordinal, u8* b) noexcept {
-    clear_bytes(b, kUpdateGenerationLegacyRecordBytes);
-    copy_bytes(b, "MAIGEN02", 8); byte_store_le32(b + 8, 2); byte_store_le32(b + 12, kUpdateGenerationLegacyRecordBytes);
-    copy_bytes(b + 16, s.installation.bytes, 16); copy_bytes(b + 32, s.transaction.bytes, 16);
-    byte_store_le64(b + 48, s.sequence); b[56] = static_cast<u8>(s.phase);
-    const UpdateGenerationReference* references[]{&s.active, &s.previous, &s.candidate};
-    for (u32 i = 0; i < 3; ++i) if (references[i]->present) {
-        const auto& p = references[i]->package; u8* r = b + 64 + i * 176;
-        byte_store_le64(r, p.version); byte_store_le64(r + 8, p.package_bytes);
-        copy_bytes(r + 16, p.document_sha256, 32); copy_bytes(r + 48, p.package_sha256, 32);
-        for (u32 m = 0; m < 2; ++m) { byte_store_le64(r + 80 + m * 40, p.members[m].bytes); copy_bytes(r + 88 + m * 40, p.members[m].sha256, 32); }
-        r[160] = static_cast<u8>(p.channel); r[161] = static_cast<u8>(ordinal); r[162] = static_cast<u8>(ordinal >> 8); r[163] = 1;
-    }
-    u8* d = b + 592; d[0] = static_cast<u8>(s.disposal.target);
-    byte_store_le32(d + 8, s.disposal.directory.volume); byte_store_le64(d + 16, s.disposal.directory.file);
-    constexpr u32 slots[5]{kUpdateGenerationFirstMemberSlot, kUpdateGenerationFirstMemberSlot + 1,
-        kUpdateGenerationOfferSlot, kUpdateGenerationSignatureSlot, kUpdateGenerationPackageSlot};
-    for (u32 i = 0; i < 5; ++i) {
-        byte_store_le32(d + 24 + i * 16, s.disposal.files[slots[i]].volume); byte_store_le64(d + 32 + i * 16, s.disposal.files[slots[i]].file);
-    }
-    byte_store_le64(b + 760, hash64_bytes(kHash64Seed, b, 760));
-}
-// The migrated form of a v2 pair: MaiCord.exe then MaiCordAccount.dll.
-inline UpdatePackageDescriptor legacy_pair(u64 version, u64 package_bytes, const u8* document, const u8* package,
-    u64 executable_bytes, const u8* executable, u64 library_bytes, const u8* library) noexcept {
-    UpdatePackageDescriptor p{}; p.version = version; p.package_bytes = package_bytes; p.member_count = 2;
-    copy_bytes(p.document_sha256, document, 32); copy_bytes(p.package_sha256, package, 32);
-    const Utf8View names[2]{kUpdatePackageExecutable, kUpdatePackageLegacyLibrary};
-    const u64 sizes[2]{executable_bytes, library_bytes}; const u8* digests[2]{executable, library};
-    for (u32 i = 0; i < 2; ++i) {
-        p.members[i].bytes = sizes[i]; copy_bytes(p.members[i].sha256, digests[i], 32);
-        copy_bytes(p.members[i].name, names[i].data, names[i].bytes); p.members[i].name_bytes = static_cast<u8>(names[i].bytes);
-    }
-    return p;
-}
-inline void measurement(const char* name, usize value) noexcept {
-    test_write_metric(name, value);
 }
 inline bool sign(Utf8View document, const P256Key& signer, KdfSha256Workspace& workspace, u8* signature) noexcept {
     u8 digest[32]{}; const ConstSlice<u8> parts[]{{reinterpret_cast<const u8*>(kUpdateManifestSignatureDomain.data), kUpdateManifestSignatureDomain.bytes},

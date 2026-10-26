@@ -4,7 +4,7 @@
 Writes the private key as a JWK file (store it as the GitHub Actions secret
 MAICORD_UPDATE_SIGNING_KEY, then delete the file) and prints the public key
 that both the release workflow and the client build (MAICORD_UPDATE_PUBLIC_KEY)
-use, plus the publisher-inventory fingerprint the client enrolls.
+use.
 
     python tools/release/generate_update_key.py %USERPROFILE%\\maicord-update-key.jwk
 
@@ -21,7 +21,6 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cng_p256  # noqa: E402
-from maicord_release import inventory_fingerprint  # noqa: E402
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 
@@ -45,8 +44,7 @@ def main() -> int:
     point = key.public_point
     print(f"Private JWK written to {output}")
     print("Store its contents as the MAICORD_UPDATE_SIGNING_KEY secret, keep an offline backup, then delete it.\n")
-    print(f"MAICORD_UPDATE_PUBLIC_KEY (repository variable and CMake cache variable):\n{point.hex()}\n")
-    print(f"Publisher inventory fingerprint (SHA-256 of domain || point):\n{inventory_fingerprint(point)}")
+    print(f"MAICORD_UPDATE_PUBLIC_KEY (repository variable and CMake cache variable):\n{point.hex()}")
     return 0
 
 

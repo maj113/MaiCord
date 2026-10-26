@@ -10,7 +10,6 @@ struct Parse {
     UpdateManifest candidate;
     u32 seen;
     UpdateManifestError error;
-    bool legacy; // installed protocol-1 generations only
 };
 bool string(JsonValue value, Utf8View* output) noexcept {
     JsonString parsed{};
@@ -36,8 +35,7 @@ bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
     bool valid = true;
     switch (field) {
     case format:
-        valid = json_value_to_u64(value, &number) && (number == kUpdateProtocol || (parsed.legacy && number == kUpdateLegacyProtocol));
-        parsed.candidate.protocol = static_cast<u8>(number);
+        valid = json_value_to_u64(value, &number) && number == kUpdateProtocol;
         break;
     case product: valid = string(value, &text) && utf8_equal(text, utf8_literal("MaiCord")); break;
     case arch: valid = string(value, &text) && utf8_equal(text, utf8_literal("x64")); break;
@@ -73,7 +71,7 @@ bool visit(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 bool artifact_matches_version(const UpdateManifest& manifest) noexcept {
     char name[kUpdateArtifactNameCapacity]{};
-    const Utf8View prefix = manifest.protocol == kUpdateProtocol ? kUpdateArtifactPrefix : kUpdateLegacyArtifactPrefix;
+    const Utf8View prefix = kUpdateArtifactPrefix;
     copy_bytes(name, prefix.data, prefix.bytes);
     u32 used = prefix.bytes + decimal_write(name + prefix.bytes, manifest.version);
     constexpr Utf8View suffix = utf8_literal(".zip");
@@ -85,7 +83,7 @@ UpdateManifestResult verify_manifest(Utf8View document, ConstSlice<u8> signature
     const P256Key& trusted_key, KdfSha256Workspace& workspace,
     const UpdateManifestPolicy* admission, u64 maximum_artifact_bytes,
     u64 maximum_validity_seconds, Slice<u32> structural_scratch,
-    UpdateManifest* output, bool legacy = false) noexcept {
+    UpdateManifest* output) noexcept {
     if (!output || !document.bytes || document.bytes > kUpdateManifestMaximumBytes || signature.count != 64 ||
         !trusted_key.handle || trusted_key.kind != P256Kind::ecdsa || !workspace.storage.data ||
         !structural_scratch.data || !structural_scratch.count ||
@@ -112,7 +110,7 @@ UpdateManifestResult verify_manifest(Utf8View document, ConstSlice<u8> signature
         return {UpdateManifestError::signature};
     const auto scan = json_scan_structurals_avx1(document, structural_scratch);
     if (!scan.ok()) return {UpdateManifestError::json};
-    Parse parsed{}; parsed.legacy = legacy;
+    Parse parsed{};
     const auto read = json_visit_root_object(document, {structural_scratch.data, scan.count}, 2, visit, &parsed);
     if (!read.ok()) return {parsed.error == UpdateManifestError::none ? UpdateManifestError::json : parsed.error};
     if (parsed.seen != (1u << field_count) - 1u) return {UpdateManifestError::missing_field};
@@ -150,19 +148,11 @@ UpdateManifestResult update_manifest_verify(Utf8View document, ConstSlice<u8> si
         policy.maximum_artifact_bytes, policy.maximum_validity_seconds, structural_scratch, output);
 }
 
-UpdateManifestResult update_manifest_verify_installed(Utf8View document, ConstSlice<u8> signature,
+UpdateManifestResult update_manifest_authenticate(Utf8View document, ConstSlice<u8> signature,
     const P256Key& trusted_key, KdfSha256Workspace& workspace,
     u64 maximum_artifact_bytes, u64 maximum_validity_seconds,
     Slice<u32> structural_scratch, UpdateManifest* output) noexcept {
     return verify_manifest(document, signature, trusted_key, workspace, nullptr,
         maximum_artifact_bytes, maximum_validity_seconds, structural_scratch, output);
-}
-
-UpdateManifestResult update_manifest_verify_generation(Utf8View document, ConstSlice<u8> signature,
-    const P256Key& trusted_key, KdfSha256Workspace& workspace,
-    u64 maximum_artifact_bytes, u64 maximum_validity_seconds,
-    Slice<u32> structural_scratch, UpdateManifest* output) noexcept {
-    return verify_manifest(document, signature, trusted_key, workspace, nullptr,
-        maximum_artifact_bytes, maximum_validity_seconds, structural_scratch, output, true);
 }
 } // namespace maicord

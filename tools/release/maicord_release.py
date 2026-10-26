@@ -2,8 +2,8 @@
 """Package, describe and sign MaiCord update artifacts.
 
 The formats here mirror the client's verifiers exactly:
-  * src/app/update_package.cpp - a ZIP of 1 to 4 stored members, MaiCord.exe
-    first, no flags/extra fields/comments.
+  * src/app/update_package.cpp - a ZIP of exactly one stored member, MaiCord.exe,
+    with no flags/extra fields/comments.
   * src/app/update_manifest.cpp - a compact JSON document with ten fields,
     signed as SHA-256("MaiCord update manifest v1\\n" || document) with
     ECDSA P-256, stored as a raw 64-byte P1363 (r || s) signature.
@@ -38,7 +38,6 @@ import cng_p256  # noqa: E402
 
 SIGNATURE_DOMAIN = b"MaiCord update manifest v1\n"
 CHANGELOG_DOMAIN = b"MaiCord update changelog v1\n"
-INVENTORY_DOMAIN = b"MaiCord publisher inventory v1\n"
 MANIFEST_MAXIMUM_BYTES = 4096
 PACKAGE_MAXIMUM_BYTES = 0xFFFFFFFE
 # The client refuses larger packages (kUpdateDefaultArtifactCap).
@@ -48,12 +47,8 @@ PACKAGE_CLIENT_MAXIMUM_BYTES = 64 * 1024 * 1024
 # Pages site and accepts manifests whose format is its protocol.
 PROTOCOL = 2
 ARTIFACT_PREFIX = f"MaiCord-x64-p{PROTOCOL}-"
-# The package members in order; the first is the launch target.
-MEMBER_NAMES = ("MaiCord.exe",)
-PACKAGE_MAXIMUM_MEMBERS = 4
-MEMBER_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,31}")
-# Names the generation directory keeps beside the members.
-PROVENANCE_NAMES = ("offer.json", "offer.sig", "package.zip")
+# The one package member, the executable the client swaps in place of itself.
+PACKAGE_EXECUTABLE = "MaiCord.exe"
 CHANNELS = ("stable", "preview")
 DEFAULT_VALIDITY_DAYS = 90
 SITE_DIRECTORY = f"updates/p{PROTOCOL}"
@@ -214,16 +209,7 @@ def build_identity(repository: Path | str, ref: str = "HEAD") -> BuildIdentity:
 
 # --------------------------------------------------------------------------- PE sanity
 
-def member_name_valid(name: str) -> bool:
-    """update_package_member_name_valid: a portable file name, never a device
-    or provenance name."""
-    stem = name.split(".", 1)[0].lower()
-    return (bool(MEMBER_NAME_PATTERN.fullmatch(name)) and not name.endswith(".") and
-            name.lower() not in PROVENANCE_NAMES and stem not in ("con", "prn", "aux", "nul") and
-            not re.fullmatch(r"(com|lpt)\d", stem))
-
-
-def check_pe(data: bytes, dll: bool, name: str) -> None:
+def check_pe(data: bytes, name: str) -> None:
     """Cheap publisher-side subset of the client's offline PE checks."""
     def fail(reason: str):
         raise ReleaseError(f"{name}: {reason}")
@@ -239,8 +225,8 @@ def check_pe(data: bytes, dll: bool, name: str) -> None:
         fail("not an AMD64 PE32+ image")
     if not characteristics & 0x0002:
         fail("not marked executable")
-    if bool(characteristics & 0x2000) != dll:
-        fail("expected a DLL" if dll else "expected an EXE, not a DLL")
+    if characteristics & 0x2000:
+        fail("expected an EXE, not a DLL")
 
 
 # --------------------------------------------------------------------------- update ZIP
@@ -252,16 +238,13 @@ VERSION_MADE_BY = 20  # host 0 (MS-DOS/FAT), spec 2.0
 EXTERNAL_ATTRIBUTES = 0x20  # FILE_ATTRIBUTE_ARCHIVE
 
 
-def build_update_zip(binaries: Path, names: tuple[str, ...], output: Path) -> None:
-    members = []
-    for name in names:
-        path = binaries / name
-        data = path.read_bytes()
-        if not data:
-            raise ReleaseError(f"{path} is empty.")
-        if name.lower().endswith((".exe", ".dll")):
-            check_pe(data, name.lower().endswith(".dll"), name)
-        members.append((name.encode("ascii"), data))
+def build_update_zip(binaries: Path, output: Path) -> None:
+    path = binaries / PACKAGE_EXECUTABLE
+    data = path.read_bytes()
+    if not data:
+        raise ReleaseError(f"{path} is empty.")
+    check_pe(data, PACKAGE_EXECUTABLE)
+    members = [(PACKAGE_EXECUTABLE.encode("ascii"), data)]
     body = bytearray()
     central = bytearray()
     for name, data in members:
@@ -290,7 +273,7 @@ def validate_update_zip(package: bytes) -> list[str]:
         fail("size")
     signature, disk, disk_cd, count_disk, count, cd_bytes, cd_offset, comment = struct.unpack_from(
         "<IHHHHIIH", package, len(package) - 22)
-    if (signature != 0x06054B50 or disk or disk_cd or not 1 <= count <= PACKAGE_MAXIMUM_MEMBERS or
+    if (signature != 0x06054B50 or disk or disk_cd or count != 1 or
             count_disk != count or comment or cd_offset > len(package) - 22 or cd_bytes != len(package) - 22 - cd_offset):
         fail("end of central directory")
     next_local, next_central = 0, cd_offset
@@ -301,8 +284,7 @@ def validate_update_zip(package: bytes) -> list[str]:
         name_bytes = struct.unpack_from("<H", package, next_local + 26)[0]
         raw_name = package[next_local + 30:next_local + 30 + name_bytes]
         name = raw_name.decode("ascii", "replace")
-        if (not member_name_valid(name) or (index == 0 and name != MEMBER_NAMES[0]) or
-                name.lower() in (other.lower() for other in names)):
+        if name != PACKAGE_EXECUTABLE:
             fail(f"member name {name!r}")
         local = struct.unpack_from("<IHHHHHIIIHH", package, next_local)
         record = struct.unpack_from("<IHHHHHHIIIHHHHHII", package, next_central)
@@ -386,10 +368,6 @@ def parse_manifest(document: bytes) -> dict:
 
 def manifest_digest(document: bytes) -> bytes:
     return hashlib.sha256(SIGNATURE_DOMAIN + document).digest()
-
-
-def inventory_fingerprint(public_point: bytes) -> str:
-    return hashlib.sha256(INVENTORY_DOMAIN + public_point).hexdigest()
 
 
 def load_private_key(arguments) -> cng_p256.PrivateKey:
@@ -670,7 +648,7 @@ def write_changelog(key, expected, document: bytes, output_dir: Path) -> None:
 def package_binaries(binaries: Path, output_dir: Path, name: str) -> tuple[bytes, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     artifact_path = output_dir / name
-    build_update_zip(binaries, MEMBER_NAMES, artifact_path)
+    build_update_zip(binaries, artifact_path)
     artifact = artifact_path.read_bytes()
     if len(artifact) > PACKAGE_CLIENT_MAXIMUM_BYTES:
         raise ReleaseError(f"{name} exceeds the client's {PACKAGE_CLIENT_MAXIMUM_BYTES} byte limit.")
@@ -692,7 +670,6 @@ def command_release(arguments) -> None:
         signature = (output_dir / f"maicord-{channel}.manifest.json.sig").read_bytes()
         verify_offer(document, signature, expected or key.public_point, artifact, now=issued + CLOCK_SKEW_SECONDS)
     print(f"{version.artifact_name}: {len(artifact)} bytes, sha256 {digest}")
-    print(f"publisher fingerprint {inventory_fingerprint(key.public_point)}")
 
 
 def command_preview(arguments) -> None:
@@ -912,11 +889,11 @@ def command_verify(arguments) -> None:
 
 
 def command_portable(arguments) -> None:
-    """Full portable ZIP for first installs: the package members plus fonts/ and licenses/."""
+    """Full portable ZIP for first installs: the executable plus fonts/ and licenses/."""
     binaries = Path(arguments.binaries)
     output = Path(arguments.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    files = [binaries / name for name in MEMBER_NAMES]
+    files = [binaries / PACKAGE_EXECUTABLE]
     for folder in ("fonts", "licenses"):
         directory = binaries / folder
         if not directory.is_dir():

@@ -23,7 +23,6 @@
 #include "application_state.hpp"
 #include "application_channel_overview.hpp"
 #include "application_guild_settings.hpp"
-#include "application_update_startup.hpp"
 #include "application_updates.hpp"
 #include "application_plugin_browser.hpp"
 #include "application_friends.hpp"
@@ -300,7 +299,6 @@ int application_run() noexcept {
     MAICORD_PERF_MARK("window_shown");
     application_request_frame();
 #if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
-    application_updates_confirm_startup();
     application_updates_initialize(application_update_build_config(), application_update_build_commit());
     application_plugin_browser_initialize();
 #endif
@@ -777,7 +775,8 @@ int application_run() noexcept {
     application_media_picker_close();
     application_preferences_shutdown();
     application_media_auth_shutdown();
-    application_updates_release();
+    // After Restart to update, a normal exit swaps in the update this process verified.
+    application_updates_release(exit_code == 0);
     application_plugin_browser_release();
     application_notifications_prepare_shutdown(&g_app);
     application_tooltip_release();
@@ -810,6 +809,9 @@ int application_run() noexcept {
     animation_visual_runtime_release(&g_app.animations);
     message_view_runtime_release(&g_app.message_view);
     clipboard_attachment_shutdown();
+    // After Restart to update: start the (now updated) executable once this
+    // instance has released its window and profile.
+    application_updates_relaunch();
     log_write(LogLevel::info, "shutdown", "normal_exit");
     log_close();
 #if defined(MAICORD_PERF_PROBE)
@@ -833,23 +835,16 @@ extern "C" __declspec(noreturn) void WINAPI maicord_entry() noexcept {
     if (!maicord::perf::probe_initialize())
         ExitProcess(125);
 #endif
-#if defined(MAICORD_ISOLATED_MAIN) || defined(MAICORD_STARTUP_PROBE)
-    const auto startup = maicord::app_detail::application_update_startup_gate(
-        maicord::app_detail::application_update_startup_command(GetCommandLineW()));
-#else
-    const auto command = maicord::app_detail::application_update_startup_command(GetCommandLineW());
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
+    const wchar_t* line = GetCommandLineW();
+    maicord::u32 characters = 0;
+    while (line[characters])
+        ++characters;
+    const maicord::ConstSlice<wchar_t> command{line, characters};
     // A second launch hands its discord:// link to the running client.
     if (maicord::app_detail::application_desktop_forward_existing(command))
         ExitProcess(0);
-    const auto startup = maicord::app_detail::application_update_startup_run(
-        command, maicord::app_detail::application_update_build_config());
-#endif
-    if (startup.mode == maicord::app_detail::ApplicationUpdateStartupMode::refused ||
-        startup.mode == maicord::app_detail::ApplicationUpdateStartupMode::dispatched)
-        ExitProcess(startup.exit_code);
-#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
-    maicord::app_detail::application_desktop_prepare(
-        command, startup.mode == maicord::app_detail::ApplicationUpdateStartupMode::child);
+    maicord::app_detail::application_desktop_prepare(command);
 #endif
     const int result = maicord::application_run();
     ExitProcess(static_cast<UINT>(result));

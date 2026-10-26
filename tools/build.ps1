@@ -4,7 +4,7 @@
 [CmdletBinding()]
 param(
     [switch]$Test,
-    # Run this checkout directly instead of handing off to an installed update.
+    # Build the updater disabled: the built client never checks for or downloads a release.
     [switch]$NoUpdater,
     # Tests use the MaiCord.exe already in the build
     # directory (e.g. a running client) instead of building and auditing it.

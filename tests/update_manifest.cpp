@@ -104,34 +104,38 @@ void test_update_manifest(void (*check)(bool, const char*) noexcept) noexcept {
         {reinterpret_cast<u32*>(&result), sizeof(result) / sizeof(u32)}, &result).error == UpdateManifestError::invalid_input &&
         bytes_equal(&accepted, &result, sizeof(result)), "update: output/scratch alias rejected before mutation");
 
-    auto installed = [&](Utf8View document, u64 maximum_bytes = 64 * 1024 * 1024,
+    auto authenticated = [&](Utf8View document, u64 maximum_bytes = 64 * 1024 * 1024,
         u64 maximum_validity = 1000) noexcept {
-        return update_manifest_verify_installed(document, {signature, 64}, trusted, workspace,
+        return update_manifest_authenticate(document, {signature, 64}, trusted, workspace,
             maximum_bytes, maximum_validity, {scratch, 256}, &result);
     };
     policy.installed_version = 20; policy.highest_accepted_version = 30; policy.now_unix_seconds = 500;
-    check(sign(good) && installed(good).ok() && bytes_equal(&accepted, &result, sizeof(result)) &&
+    check(sign(good) && authenticated(good).ok() && bytes_equal(&accepted, &result, sizeof(result)) &&
         verify(good).error == UpdateManifestError::rollback,
-        "update: retained installed provenance survives expiry and floors without admitting an old offer");
-    check(installed(good, 4095).error == UpdateManifestError::artifact_size &&
-        installed(good, 64 * 1024 * 1024, 100).error == UpdateManifestError::time &&
+        "update: offer authentication ignores the clock and floors without admitting an old offer");
+    check(authenticated(good, 4095).error == UpdateManifestError::artifact_size &&
+        authenticated(good, 64 * 1024 * 1024, 100).error == UpdateManifestError::time &&
         bytes_equal(&accepted, &result, sizeof(result)),
-        "update: installed authentication still enforces trusted package and validity bounds");
+        "update: offer authentication still enforces trusted package and validity bounds");
     const auto invalid_interval = utf8_literal(R"({"format":2,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":200,"expires":200,"bytes":4096,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","artifact":"MaiCord-x64-p2-6.zip"})");
-    check(sign(invalid_interval) && installed(invalid_interval).error == UpdateManifestError::time &&
+    check(sign(invalid_interval) && authenticated(invalid_interval).error == UpdateManifestError::time &&
         bytes_equal(&accepted, &result, sizeof(result)),
-        "update: installed authentication rejects a signed invalid interval atomically");
-    check(sign(traversal) && installed(traversal).error == UpdateManifestError::artifact_name &&
+        "update: offer authentication rejects a signed invalid interval atomically");
+    check(sign(traversal) && authenticated(traversal).error == UpdateManifestError::artifact_name &&
         bytes_equal(&accepted, &result, sizeof(result)),
-        "update: installed authentication retains exact signed artifact naming");
-    check(sign(good), "update: installed signature restored");
+        "update: offer authentication retains exact signed artifact naming");
+    const auto protocol_one = utf8_literal(R"({"format":1,"product":"MaiCord","arch":"x64","channel":"stable","version":6,"issued":90,"expires":200,"bytes":4096,"sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","artifact":"MaiCord-x64-6.zip"})");
+    check(sign(protocol_one) && authenticated(protocol_one).error == UpdateManifestError::field &&
+        bytes_equal(&accepted, &result, sizeof(result)),
+        "update: offer authentication refuses a protocol-1 offer");
+    check(sign(good), "update: offer signature restored");
     signature[0] ^= 1;
-    check(installed(good).error == UpdateManifestError::signature &&
+    check(authenticated(good).error == UpdateManifestError::signature &&
         bytes_equal(&accepted, &result, sizeof(result)),
-        "update: installed authentication never substitutes checksums for publisher signatures");
-    check(sign(good) && update_manifest_verify_installed(good, {signature, 64}, trusted, workspace,
+        "update: offer authentication never substitutes checksums for publisher signatures");
+    check(sign(good) && update_manifest_authenticate(good, {signature, 64}, trusted, workspace,
         64 * 1024 * 1024, 1000, {reinterpret_cast<u32*>(&result), sizeof(result) / sizeof(u32)}, &result).error ==
             UpdateManifestError::invalid_input && bytes_equal(&accepted, &result, sizeof(result)),
-        "update: installed authentication rejects output/scratch alias before mutation");
+        "update: offer authentication rejects output/scratch alias before mutation");
 }
 } // namespace maicord

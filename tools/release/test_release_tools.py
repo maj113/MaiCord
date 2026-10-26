@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -143,6 +144,23 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertGreater(after.number, tagged.number)
         self.assertLess(after.number, release.parse_tag("v1.3.1").number)
 
+    def test_local_builds_number_at_or_after_the_published_master_build(self):
+        """cmake/client.cmake numbers a local build with `identity`, as CI numbers the published
+        master build, so the updater never offers a local build an older one."""
+        repository = self.git_repository()
+        published = release.build_identity(repository)
+        # The same commit, built locally (edits or not), is the same version: up to date.
+        self.assertEqual(release.build_identity(repository).number, published.number)
+        self.commit(repository, "Try a change before pushing it")
+        local = release.build_identity(repository)
+        self.assertGreater(local.number, published.number)
+        output = io.StringIO()
+        environment = {name: value for name, value in os.environ.items() if name != "GITHUB_OUTPUT"}
+        with mock.patch.dict(os.environ, environment, clear=True), redirect_stdout(output):
+            self.assertEqual(release.main(["identity", "--repository", str(repository)]), 0)
+        self.assertIn(f"version={local.semver}\n", output.getvalue())
+        self.assertIn(f"commit={local.commit}\n", output.getvalue())
+
     def test_changelog_layout_matches_client_fixture(self):
         entries = [{"version": 3004002, "date": 1760000100, "commit": "a" * 40,
                     "text": 'Fix "quoted" names\nin the café list'},
@@ -217,36 +235,31 @@ class ReleaseToolTests(unittest.TestCase):
 
     def test_update_zip_matches_client_subset(self):
         output = self.root / "MaiCord-x64-p2-1.zip"
-        release.build_update_zip(self.binaries, release.MEMBER_NAMES, output)
+        release.build_update_zip(self.binaries, output)
         package = output.read_bytes()
-        self.assertEqual(release.validate_update_zip(package), list(release.MEMBER_NAMES))
-        release.build_update_zip(self.binaries, release.MEMBER_NAMES, self.root / "again.zip")
+        self.assertEqual(release.validate_update_zip(package), [release.PACKAGE_EXECUTABLE])
+        release.build_update_zip(self.binaries, self.root / "again.zip")
         self.assertEqual((self.root / "again.zip").read_bytes(), package, "packages must be reproducible")
+        with zipfile.ZipFile(output) as archive:
+            self.assertEqual(archive.namelist(), ["MaiCord.exe"])
+            self.assertEqual(archive.read("MaiCord.exe"), (self.binaries / "MaiCord.exe").read_bytes())
+            self.assertTrue(all(info.compress_type == zipfile.ZIP_STORED for info in archive.infolist()))
         corrupted = bytearray(package)
         corrupted[-2] = 1  # ZIP comment length
-        with self.assertRaises(release.ReleaseError):
-            release.validate_update_zip(bytes(corrupted))
-        # Further members follow the executable: images are checked by kind, data is not.
-        (self.binaries / "codec.dll").write_bytes(fake_pe(True, b"codec" * 77))
-        (self.binaries / "notes.txt").write_bytes(b"release notes")
-        names = ("MaiCord.exe", "codec.dll", "notes.txt")
-        release.build_update_zip(self.binaries, names, output)
-        self.assertEqual(release.validate_update_zip(output.read_bytes()), list(names))
-        with zipfile.ZipFile(output) as archive:
-            self.assertEqual(archive.namelist(), list(names))
-            self.assertEqual(archive.read("codec.dll"), (self.binaries / "codec.dll").read_bytes())
-            self.assertTrue(all(info.compress_type == zipfile.ZIP_STORED for info in archive.infolist()))
-        (self.binaries / "dll.exe").write_bytes(fake_pe(True, b"x"))
-        for extra in "abcd":
-            (self.binaries / extra).write_bytes(b"x")
-        for bad in (("codec.dll", "MaiCord.exe"), ("MaiCord.exe", "dll.exe"), ("MaiCord.exe", "notes.txt", "NOTES.txt"),
-                    ("MaiCord.exe", "a", "b", "c", "d")):
+        renamed = package.replace(b"MaiCord.exe", b"maicord.exe")
+        two = self.root / "two.zip"
+        with zipfile.ZipFile(two, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("MaiCord.exe", (self.binaries / "MaiCord.exe").read_bytes())
+            archive.writestr("notes.txt", b"release notes")
+        for bad in (bytes(corrupted), renamed, two.read_bytes()):
             with self.assertRaises(release.ReleaseError):
-                release.build_update_zip(self.binaries, bad, self.root / "bad.zip")
-        for name, valid in (("codec.dll", True), ("x-1_2.bin", True), ("offer.json", False), ("Package.zip", False),
-                            ("con.txt", False), ("COM1", False), ("lpt9.dll", False), ("a.", False), (".a", False),
-                            ("dir/a", False), ("a" * 33, False), ("a" * 32, True)):
-            self.assertEqual(release.member_name_valid(name), valid, name)
+                release.validate_update_zip(bad)
+        # The one member must be an AMD64 executable, not a DLL.
+        library = self.root / "library"
+        library.mkdir()
+        (library / "MaiCord.exe").write_bytes(fake_pe(True, b"x"))
+        with self.assertRaises(release.ReleaseError):
+            release.build_update_zip(library, self.root / "bad.zip")
 
     def test_release_signs_and_verifies_each_channel(self):
         out = self.root / "dist"

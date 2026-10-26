@@ -14,9 +14,9 @@ namespace maicord::app_detail {
 UpdateServiceConfig application_update_build_config() noexcept;
 // The first seven hex digits of the build's commit; empty when unknown.
 Utf8View application_update_build_commit() noexcept;
-// Child process: confirm startup once the account module API is admitted.
-void application_updates_confirm_startup() noexcept;
 
+// installing: the download is verified and staged; nothing is installed
+// before the user chooses Restart to update.
 enum class ApplicationUpdateState : u8 {
     disabled, idle, checking, downloading, installing, up_to_date, ready, restarting, error, rate_limited,
 };
@@ -26,7 +26,7 @@ struct ApplicationUpdatesView {
     UpdateChannel channel;
     UpdateCheckInterval interval;
     UpdateServiceError error;
-    u64 own_version, ready_version, rollback_version;
+    u64 own_version, ready_version;
     u64 received, total;
     // The newest verified offer on the channel (zero when none): its size,
     // and from its changelog the release or build date and commit.
@@ -83,16 +83,29 @@ constexpr bool application_updates_changelog_row(u64 control_id) noexcept {
 
 // UI thread. A background worker checks at the chosen interval (jitter,
 // backoff, server retry times) and on demand; nothing here blocks on the
-// network. commit: application_update_build_commit().
+// network. commit: application_update_build_commit(). Also deletes the
+// executable a previous swap replaced and a stage an earlier session left.
 bool application_updates_initialize(const UpdateServiceConfig&, Utf8View commit = {}) noexcept;
 // The first frame was presented: the first check follows within seconds. If
 // this never comes (a window hidden at startup), it runs 1 to 3 minutes after
 // launch.
 void application_updates_ready() noexcept;
-void application_updates_release() noexcept;
+// What an exit does with a verified update. Only Restart to update installs
+// it, on a normal exit, and starts MaiCord again; any other exit keeps the
+// running version, and the next start stages the kept package again.
+struct ApplicationUpdatesExit { bool install, relaunch; };
+constexpr ApplicationUpdatesExit application_updates_exit(bool normal_exit, bool restart_requested) noexcept {
+    return {normal_exit && restart_requested, restart_requested};
+}
+// Stops the worker, then applies application_updates_exit: after Restart to
+// update and a normal exit (the frame loop ended with exit code 0) it swaps
+// in the executable it verified and staged in this process, if any.
+void application_updates_release(bool normal_exit) noexcept;
+// The last step of an exit after Restart to update: starts the executable
+// path, which a successful swap has pointed at the new version.
+void application_updates_relaunch() noexcept;
 HANDLE application_updates_notification() noexcept;
-// Refreshes Settings on change. True once a new version confirmed startup
-// and this window should close.
+// Refreshes Settings on change. True once Restart asked this window to close.
 bool application_updates_poll() noexcept;
 bool application_updates_project(SettingBinding, UiSettingsControl*, UiSettingsControlPresentation*,
     u16* meter = nullptr) noexcept;
@@ -114,13 +127,13 @@ ApplicationUpdatesSettingsBank* application_updates_settings_bank() noexcept;
 bool application_updates_activate(SettingBinding, u32 choice) noexcept;
 // The view as of the last poll.
 ApplicationUpdatesView application_updates_view() noexcept;
-// Restarts into a ready update; false in any other state.
+// Restart to update: installs a ready update (a normal exit swaps it in, then
+// relaunches); false in any other state.
 bool application_updates_restart() noexcept;
 
-// The caption's update badge: shown while an update downloads, installs or
-// waits for a restart, and after an update that failed to download or
-// install. A click restarts a ready update and otherwise opens the Updates
-// page.
+// The caption's update badge: shown while an update downloads, is verified or
+// waits for Restart to update, and after an update that failed to download or
+// stage. A click installs a ready update and otherwise opens the Updates page.
 constexpr UiCaptionUpdate application_update_badge(const ApplicationUpdatesView& view) noexcept {
     switch (view.state) {
     case ApplicationUpdateState::downloading:
