@@ -8,7 +8,6 @@ namespace maicord {
 namespace {
 
 #include "generated/cff_oblique_fixture.inc"
-#include "generated/cff_bold_hashes.inc"
 u8 bytes[3072];
 GlyphPathCommand commands[256];
 constexpr u32 cff_at = 512, cff_size = 2048;
@@ -256,24 +255,6 @@ bool oblique_corpus() noexcept {
             if(raw.advance_x!=styled.advance_x||raw.advance_y!=styled.advance_y||raw.minimum_x!=styled.minimum_x||raw.minimum_y!=styled.minimum_y||raw.maximum_x!=styled.maximum_x||raw.maximum_y!=styled.maximum_y||raw.has_bounds!=styled.has_bounds)return false;
             if(cff_outline(font,static_cast<u16>(i),&out,0,&styled,true)!=SfntStatus::resource_limit||out.count||out.has_bounds||styled.has_bounds)return false;
             if(n){out.capacity=n-1;if(cff_outline(font,static_cast<u16>(i),&out,1000000,&styled,true)!=SfntStatus::output_too_small||out.count||out.has_bounds||styled.has_bounds)return false;}
-            for(u32 simulation=0;simulation<2;++simulation){
-                out=outline();
-                if(cff_outline_bold(font,static_cast<u16>(i),&out,1000000,&styled,simulation!=0)!=SfntStatus::ok)return false;
-                u64 hash=14695981039346656037ull;
-                const auto hash_bytes=[&](const void* p,u32 size) noexcept {const auto* b=static_cast<const u8*>(p);for(u32 at=0;at<size;++at){hash^=b[at];hash*=1099511628211ull;}};
-                const u32 header[]{out.count,static_cast<u32>(out.fill_rule),out.has_bounds?1u:0u};
-                hash_bytes(header,sizeof(header));hash_bytes(&out.minimum_x,16);hash_bytes(out.commands,out.count*28);
-                if(hash!=cff_bold_hashes[f*176+simulation*88+i])return false;
-                if(raw.advance_x!=styled.advance_x||raw.advance_y!=styled.advance_y||raw.minimum_x!=styled.minimum_x||raw.minimum_y!=styled.minimum_y||raw.maximum_x!=styled.maximum_x||raw.maximum_y!=styled.maximum_y||raw.has_bounds!=styled.has_bounds)return false;
-                if(n){out.capacity=n-1;if(cff_outline_bold(font,static_cast<u16>(i),&out,1000000,&styled,simulation!=0)!=SfntStatus::output_too_small||out.count||out.has_bounds||styled.has_bounds)return false;}
-                // Exhaust each prefix of this glyph's budget, including the
-                // contour pass. Never publish fixed-point bytes on failure.
-                if(!f&&i==1){bool succeeded=false;for(u32 budget=0;budget<512;++budget){out=outline();
-                    const auto status=cff_outline_bold(font,1,&out,budget,&styled,simulation!=0);
-                    if(status==SfntStatus::ok){succeeded=true;break;}
-                    if(status!=SfntStatus::resource_limit||out.count||out.has_bounds||!out.rejected||styled.has_bounds||styled.advance_x)return false;
-                }if(!succeeded)return false;}
-            }
             ++glyphs;
         }
     }
@@ -300,8 +281,7 @@ bool guarded_inputs() noexcept {
         CffFont font{};
         if(open({input,size},&font)==SfntStatus::ok) {
             auto out=outline(); CffGlyphMetrics metrics{};
-            const auto decoder=(iteration&4)?cff_outline_bold:cff_outline;
-            auto status=decoder(font,0,&out,2048,&metrics,(iteration&2)!=0);
+            auto status=cff_outline(font,0,&out,2048,&metrics,(iteration&2)!=0);
             ok=out.count<=out.capacity && (status==SfntStatus::ok ||
                 (!out.count && !out.has_bounds && out.rejected && !metrics.has_bounds && !metrics.advance_x));
         }

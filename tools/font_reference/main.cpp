@@ -26,11 +26,9 @@ namespace {
 
 wchar_t path[32768];
 bool owned_fonts=false;
-bool cff_experiment=false;
 u32 scalars[4096];
 u16 native_glyphs[4096];
 DWRITE_GLYPH_METRICS native_metrics[4096];
-DWRITE_GLYPH_METRICS base_simulation_metrics[4096];
 SfntOutlinePoint outline_points[65536];
 u32 contour_ends[32768];
 u8 orientation_flags[32768];
@@ -41,13 +39,10 @@ u64 outline_faces_unsupported = 0;
 u64 coordinate_differences = 0, structure_differences = 0;
 u64 bounds_differences = 0;
 u64 cff_metrics_compared = 0, cff_metric_differences = 0;
-u64 palette_entries_compared=0,palette_differences=0,color_graphs=0,color_graph_failures=0;
-u64 color_nodes=0,color_stops=0,color_roots_compared=0,color_root_differences=0;
-u32 color_formats=0,color_maximum_depth=0;
-bool color_variations=false;
+u64 palette_entries_compared=0,palette_differences=0;
+u64 color_roots_compared=0,color_root_differences=0;
 u64 color_value_hash=14695981039346656037ull;
 DWRITE_COLOR_F palette_entries[4096];
-u32 color_active[64];
 double variation_scalars[32767];
 ColrResolvedColorStop variation_stops[65535];
 const ColrVariationInstance* color_resolution=nullptr;
@@ -69,7 +64,6 @@ bool gvar_dump=false;
 bool geometry_only=false;
 u32 simulation_flags=0;
 bool renderer_outlines=false;
-bool metrics_dump=false;
 bool points_dump=false;
 bool execute_instructions=false;
 u32 instruction_state_glyph=0xffffffffu;
@@ -127,19 +121,16 @@ bool argument() noexcept {
             if(!i&&*probe++!=L',')return false;}
             if(!values[1]||values[0]>=65536||values[1]>65536-values[0]||(*probe&&*probe!=L' '&&*probe!=L'\t'))return false;
             first_outline_glyph=values[0];outline_glyph_count=values[1];command=probe;while(*command==L' '||*command==L'\t')++command;}}
-    {const wchar_t* option=L"--cff-experiment";const wchar_t* probe=command;while(*option&&*option==*probe){++option;++probe;}
-        if(!*option&&(!*probe||*probe==L' '||*probe==L'\t')){cff_experiment=true;command=probe;while(*command==L' '||*command==L'\t')++command;}}
     {const wchar_t* option=L"--owned";const wchar_t* probe=command;while(*option && *option==*probe){++option;++probe;}
-        if(!*option && (!*probe || *probe==L' ' || *probe==L'\t')){if(cff_experiment)return false;owned_fonts=true;command=probe;while(*command==L' ' || *command==L'\t')++command;}}
+        if(!*option && (!*probe || *probe==L' ' || *probe==L'\t')){owned_fonts=true;command=probe;while(*command==L' ' || *command==L'\t')++command;}}
     {const wchar_t* option=L"--renderer";const wchar_t* probe=command;while(*option&&*option==*probe){++option;++probe;}
         if(!*option&&(!*probe||*probe==L' '||*probe==L'\t')){
-            if(cff_experiment)return false;renderer_outlines=true;command=probe;while(*command==L' '||*command==L'\t')++command;
+            renderer_outlines=true;command=probe;while(*command==L' '||*command==L'\t')++command;
         }}
     {const wchar_t* option=L"--points";const wchar_t* probe=command;while(*option&&*option==*probe){++option;++probe;}
         if(!*option&&(!*probe||*probe==L' '||*probe==L'\t')){if(renderer_outlines||owned_fonts)return false;points_dump=gvar_dump=true;command=probe;while(*command==L' '||*command==L'\t')++command;}}
     {const wchar_t* option=L"--instructed";const wchar_t* probe=command;while(*option && *option==*probe){++option;++probe;}
         if(!*option && (!*probe || *probe==L' ' || *probe==L'\t')){execute_instructions=true;command=probe;while(*command==L' ' || *command==L'\t')++command;}}
-    if(*command){const wchar_t* option=L"--metrics-dump";const wchar_t* probe=command;while(*option&&*option==*probe){++option;++probe;}if(!*option&&!*probe){geometry_only=metrics_dump=true;return count!=0;}}
     if(*command){const wchar_t* option=L"--instructions";const wchar_t* probe=command;while(*option && *option==*probe){++option;++probe;}if(!*option){if(*probe){const wchar_t* state=L"-state=";const wchar_t* cursor=probe;while(*state && *state==*cursor){++state;++cursor;}if(!*state){u32 glyph=0;if(!*cursor)return false;while(*cursor){if(*cursor<L'0' || *cursor>L'9' || glyph>6553)return false;glyph=glyph*10+static_cast<u32>(*cursor++-L'0');}if(glyph>65535)return false;instruction_state_glyph=glyph;gvar_dump=true;geometry_only=execute_instructions=true;return count!=0;}const wchar_t* dump=L"-dump";while(*dump && *dump==*probe){++dump;++probe;}if(*dump || *probe)return false;gvar_dump=true;}geometry_only=true;execute_instructions=true;return count!=0;}}
     if(*command){const wchar_t* option=L"--geometry";const wchar_t* probe=command;while(*option && *option==*probe){++option;++probe;}if(!*option){if(*probe){const wchar_t* dump=L"-dump";while(*dump && *dump==*probe){++dump;++probe;}if(*dump || *probe)return false;gvar_dump=true;}geometry_only=true;return count!=0;}}
     if(*command){const wchar_t* option=L"--gvar";const wchar_t* probe=command;while(*option && *option==*probe){++option;++probe;}if(!*option){if(probe[0]!='4' && probe[0]!='6')return false;gvar_weight=probe[0]=='4'?400:600;if(probe[1]!='0' || probe[2]!='0')return false;probe+=3;if(*probe){const wchar_t* dump=L"-dump";while(*dump && *dump==*probe){++dump;++probe;}if(*dump || *probe)return false;gvar_dump=true;}return count!=0;}}
@@ -353,15 +344,6 @@ bool compare_color(const SfntFace& face,IDWriteFontFace* reference) noexcept {
         u32 offset=0;const auto status=colr_base_paint(font,static_cast<u16>(glyph),&offset);
         if(status==SfntStatus::unsupported_sequence)continue;
         if(status!=SfntStatus::ok){ok=false;break;}
-        ColrValidation validation{};
-        const auto checked=colr_validate_glyph(font,static_cast<u16>(glyph),{color_active,64},1000000,&validation);
-        if(checked!=SfntStatus::ok) {
-            if(color_graph_failures<8){metric("color_failed_glyph",glyph);metric("color_graph_status",static_cast<u32>(checked));}
-            ++color_graph_failures;continue;
-        }
-        ++color_graphs;color_nodes+=validation.nodes;color_stops+=validation.stops;
-        color_formats|=validation.formats;color_maximum_depth=maximum(color_maximum_depth,validation.maximum_depth);
-        color_variations|=validation.has_variations;
         u32 hash_work=1000000;
         color_hash_integer(glyph,4);
         if(!color_hash_clip(font,static_cast<u16>(glyph)) || !color_hash_tree(font,offset,0,&hash_work)){ok=false;break;}
@@ -393,31 +375,6 @@ bool compare_face(const SfntFace& face, IDWriteFontFace* reference,
     }
     metric("cmap_format", cmap.format);
     if(first_outline_glyph>=cmap.glyph_count)return false;
-    if(metrics_dump){
-        metric("units_per_em",metrics.units_per_em);
-        for(u32 start=0;start<cmap.glyph_count;start+=4096){
-            const u32 count=minimum<u32>(4096,cmap.glyph_count-start);
-            for(u32 i=0;i<count;++i)native_glyphs[i]=static_cast<u16>(start+i);
-            if(FAILED(reference->GetDesignGlyphMetrics(native_glyphs,count,native_metrics,FALSE)))return false;
-            if(FAILED((metric_reference?metric_reference:reference)->GetDesignGlyphMetrics(native_glyphs,count,base_simulation_metrics,FALSE)))return false;
-            for(u32 i=0;i<count;++i){const auto& m=native_metrics[i];
-                const auto& b=base_simulation_metrics[i];
-                const SfntDesignGlyphMetrics base{b.leftSideBearing,b.advanceWidth,b.rightSideBearing,b.topSideBearing,b.advanceHeight,b.bottomSideBearing,b.verticalOriginY};
-                SfntDesignGlyphMetrics simulated{};
-                const auto status=sfnt_simulate_metrics(base,metrics.units_per_em,static_cast<FontSimulation>(simulation_flags),&simulated);
-                if(status!=SfntStatus::ok||simulated.left_bearing!=m.leftSideBearing||simulated.advance_width!=m.advanceWidth||
-                   simulated.right_bearing!=m.rightSideBearing||simulated.top_bearing!=m.topSideBearing||simulated.advance_height!=m.advanceHeight||
-                   simulated.bottom_bearing!=m.bottomSideBearing||simulated.vertical_origin!=m.verticalOriginY){
-                    if(*metric_differences<8){metric("simulation_metric_difference_glyph",start+i);metric("simulation_metric_status",static_cast<u32>(status));}
-                    ++*metric_differences;
-                }
-                write("reference_metrics=");number(start+i);
-                const i64 values[]{m.leftSideBearing,m.advanceWidth,m.rightSideBearing,m.topSideBearing,m.advanceHeight,m.bottomSideBearing,m.verticalOriginY};
-                for(i64 v:values){write(",");if(v<0){write("-");number(static_cast<u64>(-v));}else number(static_cast<u64>(v));}write("\r\n");++*metrics_compared;
-            }
-        }
-        return true;
-    }
     if(!gvar_weight && !geometry_only && !compare_color(face,reference))return false;
     if (reference->GetGlyphCount() != cmap.glyph_count) return false;
     for (u32 start = gvar_weight || geometry_only?0x110000:0; start <= 0x10ffffu;) {
@@ -479,7 +436,6 @@ bool compare_face(const SfntFace& face, IDWriteFontFace* reference,
         tt_context.instance=owned_instance?owned_instance->instructions:&tt_instance;tt_context.scratch.stack={tt_stack,4096};tt_context.scratch.storage={tt_storage,4096};tt_context.scratch.cvt={tt_cvt,8192};tt_context.scratch.twilight={tt_twilight,4096};tt_context.scratch.frames={tt_frames,64};tt_context.scratch.glyph={tt_points,65540};tt_context.contour_ends={tt_ends,32768};
     }
     metric("outline_open_status", static_cast<u32>(outline_status));
-    if(cff_experiment)metric("cff_experiment",1);
     if (outline_status == SfntStatus::ok) {
         NativeGlyphOutlines* renderer_owner=nullptr;NativeFontSession* renderer_fonts=nullptr;
         NativeFontRunHandle renderer_run{};NativeFontInstanceHandle renderer_instance{};Arena renderer_scratch{};
@@ -509,8 +465,6 @@ bool compare_face(const SfntFace& face, IDWriteFontFace* reference,
             CffGlyphMetrics resolved{};
             SfntStatus native{};
             if(renderer_outlines)native=native_glyph_outline(&renderer_owner,1,static_cast<u16>(i),&candidate,renderer_fonts,renderer_run)?SfntStatus::ok:SfntStatus::unsupported;
-            else
-            if(cff_experiment&&cff_face&&(simulation_flags&1))native=cff_outline_bold(geometry.outline.cff,static_cast<u16>(i),&candidate,1000000,&resolved,(simulation_flags&2)!=0);
             else native=font_geometry_outline(instance,static_cast<u16>(i),&scratch,&candidate,1000000,&resolved,(simulation_flags&2)!=0,(simulation_flags&1)!=0);
             const auto oracle = text_outline_glyph(reference, static_cast<u16>(i), &expected);
             if(gvar_dump&&oracle.ok()){write("gvar_outline=");number(i);write(",");number(expected.count);write(",");number(static_cast<u32>(expected.fill_rule));write(",");number(expected.has_bounds?1:0);
@@ -703,10 +657,6 @@ int run() noexcept {
     metric("cff_resolved_metrics_compared", cff_metrics_compared);
     metric("cff_resolved_metric_differences", cff_metric_differences);
     metric("palette_entries_compared",palette_entries_compared);metric("palette_differences",palette_differences);
-    metric("color_graphs_validated",color_graphs);metric("color_graph_failures",color_graph_failures);
-    metric("color_nodes_visited",color_nodes);metric("color_stops_read",color_stops);
-    metric("color_formats",color_formats);metric("color_maximum_depth",color_maximum_depth);
-    metric("color_has_variations",color_variations?1:0);
     metric("color_roots_compared",color_roots_compared);metric("color_root_differences",color_root_differences);
     metric("color_value_hash",color_value_hash);
     metric("color_variation_samples",color_variation_samples);
@@ -740,7 +690,7 @@ int run() noexcept {
     return ok && !varied_paint_programs.element_failures && !varied_paint_programs.element_mismatches && !varied_paint_programs.failures && !varied_paint_programs.differences &&
            !native_paint_programs.element_failures && !native_paint_programs.element_mismatches && !native_paint_programs.failures && !native_paint_programs.differences && !paint_programs.failures && !paint_programs.differences && !differences && !metric_differences && !outline_failures && !outline_differences &&
            !outline_faces_unsupported && !cff_metric_differences && !palette_differences &&
-           !color_graph_failures && !color_root_differences && !windows_variation_clip_differences &&
+           !color_root_differences && !windows_variation_clip_differences &&
            !windows_variation_alpha_differences && !windows_variation_stop_differences ? 0 : 6;
 }
 

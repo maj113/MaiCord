@@ -38,8 +38,4 @@ UnicodeBracket unicode_bidi_bracket(u32 code_point) noexcept {
     if(slot==mirror_count||!(unicode_mirror_values[slot]&3))return {code_point,UnicodeBracketType::none};
     return {mirror_paired(code_point,slot),static_cast<UnicodeBracketType>(unicode_mirror_values[slot]&3)};
 }
-usize unicode_property_data_bytes() noexcept {
-    return sizeof(unicode_ascii)+sizeof(unicode_top)+sizeof(unicode_middle)+sizeof(unicode_leaves)+sizeof(unicode_records)+
-           sizeof(unicode_mirror_points)+sizeof(unicode_mirror_values);
-}
 } // namespace maicord

@@ -6,7 +6,6 @@
 #include "maicord/text/base.hpp"
 #include "maicord/sys/intrin.hpp"
 namespace maicord {namespace {
-bool spend(u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;return true;}
 u32 allowance(u64 work) noexcept {return static_cast<u32>(minimum<u64>(work,0xffffffffu));}
 u16 feature_bit(SfntLayoutKind kind,u32 tag,bool independent) noexcept {
     if(independent){switch(tag){

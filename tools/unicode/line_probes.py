@@ -67,18 +67,17 @@ def summarize(root,name):
         source=m['rows'][identifier-1];cps=source['scalars'];n=len(cps);starts=[0]
         for cp in cps:starts.append(starts[-1]+(1 if cp<=0xffff else 2))
         assert int(row['scalars'])==n and int(row['utf16_units'])==starts[-1]
-        native,windows,candidate,before,after,white,hyphen=([int(v) for v in row[key].split()] for key in ('native','windows','candidate','before','after','whitespace','soft_hyphen'))
-        assert len(native)==len(candidate)==len(windows)==n+1 and all(len(v)==starts[-1] for v in (before,after,white,hyphen))
-        assert all(v in (0,1,2) for v in native+candidate) and all(v in (0,1,2,3) for v in before+after) and all(v in (0,1) for v in white+hyphen)
+        windows,candidate,before,after,white,hyphen=([int(v) for v in row[key].split()] for key in ('windows','candidate','before','after','whitespace','soft_hyphen'))
+        assert len(candidate)==len(windows)==n+1 and all(len(v)==starts[-1] for v in (before,after,white,hyphen))
+        assert all(v in (0,1,2) for v in candidate) and all(v in (0,1,2,3) for v in before+after) and all(v in (0,1) for v in white+hyphen)
         def boundary(at):return (255,1,0,2)[max(after[at-1] if at else 0,before[at] if at<starts[-1] else 0)]
         assert windows==[boundary(p) for p in starts]
         positions=[i for i in range(1,n) if windows[i]!=255 and candidate[i]!=windows[i]]
-        default=[i for i in range(1,n) if windows[i]!=255 and native[i]!=windows[i]]
         unresolved=sum(windows[i]==255 for i in range(1,n));surrogates=sum(boundary(starts[i]+1) in (1,2) for i,cp in enumerate(cps) if cp>0xffff)
-        assert int(row['candidate_differences'])==len(positions) and int(row['differences'])==len(default) and int(row['checked'])==n-1-unresolved and int(row['unresolved'])==unresolved and int(row['surrogate_breaks'])==surrogates
+        assert int(row['candidate_differences'])==len(positions) and int(row['checked'])==n-1-unresolved and int(row['unresolved'])==unresolved and int(row['surrogate_breaks'])==surrogates
         group=groups.setdefault(source['kind'],collections.Counter())
-        group.update(cases=1,checked=n-1-unresolved,candidate_differences=len(positions),default_differences=len(default),candidate_exact=int(not positions and not unresolved),unresolved=unresolved,surrogate_breaks=surrogates,endpoint_differences=sum(windows[i]!=candidate[i] for i in (0,n)))
-        if positions:failures.append(dict(id=identifier,kind=source['kind'],scalars=cps,positions=positions,candidate=candidate,windows=windows,native=native))
+        group.update(cases=1,checked=n-1-unresolved,candidate_differences=len(positions),candidate_exact=int(not positions and not unresolved),unresolved=unresolved,surrogate_breaks=surrogates,endpoint_differences=sum(windows[i]!=candidate[i] for i in (0,n)))
+        if positions:failures.append(dict(id=identifier,kind=source['kind'],scalars=cps,positions=positions,candidate=candidate,windows=windows))
     assert seen==set(range(1,m['cases']+1))
     report=dict(input=identity(root/'probes.bin'),manifest=identity(root/'probes.json'),csv=identity(root/f'{name}.csv'),executable=capture['executable'],groups=groups,failures=failures)
     (root/f'{name}-comparison.json').write_text(json.dumps(report,indent=2));print(json.dumps(groups))

@@ -1,21 +1,13 @@
 #include "maicord/model/guild_ban_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 
 namespace maicord {
 namespace {
 
 u32 lower_bound(const GuildBanStore& store, u64 user_id) noexcept {
-    u32 first = 0, count = store.count;
-    while (count) {
-        const u32 step = count / 2;
-        if (store.records[first + step].user_id < user_id) {
-            first += step + 1;
-            count -= step + 1;
-        } else
-            count = step;
-    }
-    return first;
+    return sorted_lower_bound(store.count, [&](u32 at) noexcept { return store.records[at].user_id < user_id; });
 }
 
 void assign(GuildBanRecord* record, u64 user_id, Utf8View name, Utf8View reason) noexcept {

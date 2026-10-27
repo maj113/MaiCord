@@ -86,7 +86,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
                     if(cursive_lookup[i]){u64 chain_bits=0xaaaaaaaaaaaaaaaaull;SfntCursiveExecution result{};const auto s=sfnt_position_execute_cursive_lookup(mark_lookups[i],gdef,view,{advances,n},{state,n},0,n,rtl!=0,{}, {&chain_bits,1},&result);
                         if(s!=SfntStatus::ok){print(utf8_literal("cursive_execution_status="));number(static_cast<u32>(s));print(utf8_literal(" font="));number(f);print(utf8_literal("\n"));return false;}cursive_matches+=result.matches;cursive_steps+=result.scan_steps;cursive_words+=result.chain_words;continue;}
                     if(mark_lookup[i]){SfntMarkExecution result{};const auto s=sfnt_position_execute_mark_lookup(mark_lookups[i],gdef,view,{advances,n},{flags,n},{state,n},0,n,rtl!=0,{},SfntNullAnchorPolicy::parent_coordinates,&result,
-                            1000000,nullptr,nullptr,has_associations?ConstSlice<SfntMarkAssociation>{associations,n}:ConstSlice<SfntMarkAssociation>{});
+                            1000000,has_associations?ConstSlice<SfntMarkAssociation>{associations,n}:ConstSlice<SfntMarkAssociation>{});
                         if(s!=SfntStatus::ok){print(utf8_literal("mark_execution_status="));number(static_cast<u32>(s));print(utf8_literal(" font="));number(f);print(utf8_literal("\n"));return false;}mark_matches+=result.matches;target_steps+=result.search_steps;compatibility_anchors+=result.compatibility_anchors;continue;}
                     SfntPositionExecution result{};const auto s=sfnt_position_execute_lookup(lookups[i],gdef,view,{state,n},0,n,rtl!=0,{},&result);
                     if(s!=SfntStatus::ok){print(utf8_literal("execution_status="));number(static_cast<u32>(s));print(utf8_literal("\n"));return false;}}

@@ -1,6 +1,6 @@
-// QA-only Windows observations. Native output is first checked against every
-// official vector. Interior scalar boundaries are compared; raw UTF-16 before/
-// after conditions and endpoints are retained without inventing neutral policy.
+// QA-only Windows observations. Every official vector and the given probes are compared
+// with line_breaks_tailored at interior scalar boundaries; raw UTF-16 before/after
+// conditions and endpoints are retained without inventing neutral policy.
 #include "maicord/text/line_break.hpp"
 #include "maicord/text/detail/line_break_tailored.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -63,30 +63,28 @@ bool run() noexcept {
     IDWriteFactory* factory=nullptr;IDWriteTextAnalyzer* analyzer=nullptr;
     struct Release {IDWriteFactory*& f;IDWriteTextAnalyzer*& a;~Release() noexcept {if(a)a->Release();if(f)f->Release();}} release{factory,analyzer};
     if(FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,__uuidof(IDWriteFactory),reinterpret_cast<IUnknown**>(&factory)))||FAILED(factory->CreateTextAnalyzer(&analyzer)))return false;
-    Analysis a;u32 text[capacity],starts[capacity+1];u8 native[capacity+1],candidate[capacity+1],windows[capacity+1],before[capacity*2],after[capacity*2],white[capacity*2],hyphen[capacity*2];u32 at=0,cases=0;
+    Analysis a;u32 text[capacity],starts[capacity+1];u8 candidate[capacity+1],windows[capacity+1],before[capacity*2],after[capacity*2],white[capacity*2],hyphen[capacity*2];u32 at=0,cases=0;
     constexpr u32 size=sizeof(line_vectors)/sizeof(line_vectors[0]);
-    print(utf8_literal("source_line,scalars,utf16_units,checked,differences,unresolved,surrogate_breaks,native,windows,before,after,whitespace,soft_hyphen,candidate_differences,candidate,has_expected\n"));
+    print(utf8_literal("source_line,scalars,utf16_units,checked,unresolved,surrogate_breaks,windows,before,after,whitespace,soft_hyphen,candidate_differences,candidate,has_expected\n"));
     while(probes.active?cases<probes.count:at<size){
-        u32 tagged=0,line=0,n=0;
+        u32 line=0,n=0;
         if(probes.active){if(!probes.word(&line)||!probes.word(&n)||line!=cases+1)return false;}
-        else {if(size-at<2)return false;tagged=line_vectors[at++];line=line_vectors[at++];n=tagged&0x7fffffff;if(n>size-at)return false;}
+        else {if(size-at<2)return false;n=line_vectors[at++]&0x7fffffff;line=line_vectors[at++];if(n>size-at)return false;}
         if(!n||n>capacity)return false;a.length=0;
         for(u32 i=0;i<n;++i){u32 cp=0;if(probes.active){if(!probes.word(&cp))return false;}else cp=line_vectors[at+i]&0x1fffff;text[i]=cp;starts[i]=a.length;
             if(cp<=0xffff)a.text[a.length++]=static_cast<wchar_t>(cp);
             else{cp-=0x10000;a.text[a.length++]=static_cast<wchar_t>(0xd800+(cp>>10));a.text[a.length++]=static_cast<wchar_t>(0xdc00+(cp&1023));}}
         starts[n]=a.length;
-        if(!unicode_line_breaks({text,n},{native,n+1}))return false;
-        if(!probes.active)for(u32 i=0;i<=n;++i)if((native[i]!=0)!=((i<n?line_vectors[at+i]:tagged)>>31))return false;
         if(!line_breaks_tailored({text,n},{candidate,n+1}))return false;
         for(u32 i=0;i<a.length;++i)a.seen[i]=0;
         if(FAILED(analyzer->AnalyzeLineBreakpoints(&a,0,a.length,&a)))return false;
         for(u32 i=0;i<a.length;++i){if(!a.seen[i])return false;const auto b=a.breaks[i];before[i]=b.breakConditionBefore;after[i]=b.breakConditionAfter;white[i]=b.isWhitespace;hyphen[i]=b.isSoftHyphen;}
-        u32 checked=0,differences=0,unresolved=0,surrogates=0;
+        u32 checked=0,unresolved=0,surrogates=0;
         for(u32 i=0;i<=n;++i){windows[i]=boundary(a,starts[i]);
-            if(i&&i<n){if(windows[i]==255)++unresolved;else{++checked;differences+=windows[i]!=native[i];}}
+            if(i&&i<n){if(windows[i]==255)++unresolved;else ++checked;}
             if(i<n&&starts[i+1]-starts[i]==2){const u8 inner=boundary(a,starts[i]+1);if(inner==1||inner==2)++surrogates;}}
-        number(line);field(n);field(a.length);field(checked);field(differences);field(unresolved);field(surrogates);
-        vector({native,n+1});vector({windows,n+1});vector({before,a.length});vector({after,a.length});vector({white,a.length});vector({hyphen,a.length});
+        number(line);field(n);field(a.length);field(checked);field(unresolved);field(surrogates);
+        vector({windows,n+1});vector({before,a.length});vector({after,a.length});vector({white,a.length});vector({hyphen,a.length});
         u32 candidate_differences=0;for(u32 i=1;i<n;++i)if(windows[i]!=255&&candidate[i]!=windows[i])++candidate_differences;
         field(candidate_differences);vector({candidate,n+1});field(probes.active?0:1);print(utf8_literal("\n"));
         if(!probes.active)at+=n;++cases;

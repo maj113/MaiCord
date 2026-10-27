@@ -13,5 +13,5 @@ SfntStatus gpos_subtable_match(const SfntGposSubtable&,const SfntGdef&,const Sfn
 SfntStatus sfnt_gpos_execute_validated_lookup(const SfntGposProgram&,u16,SfntGlyphView,
     ConstSlice<double>,ConstSlice<u8>,ConstSlice<SfntMarkAssociation>,ConstSlice<u32>,Slice<SfntPosition>,
     u32,u32,bool,const SfntPositionInstance&,SfntNullAnchorPolicy,SfntComponentAnchorPolicy,
-    SfntGposExecutionScratch,SfntGposExecutionLimits,SfntGposExecutionResult*,SfntAnchorPointResolver,void*) noexcept;
+    SfntGposExecutionScratch,SfntGposExecutionLimits,SfntGposExecutionResult*) noexcept;
 }

@@ -1,5 +1,6 @@
 #include "maicord/model/read_state.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 namespace maicord {
 namespace {
@@ -10,13 +11,7 @@ bool valid_entry(const ReadStateEntry& entry) noexcept {
         !entry.reserved[0] && !entry.reserved[1] && !entry.reserved[2];
 }
 u32 lower_bound(const ReadStateStore& reads, u64 channel_id) noexcept {
-    u32 first = 0, count = reads.count;
-    while (count) {
-        const u32 step = count / 2, current = first + step;
-        if (reads.pending[current].channel_id < channel_id) { first = current + 1; count -= step + 1; }
-        else count = step;
-    }
-    return first;
+    return sorted_lower_bound(reads.count, [&](u32 at) noexcept { return reads.pending[at].channel_id < channel_id; });
 }
 void erase(ReadStateStore* reads, u32 position) noexcept {
     for (u32 i = position + 1; i < reads->count; ++i) reads->pending[i - 1] = reads->pending[i];

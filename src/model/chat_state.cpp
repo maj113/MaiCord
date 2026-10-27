@@ -5,60 +5,30 @@
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 namespace maicord {
 namespace {
 
 u32 find_guild_order(const ChatStateStore& store, u64 id, bool* found) noexcept {
-    u32 first = 0;
-    u32 count = store.guild_count;
-    while (count != 0) {
-        const u32 step = count / 2;
-        const u32 current = first + step;
-        const u64 current_id = store.guilds[store.guild_order[current]].id;
-        if (current_id < id) {
-            first = current + 1;
-            count -= step + 1;
-        } else {
-            count = step;
-        }
-    }
+    const u32 first = sorted_lower_bound(
+        store.guild_count, [&](u32 at) noexcept { return store.guilds[store.guild_order[at]].id < id; });
     *found = first < store.guild_count && store.guilds[store.guild_order[first]].id == id;
     return first;
 }
 
 u32 find_channel_order(const ChatStateStore& store, u64 id, bool* found) noexcept {
-    u32 first = 0;
-    u32 count = store.channel_count;
-    while (count != 0) {
-        const u32 step = count / 2;
-        const u32 current = first + step;
-        const u64 current_id = store.channels[store.channel_order[current]].id;
-        if (current_id < id) {
-            first = current + 1;
-            count -= step + 1;
-        } else {
-            count = step;
-        }
-    }
+    const u32 first = sorted_lower_bound(
+        store.channel_count, [&](u32 at) noexcept { return store.channels[store.channel_order[at]].id < id; });
     *found = first < store.channel_count && store.channels[store.channel_order[first]].id == id;
     return first;
 }
 
 u32 find_role_index(const ChatStateStore& store, u64 guild_id, u64 role_id, bool* found) noexcept {
-    u32 first = 0;
-    u32 count = store.role_count;
-    while (count != 0) {
-        const u32 step = count / 2;
-        const u32 current = first + step;
-        const RoleRecord& role = store.roles[current];
-        if (role.guild_id < guild_id || (role.guild_id == guild_id && role.id < role_id)) {
-            first = current + 1;
-            count -= step + 1;
-        } else {
-            count = step;
-        }
-    }
+    const u32 first = sorted_lower_bound(store.role_count, [&](u32 at) noexcept {
+        const RoleRecord& role = store.roles[at];
+        return role.guild_id < guild_id || (role.guild_id == guild_id && role.id < role_id);
+    });
     *found = first < store.role_count && store.roles[first].guild_id == guild_id &&
              store.roles[first].id == role_id;
     return first;

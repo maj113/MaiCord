@@ -7,7 +7,6 @@ namespace maicord {
 // resolved variable metrics/deltas.
 struct SfntPosition {double advance,advance_offset,ascender_offset;};
 struct SfntPlacement {float advance,advance_offset,ascender_offset;};
-using SfntAnchorPointResolver=SfntStatus(*)(void* context,u16 glyph,u16 point,double* x,double* y) noexcept;
 enum SfntPositionFlags : u8 {sfnt_position_zero_advance=1,sfnt_position_cluster_start=2};
 struct SfntPositionExecution {u64 operations,matches;};
 // A contextual child applies only at start and bypasses initial filtering; its

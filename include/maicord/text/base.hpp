@@ -12,3 +12,17 @@
 #include "maicord/core/win32_types.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_process.hpp"
+
+namespace maicord {
+// Charges n units against a work budget; false (budget untouched) when it can't cover them.
+inline bool spend(u32* work, u32 n = 1) noexcept {
+    if (n > *work) return false;
+    *work -= n;
+    return true;
+}
+inline bool spend(u64* work, u64 n = 1) noexcept {
+    if (n > *work) return false;
+    *work -= n;
+    return true;
+}
+} // namespace maicord

@@ -1,6 +1,7 @@
 #include "maicord/model/voice_state_store.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 namespace maicord {
 namespace {
@@ -24,18 +25,10 @@ u32 find_index(const VoiceStateStore& store, u64 guild_id, u64 user_id) noexcept
 }
 // First record whose channel is >= channel_id (or > with `after`).
 u32 channel_bound(const VoiceStateStore& store, u64 channel_id, bool after) noexcept {
-    u32 first = 0, count = store.count;
-    while (count) {
-        const u32 step = count / 2, current = first + step;
-        const u64 id = store.records[current].channel_id;
-        if (id < channel_id || (after && id == channel_id)) {
-            first = current + 1;
-            count -= step + 1;
-        } else {
-            count = step;
-        }
-    }
-    return first;
+    return sorted_lower_bound(store.count, [&](u32 at) noexcept {
+        const u64 id = store.records[at].channel_id;
+        return id < channel_id || (after && id == channel_id);
+    });
 }
 // Commits room for `required` records.
 bool ensure(VoiceStateStore* store, u32 required) noexcept {

@@ -8,7 +8,6 @@ bool cff_outline_tests() noexcept;
 bool color_font_tests() noexcept;
 bool variation_store_tests() noexcept;
 bool font_axes_tests() noexcept;
-bool font_simulation_tests() noexcept;
 bool tt_bold_points_tests() noexcept;
 namespace {
 
@@ -384,7 +383,6 @@ int run() noexcept {
     if (!color_font_tests()) return 11;
     if (!variation_store_tests()) return 12;
     if (!font_axes_tests()) return 13;
-    if (!font_simulation_tests()) return 16;
     if (!tt_bold_points_tests()) return 17;
     if (!packed_cmap_guard_cases()) return 18;
     return 0;

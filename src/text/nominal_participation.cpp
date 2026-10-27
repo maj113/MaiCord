@@ -7,7 +7,6 @@ namespace maicord {namespace {
 u16 r16(const u8* b,u32 at) noexcept {return byte_load_be16(b+at);}
 u16 r16(const ConstSlice<u8>& b,u32 at) noexcept {return byte_load_be16(b.data+at);}
 bool span(const ConstSlice<u8>& b,u32 at,u32 n) noexcept {return b.data && at<=b.count && n<=b.count-at;}
-bool spend(u64* work,u64 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
 u32 allowance(u64 work) noexcept {return static_cast<u32>(minimum<u64>(work,0xffffffffu));}
 bool standard(SfntLayoutKind kind,u32 tag) noexcept {
     if(kind==SfntLayoutKind::substitution){switch(tag){

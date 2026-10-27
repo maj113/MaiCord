@@ -5,7 +5,6 @@
 
 namespace maicord {namespace {
 using layout_read::WorkReport;using layout_read::r16;using layout_read::tail;
-inline bool spend(u32* work,u32 amount=1) noexcept {if(amount>*work)return false;*work-=amount;return true;}
 bool span(const ConstSlice<u8>& b,u32 at,u64 size) noexcept {return at<=b.count && size<=b.count-at && (!size || b.data);}
 SfntStatus device(ConstSlice<u8> parent,u16 offset,u32 minimum,SfntDevice* output,u32* work) noexcept {
     reset_value(output);if(!offset)return SfntStatus::ok;if(!spend(work))return SfntStatus::resource_limit;ConstSlice<u8> bytes{};auto s=tail(parent,offset,minimum,&bytes);return s==SfntStatus::ok?sfnt_device_open(bytes,output):s;

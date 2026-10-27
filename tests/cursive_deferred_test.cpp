@@ -18,7 +18,7 @@ void reset(u32 n,u32 kind=0) noexcept {
 }
 SfntStatus sequence(u32 n,bool deferred,bool rtl,u64 budget,u64* used) noexcept {
     SfntCursiveDeferred pending{};auto* state=deferred?coalesced:eager;auto* nodes=deferred?coalesced_nodes:eager_nodes;u64 work=budget;SfntStatus status=SfntStatus::ok;
-    for(u32 i=0;i+1<n;++i){SfntCursiveExecution r{};status=sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{state,n},i,n,rtl,{}, {nodes,n},&r,work,nullptr,nullptr,deferred && n>=32?&pending:nullptr);if(r.operations>work)return SfntStatus::malformed;work-=r.operations;if(status!=SfntStatus::ok)break;}
+    for(u32 i=0;i+1<n;++i){SfntCursiveExecution r{};status=sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{state,n},i,n,rtl,{}, {nodes,n},&r,work,deferred && n>=32?&pending:nullptr);if(r.operations>work)return SfntStatus::malformed;work-=r.operations;if(status!=SfntStatus::ok)break;}
     if(status==SfntStatus::ok && pending.head!=0xffffffffu){SfntCursiveExecution r{};status=sfnt_position_cursive_flush({state,n},{nodes,n},&pending,&r,work);if(r.operations>work)return SfntStatus::malformed;work-=r.operations;}
     *used=budget-work;return status;
 }
@@ -42,7 +42,7 @@ bool interleaved() noexcept {
         for(u32 action=0;action<128;++action){random^=random<<13;random^=random>>17;random^=random<<5;const u32 at=random%(n-1);SfntCursiveExecution r{};
             if((random&15)==0){if(sfnt_position_cursive_flush({coalesced,n},{coalesced_nodes,n},&pending,&r)!=SfntStatus::ok)return false;const double delta=(random&16)?0.125:17.0;eager[at].ascender_offset+=delta;coalesced[at].ascender_offset+=delta;}
             else {lookup.filter.flags=(random&32)?1:0;
-                if(sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{eager,n},at,n,(trial&1)!=0,{}, {eager_nodes,n},&r)!=SfntStatus::ok || sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{coalesced,n},at,n,(trial&1)!=0,{}, {coalesced_nodes,n},&r,1000000,nullptr,nullptr,&pending)!=SfntStatus::ok)return false;}
+                if(sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{eager,n},at,n,(trial&1)!=0,{}, {eager_nodes,n},&r)!=SfntStatus::ok || sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{coalesced,n},at,n,(trial&1)!=0,{}, {coalesced_nodes,n},&r,1000000,&pending)!=SfntStatus::ok)return false;}
         }
         SfntCursiveExecution r{};if(sfnt_position_cursive_flush({coalesced,n},{coalesced_nodes,n},&pending,&r)!=SfntStatus::ok || !compare(n))return false;
     }
@@ -67,22 +67,10 @@ bool guarded() noexcept {
     constexpr u32 n=63;reset(n);SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,4*page,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
     bool ok=VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)!=0 && VirtualProtect(memory+3*page,page,PAGE_NOACCESS,&old)!=0;
     if(ok){auto* state=reinterpret_cast<SfntPosition*>(memory+page-n*sizeof(SfntPosition));auto* nodes=reinterpret_cast<SfntCursiveChainNode*>(memory+3*page-n*sizeof(SfntCursiveChainNode));copy_bytes(state,eager,n*sizeof(SfntPosition));copy_bytes(nodes,eager_nodes,n*sizeof(SfntCursiveChainNode));SfntCursiveDeferred pending{};
-        for(u32 i=0;i+1<n && ok;++i){SfntCursiveExecution r{};ok=sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{state,n},i,n,false,{}, {nodes,n},&r,1000000,nullptr,nullptr,&pending)==SfntStatus::ok;}
+        for(u32 i=0;i+1<n && ok;++i){SfntCursiveExecution r{};ok=sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{state,n},i,n,false,{}, {nodes,n},&r,1000000,&pending)==SfntStatus::ok;}
         SfntCursiveExecution r{};if(ok)ok=sfnt_position_cursive_flush({state,n},{nodes,n},&pending,&r)==SfntStatus::ok;
         for(u32 i=0;i<n && ok;++i)ok=state[i].ascender_offset==-70.0*(n-1-i);++guards;}
     VirtualFree(memory,0,MEM_RELEASE);return ok;
-}
-struct Callback {SfntPosition* state;const SfntPosition* expected;u32 calls;bool valid;};
-SfntStatus point_callback(void* opaque,u16 glyph,u16 point,double* x,double* y) noexcept {
-    auto& c=*static_cast<Callback*>(opaque);++c.calls;c.valid=c.valid && glyph==1 && point<2 && bytes_equal(c.state,c.expected,64*sizeof(SfntPosition));*x=point?530:10;*y=point?90:20;return SfntStatus::ok;
-}
-bool callbacks() noexcept {
-    constexpr u32 n=64;reset(n);SfntCursiveDeferred pending{};SfntCursiveExecution r{};
-    for(u32 i=0;i<16;++i)if(sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{eager,n},i,n,false,{}, {eager_nodes,n},&r)!=SfntStatus::ok || sfnt_position_execute_cursive_selected(lookup,{},view(n),{nominal,n},{coalesced,n},i,n,false,{}, {coalesced_nodes,n},&r,1000000,nullptr,nullptr,&pending)!=SfntStatus::ok)return false;
-    if(pending.head==0xffffffffu)return false;const u8 point_bytes[]{0,1,0,10,0,1,0,16,0,24,0,1,0,1,0,1,0,2,0,10,0,20,0,0,0,2,2,18,0,90,0,1};SfntGposAttachment point_sub{};
-    if(sfnt_gpos_attachment_open({point_bytes,sizeof(point_bytes)},3,2,&point_sub)!=SfntStatus::ok)return false;SfntGposAttachmentLookup point_lookup{{&point_sub,1},lookup.filter};SfntPosition expected[n];copy_bytes(expected,eager,sizeof(expected));Callback a{eager,expected,0,true},b{coalesced,expected,0,true};
-    if(sfnt_position_execute_cursive_selected(point_lookup,{},view(n),{nominal,n},{eager,n},16,n,false,{}, {eager_nodes,n},&r,1000000,point_callback,&a)!=SfntStatus::ok || sfnt_position_execute_cursive_selected(point_lookup,{},view(n),{nominal,n},{coalesced,n},16,n,false,{}, {coalesced_nodes,n},&r,1000000,point_callback,&b,&pending)!=SfntStatus::ok)return false;
-    return a.valid && b.valid && a.calls==2 && b.calls==2 && pending.head==0xffffffffu && compare(n);
 }
 volatile u64 benchmark_witness=0;
 bool benchmark() noexcept {
@@ -101,7 +89,7 @@ bool benchmark() noexcept {
 int run() noexcept {
     if(sfnt_gpos_attachment_open({cursive_bytes,sizeof(cursive_bytes)},3,2,&attachment)!=SfntStatus::ok)return 2;lookup={{&attachment,1},{}};lookup.filter.flags=1;
     const wchar_t* command=GetCommandLineW();constexpr wchar_t option[]=L"--benchmark";for(;*command;++command){u32 i=0;while(option[i] && command[i]==option[i])++i;if(!option[i])return benchmark()?0:7;}
-    if(!monotonic()){print(utf8_literal("FAIL monotonic\n"));return 3;}if(!interleaved()){print(utf8_literal("FAIL interleaved\n"));return 4;}if(!program()){print(utf8_literal("FAIL program\n"));return 5;}if(!guarded()){print(utf8_literal("FAIL guarded\n"));return 6;}if(!callbacks()){print(utf8_literal("FAIL callbacks\n"));return 8;}
+    if(!monotonic()){print(utf8_literal("FAIL monotonic\n"));return 3;}if(!interleaved()){print(utf8_literal("FAIL interleaved\n"));return 4;}if(!program()){print(utf8_literal("FAIL program\n"));return 5;}if(!guarded()){print(utf8_literal("FAIL guarded\n"));return 6;}
     print(utf8_literal("comparisons="));number(comparisons);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nlong_eager_work="));number(long_eager_work);print(utf8_literal("\nlong_deferred_work="));number(long_deferred_work);print(utf8_literal("\nprogram_work="));number(program_work);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\nPASS deferred cursive\n"));return 0;
 }
 }}

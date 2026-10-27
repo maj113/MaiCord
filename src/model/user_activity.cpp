@@ -1,5 +1,6 @@
 #include "maicord/model/user_activity.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 namespace maicord {
 namespace {
@@ -74,15 +75,7 @@ void set_entry(const UserActivityStore& s, u32 offset, Entry e) noexcept {
 u32 locate(const UserActivityStore& s, u64 user) noexcept {
     const Row* r = rows(s);
     const u16* o = order(s);
-    u32 first = 0, last = s.count;
-    while (first < last) {
-        const u32 middle = first + (last - first) / 2;
-        if (r[o[middle]].user_id < user)
-            first = middle + 1;
-        else
-            last = middle;
-    }
-    return first;
+    return sorted_lower_bound(s.count, [&](u32 at) noexcept { return r[o[at]].user_id < user; });
 }
 const Row* find_row(const UserActivityStore& s, u64 user) noexcept {
     const u32 at = user ? locate(s, user) : s.count;

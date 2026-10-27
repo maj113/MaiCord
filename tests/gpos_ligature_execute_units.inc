@@ -1,7 +1,4 @@
 u64 long_ligature_scan=0,long_ligature_queries=0,ligature_budget_checks=0;
-SfntStatus ligature_point(void* context,u16 glyph,u16 point,double* x,double* y) noexcept {
-    auto* calls=static_cast<u32*>(context);++*calls;if(glyph!=2 || point!=9)return SfntStatus::invalid_input;*x=500;*y=600;return SfntStatus::ok;
-}
 SfntGsubGlyph ligature_glyphs[4098];double ligature_nominal[4098],ligature_prefix[2];
 SfntPosition ligature_state[4098];SfntMarkAssociation ligature_associations[4098];
 u32 ligature_fixture(u8* b) noexcept {
@@ -65,8 +62,6 @@ bool ligature_units() noexcept {
     ligature_fixture(raw);put(raw,56,2);put(raw,62,9);if(sfnt_gpos_attachment_open({raw,64},5,4,&sub)!=SfntStatus::ok)return false;
     ligature_input(4);copy_bytes(before,ligature_state,sizeof(before));
     if(ligature_run(lookup,4,3,false,{ligature_prefix,2},&result)!=SfntStatus::unsupported || result.matches || !bytes_equal(before,ligature_state,sizeof(before)))return false;
-    const u32 targets[]{0,1};u32 calls=0;
-    if(sfnt_position_execute_ligature_lookup(lookup,{},sfnt_glyph_view({ligature_glyphs,4}),{ligature_nominal,4},{ligature_associations,4},{targets,2},{ligature_state,4},3,4,false,{},SfntNullAnchorPolicy::skip,SfntComponentAnchorPolicy::strict,{ligature_prefix,2},&result,1000,ligature_point,&calls)!=SfntStatus::ok || calls!=1 || result.matches!=1 || ligature_state[3].advance_offset!=-120 || ligature_state[3].ascender_offset!=570)return false;
     // The ordered fallback obeys the same per-mark commit/work contract.
     ligature_fixture(raw);if(sfnt_gpos_attachment_open({raw,size},5,4,&sub)!=SfntStatus::ok)return false;
     ligature_input(4);ligature_state[0].advance=.5;copy_bytes(before,ligature_state,sizeof(before));

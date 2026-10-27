@@ -81,20 +81,6 @@ def decode(row,units):
     return commands
 
 
-def emit_metrics(data,header):
-    records=set()
-    for case in data['cases']:
-        for mode in range(4):
-            for name,base in case['metrics']['0'].items():
-                records.add((case['units'],mode,*base,*case['metrics'][str(mode)][name]))
-    blob=bytearray(b'MCSIMT1\0');blob.extend(struct.pack('<I',len(records)))
-    for record in sorted(records):blob.extend(struct.pack('<16I',*(v&0xffffffff for v in record)))
-    header.parent.mkdir(parents=True,exist_ok=True)
-    header.write_text('// First-party design metrics and offline Windows simulation observations.\n'
-        'static constexpr u8 simulation_metrics_fixture[]{\n'+''.join('    '+','.join(str(v) for v in blob[i:i+24])+',\n' for i in range(0,len(blob),24))+'};\n')
-    print(f'{len(records)} unique metric cases; {len(blob)} fixture bytes')
-
-
 def analyse_geometry(data):
     def f32(v):return struct.unpack('<f',struct.pack('<f',v))[0]
     def half(v):return int(v+.5) if v>=0 else -int(-v+.5)
@@ -119,7 +105,7 @@ def analyse_geometry(data):
                 polygon_combination_coordinates=checks,combination_differences=bad)
 
 
-def run(root,exe,header=None):
+def run(root,exe):
     root.mkdir(parents=True,exist_ok=True);records=[]
     for units in [16,24,25,26,49,50,51,512,999,1000,1001,1024,2048,16384]:
         path=root/f'polygons-{units}.ttf';order=make_font(path,units);modes={}
@@ -130,22 +116,13 @@ def run(root,exe,header=None):
             rows=[list(map(int,x.split('=',1)[1].split(','))) for x in p.stdout.splitlines() if x.startswith('gvar_outline=')]
             assert len(rows)==len(order) and [r[0] for r in rows]==list(range(len(order)))
             modes[str(mode)]={name:decode(row,units) for name,row in zip(order,rows)}
-        metric_modes={}
-        for mode in range(4):
-            p=subprocess.run([str(exe),str(path),f'--simulate={mode}','--metrics-dump'],capture_output=True,text=True,timeout=60)
-            (root/f'polygons-{units}-{mode}-metrics.txt').write_text(p.stdout+p.stderr)
-            assert p.returncode==0,(path,mode,p.returncode)
-            rows=[list(map(int,x.split('=',1)[1].split(','))) for x in p.stdout.splitlines() if x.startswith('reference_metrics=')]
-            assert len(rows)==len(order) and [r[0] for r in rows]==list(range(len(order)))
-            metric_modes[str(mode)]={name:row[1:] for name,row in zip(order,rows)}
-        records.append(dict(font=identity(path),units=units,outlines=modes,metrics=metric_modes))
+        records.append(dict(font=identity(path),units=units,outlines=modes))
     data=dict(reference=identity(exe),cases=records)
     (root/'observations.json').write_text(json.dumps(data,indent=2))
     (root/'geometry-analysis.json').write_text(json.dumps(analyse_geometry(data),indent=2))
-    if header:emit_metrics(data,header)
     print(f'{len(records)} fonts, {sum(len(c["outlines"]["0"]) for c in records)*4} measured outlines')
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('root',type=Path);parser.add_argument('--exe',required=True,type=Path);parser.add_argument('--metrics-header',type=Path)
-    args=parser.parse_args();run(args.root.resolve(),args.exe.resolve(),args.metrics_header)
+    parser=argparse.ArgumentParser();parser.add_argument('root',type=Path);parser.add_argument('--exe',required=True,type=Path)
+    args=parser.parse_args();run(args.root.resolve(),args.exe.resolve())

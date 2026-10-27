@@ -6,10 +6,10 @@ offline development inputs: normal CMake builds use the checked-in generated
 files and need neither Python nor a network connection.
 
 The native tests (`MaiCordUnicodeTests`, `MaiCordBidiTests`,
-`MaiCordLineBreakTests`, `MaiCordLineTailoredTests`) run through the build script:
+`MaiCordLineTailoredTests`) run through the build script:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test -TestNames maicord_native_unicode,maicord_native_bidi,maicord_native_line_breaks,maicord_native_line_compat
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test -TestNames maicord_native_unicode,maicord_native_bidi,maicord_native_line_compat
 ```
 
 The corpus and Windows comparisons below run the executables directly.
@@ -158,45 +158,28 @@ Results are deletion-minimal, not globally minimal, and not Unicode expected
 outputs. Oracle identity and batch coverage are checked; when comparing two
 candidates, their Windows observations must agree.
 
-## Default line-break opportunities
-
-`unicode_line_breaks` implements Unicode 17 / UAX #14 revision 55 over validated
-scalar input. It writes `count + 1` caller-owned bytes (0 prohibited, 1 allowed,
-2 mandatory) that temporarily carry property tags; constant additional state, no
-allocation or recursion. Invalid input leaves the output untouched. Empty input
-writes one prohibited boundary; nonempty input ends with a mandatory boundary.
-It does no dictionary segmentation, shaping, line selection, hyphen insertion or
-Windows tailoring.
-
-```powershell
-python tools/unicode/generate_line_tests.py --ucd <UCD.zip> --output tests/generated/line_break_test.inc --report generation.json
-cmake --build <build> --config Release --target MaiCordLineBreakTests MaiCordLineBreakReference
-MaiCordLineBreakTests.exe
-MaiCordLineBreakReference.exe > windows.csv
-python tools/unicode/summarize_line_reference.py --ucd <UCD.zip> --csv windows.csv --executable <MaiCordLineBreakReference.exe> --output windows.json
-```
-
-- The official `LineBreakTest.txt` cases are compiled into the QA binaries.
-- `MaiCordLineBreakTests.exe --bench` times the analysis API on repeating scalar
-  patterns, excluding input construction and output verification. It is a
-  component microbenchmark, not an app-layout or DirectWrite comparison.
-- `MaiCordLineBreakReference` records the raw before, after, whitespace and
-  soft-hyphen attributes of Windows at every UTF-16 unit. Check its exit code
-  before summarizing. The summarizer verifies Unicode conformance first, resolves
-  adjacent conditions and keeps endpoints apart from interior comparisons.
-
-## Tailored line profile
+## Line-break opportunities
 
 `line_breaks_tailored` (`include/maicord/text/detail/line_break_tailored.hpp`)
 is the en-US line-break tailoring message layout uses, matching the platform
-text stack. It has the input, output and failure contract of
-`unicode_line_breaks`, one linear pass and constant additional state. It is not
-a dictionary segmenter. The default Unicode API is unchanged.
+text stack: Unicode 17 / UAX #14 revision 55 with the platform's class
+remappings. It takes validated scalar input and writes `count + 1` caller-owned
+bytes (0 prohibited, 1 allowed, 2 mandatory), in one linear pass with constant
+additional state; invalid input leaves the output untouched. It is not a
+dictionary segmenter.
 
-`MaiCordLineBreakReference` also records the candidate output and differences.
-With no argument it first checks every official vector (`has_expected=1`); given
-an `MCLBPRB1` probe file it reports independent probes (`has_expected=0`), which
-the official summarizer rejects.
+```powershell
+python tools/unicode/generate_line_tests.py --ucd <UCD.zip> --output tests/generated/line_break_test.inc --report generation.json
+cmake --build <build> --config Release --target MaiCordLineBreakReference
+MaiCordLineBreakReference.exe > windows.csv
+```
+
+- The official `LineBreakTest.txt` cases are compiled into the QA binary.
+- `MaiCordLineBreakReference` records the raw before, after, whitespace and
+  soft-hyphen attributes of Windows at every UTF-16 unit, plus the tailored
+  output and its differences. With no argument it runs every official vector
+  (`has_expected=1`); given an `MCLBPRB1` probe file it reports independent probes
+  (`has_expected=0`). Check its exit code before using the CSV.
 
 ```powershell
 python tools/unicode/line_probes.py generate --root <probe-root> --seed <integer>

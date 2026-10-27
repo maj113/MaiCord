@@ -4,7 +4,7 @@
 
 namespace maicord {
 namespace {
-u8 data[3072];u32 active[64];
+u8 data[3072];
 void put16(u8* p,u16 x) noexcept {p[0]=static_cast<u8>(x>>8);p[1]=static_cast<u8>(x);}
 void put24(u8* p,u32 x) noexcept {p[0]=static_cast<u8>(x>>16);put16(p+1,static_cast<u16>(x));}
 void put32(u8* p,u32 x) noexcept {byte_store_be32(p,x);}
@@ -45,13 +45,6 @@ bool palettes_and_graphs() noexcept {
     ColrClip clip{};
     if(colr_clip(font,0,&clip)!=SfntStatus::ok || !clip.present || clip.variable || clip.minimum_x!=-10 || clip.minimum_y!=-20 || clip.maximum_x!=40 ||
        colr_clip(font,2,&clip)!=SfntStatus::ok || clip.present)return false;
-    ColrValidation result{};
-    if(colr_validate_glyph(font,0,{active,64},100,&result)!=SfntStatus::ok || result.nodes!=3 || result.formats!=3 || result.maximum_depth!=2)return false;
-    if(colr_validate_glyph(font,0,{active,64},2,&result)!=SfntStatus::resource_limit || result.nodes)return false;
-    if(colr_validate_glyph(font,0,{active,1},100,&result)!=SfntStatus::resource_limit || result.nodes)return false;
-    // A shared subgraph is valid; only a path back to an active ancestor is a cycle.
-    put32(data+512+100,64);
-    if(open({data,sizeof(data)},&font)!=SfntStatus::ok || colr_validate_glyph(font,0,{active,64},100,&result)!=SfntStatus::malformed)return false;
     fixture();put16(data+128,0);
     if(open({data,sizeof(data)},&font)!=SfntStatus::ok)return false;
     return true;
@@ -98,9 +91,6 @@ bool paint_formats() noexcept {
         }
         if(f>=12 && f<=13 && paint.values[0]!=1.5)return false;
         if(f>=14 && f<=31 && paint.values[0]!=(f<=15?8192:.5))return false;
-        ColrValidation checked{};
-        if(colr_validate_glyph(font,0,{active,64},100,&checked)!=SfntStatus::ok ||
-           !(checked.formats&(1u<<(f-1))) || checked.has_variations!=variable)return false;
         // Reuse a populated output across early and late failures. A direct
         // decode must not publish any partially written field on rejection.
         const auto valid=paint;
@@ -126,8 +116,6 @@ bool malformed() noexcept {
         if(open({data,sizeof(data)},&font)!=SfntStatus::ok)return false;
         if(colr_layer_paint(font,0,&at)!=(relative?SfntStatus::truncated:SfntStatus::malformed)||at)return false;
         if(colr_layer_paint(font,1,&at)!=SfntStatus::ok||at!=256)return false;
-        ColrValidation invalid{};
-        if(colr_validate_glyph(font,0,{active,64},100,&invalid)!=(relative?SfntStatus::truncated:SfntStatus::malformed)||invalid.nodes||invalid.stops)return false;
     }
     fixture();if(open({data,sizeof(data)},&font)!=SfntStatus::ok)return false;
     ColrPaint paint{};data[512+256]=33;
@@ -188,8 +176,7 @@ bool guards() noexcept {
         if(size>=512)put32(data+24,size-512);
         auto* input=memory+4096-size;copy_bytes(input,data,size);ColrFont font{};
         if(open({input,size},&font)==SfntStatus::ok) {
-            ColrValidation result{};const auto status=colr_validate_glyph(font,0,{active,64},2048,&result);
-            ok=status==SfntStatus::ok || (!result.nodes && !result.stops);
+            ColrPaint paint{};colr_paint_read(font,256,&paint);
             CpalColor color{};cpal_color(font.palette,0,0,&color);
             for(u16 glyph=0;glyph<4;++glyph){ColrLayerRange layers{};ColrClip clip{};
                 colr_clip(font,glyph,&clip);

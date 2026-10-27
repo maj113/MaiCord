@@ -31,16 +31,15 @@ static_assert(sizeof(SfntMarkExecution)==32);
 // Unresolved targets use ordinary lookup selection. That distance scan is
 // charged to work_limit.
 // Both anchors resolve before a mark position commits. Earlier attachments may
-// remain on failure, so discard failed attempts. Anchor format 2 requires a
-// caller point resolver; its cost and side effects are the caller's.
+// remain on failure, so discard failed attempts. Anchor format 2 (contour
+// point) is unsupported.
 // Null policy: skip absent targets, or use parent-header coordinates as Windows
 // does for natural nonvariable fonts (unsupported for variable fonts; header
 // words are never followed as pointers).
 SfntStatus sfnt_position_execute_mark_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,
                                               ConstSlice<double> nominal_advances,ConstSlice<u8> position_flags,Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,
                                               const SfntPositionInstance& instance,SfntNullAnchorPolicy null_policy,SfntMarkExecution* result,
-                                              u64 work_limit=1000000,SfntAnchorPointResolver point_resolver=nullptr,void* point_context=nullptr,
-                                              ConstSlice<SfntMarkAssociation> associations={},
+                                              u64 work_limit=1000000,ConstSlice<SfntMarkAssociation> associations={},
                                               SfntPositionApplication application=SfntPositionApplication::scan,bool component_records=false,
                                               ConstSlice<u32> target_directory={}) noexcept;
 }

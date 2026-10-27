@@ -13,7 +13,7 @@ SfntStatus sfnt_position_execute_ligature_lookup(const SfntGposAttachmentLookup&
                                                   ConstSlice<double> nominal,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> targets,Slice<SfntPosition> positions,
                                                   u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy policy,
                                                   SfntComponentAnchorPolicy component_policy,Slice<double> prefix,SfntLigatureExecution* out,
-                                                  u64 work,SfntAnchorPointResolver resolver,void* context,SfntPositionApplication application) noexcept {
+                                                  u64 work,SfntPositionApplication application) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
     if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || nominal.count<count || associations.count<count || positions.count<count || (count && (!nominal.data || !associations.data || !positions.data)) || (targets.count && !targets.data) || (prefix.count && !prefix.data) || static_cast<u8>(policy)>1 || static_cast<u8>(component_policy)>1 || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(static_cast<u8>(application)>1)return SfntStatus::invalid_input;const bool selected=application==SfntPositionApplication::selected;
@@ -48,7 +48,7 @@ SfntStatus sfnt_position_execute_ligature_lookup(const SfntGposAttachmentLookup&
             const auto& parent_glyph=sfnt_glyph_at(glyphs,target);SfntGposTargetAnchors anchors{};s=sfnt_gpos_target_anchors(sub,parent_glyph.glyph,&anchors);if(s!=SfntStatus::ok)return s;if(!anchors.covered)continue;
             const bool unknown=association.component==sfnt_component_unknown;const u32 component=unknown?0:association.component;if(component>=anchors.component_count){if(component_policy==SfntComponentAnchorPolicy::strict)return SfntStatus::invalid_input;++out->missing_components;continue;}
             SfntAnchor base{};s=sfnt_gpos_target_anchor(anchors,static_cast<u16>(component),mark.mark_class,&base);if(s!=SfntStatus::ok)return s;
-            bool applied=false,compatibility=false;s=position_detail::mark_position(base,mark.anchor,anchors.parent,parent_glyph.glyph,glyph.glyph,positions.data[target],&positions.data[at],distance,nominal.data[target],nominal.data[at],rtl,instance,unknown?policy:SfntNullAnchorPolicy::skip,&applied,&compatibility,&out->operations,&work,resolver,context);
+            bool applied=false,compatibility=false;s=position_detail::mark_position(base,mark.anchor,anchors.parent,positions.data[target],&positions.data[at],distance,nominal.data[target],nominal.data[at],rtl,instance,unknown?policy:SfntNullAnchorPolicy::skip,&applied,&compatibility,&out->operations,&work);
             if(s!=SfntStatus::ok)return s;if(!applied)continue;++out->matches;if(compatibility)++out->compatibility_anchors;break;
         }
     }return SfntStatus::ok;

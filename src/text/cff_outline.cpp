@@ -17,9 +17,7 @@ float positive_zero(float value) noexcept {
     return _mm_cvtss_f32(_mm_andnot_ps(_mm_cmpeq_ss(packed,_mm_setzero_ps()),packed));
 }
 
-#include "cff_bold.inc"
-
-template<bool Bold> struct VirtualMachine {
+struct VirtualMachine {
     const CffFont& font;
     CffIndex local_subrs;
     GlyphOutline& out;
@@ -39,7 +37,6 @@ template<bool Bold> struct VirtualMachine {
     bool width_seen = false, ended = false, composite = false;
     bool flex_points = false;
     double oblique_scale = 0;
-    static constexpr bool bold=Bold;
 
     bool flex_coordinate(double value, double* result) const noexcept {
         // Windows' unhinted flex path round-trips output controls through a 16.16
@@ -92,7 +89,6 @@ template<bool Bold> struct VirtualMachine {
             float ty = -(static_cast<float>(a) * static_cast<float>(matrix[1]) +
                               static_cast<float>(b) * static_cast<float>(matrix[3]) + static_cast<float>(matrix[5]));
             double design_x = 0, design_y = 0;
-            CffBoldPoint staged{};
             if (design_scale) {
                 const double ax=a*design_scale, by=b*design_scale;
                 if (!(ax>=-9.e18 && ax<=9.e18 && by>=-9.e18 && by<=9.e18)) return false;
@@ -105,11 +101,6 @@ template<bool Bold> struct VirtualMachine {
                     design_x=static_cast<i64>(mx+(mx<0?-.5:.5))/65536.0;design_y=static_cast<i64>(my+(my<0?-.5:.5))/65536.0;
                 }
                 if(oblique_scale){const double shift=b*oblique_scale;if(!(shift>=-9.e18&&shift<=9.e18))return false;rx+=static_cast<i64>(shift+(shift<0?-.5:.5))/65536.0;}
-                if(bold){
-                    const double fx=rx*65536.0,fy=ry*65536.0;
-                    if(!(fx>=-2147483648.0&&fx<=2147483647.0&&fy>=-2147483648.0&&fy<=2147483647.0))return false;
-                    staged={static_cast<i32>(fx),static_cast<i32>(fy)};
-                }
                 tx=static_cast<float>(rx)*em_scale;
                 ty=-static_cast<float>(ry)*em_scale;
             } else if (metrics) {
@@ -119,8 +110,7 @@ template<bool Bold> struct VirtualMachine {
             if (!bounded(tx) || !bounded(ty)) return false;
             const float px = positive_zero(tx);
             const float py = positive_zero(ty);
-            if(bold)copy_bytes(coordinates+i*2,&staged,sizeof(staged));
-            else{coordinates[i*2] = px; coordinates[i*2+1] = py;}
+            coordinates[i*2] = px; coordinates[i*2+1] = py;
             if (metrics) {
                 if (!bounded(design_x) || !bounded(design_y)) return false;
                 if (!metrics->has_bounds) {
@@ -134,7 +124,6 @@ template<bool Bold> struct VirtualMachine {
                     metrics->maximum_y=maximum(metrics->maximum_y,design_y);
                 }
             }
-            if(bold)continue;
             if (!out.has_bounds) {
                 out.minimum_x = out.maximum_x = px; out.minimum_y = out.maximum_y = py;
                 out.has_bounds = true;
@@ -413,11 +402,11 @@ template<bool Bold> struct VirtualMachine {
     }
 };
 
-template<bool Bold> SfntStatus decode(const CffFont& font, u16 glyph, double dx, double dy,
+SfntStatus decode(const CffFont& font, u16 glyph, double dx, double dy,
                     GlyphOutline& output, u32& work, u32 depth, CffGlyphMetrics* metrics,bool oblique) noexcept {
     if (glyph >= font.glyph_count) return SfntStatus::glyph_out_of_range;
     if (depth > 8) return SfntStatus::resource_limit;
-    VirtualMachine<Bold> vm{font, {}, output, work, metrics};
+    VirtualMachine vm{font, {}, output, work, metrics};
     auto status=cff_detail::select_dict(font,glyph,&vm.local_subrs,vm.matrix,&vm.random,&vm.advance,&vm.nominal_width);
     if (status!=SfntStatus::ok) return status;
     if (vm.matrix[0]>0 && vm.matrix[0]==vm.matrix[3] && !vm.matrix[1] && !vm.matrix[2] && !vm.matrix[4] && !vm.matrix[5]) {
@@ -430,7 +419,7 @@ template<bool Bold> SfntStatus decode(const CffFont& font, u16 glyph, double dx,
         }
     }
     if (!vm.random) vm.random=0x7384a119u;
-    if((oblique||Bold)&&!vm.design_scale)return SfntStatus::unsupported;
+    if(oblique&&!vm.design_scale)return SfntStatus::unsupported;
     // The shear is resolved once per glyph in the same 16.16 matrix as the font scale.
     if(oblique)vm.oblique_scale=static_cast<i32>(vm.design_scale*(87.0/256.0)+.5);
     vm.translate_x=dx; vm.translate_y=dy;
@@ -444,34 +433,26 @@ template<bool Bold> SfntStatus decode(const CffFont& font, u16 glyph, double dx,
     u16 base=0,accent=0;
     status=cff_detail::standard_glyph(font,vm.base_code,&base); if(status!=SfntStatus::ok)return status;
     status=cff_detail::standard_glyph(font,vm.accent_code,&accent); if(status!=SfntStatus::ok)return status;
-    status=decode<Bold>(font,accent,dx+vm.accent_x,dy+vm.accent_y,output,work,depth+1,metrics,oblique); if(status!=SfntStatus::ok)return status;
-    return decode<Bold>(font,base,dx,dy,output,work,depth+1,metrics,oblique);
+    status=decode(font,accent,dx+vm.accent_x,dy+vm.accent_y,output,work,depth+1,metrics,oblique); if(status!=SfntStatus::ok)return status;
+    return decode(font,base,dx,dy,output,work,depth+1,metrics,oblique);
 }
 #pragma float_control(pop)
 
-template<bool Bold> SfntStatus outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
+} // namespace
+
+SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
     if (metrics) reset_value(metrics);
     if (!output) return SfntStatus::invalid_input;
     auto* commands=output->commands; const u32 capacity=output->capacity;
     reset_value(output); output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
     if (!commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
-    auto status=decode<Bold>(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
-    if constexpr (Bold) { if(status==SfntStatus::ok)status=cff_bolden(font,*output,work_limit,oblique); }
+    auto status=decode(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
     if(status!=SfntStatus::ok) {
         reset_value(output); output->commands=commands; output->capacity=capacity;
         output->fill_rule=GlyphFillRule::winding; output->rejected=1;
         if (metrics) reset_value(metrics);
     }
     return status;
-}
-
-} // namespace
-
-SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
-    return outline<false>(font,glyph,output,work_limit,metrics,oblique);
-}
-SfntStatus cff_outline_bold(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
-    return outline<true>(font,glyph,output,work_limit,metrics,oblique);
 }
 
 } // namespace maicord

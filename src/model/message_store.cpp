@@ -2,6 +2,7 @@
 #include "maicord/sys/simd.hpp"
 
 #include "maicord/core/memory.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 namespace maicord {
 namespace {
@@ -67,19 +68,8 @@ constexpr bool valid_delivery_state(MessageDeliveryState delivery) noexcept {
 }
 
 u32 find_order_index(const MessageStore& store, u64 id, bool* found) noexcept {
-    u32 first = 0;
-    u32 count = store.count;
-    while (count != 0) {
-        const u32 step = count / 2;
-        const u32 middle = first + step;
-        const MessageRecord& record = store.records[store.order[middle]];
-        if (record.id < id) {
-            first = middle + 1;
-            count -= step + 1;
-        } else {
-            count = step;
-        }
-    }
+    const u32 first = sorted_lower_bound(
+        store.count, [&](u32 at) noexcept { return store.records[store.order[at]].id < id; });
     *found = first < store.count && store.records[store.order[first]].id == id;
     return first;
 }

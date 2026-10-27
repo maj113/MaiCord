@@ -27,7 +27,7 @@ SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyph
         status=execute(*plan.positioning,root,glyphs,{s.advances.data,count},{s.flags.data,count},
             {s.associations.data,count},{s.targets.data,targets},{s.positions.data,count},0,count,rtl,plan.position_instance,
             SfntNullAnchorPolicy::parent_coordinates,SfntComponentAnchorPolicy::skip_missing,s.positioning,
-            {work,limits.match_work},&execution,plan.anchor_point,plan.anchor_context);
+            {work,limits.match_work},&execution);
         result->lookup_operations+=execution.operations;result->position_matches+=execution.matches;
         work-=execution.operations;if(status!=SfntStatus::ok)return status;
     }

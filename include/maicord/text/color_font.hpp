@@ -51,11 +51,6 @@ struct ColrColorStop {
     u16 palette;
     bool variable;
 };
-struct ColrValidation {
-    u32 nodes, stops, formats, maximum_depth;
-    bool has_variations;
-};
-
 // Prepared views borrow the immutable font mapping and must not be fabricated
 // or modified. Table access alone does not resolve variations or determine rendered pixels.
 SfntStatus colr_open(const SfntFace& face, ColrFont* output) noexcept;
@@ -67,9 +62,5 @@ SfntStatus colr_clip(const ColrFont& font, u16 glyph, ColrClip* output) noexcept
 SfntStatus colr_paint_read(const ColrFont& font, u32 offset, ColrPaint* output) noexcept;
 SfntStatus colr_color_line(const ColrFont& font, const ColrPaint& paint, ColrColorLine* output) noexcept;
 SfntStatus colr_color_stop(const ColrFont& font, const ColrColorLine& line, u32 index, ColrColorStop* output) noexcept;
-// Structural graph validation with caller-owned active-path storage, depth 64.
-// Reused subgraphs are legal; active-path cycles and budget exhaustion are errors.
-SfntStatus colr_validate_glyph(const ColrFont& font, u16 glyph, Slice<u32> active_path,
-                              u32 work_limit, ColrValidation* output) noexcept;
 
 } // namespace maicord

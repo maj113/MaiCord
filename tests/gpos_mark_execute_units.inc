@@ -1,7 +1,3 @@
-struct PointProbe {u32 calls;u16 glyph,point;bool fail;};
-SfntStatus resolve_test_point(void* context,u16 glyph,u16 point,double* x,double* y) noexcept {
-    auto* p=static_cast<PointProbe*>(context);++p->calls;p->glyph=glyph;p->point=point;if(p->fail)return SfntStatus::malformed;*x=355;*y=777;return SfntStatus::ok;
-}
 SfntGsubGlyph long_marks[4097];SfntPosition long_positions[4097];double long_advances[4097];u8 long_flags[4097];
 u64 linear_search_steps=0,linear_mark_matches=0;
 bool mark_history_units() noexcept {
@@ -23,7 +19,7 @@ bool mark_history_units() noexcept {
         if(sfnt_position_initialize({nominal,3},{flags,3},false,{positions,3})!=SfntStatus::ok)return false;
         positions[1].advance_offset=-220;positions[1].ascender_offset=470;
         const SfntMarkAssociation associations[]{{nil,nil},test.first,test.last};SfntMarkExecution result{};
-        if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,3}),{nominal,3},{flags,3},{positions,3},start,3,false,{},SfntNullAnchorPolicy::skip,&result,1000,nullptr,nullptr,{associations,3})!=SfntStatus::ok ||
+        if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,3}),{nominal,3},{flags,3},{positions,3},start,3,false,{},SfntNullAnchorPolicy::skip,&result,1000,{associations,3})!=SfntStatus::ok ||
            result.matches!=(test.matches?1u:0u) || positions[2].advance_offset!=(test.matches?60:0) || positions[2].ascender_offset!=(test.matches?1140:0))return false;
     }
     return true;
@@ -48,7 +44,7 @@ bool mark_units() noexcept {
         const auto execute=[&](u32 start,bool rtl,u64 budget) noexcept {
             if(sfnt_position_initialize({widths,3},{position_flags,3},rtl,{placed,3})!=SfntStatus::ok)return SfntStatus::invalid_input;
             return sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({owned,3}),{widths,3},{position_flags,3},{placed,3},start,3,rtl,instance,
-                SfntNullAnchorPolicy::skip,&result,budget,nullptr,nullptr,{owners,3},SfntPositionApplication::scan,false,{directory,1});};
+                SfntNullAnchorPolicy::skip,&result,budget,{owners,3},SfntPositionApplication::scan,false,{directory,1});};
         if(execute(0,false,1000)!=SfntStatus::ok||placed[2].advance_offset!=-120)return false;
         instance.source_mark_targets=true;
         for(u32 start=0;start<3;++start){
@@ -88,9 +84,6 @@ bool mark_units() noexcept {
     if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::parent_coordinates,&result)!=SfntStatus::truncated || result.matches || !bytes_equal(p,initial,sizeof(p)))return false;
     put(raw,38,4);put(raw,40,2);put(raw,46,9);if(sfnt_gpos_attachment_open({raw,48},4,3,&sub)!=SfntStatus::ok)return false;
     if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::skip,&result)!=SfntStatus::unsupported || !bytes_equal(p,initial,sizeof(p)))return false;
-    PointProbe probe{0,0,0,true};
-    if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::skip,&result,1000,resolve_test_point,&probe)!=SfntStatus::malformed || !bytes_equal(p,initial,sizeof(p)))return false;
-    probe.fail=false;if(sfnt_position_execute_mark_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{flags,2},{p,2},0,2,false,{},SfntNullAnchorPolicy::skip,&result,1000,resolve_test_point,&probe)!=SfntStatus::ok || probe.calls!=2 || probe.glyph!=1 || probe.point!=9 || p[1].advance_offset!=-265 || p[1].ascender_offset!=747)return false;
     // Variable base-anchor resolution fails before the mark is changed.
     put(raw,40,3);put(raw,46,10);put(raw,48,0);put(raw,50,0);put(raw,52,0);put(raw,54,0x8000);
     if(sfnt_gpos_attachment_open({raw,56},4,3,&sub)!=SfntStatus::ok || sfnt_position_initialize({nominal,2},{flags,2},false,{p,2})!=SfntStatus::ok)return false;copy_bytes(initial,p,sizeof(p));

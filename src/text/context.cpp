@@ -6,7 +6,6 @@
 
 namespace maicord {namespace {
 using layout_read::WorkReport;using layout_read::r16;using layout_read::span;using layout_read::view;using layout_read::tail;
-inline bool spend(u32* work,u32 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
 struct Header {u32 end,sets_at,back_at,input_at,look_at,actions_at;u16 format,sets,back,input,look,actions,classes;};
 SfntStatus header(ConstSlice<u8> b,SfntContextKind kind,Header* h) noexcept {
     reset_value(h);if(!b.data || static_cast<u8>(kind)>1)return SfntStatus::invalid_input;if(!span(b,0,2))return SfntStatus::truncated;h->format=r16(b,0);const bool chained=kind==SfntContextKind::chained;

@@ -22,7 +22,7 @@ SfntStatus flush(Slice<SfntPosition> positions,Slice<SfntCursiveChainNode> chain
 SfntStatus sfnt_position_cursive_flush(Slice<SfntPosition> positions,Slice<SfntCursiveChainNode> chains,SfntCursiveDeferred* pending,SfntCursiveExecution* out,u64 work) noexcept {
     if(!out || !pending)return SfntStatus::invalid_input;reset_value(out);return flush(positions,chains,pending,out,&work);
 }
-SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,ConstSlice<double> nominal,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<u64> bits,SfntCursiveExecution* out,u64 work,SfntAnchorPointResolver resolver,void* context) noexcept {
+SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,ConstSlice<double> nominal,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<u64> bits,SfntCursiveExecution* out,u64 work) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
     if(!sfnt_glyph_view_valid(glyphs) || start>end || end>count || positions.count<count || nominal.count<count || (count && (!positions.data || !nominal.data)) || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(!lookup.subtables.count || start==end)return SfntStatus::ok;if(lookup.subtables.data[0].type!=3)return SfntStatus::unsupported;
@@ -36,8 +36,8 @@ SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& 
             for(u32 i=0;i<lookup.subtables.count;++i){if(!spend(out,&work))return SfntStatus::resource_limit;SfntGposCursiveAnchors a{},b{};
                 auto s=sfnt_gpos_cursive_anchors(lookup.subtables.data[i],first.glyph,&a);if(s!=SfntStatus::ok)return s;if(!a.covered || !a.exit.table.data)continue;
                 s=sfnt_gpos_cursive_anchors(lookup.subtables.data[i],glyph.glyph,&b);if(s!=SfntStatus::ok)return s;if(!b.covered || !b.entry.table.data)continue;
-                double ax=0,ay=0,bx=0,by=0;s=position_detail::anchor_point(a.exit,first.glyph,instance,&ax,&ay,&out->operations,&work,resolver,context);if(s!=SfntStatus::ok)return s;
-                s=position_detail::anchor_point(b.entry,glyph.glyph,instance,&bx,&by,&out->operations,&work,resolver,context);if(s!=SfntStatus::ok)return s;
+                double ax=0,ay=0,bx=0,by=0;s=position_detail::anchor_point(a.exit,instance,&ax,&ay,&out->operations,&work);if(s!=SfntStatus::ok)return s;
+                s=position_detail::anchor_point(b.entry,instance,&bx,&by,&out->operations,&work);if(s!=SfntStatus::ok)return s;
                 auto p=positions.data[previous],q=positions.data[at];
                 if(rtl){const double placement=backward?q.advance-nominal.data[at]-q.advance_offset:p.advance-nominal.data[previous]-p.advance_offset;const double advance=bx-ax+(backward?placement:-placement)-gap_advance;q.advance_offset+=advance-q.advance;q.advance=advance;}
                 else p.advance=ax-bx+(backward?-q.advance_offset:p.advance_offset)-gap_advance;
@@ -54,7 +54,7 @@ SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& 
         next=at;}}
     return SfntStatus::ok;
 }
-SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,ConstSlice<double> nominal,Slice<SfntPosition> positions,u32 at,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<SfntCursiveChainNode> chains,SfntCursiveExecution* out,u64 work,SfntAnchorPointResolver resolver,void* context,SfntCursiveDeferred* pending) noexcept {
+SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,ConstSlice<double> nominal,Slice<SfntPosition> positions,u32 at,u32 end,bool rtl,const SfntPositionInstance& instance,Slice<SfntCursiveChainNode> chains,SfntCursiveExecution* out,u64 work,SfntCursiveDeferred* pending) noexcept {
     if(!out)return SfntStatus::invalid_input;reset_value(out);const u32 count=sfnt_glyph_count(glyphs);
     if(!sfnt_glyph_view_valid(glyphs) || at>=end || end>count || positions.count<count || nominal.count<count || !positions.data || !nominal.data || static_cast<u8>(instance.arithmetic)>1)return SfntStatus::invalid_input;
     if(!lookup.subtables.count)return SfntStatus::ok;if(lookup.subtables.data[0].type!=3)return SfntStatus::unsupported;
@@ -62,7 +62,7 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
     if(backward && (chains.count<count || !chains.data))return SfntStatus::output_too_small;
     // Small runs cannot amortize proof/flush overhead. Keep their eager path.
     if(pending && pending->head==0xffffffffu && count<32)pending=nullptr;
-    if(pending && pending->head!=0xffffffffu && (!backward || at!=pending->next || resolver)){const auto s=flush(positions,chains,pending,out,&work);if(s!=SfntStatus::ok)return s;}
+    if(pending && pending->head!=0xffffffffu && (!backward || at!=pending->next)){const auto s=flush(positions,chains,pending,out,&work);if(s!=SfntStatus::ok)return s;}
     const auto& selected=sfnt_glyph_at(glyphs,at);const u32 limit=lookup.subtables.data[0].glyph_limit;
     if(selected.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(selected.glyph_class)>4)return SfntStatus::invalid_input;
     u32 other=at;double gap=0;bool found=false;
@@ -76,8 +76,8 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
     for(u32 i=0;i<lookup.subtables.count;++i){if(!spend(out,&work))return SfntStatus::resource_limit;SfntGposCursiveAnchors a{},b{};
         auto s=sfnt_gpos_cursive_anchors(lookup.subtables.data[i],ag,&a);if(s!=SfntStatus::ok)return s;if(!a.covered || !a.exit.table.data)continue;
         s=sfnt_gpos_cursive_anchors(lookup.subtables.data[i],bg,&b);if(s!=SfntStatus::ok)return s;if(!b.covered || !b.entry.table.data)continue;
-        double ax=0,ay=0,bx=0,by=0;s=position_detail::anchor_point(a.exit,ag,instance,&ax,&ay,&out->operations,&work,resolver,context);if(s!=SfntStatus::ok)return s;
-        s=position_detail::anchor_point(b.entry,bg,instance,&bx,&by,&out->operations,&work,resolver,context);if(s!=SfntStatus::ok)return s;
+        double ax=0,ay=0,bx=0,by=0;s=position_detail::anchor_point(a.exit,instance,&ax,&ay,&out->operations,&work);if(s!=SfntStatus::ok)return s;
+        s=position_detail::anchor_point(b.entry,instance,&bx,&by,&out->operations,&work);if(s!=SfntStatus::ok)return s;
         auto p=positions.data[first],q=positions.data[second];
         if(rtl){const double placement=backward?q.advance-nominal.data[second]-q.advance_offset:p.advance-nominal.data[first]-p.advance_offset;const double advance=bx-ax+(backward?placement:-placement)-gap;q.advance_offset+=advance-q.advance;q.advance=advance;}
         else p.advance=ax-bx+(backward?-q.advance_offset:p.advance_offset)-gap;
@@ -88,7 +88,7 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
             // Initial values and total absolute translation are <= 2^40.
             // Stored (new_y - translation) and materialized sums stay below
             // 2^42, so regrouping these integer additions is exact in binary64.
-            bool defer=pending && !resolver && bounded_integer(p.ascender_offset) && bounded_integer(positions.data[first].ascender_offset) && bounded_integer(delta);
+            bool defer=pending && bounded_integer(p.ascender_offset) && bounded_integer(positions.data[first].ascender_offset) && bounded_integer(delta);
             if(defer && pending->head!=0xffffffffu)defer=pending->head==node.child && pending->magnitude+absolute_value<double>(delta)<=1099511627776.0;
             if(defer && pending->head==0xffffffffu){u32 previous=first;
                 for(u32 child=node.child;child!=0xffffffffu;child=chains.data[child].child){if(!spend(out,&work))return SfntStatus::resource_limit;if(child>=previous)return SfntStatus::invalid_input;previous=child;

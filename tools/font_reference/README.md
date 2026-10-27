@@ -24,8 +24,9 @@ the native test targets link first-party libraries and `kernel32` only.
   identities and logs together.
 - A corpus is an 8-byte magic (NUL padded), a little-endian `u32` record count and
   the records; readers reject another magic (given in parentheses below).
-  `--header` / `--fixture-header` write it as a C++ array under
-  `tests/generated/` that the test embeds, so a no-argument run checks it.
+  `--header` / `--fixture-header` write it as raw bytes (`tests/generated/<stem>.bin`)
+  with a `#embed` wrapper (`<stem>.inc`, via `embed_fixture.py`) that the test
+  includes, so a no-argument run checks it.
 - Oracles taking `<output>` write `<output>/observations.json` (Windows
   observations) and `<output>/corpus.bin`. For `complexity_oracle.py`,
   `nominal_scalar_oracle.py`, `nominal_variations_oracle.py`,
@@ -63,7 +64,6 @@ mode and are parsed in this order:
 | --- | --- |
 | `--simulate=N` | DirectWrite simulation mask: 1 bold, 2 oblique, 3 both |
 | `--glyphs=<first>,<count>` | limit outline probes to a glyph range |
-| `--cff-experiment` | with `--simulate=1` or `3` on a CFF face, compare native `cff_outline_bold`; rejects `--owned`, `--renderer` |
 | `--owned` | acquire the font through the native file/face/instance store |
 | `--renderer` | decode outlines through the renderer's glyph binding (`native_glyph_outline`) |
 | `--points` | with `--simulate`, dump native points; rejects `--owned`, `--renderer` |
@@ -76,7 +76,6 @@ mode and are parsed in this order:
 | `--gvar400`, `--gvar600` | native variable outlines against normalized Windows outlines at that weight; skips color, cmap, metric passes |
 | `--geometry` | all glyphs through `FontGeometry`/`FontGeometryInstance` against Windows normalized outlines; skips color, cmap, metric passes, keeps CFF resolved-ink checks |
 | `--instructions` | prepare the native instruction context and apply glyph programs through `FontGeometry` (static translated contexts; positioning and component transforms fail) |
-| `--metrics-dump` | with `--simulate`, compare native simulation of base design metrics |
 
 `-dump` appended to `--gvar400`, `--gvar600`, `--geometry` or `--instructions`
 emits outline rows; `--instructions-state=<glyph-id>` selects one simple glyph
@@ -94,8 +93,6 @@ Dump rows carry floats as IEEE bit patterns:
 - `native_points=<glyph>,<units/em>,<points>,<contours>,<contour ends...>`, then x
   bits, y bits and flags per point, and `native_contour_directions=<glyph>,<status>,
   <work>,<contours>,<flags...>` (`--points`).
-- `reference_metrics=<glyph>,<left>,<advance width>,<right>,<top>,<advance
-  height>,<bottom>,<vertical origin y>` in design units (`--metrics-dump`).
 - `tt_stack=`, `tt_function=`, `tt_point=` (`--instructions-state`): parsers of
   numeric summaries ignore every `tt_` row.
 - With `--owned`: `owner_files`, `owner_faces`, `owner_mapped_bytes` and their
@@ -685,20 +682,13 @@ covers these lifetimes.
   holds styled coordinates; use `--simulate=0` for original-contour diagnostics.
   Contour-direction comparisons are meaningful for original integer simple
   contours.
-- `MaiCordFontReference <font> --simulate=0|1|2|3 --metrics-dump` compares native
-  simulation of resolved base design metrics and emits every glyph's
-  `reference_metrics=` row. The oracle supplies the unsimulated base; native
-  base-metric extraction and simulated outlines are not covered. Its metric
-  difference counter feeds the exit status.
 
 These scripts support diagnostics and regression fixtures; they do not enable
 native bold in the renderer. Most take an output `<root>` directory first and
 `--exe <ref>` (`MaiCordFontReference.exe`); `--help` shows each script's arguments.
 
-- `simulation_metrics_oracle.py` (`--inventory <scope.json>`): simulation design
-  metrics for every default app face.
-- `bold_geometry_oracle.py` (`--metrics-header <path>`), `bold_direction_oracle.py`:
-  synthetic-bold outlines, metrics and contour-direction probes.
+- `bold_geometry_oracle.py`, `bold_direction_oracle.py`: synthetic-bold outlines
+  and contour-direction probes.
 - `bold_app_points_oracle.py` (`--exe`, `--inventory`, `--analyse-existing`):
   native pre-simulation points and Windows bold outlines for app faces.
 - `bold_point_model.py <observations> --output <path>`: QA model of the bold

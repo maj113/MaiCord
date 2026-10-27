@@ -1,18 +1,13 @@
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/model/sorted_search.hpp"
 #include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {
 u32 lower_bound(const PrivateChannelStore& store, u64 id) noexcept {
-    u32 first = 0, last = store.count;
-    while (first < last) {
-        const u32 middle = first + (last - first) / 2;
-        if (store.records[middle].id < id) first = middle + 1;
-        else last = middle;
-    }
-    return first;
+    return sorted_lower_bound(store.count, [&](u32 at) noexcept { return store.records[at].id < id; });
 }
 bool valid(const PrivateChannelStore& store) noexcept {
     return store.records.data && store.recipients.data && store.count <= store.records.count &&
@@ -228,14 +223,10 @@ ConstSlice<u64> private_channel_store_recipients(const PrivateChannelStore& stor
 }
 namespace {
 u32 nickname_first(const PrivateChannelStore& store, u64 channel_id, u64 user_id = 0) noexcept {
-    u32 first = 0, last = store.nickname_count;
-    while (first < last) {
-        const u32 middle = first + (last - first) / 2;
-        const auto& item = store.nicknames[middle];
-        if (item.channel_id < channel_id || (item.channel_id == channel_id && item.user_id < user_id)) first = middle + 1;
-        else last = middle;
-    }
-    return first;
+    return sorted_lower_bound(store.nickname_count, [&](u32 at) noexcept {
+        const auto& item = store.nicknames[at];
+        return item.channel_id < channel_id || (item.channel_id == channel_id && item.user_id < user_id);
+    });
 }
 }
 Utf8View private_channel_store_nickname(const PrivateChannelStore& store, u64 channel_id, u64 user_id) noexcept {

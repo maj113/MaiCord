@@ -27,6 +27,6 @@ SfntStatus sfnt_position_execute_ligature_lookup(const SfntGposAttachmentLookup&
                                                   ConstSlice<double> nominal_advances,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> target_glyphs,Slice<SfntPosition> positions,
                                                   u32 start,u32 input_end,bool rtl,const SfntPositionInstance& instance,SfntNullAnchorPolicy null_policy,
                                                   SfntComponentAnchorPolicy component_policy,Slice<double> prefix_scratch,SfntLigatureExecution* result,
-                                                  u64 work_limit=1000000,SfntAnchorPointResolver point_resolver=nullptr,void* point_context=nullptr,
+                                                  u64 work_limit=1000000,
                                                   SfntPositionApplication application=SfntPositionApplication::scan) noexcept;
 }

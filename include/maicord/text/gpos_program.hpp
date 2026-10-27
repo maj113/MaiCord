@@ -48,5 +48,5 @@ SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 l
     ConstSlice<double> nominal_advances,ConstSlice<u8> position_flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> target_glyphs,
     Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,const SfntPositionInstance& instance,
     SfntNullAnchorPolicy null_policy,SfntComponentAnchorPolicy component_policy,SfntGposExecutionScratch scratch,
-    SfntGposExecutionLimits limits,SfntGposExecutionResult* output,SfntAnchorPointResolver point_resolver=nullptr,void* point_context=nullptr) noexcept;
+    SfntGposExecutionLimits limits,SfntGposExecutionResult* output) noexcept;
 }

@@ -15,8 +15,6 @@ struct SfntShapePlan {
     SfntPositionInstance position_instance;
     void* metric_context;
     SfntStatus (*advance)(void*,u16,double*) noexcept;
-    SfntAnchorPointResolver anchor_point=nullptr;
-    void* anchor_context=nullptr;
     u16 units_per_em=0;
     // Opt in only for a pure glyph->advance callback. Target scratch is
     // idle until component export and can hold a small per-run metric cache.

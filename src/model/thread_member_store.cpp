@@ -2,16 +2,12 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/base.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 namespace maicord {
 namespace {
 u32 lower_bound(Slice<u64> ids, u32 count, u64 id) noexcept {
-    u32 first = 0;
-    while (first < count) {
-        const u32 mid = first + (count - first) / 2;
-        if (ids[mid] < id) first = mid + 1; else count = mid;
-    }
-    return first;
+    return sorted_lower_bound(count, [&](u32 at) noexcept { return ids[at] < id; });
 }
 bool reserve(ThreadMemberStore* store, u32 count) noexcept {
     if (!store->reserve || count <= store->backed_count) return true;

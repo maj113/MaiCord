@@ -1,6 +1,7 @@
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -28,15 +29,7 @@ static_assert(sizeof(MessagePollOwnedStorage) <= 4096);
 static_assert(sizeof(MessagePollRecord) <= 512);
 namespace {
 u32 position(const MessagePollStore& store, u64 id) noexcept {
-    u32 first = 0, last = store.count;
-    while (first < last) {
-        const u32 middle = first + (last - first) / 2;
-        if (store.records[middle].message_id < id)
-            first = middle + 1;
-        else
-            last = middle;
-    }
-    return first;
+    return sorted_lower_bound(store.count, [&](u32 at) noexcept { return store.records[at].message_id < id; });
 }
 MessagePollRecord* find(MessagePollStore& store, u64 id) noexcept {
     return const_cast<MessagePollRecord*>(message_poll_store_find(store, id));

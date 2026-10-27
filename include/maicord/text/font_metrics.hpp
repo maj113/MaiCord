@@ -8,20 +8,6 @@ struct SfntFontLayoutMetrics {
 };
 struct SfntSingleFontLine {float height,baseline;};
 struct SfntFontLineParts {float baseline,descent;};
-// Resolved design-unit ink metrics, after variation/default metric resolution.
-// These are not raw hmtx values or normalized path bounds.
-struct SfntDesignGlyphMetrics {
-    i32 left_bearing;u32 advance_width;i32 right_bearing,top_bearing;
-    u32 advance_height;i32 bottom_bearing,vertical_origin;
-};
-enum class FontSimulation : u8 {none,bold,oblique,bold_oblique};
-static_assert(sizeof(SfntDesignGlyphMetrics)==28);
-// Metrics for simulated bold/oblique. Bold preserves zero advances;
-// oblique changes the bearings using the design box. Neither transforms ink.
-// No allocation or font access. Supports input/output aliasing. Invalid input
-// or arithmetic overflow clears output and does not write partial metrics.
-SfntStatus sfnt_simulate_metrics(const SfntDesignGlyphMetrics& base,u16 units_per_em,
-    FontSimulation simulation,SfntDesignGlyphMetrics* output) noexcept;
 static_assert(sizeof(SfntFontLayoutMetrics)==16&&sizeof(SfntSingleFontLine)==8);
 // horizontal is prepared from the same face. Optional MVAR/scalars are prepared
 // for this instance; null means static metrics. Does a fixed number of queries.

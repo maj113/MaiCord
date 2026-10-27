@@ -24,11 +24,11 @@ static_assert(sizeof(SfntCursiveExecution)==32);
 // chain_bits needs ceil((input_end-start)/64) words only when lookup RTL is set
 // and must not overlap input/position storage. No parent array or allocation.
 // On error, positions/scratch can hold partial or unresolved work and must be
-// discarded. Point callback and variation semantics match mark execution.
+// discarded. Variation semantics match mark execution.
 SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,
                                                  ConstSlice<double> nominal_advances,Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,
                                                  const SfntPositionInstance& instance,Slice<u64> chain_bits,SfntCursiveExecution* result,
-                                                 u64 work_limit=1000000,SfntAnchorPointResolver point_resolver=nullptr,void* point_context=nullptr) noexcept;
+                                                 u64 work_limit=1000000) noexcept;
 // One contextual action. The selected glyph bypasses initial filtering. Forward
 // attachment finds its predecessor anywhere in the run; reverse attachment
 // finds its successor before input_end. Reverse links are caller-initialized to
@@ -39,10 +39,9 @@ SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& 
 // affected values and translations are bounded integers; anything outside that
 // range executes eagerly. Flush it before any other position read or write and
 // before using the result; forward and discontinuous calls flush automatically.
-// Point callbacks disable coalescing. No extra per-glyph storage.
+// No extra per-glyph storage.
 SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,
     ConstSlice<double> nominal_advances,Slice<SfntPosition> positions,u32 selected,u32 input_end,bool rtl,
     const SfntPositionInstance& instance,Slice<SfntCursiveChainNode> chains,SfntCursiveExecution* result,
-    u64 work_limit=1000000,SfntAnchorPointResolver point_resolver=nullptr,void* point_context=nullptr,
-    SfntCursiveDeferred* deferred=nullptr) noexcept;
+    u64 work_limit=1000000,SfntCursiveDeferred* deferred=nullptr) noexcept;
 }

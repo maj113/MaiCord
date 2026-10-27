@@ -36,10 +36,9 @@ bool cursive_units() noexcept {
     if(good){for(u32 i=0;i<64;++i)if(chain[i]!=0x5555555555555555ull)good=false;if(chain[64])good=false;
         for(u32 i=0;i<4097;++i)if(long_positions[i].ascender_offset!=(i<4096 && !(i%2)?-120:0))good=false;}
     VirtualFree(memory,0,MEM_RELEASE);if(!good)return false;
-    // A failing second-anchor point resolution leaves the connection unapplied.
+    // An anchor that needs contour-point resolution is unsupported and leaves the connection unapplied.
     put(raw,34,2);put(raw,40,9);lookup.filter.flags=0;
     if(sfnt_gpos_attachment_open({raw,42},3,3,&sub)!=SfntStatus::ok || sfnt_position_initialize({nominal,2},{flags,2},false,{p,2})!=SfntStatus::ok)return false;copy_bytes(initial,p,sizeof(p));
     if(sfnt_position_execute_cursive_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{p,2},0,2,false,{}, {},&result)!=SfntStatus::unsupported || result.matches || !bytes_equal(p,initial,sizeof(p)))return false;
-    PointProbe probe{0,0,0,true};if(sfnt_position_execute_cursive_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{p,2},0,2,false,{}, {},&result,1000,resolve_test_point,&probe)!=SfntStatus::malformed || result.matches || !bytes_equal(p,initial,sizeof(p)))return false;
-    probe.fail=false;return sfnt_position_execute_cursive_lookup(lookup,{},sfnt_glyph_view({glyphs,2}),{nominal,2},{p,2},0,2,false,{}, {},&result,1000,resolve_test_point,&probe)==SfntStatus::ok && probe.calls==2 && probe.glyph==2 && probe.point==9 && p[0].advance==175 && p[1].ascender_offset==-687;
+    return true;
 }

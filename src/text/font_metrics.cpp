@@ -62,33 +62,4 @@ SfntStatus sfnt_single_font_line(const SfntFontLayoutMetrics& m,float em,SfntSin
     if(!output)return SfntStatus::invalid_input;reset_value(output);SfntFontLineParts parts{};const auto status=sfnt_font_line_parts(m,em,&parts);if(status!=SfntStatus::ok)return status;
     *output={_mm_cvtss_f32(_mm_add_ss(_mm_set_ss(parts.baseline),_mm_set_ss(parts.descent))),parts.baseline};return SfntStatus::ok;
 }
-SfntStatus sfnt_simulate_metrics(const SfntDesignGlyphMetrics& base,u16 units,
-    FontSimulation simulation,SfntDesignGlyphMetrics* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;
-    const auto input=base;reset_value(output);
-    if(units<16||units>16384||static_cast<u8>(simulation)>3)return SfntStatus::invalid_input;
-    const i64 width=static_cast<i64>(input.advance_width)-input.left_bearing-input.right_bearing;
-    const i64 height=static_cast<i64>(input.advance_height)-input.top_bearing-input.bottom_bearing;
-    if(width<0||height<0)return SfntStatus::malformed;
-    i64 left=input.left_bearing,advance=input.advance_width,right=input.right_bearing;
-    i64 top=input.top_bearing,vertical_advance=input.advance_height,origin=input.vertical_origin;
-    if(width&&height){
-        if(static_cast<u8>(simulation)&1){
-            const i64 amount=(static_cast<u32>(units)+25)/50;
-            if(advance)advance+=amount;else right-=amount;
-            if(vertical_advance){vertical_advance+=amount;origin+=amount;}else top-=amount;
-        }
-        if(static_cast<u8>(simulation)&2){
-            const auto shear=[](i64 y) noexcept {const i64 value=y*87;return value/256-(value%256<0?1:0);};
-            left+=shear(origin+input.bottom_bearing-vertical_advance);
-            right-=shear(origin-top);
-        }
-    }
-    const auto signed_field=[](i64 v) noexcept {return v>=-2147483648ll&&v<=2147483647ll;};
-    if(!signed_field(left)||!signed_field(right)||!signed_field(top)||!signed_field(origin)||
-       advance>0xffffffffll||vertical_advance>0xffffffffll)return SfntStatus::malformed;
-    *output={static_cast<i32>(left),static_cast<u32>(advance),static_cast<i32>(right),static_cast<i32>(top),
-        static_cast<u32>(vertical_advance),input.bottom_bearing,static_cast<i32>(origin)};
-    return SfntStatus::ok;
-}
 }

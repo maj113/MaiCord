@@ -1,19 +1,12 @@
 #include "maicord/model/voice_channel_info_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 namespace maicord {
 namespace {
 // Records stay sorted by channel ID.
 u32 lower_bound(const VoiceChannelInfoStore& s, u64 channel_id) noexcept {
-    u32 low = 0, high = s.count;
-    while (low < high) {
-        const u32 middle = (low + high) / 2;
-        if (s.records[middle].channel_id < channel_id)
-            low = middle + 1;
-        else
-            high = middle;
-    }
-    return low;
+    return sorted_lower_bound(s.count, [&](u32 at) noexcept { return s.records[at].channel_id < channel_id; });
 }
 void drop_text(VoiceChannelInfoStore* s, VoiceChannelInfo* info) noexcept {
     if (!info->status_bytes)

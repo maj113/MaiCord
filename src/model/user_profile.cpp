@@ -1,5 +1,6 @@
 #include "maicord/model/user_profile.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/sorted_search.hpp"
 namespace maicord {
 namespace {
 constexpr u32 maximum_records = 4096;
@@ -31,15 +32,7 @@ bool before(const UserAppearanceRecord& a, u64 user, u64 guild) noexcept {
 }
 u32 locate(const UserAppearanceStore& s, u64 user, u64 guild) noexcept {
     const auto* order = stable_storage_data<u32>(s.order);
-    u32 first = 0, last = s.count;
-    while (first < last) {
-        const auto middle = first + (last - first) / 2;
-        if (before(*record_at(s, order[middle]), user, guild))
-            first = middle + 1;
-        else
-            last = middle;
-    }
-    return first;
+    return sorted_lower_bound(s.count, [&](u32 at) noexcept { return before(*record_at(s, order[at]), user, guild); });
 }
 // The canonical record image: zero padding, no palette entries past the
 // count, strings packed in field order. Returns the allocation units.

@@ -283,7 +283,7 @@ maicord_library(maicord_account_media
     DEPENDS maicord_regional_flag_data)
 
 maicord_library(maicord_unicode
-    src/text/arabic_joining.cpp src/text/line_break.cpp src/text/line_break_tailored.cpp
+    src/text/arabic_joining.cpp src/text/line_break_tailored.cpp
     src/text/thai_word_break.cpp src/text/thai_lexical.cpp src/text/thai_syllable.cpp
     src/text/bidi_tailored.cpp src/text/unicode.cpp src/text/grapheme.cpp src/text/bidi.cpp
     LIBS maicord_core)
@@ -320,7 +320,7 @@ maicord_library(maicord_font
     src/text/paragraph_ranges.cpp src/text/font_metrics.cpp src/text/layout_variations.cpp src/text/gdef.cpp
     src/text/layout_tables.cpp src/text/sfnt.cpp src/text/sfnt_cmap.cpp src/text/truetype_outline.cpp
     src/text/cff_font.cpp src/text/cff_charset.cpp src/text/cff_outline.cpp src/text/cpal.cpp
-    src/text/colr_font.cpp src/text/colr_paint_reader.cpp src/text/colr_validate.cpp
+    src/text/colr_font.cpp src/text/colr_paint_reader.cpp
     src/text/variation_store.cpp src/text/metric_variations.cpp src/text/gvar.cpp src/text/font_geometry.cpp
     src/text/font_store.cpp src/text/font_instance.cpp src/text/tt_interpreter.cpp src/text/tt_outline.cpp
     src/text/colr_variations.cpp src/text/font_axes.cpp

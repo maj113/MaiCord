@@ -993,9 +993,6 @@ maicord_test(MaiCordSystemSpellcheckTests ENTRY maicord_system_spellcheck_entry 
 maicord_test(MaiCordTextPointerSelectionTests ENTRY maicord_text_pointer_selection_entry
     SOURCES tests/text_pointer_selection.cpp
     BUNDLE MaiCordUiUnitTests TIMEOUT 10 TEST maicord_text_pointer_selection)
-maicord_test(MaiCordLineBreakTests ENTRY maicord_line_break_tests_entry SOURCES tests/line_break_test.cpp
-    LIBS maicord_core maicord_unicode kernel32
-    BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_native_line_breaks)
 maicord_test(MaiCordLineTailoredTests ENTRY maicord_line_tailored_entry SOURCES tests/line_tailored_test.cpp
     LIBS maicord_core maicord_unicode kernel32
     BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_native_line_compat)
@@ -1364,7 +1361,7 @@ maicord_add_tests(MaiCordClustersTests TEST maicord_native_clusters)
 maicord_add_tests(MaiCordGsubExecuteTests TEST maicord_native_gsub_execute)
 maicord_add_tests(MaiCordGlyphBufferTests TEST maicord_native_glyph_buffer)
 maicord_test(MaiCordFontTests ENTRY maicord_font_tests_entry
-    SOURCES tests/sfnt_test.cpp tests/font_simulation_test.cpp tests/tt_bold_points_test.cpp
+    SOURCES tests/sfnt_test.cpp tests/tt_bold_points_test.cpp
         tests/truetype_outline_test.cpp tests/cff_outline_test.cpp tests/color_font_test.cpp
         tests/variation_store_test.cpp tests/font_axes_test.cpp
     LIBS maicord_core maicord_font kernel32

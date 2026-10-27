@@ -55,8 +55,15 @@ bool long_contexts() noexcept {
     for(u32 i=0;i<=n;++i){++checks;if(out[i]!=(i>=n-1?1:0))return false;}
     return true;
 }
+bool property_contract() noexcept {
+    u32 count=0;
+    for(u32 cp=0;cp<=0x10ffff;++cp){const auto& p=*unicode_properties(cp);
+        if(p.general_category()==UnicodeGeneralCategory::cn&&p.has(UnicodeFlag::extended_pictographic)){
+            if(p.line_break()!=UnicodeLineBreak::id&&p.line_break()!=UnicodeLineBreak::xx)return false;++count;}}
+    return count==1453;
+}
 bool run() noexcept {
-    if(!units()||!long_contexts())return false;
+    if(!units()||!long_contexts()||!property_contract())return false;
     const wchar_t* c=GetCommandLineW();bool quote=false;while(*c){if(*c=='"')quote=!quote;else if(!quote&&(*c==' '||*c=='\t'))break;++c;}while(*c==' '||*c=='\t')++c;
     if(!*c)return true;wchar_t path[32768];u32 n=0;quote=*c=='"';if(quote)++c;
     while(*c&&!(quote?*c=='"':*c==' '||*c=='\t')){if(n+1>=32768)return false;path[n++]=*c++;}path[n]=0;

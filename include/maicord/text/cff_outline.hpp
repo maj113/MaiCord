@@ -45,9 +45,4 @@ SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept;
 SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output,
                         u32 work_limit = 1000000, CffGlyphMetrics* metrics = nullptr,bool oblique=false) noexcept;
 
-// Synthetic bold, kept as a separate entry so the linker can discard it when
-// unused. Uniform non-CID matrices only. Reuses output storage; no allocation.
-SfntStatus cff_outline_bold(const CffFont& font,u16 glyph,GlyphOutline* output,
-                          u32 work_limit=1000000,CffGlyphMetrics* metrics=nullptr,bool oblique=false) noexcept;
-
 } // namespace maicord

@@ -18,5 +18,4 @@ constexpr bool unicode_is_scalar(u32 code_point) noexcept {
 // mirroring in the font remains a separate shaping responsibility.
 u32 unicode_bidi_mirror(u32 code_point) noexcept;
 UnicodeBracket unicode_bidi_bracket(u32 code_point) noexcept;
-usize unicode_property_data_bytes() noexcept;
 } // namespace maicord

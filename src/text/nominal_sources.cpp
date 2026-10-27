@@ -4,7 +4,6 @@
 namespace maicord {namespace {
 #include "generated/nominal_scalar_data.inc"
 u64 scalar_word(u32 word) noexcept {return nominal_page_words[static_cast<u32>(nominal_page_index[word/4])*4+word%4];}
-bool spend(u64* work,u64 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
 enum class Mapping:u8 {constant,sequential,delta,bytes,words};
 struct Builder {
     const SfntCmap& cmap;Slice<u64> bitmap;u64 work;

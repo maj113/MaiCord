@@ -1,6 +1,7 @@
 #include "maicord/model/relationship_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/model/sorted_search.hpp"
 
 namespace maicord {
 namespace {
@@ -20,13 +21,7 @@ bool equal(const RelationshipRecord& a, const RelationshipRecord& b) noexcept {
         bytes_equal(a.nickname, b.nickname, a.nickname_bytes);
 }
 u32 lower(const RelationshipStore& store, u64 id) noexcept {
-    u32 first = 0, count = store.count;
-    while (count) {
-        const u32 step = count / 2, position = first + step;
-        if (store.records[position].user_id < id) { first = position + 1; count -= step + 1; }
-        else count = step;
-    }
-    return first;
+    return sorted_lower_bound(store.count, [&](u32 at) noexcept { return store.records[at].user_id < id; });
 }
 RelationshipStoreResult result(RelationshipStoreError error, bool changed = false) noexcept { return {error, changed}; }
 } // namespace
