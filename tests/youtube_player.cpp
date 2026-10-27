@@ -113,16 +113,16 @@ extern "C" __declspec(noreturn) void WINAPI maicord_youtube_player_entry() noexc
     for (auto url : bad) check(!youtube_stream_url(url), "media origin/path/header boundary");
     u8 range_head[kCdnMaximumRequestHeadBytes];
     const auto url = utf8_literal("https://rr1.googlevideo.com/videoplayback?id=v");
-    const u32 range_bytes = youtube_stream_get(url, 4096, 4096, {range_head, sizeof(range_head)});
+    const u32 range_bytes = embed_stream_get(CdnHost::google_video, url, 4096, 4096, {range_head, sizeof(range_head)});
     const Utf8View head_text{reinterpret_cast<const char*>(range_head), range_bytes};
     check(range_bytes && ascii_contains_ignore_case(head_text, utf8_literal("Range: bytes=4096-8191\r\n")) &&
           !ascii_contains_ignore_case(head_text, utf8_literal("Cookie:")) &&
           !ascii_contains_ignore_case(head_text, utf8_literal("Authorization:")) &&
           !ascii_contains_ignore_case(head_text, utf8_literal("Visitor")), "media requests are ranged and credential-free");
     range_head[0] = 42;
-    check(!youtube_stream_get(url, 0, 0, {range_head, sizeof(range_head)}) && range_head[0] == 42,
+    check(!embed_stream_get(CdnHost::google_video, url, 0, 0, {range_head, sizeof(range_head)}) && range_head[0] == 42,
           "provider download cannot silently become whole-file GET");
-    check(!youtube_stream_get(url, ~u64{0}, 4096, {range_head, sizeof(range_head)}), "range overflow rejected");
+    check(!embed_stream_get(CdnHost::google_video, url, ~u64{0}, 4096, {range_head, sizeof(range_head)}), "range overflow rejected");
     source = response(video360, audio);
     check(youtube_player_streams(source, id, 480, {scratch, 1}, &result) == E::capacity,
           "caller bounds structural memory");

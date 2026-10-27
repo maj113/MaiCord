@@ -12,9 +12,8 @@ bool same(Utf8View a, Utf8View b) noexcept {
     return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
 }
 MediaCatalogDecodeResult decode(MediaCatalogOperation operation, Utf8View body, u32 capacity = 50,
-                                u32 bytes = sizeof(text), u32 limit = 0, u32 first = 0) noexcept {
-    return media_catalog_decode(operation, body, {index, 8192}, 16, {items, capacity}, {text, bytes}, limit,
-                                first);
+                                u32 bytes = sizeof(text)) noexcept {
+    return media_catalog_decode(operation, body, {index, 8192}, 16, {items, capacity}, {text, bytes});
 }
 void sentinel() noexcept {
     for (auto& item : items)
@@ -176,9 +175,9 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
               items[1].kind == MediaCatalogItemKind::category && same(items[1].name, utf8_literal("hello")),
           "media catalog: one supplied Trending preview precedes categories independently of wire member "
           "order");
-    result = decode(MediaCatalogOperation::gif_categories, landing_input, 50, sizeof(text), 1);
+    result = decode(MediaCatalogOperation::gif_categories, landing_input, 1);
     check(result.ok() && result.item_count == 1 && result.source_count == 2 && result.truncated &&
-              items[0].kind == MediaCatalogItemKind::gif && result.next_index == 1,
+              items[0].kind == MediaCatalogItemKind::gif,
           "media catalog: mixed landing catalog retains bounded local publication");
     const Utf8View invalid_landing[]{
         utf8_literal(R"({"categories":[],"gifs":{},"ignored":[]})"),
@@ -249,14 +248,6 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
               same(items[59].tags, utf8_literal("hello,wave")),
           "media catalog: measure-first full sticker packs flatten beyond visible page size and preserve "
           "format/tags/server availability");
-    result = decode(MediaCatalogOperation::sticker_packs, input, 50, sizeof(text), 50);
-    check(result.ok() && result.item_count == 50 && result.source_count == 60 && result.next_index == 50 &&
-              result.truncated,
-          "media catalog: explicit initial sticker page reports unconsumed catalog entries");
-    result = decode(MediaCatalogOperation::sticker_packs, input, 50, sizeof(text), 50, 50);
-    check(result.ok() && result.item_count == 10 && result.source_count == 60 && result.next_index == 60 &&
-              !result.truncated,
-          "media catalog: local continuation uses complete cached response without invented server offset");
     input = array_fixture(2, sticker);
     result = decode(MediaCatalogOperation::guild_stickers, input, 128);
     check(result.ok() && result.item_count == 2 && items[0].kind == MediaCatalogItemKind::sticker,

@@ -56,7 +56,7 @@ E parse(const JsonIndexedDocument&d,JsonValue v,Parse*out) noexcept {
     if(!r.ok())return p.error==E::none?E::json:p.error;*out=p;return E::none;
 }
 struct Batch {const JsonIndexedDocument*doc;Slice<MessageNotificationGuildSetting>g;
-    Slice<MessageNotificationOverride>o;NotificationSettingsPacket packet;u64 guild;bool snapshot;E error;};
+    Slice<MessageNotificationOverride>o;NotificationSettingsPacket packet;u64 guild;E error;};
 bool override_item(void*opaque,u32,JsonValue v) noexcept {
     auto&b=*static_cast<Batch*>(opaque);Parse p{};b.error=parse(*b.doc,v,&p);if(b.error!=E::none)return false;
     if(!p.id_seen||p.overrides_seen||(p.guild_seen&&p.guild!=b.guild)){b.error=E::field;return false;}
@@ -64,25 +64,14 @@ bool override_item(void*opaque,u32,JsonValue v) noexcept {
     if(b.packet.override_count==b.o.count){b.error=E::capacity;return false;}
     b.o[b.packet.override_count++]={b.guild,p.id,p.setting};return true;
 }
-bool guild_item(void*opaque,u32,JsonValue v) noexcept {
-    auto&b=*static_cast<Batch*>(opaque);Parse p{};b.error=parse(*b.doc,v,&p);if(b.error!=E::none)return false;
+bool guild_item(Batch&b,JsonValue v) noexcept {
+    Parse p{};b.error=parse(*b.doc,v,&p);if(b.error!=E::none)return false;
     if(!p.guild_seen){b.error=E::field;return false;}
-    for(u32 i=0;i<b.packet.guild_count;++i)if(b.g[i].guild_id==p.guild){b.error=E::duplicate;return false;}
-    if(b.packet.guild_count==b.g.count){b.error=E::capacity;return false;}
-    b.g[b.packet.guild_count++]={p.guild,p.setting};b.guild=p.guild;
-    if(!b.snapshot&&p.version_known){b.packet.version=p.version;b.packet.version_known=true;}
+    if(!b.g.count){b.error=E::capacity;return false;}
+    b.g[0]={p.guild,p.setting};b.guild=p.guild;
+    if(p.version_known){b.packet.version=p.version;b.packet.version_known=true;}
     if(p.overrides_seen&&!json_visit_indexed_array(*b.doc,p.overrides,64,override_item,&b).ok()){
         if(b.error==E::none)b.error=E::json;return false;}return true;
-}
-struct Ready {Batch*batch;JsonValue entries;u32 seen;E error;};
-bool ready_member(void*opaque,JsonString name,JsonValue v) noexcept {
-    auto&r=*static_cast<Ready*>(opaque);
-    const u32 bit=protocol_detail::member_bit<"entries","partial","version">(name);if(!bit)return true;
-    if(r.seen&bit){r.error=E::duplicate;return false;}r.seen|=bit;bool ok=true;
-    if(bit==1){r.entries=v;ok=v.kind==JsonValueKind::array;}
-    else if(bit==2)ok=json_value_to_bool(v,&r.batch->packet.partial);
-    else {ok=json_value_to_u64(v,&r.batch->packet.version);r.batch->packet.version_known=ok;}
-    if(!ok)r.error=E::field;return ok;
 }
 // Raw or lazily decoded base64 bytes. A base64 source is validated by the
 // canonical codec first, so quartet lookup cannot encounter invalid symbols.
@@ -121,7 +110,7 @@ bool proto(const Wire&w,u32 begin,u32 end,u32 context,MessageNotificationGlobal&
     }return true;
 }
 }
-NotificationSettingsDecodeError decode_notification_settings(const JsonIndexedDocument&d,JsonValue v,bool snapshot,
+NotificationSettingsDecodeError decode_notification_settings(const JsonIndexedDocument&d,JsonValue v,
     Slice<MessageNotificationGuildSetting>g,Slice<MessageNotificationOverride>o,NotificationSettingsPacket*out) noexcept {
     if(d.input.bytes>kNotificationSettingsMaximumBytes||g.count>~u32{0}/sizeof(*g.data)||o.count>~u32{0}/sizeof(*o.data)||
        d.structurals.count>~u32{0}/sizeof(u32))return E::input;
@@ -134,10 +123,8 @@ NotificationSettingsDecodeError decode_notification_settings(const JsonIndexedDo
        byte_ranges_overlap(gb,source)||byte_ranges_overlap(ob,source)||byte_ranges_overlap(header,gb)||
        byte_ranges_overlap(header,ob)||byte_ranges_overlap(header,source)||byte_ranges_overlap(gb,index)||
        byte_ranges_overlap(ob,index)||byte_ranges_overlap(header,index))return E::input;
-    Batch b{};b.doc=&d;b.g=g;b.o=o;b.packet.partial=!snapshot;b.snapshot=snapshot;
-    if(snapshot){Ready r{};r.batch=&b;if(!json_visit_indexed_object(d,v,64,ready_member,&r).ok())return r.error==E::none?E::json:r.error;
-        if(!(r.seen&1))return E::field;if(!json_visit_indexed_array(d,r.entries,64,guild_item,&b).ok())return b.error==E::none?E::json:b.error;
-    }else if(!guild_item(&b,0,v))return b.error;
+    Batch b{};b.doc=&d;b.g=g;b.o=o;
+    if(!guild_item(b,v))return b.error;
     *out=b.packet;return E::none;
 }
 NotificationSettingsDecodeError decode_notification_thread(const JsonIndexedDocument&d,JsonValue v,u64 fallback,MessageNotificationThreadSetting*out,u64 fallback_thread) noexcept {

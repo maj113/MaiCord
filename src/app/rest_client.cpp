@@ -629,45 +629,6 @@ bool initialize_auth_user_configuration(RestClientRuntime* runtime) noexcept {
                                              {storage.accept_language, storage.accept_language_bytes}});
 }
 
-bool valid_route(const RestRouteKey& route) noexcept {
-    if (route.route_id == 0) {
-        return false;
-    }
-    switch (route.method) {
-    case RestMethod::get:
-    case RestMethod::post:
-    case RestMethod::put:
-    case RestMethod::patch:
-    case RestMethod::delete_method:
-    case RestMethod::head:
-        break;
-    default:
-        return false;
-    }
-    switch (route.major) {
-    case RestMajorParameter::none:
-        return route.major_key == 0;
-    case RestMajorParameter::channel:
-    case RestMajorParameter::guild:
-    case RestMajorParameter::webhook:
-        return route.major_key != 0;
-    default:
-        return false;
-    }
-}
-
-bool valid_target(ConstSlice<u8> target) noexcept {
-    if (!target.data || target.count == 0 || target[0] != '/' || (target.count > 1 && target[1] == '/')) {
-        return false;
-    }
-    for (u32 index = 0; index < target.count; ++index) {
-        if (target[index] < 0x21 || target[index] > 0x7E || target[index] == '#') {
-            return false;
-        }
-    }
-    return true;
-}
-
 bool valid_locked_value(const SecureBuffer* value, u32 maximum_bytes, bool required) noexcept {
     if (!value) {
         return !required;
@@ -1810,7 +1771,7 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
     }
     if (!runtime || runtime->user_auth_mode || !client->worker.thread ||
         (authentication_rejected(client) && !logout) || request.request_id == 0 ||
-        !valid_route(request.route) || !valid_target(request.target) ||
+        !rest_route_valid(request.route) || !rest_target_valid(request.target) ||
         (!request.body.data && request.body.count != 0) ||
         (!request.json_body && request.body.count != 0) || request.timeout_ms > kMaximumRequestTimeoutMs ||
         !rest_audit_reason_valid(request.audit_reason) ||
@@ -2003,7 +1964,7 @@ RestClientSubmitResult rest_client_submit_user_auth(
     const bool handoff_headers = request.operation == UserAuthOperation::browser_handoff_exchange &&
         (request.captcha_key || request.captcha_rqtoken || request.captcha_session_id);
     if (!runtime || !runtime->user_auth_mode || !client->worker.thread ||
-        request.request_id == 0 || !valid_route(route) || handoff_headers || !valid_locked_value(request.body, ~0u, true) ||
+        request.request_id == 0 || !rest_route_valid(route) || handoff_headers || !valid_locked_value(request.body, ~0u, true) ||
         !valid_locked_value(request.captcha_key, kUserAuthMaximumCaptchaKeyBytes, false) ||
         !valid_locked_value(request.captcha_rqtoken, kUserAuthMaximumCaptchaTokenBytes, false) ||
         !valid_locked_value(request.captcha_session_id, kUserAuthMaximumCaptchaSessionBytes, false) ||

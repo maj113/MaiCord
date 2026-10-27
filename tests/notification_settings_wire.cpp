@@ -2,12 +2,12 @@
 #include "maicord/protocol/base64.hpp"
 namespace maicord {
 namespace {
-NotificationSettingsDecodeError decode(Utf8View text,bool snapshot,Slice<MessageNotificationGuildSetting>g,
+NotificationSettingsDecodeError decode(Utf8View text,Slice<MessageNotificationGuildSetting>g,
     Slice<MessageNotificationOverride>o,NotificationSettingsPacket*p) noexcept {
     u32 scratch[512]{};const auto scan=json_scan_structurals_avx1(text,{scratch,512});
     if(!scan.ok())return NotificationSettingsDecodeError::json;
     const JsonIndexedDocument doc{text,{scratch,scan.count}};
-    return decode_notification_settings(doc,{text,0,JsonValueKind::object},snapshot,g,o,p);
+    return decode_notification_settings(doc,{text,0,JsonValueKind::object},g,o,p);
 }
 // The decoder reads base64 settings; encode raw protobuf fixtures first.
 NotificationSettingsDecodeError decode_global(ConstSlice<u8> bytes,MessageNotificationGlobal*out) noexcept {
@@ -17,20 +17,20 @@ NotificationSettingsDecodeError decode_global(ConstSlice<u8> bytes,MessageNotifi
 }
 void test_notification_settings_wire(void(*check)(bool,const char*)noexcept) noexcept {
     using E=NotificationSettingsDecodeError;MessageNotificationGuildSetting g[3]{};MessageNotificationOverride o[4]{};NotificationSettingsPacket packet{};
-    check(decode(utf8_literal("{\"partial\":true,\"version\":12,\"entries\":[{\"guild_id\":null,\"channel_overrides\":[{\"channel_id\":\"20\",\"message_notifications\":1,\"mute_config\":null}]},{\"guild_id\":\"10\",\"muted\":true,\"mute_config\":{\"end_time\":\"1970-01-01T00:00:01.000Z\"}}]}"),true,{g,3},{o,4},&packet)==E::none&&packet.partial&&packet.version==12&&packet.guild_count==2&&packet.override_count==1,"READY sparse settings and DM null guild");
-    check(g[1].setting.mute_end_ms==1000&&(o[0].setting.fields&notification_mute_end)&&o[0].setting.mute_end_ms==0,"mute timestamp and explicit null clear");
-    packet.guild_count=99;
-    check(decode(utf8_literal("{\"guild_id\":\"10\",\"muted\":true,\"muted\":false}"),false,{g,3},{o,4},&packet)==E::duplicate&&packet.guild_count==99,"duplicate field rejects without publishing header");
-    check(decode(utf8_literal("{\"guild_id\":\"10\",\"channel_overrides\":[{\"channel_id\":\"20\"},{\"channel_id\":\"20\"}]}"),false,{g,3},{o,4},&packet)==E::duplicate,"duplicate override identity rejected");
-    check(decode(utf8_literal("{\"guild_id\":\"10\",\"message_notifications\":4}"),false,{g,3},{o,4},&packet)==E::field,"invalid setting enum rejected");
-    check(decode(utf8_literal("{\"guild_id\":\"10\",\"channel_overrides\":[{\"channel_id\":\"20\"}]}"),false,{g,3},{nullptr,0},&packet)==E::capacity,"bounded override staging capacity");
-    check(decode(utf8_literal("{\"guild_id\":\"10\",\"message_notifications\":null,\"mute_config\":{}}"),false,{g,3},{o,4},&packet)==E::none&&g[0].setting.level==MessageNotificationLevel::inherit&&!(g[0].setting.fields&notification_mute_end),"null setting inherits and absent mute end preserves");
-    check(decode(utf8_literal("{\"guild_id\":\"10\",\"version\":17}"),false,{g,3},{o,4},&packet)==E::none&&packet.version_known&&packet.version==17,"full entry carries its update version");
-    check(decode(utf8_literal("{\"guild_id\":\"10\",\"hide_muted_channels\":true,\"flags\":16384,\"channel_overrides\":[{\"channel_id\":\"20\",\"flags\":4096}]}"),false,{g,3},{o,4},&packet)==E::none&&
+    check(decode(utf8_literal("{\"guild_id\":\"10\",\"muted\":true,\"mute_config\":{\"end_time\":\"1970-01-01T00:00:01.000Z\"},\"channel_overrides\":[{\"channel_id\":\"20\",\"message_notifications\":1,\"mute_config\":null}]}"),{g,3},{o,4},&packet)==E::none&&packet.override_count==1&&
+          g[0].setting.mute_end_ms==1000&&(o[0].setting.fields&notification_mute_end)&&o[0].setting.mute_end_ms==0,"mute timestamp and explicit null clear");
+    packet.override_count=99;
+    check(decode(utf8_literal("{\"guild_id\":\"10\",\"muted\":true,\"muted\":false}"),{g,3},{o,4},&packet)==E::duplicate&&packet.override_count==99,"duplicate field rejects without publishing header");
+    check(decode(utf8_literal("{\"guild_id\":\"10\",\"channel_overrides\":[{\"channel_id\":\"20\"},{\"channel_id\":\"20\"}]}"),{g,3},{o,4},&packet)==E::duplicate,"duplicate override identity rejected");
+    check(decode(utf8_literal("{\"guild_id\":\"10\",\"message_notifications\":4}"),{g,3},{o,4},&packet)==E::field,"invalid setting enum rejected");
+    check(decode(utf8_literal("{\"guild_id\":\"10\",\"channel_overrides\":[{\"channel_id\":\"20\"}]}"),{g,3},{nullptr,0},&packet)==E::capacity,"bounded override staging capacity");
+    check(decode(utf8_literal("{\"guild_id\":\"10\",\"message_notifications\":null,\"mute_config\":{}}"),{g,3},{o,4},&packet)==E::none&&g[0].setting.level==MessageNotificationLevel::inherit&&!(g[0].setting.fields&notification_mute_end),"null setting inherits and absent mute end preserves");
+    check(decode(utf8_literal("{\"guild_id\":\"10\",\"version\":17}"),{g,3},{o,4},&packet)==E::none&&packet.version_known&&packet.version==17,"full entry carries its update version");
+    check(decode(utf8_literal("{\"guild_id\":\"10\",\"hide_muted_channels\":true,\"flags\":16384,\"channel_overrides\":[{\"channel_id\":\"20\",\"flags\":4096}]}"),{g,3},{o,4},&packet)==E::none&&
           (g[0].setting.fields&notification_hide_muted)&&g[0].setting.hide_muted_channels&&g[0].setting.flags==16384&&
           (o[0].setting.fields&notification_flags)&&o[0].setting.flags==4096,
           "USER_GUILD_SETTINGS_UPDATE carries hide_muted_channels, guild opt-in flags and channel opt-in flags");
-    check(decode(utf8_literal("{\"guild_id\":\"10\",\"hide_muted_channels\":true,\"hide_muted_channels\":false}"),false,{g,3},{o,4},&packet)==E::duplicate,
+    check(decode(utf8_literal("{\"guild_id\":\"10\",\"hide_muted_channels\":true,\"hide_muted_channels\":false}"),{g,3},{o,4},&packet)==E::duplicate,
           "duplicate hide_muted_channels rejected");
     // root notifications(7): quiet wrapper(5)->bool; expiry(6) fixed64.
     // root status(11): status wrapper(1)->StringValue dnd.

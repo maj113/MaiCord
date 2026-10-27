@@ -65,7 +65,4 @@ struct TwitterVideoLocator { Utf8View id; u8 media_index{}; };
 TwitterVideoLocator twitter_video_locator(Utf8View url) noexcept;
 // Explicit /video/app[/movie] or an app page (its first listed trailer).
 SteamVideoLocator steam_video_locator(Utf8View url) noexcept;
-// Providers with special iframe parameters in the researched client; its
-// generic HTTPS iframe support is broader. Music widgets are separate surfaces.
-bool embed_provider_video_frame(EmbedProvider provider) noexcept;
 } // namespace maicord

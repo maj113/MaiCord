@@ -119,19 +119,9 @@ bool channel_overview_patch_valid(const ChannelOverviewPatch& patch) noexcept {
            (!(patch.fields & channel_overview_slowmode) ||
             patch.slowmode_seconds <= kChannelOverviewMaximumSlowmodeSeconds);
 }
-ChannelOverviewResult channel_overview_decode(Utf8View input, bool partial,
-                                              const ChannelOverviewSnapshot* previous,
-                                              ChannelOverviewSnapshot* output) noexcept {
-    if (!output || !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}) ||
-        !input.bytes || input.bytes > 64 * 1024 || !utf8_validate(input).valid ||
-        (partial && (!previous || !previous->channel_id || !previous->guild_id || previous->type != 0 ||
-                     previous->known_fields & ~channel_overview_all ||
-                     previous->name_bytes > kChannelOverviewNameBytes ||
-                     previous->topic_bytes > kChannelOverviewTopicBytes ||
-                     (previous->known_fields &&
-                      !channel_overview_patch_valid(
-                          {channel_overview_name_view(*previous), channel_overview_topic_view(*previous),
-                           previous->slowmode_seconds, previous->known_fields, previous->nsfw})))))
+ChannelOverviewResult channel_overview_decode(Utf8View input, ChannelOverviewSnapshot* output) noexcept {
+    if (!output || !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}) || !input.bytes ||
+        input.bytes > 64 * 1024 || !utf8_validate(input).valid)
         return {0, ChannelOverviewError::input};
     // Application bound, not a wire-schema limit. Refuse structural overflow
     // atomically; never publish a truncated channel or unknown JSON subtree.
@@ -141,17 +131,12 @@ ChannelOverviewResult channel_overview_decode(Utf8View input, bool partial,
         return {0, scanned.error == JsonScanError::output_overflow ? ChannelOverviewError::capacity
                                                                    : ChannelOverviewError::json};
     Parse parse{};
-    if (partial)
-        parse.value = *previous;
     const auto parsed = json_visit_root_object(input, {offsets, scanned.count}, 32, member, &parse);
     if (!parsed.ok())
         return {0, parse.error == ChannelOverviewError::none ? ChannelOverviewError::json : parse.error};
-    if (!(parse.seen & 16) || (!partial && (parse.seen & (16 | 32 | 64 | 1)) != (16 | 32 | 64 | 1)) ||
-        (partial &&
-         (parse.value.channel_id != previous->channel_id || parse.value.guild_id != previous->guild_id)))
+    if ((parse.seen & (16 | 32 | 64 | 1)) != (16 | 32 | 64 | 1))
         return {0, ChannelOverviewError::identity};
-    parse.value.known_fields =
-        partial ? static_cast<u8>(previous->known_fields | parse.fields) : channel_overview_all;
+    parse.value.known_fields = channel_overview_all;
     *output = parse.value;
     return {input.bytes, ChannelOverviewError::none, parse.fields};
 }

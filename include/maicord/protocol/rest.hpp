@@ -311,6 +311,10 @@ struct RestRouteKey {
     RestMethod method;
     RestMajorParameter major;
 };
+// A nonzero route id with a known method whose major key matches its major parameter.
+bool rest_route_valid(const RestRouteKey& route) noexcept;
+// An origin-form request target: one leading '/', visible ASCII only, no '#'.
+bool rest_target_valid(ConstSlice<u8> target) noexcept;
 
 struct RestRateBucket {
     u64 route_id;

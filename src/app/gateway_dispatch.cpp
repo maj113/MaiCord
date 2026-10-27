@@ -780,7 +780,7 @@ bool notification_entry(JsonValue source, Slice<u32> scratch, Slice<char> storag
         reinterpret_cast<MessageNotificationOverride*>(start + sizeof(MessageNotificationGuildSetting));
     MessageNotificationGuildSetting guild{};
     NotificationSettingsPacket packet{};
-    const auto err = decode_notification_settings(doc, {doc.input, 0, JsonValueKind::object}, false,
+    const auto err = decode_notification_settings(doc, {doc.input, 0, JsonValueKind::object},
                                                   {&guild, 1}, {overrides, capacity}, &packet);
     if (err != NotificationSettingsDecodeError::none) {
         notification_incomplete(e, payload, f.guild);

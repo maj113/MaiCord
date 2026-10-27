@@ -6,29 +6,13 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "json_field_lists.hpp"
+#include "json_helpers.hpp"
 
 namespace maicord {
 namespace {
-bool whitespace(u32 scalar) noexcept {
-    return scalar <= 32 || scalar == 0x85 || scalar == 0xa0 || scalar == 0x1680 ||
-        (scalar >= 0x2000 && scalar <= 0x200a) || scalar == 0x2028 || scalar == 0x2029 ||
-        scalar == 0x202f || scalar == 0x205f || scalar == 0x3000;
-}
 bool valid_name(Utf8View name, bool nonblank) noexcept {
-    if (!name.bytes || name.bytes > kThreadBrowserNameMaximumBytes ||
-        !byte_range_valid({reinterpret_cast<const u8*>(name.data), name.bytes})) return false;
-    const auto valid = utf8_validate(name);
-    if (!valid.valid || !valid.codepoints || valid.codepoints > kThreadBrowserNameMaximumScalars)
-        return false;
-    bool content = false;
-    for (u32 at = 0; at < name.bytes;) {
-        const auto scalar = utf8_decode_one(name.data + at, name.bytes - at);
-        if (!scalar.valid || scalar.codepoint < 32 ||
-            (scalar.codepoint >= 127 && scalar.codepoint <= 159)) return false;
-        content |= !whitespace(scalar.codepoint);
-        at += scalar.width;
-    }
-    return !nonblank || content;
+    return protocol_detail::name_text_valid(name, kThreadBrowserNameMaximumBytes, kThreadBrowserNameMaximumScalars,
+                                            nonblank);
 }
 struct PageParse {
     JsonIndexedDocument document;
@@ -316,7 +300,7 @@ u32 write_preview(Utf8View content, char* output) noexcept {
     for (u32 at = 0; at < content.bytes;) {
         const auto scalar = utf8_decode_one(content.data + at, content.bytes - at);
         if (!scalar.valid) return 0;
-        if (whitespace(scalar.codepoint) || (scalar.codepoint >= 127 && scalar.codepoint <= 159)) space = bytes != 0;
+        if (protocol_detail::unicode_blank(scalar.codepoint) || (scalar.codepoint >= 127 && scalar.codepoint <= 159)) space = bytes != 0;
         else {
             const u32 need = scalar.width + (space ? 1u : 0u);
             if (bytes + need > kThreadBrowserPostPreviewMaximumBytes) break;

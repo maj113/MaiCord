@@ -1,5 +1,6 @@
 #include "maicord/protocol/embed_player.hpp"
 #include "json_field_lists.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/ascii.hpp"
@@ -19,14 +20,8 @@ bool id_chars(const Utf8View& id, bool dashes = false) noexcept {
 bool video_id(Utf8View id) noexcept { return id.bytes == 11 && id_chars(id, true); }
 // Decimal identifier of at most 20 digits without a leading zero; 0 when invalid or above 2^64.
 u64 numeric_id(const Utf8View& id) noexcept {
-    if (!id.data || !id.bytes || id.bytes > 20 || id.data[0] == '0') return 0;
     u64 value = 0;
-    for (u32 i = 0; i < id.bytes; ++i) {
-        const u32 digit = static_cast<u8>(id.data[i]) - '0';
-        if (digit > 9 || value > (~u64{0} - digit) / 10) return 0;
-        value = value * 10 + digit;
-    }
-    return value;
+    return id.data && snowflake_parse(id, &value) ? value : 0;
 }
 // Value of already validated digits; empty is 0.
 u64 decimal(const Utf8View& digits) noexcept {
@@ -646,9 +641,6 @@ bool embed_stream_location(CdnHost cdn, const Utf8View& url_view, EmbedStreamLoc
     return true;
 }
 bool youtube_stream_url(Utf8View url) noexcept { return embed_stream_location(CdnHost::google_video, url); }
-u32 youtube_stream_get(Utf8View url, u64 first, u32 bytes, Slice<u8> output) noexcept {
-    return embed_stream_get(CdnHost::google_video, url, first, bytes, output);
-}
 u32 embed_stream_get(CdnHost cdn, Utf8View url, u64 first, u32 bytes, Slice<u8> output) noexcept {
     EmbedStreamLocation location{};
     const bool whole_preview = (embed_audio_preview_limit(cdn) || embed_playlist_host(cdn)) && !bytes && !first;

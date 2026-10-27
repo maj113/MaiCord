@@ -1,19 +1,14 @@
 #include "maicord/protocol/embed_player.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "json_field_lists.hpp"
 
 namespace maicord {
 bool twitch_vod_id(Utf8View id) noexcept {
-    if (!id.data || !id.bytes || id.bytes > 20 || id.data[0] == '0') return false;
     u64 value = 0;
-    for (u32 i = 0; i < id.bytes; ++i) {
-        const u32 digit = static_cast<u8>(id.data[i]) - '0';
-        if (digit > 9 || value > (~u64{0} - digit) / 10) return false;
-        value = value * 10 + digit;
-    }
-    return value != 0;
+    return id.data && snowflake_parse(id, &value);
 }
 bool twitch_channel_id(Utf8View id) noexcept {
     if (!id.data || !id.bytes || id.bytes > 25) return false;

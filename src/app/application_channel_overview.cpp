@@ -1450,7 +1450,7 @@ bool application_channel_overview_response(const RestClientResponse& response, U
             completion.kind = ChannelOverviewCompletionKind::rejected;
         else if (response.status_code == 200) {
             completion.kind = ChannelOverviewCompletionKind::success;
-            decoded = channel_overview_decode(body, false, nullptr, &remote).ok();
+            decoded = channel_overview_decode(body, &remote).ok();
         }
     }
     if (!channel_overview_controller_complete(&p.controller, p.controller.scope, response.request_id, completion,

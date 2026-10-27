@@ -339,10 +339,6 @@ AppleMusicCollectionLocator apple_music_collection_locator(Utf8View url) noexcep
     return {id,country,true,u.path};
 }
 bool embed_collection_url(Utf8View url) noexcept { return soundcloud_collection_url(url) || youtube_collection_locator(url).list.bytes || apple_music_collection_locator(url).id.bytes; }
-bool embed_provider_video_frame(EmbedProvider value) noexcept {
-    return value == EmbedProvider::youtube || value == EmbedProvider::youtube_music ||
-           value == EmbedProvider::twitch || value == EmbedProvider::twitch_vod || value == EmbedProvider::twitch_live || value == EmbedProvider::tiktok;
-}
 SteamVideoLocator steam_video_locator(Utf8View url) noexcept {
     Url u{};
     if (!parse(url, &u) || provider(u) != EmbedProvider::steam) return {};

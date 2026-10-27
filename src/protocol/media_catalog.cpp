@@ -80,7 +80,7 @@ struct Context {
     Slice<char> text;
     MediaCatalogDecodeResult result;
     MediaCatalogItemKind kind;
-    u32 depth, limit, first, selected, used;
+    u32 depth, limit, selected, used;
     u64 pack_id, cover_id;
     JsonString pack_name;
     Utf8View pack_label;
@@ -213,8 +213,8 @@ bool item(void* opaque, u32, JsonValue value) noexcept {
               (c.pack_id && w.pack_id && c.pack_id != w.pack_id))))
             return fail(c, E::schema, value.source_offset);
     }
-    const u32 source_index = c.result.source_count++;
-    const bool publish = source_index >= c.first && c.selected < c.limit && !c.page_closed;
+    ++c.result.source_count;
+    const bool publish = c.selected < c.limit && !c.page_closed;
     const u32 saved = c.used;
     MediaCatalogItem output{};
     output.kind = c.kind;
@@ -492,18 +492,15 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
 }
 
 MediaCatalogDecodeResult media_catalog_measure(MediaCatalogOperation operation, Utf8View input,
-                                               Slice<u32> scratch, u32 depth, u32 limit,
-                                               u32 first) noexcept {
+                                               Slice<u32> scratch, u32 depth) noexcept {
     MediaCatalogDecodeResult invalid{};
     invalid.error = E::invalid_input;
     const bool stickers = sticker_operation(operation);
-    if (!limit)
-        limit = item_limit(operation);
     if (!input.data || !input.bytes ||
         input.bytes >
             (stickers ? kMediaCatalogMaximumStickerResponseBytes : kMediaCatalogMaximumResponseBytes) ||
         !scratch.data || !scratch.count || scratch.count > kMediaCatalogStructuralCapacity || !depth ||
-        depth > 32 || limit > item_limit(operation))
+        depth > 32)
         return invalid;
     const ConstSlice<u8> source{reinterpret_cast<const u8*>(input.data), input.bytes},
         index{reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))};
@@ -519,34 +516,29 @@ MediaCatalogDecodeResult media_catalog_measure(MediaCatalogOperation operation, 
     Context c{};
     c.document = {input, {scratch.data, scanned.count}};
     c.depth = depth;
-    c.limit = limit;
-    c.first = first;
+    c.limit = item_limit(operation);
     c.text.count = stickers ? kMediaCatalogMaximumStickerTextBytes : kMediaCatalogMaximumTextBytes;
     if (!visit(c, operation))
         return c.result;
     c.result.item_count = c.selected;
     c.result.text_bytes = c.used;
-    c.result.next_index = first < c.result.source_count ? first + c.selected : c.result.source_count;
-    c.result.truncated = c.result.next_index < c.result.source_count;
+    c.result.truncated = c.selected < c.result.source_count;
     return c.result;
 }
 
 MediaCatalogDecodeResult media_catalog_decode(MediaCatalogOperation operation, Utf8View input,
                                               Slice<u32> scratch, u32 depth, Slice<MediaCatalogItem> items,
-                                              Slice<char> text, u32 limit, u32 first) noexcept {
+                                              Slice<char> text) noexcept {
     MediaCatalogDecodeResult invalid{};
     invalid.error = E::invalid_input;
     const bool stickers = sticker_operation(operation);
-    if (!limit)
-        limit = item_limit(operation);
     if (!input.data || !input.bytes ||
         input.bytes >
             (stickers ? kMediaCatalogMaximumStickerResponseBytes : kMediaCatalogMaximumResponseBytes) ||
         !scratch.data || !scratch.count || scratch.count > kMediaCatalogStructuralCapacity || !depth ||
         depth > 32 || (!items.data && items.count) || items.count > item_limit(operation) ||
         (!text.data && text.count) ||
-        text.count > (stickers ? kMediaCatalogMaximumStickerTextBytes : kMediaCatalogMaximumTextBytes) ||
-        limit > item_limit(operation))
+        text.count > (stickers ? kMediaCatalogMaximumStickerTextBytes : kMediaCatalogMaximumTextBytes))
         return invalid;
     const ConstSlice<u8> ranges[]{
         {reinterpret_cast<const u8*>(input.data), input.bytes},
@@ -572,8 +564,7 @@ MediaCatalogDecodeResult media_catalog_decode(MediaCatalogOperation operation, U
     c.items = items;
     c.text = text;
     c.depth = depth;
-    c.limit = minimum(limit, items.count);
-    c.first = first;
+    c.limit = items.count;
     if (!visit(c, operation))
         return c.result;
     const auto measured_count = c.selected, measured_bytes = c.used, total = c.result.source_count;
@@ -586,8 +577,7 @@ MediaCatalogDecodeResult media_catalog_decode(MediaCatalogOperation operation, U
         return c.result;
     c.result.item_count = measured_count;
     c.result.text_bytes = measured_bytes;
-    c.result.next_index = first < total ? first + measured_count : total;
-    c.result.truncated = c.result.next_index < total;
+    c.result.truncated = measured_count < total;
     return c.result;
 }
 } // namespace maicord

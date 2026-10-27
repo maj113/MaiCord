@@ -13,31 +13,12 @@ bool image_size_valid(u32 size) noexcept {
 }
 
 bool ascii_equal(const char* value, u32 bytes, const char* literal) noexcept {
-    if (bytes != c_string_length(literal)) {
-        return false;
-    }
-    for (u32 index = 0; index < bytes; ++index) {
-        if (value[index] != literal[index]) {
-            return false;
-        }
-    }
-    return true;
+    return bytes == c_string_length(literal) && bytes_equal(value, literal, bytes);
 }
 
 bool bytes_begin_with(ConstSlice<u8> value, u32 bytes, const char* literal) noexcept {
-    if (bytes > value.count) {
-        return false;
-    }
     const u32 literal_bytes = c_string_length(literal);
-    if (literal_bytes > bytes) {
-        return false;
-    }
-    for (u32 index = 0; index < literal_bytes; ++index) {
-        if (value[index] != static_cast<u8>(literal[index])) {
-            return false;
-        }
-    }
-    return true;
+    return bytes <= value.count && literal_bytes <= bytes && bytes_equal(value.data, literal, literal_bytes);
 }
 
 // Canonical decimal: no leading zero other than "0" itself.
@@ -46,15 +27,13 @@ bool parse_decimal(const char* value, u32 bytes, u64* output) noexcept {
 }
 
 bool parse_hexadecimal(const char* value, u32 bytes, u64* output) noexcept {
-    if (bytes == 0 || bytes > 16) {
+    if (bytes == 0 || bytes > 16)
         return false;
-    }
     u64 parsed = 0;
     for (u32 index = 0; index < bytes; ++index) {
         const i32 digit = ascii_hex_value(value[index]);
-        if (digit < 0) {
+        if (digit < 0)
             return false;
-        }
         parsed = (parsed << 4) | static_cast<u64>(digit);
     }
     *output = parsed;
@@ -80,11 +59,9 @@ CdnTargetResult failure(CdnTargetError error) noexcept {
     return CdnTargetResult{0, CdnHost::none, error};
 }
 
-CdnTargetResult publish_target(ConstSlice<u8> target, CdnHost host,
-                               Slice<u8> output) noexcept {
-    if (target.count > output.count) {
+CdnTargetResult publish_target(ConstSlice<u8> target, CdnHost host, Slice<u8> output) noexcept {
+    if (target.count > output.count)
         return failure(CdnTargetError::output_capacity);
-    }
     copy_bytes(output.data, target.data, target.count);
     return CdnTargetResult{target.count, host, CdnTargetError::none};
 }
@@ -96,38 +73,30 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 at
     // Value copies: the target stores below must not force reloads of the caller's views.
     const Utf8View url = url_view;
     const Slice<u8> target_output = output_view;
-    if (!url.data || url.bytes == 0 || attachment_id == 0 ||
-        (!target_output.data && target_output.count != 0)) {
+    if (!url.data || url.bytes == 0 || attachment_id == 0 || (!target_output.data && target_output.count != 0))
         return attachment_url_failure(AttachmentUrlError::invalid_input);
-    }
     static constexpr char scheme[] = "https://";
     constexpr u32 scheme_bytes = sizeof(scheme) - 1;
-    if (url.bytes <= scheme_bytes || !ascii_equal(url.data, scheme_bytes, scheme)) {
+    if (url.bytes <= scheme_bytes || !ascii_equal(url.data, scheme_bytes, scheme))
         return attachment_url_failure(AttachmentUrlError::invalid_scheme);
-    }
     u32 path_begin = scheme_bytes;
-    while (path_begin < url.bytes && url.data[path_begin] != '/') {
+    while (path_begin < url.bytes && url.data[path_begin] != '/')
         ++path_begin;
-    }
     CdnHost parsed_host = CdnHost::none;
-    if (path_begin != url.bytes &&
-        ascii_equal(url.data + scheme_bytes, path_begin - scheme_bytes, kCdnHost)) {
+    if (path_begin != url.bytes && ascii_equal(url.data + scheme_bytes, path_begin - scheme_bytes, kCdnHost))
         parsed_host = CdnHost::cdn;
-    } else if (path_begin != url.bytes &&
-               ascii_equal(url.data + scheme_bytes, path_begin - scheme_bytes, kMediaProxyHost)) {
+    else if (path_begin != url.bytes &&
+             ascii_equal(url.data + scheme_bytes, path_begin - scheme_bytes, kMediaProxyHost))
         parsed_host = CdnHost::media;
-    } else {
+    else
         return attachment_url_failure(AttachmentUrlError::invalid_host);
-    }
     const u32 target_bytes = url.bytes - path_begin;
-    if (target_bytes == 0 || target_bytes > kCdnMaximumTargetBytes) {
+    if (target_bytes == 0 || target_bytes > kCdnMaximumTargetBytes)
         return attachment_url_failure(AttachmentUrlError::invalid_path);
-    }
     for (u32 index = path_begin; index < url.bytes; ++index) {
         const u8 current = static_cast<u8>(url.data[index]);
-        if (current <= 0x20 || current > 0x7E || current == '#' || current == '\\') {
+        if (current <= 0x20 || current > 0x7E || current == '#' || current == '\\')
             return attachment_url_failure(AttachmentUrlError::invalid_path);
-        }
     }
 
     static constexpr char attachment_prefix[] = "/attachments/";
@@ -148,45 +117,36 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 at
     }
 
     u32 slash = offset;
-    while (slash < url.bytes && url.data[slash] != '/') {
+    while (slash < url.bytes && url.data[slash] != '/')
         ++slash;
-    }
     u64 owner_id = 0;
-    if (slash == url.bytes || !parse_decimal(url.data + offset, slash - offset, &owner_id) ||
-        owner_id == 0) {
+    if (slash == url.bytes || !parse_decimal(url.data + offset, slash - offset, &owner_id) || owner_id == 0)
         return attachment_url_failure(AttachmentUrlError::invalid_path);
-    }
     offset = slash + 1;
     slash = offset;
-    while (slash < url.bytes && url.data[slash] != '/') {
+    while (slash < url.bytes && url.data[slash] != '/')
         ++slash;
-    }
     u64 parsed_attachment_id = 0;
-    if (slash == url.bytes || !parse_decimal(url.data + offset, slash - offset, &parsed_attachment_id)) {
+    if (slash == url.bytes || !parse_decimal(url.data + offset, slash - offset, &parsed_attachment_id))
         return attachment_url_failure(AttachmentUrlError::invalid_path);
-    }
-    if (parsed_attachment_id != attachment_id) {
+    if (parsed_attachment_id != attachment_id)
         return attachment_url_failure(AttachmentUrlError::attachment_mismatch);
-    }
     offset = slash + 1;
     u32 query = offset;
     while (query < url.bytes && url.data[query] != '?') {
-        if (url.data[query] == '/') {
+        if (url.data[query] == '/')
             return attachment_url_failure(AttachmentUrlError::invalid_path);
-        }
         if (url.data[query] == '%') {
             if (query + 2 >= url.bytes || !ascii_is_hex_digit(url.data[query + 1]) ||
-                !ascii_is_hex_digit(url.data[query + 2])) {
+                !ascii_is_hex_digit(url.data[query + 2]))
                 return attachment_url_failure(AttachmentUrlError::invalid_path);
-            }
             query += 3;
         } else {
             ++query;
         }
     }
-    if (query == offset) {
+    if (query == offset)
         return attachment_url_failure(AttachmentUrlError::invalid_path);
-    }
 
     // Unsigned attachment paths are not fetchable but still identify the file in
     // older message payloads. Return the validated target already expired, so the
@@ -196,16 +156,13 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 at
     result.host = parsed_host;
     result.ephemeral = ephemeral;
     if (query == url.bytes) {
-        if (target_bytes > target_output.count) {
+        if (target_bytes > target_output.count)
             return attachment_url_failure(AttachmentUrlError::output_capacity);
-        }
         copy_bytes(target_output.data, url.data + path_begin, target_bytes);
         return result;
     }
-    if (query + 1 == url.bytes) {
-        return attachment_url_failure(AttachmentUrlError::invalid_query,
-                                      AttachmentQueryError::empty_component);
-    }
+    if (query + 1 == url.bytes)
+        return attachment_url_failure(AttachmentUrlError::invalid_query, AttachmentQueryError::empty_component);
 
     bool has_expiry = false;
     bool has_issued = false;
@@ -213,101 +170,80 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 at
     bool has_backend = false;
     u64 expires_at = 0;
     u64 issued_at = 0;
+    // A repeated authority parameter is a duplicate; any other rejection carries the given error.
+    const auto authority_failure = [&](bool duplicate, AttachmentUrlError error) noexcept {
+        return duplicate ? attachment_url_failure(AttachmentUrlError::invalid_query,
+                                                  AttachmentQueryError::duplicate_authority)
+                         : attachment_url_failure(error);
+    };
     offset = query + 1;
     while (offset < url.bytes) {
         u32 end = offset;
-        while (end < url.bytes && url.data[end] != '&') {
+        while (end < url.bytes && url.data[end] != '&')
             ++end;
-        }
-        if (end == offset) {
-            return attachment_url_failure(AttachmentUrlError::invalid_query,
-                                          AttachmentQueryError::empty_component);
-        }
+        if (end == offset)
+            return attachment_url_failure(AttachmentUrlError::invalid_query, AttachmentQueryError::empty_component);
         u32 equals = offset;
-        while (equals < end && url.data[equals] != '=') {
+        while (equals < end && url.data[equals] != '=')
             ++equals;
-        }
-        if (equals == end) {
-            return attachment_url_failure(AttachmentUrlError::invalid_query,
-                                          AttachmentQueryError::missing_equals);
-        }
+        if (equals == end)
+            return attachment_url_failure(AttachmentUrlError::invalid_query, AttachmentQueryError::missing_equals);
         // Some attachment URLs carry an empty `=` media-proxy marker. It grants
         // nothing and is dropped from the canonical target.
         if (equals == offset && equals + 1 == end) {
             offset = end < url.bytes ? end + 1 : end;
             continue;
         }
-        if (equals == offset || equals + 1 == end) {
+        if (equals == offset || equals + 1 == end)
             return attachment_url_failure(AttachmentUrlError::invalid_query,
                                           AttachmentQueryError::empty_name_or_value);
-        }
         const char* name = url.data + offset;
         const u32 name_bytes = equals - offset;
         const char* value = url.data + equals + 1;
         const u32 value_bytes = end - equals - 1;
         if (ascii_equal(name, name_bytes, "ex")) {
-            if (has_expiry || !parse_hexadecimal(value, value_bytes, &expires_at)) {
-                return attachment_url_failure(has_expiry ? AttachmentUrlError::invalid_query
-                                                         : AttachmentUrlError::invalid_timestamp,
-                                              has_expiry ? AttachmentQueryError::duplicate_authority
-                                                         : AttachmentQueryError::none);
-            }
+            if (has_expiry || !parse_hexadecimal(value, value_bytes, &expires_at))
+                return authority_failure(has_expiry, AttachmentUrlError::invalid_timestamp);
             has_expiry = true;
         } else if (ascii_equal(name, name_bytes, "is")) {
-            if (has_issued || !parse_hexadecimal(value, value_bytes, &issued_at)) {
-                return attachment_url_failure(has_issued ? AttachmentUrlError::invalid_query
-                                                         : AttachmentUrlError::invalid_timestamp,
-                                              has_issued ? AttachmentQueryError::duplicate_authority
-                                                         : AttachmentQueryError::none);
-            }
+            if (has_issued || !parse_hexadecimal(value, value_bytes, &issued_at))
+                return authority_failure(has_issued, AttachmentUrlError::invalid_timestamp);
             has_issued = true;
         } else if (ascii_equal(name, name_bytes, "hm")) {
-            if (has_signature || value_bytes != 64) {
-                return attachment_url_failure(has_signature ? AttachmentUrlError::invalid_query
-                                                            : AttachmentUrlError::invalid_signature,
-                                              has_signature
-                                                  ? AttachmentQueryError::duplicate_authority
-                                                  : AttachmentQueryError::none);
-            }
-            for (u32 index = 0; index < value_bytes; ++index) {
-                if (!ascii_is_hex_digit(value[index])) {
+            if (has_signature || value_bytes != 64)
+                return authority_failure(has_signature, AttachmentUrlError::invalid_signature);
+            for (u32 index = 0; index < value_bytes; ++index)
+                if (!ascii_is_hex_digit(value[index]))
                     return attachment_url_failure(AttachmentUrlError::invalid_signature);
-                }
-            }
             has_signature = true;
         } else if (ascii_equal(name, name_bytes, "backend")) {
             // Routing hint selecting B2 storage; kept in the target. Any other
             // backend value or a repeat is refused.
-            if (has_backend || !ascii_equal(value, value_bytes, "b2")) {
+            if (has_backend || !ascii_equal(value, value_bytes, "b2"))
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::backend_parameter);
-            }
             has_backend = true;
         } else if (ascii_equal(name, name_bytes, "width") || ascii_equal(name, name_bytes, "height") ||
                    ascii_equal(name, name_bytes, "size")) {
             u64 dimension = 0;
-            if (!parse_decimal(value, value_bytes, &dimension) || dimension == 0 || dimension > 4'096) {
+            if (!parse_decimal(value, value_bytes, &dimension) || dimension == 0 || dimension > 4'096)
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::invalid_dimension);
-            }
         } else if (ascii_equal(name, name_bytes, "format")) {
             if (!ascii_equal(value, value_bytes, "png") && !ascii_equal(value, value_bytes, "webp") &&
                 !ascii_equal(value, value_bytes, "jpeg") && !ascii_equal(value, value_bytes, "jpg") &&
-                !ascii_equal(value, value_bytes, "avif")) {
+                !ascii_equal(value, value_bytes, "avif"))
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::unsupported_format);
-            }
         } else if (ascii_equal(name, name_bytes, "quality")) {
-            if (!ascii_equal(value, value_bytes, "lossless")) {
+            if (!ascii_equal(value, value_bytes, "lossless"))
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::unsupported_quality);
-            }
         } else if (ascii_equal(name, name_bytes, "animated")) {
             // Boolean animated-preview hint; carries no signed-attachment authority.
-            if (!ascii_equal(value, value_bytes, "true") && !ascii_equal(value, value_bytes, "false")) {
+            if (!ascii_equal(value, value_bytes, "true") && !ascii_equal(value, value_bytes, "false"))
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::animated_parameter);
-            }
         } else {
             const auto category = ascii_equal(name, name_bytes, "force_sdr")
                                       ? AttachmentQueryError::force_sdr_parameter
@@ -320,16 +256,12 @@ AttachmentUrlResult parse_signed_attachment_url(const Utf8View& url_view, u64 at
         }
         offset = end < url.bytes ? end + 1 : end;
     }
-    if (!has_expiry || !has_issued || !has_signature) {
-        return attachment_url_failure(AttachmentUrlError::invalid_query,
-                                      AttachmentQueryError::missing_authority);
-    }
-    if (issued_at > expires_at) {
+    if (!has_expiry || !has_issued || !has_signature)
+        return attachment_url_failure(AttachmentUrlError::invalid_query, AttachmentQueryError::missing_authority);
+    if (issued_at > expires_at)
         return attachment_url_failure(AttachmentUrlError::invalid_timestamp);
-    }
-    if (target_bytes > target_output.count) {
+    if (target_bytes > target_output.count)
         return attachment_url_failure(AttachmentUrlError::output_capacity);
-    }
     copy_bytes(target_output.data, url.data + path_begin, target_bytes);
     result.issued_at_seconds = issued_at;
     result.expires_at_seconds = expires_at;

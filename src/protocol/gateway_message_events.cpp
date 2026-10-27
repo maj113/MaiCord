@@ -856,21 +856,33 @@ GatewayEventDecodeResult gateway_decode_message_snapshot_core(JsonValue data, Sl
     return result;
 }
 
+namespace {
+// A message decoded without rich capture. Member roles are scratch the caller never sees; mention roles
+// are dropped too when they live in the caller's own frame.
+GatewayEventDecodeResult decode_plain(JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
+                                      Slice<char> content_scratch, Slice<u64> mention_roles, bool keep_mention_roles,
+                                      Slice<GatewayMessageNamedUser> mention_users, u64 current_user_id,
+                                      bool capture_names, bool create, GatewayMessageEvent* output) noexcept {
+    u64 member_roles[kGatewayMessageMemberRoleMaximumIds]{};
+    const GatewayEventDecodeResult result =
+        decode_message(data, structural_scratch, maximum_depth, content_scratch, mention_roles,
+                       Slice<u64>{member_roles, kGatewayMessageMemberRoleMaximumIds}, mention_users,
+                       GatewayMessageRichScratch{}, current_user_id, capture_names, false, create, output);
+    if (result.ok()) {
+        if (!keep_mention_roles)
+            output->mention_roles = ConstSlice<u64>{nullptr, 0};
+        output->member_roles = ConstSlice<u64>{nullptr, 0};
+    }
+    return result;
+}
+} // namespace
+
 GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
                                                        u32 maximum_depth, Slice<char> content_scratch,
                                                        GatewayMessageEvent* output) noexcept {
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
-    u64 member_roles[kGatewayMessageMemberRoleMaximumIds]{};
-    const GatewayEventDecodeResult result = decode_message(
-        data, structural_scratch, maximum_depth, content_scratch,
-        Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds},
-        Slice<u64>{member_roles, kGatewayMessageMemberRoleMaximumIds}, Slice<GatewayMessageNamedUser>{},
-        GatewayMessageRichScratch{}, 0, false, false, true, output);
-    if (result.ok()) {
-        output->mention_roles = ConstSlice<u64>{nullptr, 0};
-        output->member_roles = ConstSlice<u64>{nullptr, 0};
-    }
-    return result;
+    return decode_plain(data, structural_scratch, maximum_depth, content_scratch,
+                        {mention_roles, kGatewayMessageMentionRoleMaximumIds}, false, {}, 0, false, true, output);
 }
 
 GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
@@ -879,15 +891,8 @@ GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32
                                                        Slice<GatewayMessageNamedUser> mention_user_scratch,
                                                        u64 current_user_id,
                                                        GatewayMessageEvent* output) noexcept {
-    u64 member_roles[kGatewayMessageMemberRoleMaximumIds]{};
-    const GatewayEventDecodeResult result =
-        decode_message(data, structural_scratch, maximum_depth, content_scratch, mention_role_scratch,
-                       Slice<u64>{member_roles, kGatewayMessageMemberRoleMaximumIds}, mention_user_scratch,
-                       GatewayMessageRichScratch{}, current_user_id, true, false, true, output);
-    if (result.ok()) {
-        output->member_roles = ConstSlice<u64>{nullptr, 0};
-    }
-    return result;
+    return decode_plain(data, structural_scratch, maximum_depth, content_scratch, mention_role_scratch, true,
+                        mention_user_scratch, current_user_id, true, true, output);
 }
 
 GatewayEventDecodeResult gateway_decode_message_create(
@@ -904,17 +909,8 @@ GatewayEventDecodeResult gateway_decode_message_update(JsonValue data, Slice<u32
                                                        u32 maximum_depth, Slice<char> content_scratch,
                                                        GatewayMessageEvent* output) noexcept {
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
-    u64 member_roles[kGatewayMessageMemberRoleMaximumIds]{};
-    const GatewayEventDecodeResult result = decode_message(
-        data, structural_scratch, maximum_depth, content_scratch,
-        Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds},
-        Slice<u64>{member_roles, kGatewayMessageMemberRoleMaximumIds}, Slice<GatewayMessageNamedUser>{},
-        GatewayMessageRichScratch{}, 0, false, false, false, output);
-    if (result.ok()) {
-        output->mention_roles = ConstSlice<u64>{nullptr, 0};
-        output->member_roles = ConstSlice<u64>{nullptr, 0};
-    }
-    return result;
+    return decode_plain(data, structural_scratch, maximum_depth, content_scratch,
+                        {mention_roles, kGatewayMessageMentionRoleMaximumIds}, false, {}, 0, false, false, output);
 }
 
 GatewayEventDecodeResult gateway_decode_message_update(

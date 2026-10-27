@@ -162,9 +162,6 @@ EmbedPlayerError twitch_clip_streams(Utf8View json, Utf8View id, u16 maximum_hei
 u32 tiktok_player_target(Utf8View id, Slice<u8>) noexcept;
 EmbedPlayerError tiktok_player_streams(Utf8View json, Utf8View id, u16 maximum_height,
     u64 unix_seconds, Slice<u32> scratch, EmbedStreams*) noexcept;
-// Bounded credential-free media GET; requires a nonempty range. Unlike player
-// metadata, this request never carries Cookie, Authorization or visitor state.
-u32 youtube_stream_get(Utf8View url, u64 first, u32 bytes, Slice<u8> output) noexcept;
 // Native client context observed in local research. visitor is public bootstrap
 // metadata, never a Google credential. Output is untouched on failure.
 u32 youtube_player_body(Utf8View video_id, Utf8View visitor, Slice<u8> output) noexcept;

@@ -87,7 +87,6 @@ GatewayLifecycleStep gateway_lifecycle_closed(GatewayLifecycle* lifecycle, u16 c
 // in name order, and the client is active while it has any.
 inline constexpr u8 gateway_qos_foregrounded = 1u << 0;
 inline constexpr u8 gateway_qos_rtc_connected = 1u << 1;
-inline constexpr u32 kGatewayQosVersion = 31;
 struct GatewayQosPayload {
     u8 reasons;
     bool active;

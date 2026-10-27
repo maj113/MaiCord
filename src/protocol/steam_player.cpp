@@ -1,5 +1,6 @@
 #include "maicord/protocol/embed_player.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
@@ -7,14 +8,8 @@
 
 namespace maicord {
 u32 steam_id(const Utf8View& value) noexcept {
-    if (!value.data || !value.bytes || value.bytes > 10 || value.data[0] == '0') return 0;
-    u32 result = 0;
-    for (u32 i = 0; i < value.bytes; ++i) {
-        const u32 digit = static_cast<u8>(value.data[i]) - '0';
-        if (digit > 9 || result > (~u32{0} - digit) / 10) return 0;
-        result = result * 10 + digit;
-    }
-    return result;
+    u64 parsed = 0;
+    return value.data && snowflake_parse(value, &parsed) && parsed <= ~u32{0} ? static_cast<u32>(parsed) : 0;
 }
 u32 steam_video_target(Utf8View app, Slice<u8> output) noexcept {
     if (!steam_id(app)) return 0;

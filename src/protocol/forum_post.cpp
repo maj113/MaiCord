@@ -5,20 +5,13 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "json_field_lists.hpp"
+#include "json_helpers.hpp"
 #include "json_write.hpp"
 
 namespace maicord {
 static_assert(kForumPostMaximumResponseBytes == kThreadCreationForumMaximumResponseBytes);
 namespace {
 constexpr u32 obfuscated_channel_flag = 1u << 17;
-bool archive_duration(u64 value) noexcept {
-    return value == 60 || value == 1440 || value == 4320 || value == 10080;
-}
-bool whitespace(u32 value) noexcept {
-    return value <= 32 || value == 0x85 || value == 0xa0 || value == 0x1680 ||
-           (value >= 0x2000 && value <= 0x200a) || value == 0x2028 || value == 0x2029 || value == 0x202f ||
-           value == 0x205f || value == 0x3000;
-}
 bool text_valid(Utf8View text, u32 maximum_bytes, u32 maximum_scalars, bool multiline,
                 bool require_nonblank) noexcept {
     if (text.bytes > maximum_bytes ||
@@ -36,7 +29,7 @@ bool text_valid(Utf8View text, u32 maximum_bytes, u32 maximum_scalars, bool mult
             (scalar.codepoint >= 127 && scalar.codepoint <= 159) ||
             (!multiline && (scalar.codepoint == 0x2028 || scalar.codepoint == 0x2029)))
             return false;
-        nonblank |= !whitespace(scalar.codepoint);
+        nonblank |= !protocol_detail::unicode_blank(scalar.codepoint);
         at += scalar.width;
     }
     return !require_nonblank || nonblank;
@@ -214,7 +207,7 @@ bool parent_field(void* opaque, JsonString name, JsonValue value) noexcept {
                 parse.value.fields |= forum_parent_flags;
             }
         } else {
-            valid &= archive_duration(scalar);
+            valid &= protocol_detail::thread_archive_duration(scalar);
             if (valid) {
                 parse.value.default_auto_archive_duration = static_cast<u16>(scalar);
                 parse.value.fields |= forum_parent_default_archive_duration;
@@ -538,7 +531,7 @@ bool forum_post_request_valid(const ForumPostRequest& request) noexcept {
             if (request.attachments[at].id == request.attachments[before].id)
                 return false;
     }
-    return archive_duration(request.auto_archive_duration) &&
+    return protocol_detail::thread_archive_duration(request.auto_archive_duration) &&
            unique_ids({request.applied_tag_ids, request.tag_count}, 5) &&
            text_valid(request.title, 400, 100, false, true) &&
            text_valid(request.content, 8000, 2000, true, !request.attachments.count);

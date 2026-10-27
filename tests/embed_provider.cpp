@@ -50,8 +50,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_embed_provider_entry() noexc
     check(embed_provider(utf8_literal("https://www.tiktok.com/player/v1/123")) == P::tiktok, "TikTok host");
     check(embed_provider(utf8_literal("https://session-share.playstation.com/123")) == P::playstation,
           "PlayStation host");
-    check(!embed_provider_video_frame(P::playstation) && !embed_provider_video_frame(P::spotify) &&
-          embed_provider_video_frame(P::youtube_music) && embed_provider_video_frame(P::twitch),
-          "video frames differ from music widgets and session cards");
     ExitProcess(failures ? 1 : 0);
 }

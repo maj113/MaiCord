@@ -95,7 +95,6 @@ struct MediaCatalogWriteResult {
 struct MediaCatalogDecodeResult {
     u32 item_count;
     u32 source_count;
-    u32 next_index;
     u32 text_bytes;
     u32 error_offset;
     MediaCatalogError error;
@@ -123,11 +122,10 @@ StickerSendability guild_sticker_sendability(u64 sticker_guild_id, u64 channel_g
 MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& query,
                                                    Slice<u8> output) noexcept;
 // Measures the validated owned representation without touching item/text
-// output. A zero limit selects 50 GIF records or 4096 sticker records, so full
-// packs and guild catalogs can be allocated exactly on use.
+// output: at most 50 GIF records or 4096 sticker records, so full packs and
+// guild catalogs can be allocated exactly on use.
 MediaCatalogDecodeResult media_catalog_measure(MediaCatalogOperation operation, Utf8View input,
-                                               Slice<u32> structural_scratch, u32 maximum_depth,
-                                               u32 limit = 0, u32 first_item = 0) noexcept;
+                                               Slice<u32> structural_scratch, u32 maximum_depth) noexcept;
 // One bounded structural index, nested indexed visitors, and two passes:
 // validate/measure first, then publish owned records atomically. Excess valid
 // records are reported as truncated; unknown provider metadata is ignored.
@@ -135,7 +133,6 @@ MediaCatalogDecodeResult media_catalog_measure(MediaCatalogOperation operation, 
 // fetching here; the existing media transport's admission policy still applies.
 MediaCatalogDecodeResult media_catalog_decode(MediaCatalogOperation operation, Utf8View input,
                                               Slice<u32> structural_scratch, u32 maximum_depth,
-                                              Slice<MediaCatalogItem> items, Slice<char> text_output,
-                                              u32 limit = 0, u32 first_item = 0) noexcept;
+                                              Slice<MediaCatalogItem> items, Slice<char> text_output) noexcept;
 
 } // namespace maicord

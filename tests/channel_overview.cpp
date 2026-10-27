@@ -23,44 +23,28 @@ bool unchanged(const ChannelOverviewSnapshot& a, const ChannelOverviewSnapshot& 
 void test_channel_overview(void (*check)(bool, const char*) noexcept) noexcept {
     ChannelOverviewSnapshot value{};
     auto decoded = channel_overview_decode(
-        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"general\"}"), false, nullptr,
-        &value);
+        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"general\"}"), &value);
     check(
         decoded.ok() && decoded.fields == channel_overview_name &&
             value.known_fields == channel_overview_all && value.channel_id == 20 && value.guild_id == 10 &&
             !value.topic_bytes && !value.nsfw && !value.slowmode_seconds,
         "channel overview codec: full authority defaults absent optional fields and owns all four values");
-    decoded = channel_overview_decode(utf8_literal("{\"id\":\"20\",\"topic\":\"Hello "
-                                                   "\\uD83D\\uDE00\\nworld\",\"rate_limit_per_user\":21600,"
-                                                   "\"nsfw\":true,\"unknown\":{\"list\":[1,2]}}"),
-                                      true, &value, &value);
-    check(decoded.ok() && decoded.fields == 14 && value.nsfw && value.slowmode_seconds == 21600 &&
-              same(channel_overview_name_view(value), utf8_literal("general")) && value.topic_bytes == 16,
-          "channel overview codec: sparse escaped Unicode update preserves omitted fields and supports "
-          "in-place output");
-    check(channel_overview_decode(utf8_literal("{\"id\":\"20\",\"topic\":null}"), true, &value, &value)
-                  .ok() &&
-              !value.topic_bytes && value.nsfw && value.slowmode_seconds == 21600,
-          "channel overview codec: explicit null clears topic without defaulting partial omissions");
     const auto saved = value;
-    const Utf8View invalid[] = {utf8_literal("{\"id\":\"21\",\"name\":\"other\"}"),
-                                utf8_literal("{\"id\":\"20\",\"guild_id\":\"11\"}"),
-                                utf8_literal("{\"id\":\"20\",\"type\":5}"),
-                                utf8_literal("{\"id\":\"20\",\"name\":\"\"}"),
-                                utf8_literal("{\"id\":\"20\",\"name\":\"bad\\nname\"}"),
-                                utf8_literal("{\"id\":\"20\",\"name\":\"x\",\"na\\u006de\":\"y\"}"),
-                                utf8_literal("{\"id\":\"20\",\"nsfw\":7}"),
-                                utf8_literal("{\"id\":\"20\",\"rate_limit_per_user\":21601}"),
-                                utf8_literal("{\"id\":\"20\",\"unknown\":[true,]}"),
-                                utf8_literal("{\"id\":\"20\",\"topic\":\"\\uD800\"}")};
+    const Utf8View invalid[] = {
+        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":5,\"name\":\"x\"}"),
+        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"\"}"),
+        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"bad\\nname\"}"),
+        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"x\",\"na\\u006de\":\"y\"}"),
+        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"x\",\"nsfw\":7}"),
+        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"x\",\"rate_limit_per_user\":21601}"),
+        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"x\",\"unknown\":[true,]}"),
+        utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"x\",\"topic\":\"\\uD800\"}")};
     bool atomic = true;
     for (const auto input : invalid)
-        atomic =
-            !channel_overview_decode(input, true, &value, &value).ok() && unchanged(value, saved) && atomic;
+        atomic = !channel_overview_decode(input, &value).ok() && unchanged(value, saved) && atomic;
     check(atomic, "channel overview codec: identity type duplicate malformed Unicode and field failures "
                   "preserve the entire output atomically");
-    check(!channel_overview_decode(utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0}"), false,
-                                   nullptr, &value)
+    check(!channel_overview_decode(utf8_literal("{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0}"), &value)
                   .ok() &&
               unchanged(value, saved),
           "channel overview codec: full response cannot invent a missing channel name");
@@ -103,12 +87,13 @@ void test_channel_overview(void (*check)(bool, const char*) noexcept) noexcept {
         "channel overview codec: wire name cannot be empty and empty or unknown patch masks are rejected");
     char many[12'000]{};
     ProtocolWriter builder{{reinterpret_cast<u8*>(many), sizeof(many)}, 0};
-    bool built = protocol_writer_append_literal(&builder, "{\"id\":\"20\",\"unknown\":[0");
+    bool built = protocol_writer_append_literal(
+        &builder, "{\"id\":\"20\",\"guild_id\":\"10\",\"type\":0,\"name\":\"x\",\"unknown\":[0");
     for (u32 i = 0; i < 5'000; ++i)
         built = protocol_writer_append_literal(&builder, ",0") && built;
     built = protocol_writer_append_literal(&builder, "]}") && built;
     check(built &&
-              channel_overview_decode({many, builder.used}, true, &value, &value).error ==
+              channel_overview_decode({many, builder.used}, &value).error ==
                   ChannelOverviewError::capacity &&
               unchanged(value, saved),
           "channel overview codec: bounded structural overflow rejects an entire otherwise valid unknown "

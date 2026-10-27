@@ -50,150 +50,97 @@ bool valid_user_headers(const RestUserRequestHeaders& headers) noexcept {
 }
 
 const char* method_literal(RestMethod method) noexcept {
-    switch (method) {
-    case RestMethod::get:
-        return "GET";
-    case RestMethod::post:
-        return "POST";
-    case RestMethod::put:
-        return "PUT";
-    case RestMethod::patch:
-        return "PATCH";
-    case RestMethod::delete_method:
-        return "DELETE";
-    case RestMethod::head:
-        return "HEAD";
-    default:
-        return nullptr;
-    }
-}
-
-u32 literal_bytes(const char* value) noexcept {
-    u32 count = 0;
-    while (value[count] != 0) {
-        ++count;
-    }
-    return count;
-}
-
-bool valid_target(ConstSlice<u8> target) noexcept {
-    if (!target.data || target.count == 0 || target[0] != '/' || (target.count > 1 && target[1] == '/')) {
-        return false;
-    }
-    for (u32 index = 0; index < target.count; ++index) {
-        const u8 value = target[index];
-        if (value < 0x21 || value > 0x7E || value == '#') {
-            return false;
-        }
-    }
-    return true;
+    static constexpr const char* names[] = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"};
+    const u32 index = static_cast<u32>(method);
+    return index < 6 ? names[index] : nullptr;
 }
 
 bool valid_token(ConstSlice<u8> token) noexcept {
-    if (!token.data || token.count == 0) {
+    if (!token.data || token.count == 0)
         return false;
-    }
-    for (u32 index = 0; index < token.count; ++index) {
-        if (token[index] < 0x21 || token[index] > 0x7E) {
+    for (u32 index = 0; index < token.count; ++index)
+        if (token[index] < 0x21 || token[index] > 0x7E)
             return false;
-        }
-    }
     return true;
 }
 
 bool parse_u32(ConstSlice<u8> value, u32* output) noexcept {
     u64 parsed = 0;
-    if (!value.data || !decimal_parse_padded(value, &parsed) || parsed > ~u32{0}) {
+    if (!value.data || !decimal_parse_padded(value, &parsed) || parsed > ~u32{0})
         return false;
-    }
     *output = static_cast<u32>(parsed);
     return true;
 }
 
 bool parse_decimal_milliseconds(ConstSlice<u8> value, u64* output) noexcept {
-    if (!value.data || value.count == 0) {
+    if (!value.data || value.count == 0)
         return false;
-    }
+    const auto digit_at = [&](u32 at) noexcept { return at < value.count && value[at] >= '0' && value[at] <= '9'; };
     u32 offset = 0;
-    while (offset < value.count && value[offset] >= '0' && value[offset] <= '9') {
+    while (digit_at(offset))
         ++offset;
-    }
     u64 seconds = 0;
-    if (!decimal_parse_padded(ConstSlice<u8>{value.data, offset}, &seconds)) {
+    if (!decimal_parse_padded(ConstSlice<u8>{value.data, offset}, &seconds))
         return false;
-    }
     u64 fractional_ms = 0;
     u32 fractional_digits = 0;
     bool round_up = false;
     if (offset < value.count && value[offset] == '.') {
-        ++offset;
-        const u32 fraction_begin = offset;
-        while (offset < value.count && value[offset] >= '0' && value[offset] <= '9') {
+        const u32 fraction_begin = ++offset;
+        for (; digit_at(offset); ++offset, ++fractional_digits) {
             const u8 digit = static_cast<u8>(value[offset] - '0');
-            if (fractional_digits < 3) {
+            if (fractional_digits < 3)
                 fractional_ms = fractional_ms * 10ull + digit;
-            } else if (digit != 0) {
+            else if (digit != 0)
                 round_up = true;
-            }
-            ++fractional_digits;
-            ++offset;
         }
-        if (offset == fraction_begin) {
+        if (offset == fraction_begin)
             return false;
-        }
     }
-    if (offset != value.count) {
+    if (offset != value.count)
         return false;
-    }
-    while (fractional_digits < 3) {
+    for (; fractional_digits < 3; ++fractional_digits)
         fractional_ms *= 10ull;
-        ++fractional_digits;
-    }
-    if (seconds > (~0ull - fractional_ms - (round_up ? 1ull : 0ull)) / 1000ull) {
+    const u64 total_fraction = fractional_ms + (round_up ? 1ull : 0ull);
+    if (seconds > (~0ull - total_fraction) / 1000ull)
         return false;
-    }
-    *output = seconds * 1000ull + fractional_ms + (round_up ? 1ull : 0ull);
+    *output = seconds * 1000ull + total_fraction;
     return true;
 }
 
 bool parse_bool_ascii(ConstSlice<u8> value, bool* output) noexcept {
-    if (http_ascii_equal_case_insensitive(value, "true")) {
-        *output = true;
-        return true;
-    }
-    if (http_ascii_equal_case_insensitive(value, "false")) {
-        *output = false;
-        return true;
-    }
+    const bool is_true = http_ascii_equal_case_insensitive(value, "true");
+    if (!is_true && !http_ascii_equal_case_insensitive(value, "false"))
+        return false;
+    *output = is_true;
+    return true;
+}
+
+bool rate_head_failure(RateHeadContext* context, RestHeadError error, u32 offset) noexcept {
+    context->error = error;
+    context->error_offset = offset;
     return false;
 }
 
 bool begin_rate_field(RateHeadContext* context, u32 field, u32 offset) noexcept {
-    if ((context->rate.fields & field) != 0) {
-        context->error = RestHeadError::duplicate_rate_field;
-        context->error_offset = offset;
-        return false;
-    }
+    if ((context->rate.fields & field) != 0)
+        return rate_head_failure(context, RestHeadError::duplicate_rate_field, offset);
     context->rate.fields |= field;
     return true;
 }
 
 RestContentType classify_content_type(ConstSlice<u8> value) noexcept {
     u32 media_bytes = 0;
-    while (media_bytes < value.count && value[media_bytes] != ';') {
+    while (media_bytes < value.count && value[media_bytes] != ';')
         ++media_bytes;
-    }
     const ConstSlice<u8> media = http_trim_ows(ConstSlice<u8>{value.data, media_bytes});
-    if (http_ascii_equal_case_insensitive(media, "application/json") ||
-        http_ascii_equal_case_insensitive(media, "text/json") ||
+    const auto is = [&](const char* literal) noexcept { return http_ascii_equal_case_insensitive(media, literal); };
+    if (is("application/json") || is("text/json") ||
         (media.count >= 5 &&
-         http_ascii_equal_case_insensitive(ConstSlice<u8>{media.data + media.count - 5, 5}, "+json"))) {
+         http_ascii_equal_case_insensitive(ConstSlice<u8>{media.data + media.count - 5, 5}, "+json")))
         return RestContentType::json;
-    }
-    if (http_ascii_equal_case_insensitive(media, "text/html") ||
-        http_ascii_equal_case_insensitive(media, "application/xhtml+xml")) {
+    if (is("text/html") || is("application/xhtml+xml"))
         return RestContentType::html;
-    }
     return media.count >= 5 && http_ascii_equal_case_insensitive(ConstSlice<u8>{media.data, 5}, "text/")
                ? RestContentType::text
                : RestContentType::other;
@@ -201,28 +148,13 @@ RestContentType classify_content_type(ConstSlice<u8> value) noexcept {
 
 RestContentEncoding classify_content_encoding(ConstSlice<u8> value) noexcept {
     const ConstSlice<u8> encoding = http_trim_ows(value);
-    if (http_ascii_equal_case_insensitive(encoding, "identity")) {
-        return RestContentEncoding::identity;
-    }
-    if (http_ascii_equal_case_insensitive(encoding, "gzip")) {
-        return RestContentEncoding::gzip;
-    }
-    if (http_ascii_equal_case_insensitive(encoding, "deflate")) {
-        return RestContentEncoding::deflate;
-    }
-    if (http_ascii_equal_case_insensitive(encoding, "br")) {
-        return RestContentEncoding::brotli;
-    }
-    if (http_ascii_equal_case_insensitive(encoding, "zstd")) {
-        return RestContentEncoding::zstd;
-    }
-    return RestContentEncoding::other;
-}
-
-bool rate_head_failure(RateHeadContext* context, RestHeadError error, u32 offset) noexcept {
-    context->error = error;
-    context->error_offset = offset;
-    return false;
+    const auto is = [&](const char* literal) noexcept { return http_ascii_equal_case_insensitive(encoding, literal); };
+    return is("identity") ? RestContentEncoding::identity
+           : is("gzip")   ? RestContentEncoding::gzip
+           : is("deflate") ? RestContentEncoding::deflate
+           : is("br")     ? RestContentEncoding::brotli
+           : is("zstd")   ? RestContentEncoding::zstd
+                          : RestContentEncoding::other;
 }
 
 // A rate-limit field whose value parsed (or failed to) as `parsed`.
@@ -233,160 +165,114 @@ bool rate_value(RateHeadContext* context, u32 field, u32 offset, bool parsed) no
 
 bool visit_rate_header(void* opaque, HttpField field) noexcept {
     auto* context = static_cast<RateHeadContext*>(opaque);
-    if (http_ascii_equal_case_insensitive(field.name, "content-type")) {
+    const auto is = [&](const char* name) noexcept { return http_ascii_equal_case_insensitive(field.name, name); };
+    if (is("content-type")) {
         context->representation.content_type =
             context->has_content_type ? RestContentType::other : classify_content_type(field.value);
         context->has_content_type = true;
-        return true;
-    }
-    if (http_ascii_equal_case_insensitive(field.name, "content-encoding")) {
+    } else if (is("content-encoding")) {
         context->representation.content_encoding = context->has_content_encoding
                                                        ? RestContentEncoding::other
                                                        : classify_content_encoding(field.value);
         context->has_content_encoding = true;
-        return true;
-    }
-    if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-limit")) {
+    } else if (is("x-ratelimit-limit")) {
         return rate_value(context, rate_limit_field_limit, field.source_offset,
                           parse_u32(field.value, &context->rate.limit));
-    }
-    if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-remaining")) {
+    } else if (is("x-ratelimit-remaining")) {
         return rate_value(context, rate_limit_field_remaining, field.source_offset,
                           parse_u32(field.value, &context->rate.remaining));
-    }
-    if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-reset")) {
+    } else if (is("x-ratelimit-reset")) {
         return rate_value(context, rate_limit_field_reset, field.source_offset,
                           parse_decimal_milliseconds(field.value, &context->rate.reset_epoch_ms));
-    }
-    if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-reset-after")) {
+    } else if (is("x-ratelimit-reset-after")) {
         return rate_value(context, rate_limit_field_reset_after, field.source_offset,
                           parse_decimal_milliseconds(field.value, &context->rate.reset_after_ms));
-    }
-    if (http_ascii_equal_case_insensitive(field.name, "retry-after")) {
+    } else if (is("retry-after")) {
         return rate_value(context, rate_limit_field_retry_after, field.source_offset,
                           parse_decimal_milliseconds(field.value, &context->rate.retry_after_ms));
-    }
-    if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-bucket")) {
-        if (!begin_rate_field(context, rate_limit_field_bucket, field.source_offset)) {
+    } else if (is("x-ratelimit-bucket")) {
+        if (!begin_rate_field(context, rate_limit_field_bucket, field.source_offset))
             return false;
-        }
-        if (!field.value.data || field.value.count == 0 ||
-            field.value.count > kRateLimitBucketMaximumBytes) {
+        if (!field.value.data || field.value.count == 0 || field.value.count > kRateLimitBucketMaximumBytes)
             return rate_head_failure(context, RestHeadError::bucket_capacity, field.source_offset);
-        }
         for (u32 index = 0; index < field.value.count; ++index) {
-            if (field.value[index] < 0x21 || field.value[index] > 0x7E) {
-                return rate_head_failure(context, RestHeadError::invalid_rate_value,
-                                         field.source_offset);
-            }
+            if (field.value[index] < 0x21 || field.value[index] > 0x7E)
+                return rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset);
             context->rate.bucket[index] = field.value[index];
         }
         context->rate.bucket_bytes = static_cast<u8>(field.value.count);
-        return true;
-    }
-    if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-global")) {
+    } else if (is("x-ratelimit-global")) {
         return rate_value(context, rate_limit_field_global, field.source_offset,
                           parse_bool_ascii(field.value, &context->rate.global));
-    }
-    if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-scope")) {
-        if (!begin_rate_field(context, rate_limit_field_scope, field.source_offset)) {
+    } else if (is("x-ratelimit-scope")) {
+        if (!begin_rate_field(context, rate_limit_field_scope, field.source_offset))
             return false;
-        }
-        if (http_ascii_equal_case_insensitive(field.value, "user")) {
+        const auto value_is = [&](const char* literal) noexcept {
+            return http_ascii_equal_case_insensitive(field.value, literal);
+        };
+        if (value_is("user"))
             context->rate.scope = RateLimitScope::user;
-        } else if (http_ascii_equal_case_insensitive(field.value, "global")) {
+        else if (value_is("global"))
             context->rate.scope = RateLimitScope::global;
-        } else if (http_ascii_equal_case_insensitive(field.value, "shared")) {
+        else if (value_is("shared"))
             context->rate.scope = RateLimitScope::shared;
-        } else {
-            return rate_head_failure(context, RestHeadError::invalid_rate_value,
-                                     field.source_offset);
-        }
+        else
+            return rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset);
     }
     return true;
+}
+
+bool rate_body_begin(RateBodyContext* context, u32 bit, u32 offset) noexcept {
+    if ((context->fields & bit) != 0) {
+        context->error = RateLimitBodyError::duplicate_field;
+        context->error_offset = offset;
+        return false;
+    }
+    context->fields |= bit;
+    return true;
+}
+
+bool rate_body_failure(RateBodyContext* context, RateLimitBodyError error, u32 offset) noexcept {
+    context->error = error;
+    context->error_offset = offset;
+    return false;
 }
 
 bool visit_rate_body(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<RateBodyContext*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("retry_after"))) {
-        if ((context->fields & rate_body_field_retry_after) != 0) {
-            context->error = RateLimitBodyError::duplicate_field;
-            context->error_offset = name.source_offset;
+        if (!rate_body_begin(context, rate_body_field_retry_after, name.source_offset))
             return false;
-        }
-        context->fields |= rate_body_field_retry_after;
         if (value.kind != JsonValueKind::number ||
             !parse_decimal_milliseconds(
                 ConstSlice<u8>{reinterpret_cast<const u8*>(value.source.data), value.source.bytes},
-                &context->retry_after_ms)) {
-            context->error = RateLimitBodyError::invalid_retry_after;
-            context->error_offset = value.source_offset;
-            return false;
-        }
+                &context->retry_after_ms))
+            return rate_body_failure(context, RateLimitBodyError::invalid_retry_after, value.source_offset);
     } else if (context->retry_only && json_string_equals_ascii(name, utf8_literal("code"))) {
-        if ((context->fields & rate_body_field_code) != 0) {
-            context->error = RateLimitBodyError::duplicate_field;
-            context->error_offset = name.source_offset;
+        if (!rate_body_begin(context, rate_body_field_code, name.source_offset))
             return false;
-        }
-        context->fields |= rate_body_field_code;
         u64 code = 0;
-        if (!json_value_to_u64(value, &code) || code != 110000) {
-            context->error = RateLimitBodyError::invalid_code;
-            context->error_offset = value.source_offset;
-            return false;
-        }
+        if (!json_value_to_u64(value, &code) || code != 110000)
+            return rate_body_failure(context, RateLimitBodyError::invalid_code, value.source_offset);
     } else if (!context->retry_only && json_string_equals_ascii(name, utf8_literal("global"))) {
-        if ((context->fields & rate_body_field_global) != 0) {
-            context->error = RateLimitBodyError::duplicate_field;
-            context->error_offset = name.source_offset;
+        if (!rate_body_begin(context, rate_body_field_global, name.source_offset))
             return false;
-        }
-        context->fields |= rate_body_field_global;
-        if (!json_value_to_bool(value, &context->global)) {
-            context->error = RateLimitBodyError::invalid_global;
-            context->error_offset = value.source_offset;
-            return false;
-        }
+        if (!json_value_to_bool(value, &context->global))
+            return rate_body_failure(context, RateLimitBodyError::invalid_global, value.source_offset);
     }
     return true;
 }
 
 constexpr u16 invalid_rate_index = 0xFFFF;
 
-bool valid_route(const RestRouteKey& route) noexcept {
-    if (route.route_id == 0 || !method_literal(route.method)) {
-        return false;
-    }
-    switch (route.major) {
-    case RestMajorParameter::none:
-        return route.major_key == 0;
-    case RestMajorParameter::channel:
-    case RestMajorParameter::guild:
-    case RestMajorParameter::webhook:
-        return route.major_key != 0;
-    default:
-        return false;
-    }
-}
-
 bool same_route(const RestRouteKey& left, const RestRouteKey& right) noexcept {
     return left.route_id == right.route_id && left.major_key == right.major_key &&
            left.method == right.method && left.major == right.major;
 }
 
-bool same_hash(const RestRateBucket& bucket, const RateLimitHeaders& rate,
-               const RestRouteKey& route) noexcept {
-    if (!bucket.used || !bucket.canonical || bucket.hash_bytes != rate.bucket_bytes ||
-        bucket.major != route.major || bucket.major_key != route.major_key) {
-        return false;
-    }
-    for (u32 index = 0; index < rate.bucket_bytes; ++index) {
-        if (bucket.hash[index] != rate.bucket[index]) {
-            return false;
-        }
-    }
-    return true;
+bool same_hash(const RestRateBucket& bucket, const RateLimitHeaders& rate, const RestRouteKey& route) noexcept {
+    return bucket.used && bucket.canonical && bucket.hash_bytes == rate.bucket_bytes && bucket.major == route.major &&
+           bucket.major_key == route.major_key && bytes_equal(bucket.hash, rate.bucket, rate.bucket_bytes);
 }
 
 bool same_provisional(const RestRateBucket& bucket, const RestRouteKey& route) noexcept {
@@ -396,37 +282,37 @@ bool same_provisional(const RestRateBucket& bucket, const RestRouteKey& route) n
 }
 
 u16 find_binding(const RestRateScheduler& scheduler, const RestRouteKey& route) noexcept {
-    for (u32 index = 0; index < scheduler.bindings.count; ++index) {
-        if (scheduler.bindings[index].used && same_route(scheduler.bindings[index].route, route)) {
+    for (u32 index = 0; index < scheduler.bindings.count; ++index)
+        if (scheduler.bindings[index].used && same_route(scheduler.bindings[index].route, route))
             return static_cast<u16>(index);
-        }
-    }
     return invalid_rate_index;
 }
 
-u16 acquire_binding_slot(RestRateScheduler* scheduler, const RestRouteKey& route,
-                         u64 now_ms) noexcept {
+// The first unused entry, else the least recently used one with nothing in flight.
+template <typename Entry> u16 reusable_slot(const Slice<Entry>& entries) noexcept {
+    u16 candidate = invalid_rate_index;
+    u64 oldest = ~0ull;
+    for (u32 current = 0; current < entries.count; ++current) {
+        const Entry& entry = entries[current];
+        if (!entry.used)
+            return static_cast<u16>(current);
+        if (!entry.in_flight && entry.last_used_ms < oldest) {
+            oldest = entry.last_used_ms;
+            candidate = static_cast<u16>(current);
+        }
+    }
+    return candidate;
+}
+
+u16 acquire_binding_slot(RestRateScheduler* scheduler, const RestRouteKey& route, u64 now_ms) noexcept {
     u16 index = find_binding(*scheduler, route);
     if (index != invalid_rate_index) {
         scheduler->bindings[index].last_used_ms = now_ms;
         return index;
     }
-    u16 candidate = invalid_rate_index;
-    u64 oldest = ~0ull;
-    for (u32 current = 0; current < scheduler->bindings.count; ++current) {
-        const RestRateBinding& binding = scheduler->bindings[current];
-        if (!binding.used) {
-            candidate = static_cast<u16>(current);
-            break;
-        }
-        if (!binding.in_flight && binding.last_used_ms < oldest) {
-            oldest = binding.last_used_ms;
-            candidate = static_cast<u16>(current);
-        }
-    }
-    if (candidate == invalid_rate_index) {
+    const u16 candidate = reusable_slot(scheduler->bindings);
+    if (candidate == invalid_rate_index)
         return candidate;
-    }
     RestRateBinding& binding = scheduler->bindings[candidate];
     const u16 generation = next_generation(binding.generation);
     reset_value<RestRateBinding>(&binding);
@@ -438,49 +324,32 @@ u16 acquire_binding_slot(RestRateScheduler* scheduler, const RestRouteKey& route
     return candidate;
 }
 
-RestRateBucket* resolve_bucket(RestRateScheduler* scheduler, u16 index,
-                               u16 generation) noexcept {
-    if (index == invalid_rate_index || index >= scheduler->buckets.count) {
+RestRateBucket* resolve_bucket(RestRateScheduler* scheduler, u16 index, u16 generation) noexcept {
+    if (index == invalid_rate_index || index >= scheduler->buckets.count)
         return nullptr;
-    }
     RestRateBucket& bucket = scheduler->buckets[index];
     return bucket.used && bucket.generation == generation ? &bucket : nullptr;
 }
 
-u16 find_bucket(const RestRateScheduler& scheduler, const RestRouteKey& route,
-                const RateLimitHeaders* rate) noexcept {
+u16 find_bucket(const RestRateScheduler& scheduler, const RestRouteKey& route, const RateLimitHeaders* rate) noexcept {
     for (u32 index = 0; index < scheduler.buckets.count; ++index) {
         const RestRateBucket& bucket = scheduler.buckets[index];
-        if (rate ? same_hash(bucket, *rate, route) : same_provisional(bucket, route)) {
+        if (rate ? same_hash(bucket, *rate, route) : same_provisional(bucket, route))
             return static_cast<u16>(index);
-        }
     }
     return invalid_rate_index;
 }
 
-u16 acquire_bucket_slot(RestRateScheduler* scheduler, const RestRouteKey& route,
-                        const RateLimitHeaders* rate, u64 now_ms) noexcept {
+u16 acquire_bucket_slot(RestRateScheduler* scheduler, const RestRouteKey& route, const RateLimitHeaders* rate,
+                        u64 now_ms) noexcept {
     u16 index = find_bucket(*scheduler, route, rate);
     if (index != invalid_rate_index) {
         scheduler->buckets[index].last_used_ms = now_ms;
         return index;
     }
-    u16 candidate = invalid_rate_index;
-    u64 oldest = ~0ull;
-    for (u32 current = 0; current < scheduler->buckets.count; ++current) {
-        const RestRateBucket& bucket = scheduler->buckets[current];
-        if (!bucket.used) {
-            candidate = static_cast<u16>(current);
-            break;
-        }
-        if (bucket.in_flight == 0 && bucket.last_used_ms < oldest) {
-            oldest = bucket.last_used_ms;
-            candidate = static_cast<u16>(current);
-        }
-    }
-    if (candidate == invalid_rate_index) {
+    const u16 candidate = reusable_slot(scheduler->buckets);
+    if (candidate == invalid_rate_index)
         return candidate;
-    }
     RestRateBucket& bucket = scheduler->buckets[candidate];
     const u16 generation = next_generation(bucket.generation);
     reset_value<RestRateBucket>(&bucket);
@@ -494,18 +363,15 @@ u16 acquire_bucket_slot(RestRateScheduler* scheduler, const RestRouteKey& route,
     bucket.canonical = rate != nullptr;
     if (rate) {
         bucket.hash_bytes = rate->bucket_bytes;
-        for (u32 hash_index = 0; hash_index < rate->bucket_bytes; ++hash_index) {
-            bucket.hash[hash_index] = rate->bucket[hash_index];
-        }
+        copy_bytes(bucket.hash, rate->bucket, rate->bucket_bytes);
     }
     return candidate;
 }
 
 void release_lease_bucket(RestRateScheduler* scheduler, const RestRateLease& lease) noexcept {
     RestRateBucket* bucket = resolve_bucket(scheduler, lease.bucket_index, lease.bucket_generation);
-    if (bucket && bucket->in_flight != 0) {
+    if (bucket && bucket->in_flight != 0)
         --bucket->in_flight;
-    }
 }
 
 RestRateObservation observation_error(RestRateError error) noexcept {
@@ -514,24 +380,43 @@ RestRateObservation observation_error(RestRateError error) noexcept {
 
 } // namespace
 
+bool rest_target_valid(ConstSlice<u8> target) noexcept {
+    if (!target.data || target.count == 0 || target[0] != '/' || (target.count > 1 && target[1] == '/'))
+        return false;
+    for (u32 index = 0; index < target.count; ++index)
+        if (target[index] < 0x21 || target[index] > 0x7E || target[index] == '#')
+            return false;
+    return true;
+}
+
+bool rest_route_valid(const RestRouteKey& route) noexcept {
+    if (route.route_id == 0 || !method_literal(route.method))
+        return false;
+    switch (route.major) {
+    case RestMajorParameter::none:
+        return route.major_key == 0;
+    case RestMajorParameter::channel:
+    case RestMajorParameter::guild:
+    case RestMajorParameter::webhook:
+        return route.major_key != 0;
+    default:
+        return false;
+    }
+}
+
 RestUserPropertiesResult write_rest_user_super_properties(
     const GatewayUserProperties& properties, Slice<u8> json_scratch, Slice<u8> output) noexcept {
-    if (!json_scratch.data || !output.data || json_scratch.data == output.data) {
+    if (!json_scratch.data || !output.data || json_scratch.data == output.data)
         return RestUserPropertiesResult{0, RestUserPropertiesError::invalid_input};
-    }
     const GatewayCommandWriteResult measured = gateway_write_user_properties(properties, {});
-    if (!measured.ok()) {
+    if (!measured.ok())
         return RestUserPropertiesResult{0, RestUserPropertiesError::invalid_properties};
-    }
     const u32 required = measured.bytes;
-    if (required > json_scratch.count) {
+    if (required > json_scratch.count)
         return RestUserPropertiesResult{0, RestUserPropertiesError::json_capacity};
-    }
     const u32 base64_bytes = base64_encoded_size(required);
-    if (base64_bytes == 0 || base64_bytes > kRestUserSuperPropertiesMaximumBytes ||
-        base64_bytes > output.count) {
+    if (base64_bytes == 0 || base64_bytes > kRestUserSuperPropertiesMaximumBytes || base64_bytes > output.count)
         return RestUserPropertiesResult{0, RestUserPropertiesError::output_capacity};
-    }
 
     const GatewayCommandWriteResult written =
         gateway_write_user_properties(properties, Slice<u8>{json_scratch.data, required});
@@ -543,9 +428,8 @@ RestUserPropertiesResult write_rest_user_super_properties(
         base64_encode(ConstSlice<u8>{json_scratch.data, required},
                       Slice<char>{reinterpret_cast<char*>(output.data), output.count});
     secure_clear_bytes(json_scratch.data, required);
-    if (!base64_result.ok() || base64_result.bytes != base64_bytes) {
+    if (!base64_result.ok() || base64_result.bytes != base64_bytes)
         return RestUserPropertiesResult{0, RestUserPropertiesError::output_capacity};
-    }
     return RestUserPropertiesResult{base64_bytes, RestUserPropertiesError::none};
 }
 
@@ -689,7 +573,7 @@ namespace {
 u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
     const char* const method = method_literal(request.method);
     const RestUserRequestHeaders* const page = request.user_headers;
-    writer.raw(method, literal_bytes(method));
+    writer.raw(method, c_string_length(method));
     writer.literal(" ");
     writer.bytes(request.target);
     writer.literal(" HTTP/1.1\r\nHost: ");
@@ -802,22 +686,18 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         (request.send_empty_audit_reason && request.method == RestMethod::get) ||
         !rest_extra_headers_valid(request.extra_headers) ||
         (request.cookie.count && !request.user_headers) || request.cookie.count > kCookieHeaderMaximumBytes ||
-        !http_field_value_valid(request.cookie)) {
+        !http_field_value_valid(request.cookie))
         return RestRequestWriteResult{0, RestRequestError::invalid_input};
-    }
-    if (!valid_target(request.target)) {
+    if (!rest_target_valid(request.target))
         return RestRequestWriteResult{0, RestRequestError::invalid_target};
-    }
-    if (request.authorization != RestAuthorization::none && !valid_token(request.token)) {
+    if (request.authorization != RestAuthorization::none && !valid_token(request.token))
         return RestRequestWriteResult{0, RestRequestError::invalid_token};
-    }
 
     // The first pass measures; nothing is written unless the head fits.
     Writer writer{};
     emit_request_head(writer, request);
-    if (writer.at > output.count) {
+    if (writer.at > output.count)
         return RestRequestWriteResult{0, RestRequestError::output_capacity};
-    }
     const u32 required = static_cast<u32>(writer.at);
     writer = Writer{output.data, 0};
     const u32 extra_headers_end = emit_request_head(writer, request);
@@ -826,143 +706,81 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
 
 RestHeadResult parse_rest_response_head(ConstSlice<u8> input, u32 maximum_header_bytes,
                                         u32 maximum_fields) noexcept {
-    if ((!input.data && input.count != 0) || maximum_header_bytes == 0 || maximum_fields == 0) {
-        return RestHeadResult{{},
-                              {},
-                              0,
-                              HttpError::invalid_input,
-                              RestHeadError::invalid_input,
-                              HttpParseState::error};
-    }
+    if ((!input.data && input.count != 0) || maximum_header_bytes == 0 || maximum_fields == 0)
+        return RestHeadResult{{}, {}, 0, HttpError::invalid_input, RestHeadError::invalid_input, HttpParseState::error};
     RateHeadContext context{};
     const HttpHeadResult parsed =
         http_parse_response_head(input, maximum_header_bytes, maximum_fields, visit_rate_header, &context);
-    if (parsed.state == HttpParseState::need_more) {
-        return RestHeadResult{
-            {}, {}, 0, HttpError::none, RestHeadError::none, HttpParseState::need_more};
-    }
+    if (parsed.state == HttpParseState::need_more)
+        return RestHeadResult{{}, {}, 0, HttpError::none, RestHeadError::none, HttpParseState::need_more};
     if (parsed.state == HttpParseState::error) {
-        if (context.error != RestHeadError::none) {
-            return RestHeadResult{{},           context.rate,  context.error_offset,
-                                  parsed.error, context.error, HttpParseState::error};
-        }
-        return RestHeadResult{
-            {}, {}, parsed.error_offset, parsed.error, RestHeadError::http, HttpParseState::error};
+        if (context.error != RestHeadError::none)
+            return RestHeadResult{{}, context.rate, context.error_offset, parsed.error, context.error,
+                                  HttpParseState::error};
+        return RestHeadResult{{}, {}, parsed.error_offset, parsed.error, RestHeadError::http, HttpParseState::error};
     }
-    if ((context.rate.fields & rate_limit_field_limit) != 0 &&
-        (context.rate.fields & rate_limit_field_remaining) != 0 &&
-        context.rate.remaining > context.rate.limit) {
-        return RestHeadResult{parsed.head,
-                              context.rate,
-                              0,
-                              HttpError::none,
-                              RestHeadError::inconsistent_rate_fields,
+    const u32 fields = context.rate.fields;
+    if (((fields & rate_limit_field_limit) != 0 && (fields & rate_limit_field_remaining) != 0 &&
+         context.rate.remaining > context.rate.limit) ||
+        ((fields & rate_limit_field_global) != 0 && context.rate.global && (fields & rate_limit_field_scope) != 0 &&
+         context.rate.scope != RateLimitScope::global))
+        return RestHeadResult{parsed.head, context.rate, 0, HttpError::none, RestHeadError::inconsistent_rate_fields,
                               HttpParseState::error};
-    }
-    if ((context.rate.fields & rate_limit_field_global) != 0 && context.rate.global &&
-        (context.rate.fields & rate_limit_field_scope) != 0 &&
-        context.rate.scope != RateLimitScope::global) {
-        return RestHeadResult{parsed.head,
-                              context.rate,
-                              0,
-                              HttpError::none,
-                              RestHeadError::inconsistent_rate_fields,
-                              HttpParseState::error};
-    }
-    RestHeadResult result{parsed.head,
-                          context.rate,
-                          0,
-                          HttpError::none,
-                          RestHeadError::none,
+    RestHeadResult result{parsed.head, context.rate, 0, HttpError::none, RestHeadError::none,
                           HttpParseState::complete};
     result.representation = context.representation;
     return result;
 }
 
 RestBodyKind rest_classify_body(ConstSlice<u8> body) noexcept {
-    if (!body.data || body.count == 0) {
+    if (!body.data || body.count == 0)
         return RestBodyKind::empty;
-    }
-    if (body.count >= 2 && body[0] == 0x1F && body[1] == 0x8B) {
+    if (body.count >= 2 && body[0] == 0x1F && body[1] == 0x8B)
         return RestBodyKind::gzip;
-    }
-    if (body.count >= 4 && body[0] == 0x28 && body[1] == 0xB5 && body[2] == 0x2F && body[3] == 0xFD) {
+    if (body.count >= 4 && body[0] == 0x28 && body[1] == 0xB5 && body[2] == 0x2F && body[3] == 0xFD)
         return RestBodyKind::zstd;
-    }
     if (body.count >= 2 && (body[0] & 0x0F) == 8 && (body[0] >> 4) <= 7 &&
-        ((static_cast<u32>(body[0]) << 8) | body[1]) % 31 == 0) {
+        ((static_cast<u32>(body[0]) << 8) | body[1]) % 31 == 0)
         return RestBodyKind::zlib;
-    }
 
-    u32 offset = 0;
-    if (body.count >= 3 && body[0] == 0xEF && body[1] == 0xBB && body[2] == 0xBF) {
-        offset = 3;
-    }
-    while (offset < body.count &&
-           (body[offset] == ' ' || body[offset] == '\t' || body[offset] == '\r' || body[offset] == '\n')) {
+    u32 offset = body.count >= 3 && body[0] == 0xEF && body[1] == 0xBB && body[2] == 0xBF ? 3 : 0;
+    while (offset < body.count && (body[offset] == ' ' || body[offset] == '\t' || body[offset] == '\r' || body[offset] == '\n'))
         ++offset;
-    }
-    if (offset == body.count) {
+    if (offset == body.count)
         return RestBodyKind::utf8_text;
-    }
-    if (body[offset] == '{') {
+    if (body[offset] == '{')
         return RestBodyKind::json_object;
-    }
-    if (body[offset] == '[') {
+    if (body[offset] == '[')
         return RestBodyKind::json_array;
-    }
-    if (body[offset] == '<') {
+    if (body[offset] == '<')
         return RestBodyKind::markup;
-    }
-    return body[offset] >= 0x20 && body[offset] <= 0x7E ? RestBodyKind::utf8_text
-                                                        : RestBodyKind::binary;
+    return body[offset] >= 0x20 && body[offset] <= 0x7E ? RestBodyKind::utf8_text : RestBodyKind::binary;
 }
 
-static RateLimitBodyResult decode_retry_body(Utf8View body, Slice<u32> structural_scratch,
-                                             u32 maximum_depth, bool retry_only) noexcept {
-    if (!body.data || body.bytes == 0 || !structural_scratch.data || structural_scratch.count == 0 ||
-        maximum_depth == 0) {
-        return RateLimitBodyResult{
-            0,    0, RateLimitBodyError::invalid_input, JsonScanError::none, JsonReadError::none,
-            false};
-    }
+static RateLimitBodyResult decode_retry_body(Utf8View body, Slice<u32> structural_scratch, u32 maximum_depth,
+                                             bool retry_only) noexcept {
+    if (!body.data || body.bytes == 0 || !structural_scratch.data || structural_scratch.count == 0 || maximum_depth == 0)
+        return RateLimitBodyResult{0, 0, RateLimitBodyError::invalid_input, JsonScanError::none, JsonReadError::none, false};
     const JsonScanResult scan = json_scan_structurals_avx1(body, structural_scratch);
-    if (!scan.ok()) {
-        return RateLimitBodyResult{
-            0,          scan.error_offset,   RateLimitBodyError::scan_failed,
-            scan.error, JsonReadError::none, false};
-    }
+    if (!scan.ok())
+        return RateLimitBodyResult{0, scan.error_offset, RateLimitBodyError::scan_failed, scan.error, JsonReadError::none, false};
     RateBodyContext context{};
     context.retry_only = retry_only;
-    const JsonReadResult read =
-        json_visit_root_object(body, ConstSlice<u32>{structural_scratch.data, scan.count}, maximum_depth,
-                               visit_rate_body, &context);
+    const JsonReadResult read = json_visit_root_object(body, ConstSlice<u32>{structural_scratch.data, scan.count},
+                                                       maximum_depth, visit_rate_body, &context);
     if (!read.ok()) {
-        return RateLimitBodyResult{
-            0,
-            context.error != RateLimitBodyError::none ? context.error_offset : read.error_offset,
-            context.error != RateLimitBodyError::none ? context.error
-                                                             : RateLimitBodyError::invalid_json,
-            JsonScanError::none,
-            read.error,
-            false};
+        const bool visited = context.error != RateLimitBodyError::none;
+        return RateLimitBodyResult{0, visited ? context.error_offset : read.error_offset,
+                                   visited ? context.error : RateLimitBodyError::invalid_json, JsonScanError::none,
+                                   read.error, false};
     }
     const u32 required = rate_body_field_retry_after | rate_body_field_global;
     if (retry_only ? !(context.fields & (rate_body_field_code | rate_body_field_retry_after))
-                   : (context.fields & required) != required) {
-        return RateLimitBodyResult{0,
-                                   0,
-                                   RateLimitBodyError::missing_required_field,
-                                   JsonScanError::none,
-                                   JsonReadError::none,
-                                   false};
-    }
-    return RateLimitBodyResult{context.retry_after_ms,
-                               0,
-                               RateLimitBodyError::none,
-                               JsonScanError::none,
-                               JsonReadError::none,
-                               context.global};
+                   : (context.fields & required) != required)
+        return RateLimitBodyResult{0, 0, RateLimitBodyError::missing_required_field, JsonScanError::none,
+                                   JsonReadError::none, false};
+    return RateLimitBodyResult{context.retry_after_ms, 0, RateLimitBodyError::none, JsonScanError::none,
+                               JsonReadError::none, context.global};
 }
 
 RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_scratch,
@@ -975,16 +793,13 @@ RateLimitBodyResult decode_search_indexing_body(Utf8View body, Slice<u32> struct
     return decode_retry_body(body, structural_scratch, maximum_depth, true);
 }
 
-bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler,
-                                    Slice<RestRateBucket> buckets,
+bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler, Slice<RestRateBucket> buckets,
                                     Slice<RestRateBinding> bindings) noexcept {
     if (!buckets.data || buckets.count == 0 || buckets.count >= invalid_rate_index || !bindings.data ||
-        bindings.count == 0 || bindings.count >= invalid_rate_index) {
+        bindings.count == 0 || bindings.count >= invalid_rate_index)
         return false;
-    }
-    for (u32 index = 0; index < buckets.count; ++index) {
+    for (u32 index = 0; index < buckets.count; ++index)
         reset_value<RestRateBucket>(&buckets[index]);
-    }
     for (u32 index = 0; index < bindings.count; ++index) {
         reset_value<RestRateBinding>(&bindings[index]);
         bindings[index].bucket_index = invalid_rate_index;
@@ -995,38 +810,28 @@ bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler,
     return true;
 }
 
-RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler,
-                                        const RestRouteKey& route,
-                                        u64 now_ms) noexcept {
-    if (!scheduler->buckets.data || !scheduler->bindings.data || !valid_route(route)) {
-        return RestRateAcquireResult{
-            {}, 0, RestRateAcquireKind::error, RestRateError::invalid_input};
-    }
+RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler, const RestRouteKey& route, u64 now_ms) noexcept {
+    if (!scheduler->buckets.data || !scheduler->bindings.data || !rest_route_valid(route))
+        return RestRateAcquireResult{{}, 0, RestRateAcquireKind::error, RestRateError::invalid_input};
     if (scheduler->global_reset_at_ms != 0) {
         if (now_ms < scheduler->global_reset_at_ms) {
             ++scheduler->waited;
-            return RestRateAcquireResult{{},
-                                         scheduler->global_reset_at_ms,
-                                         RestRateAcquireKind::waiting,
+            return RestRateAcquireResult{{}, scheduler->global_reset_at_ms, RestRateAcquireKind::waiting,
                                          RestRateError::none};
         }
         scheduler->global_reset_at_ms = 0;
     }
 
     const u16 binding_index = acquire_binding_slot(scheduler, route, now_ms);
-    if (binding_index == invalid_rate_index) {
-        return RestRateAcquireResult{
-            {}, 0, RestRateAcquireKind::error, RestRateError::capacity};
-    }
+    if (binding_index == invalid_rate_index)
+        return RestRateAcquireResult{{}, 0, RestRateAcquireKind::error, RestRateError::capacity};
     RestRateBinding& binding = scheduler->bindings[binding_index];
     if (binding.in_flight) {
         ++scheduler->busy;
-        return RestRateAcquireResult{
-            {}, 0, RestRateAcquireKind::busy, RestRateError::none};
+        return RestRateAcquireResult{{}, 0, RestRateAcquireKind::busy, RestRateError::none};
     }
 
-    RestRateBucket* bucket =
-        resolve_bucket(scheduler, binding.bucket_index, binding.bucket_generation);
+    RestRateBucket* bucket = resolve_bucket(scheduler, binding.bucket_index, binding.bucket_generation);
     if (!bucket) {
         binding.bucket_index = invalid_rate_index;
         binding.bucket_generation = 0;
@@ -1043,19 +848,14 @@ RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler,
             }
         }
         if ((bucket->fields & rate_limit_field_remaining) != 0 && bucket->remaining == 0) {
-            if (bucket->reset_at_ms == 0) {
-                return RestRateAcquireResult{{},
-                                             0,
-                                             RestRateAcquireKind::error,
+            if (bucket->reset_at_ms == 0)
+                return RestRateAcquireResult{{}, 0, RestRateAcquireKind::error,
                                              RestRateError::incomplete_bucket_deadline};
-            }
             ++scheduler->waited;
-            return RestRateAcquireResult{
-                {}, bucket->reset_at_ms, RestRateAcquireKind::waiting, RestRateError::none};
+            return RestRateAcquireResult{{}, bucket->reset_at_ms, RestRateAcquireKind::waiting, RestRateError::none};
         }
-        if ((bucket->fields & rate_limit_field_remaining) != 0) {
+        if ((bucket->fields & rate_limit_field_remaining) != 0)
             --bucket->remaining;
-        }
         ++bucket->in_flight;
         bucket->last_used_ms = now_ms;
     }
@@ -1064,25 +864,20 @@ RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler,
     binding.last_used_ms = now_ms;
     ++scheduler->acquired;
     return RestRateAcquireResult{
-        RestRateLease{binding_index, binding.generation,
-                      bucket ? binding.bucket_index : invalid_rate_index,
+        RestRateLease{binding_index, binding.generation, bucket ? binding.bucket_index : invalid_rate_index,
                       bucket ? binding.bucket_generation : static_cast<u16>(0), true},
         0, RestRateAcquireKind::acquired, RestRateError::none};
 }
 
-RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
-                                      RestRateLease* lease,
-                                      const RestHeadResult& response_head,
-                                      const RateLimitBodyResult* rate_limit_body,
+RestRateObservation rest_rate_observe(RestRateScheduler* scheduler, RestRateLease* lease,
+                                      const RestHeadResult& response_head, const RateLimitBodyResult* rate_limit_body,
                                       u64 now_ms, u64 unix_time_ms) noexcept {
     if (!lease->active || !response_head.ok() || (rate_limit_body && !rate_limit_body->ok()) ||
-        lease->binding_index >= scheduler->bindings.count) {
+        lease->binding_index >= scheduler->bindings.count)
         return observation_error(RestRateError::invalid_input);
-    }
     RestRateBinding& binding = scheduler->bindings[lease->binding_index];
-    if (!binding.used || binding.generation != lease->binding_generation || !binding.in_flight) {
+    if (!binding.used || binding.generation != lease->binding_generation || !binding.in_flight)
         return observation_error(RestRateError::stale_lease);
-    }
 
     const RestRouteKey route = binding.route;
     release_lease_bucket(scheduler, *lease);
@@ -1093,30 +888,25 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
     const RateLimitHeaders& rate = response_head.rate;
     const bool limited = response_head.head.status_code == 429;
     const bool has_bucket = (rate.fields & rate_limit_field_bucket) != 0;
-    constexpr u32 bucket_fields = rate_limit_field_bucket | rate_limit_field_limit |
-                                  rate_limit_field_remaining | rate_limit_field_reset |
-                                  rate_limit_field_reset_after;
+    constexpr u32 bucket_fields = rate_limit_field_bucket | rate_limit_field_limit | rate_limit_field_remaining |
+                                  rate_limit_field_reset | rate_limit_field_reset_after;
     const bool has_rate_data = (rate.fields & bucket_fields) != 0 || limited;
     RestRateBucket* bucket = nullptr;
     u16 bucket_index = invalid_rate_index;
     if (has_rate_data) {
         if (!has_bucket) {
             bucket = resolve_bucket(scheduler, binding.bucket_index, binding.bucket_generation);
-            if (bucket) {
+            if (bucket)
                 bucket_index = binding.bucket_index;
-            }
         }
-        if (!bucket) {
+        if (!bucket)
             bucket_index = acquire_bucket_slot(scheduler, route, has_bucket ? &rate : nullptr, now_ms);
-        }
-        if (bucket_index == invalid_rate_index) {
+        if (bucket_index == invalid_rate_index)
             return observation_error(RestRateError::capacity);
-        }
         bucket = &scheduler->buckets[bucket_index];
         if (binding.bucket_index != bucket_index || binding.bucket_generation != bucket->generation) {
-            if (has_bucket && binding.bucket_index != invalid_rate_index) {
+            if (has_bucket && binding.bucket_index != invalid_rate_index)
                 ++scheduler->migrations;
-            }
             binding.bucket_index = bucket_index;
             binding.bucket_generation = bucket->generation;
         }
@@ -1128,8 +918,7 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
         if ((rate.fields & rate_limit_field_remaining) != 0) {
             // Concurrent responses can arrive in reverse order. A late,
             // larger value must not refund reservations in the same window.
-            const bool same_window = bucket->reset_at_ms > now_ms &&
-                (bucket->fields & rate_limit_field_remaining) != 0;
+            const bool same_window = bucket->reset_at_ms > now_ms && (bucket->fields & rate_limit_field_remaining) != 0;
             bucket->remaining = same_window ? minimum(bucket->remaining, rate.remaining) : rate.remaining;
             bucket->fields |= rate_limit_field_remaining;
         }
@@ -1146,35 +935,27 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
         bucket->last_used_ms = now_ms;
     }
 
-    u64 retry_after_ms = 0;
-    if ((rate.fields & rate_limit_field_retry_after) != 0) {
-        retry_after_ms = rate.retry_after_ms;
-    }
-    if (rate_limit_body && rate_limit_body->retry_after_ms > retry_after_ms) {
+    const bool has_retry_after = (rate.fields & rate_limit_field_retry_after) != 0;
+    u64 retry_after_ms = has_retry_after ? rate.retry_after_ms : 0;
+    if (rate_limit_body && rate_limit_body->retry_after_ms > retry_after_ms)
         retry_after_ms = rate_limit_body->retry_after_ms;
-    }
     const bool global =
         limited && (((rate.fields & rate_limit_field_global) != 0 && rate.global) ||
                     ((rate.fields & rate_limit_field_scope) != 0 && rate.scope == RateLimitScope::global) ||
                     (rate_limit_body && rate_limit_body->global));
     // A non-429 Retry-After is owner-scoped metadata, not a scheduler throttle.
-    u64 retry_at_ms =
-        (rate.fields & rate_limit_field_retry_after) != 0 ? deadline_after(now_ms, rate.retry_after_ms) : 0;
+    u64 retry_at_ms = has_retry_after ? deadline_after(now_ms, rate.retry_after_ms) : 0;
     if (limited) {
-        if ((rate.fields & rate_limit_field_retry_after) == 0 && !rate_limit_body) {
+        if (!has_retry_after && !rate_limit_body)
             return observation_error(RestRateError::missing_retry_deadline);
-        }
         retry_at_ms = deadline_after(now_ms, retry_after_ms);
         if (global) {
             scheduler->global_reset_at_ms = maximum(scheduler->global_reset_at_ms, retry_at_ms);
-            if (bucket && (bucket->fields & rate_limit_field_remaining) != 0 &&
-                bucket->remaining == 0) {
+            if (bucket && (bucket->fields & rate_limit_field_remaining) != 0 && bucket->remaining == 0)
                 bucket->reset_at_ms = maximum(bucket->reset_at_ms, retry_at_ms);
-            }
         } else {
-            if (!bucket) {
+            if (!bucket)
                 return observation_error(RestRateError::invalid_observation);
-            }
             bucket->reset_at_ms = maximum(bucket->reset_at_ms, retry_at_ms);
             bucket->remaining = 0;
             bucket->fields |= rate_limit_field_remaining;
@@ -1184,24 +965,20 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
     const u16 status = response_head.head.status_code;
     const bool shared_429 = status == 429 && (rate.fields & rate_limit_field_scope) != 0 &&
                             rate.scope == RateLimitScope::shared;
-    if (status == 401 || status == 403 || (status == 429 && !shared_429)) {
+    if (status == 401 || status == 403 || (status == 429 && !shared_429))
         ++scheduler->invalid_requests;
-    }
     if (bucket && (bucket->fields & rate_limit_field_remaining) != 0 && bucket->remaining == 0 &&
-        bucket->reset_at_ms == 0) {
+        bucket->reset_at_ms == 0)
         return observation_error(RestRateError::incomplete_bucket_deadline);
-    }
     return RestRateObservation{retry_at_ms, RestRateError::none, limited, global};
 }
 
 bool rest_rate_cancel(RestRateScheduler* scheduler, RestRateLease* lease) noexcept {
-    if (!lease->active || lease->binding_index >= scheduler->bindings.count) {
+    if (!lease->active || lease->binding_index >= scheduler->bindings.count)
         return false;
-    }
     RestRateBinding& binding = scheduler->bindings[lease->binding_index];
-    if (!binding.used || binding.generation != lease->binding_generation || !binding.in_flight) {
+    if (!binding.used || binding.generation != lease->binding_generation || !binding.in_flight)
         return false;
-    }
     release_lease_bucket(scheduler, *lease);
     binding.in_flight = false;
     lease->active = false;
@@ -1225,17 +1002,15 @@ HttpHeadResult rest_response_head_parser(void* context, ConstSlice<u8> input, u3
 
 } // namespace
 
-bool rest_response_initialize(RestResponse* response, Slice<u8> input_storage,
-                              Slice<u8> body_output, RestMethod request_method) noexcept {
+bool rest_response_initialize(RestResponse* response, Slice<u8> input_storage, Slice<u8> body_output,
+                              RestMethod request_method) noexcept {
     if (!input_storage.data || input_storage.count < kRestMaximumHeaderBytes ||
-        (!body_output.data && body_output.count != 0) || !method_literal(request_method)) {
+        (!body_output.data && body_output.count != 0) || !method_literal(request_method))
         return false;
-    }
     reset_value<RestResponse>(response);
     response->request_method = request_method;
-    return http_response_decoder_initialize(&response->http, input_storage, {}, body_output,
-                                            kRestMaximumHeaderBytes, kRestMaximumHeaderFields,
-                                            request_method == RestMethod::head,
+    return http_response_decoder_initialize(&response->http, input_storage, {}, body_output, kRestMaximumHeaderBytes,
+                                            kRestMaximumHeaderFields, request_method == RestMethod::head,
                                             rest_response_head_parser, response);
 }
 

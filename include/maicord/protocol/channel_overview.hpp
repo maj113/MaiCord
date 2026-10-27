@@ -57,13 +57,9 @@ struct ChannelOverviewPatch {
 Utf8View channel_overview_name_view(const ChannelOverviewSnapshot&) noexcept;
 Utf8View channel_overview_topic_view(const ChannelOverviewSnapshot&) noexcept;
 bool channel_overview_patch_valid(const ChannelOverviewPatch&) noexcept;
-// Full documents require id/guild_id/type/name. Optional absence defaults only
-// in full documents. Partial input requires a matching identity seed; omitted
-// fields preserve that seed. Success fields reports actual wire presence.
-// All failures preserve output, including when output aliases previous.
-ChannelOverviewResult channel_overview_decode(Utf8View, bool partial,
-                                              const ChannelOverviewSnapshot* previous,
-                                              ChannelOverviewSnapshot* output) noexcept;
+// Requires id/guild_id/type/name; absent optional fields take their defaults.
+// Success fields reports actual wire presence. Failures preserve output.
+ChannelOverviewResult channel_overview_decode(Utf8View, ChannelOverviewSnapshot* output) noexcept;
 ChannelOverviewResult channel_overview_write_target(u64 channel_id, Slice<u8>) noexcept;
 // Only selected fields are serialized. Output remains untouched on failure.
 ChannelOverviewResult channel_overview_write_patch(const ChannelOverviewPatch&, Slice<u8>) noexcept;

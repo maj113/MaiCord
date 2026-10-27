@@ -6,33 +6,13 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "json_field_lists.hpp"
+#include "json_helpers.hpp"
 
 namespace maicord {
 namespace {
-bool archive_duration(u64 minutes) noexcept {
-    return minutes == 60 || minutes == 1440 || minutes == 4320 || minutes == 10080;
-}
-bool whitespace(u32 scalar) noexcept {
-    return scalar <= 32 || scalar == 0x85 || scalar == 0xa0 || scalar == 0x1680 ||
-           (scalar >= 0x2000 && scalar <= 0x200a) || scalar == 0x2028 || scalar == 0x2029 ||
-           scalar == 0x202f || scalar == 0x205f || scalar == 0x3000;
-}
 bool name_valid(Utf8View name) noexcept {
-    if (!name.bytes || name.bytes > kThreadCreationNameMaximumBytes ||
-        !byte_range_valid({reinterpret_cast<const u8*>(name.data), name.bytes}))
-        return false;
-    const auto utf = utf8_validate(name);
-    if (!utf.valid || !utf.codepoints || utf.codepoints > kThreadCreationNameMaximumScalars)
-        return false;
-    bool nonblank = false;
-    for (u32 at = 0; at < name.bytes;) {
-        const auto scalar = utf8_decode_one(name.data + at, name.bytes - at);
-        if (!scalar.valid || scalar.codepoint < 32 || (scalar.codepoint >= 127 && scalar.codepoint <= 159))
-            return false;
-        nonblank |= !whitespace(scalar.codepoint);
-        at += scalar.width;
-    }
-    return nonblank;
+    return protocol_detail::name_text_valid(name, kThreadCreationNameMaximumBytes, kThreadCreationNameMaximumScalars,
+                                            true);
 }
 struct Parse {
     ThreadCreationSnapshot value{};
@@ -109,7 +89,7 @@ bool metadata_field(void* opaque, JsonString name, JsonValue value) noexcept {
             parse.value.fields |= bit == 1 ? thread_creation_archived : thread_creation_locked;
     } else if (bit == 4) {
         u64 duration{};
-        valid = json_value_to_u64(value, &duration) && archive_duration(duration);
+        valid = json_value_to_u64(value, &duration) && protocol_detail::thread_archive_duration(duration);
         if (valid)
             parse.value.auto_archive_duration = static_cast<u16>(duration);
     } else {
@@ -144,7 +124,7 @@ bool thread_creation_request_valid(const ThreadCreationRequest& request) noexcep
         request.source_message_id == request.guild_id ||
         (request.thread_type != 10 && request.thread_type != 11) ||
         static_cast<u8>(request.operation) > static_cast<u8>(ThreadCreationOperation::reconcile) ||
-        !archive_duration(request.auto_archive_duration) || !name_valid(request.name))
+        !protocol_detail::thread_archive_duration(request.auto_archive_duration) || !name_valid(request.name))
         return false;
     for (u8 byte : request.reserved)
         if (byte)

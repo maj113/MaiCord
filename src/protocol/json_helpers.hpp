@@ -11,6 +11,34 @@ inline bool view_valid(const Utf8View& text) noexcept {
     return byte_range_valid(reinterpret_cast<const u8*>(text.data), text.bytes);
 }
 
+inline bool thread_archive_duration(u64 minutes) noexcept {
+    return minutes == 60 || minutes == 1440 || minutes == 4320 || minutes == 10080;
+}
+
+inline bool unicode_blank(u32 scalar) noexcept {
+    return scalar <= 32 || scalar == 0x85 || scalar == 0xa0 || scalar == 0x1680 ||
+           (scalar >= 0x2000 && scalar <= 0x200a) || scalar == 0x2028 || scalar == 0x2029 || scalar == 0x202f ||
+           scalar == 0x205f || scalar == 0x3000;
+}
+
+// A nonempty single-line name without control scalars; nonblank also rejects whitespace-only names.
+inline bool name_text_valid(Utf8View name, u32 maximum_bytes, u32 maximum_scalars, bool nonblank) noexcept {
+    if (!name.bytes || name.bytes > maximum_bytes || !view_valid(name))
+        return false;
+    const auto valid = utf8_validate(name);
+    if (!valid.valid || !valid.codepoints || valid.codepoints > maximum_scalars)
+        return false;
+    bool content = false;
+    for (u32 at = 0; at < name.bytes;) {
+        const auto scalar = utf8_decode_one(name.data + at, name.bytes - at);
+        if (!scalar.valid || scalar.codepoint < 32 || (scalar.codepoint >= 127 && scalar.codepoint <= 159))
+            return false;
+        content |= !unicode_blank(scalar.codepoint);
+        at += scalar.width;
+    }
+    return !nonblank || content;
+}
+
 // A member name against an ASCII literal.
 inline bool name_is(const JsonString& name, const char* ascii) noexcept {
     return json_string_equals_ascii(name, {ascii, c_string_length(ascii)});
