@@ -118,36 +118,8 @@ void run() noexcept {
           reinterpret_cast<DashManifest*>(changed)) == E::invalid_input && bytes_equal(changed, fixture.data, fixture.bytes),
           "DASH selection output cannot overwrite the document that owns its views");
 }
-void live_manifest() noexcept {
-    char path[1024]{}; const u32 length = GetEnvironmentVariableA("MAICORD_DASH_PROBE", path, sizeof(path));
-    if (!length) return;
-    if (length >= sizeof(path)) { check(false, "DASH capture path bound"); return; }
-    wchar_t wide[1024]{};
-    for (u32 i = 0; i < length; ++i) {
-        if (static_cast<u8>(path[i]) >= 128) { check(false, "DASH capture path encoding"); return; }
-        wide[i] = path[i];
-    }
-    const HANDLE file = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) { check(false, "DASH capture exists"); return; }
-    u8 header[16]; DWORD read{}; static u8 source[64 * 1024];
-    const bool framed = ReadFile(file, header, sizeof(header), &read, nullptr) && read == sizeof(header) &&
-        bytes_equal(header, "MCDASH01", 8) && byte_load_le32(header + 8) == 2;
-    const u32 bytes = framed ? byte_load_le32(header + 12) : 0;
-    const bool loaded = bytes && bytes <= sizeof(source) && ReadFile(file, source, bytes, &read, nullptr) && read == bytes;
-    CloseHandle(file);
-    DashManifest manifest{};
-    const auto error = loaded ? dash_manifest_parse({reinterpret_cast<const char*>(source), bytes}, 480, &manifest)
-                              : DashManifestError::invalid_input;
-    test_write_metric("Steam manifest error: ", static_cast<u32>(error));
-    check(error == DashManifestError::none && manifest.duration_us == 42900000 &&
-          manifest.video.height == 480 && manifest.video.segment_count == 15 && manifest.audio.segment_count == 15,
-          "actual Steam static manifest selects existing native AVC/AAC codecs and bounded segment addressing");
-    u8 output[128]; const auto count = dash_segment_path(manifest.video, 14, false, {output, sizeof(output)});
-    check(utf8_equal({reinterpret_cast<const char*>(output), count}, utf8_literal("dash_h264/chunk-stream2-00015.m4s")),
-          "actual provider template produces the verified final-segment path");
-}
 } // namespace
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_dash_manifest_entry() noexcept {
-    maicord::run(); maicord::live_manifest(); ExitProcess(maicord::failures ? 1 : 0);
+    maicord::run(); ExitProcess(maicord::failures ? 1 : 0);
 }

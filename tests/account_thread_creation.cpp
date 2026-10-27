@@ -88,21 +88,6 @@ void transport() noexcept {
               "thread creation: admission error propagates without retry");
     }
     capture.error = RestClientSubmitError::none;
-    capture.active_id = 200;
-    const u32 cancellations = capture.cancellations;
-    check(account_thread_creation_cancel(nullptr, 200).error == RestClientSubmitError::invalid_input &&
-              account_thread_creation_cancel(&details, 0).error == RestClientSubmitError::invalid_input &&
-              capture.cancellations == cancellations,
-          "thread creation: invalid cancellation never touches lane");
-    check(account_thread_creation_cancel(&details, 199).error == RestClientSubmitError::busy &&
-              capture.active_id == 200 && account_thread_creation_cancel(&details, 200).ok() &&
-              !capture.active_id,
-          "thread creation: exact cancellation cannot cancel a competing DETAILS request");
-    capture.active_id = 201;
-    capture.published = true;
-    check(account_thread_creation_cancel(&details, 201).error == RestClientSubmitError::busy &&
-              capture.active_id == 201,
-          "thread creation: published receipt remains available to normal drain");
 }
 } // namespace thread_creation_account_test
 } // namespace maicord

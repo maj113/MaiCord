@@ -383,9 +383,5 @@ u64 application_guild_folders_next_wake(u64) noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_surface_motion_host_entry() noexcept {
     maicord::surface_motion_host_test::run();
-    const bool failed = maicord::surface_motion_host_test::failures != 0;
-    constexpr char pass[] = "PASS surface motion host\n", fail[] = "FAIL surface motion host\n";
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::surface_motion_host_test::failures, "surface motion host");
 }

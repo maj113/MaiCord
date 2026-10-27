@@ -66,10 +66,6 @@ void transport() noexcept {
               equal(capture.target, capture.target_bytes,
                     utf8_literal("/api/v10/users/@me/mentions?limit=25&roles=true&everyone=false&guild_id=10&before=900")),
           "mentions: GET carries filters and the before cursor without a body");
-    capture.active_id = 77;
-    check(account_notification_request_cancel(&details, 76).error == RestClientSubmitError::busy &&
-              account_notification_request_cancel(&details, 77).ok() && !capture.active_id,
-          "notification requests: cancellation is exact");
 }
 } // namespace notification_settings_account_test
 } // namespace maicord

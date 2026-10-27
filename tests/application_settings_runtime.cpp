@@ -131,9 +131,6 @@ void check(bool success, const char* name) noexcept {
     test_write_text("FAIL ");
     test_write_line(name);
 }
-void measurement(const char* name, u64 value) noexcept {
-    test_write_metric(name, value);
-}
 UiSettingsScene* scene() noexcept {
     return const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
 }
@@ -783,28 +780,6 @@ void test_controller() noexcept {
                   sizeof(settings_region) &&
               settings_region.State == MEM_COMMIT && settings_region.RegionSize == expected_committed,
           "settings: measured owner sizeof matches page-rounded committed VM region");
-    measurement("MEASURE settings_owner_bytes=", settings_bytes);
-    measurement("MEASURE settings_owner_record_bytes=", settings_bytes);
-    measurement("MEASURE settings_owner_committed_bytes=", settings_region.RegionSize);
-    measurement("MEASURE login_scene_bytes=", sizeof(LoginScene));
-    measurement("MEASURE login_view_bytes=", sizeof(LoginView));
-    measurement("MEASURE account_host_bytes=", sizeof(AccountHost));
-    measurement("MEASURE application_bytes=", sizeof(Application));
-    measurement("MEASURE renderer_owner_bytes=", sizeof(D3D11Renderer));
-    measurement("MEASURE plugins_runtime_bytes=", sizeof(ApplicationPlugins));
-    measurement("MEASURE plugin_catalog_owner_bytes=", application_plugins_catalog_owner_bytes());
-    measurement("MEASURE plugin_catalog_bytes=", sizeof(NativePluginCatalog));
-    measurement("MEASURE plugin_manifest_bytes=", sizeof(NativePluginManifest));
-    measurement("MEASURE plugin_catalog_entry_bytes=", sizeof(NativePluginCatalogEntry));
-    measurement("MEASURE plugin_verified_file_bytes=", sizeof(NativePluginVerifiedFile));
-    measurement("MEASURE account_ui_owner_bytes=", sizeof(AccountUiRuntime));
-    measurement("MEASURE chat_state_store_bytes=", sizeof(ChatStateStore));
-    measurement("MEASURE permission_role_stride_bytes=", sizeof(RoleRecord));
-    measurement("MEASURE permission_overwrite_stride_bytes=", sizeof(PermissionOverwriteRecord));
-    measurement("MEASURE permission_role_max_bytes=",
-                sizeof(RoleRecord) * kChatStateRoleCapacity);
-    measurement("MEASURE permission_overwrite_max_bytes=",
-                sizeof(PermissionOverwriteRecord) * kChatStateOverwriteCapacity);
     test_native_projection_bank();
     test_every_settings_page();
     check(!application_media_auth_notification() && !application_settings_open_key(utf8_literal("voice.youtube")),
@@ -1197,15 +1172,6 @@ void test_controller() noexcept {
               g_app.renderer.theme_editor_scene == application_theme_editor_scene(),
           "theme editor host: actual Appearance action opens bounded visual drawer");
     auto* editor = const_cast<UiThemeEditorScene*>(application_theme_editor_scene());
-    measurement("MEASURE theme_editor_owner_record_bytes=", application_theme_editor_owner_bytes());
-    if (editor) {
-        measurement("MEASURE theme_editor_storage_logical_bytes=",
-                    kUiThemeEditorElements * (sizeof(UiWidget) + sizeof(UiLayoutNode)));
-        MEMORY_BASIC_INFORMATION editor_storage_region{};
-        if (VirtualQuery(editor->storage.arena.base, &editor_storage_region,
-                         sizeof(editor_storage_region)) == sizeof(editor_storage_region))
-            measurement("MEASURE theme_editor_storage_committed_bytes=", editor_storage_region.RegionSize);
-    }
     const HWND previous_window = g_app.window;
     const u32 previous_dpi = g_app.renderer.dpi;
     HWND editor_window = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 1000, 700, nullptr, nullptr,
@@ -2965,9 +2931,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_settings_runtime_entry() noe
     test_retained_hover_projection();
     test_window_resize_lifecycle();
     test_plugin_popover();
-    constexpr char pass[] = "PASS application settings runtime\n";
-    constexpr char fail[] = "FAIL application settings runtime\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "application settings runtime");
 }

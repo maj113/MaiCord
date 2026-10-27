@@ -1,4 +1,5 @@
 #include "maicord/platform/notification_audio.hpp"
+#include "test_output.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/wasapi.hpp"
 #include "maicord/sys/winrt.hpp"
@@ -370,11 +371,7 @@ void test_native_notification_audio_faults(void(*check)(bool,const char*) noexce
 namespace maicord {
 namespace notification_audio_faults_entry {
 u32 failures;
-void check(bool passed,const char* message) noexcept {
-    if(passed)return;++failures;u32 count{};while(message[count])++count;DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message,count,&written,nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),"\r\n",2,&written,nullptr);
-}
+void check(bool passed,const char* message) noexcept { test_check(&failures,passed,message); }
 }
 }
 extern "C" __declspec(noreturn) void WINAPI maicord_notification_audio_faults_tests_entry() noexcept {

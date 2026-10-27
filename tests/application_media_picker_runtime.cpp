@@ -123,89 +123,6 @@ u8 generated[65536];
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
-void measurement(const char* label, usize value, const char* stage = nullptr) noexcept {
-    char output[192], digits[20];
-    u32 used = 0, count = 0;
-    if (stage) {
-        while (*stage)
-            output[used++] = *stage++;
-        output[used++] = '_';
-    }
-    while (*label)
-        output[used++] = *label++;
-    output[used++] = '=';
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    while (count)
-        output[used++] = digits[--count];
-    output[used++] = '\n';
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, used, &written, nullptr);
-}
-usize committed(const void* pointer) noexcept {
-    MEMORY_BASIC_INFORMATION information{};
-    return pointer && VirtualQuery(pointer, &information, sizeof(information)) &&
-                   information.State == MEM_COMMIT
-               ? information.RegionSize
-               : 0;
-}
-void owner_measurements(const char* stage) noexcept {
-    const auto* p = g_app.media_picker;
-    usize banks = 0, logical_banks = 0;
-    if (p) {
-        const CatalogBank* owned[]{p->gif, p->guild, p->packs};
-        for (const auto* bank : owned)
-            if (bank) {
-                banks += committed(bank);
-                logical_banks += bank->allocation_bytes;
-            }
-    }
-    const auto owner = committed(p);
-    const auto filtered = p ? committed(p->filtered) : 0;
-    const auto scene = p ? p->scene.storage.arena.committed : 0;
-    const auto emoji = p ? p->emoji.storage.committed : 0;
-    const auto saved_mask = p ? committed(p->saved_preview_mask) : 0;
-    measurement("owner_logical_bytes", application_media_picker_owner_bytes(), stage);
-    measurement("owner_vm_committed_bytes", owner, stage);
-    measurement("banks_logical_bytes", logical_banks, stage);
-    measurement("banks_vm_committed_bytes", banks, stage);
-    measurement("filtered_vm_committed_bytes", filtered, stage);
-    measurement("scene_arena_used_bytes", p ? p->scene.storage.arena.offset : 0, stage);
-    measurement("scene_arena_committed_bytes", scene, stage);
-    measurement("emoji_arena_used_bytes", p ? p->emoji.storage.offset : 0, stage);
-    measurement("emoji_arena_committed_bytes", emoji, stage);
-    measurement("favorites_mask_vm_committed_bytes", saved_mask, stage);
-    // The scene/model records are inside the owner. Count their sidecar arenas
-    // and each separate bank/filter/mask once. Shared edit history is separate.
-    measurement("retained_vm_committed_bytes", owner + banks + filtered + scene + emoji + saved_mask,
-                stage);
-}
-void record_measurements() noexcept {
-    measurement("picker_owner_record_bytes", sizeof(ApplicationMediaPicker));
-    measurement("picker_bank_header_record_bytes", sizeof(CatalogBank));
-    measurement("catalog_item_record_bytes", sizeof(MediaCatalogItem));
-    measurement("picker_scene_record_bytes", sizeof(UiMediaPickerScene));
-    measurement("picker_projection_record_bytes", sizeof(UiMediaPickerProjection));
-    measurement("picker_media_slot_record_bytes", sizeof(UiMediaPickerMediaSlot));
-    measurement("catalog_preview_request_record_bytes", sizeof(AccountMediaCatalogPreviewRequest));
-    measurement("account_media_frame_record_bytes", sizeof(AccountMediaFrame));
-    measurement("application_record_bytes", sizeof(g_app));
-    measurement("account_api_record_bytes", sizeof(g_app.account.api));
-    measurement("account_host_record_bytes", sizeof(g_app.account));
-    measurement("renderer_record_bytes", sizeof(g_app.renderer));
-    measurement("account_ui_record_bytes", sizeof(AccountUiRuntime));
-    const usize scratch_bytes = kMediaCatalogStructuralCapacity * sizeof(u32);
-    // Production releases this scratch before returning a response. Measure
-    // its identical allocation separately, never include it in retained banks.
-    void* scratch = VirtualAlloc(nullptr, scratch_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    check(scratch != nullptr, "picker runtime: temporary parser scratch measurement allocates");
-    measurement("picker_response_scratch_logical_bytes", scratch_bytes);
-    measurement("picker_response_scratch_vm_committed_bytes", committed(scratch));
-    if (scratch)
-        VirtualFree(scratch, 0, MEM_RELEASE);
-}
 bool same(Utf8View a, Utf8View b) noexcept {
     return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
 }
@@ -484,8 +401,6 @@ void run() noexcept {
         release();
         return;
     }
-    record_measurements();
-    owner_measurements("picker_dormant");
     check(!g_app.media_picker && !g_app.renderer.media_picker_scene &&
               !application_media_picker_next_wake(),
           "picker runtime: dormant picker allocates no owner or deadline");
@@ -534,7 +449,6 @@ void run() noexcept {
           "picker runtime: outward resize clamps to viewport and lost capture ends the drag");
     p.preferred_width = 0;
     check(application_media_picker_synchronize(), "picker runtime: default width restores after resize");
-    owner_measurements("picker_open");
     check(send_pending(101) && account.query.operation == MediaCatalogOperation::gif_categories &&
               !account.query.limit && !application_media_picker_next_wake(),
           "picker runtime: category admission uses one canonical bounded request");
@@ -564,7 +478,6 @@ void run() noexcept {
         release();
         return;
     }
-    owner_measurements("picker_gif_ready");
     for (u32 i = 0; i < gif_body.bytes; ++i)
         generated[i] = '?';
     check(same(p.gif->items[0].send_url, utf8_literal("https://klipy.com/gifs/fixture-send")) &&
@@ -680,7 +593,6 @@ void run() noexcept {
         release();
         return;
     }
-    owner_measurements("picker_full_packs_ready");
     check(query(utf8_literal("huh")) && p.phase == UiMediaPickerPhase::ready && p.source.count == 1 &&
               item_at(p, 0)->sticker_id == 72 &&
               same(item_at(p, 0)->tags, utf8_literal("curious, ?\thuh, wave")) && query({}),
@@ -1026,14 +938,12 @@ void run() noexcept {
           "common picker: native Emoji borrows the single edit/catalog source and cancels exact cloud loan "
           "without a second popup");
     const auto emoji_panel = p.scene.panel;
-    owner_measurements("picker_emoji_active");
     check(switch_tab(p, UiMediaPickerKind::sticker) && !p.emoji.storage.base &&
               ui_rect_equal(p.scene.panel, emoji_panel) && switch_tab(p, UiMediaPickerKind::gif) &&
               ui_rect_equal(p.scene.panel, emoji_panel) && response(117, gif_body) && !p.submitted_id &&
               p.kind == UiMediaPickerKind::gif && p.wanted,
           "common picker: all three tab states share outer geometry and drain older cancelled receipt "
           "without overwriting successor");
-    owner_measurements("picker_emoji_departed");
     check(switch_tab(p, UiMediaPickerKind::emoji) && query(utf8_literal("smile")),
           "common picker: Emoji query uses native shared edit and local result filtering");
     const auto matches = p.source.count;
@@ -1152,7 +1062,6 @@ void run() noexcept {
     auto* const edit_history = p.edit.history;
     auto* const edit_text = p.edit.text;
     application_media_picker_close();
-    owner_measurements("picker_emoji_closed");
     check(!p.emoji.storage.base && p.edit.document_identity == edit_identity &&
               p.edit.history == edit_history && edit_history && p.edit.text == edit_text &&
               same(message_composer_text(p.edit), utf8_literal("smiles")) &&
@@ -1356,101 +1265,9 @@ void run() noexcept {
               preference_saves == saves_before_release,
           "picker runtime: a recreated owner restores saved width without another preference write");
     release();
-    owner_measurements("picker_released");
     check(!g_app.media_picker && !g_app.renderer.media_picker_scene &&
               !application_media_picker_next_wake() && !application_media_picker_caret_wake(),
           "picker runtime: release removes owner, scene and all deadlines");
-}
-// Optional offline replay of a public catalog response, without retaining a
-// network-dependent fixture in the normal suite or sending any message.
-bool replay_catalog_fixture() noexcept {
-    wchar_t path[4096]{};
-    const DWORD path_bytes = GetEnvironmentVariableW(L"MAICORD_STICKER_CATALOG_FIXTURE", path, 4096);
-    if (!path_bytes) return false;
-    HANDLE file = path_bytes < 4096 ? CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr) : INVALID_HANDLE_VALUE;
-    LARGE_INTEGER size{};
-    const bool valid = file != INVALID_HANDLE_VALUE && GetFileSizeEx(file, &size) && size.QuadPart > 0 &&
-        size.QuadPart <= kMediaCatalogMaximumStickerResponseBytes;
-    auto* body = valid ? static_cast<char*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(size.QuadPart),
-        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)) : nullptr;
-    DWORD bytes = 0;
-    const bool read = body && ReadFile(file, body, static_cast<DWORD>(size.QuadPart), &bytes, nullptr) &&
-        bytes == size.QuadPart;
-    if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
-    check(read && initialize(), "picker replay: bounded public fixture and hidden host load");
-    if (read && g_app.account_ui) {
-        check(application_media_picker_open(UiMediaPickerKind::sticker) && send_pending(901) &&
-            response(901, utf8_literal("[]")) && send_pending(902) &&
-            response(902, {body, bytes}), "picker replay: guild then public catalog responses apply");
-        auto* p = g_app.media_picker;
-        check(p && p->packs && p->packs->count && p->phase == UiMediaPickerPhase::ready &&
-            p->source.count == p->packs->count && p->section_count,
-            "picker replay: complete public bank and pack sections are ready");
-        if (p && p->packs) {
-            measurement("public_catalog_response_bytes", bytes);
-            measurement("public_catalog_stickers", p->packs->count);
-            measurement("public_catalog_sections", p->section_count);
-            bool previews=true;
-            for(u32 i=0;i<p->packs->count;++i){UiMediaPickerItem item{};
-                previews=previews && preview_admitted(*p->packs,i) && resolve(p,i,&item) && item.enabled;}
-            check(previews,"picker replay: every available public sticker has an enabled typed preview");
-            for (u32 step = 0; step < 1000; ++step) {
-                const auto bar = ui_media_picker_scene_scrollbar(p->scene);
-                if (p->scene.scroll_dips >= bar.maximum_scroll) break;
-                const bool scrolled = ui_media_picker_scene_scroll(&p->scene, 20);
-                if (!scrolled || !p->scene.active) {
-                    measurement("public_catalog_scroll_failed_step", step);
-                    measurement("public_catalog_scroll_failed_offset", static_cast<usize>(p->scene.scroll_dips));
-                    check(false, "picker replay: full catalog scroll keeps scene active");
-                    break;
-                }
-            }
-            ui_media_picker_scene_scroll(&p->scene, -p->scene.scroll_dips);
-            UiScrollHost host{};
-            u64 now = 1000000;
-            bool wheel_ok = true;
-            for (u32 burst = 0; wheel_ok && burst < 50; ++burst) {
-                const UiPoint point{(p->scene.body.left + p->scene.body.right) * .5f,
-                    (p->scene.body.top + p->scene.body.bottom) * .5f};
-                wheel_ok = ui_scroll_host_wheel(&host, {p, p->scope, body_scroll_read, body_scroll_write},
-                    point, -120, 3, false, now, .8) != UiScrollDispatch::failed;
-                for (u32 frame = 0; wheel_ok && frame < 16; ++frame) {
-                    now += 8333;
-                    bool changed = false;
-                    wheel_ok = ui_scroll_host_tick(&host, now, &changed) &&
-                        p->scene.active && application_media_picker_synchronize() && p->scene.active;
-                    if (!wheel_ok) {
-                        measurement("public_catalog_wheel_failed_burst", burst);
-                        measurement("public_catalog_wheel_failed_frame", frame);
-                    }
-                }
-            }
-            check(wheel_ok, "picker replay: smooth wheel frames keep the catalog open");
-            u32 random = 0x9827491;
-            for (u32 trial = 0; trial < 2000 && p->scene.active; ++trial) {
-                random ^= random << 13; random ^= random >> 17; random ^= random << 5;
-                const float extent = ui_media_picker_scene_scrollbar(p->scene).maximum_scroll;
-                const float offset = extent * static_cast<float>(random & 0xffff) / 65535.f;
-                ui_media_picker_scene_scroll(&p->scene, offset - p->scene.scroll_dips);
-                if (!p->scene.active) measurement("fractional_scroll_failure", trial);
-            }
-            check(p->scene.active, "picker replay: arbitrary fractional scroll offsets retain the pane");
-            ui_media_picker_scene_close(&p->scene);
-            check(application_media_picker_open(UiMediaPickerKind::sticker) && p->active && p->scene.active,
-                "picker replay: launcher immediately recovers a retired projection on the same click");
-            bool preserved = false;
-            for (u32 i = 0; i < p->packs->count; ++i)
-                if (p->packs->items[i].sticker_id == 749046696482439188ull)
-                    for (u32 b = 0; b < p->packs->items[i].tags.bytes; ++b)
-                        preserved |= p->packs->items[i].tags.data[b] == '\t';
-            check(preserved && query(utf8_literal("huh")) && p->source.count,
-                "picker replay: official Think tags retain tab and local search succeeds");
-        }
-    }
-    release();
-    if (body) VirtualFree(body, 0, MEM_RELEASE);
-    return true;
 }
 } // namespace maicord::media_picker_runtime_test
 
@@ -1590,12 +1407,6 @@ bool application_composer_text_input_synchronize() noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_application_media_picker_runtime_entry() noexcept {
-    if (!maicord::media_picker_runtime_test::replay_catalog_fixture())
-        maicord::media_picker_runtime_test::run();
-    const bool failed = maicord::media_picker_runtime_test::failures != 0;
-    constexpr char pass[] = "PASS application media picker runtime\n";
-    constexpr char fail[] = "FAIL application media picker runtime\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::media_picker_runtime_test::run();
+    maicord::test_exit(maicord::media_picker_runtime_test::failures, "application media picker runtime");
 }

@@ -374,9 +374,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_permission_compute_entry() n
     test_store();
     test_moderation();
     test_bans();
-    constexpr char pass[] = "PASS permission compute and moderation policy\n";
-    constexpr char fail[] = "FAIL permission compute and moderation policy\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
+    maicord::test_write_text(failures ? "FAIL permission compute and moderation policy\n" : "PASS permission compute and moderation policy\n");
     ExitProcess(failures ? 1 : 0);
 }

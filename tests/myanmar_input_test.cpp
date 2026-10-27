@@ -87,21 +87,6 @@ bool units() noexcept {
     CHECK(VirtualFree(memory,0,MEM_RELEASE)&&committed&&exact);
     print("PASS Myanmar input; assertions=");number(checks);print("\n");return true;
 }
-bool read(void* destination,u32 count) noexcept {u8* out=static_cast<u8*>(destination);while(count){DWORD got=0;if(!ReadFile(GetStdHandle(STD_INPUT_HANDLE),out,count,&got,nullptr)||!got)return false;out+=got;count-=got;}return true;}
-bool write(const void* source,u32 count) noexcept {const u8* in=static_cast<const u8*>(source);while(count){DWORD done=0;if(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),in,count,&done,nullptr)||!done)return false;in+=done;count-=done;}return true;}
-bool stream(bool prepare) noexcept {
-    u8 header[12];CHECK(read(header,12)&&bytes_equal(header,"MDVCL1\0\0",8));const u32 cases=byte_load_le32(header+8);
-    if(prepare)copy_bytes(header,"MDVPR1\0\0",8);CHECK(cases&&cases<=100000&&write(header,12));
-    for(u32 row=0;row<cases;++row){u32 n=0,input[256];u8 boundaries[256];SfntIndicInputScalar prepared[512];SfntIndicInputResult result{};
-        CHECK(read(&n,4)&&n&&n<=256&&read(input,n*4));
-        if(prepare){CHECK(sfnt_myanmar_prepare_input({input,n},{prepared,512},&result)==SfntStatus::ok&&write(&result,sizeof(result))&&write(prepared,result.scalar_count*sizeof(prepared[0])));}
-        else CHECK(sfnt_myanmar_cluster_boundaries({input,n},{boundaries,256})==SfntStatus::ok&&write(boundaries,n));
-    }return true;
-}
-int run() noexcept {
-    wchar_t mode[16];const DWORD n=GetEnvironmentVariableW(L"MAICORD_MYANMAR_INPUT_STREAM",mode,16);
-    if(n)return n<16&&stream(mode[0]=='2')?0:2;
-    return units()?0:1;
-}
+int run() noexcept {return units()?0:1;}
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_myanmar_input_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

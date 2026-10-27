@@ -89,49 +89,6 @@ bool youtube_collection_tests(EmbedResolver* resolver) noexcept {
         f.continuation = true;
         check(youtube_collection_resolve(resolver, url, {page.continuation,page.continuation_bytes}, &page, {&f,exchange}).ok() && f.calls == 3,
             "next page reuses public client version without another bootstrap");
-        resolver->music_version_bytes = 0;
-        char flag[2];
-        if (GetEnvironmentVariableA("MAICORD_YTM_COLLECTION_PROBE", flag, 2) == 1 && flag[0] == '1') {
-            names={};
-            const auto first = youtube_collection_resolve(resolver, url, {}, &page, {}, sink);
-            test_write_metric("YTM queue HTTP: ", first.status); test_write_metric("YTM queue result: ", static_cast<u32>(first.error)); test_write_metric("YTM queue count: ", page.count);
-            check(first.ok() && page.count > 8 && names.count == page.count && names.last == page.count && page.continuation_bytes, "live native radio resolves ordered playable IDs");
-            if (first.ok()) {
-                const auto named = youtube_title_resolve(resolver, {page.tracks[0].youtube,11}, &title);
-                check(named.ok() && title.bytes, "live native YTM title lookup");
-                const auto next = youtube_collection_resolve(resolver, url, {page.continuation,page.continuation_bytes}, &page);
-                test_write_metric("YTM continuation HTTP: ", next.status); test_write_metric("YTM continuation count: ", page.count);
-                check(next.ok() && page.count, "live native radio continuation");
-                const auto album = youtube_collection_resolve(resolver, utf8_literal("https://music.youtube.com/playlist?list=OLAK5uy_nacpVF5ykESFyqIjhN1towfUdU2rUPqxY"), {}, &page);
-                test_write_metric("YTM album HTTP: ", album.status); test_write_metric("YTM album count: ", page.count);
-                check(album.ok() && page.count > 1 && !page.continuation_bytes, "live public album completes as a finite queue");
-            }
-        }
-        if (GetEnvironmentVariableA("MAICORD_YTM_COLLECTION_PROBE", flag, 2) == 1 && flag[0] == '2') {
-            const Utf8View cards[]{utf8_literal("https://music.youtube.com/playlist?list=PLQ73uMywXkLE"),
-                utf8_literal("https://music.youtube.com/watch?v=j7bqDpjgM5M&list=RDAMVMj7bqDpjgM5M"), radio};
-            for (auto card : cards) {
-                names={}; page={};
-                const auto result = youtube_collection_resolve(resolver,card,{},&page,{},sink);
-                test_write_metric("YTM card HTTP: ",result.status);
-                test_write_metric("YTM card error: ",static_cast<u32>(result.error));
-                test_write_metric("YTM card tracks: ",page.count);
-                test_write_metric("YTM card titles: ",names.count);
-                check(result.ok() && page.count && names.count==page.count,
-                      "user playlist and radio supply ordered native queue IDs and all titles");
-                if (utf8_equal(card, radio)) {
-                    test_write_metric("YTM radio selected: ",page.selected);
-                    check(page.selected && page.selected <= page.count &&
-                          utf8_equal({page.tracks[page.selected - 1].youtube,11},youtube_collection_locator(radio).video),
-                          "radio selects the linked current song even when its seed differs");
-                    if (result.ok() && page.continuation_bytes) {
-                        const auto next = youtube_collection_resolve(resolver,radio,{page.continuation,page.continuation_bytes},&page);
-                        test_write_metric("YTM radio next tracks: ",page.count);
-                        check(next.ok() && page.count,"filtered radio metadata preserves native continuation");
-                    }
-                }
-            }
-        }
     }
     return !failures;
 }

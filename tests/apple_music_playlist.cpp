@@ -79,14 +79,6 @@ bool apple_music_playlist_tests(EmbedResolver* resolver) noexcept {
             result.ok() && count==3 && titles.names==3 && titles.previews==2 && f.calls==(mode==1?3u:2u),"playlist transaction preserves exact identity, batch count and retry metadata");
         check(!resolver->response.committed && !resolver->structurals.committed,"playlist metadata is erased and decommitted after resolution");
     }
-    char flag[2]{};
-    if (resolver && GetEnvironmentVariableA("MAICORD_APPLE_ALBUM_PROBE",flag,2)==1 && flag[0]=='2') {
-        titles={};u16 count=0;
-        const auto result=apple_music_collection_resolve(resolver,utf8_literal("https://music.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb"),&count,{&titles,receive});
-        test_write_metric("Apple playlist HTTP: ",result.status);test_write_metric("Apple playlist result: ",static_cast<u32>(result.error));
-        test_write_metric("Apple playlist names: ",titles.names);test_write_metric("Apple playlist previews: ",titles.previews);
-        check(result.ok() && count==50 && titles.names==count && titles.previews==count,"live public playlist resolves all names and preview assets in batches");
-    }
     return !failures;
 }
 }

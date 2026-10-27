@@ -6,22 +6,15 @@
 
 namespace maicord {
 namespace pinned_transport_test {
-struct Capture {
-    RestClient* client{};
-    RestRouteKey route{};
-    u64 request_id{};
-    u32 submissions{}, cancellations{}, target_bytes{};
-    u8 target[kMessagePinsMaximumTargetBytes]{};
-    bool safe{}, cancel_result{true};
-    RestClientSubmitError submit_error{};
-} capture;
+RestCapture capture;
 u32 failures{};
 void check(bool valid, const char* label) noexcept {
     test_check(&failures, valid, label);
 }
 bool exact(RestClient* rest, u64 channel_id, u64 request_id, u64 route_id,
            RestMethod method, Utf8View target) noexcept {
-    return capture.safe && capture.client == rest && capture.request_id == request_id &&
+    return capture.safe && !capture.json && !capture.body_bytes && capture.client == rest &&
+           capture.request_id == request_id &&
            capture.route.route_id == route_id && capture.route.major_key == channel_id &&
            capture.route.major == RestMajorParameter::channel && capture.route.method == method &&
            utf8_equal({reinterpret_cast<const char*>(capture.target), capture.target_bytes}, target);
@@ -93,59 +86,18 @@ void run() noexcept {
         RestClientSubmitError::memory};
     bool propagated = true;
     for (const auto error : errors) {
-        capture.submit_error = error;
+        capture.error = error;
         const u32 before = capture.submissions;
         propagated = account_pinned_messages_submit(&rest, &request, 106).error == error &&
                      capture.submissions == before + 1 && capture.request_id == 106 && propagated;
     }
     check(propagated, "pins account: admission refusal retains caller request identity and exact error without hidden mutation retry");
-    capture.submit_error = RestClientSubmitError::none;
-    check(account_pinned_messages_cancel(&rest, 104).ok() && capture.cancellations == 1 &&
-              capture.client == &rest && capture.request_id == 104,
-          "pins account: cancel claims only the exact account worker and request ID");
-    capture.cancel_result = false;
-    check(account_pinned_messages_cancel(&rest, 104).error == RestClientSubmitError::busy &&
-              account_pinned_messages_cancel(nullptr, 104).error == RestClientSubmitError::invalid_input &&
-              account_pinned_messages_cancel(&rest, 0).error == RestClientSubmitError::invalid_input &&
-              capture.cancellations == 2,
-          "pins account: a published receipt cannot be stolen by late cancellation and invalid cancellation emits no work");
 }
 } // namespace pinned_transport_test
-
-// Synthetic admission boundary only. No account, token, socket or worker is
-// created. The real service and protocol writers produce the captured request.
-static RestClientSubmitResult submit_stub(
-    RestClient* rest, const RestClientRequest& request) noexcept {
-    auto& capture = pinned_transport_test::capture;
-    ++capture.submissions;
-    capture.client = rest;
-    capture.route = request.route;
-    capture.request_id = request.request_id;
-    capture.target_bytes = request.target.count;
-    capture.safe = request.target.data && request.target.count <= sizeof(capture.target) &&
-                   !request.body.count && !request.json_body && !request.identity_response &&
-                   request.timeout_ms == kRestClientDefaultTimeoutMs;
-    if (!capture.safe)
-        return {RestClientSubmitError::invalid_input};
-    copy_bytes(capture.target, request.target.data, request.target.count);
-    return {capture.submit_error};
-}
-static bool cancel_stub(RestClient* rest, u64 request_id) noexcept {
-    auto& capture = pinned_transport_test::capture;
-    ++capture.cancellations;
-    capture.client = rest;
-    capture.request_id = request_id;
-    return capture.cancel_result;
-}
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_pinned_messages_test_entry() noexcept {
-    maicord::rest_install_hooks({.submit = maicord::submit_stub, .cancel = maicord::cancel_stub});
+    maicord::rest_install_capture(maicord::pinned_transport_test::capture);
     maicord::pinned_transport_test::run();
-    constexpr char pass[] = "PASS pinned messages account transport\n";
-    constexpr char fail[] = "FAIL pinned messages account transport\n";
-    DWORD written{};
-    const bool failed = maicord::pinned_transport_test::failures != 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::pinned_transport_test::failures, "pinned messages account transport");
 }

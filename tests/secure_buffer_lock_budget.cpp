@@ -168,9 +168,6 @@ namespace maicord::lock_budget_test {
 void check(bool valid, const char* label) noexcept {
     test_check(&failures, valid, label);
 }
-void measurement(const char* label, SIZE_T value) noexcept {
-    test_write_metric(label, value);
-}
 bool all_pages_locked(const SecureBuffer& buffer) noexcept {
     if (!buffer.data || !buffer.locked) return false;
     SYSTEM_INFO system{}; GetSystemInfo(&system);
@@ -204,20 +201,16 @@ void real_peak() noexcept {
     // Reset fixture callers + 104KiB owner + actual REST secure arena:
     // request72 + encrypted32 + record20 + headers32, plus 64KiB UI transient.
     constexpr u32 sizes[] = {72, 32, 12, 4, 4, 20, 4, 104, 156, 64};
-    SecureBuffer buffers[10]{}; SIZE_T total = 0;
+    SecureBuffer buffers[10]{};
     for (u32 i = 0; i < 10; ++i) {
         const auto result = secure_buffer_initialize(&buffers[i], sizes[i] * 1024);
         check(result.ok() && all_pages_locked(buffers[i]), "lock budget: every combined reset/REST/UI page is locked");
-        if (!result.ok()) measurement("lock_budget_native_error=", result.native_error);
-        total += sizes[i] * 1024;
     }
-    measurement("lock_budget_combined_requested_bytes=", total);
     SIZE_T peak_minimum = 0, peak_maximum = 0; DWORD peak_flags = 0;
     check(GetProcessWorkingSetSizeEx(GetCurrentProcess(), &peak_minimum, &peak_maximum, &peak_flags) &&
         peak_minimum >= initial_minimum && (peak_minimum <= 1024 * 1024 || peak_minimum == initial_minimum) &&
         peak_maximum == initial_maximum && peak_flags == initial_flags,
         "lock budget: recovery stays within cap and preserves maximum/enforcement flags");
-    measurement("lock_budget_peak_minimum=", peak_minimum);
     for (auto& buffer : buffers) {
         void* address = buffer.data; secure_buffer_release(&buffer);
         check(!buffer.data && !buffer.locked && buffer.capacity == 0 && buffer.bytes == 0 && released(address),
@@ -284,10 +277,8 @@ void real_concurrent_images() noexcept {
     for (u32 i = 0; i < 4; ++i) if (threads[i]) {
         check(WaitForSingleObject(contexts[i].ready, 10000) == WAIT_OBJECT_0 && contexts[i].ok &&
             all_pages_locked(contexts[i].buffer), "lock budget: concurrent EXE/DLL buffers remain locked simultaneously");
-        if (!contexts[i].ok) measurement("lock_budget_concurrent_native_error=", contexts[i].error);
     }
     check(all_pages_locked(baseline), "lock budget: concurrent recovery retains earlier caller lock");
-    measurement("lock_budget_concurrent_requested_bytes=", 768 * 1024);
     if (finish) SetEvent(finish);
     for (u32 i = 0; i < 4; ++i) {
         if (threads[i]) {
@@ -416,7 +407,6 @@ void dpapi_failure() noexcept {
 void run() noexcept {
     static_assert(sizeof(SecureBuffer) == 24);
     real_peak(); real_concurrent_images(); controlled_failures(); dpapi_failure();
-    measurement("lock_budget_failures=", failures);
 }
 } // namespace maicord::lock_budget_test
 extern "C" __declspec(noreturn) void WINAPI maicord_secure_buffer_lock_budget_entry() noexcept {

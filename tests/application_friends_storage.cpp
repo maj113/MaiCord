@@ -122,8 +122,5 @@ void test_rest_preflight() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_friends_storage_entry() noexcept {
     using namespace maicord::friends_storage_test;
     test_banks();test_rest_preflight();
-    const char* result = failures ? "FAIL Friends storage\n" : "PASS Friends storage\n";
-    DWORD written = 0;maicord::u32 bytes = 0;while (result[bytes]) ++bytes;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), result, bytes, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "Friends storage");
 }

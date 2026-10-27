@@ -65,16 +65,13 @@ void test_message_create_stickers(void (*check)(bool, const char*) noexcept) noe
         write_message_create_body({}, 99, 0, 0, {}, {ids, 1}, {body, 4}).error ==
         MessageCreateWriteError::output_too_small,
         "sticker message preserves empty-payload and output capacity validation");
-    u8 legacy[1024]{}, explicit_empty[1024]{};
-    const auto a = write_message_create_body(utf8_literal("text"), 1234, 0, 0, {}, {legacy, sizeof(legacy)});
-    const auto b = write_message_create_body(utf8_literal("text"), 1234, 0, 0, {}, {}, {explicit_empty, sizeof(explicit_empty)});
-    check(a.ok() && b.ok() && a.bytes == b.bytes && bytes_equal(legacy, explicit_empty, a.bytes),
-        "legacy message body overload delegates without changing text sends");
+    u8 plain[1024]{}, muted_plain[1024]{};
+    const auto a = write_message_create_body(utf8_literal("text"), 1234, 0, 0, {}, {}, {plain, sizeof(plain)});
     const auto ordinary = write_message_create_body(utf8_literal("text"), 1234, 0, 0, {}, {},
-        {explicit_empty, sizeof(explicit_empty)}, false);
-    check(ordinary.ok() && ordinary.bytes == a.bytes && bytes_equal(legacy, explicit_empty, a.bytes) &&
-        !contains({reinterpret_cast<const char*>(explicit_empty), ordinary.bytes}, utf8_literal("replied_user")) &&
-        !contains({reinterpret_cast<const char*>(explicit_empty), ordinary.bytes}, utf8_literal("message_reference")),
+        {muted_plain, sizeof(muted_plain)}, false);
+    check(a.ok() && ordinary.ok() && ordinary.bytes == a.bytes && bytes_equal(plain, muted_plain, a.bytes) &&
+        !contains({reinterpret_cast<const char*>(muted_plain), ordinary.bytes}, utf8_literal("replied_user")) &&
+        !contains({reinterpret_cast<const char*>(muted_plain), ordinary.bytes}, utf8_literal("message_reference")),
         "ordinary send wire bytes ignore reply-only mention policy and never synthesize reply authority");
     const MessageForwardReference private_source{18446744073709551615ull, 18446744073709551614ull, 0};
     const auto forward = write_message_forward_body({}, 99, private_source, {body, sizeof(body)});

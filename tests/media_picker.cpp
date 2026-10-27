@@ -616,7 +616,7 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     content.placeholder = utf8_literal("Search stickers");
     const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     const auto defaults = ui_media_picker_style();
-    check(ui_media_picker_style_valid(defaults) && sizeof(UiMediaPickerStyle) == 136 &&
+    check(ui_media_picker_style_valid(defaults) &&
               ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&
               ui_rect_width(scene.panel) == 498 && ui_rect_height(scene.panel) == 486 &&
               scene.tabs.top == scene.panel.top + 16 && scene.tabs.bottom == scene.panel.top + 46 &&

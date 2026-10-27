@@ -1,4 +1,3 @@
-// Manual: --backtrack-cost measures the backtracking context cost; the registered run is the check.
 #include "gsub_program_fixture.hpp"
 #include "maicord/text/gpos_ligature_execute.hpp"
 #include "maicord/text/gpos_cursive_execute.hpp"
@@ -53,7 +52,6 @@ bool placements(ConstSlice<u8> expected,ConstSlice<SfntPlacement> values,u32 fon
 }
 #include "gpos_program_units.inc"
 #include "gpos_backtrack_dispatch_units.inc"
-#include "gpos_backtrack_dispatch_cost.inc"
 u64 coordinated_runs=0,coordinated_values=0,coordinated_failures=0;
 bool coordinated(const SfntCmap& cmap,const SfntHorizontalMetrics& metrics,const SfntGdef& gdef,
     const SfntGsubProgram& sub,const SfntGposProgram& pos,const SfntFeature& gs,const SfntFeature& gp,
@@ -198,9 +196,6 @@ int run() noexcept {
     if(!sequence_units() || !affinity_units()){print(utf8_literal("FAIL component sequence units\n"));return 3;}
     if(!position_flag_units()){print(utf8_literal("FAIL positioning flag units\n"));return 4;}
     const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
-    constexpr wchar_t cost_option[]=L"--backtrack-cost";u32 cost_units=0;
-    while(command[cost_units]&&command[cost_units]==cost_option[cost_units])++cost_units;
-    if(cost_units==sizeof(cost_option)/sizeof(wchar_t)-1&&!command[cost_units])return gpos_backtrack_dispatch_cost()?0:10;
     bool ok=false;if(!*command)ok=corpus({component_fixture,sizeof(component_fixture)});
     else {wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}if(quote){if(*command!='"')return 2;++command;}while(*command==' ' || *command=='\t')++command;if(*command || !n)return 2;path[n]=0;ok=file_corpus(path);}
     print(utf8_literal("shape_runs="));number(shape_runs);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\ncluster_checks="));number(cluster_checks);print(utf8_literal("\nplacement_runs="));number(placement_runs);print(utf8_literal("\nfloat_checks="));number(float_checks);print(utf8_literal("\ngsub_operations="));number(gsub_operations);print(utf8_literal("\ncomponent_export_work="));number(component_export_work);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));

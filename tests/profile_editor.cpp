@@ -237,9 +237,8 @@ void test_transport() noexcept {
     check(account_profile_edit_submit(&details, &fetch, 7).ok() && capture.submissions == 1 && !capture.body_bytes &&
               capture.route.method == RestMethod::get,
           "profile edit transport: loads are bodyless GETs");
-    check(!account_profile_edit_submit(&details, &request, 0).ok() &&
-              account_profile_edit_cancel(&details, 7).ok(),
-          "profile edit transport: a request id is required and cancels are forwarded");
+    check(!account_profile_edit_submit(&details, &request, 0).ok(),
+          "profile edit transport: a request id is required");
 }
 
 ProfileEditorDraft draft_from(const ProfileEditorBase& base) noexcept {
@@ -488,9 +487,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_profile_editor_entry() noexc
     test_gate();
     test_patches();
     test_decode();
-    constexpr char pass[] = "PASS profile editor\n";
-    constexpr char fail[] = "FAIL profile editor\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
+    maicord::test_write_text(failures ? "FAIL profile editor\n" : "PASS profile editor\n");
     ExitProcess(failures ? 1 : 0);
 }

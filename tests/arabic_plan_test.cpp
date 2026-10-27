@@ -1,7 +1,5 @@
 // Arabic joining plans. No argument runs the built-in corpora with the test's own prepared
 // programs; --run first shapes them through the owned plan store and native_arabic_run.
-// Manual: `[--run] <font file> [--original-order | --arabic-script | --bench-arabic]`
-// shapes a whole font file for external comparison; --bench-arabic times it.
 #include "gsub_program_fixture.hpp"
 #include "maicord/text/shape_run.hpp"
 #include "maicord/text/arabic_shape_run.hpp"
@@ -136,7 +134,7 @@ bool plan_checks(const SfntLayout& layout,bool independent,u8* scratch,const Sfn
     }
     return true;
 }
-bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,bool force_arabic=false,bool benchmark=false) noexcept {
+bool corpus(ConstSlice<u8> corpus_bytes,bool force_arabic=false) noexcept {
     if(run_mode && !owned_close())return false;
     if(corpus_bytes.count<16 || !bytes_equal(corpus_bytes.data,"MCARPL",6) || corpus_bytes.data[6]<'1' || corpus_bytes.data[6]>'3' || corpus_bytes.data[7])return false;
     const bool sized=corpus_bytes.data[6]>='2',directed=corpus_bytes.data[6]>='3';Reader r{corpus_bytes,8};u32 font_count=0,cases=0;
@@ -157,7 +155,7 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,
             if(sfnt_layout_open(bytes,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout)!=SfntStatus::ok ||
                sfnt_arabic_lookup_plan(layout,{},independent!=0,{scratch,256},{out,768},&result)!=SfntStatus::ok)return fail(c,3,kind);
             if(!kind)generic=result.script_tag==sfnt_tag('l','a','t','n');
-            if(!diagnostic && !plan_checks(layout,independent!=0,scratch,result,{out,result.lookup_count},c%17==0))return fail(c,4,kind);
+            if(!plan_checks(layout,independent!=0,scratch,result,{out,result.lookup_count},c%17==0))return fail(c,4,kind);
             if(kind) {
                 gp_count=result.lookup_count;for(u32 i=0;i<gp_count;++i){if(out[i].feature_mask || out[i].stage)return fail(c,5);gp_roots[i]=out[i].lookup;}
                 if(sfnt_gpos_program_prepare(layout,gdef,metrics.glyph_count,{{gp_lookups,256},{gp_basic,512},{gp_attach,512},{gp_context,512},{gp_cov,4096},{gp_classes,512}},&gp)!=SfntStatus::ok)return fail(c,6);
@@ -191,47 +189,25 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,
             for(u32 i=0;i<gs.lookups.count;++i)gs_lookups[i].bounds.ready=static_cast<u16>(gate);
             for(u32 i=0;i<gp.lookups.count;++i)gp_lookups[i].bounds.ready=static_cast<u16>(gate);
             SfntShapeRunResult result{};
-            if(run_mode&&reorder&&arabic)++utf8_calls;
-            const auto s=!(reorder&&arabic)?
+            if(run_mode&&arabic)++utf8_calls;
+            const auto s=!arabic?
                 sfnt_shape_run(plan,{input,n},n,{starts,start_count},rtl!=0,em,storage,&result,{},scheduled):
                 run_mode?native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result):
                 sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},rtl!=0,em,storage,&result,scheduled);
-            if(diagnostic) {
-                print(utf8_literal("{\"case\":"));number(c);print(utf8_literal(",\"gate\":"));number(gate);print(utf8_literal(",\"status\":"));number(static_cast<u32>(s));
-                print(utf8_literal(",\"glyphs\":["));for(u32 i=0;i<result.glyph_count;++i){if(i)print(utf8_literal(","));number(glyphs[i].glyph.glyph);}
-                print(utf8_literal("],\"clusters\":["));for(u32 i=0;i<result.source_units;++i){if(i)print(utf8_literal(","));number(character_map[i]);}
-                print(utf8_literal("],\"placement_bits\":["));for(u32 i=0;i<result.glyph_count;++i){if(i)print(utf8_literal(","));print(utf8_literal("["));for(u32 j=0;j<3;++j){if(j)print(utf8_literal(","));number(byte_load_le32(reinterpret_cast<const u8*>(placements)+i*12+j*4));}print(utf8_literal("]"));}
-                print(utf8_literal("]}\n"));
-                if(benchmark){
-                    if(s!=SfntStatus::ok||!reorder||!arabic)return fail(c,20);
-                    LARGE_INTEGER frequency{},begin{},end{};u64 cycle_begin=0,cycle_end=0;constexpr u32 iterations=256;
-                    if(!QueryPerformanceFrequency(&frequency)||!QueryThreadCycleTime(GetCurrentThread(),&cycle_begin)||!QueryPerformanceCounter(&begin))return fail(c,20);
-                    for(u32 iteration=0;iteration<iterations;++iteration){
-                        const auto repeated=run_mode?native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result):
-                            sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},rtl!=0,em,storage,&result,scheduled);
-                        if(repeated!=SfntStatus::ok||result.glyph_count!=expected_count)return fail(c,20);
-                    }
-                    if(!QueryPerformanceCounter(&end)||!QueryThreadCycleTime(GetCurrentThread(),&cycle_end))return fail(c,20);
-                    print(utf8_literal("BENCH case="));number(c);print(utf8_literal(" iterations="));number(iterations);
-                    print(utf8_literal(" ticks="));number(end.QuadPart-begin.QuadPart);print(utf8_literal(" frequency="));number(frequency.QuadPart);
-                    print(utf8_literal(" cycles="));number(cycle_end-cycle_begin);print(utf8_literal("\n"));
-                }
-                ++runs;continue;
-            }
             if(s!=SfntStatus::ok || result.glyph_count!=expected_count)return fail(c,10,static_cast<u32>(s));
             for(u32 i=0;i<expected_count;++i){++glyph_checks;if(glyphs[i].glyph.glyph!=byte_load_le16(expected.data+i*2))return fail(c,11,i);}
             for(u32 i=0;i<n;++i){++cluster_checks;if(character_map[i]!=byte_load_le32(clusters.data+i*4))return fail(c,12,i);}
             for(u32 i=0;i<expected_count*3;++i){++float_checks;if(byte_load_le32(reinterpret_cast<const u8*>(placements)+i*4)!=byte_load_le32(floats.data+i*4))return fail(c,13,i);}
             ++runs;
             if(gs_count && c%17==0 && result.lookup_operations){const u64 budget=result.lookup_operations-1;
-                const auto limited=!(reorder&&arabic)?
+                const auto limited=!arabic?
                     sfnt_shape_run(plan,{input,n},n,{starts,start_count},rtl!=0,em,storage,&result,{budget,100000,1000000},scheduled):
                     run_mode?native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result,{budget,100000,1000000}):
                     sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},rtl!=0,em,storage,&result,scheduled,{budget,100000,1000000});
                 if(limited!=SfntStatus::resource_limit || result.glyph_count || result.lookup_operations>budget)return fail(c,14);}
         }
-        if(!diagnostic && directed && !c && (!control_storage_checks(plan,cmap,storage) || !dotted_storage_checks(plan,cmap,storage) || !cgj_storage_checks(plan,cmap,storage)))return fail(c,15);
-        if(run_mode && !diagnostic && !c && !utf8_run_units(storage))return fail(c,19);
+        if(directed && !c && (!control_storage_checks(plan,cmap,storage) || !dotted_storage_checks(plan,cmap,storage) || !cgj_storage_checks(plan,cmap,storage)))return fail(c,15);
+        if(run_mode && !c && !utf8_run_units(storage))return fail(c,19);
     }
     print(utf8_literal("cases="));number(cases);print(utf8_literal(" runs="));number(runs);print(utf8_literal(" glyph_checks="));number(glyph_checks);print(utf8_literal(" cluster_checks="));number(cluster_checks);print(utf8_literal(" float_checks="));number(float_checks);print(utf8_literal(" budget_checks="));number(budget_checks);print(utf8_literal("\n"));
     if(run_mode && !owned_close())return false;
@@ -243,27 +219,17 @@ int run() noexcept {
         if(!flag[i]&&(!command[i]||command[i]==' '||command[i]=='\t')){run_mode=true;command+=i;while(*command==' ' || *command=='\t')++command;}}
     if(!run_mode && !component_transactions())return 2;
     if(run_mode && !owned_start())return 3;
-    const bool diagnostic=*command!=0;bool ok=false;if(!diagnostic)ok=
+    bool ok=
         (run_mode || corpus({arabic_plan_fixture,sizeof(arabic_plan_fixture)})) &&
-        corpus({arabic_control_fixture,sizeof(arabic_control_fixture)}) && corpus({arabic_dotted_fixture,sizeof(arabic_dotted_fixture)}) && corpus({arabic_cgj_fixture,sizeof(arabic_cgj_fixture)}) && corpus({arabic_ltr_fixture,sizeof(arabic_ltr_fixture)},false,true,true) && corpus({arabic_ltr_cgj_fixture,sizeof(arabic_ltr_cgj_fixture)},false,true,true) && corpus({arabic_ltr_cgj_position_fixture,sizeof(arabic_ltr_cgj_position_fixture)},false,true,true)
-        && (!run_mode || corpus({arabic_generic_fixture,sizeof(arabic_generic_fixture)},false,true,true));
-    else {
-        wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 3;path[n++]=*command++;}if(quote){if(*command!='"')return 3;++command;}while(*command==' ' || *command=='\t')++command;if(!n)return 3;path[n]=0;
-        bool reorder=true,force_arabic=false,benchmark=false;if(*command){constexpr wchar_t flag[]=L"--original-order",arabic[]=L"--arabic-script",bench[]=L"--bench-arabic";u32 i=0;while(flag[i]&&command[i]==flag[i])++i;
-            if(!flag[i]&&!command[i])reorder=false;else{i=0;while(arabic[i]&&command[i]==arabic[i])++i;
-                if(arabic[i]||command[i]){i=0;while(bench[i]&&command[i]==bench[i])++i;if(bench[i]||command[i])return 3;benchmark=true;}force_arabic=true;}}
-        HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return 3;LARGE_INTEGER size{};
-        if(!GetFileSizeEx(file,&size)||size.QuadPart<16||size.QuadPart>0xffffffffll){CloseHandle(file);return 3;}
-        HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);const auto* bytes=mapping?static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0)):nullptr;
-        if(bytes)ok=corpus({bytes,static_cast<u32>(size.QuadPart)},true,reorder,force_arabic,benchmark);if(bytes)UnmapViewOfFile(bytes);if(mapping)CloseHandle(mapping);CloseHandle(file);
-    }
+        corpus({arabic_control_fixture,sizeof(arabic_control_fixture)}) && corpus({arabic_dotted_fixture,sizeof(arabic_dotted_fixture)}) && corpus({arabic_cgj_fixture,sizeof(arabic_cgj_fixture)}) && corpus({arabic_ltr_fixture,sizeof(arabic_ltr_fixture)},true) && corpus({arabic_ltr_cgj_fixture,sizeof(arabic_ltr_cgj_fixture)},true) && corpus({arabic_ltr_cgj_position_fixture,sizeof(arabic_ltr_cgj_position_fixture)},true)
+        && (!run_mode || corpus({arabic_generic_fixture,sizeof(arabic_generic_fixture)},true));
     if(run_mode){
-        if(!diagnostic && !owned_gate_checks(fonts[0]))ok=false;
+        if(!owned_gate_checks(fonts[0]))ok=false;
         if(!owned_close())ok=false;arena_release(&owned_scratch);if(!DeleteFileW(owned_path))ok=false;
         print(utf8_literal("owned_preparations="));number(owned_preparations);print(utf8_literal(" owned_hits="));number(owned_hits);print(utf8_literal(" committed_sum="));number(owned_committed);print(utf8_literal(" used_sum="));number(owned_used);print(utf8_literal("\n"));
         print(utf8_literal("utf8_calls="));number(utf8_calls);print(utf8_literal("\n"));
     }
-    if(!ok)return 1;print(!diagnostic?utf8_literal("PASS native Arabic schedule and coordinated shaping\n"):utf8_literal("Captured native Arabic shaping diagnostics; parity requires comparison\n"));return 0;
+    if(!ok)return 1;print(utf8_literal("PASS native Arabic schedule and coordinated shaping\n"));return 0;
 }
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_arabic_plan_tests_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

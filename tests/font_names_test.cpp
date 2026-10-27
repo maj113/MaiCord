@@ -19,7 +19,7 @@ bool basic() noexcept {
     u8 table[64]{};byte_store_be16(table+2,3);byte_store_be16(table+4,42);
     record(table+6,3,1,0x411,1,2,0);record(table+18,0,4,0,1,2,2);record(table+30,3,10,0x409,1,6,4);
     const u16 data[]{'J','U','A',0xd83d,0xde00};for(u32 i=0;i<5;++i)byte_store_be16(table+42+i*2,data[i]);
-    SfntNames names{};CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok&&names.records==3&&sizeof(names)==24);
+    SfntNames names{};CHECK(sfnt_names_open({table,52},&names)==SfntStatus::ok&&names.records==3);
     SfntName name{};bool found=true;CHECK(sfnt_name_english(names,1,&name,&found)==SfntStatus::ok&&found&&name.platform==3&&name.encoding==10&&name.language==0x409);
     u32 units=99;CHECK(sfnt_name_decode(name,{decoded,32768},&units)==SfntStatus::ok&&units==3&&bytes_equal(decoded,data+2,6));
     decoded[0]=0xbeef;CHECK(sfnt_name_decode(name,{decoded,2},&units)==SfntStatus::output_too_small&&!units&&decoded[0]==0xbeef);

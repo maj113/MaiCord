@@ -226,9 +226,6 @@ void check(bool passed, const char* label) noexcept {
 }
 extern "C" __declspec(noreturn) void WINAPI maicord_password_reset_protocol_entry() noexcept {
     maicord::test_password_reset_protocol(maicord::password_reset_protocol_entry::check);
-    constexpr char pass[] = "PASS reset protocol\n";
-    constexpr char fail[] = "FAIL reset protocol\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), maicord::password_reset_protocol_entry::failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
+    maicord::test_write_text(maicord::password_reset_protocol_entry::failures ? "FAIL reset protocol\n" : "PASS reset protocol\n");
     ExitProcess(maicord::password_reset_protocol_entry::failures ? 1 : 0);
 }

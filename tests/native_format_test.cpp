@@ -234,12 +234,8 @@ bool stale_scope_signal(NativeFontSession* session,const wchar_t* path,u32 scope
 }
 #include "native_generation_recovery.inc"
 #include "native_recovery_pressure.inc"
-#include "native_recovery_cost.inc"
 bool run() noexcept {
     const wchar_t* arg=GetCommandLineW();bool quote=false;while(*arg){if(*arg=='"')quote=!quote;else if(!quote&&(*arg==' '||*arg=='\t'))break;++arg;}while(*arg==' '||*arg=='\t')++arg;
-    const wchar_t cost_option[]=L"--recovery-cost ";u32 cost_match=0;while(cost_option[cost_match]&&arg[cost_match]==cost_option[cost_match])++cost_match;
-    if(!cost_option[cost_match]){arg+=cost_match;u32 count=0;while(*arg>=L'0'&&*arg<=L'9'){CHECK(count<10000);count=count*10+*arg++-L'0';}
-        CHECK(*arg++==L' '&&arg[0]>=L'0'&&arg[0]<=L'2'&&!arg[1]);return recovery_cost::run(count,arg[0]-L'0');}
     const wchar_t option[]=L"--stale-signal ";u32 matched=0;while(option[matched]&&arg[matched]==option[matched])++matched;const bool stale_only=!option[matched];if(stale_only)arg+=matched;
     const wchar_t generation_option[]=L"--generation-recovery ";u32 generation_match=0;while(generation_option[generation_match]&&arg[generation_match]==generation_option[generation_match])++generation_match;const bool generation_only=!generation_option[generation_match];if(generation_only)arg+=generation_match;
     const wchar_t pressure_option[]=L"--recovery-pressure ";u32 pressure_match=0;while(pressure_option[pressure_match]&&arg[pressure_match]==pressure_option[pressure_match])++pressure_match;const bool pressure_only=!pressure_option[pressure_match];if(pressure_only)arg+=pressure_match;

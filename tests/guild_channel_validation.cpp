@@ -1,9 +1,7 @@
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/trace_record.hpp"
 #include "maicord/model/permission_bits.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/chat_state.hpp"
 
 namespace maicord {
@@ -142,47 +140,6 @@ bool same_expected() noexcept {
         bytes_equal(actual.channel_order, expected.channel_order, sizeof(actual.channel_order)) &&
         bytes_equal(actual.names, expected.names, sizeof(actual.names));
 }
-u32 first_difference(const void* left, const void* right, u32 bytes) noexcept {
-    const auto* a = static_cast<const u8*>(left); const auto* b = static_cast<const u8*>(right);
-    for (u32 i = 0; i < bytes; ++i) if (a[i] != b[i]) return i;
-    return bytes;
-}
-void positive_diagnostic(const ChatStateApplyResult& result) noexcept {
-    auto descriptor = expected.state;
-    descriptor.guilds = actual.state.guilds; descriptor.channels = actual.state.channels;
-    descriptor.roles = actual.state.roles; descriptor.overwrites = actual.state.overwrites;
-    descriptor.guild_order = actual.state.guild_order; descriptor.channel_order = actual.state.channel_order;
-    descriptor.names = actual.state.names; descriptor.permission_reserve_context = actual.state.permission_reserve_context;
-    TraceRecord line("guild_channel_validation_failure");
-    line.field("mode", packet.mode); line.field("error", static_cast<u8>(result.error));
-    line.field("guilds", result.guilds); line.field("channels", result.channels);
-    line.field("roles", result.roles); line.field("overwrites", result.overwrites);
-    line.field("selection_changed", result.selection_changed ? 1u : 0u); line.field("reserve_calls", actual.reserve_calls);
-    line.field("descriptor_difference", first_difference(&actual.state, &descriptor, sizeof(descriptor)));
-    line.field("guild_difference", first_difference(actual.guilds, expected.guilds, sizeof(actual.guilds)));
-    line.field("channel_difference", first_difference(actual.channels, expected.channels, sizeof(actual.channels)));
-    line.field("role_difference", first_difference(actual.roles, expected.roles, sizeof(actual.roles)));
-    line.field("overwrite_difference", first_difference(actual.overwrites, expected.overwrites, sizeof(actual.overwrites)));
-    line.field("guild_order_difference", first_difference(actual.guild_order, expected.guild_order, sizeof(actual.guild_order)));
-    line.field("channel_order_difference", first_difference(actual.channel_order, expected.channel_order, sizeof(actual.channel_order)));
-    line.field("name_difference", first_difference(actual.names, expected.names, sizeof(actual.names)));
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-    const u32 offset = first_difference(&actual.state, &descriptor, sizeof(descriptor));
-    if (offset != sizeof(descriptor)) {
-        TraceRecord state("guild_channel_descriptor_failure"); state.field("offset", offset);
-        state.field("actual_byte", reinterpret_cast<const u8*>(&actual.state)[offset]);
-        state.field("expected_byte", reinterpret_cast<const u8*>(&descriptor)[offset]);
-        state.field("actual_role_backed", actual.state.role_backed_count); state.field("expected_role_backed", descriptor.role_backed_count);
-        state.field("actual_overwrite_backed", actual.state.overwrite_backed_count); state.field("expected_overwrite_backed", descriptor.overwrite_backed_count);
-        state.field("actual_channel_mutations", actual.state.channel_mutations); state.field("expected_channel_mutations", descriptor.channel_mutations);
-        state.field("actual_activity_mutations", actual.state.activity_mutations); state.field("expected_activity_mutations", descriptor.activity_mutations);
-        state.field("actual_selection_revision", actual.state.selection_revision); state.field("expected_selection_revision", descriptor.selection_revision);
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), state.text, state.used, &written, nullptr);
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-    }
-}
 bool rejects_without_publication() noexcept {
     // Invalid packets must also preserve a pending READY restore. Successful
     // cases have no pending restore, so the unrelated selection can persist.
@@ -207,7 +164,6 @@ void test_guild_channel_validation(void (*check)(bool, const char*) noexcept) no
         const bool valid = result.ok() && result.guilds == 1 && result.channels == 8 && result.roles == 1 && result.overwrites == 8 &&
             !result.selection_changed && actual.state.selected_channel_id == 500 && actual.state.selected_guild_id == 9 &&
             actual.reserve_calls == 1 && same_expected();
-        if (!valid) positive_diagnostic(result);
         check(valid, labels[mode]);
     }
     for (u32 mode = 3; mode < 5; ++mode) {

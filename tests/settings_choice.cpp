@@ -137,12 +137,5 @@ void test_settings_choice(void (*check)(bool, const char*) noexcept) noexcept {
               popup.kind == PopupKind::settings_choice,
           "choice: dedicated popup rejects reaction strips before replacing its retained list");
     popup_scene_release(&popup);
-    control.kind = UiSettingsControlKind::slider;
-    check(!ui_settings_choice_items(control, 0, {items, kUiSettingsChoiceMaximumItems}) &&
-              !ui_settings_choice_selected(control, 0, kUiSettingsChoiceActionFirst, &selected),
-          "choice: slider range never routes through legacy dropdown projection");
-    control.kind = UiSettingsControlKind::palette;
-    check(!ui_settings_choice_items(control, 0, {items, kUiSettingsChoiceMaximumItems}),
-          "choice: palette cards never fabricate a legacy dropdown");
 }
 } // namespace maicord

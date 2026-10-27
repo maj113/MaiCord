@@ -141,8 +141,7 @@ void run() noexcept {
     check(native_plugin_catalog_release(&catalog).ok(), "scanner empty cleanup is idempotent");
     fault = Fault::none;
     DeleteFileW(dll); DeleteFileW(manifest_path); RemoveDirectoryW(directory);
-    constexpr auto passed = utf8_literal("plugin_catalog_cleanup_failures_completed\n");
-    DWORD written = 0; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), passed.data, passed.bytes, &written, nullptr);
+    test_write_text("plugin_catalog_cleanup_failures_completed\n");
 }
 } // namespace maicord::plugin_failure_test
 extern "C" __declspec(noreturn) void WINAPI maicord_plugin_catalog_failures_entry() noexcept {

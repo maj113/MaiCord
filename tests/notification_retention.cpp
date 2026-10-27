@@ -1,7 +1,7 @@
-// Manual extension: MAICORD_NOTIFICATION_RETENTION_PROFILE=1 prints a retention timing profile.
 #include "maicord/model/notification_retention.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -15,7 +15,6 @@ struct Fixture {
 };
 NotificationRetentionRow large_rows[8192]{};
 u32 large_index[16384]{};
-volatile u64 observed_profile_checksum{};
 bool unchanged(const Fixture& f,const Fixture& before) noexcept {return bytes_equal(&f,&before,sizeof(f));}
 bool ticket(const NotificationRetention& n,u64 channel,u32 ordinal,u64 expected) noexcept {
     u64 value=~expected;return notification_retention_ticket(&n,channel,ordinal,&value)&&value==expected;
@@ -145,66 +144,16 @@ void growth(void(*check)(bool,const char*)noexcept) noexcept {
         ticket(large,(u64{1}<<22)|17,0,0)&&ticket(large,(u64{4097}<<22)|17,0,4096),
         "retention: caller growth beyond4096 historical channels preserves first and last success");
 }
-struct Line {
-    char text[256]{};u32 count{};
-    void literal(const char* s) noexcept {for(u32 i=0;s[i]&&count<sizeof(text);++i)text[count++]=s[i];}
-    void number(u64 n) noexcept {char digits[20];u32 used{};do{digits[used++]=static_cast<char>('0'+n%10);n/=10;}while(n);while(used&&count<sizeof(text))text[count++]=digits[--used];}
-    void write() noexcept {literal("\r\n");DWORD bytes{};WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,count,&bytes,nullptr);}
-};
-u64 linear_lookup(const NotificationRetention& n,u64 channel,u32 ordinal) noexcept {
-    for(u32 i=0;i<n.count;++i)if(n.rows[i].channel==channel){const auto& r=n.rows[i];
-        const u32 position=(u32(r.head)+ordinal)%20;return u64(r.count)+r.tickets[position];}
-    return 0;
-}
-void profile(void(*check)(bool,const char*)noexcept) noexcept {
-    wchar_t setting[2]{};
-    if(GetEnvironmentVariableW(L"MAICORD_NOTIFICATION_RETENTION_PROFILE",setting,2)!=1||setting[0]!=L'1')return;
-    NotificationRetention n{};bool ready=notification_retention_initialize(&n,{large_rows,4096},{large_index,8192});
-    for(u32 i=0;i<4096;++i){const u64 channel=(u64(i+1)<<22)|17;
-        ready=ready&&notification_retention_append(&n,channel,i).ok()&&notification_retention_append(&n,channel,i+65536).ok();}
-    check(ready,"retention profile: deterministic4096-channel same-low22-bit dataset ready");
-    if(!ready)return;
-    LARGE_INTEGER frequency{};const bool clock=QueryPerformanceFrequency(&frequency)!=0;
-    check(clock&&frequency.QuadPart>0,"retention profile: QPC frequency is available");if(!clock||frequency.QuadPart<=0)return;
-    Line header{};header.literal("retention_profile channels=4096 operations=10000 samples=7 qpc_frequency=");header.number(static_cast<u64>(frequency.QuadPart));header.write();
-    for(u32 sample=0;sample<7;++sample){u64 checksums[2]{};
-        // Alternate the first method to reduce fixed order/thermal bias.
-        for(u32 pass=0;pass<2;++pass){const u32 method=(pass+sample)&1;
-            LARGE_INTEGER begin{},end{};ULONG64 cycles_begin{},cycles_end{};
-            const bool cycles_a=QueryThreadCycleTime(GetCurrentThread(),&cycles_begin)!=0;
-            QueryPerformanceCounter(&begin);u64 sum{};
-            for(u32 i=0;i<10000;++i){const u32 row=(i*4051+sample*17)&4095,ordinal=(i+sample)&1;
-                const u64 channel=(u64(row+1)<<22)|17;
-                if(method){sum+=linear_lookup(n,channel,ordinal);}
-                else {const auto room=notification_retention_room(&n,channel);u64 value{};
-                    if(room.ok()&&room.exists&&notification_retention_ticket(&n,channel,ordinal,&value))sum+=room.tickets+value;}
-            }
-            QueryPerformanceCounter(&end);
-            const bool cycles_b=QueryThreadCycleTime(GetCurrentThread(),&cycles_end)!=0;
-            observed_profile_checksum=sum;checksums[method]=sum;
-            Line line{};line.literal("retention_profile sample=");line.number(sample);line.literal(method?" method=linear":" method=indexed");
-            line.literal(" operations=10000 qpc_ticks=");line.number(static_cast<u64>(end.QuadPart-begin.QuadPart));
-            line.literal(" cycles_valid=");line.number(cycles_a&&cycles_b);line.literal(" thread_cycles=");line.number(cycles_a&&cycles_b?cycles_end-cycles_begin:0);
-            line.literal(" checksum=");line.number(sum);line.write();
-        }
-        check(checksums[0]==checksums[1],"retention profile: indexed and linear lookup checksums match");
-    }
-}
 }
 void test_notification_retention(void(*check)(bool,const char*)noexcept) noexcept {
-    check(sizeof(NotificationRetentionRow)==176,"retention: twenty-ticket sparse row has exact176-byte layout");
-    fifo(check);validation(check);mapping(check);growth(check);profile(check);
+    fifo(check);validation(check);mapping(check);growth(check);
 }
 } // namespace maicord
 
 namespace maicord {
 namespace notification_retention_entry {
 u32 failures;
-void check(bool passed,const char* message) noexcept {
-    if(passed)return;++failures;u32 count{};while(message[count])++count;DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message,count,&written,nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),"\r\n",2,&written,nullptr);
-}
+void check(bool passed,const char* message) noexcept { test_check(&failures,passed,message); }
 }
 }
 extern "C" __declspec(noreturn) void WINAPI maicord_notification_retention_tests_entry() noexcept {

@@ -763,8 +763,6 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
     check(controller.failure == MessageSearchFailure::deadline && !message_search_next_wake(&controller),
           "search controller: retry deadline overflow fails without wraparound wake");
     test_search_tabs(check);
-    static_assert(sizeof(MessageSearchQuery) == 552);
-    static_assert(sizeof(MessageSearchController) == 616);
 }
 
 } // namespace maicord

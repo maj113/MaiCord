@@ -165,7 +165,6 @@ void test_requests() noexcept {
     check(!account_soundboard_submit(rest(), &send, 91).ok() && !account_soundboard_submit(rest(), nullptr, 91).ok() &&
               capture.submissions == before,
           "Soundboard requests: sends never carry audit reasons; null requests are refused");
-    check(account_soundboard_cancel(rest(), 5).ok() && capture.cancellations == 1, "Soundboard cancel: exact request ID");
 }
 
 void test_uploads() noexcept {

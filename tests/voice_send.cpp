@@ -444,45 +444,11 @@ void loopback_case(Check check, bool synthetic_group) noexcept {
         VirtualFree(v, 0, MEM_RELEASE);
     }
 }
-
-// Opt-in (MAICORD_VOICE_AUDIO_CAPTURE=1): opens the real default microphone.
-struct Captured {
-    volatile LONG64 samples, ticks;
-};
-void count_samples(void* context, ConstSlice<i16> mono, u64) noexcept {
-    InterlockedAdd64(&static_cast<Captured*>(context)->samples, mono.count);
-}
-u64 count_ticks(void* context, u64) noexcept {
-    InterlockedIncrement64(&static_cast<Captured*>(context)->ticks);
-    return 0;
-}
-void test_device(Check check) noexcept {
-    wchar_t flag[4]{};
-    if (!GetEnvironmentVariableW(L"MAICORD_VOICE_AUDIO_CAPTURE", flag, 4) || flag[0] != L'1')
-        return;
-    static VoiceAudioDevice devices[16];
-    const u32 count = voice_audio_devices(true, {devices, 16});
-    check(count && devices[0].name_bytes, "Voice audio capture: the microphone list has a named default first");
-    static VoiceAudioCapture capture;
-    static Captured value;
-    check(voice_audio_capture_start(&capture, nullptr, true, count_samples, count_ticks, &value),
-          "Voice audio capture: thread starts");
-    const u64 deadline = GetTickCount64() + 3000;
-    while (GetTickCount64() < deadline && ReadAcquire64(&value.samples) < 48000)
-        Sleep(20);
-    const auto status = voice_audio_capture_status(capture);
-    voice_audio_capture_stop(&capture);
-    check(status.state == VoiceCaptureState::capturing && status.opens >= 1 &&
-              ReadAcquire64(&value.samples) >= 48000 && ReadAcquire64(&value.ticks) > 20 &&
-              !voice_audio_capture_running(capture),
-          "Voice audio capture: WASAPI delivers 48 kHz mono events and stops cleanly");
-}
 } // namespace
 void test_voice_send(Check check) noexcept {
     test_blocks(check);
     test_pipeline(check);
     loopback_case(check, false);
     loopback_case(check, true);
-    test_device(check);
 }
 } // namespace maicord

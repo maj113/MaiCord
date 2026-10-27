@@ -175,16 +175,6 @@ void context_menu_coordinates() noexcept {
     g_app.window = nullptr;
     DestroyWindow(window);
 }
-void report_number(const char* label, u64 value) noexcept {
-    u32 label_bytes = 0;while (label[label_bytes]) ++label_bytes;
-    char digits[20]{};u32 count = 0;
-    do {digits[count++] = static_cast<char>('0' + value % 10);value /= 10;} while (value);
-    for (u32 i = 0; i < count / 2; ++i) {const char saved = digits[i];digits[i] = digits[count - i - 1];digits[count - i - 1] = saved;}
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), label, label_bytes, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), digits, count, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-}
 bool only_row(u64 id) noexcept {
     UiFriendsRow result{};return scene()&&scene()->source_count==1&&row(id,&result);
 }
@@ -344,8 +334,6 @@ void search_runtime_fixture() noexcept {
     const auto costs=message_composer_history_costs(*all);
     check(costs.payload_bytes==2048&&costs.used_bytes<=costs.payload_bytes&&costs.group_bytes<=kFriendsSearchBytes,
         "friends search: history payload stays bounded independently of borrowed text storage");
-    report_number("Friends search history owner bytes: ",costs.owner_bytes);
-    report_number("Friends search history payload bytes: ",costs.payload_bytes);
     constexpr UiFriendsTab query_tabs[]={UiFriendsTab::online,UiFriendsTab::pending,UiFriendsTab::blocked};
     for(const auto value:query_tabs){
         check(tab(value)&&action(UiFriendsAction::search,0,value)&&replace_query({}),"friends search: fixture clears retained tab query");
@@ -455,7 +443,6 @@ void pending_sections_runtime_fixture() noexcept {
         const auto modal_bank=application_friends_storage_metrics().requests_indices;SYSTEM_INFO modal_system{};GetSystemInfo(&modal_system);
         check(modal_bank.address&&modal_bank.reserved_bytes&&modal_bank.committed_bytes==modal_system.dwPageSize&&modal_bank.admitted_count==3&&modal_bank.commit_count==1,
             "friends storage: first three-row Other requests modal commits exactly one optional index page");
-        report_number("Friends Other requests3 optional index bank committed bytes: ",modal_bank.committed_bytes);
         const auto* modal_source=scene()->source;const auto modal_revision=scene()->revision,modal_builds=seen.builds;
         bool idle=true;for(u32 i=0;i<8;++i)idle=application_friends_synchronize()&&idle;
         const auto modal_retained=application_friends_storage_metrics().requests_indices;
@@ -620,11 +607,6 @@ void bounded_performance_fixture() noexcept {
     const u32 revision = scene()->revision, source_revision = source->revision, builds = seen.builds;
     MEMORY_BASIC_INFORMATION controller_vm{}, scene_vm{};
     const auto storage=application_friends_storage_metrics();
-    const auto primary_committed=storage.active.committed_bytes+storage.candidate.committed_bytes+storage.indices.committed_bytes;
-    const auto primary_reserved=storage.active.reserved_bytes+storage.candidate.reserved_bytes+storage.indices.reserved_bytes;
-    report_number("Friends snapshot4096 primary banks committed bytes: ",primary_committed);
-    report_number("Friends snapshot4096 primary banks reserved bytes: ",primary_reserved);
-    report_number("Friends snapshot4096 four banks committed bytes: ",primary_committed+storage.requests_indices.committed_bytes);
     check(storage.controller_bytes<128*1024&&storage.active.admitted_count>=records&&storage.candidate.admitted_count>=records&&
         storage.indices.admitted_count>=records&&storage.active.committed_bytes<=storage.active.reserved_bytes&&
         storage.candidate.committed_bytes<=storage.candidate.reserved_bytes&&storage.indices.committed_bytes<=storage.indices.reserved_bytes,
@@ -656,11 +638,6 @@ void bounded_performance_fixture() noexcept {
         scene_after.State == MEM_COMMIT && scene_after.AllocationBase == scene_vm.AllocationBase &&
         scene_after.BaseAddress == scene_vm.BaseAddress && scene_after.RegionSize == scene_vm.RegionSize,
         "friends benchmark: 8 unchanged synchronizations retain revisions, text publication and exact committed storage");
-    if (queried) {
-        report_number("Friends controller committed region bytes: ", controller_vm.RegionSize);
-        report_number("Friends scene committed region bytes: ", scene_vm.RegionSize);
-        report_number("Friends scene arena committed bytes: ", arena.committed);
-    }
 }
 struct Cleanup {
     ~Cleanup() noexcept {
@@ -689,9 +666,6 @@ void run() noexcept {
         "friends: authoritative empty READY shows ready empty scene and never queues implicit REST GET");
     if (!scene()) return;
     const auto empty_storage=application_friends_storage_metrics();
-    report_number("Friends controller owner bytes: ",empty_storage.controller_bytes);
-    report_number("Friends relationships0 primary banks committed bytes: ",
-        empty_storage.active.committed_bytes+empty_storage.candidate.committed_bytes+empty_storage.indices.committed_bytes);
     check(empty_storage.controller_bytes<128*1024&&empty_storage.active.reserved_bytes&&empty_storage.candidate.reserved_bytes&&
         empty_storage.indices.reserved_bytes&&!empty_storage.active.committed_bytes&&!empty_storage.candidate.committed_bytes&&
         !empty_storage.indices.committed_bytes&&!empty_storage.active.admitted_count&&!empty_storage.candidate.admitted_count&&
@@ -721,8 +695,6 @@ void run() noexcept {
         "friends: real typed Gateway publisher hydrates named authoritative rows and initial presence without GET");
     if (!scene()) return;
     const auto small_storage=application_friends_storage_metrics();SYSTEM_INFO storage_system{};GetSystemInfo(&storage_system);
-    report_number("Friends relationships2 primary banks committed bytes: ",
-        small_storage.active.committed_bytes+small_storage.candidate.committed_bytes+small_storage.indices.committed_bytes);
     check(small_storage.active.committed_bytes<=storage_system.dwPageSize&&small_storage.candidate.committed_bytes<=storage_system.dwPageSize&&
         small_storage.indices.committed_bytes<=storage_system.dwPageSize&&small_storage.active.admitted_count>=2&&
         small_storage.candidate.admitted_count>=2&&small_storage.indices.admitted_count>=1,
@@ -838,15 +810,6 @@ void run() noexcept {
     const bool copied_save = copied_action && save_form(utf8_literal("pending.friend"));
     const bool copied_submit = copied_save && application_friends_submit(15, 2800);
     const bool copied_operation = copied_submit && seen.operation == RelationshipOperation::request;
-    if (!copied_operation) {
-        report_number("Friends mutation fixture failure stage: ", !copied_snapshot ? 1 : !copied_sync ? 2 :
-            !copied_tab ? 3 : !copied_action ? 4 : !copied_save ? 5 : !copied_submit ? 6 : 7);
-        report_number("Friends mutation fixture admission category: ", static_cast<u32>(seen.admission));
-        report_number("Friends mutation fixture pending: ", application_friends_pending(2800));
-        report_number("Friends mutation fixture primary lane category: ", static_cast<u32>(g_app.message_history_request_owner));
-        report_number("Friends mutation fixture text form active: ", g_app.text_form != nullptr);
-        report_number("Friends mutation fixture scene phase: ", scene() ? static_cast<u32>(scene()->phase) : ~u32{0});
-    }
     check(copied_operation,
         "friends: copied username mutation is accepted before incomplete live-state marker");
     GatewayClientEvent incomplete{};
@@ -974,8 +937,5 @@ float client_dip_y(LPARAM value) noexcept { return static_cast<short>(HIWORD(val
 
 extern "C" __declspec(noreturn) void WINAPI maicord_friends_runtime_entry() noexcept {
     maicord::friends_runtime_test::run();
-    const bool failed = maicord::friends_runtime_test::seen.failures != 0;
-    constexpr char pass[] = "PASS Friends controller runtime\n", fail[] = "FAIL Friends controller runtime\n";
-    DWORD written = 0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::friends_runtime_test::seen.failures, "Friends controller runtime");
 }

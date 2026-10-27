@@ -11,14 +11,7 @@
 namespace maicord {
 namespace user_social_account_test {
 u32 failures;
-struct Capture {
-    RestRouteKey route;
-    u64 id;
-    u32 submissions, cancellations, target_bytes, body_bytes;
-    u8 target[kRestClientMaximumTargetBytes], body[kUserSocialMaximumBodyBytes];
-    bool json;
-    RestClientSubmitError result;
-} capture;
+RestCapture capture;
 u32 structurals[16384];
 
 void check(bool valid, const char* label) noexcept {
@@ -33,7 +26,7 @@ bool submitted(const UserSocialRequest& r, RestMethod method, RestMajorParameter
     const u32 before = capture.submissions;
     if (!account_user_social_submit(rest, &r, 41).ok() || capture.submissions != before + 1)
         return false;
-    return capture.id == 41 && capture.route.method == method && capture.route.major == major &&
+    return capture.request_id == 41 && capture.route.method == method && capture.route.major == major &&
            capture.route.major_key == major_key && (capture.route.route_id >> 16) == (kUserSocialRouteBase >> 16) &&
            capture.json == (body.bytes != 0) && same(capture.target, capture.target_bytes, target) &&
            same(capture.body, capture.body_bytes, body);
@@ -210,52 +203,23 @@ void test_rejections() noexcept {
               account_user_social_submit(nullptr, &flags, 1).error == RestClientSubmitError::invalid_input &&
               capture.submissions == before,
           "user social: missing IDs, non-JSON reports and unknown operations never submit");
-    capture.result = RestClientSubmitError::busy;
+    capture.error = RestClientSubmitError::busy;
     UserSocialRequest get{};
     get.operation = UserSocialOperation::note_get;
     get.user_id = 5;
     check(account_user_social_submit(rest, &get, 5).error == RestClientSubmitError::busy,
           "user social: transport backpressure propagates");
-    capture.result = RestClientSubmitError::none;
-    check(account_user_social_cancel(rest, 5).ok() && capture.cancellations == 1 &&
-              account_user_social_cancel(rest, 0).error == RestClientSubmitError::invalid_input,
-          "user social: cancel names exactly one request");
+    capture.error = RestClientSubmitError::none;
 }
 } // namespace user_social_account_test
-
-static RestClientSubmitResult submit_stub(RestClient*,
-                                          const RestClientRequest& request) noexcept {
-    auto& c = user_social_account_test::capture;
-    ++c.submissions;
-    c.route = request.route;
-    c.id = request.request_id;
-    c.json = request.json_body;
-    if (request.target.count > sizeof(c.target) || request.body.count > sizeof(c.body))
-        return {RestClientSubmitError::invalid_input};
-    c.target_bytes = request.target.count;
-    c.body_bytes = request.body.count;
-    copy_bytes(c.target, request.target.data, request.target.count);
-    if (request.body.count)
-        copy_bytes(c.body, request.body.data, request.body.count);
-    return {c.result};
-}
-
-static bool cancel_stub(RestClient*, u64 request_id) noexcept {
-    ++user_social_account_test::capture.cancellations;
-    return request_id == 5;
-}
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_user_social_entry() noexcept {
-    maicord::rest_install_hooks({.submit = maicord::submit_stub, .cancel = maicord::cancel_stub});
+    maicord::rest_install_capture(maicord::user_social_account_test::capture);
     using namespace maicord::user_social_account_test;
     test_notes();
     test_message_flags();
     test_report_menu();
     test_rejections();
-    constexpr char pass[] = "PASS user social requests\n";
-    constexpr char fail[] = "FAIL user social requests\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "user social requests");
 }

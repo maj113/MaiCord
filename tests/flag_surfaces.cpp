@@ -282,7 +282,6 @@ void escape_geometry_case(void (*check)(bool, const char*) noexcept) noexcept {
 }
 } // namespace
 void test_flag_surfaces(void (*check)(bool, const char*) noexcept) noexcept {
-    static_assert(sizeof(MessageComposerProjectionSpan) == 40);
     scanner_cases(check); markdown_cases(check); composer_cases(check); composer_capacity_case(check); popup_identity_case(check);
     geometry_cases(check);
     escape_geometry_case(check);

@@ -3,7 +3,6 @@
 #include "../src/app/application_gif_favorites.cpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/writer.hpp"
-#include "maicord/core/trace_record.hpp"
 #include "test_output.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
@@ -30,35 +29,6 @@ void check(bool pass, const char* message) noexcept {
 bool is_free(const void* pointer) noexcept {
     Win32MemoryInformation memory{};
     return VirtualQuery(pointer, memory.native(), sizeof(memory)) && memory.State == MEM_FREE;
-}
-usize committed(const void* pointer) noexcept {
-    Win32MemoryInformation memory{};
-    return pointer && VirtualQuery(pointer, memory.native(), sizeof(memory)) && memory.State == MEM_COMMIT
-               ? memory.RegionSize
-               : 0;
-}
-void emit(const TraceRecord& record) noexcept {
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), record.text, record.used, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-}
-void memory_stage(const char* stage) noexcept {
-    const auto* p = g_app.gif_favorites;
-    // Each of these is a separately owned allocation. Query once per bank;
-    // no double counting of borrowed group/record/index pointers.
-    const usize owner = committed(p);
-    const usize bank = committed(p ? p->bank : nullptr);
-    const usize queue = committed(p ? p->queue : nullptr);
-    const usize response_bank = committed(p ? p->response_body : nullptr);
-    TraceRecord record("gif_favorites_runtime_memory");
-    record.field("stage", stage);
-    record.field("logical_bytes", application_gif_favorites_owner_bytes());
-    record.field("committed_bytes", owner + bank + queue + response_bank);
-    record.field("owner_committed", owner);
-    record.field("confirmed_bank_committed", bank);
-    record.field("queue_committed", queue);
-    record.field("response_committed", response_bank);
-    emit(record);
 }
 struct Binary {
     u8 bytes[8192];
@@ -182,13 +152,6 @@ RestClientSubmitResult WINAPI submit(void*, AccountGifFavoritesOperation operati
               "conditional write holds owned transient storage during synchronous admission");
         transient_base = allocation.AllocationBase;
         transient_bytes = allocation.RegionSize;
-        if (id == 102) {
-            TraceRecord record("gif_favorites_runtime_patch");
-            record.field("stage", "synchronous_submit");
-            record.field("json_bytes", patch.count);
-            record.field("transient_committed_bytes", transient_bytes);
-            emit(record);
-        }
     }
     check((operation == AccountGifFavoritesOperation::fetch && !patch.count) ||
               (operation == AccountGifFavoritesOperation::update &&
@@ -260,8 +223,6 @@ void load(u64 id, u32 version, bool first = true, bool second = false, bool esca
     if (g_app.gif_favorites && g_app.gif_favorites->failed && g_app.gif_favorites->visible)
         application_gif_favorites_set_visible(false); // explicit close/reopen retry
     const bool opened = application_gif_favorites_open();
-    if (id == 101)
-        memory_stage("open");
     check(opened && application_gif_favorites_pending(1) && application_gif_favorites_submit(id, 1),
           "lazy visible Favorites submits only through existing account primary API");
     const auto fixture = proto(version, first, second);
@@ -435,12 +396,6 @@ void run() noexcept {
     configure();
     if (!g_app.account_ui)
         return;
-    TraceRecord sizes("gif_favorites_runtime_sizes");
-    sizes.field("sizeof_owner", sizeof(ApplicationGifFavorites));
-    sizes.field("sizeof_confirmed_bank", sizeof(FavoriteBank));
-    sizes.field("sizeof_action", sizeof(FavoriteAction));
-    emit(sizes);
-    memory_stage("dormant");
     for (u32 i = 0; i < 8; ++i) {
         application_gif_favorites_synchronize();
         application_gif_favorites_pending(1);
@@ -451,9 +406,8 @@ void run() noexcept {
               !application_gif_favorites_response_buffer().data && !application_gif_favorites_next_wake(),
           "dormant broker commits zero owner banks and performs zero account work");
     load(101, 10, true, false, true);
-    memory_stage("loaded1");
     const auto original = application_gif_favorites_view();
-    check(original.records.count == 1 && equal(original.records[0].url, saved) &&
+    check(original.records.count == 1 && utf8_equal(original.records[0].url, saved) &&
               application_gif_favorites_state(saved).confirmed &&
               !application_gif_favorites_state(another).confirmed,
           "escaped JSON settings decode owns exact sorted record URLs and membership accelerator");
@@ -478,7 +432,6 @@ void run() noexcept {
           "identical refreshed group preserves immutable record borrows and preview data revision");
     check(application_gif_favorites_toggle(another, source, 160, 90, GifFavoriteFormat::image),
           "explicit favorite mutation is queued");
-    memory_stage("pendingqueued");
     const auto queued = application_gif_favorites_view();
     check(queued.data_revision == original.data_revision && queued.revision != original.revision &&
               !application_gif_favorites_state(another).confirmed &&
@@ -490,15 +443,9 @@ void run() noexcept {
     check(application_gif_favorites_submit(102, 1) &&
               submitted_operation == AccountGifFavoritesOperation::update,
           "conditional favorite update serializes through primary API");
-    memory_stage("submitted_response");
     check(
         transient_base && transient_bytes < 16 * 1024 && is_free(transient_base),
         "tiny mutation commits below 16 KiB transient scratch and JSON and releases both after admission");
-    TraceRecord transient_released("gif_favorites_runtime_patch");
-    transient_released.field("stage", "after_submit");
-    transient_released.field("transient_committed_bytes", committed(transient_base));
-    transient_released.field("freed", is_free(transient_base) ? 1ull : 0ull);
-    emit(transient_released);
     u32 required{};
     const auto patch = patch_proto(&required);
     constexpr u8 group_unknown[]{0x98, 0x06, 0x07}, entry_unknown[]{0xe8, 0x04, 0x09},
@@ -537,7 +484,6 @@ void run() noexcept {
     application_gif_favorites_response_drained();
     check(is_free(held.data) && !application_gif_favorites_response_buffer().data,
           "take buffer remains writable for RAII erase then is freed by exact response drain");
-    memory_stage("confirmed_drained");
     const auto baseline_bytes = application_gif_favorites_owner_bytes();
     check(application_gif_favorites_toggle(saved, source, 160, 90, GifFavoriteFormat::image) &&
               application_gif_favorites_submit(103, 1),
@@ -624,7 +570,6 @@ void run() noexcept {
               g_app.gif_favorites->profile_id == g_app.account.status.profile_id,
           "old profile self completion drains without publishing into new scope");
     application_gif_favorites_release();
-    memory_stage("released");
     // Queue allocation is lazy and bounded, and it copies caller strings.
     load(112, 40, false, false);
     const auto queue_baseline = application_gif_favorites_owner_bytes();
@@ -776,10 +721,5 @@ void application_media_picker_favorites_changed() noexcept {
 } // namespace maicord::app_detail
 extern "C" __declspec(noreturn) void WINAPI maicord_application_gif_favorites_runtime_entry() noexcept {
     maicord::gif_favorites_runtime_test::run();
-    const bool failed = maicord::gif_favorites_runtime_test::failures != 0;
-    constexpr char pass[] = "PASS application GIF Favorites runtime\n",
-                   fail[] = "FAIL application GIF Favorites runtime\n";
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1u : 0u);
+    maicord::test_exit(maicord::gif_favorites_runtime_test::failures, "application GIF Favorites runtime");
 }

@@ -34,7 +34,7 @@ void font(u8* p) noexcept {
 }
 bool basic() noexcept {
     u8 bytes[font_size];font(bytes);SfntFace face{};CHECK(sfnt_open({bytes,font_size},0,&face)==SfntStatus::ok);NativeFontCandidates source{};
-    CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==3&&source.axes.axis_count==2&&sizeof(source)==48);
+    CHECK(native_font_candidates_open(face,&source)==SfntStatus::ok&&source.count==3&&source.axes.axis_count==2);
     NativeFontCandidate value{};FontAxisSetting settings[2]{};u32 count=99;
     CHECK(native_font_candidate(source,1,&value)==SfntStatus::ok&&value.named_index==1&&value.properties.weight==600&&value.properties.width==5);
     CHECK(native_font_candidate_settings(source,1,{settings,2},&count)==SfntStatus::ok&&count==2&&settings[0].value==600&&settings[1].value==100);

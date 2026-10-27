@@ -876,11 +876,7 @@ void run() noexcept {
     remove_owner_store(0x3001);
     remove_owner_store(kFullOwner);
     RemoveDirectoryW(g_directory);
-    if (!failures) {
-        constexpr char done[] = "plugin_sdk completed\n";
-        DWORD written{};
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), done, sizeof(done) - 1, &written, nullptr);
-    }
+    if (!failures) test_write_text("plugin_sdk completed\n");
 }
 } // namespace maicord::plugin_sdk_tests
 

@@ -12,21 +12,6 @@ bool zero(const void* value, u32 count) noexcept {
             return false;
     return true;
 }
-void record(Check check, HANDLE file, const DaveKeyPackage& package) noexcept {
-    if (file == INVALID_HANDLE_VALUE)
-        return;
-    u8 header[12];
-    for (u32 i = 0; i != 8; ++i)
-        header[7 - i] = static_cast<u8>(package.user_id >> (8 * i));
-    for (u32 i = 0; i != 4; ++i)
-        header[11 - i] = static_cast<u8>(package.bytes >> (8 * i));
-    const ConstSlice<u8> parts[]{{header, 12}, {package.wire, package.bytes}, {package.reference, 32}};
-    for (auto part : parts) {
-        DWORD written = 0;
-        check(WriteFile(file, part.data, part.count, &written, nullptr) && written == part.count,
-              "DAVE public KeyPackage oracle record");
-    }
-}
 void retained_key(Check check, const P256Key& private_key, ConstSlice<u8> point) noexcept {
     P256Key peer{}, public_key{};
     check(p256_generate(&peer, P256Kind::ecdh).ok() &&
@@ -83,16 +68,6 @@ void test_dave_key_package(Check check) noexcept {
               zero(&output, sizeof(output)),
           "DAVE package requires worker workspace");
     check(kdf_sha256_initialize(&workspace).ok(), "DAVE package workspace");
-    wchar_t path[1024];
-    const DWORD path_bytes = GetEnvironmentVariableW(L"MAICORD_DAVE_PACKAGE_OUTPUT", path, 1024);
-    HANDLE file = INVALID_HANDLE_VALUE;
-    if (path_bytes) {
-        check(path_bytes < 1024, "DAVE package oracle path length");
-        if (path_bytes < 1024)
-            file =
-                CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        check(file != INVALID_HANDLE_VALUE, "DAVE package oracle output file");
-    }
     const u64 users[]{1, 255, 256, 0x0102030405060708ull, 0x8000000000000000ull, ~u64{0}, 42, 42};
     u8 previous_init[65]{}, previous_leaf[65]{};
     for (const auto user : users) {
@@ -126,7 +101,6 @@ void test_dave_key_package(Check check) noexcept {
         copy_bytes(previous_leaf, leaf.encryption_key.data, 65);
         retained_key(check, output.init_key, checked.view.init_key);
         retained_key(check, output.leaf_key, leaf.encryption_key);
-        record(check, file, output);
         u8 snapshot[sizeof(output)];
         copy_bytes(snapshot, &output, sizeof(output));
         check(dave_key_package_create(workspace, signing, user, &output).error ==
@@ -137,8 +111,6 @@ void test_dave_key_package(Check check) noexcept {
         check(zero(&output, sizeof(output)), "DAVE package release erases full owner and bytes");
         dave_key_package_release(&output);
     }
-    if (file != INVALID_HANDLE_VALUE)
-        CloseHandle(file);
     check(dave_key_package_create(workspace, signing, 0, &output).error == DavePackageError::invalid_input,
           "DAVE rejects absent user identity");
     P256Key empty{};

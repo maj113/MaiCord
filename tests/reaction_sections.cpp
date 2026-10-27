@@ -7,9 +7,6 @@
 
 namespace maicord {
 namespace {
-void measurement(const char* name, usize value) noexcept {
-    test_write_metric(name, value);
-}
 u32 find_section(const ReactionPickerModel& picker, u32 local, u64 guild = 0) noexcept {
     for (u32 i = 0; i < picker.section_count; ++i)
         if (picker.sections[i].local == local && picker.sections[i].guild_id == guild)
@@ -24,10 +21,6 @@ bool search(ReactionPickerModel* picker, Utf8View text) noexcept {
 // The emoji picker model shared by the expression picker's Emoji tab and the
 // reaction popout: section spans, preferences and capacity.
 void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept {
-    measurement("MEASURE reaction_picker_owner_bytes=", sizeof(ReactionPickerModel));
-    measurement("MEASURE reaction_section_descriptor_bytes=", sizeof(ReactionPickerSection));
-    measurement("MEASURE reaction_preference_owner_bytes=", sizeof(ReactionPreferenceStore));
-
     ReactionPreferenceStore preferences{};
     ReactionPickerModel picker{};
     bool valid = reaction_preferences_initialize(&preferences) &&
@@ -37,10 +30,6 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
                  reaction_picker_open(&picker, 77, &preferences, 1000).ok();
     const u32 favorite = find_section(picker, kReactionPickerSectionFavorites),
               recent = find_section(picker, kReactionPickerSectionFrequent);
-    measurement("MEASURE reaction_small_allocation_bytes=", picker.storage.offset);
-    measurement("MEASURE reaction_small_committed_bytes=", picker.storage.committed);
-    measurement("MEASURE reaction_small_reserved_bytes=", picker.storage.reserved);
-    measurement("MEASURE reaction_small_source_capacity=", picker.result_capacity);
     check(valid && favorite == 0 && recent == 1 && picker.sections[favorite].count == 1 &&
               picker.sections[recent].count == 1 &&
               picker.result_count == unicode_emoji_catalog().count + 2 &&
@@ -116,10 +105,6 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
         valid = reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
                                                  reaction_emoji_unicode(static_cast<u16>(i)), 1000).ok();
     valid = valid && reaction_picker_open(&picker, 88, &preferences, 1000, &state, 1007).ok();
-    measurement("MEASURE reaction_maximum_allocation_bytes=", picker.storage.offset);
-    measurement("MEASURE reaction_maximum_committed_bytes=", picker.storage.committed);
-    measurement("MEASURE reaction_maximum_reserved_bytes=", picker.storage.reserved);
-    measurement("MEASURE reaction_maximum_source_capacity=", picker.result_capacity);
     check(valid && picker.guild_count == 256 && picker.custom_emoji_count == 4096 &&
               picker.section_count == 266 && picker.result_count == 3780 + 4096 + 250 + 42 &&
               picker.result_capacity == 3780 + 4096 + 250 + 42,
@@ -174,7 +159,6 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     }
     state.emoji_count = kHeavyEmoji;
     valid = reaction_picker_open(&picker, 89, &preferences, 1000, &state, 1100).ok();
-    measurement("MEASURE reaction_heavy_committed_bytes=", picker.storage.committed);
     const u32 selected = find_section(picker, kReactionPickerSectionGuild, 1100);
     ReactionPickerSelection first{}, last{};
     check(valid && picker.custom_emoji_count == kHeavyEmoji && picker.guild_count == kHeavyGuilds &&

@@ -134,11 +134,7 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
 
 namespace maicord {
 namespace notification_sound_assets_entry {u32 failures;
-void check(bool passed,const char* message) noexcept {
-    if(passed)return;++failures;u32 n=0;while(message[n])++n;DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message,n,&written,nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),"\r\n",2,&written,nullptr);
-}
+void check(bool passed,const char* message) noexcept { test_check(&failures,passed,message); }
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_notification_sound_assets_tests_entry() noexcept {
     maicord::test_notification_sound_assets(maicord::notification_sound_assets_entry::check);ExitProcess(maicord::notification_sound_assets_entry::failures?1:0);

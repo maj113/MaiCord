@@ -324,6 +324,11 @@ int finish_probe(int result) noexcept {
     return result;
 }
 
+// Logs a gate's verdict and ends the probe with its exit code.
+int finish_gate(bool valid, const char* passed, const char* failed, int failure) noexcept {
+    log_write(valid ? LogLevel::info : LogLevel::error, "probe", valid ? passed : failed);
+    return finish_probe(valid ? 0 : failure);
+}
 
 bool initialize_probe_message_scene() noexcept {
     message_scene_release(&g_probe.message_scene);
@@ -9866,25 +9871,18 @@ int run_probe() noexcept {
     const bool user_settings_requested = probe_option_enabled(L"MAICORD_USER_SETTINGS_UI_PROBE");
     const bool flag_surfaces_requested = probe_option_enabled(L"MAICORD_REGIONAL_FLAG_SURFACES_PROBE");
     if (!flag_surfaces_requested &&
-        GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY", nullptr, 0)) {
-        const bool valid =
-            regional_flag_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "regional_flag_gpu_probe_passed" : "regional_flag_gpu_probe_failed");
-        return finish_probe(valid ? 0 : 242);
-    }
+        GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY", nullptr, 0))
+        return finish_gate(regional_flag_ui_probe(g_probe.renderer, g_probe.popup_scene, probe_capture_frame),
+                           "regional_flag_gpu_probe_passed", "regional_flag_gpu_probe_failed", 242);
     wchar_t glyph_cache_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_GLYPH_CACHE_METRICS", glyph_cache_only, 2)) {
         const bool valid = probe_glyph_cache(g_probe.renderer, probe_capture_frame);
         return finish_probe(valid ? 0 : 247);
     }
     wchar_t title_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_BOOTSTRAP_TITLE_PROBE", title_only, 2) == 1) {
-        const bool valid = title_only[0] == L'2' || probe_bootstrap_title();
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "bootstrap_title_passed" : "bootstrap_title_failed");
-        return finish_probe(valid ? 0 : 246);
-    }
+    if (GetEnvironmentVariableW(L"MAICORD_BOOTSTRAP_TITLE_PROBE", title_only, 2) == 1)
+        return finish_gate(title_only[0] == L'2' || probe_bootstrap_title(), "bootstrap_title_passed",
+                           "bootstrap_title_failed", 246);
     MediaQuad* initial_media_quads = g_probe.renderer.media_draw.quad_data;
     MediaAtlasHandle* initial_media_handles = g_probe.renderer.media_draw.handle_data;
     u8* initial_media_domains = g_probe.renderer.media_draw.domain_data;
@@ -9956,54 +9954,39 @@ int run_probe() noexcept {
         !initialize_probe_message_scene() || !synchronize_probe_shell_layout()) {
         return finish_probe(2);
     }
-    if (probe_option_enabled(L"MAICORD_ACCOUNT_MENU_UI_PROBE")) {
-        const bool valid =
-            initialize_fixture(true) && account_menu_ui_probe(g_probe.renderer, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "account_menu_native_ui_passed" : "account_menu_native_ui_failed");
-        return finish_probe(valid ? 0 : 255);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_BACKGROUND_THEME_PROBE")) {
-        const bool valid = initialize_fixture(true) &&
+    if (probe_option_enabled(L"MAICORD_ACCOUNT_MENU_UI_PROBE"))
+        return finish_gate(
+            initialize_fixture(true) && account_menu_ui_probe(g_probe.renderer, probe_capture_frame),
+            "account_menu_native_ui_passed", "account_menu_native_ui_failed", 255);
+    if (probe_option_enabled(L"MAICORD_UI_BACKGROUND_THEME_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
                            background_theme_ui_probe({g_probe.renderer,
                                                       +[]() noexcept {
                                                           return synchronize_probe_shell_layout() &&
                                                                  rebuild_probe_content_text();
                                                       },
-                                                      probe_capture_frame});
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "background_theme_native_ui_passed" : "background_theme_native_ui_failed");
-        return finish_probe(valid ? 0 : 270);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_SHOWCASE_PROBE")) {
-        const bool valid =
-            initialize_fixture(true) && showcase_ui_probe(g_probe.renderer, g_probe.message_text);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "showcase_native_ui_passed" : "showcase_native_ui_failed");
-        return finish_probe(valid ? 0 : 304);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_INLINE_FLAGS_PROBE")) {
-        const bool valid = initialize_fixture(true) &&
+                                                      probe_capture_frame}),
+                           "background_theme_native_ui_passed", "background_theme_native_ui_failed", 270);
+    if (probe_option_enabled(L"MAICORD_UI_SHOWCASE_PROBE"))
+        return finish_gate(
+            initialize_fixture(true) && showcase_ui_probe(g_probe.renderer, g_probe.message_text),
+            "showcase_native_ui_passed", "showcase_native_ui_failed", 304);
+    if (probe_option_enabled(L"MAICORD_UI_INLINE_FLAGS_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
                            inline_flags_ui_probe({g_probe.renderer, g_probe.shell_scene, g_probe.chat_state,
                                                   g_probe.navigation, +[]() noexcept {
                                                       return synchronize_probe_shell_layout() &&
                                                              rebuild_probe_content_text();
-                                                  }});
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "inline_flags_native_ui_passed" : "inline_flags_native_ui_failed");
-        return finish_probe(valid ? 0 : 269);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_GUILD_RAIL_ICON_PROBE")) {
-        const bool valid = initialize_fixture(true) &&
+                                                  }}),
+                           "inline_flags_native_ui_passed", "inline_flags_native_ui_failed", 269);
+    if (probe_option_enabled(L"MAICORD_UI_GUILD_RAIL_ICON_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
                            guild_rail_icon_ui_probe({g_probe.renderer, g_probe.guild_rail_scene, g_probe.chat_state,
                                                      g_probe.navigation, +[]() noexcept {
                                                          return synchronize_probe_shell_layout() &&
                                                                 rebuild_probe_content_text();
-                                                     }});
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "guild_rail_icons_native_ui_passed" : "guild_rail_icons_native_ui_failed");
-        return finish_probe(valid ? 0 : 275);
-    }
+                                                     }}),
+                           "guild_rail_icons_native_ui_passed", "guild_rail_icons_native_ui_failed", 275);
     if (probe_option_enabled(L"MAICORD_UI_POST_RESIZE_PACING_PROBE")) {
         if (post_resize_probe_detail::compositor_asleep()) {
             log_write(LogLevel::info, "probe", "post_resize_pacing_skipped_display_asleep");
@@ -10018,46 +10001,28 @@ int run_probe() noexcept {
                   valid ? "post_resize_pacing_native_ui_passed" : "post_resize_pacing_native_ui_failed");
         return finish_probe(valid ? 0 : 268);
     }
-    if (probe_option_enabled(L"MAICORD_UI_UNIFIED_PICKER_PROBE")) {
-        const bool valid =
-            initialize_fixture(true) && unified_picker_ui_probe(g_probe.renderer, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "unified_picker_native_ui_passed" : "unified_picker_native_ui_failed");
-        return finish_probe(valid ? 0 : 266);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_HOVER_RETENTION_PROBE")) {
-        const bool valid =
+    if (probe_option_enabled(L"MAICORD_UI_UNIFIED_PICKER_PROBE"))
+        return finish_gate(
+            initialize_fixture(true) && unified_picker_ui_probe(g_probe.renderer, probe_capture_frame),
+            "unified_picker_native_ui_passed", "unified_picker_native_ui_failed", 266);
+    if (probe_option_enabled(L"MAICORD_UI_HOVER_RETENTION_PROBE"))
+        return finish_gate(
             initialize_fixture(true) &&
             hover_retention_ui_probe(g_probe.renderer, g_probe.message_view, g_probe.message_scene,
-                                     g_probe.users, rebuild_probe_content_text);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "hover_retention_native_ui_passed" : "hover_retention_native_ui_failed");
-        return finish_probe(valid ? 0 : 267);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_MEDIA_UNDERLAY_PROBE")) {
-        const bool valid = initialize_fixture(true) && probe_media_underlay_and_quick_reactions();
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "media_underlay_native_ui_passed" : "media_underlay_native_ui_failed");
-        return finish_probe(valid ? 0 : 264);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_SEARCH_POLISH_PROBE")) {
-        const bool valid = initialize_fixture(true) && search_polish_ui_probe(g_probe.renderer);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "search_polish_native_ui_passed" : "search_polish_native_ui_failed");
-        return finish_probe(valid ? 0 : 265);
-    }
-    if (probe_option_enabled(L"MAICORD_SCOPED_SEARCH_UI_PROBE")) {
-        const bool valid = initialize_fixture(true) && scoped_search_ui_probe(g_probe.renderer);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "scoped_search_native_ui_passed" : "scoped_search_native_ui_failed");
-        return finish_probe(valid ? 0 : 263);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_PANE_GLYPH_STRESS_PROBE")) {
-        const bool valid = initialize_fixture(true) && native_pane_glyph_stress_probe(g_probe.renderer);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "pane_glyph_stress_native_ui_passed" : "pane_glyph_stress_native_ui_failed");
-        return finish_probe(valid ? 0 : 262);
-    }
+                                     g_probe.users, rebuild_probe_content_text),
+            "hover_retention_native_ui_passed", "hover_retention_native_ui_failed", 267);
+    if (probe_option_enabled(L"MAICORD_UI_MEDIA_UNDERLAY_PROBE"))
+        return finish_gate(initialize_fixture(true) && probe_media_underlay_and_quick_reactions(),
+                           "media_underlay_native_ui_passed", "media_underlay_native_ui_failed", 264);
+    if (probe_option_enabled(L"MAICORD_UI_SEARCH_POLISH_PROBE"))
+        return finish_gate(initialize_fixture(true) && search_polish_ui_probe(g_probe.renderer),
+                           "search_polish_native_ui_passed", "search_polish_native_ui_failed", 265);
+    if (probe_option_enabled(L"MAICORD_SCOPED_SEARCH_UI_PROBE"))
+        return finish_gate(initialize_fixture(true) && scoped_search_ui_probe(g_probe.renderer),
+                           "scoped_search_native_ui_passed", "scoped_search_native_ui_failed", 263);
+    if (probe_option_enabled(L"MAICORD_UI_PANE_GLYPH_STRESS_PROBE"))
+        return finish_gate(initialize_fixture(true) && native_pane_glyph_stress_probe(g_probe.renderer),
+                           "pane_glyph_stress_native_ui_passed", "pane_glyph_stress_native_ui_failed", 262);
     if (resize_stress_requested()) {
         // Live-resize stress over the rich-message fixture in a shown window:
         // one WM_SIZE and paint per step, clipped updates without buffer
@@ -10075,50 +10040,29 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : static_cast<int>(g_probe.failure_stage != 0 ? g_probe.failure_stage : 7u);
     }
-    if (probe_option_enabled(L"MAICORD_UI_GUILD_ROLES_PROBE")) {
-        const bool valid = initialize_fixture(true) && guild_roles_ui_probe(g_probe.renderer);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "guild_roles_native_ui_passed" : "guild_roles_native_ui_failed");
-        return finish_probe(valid ? 0 : 279);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_CHANNEL_OVERVIEW_PROBE")) {
-        const bool valid = initialize_fixture(true) &&
-                           channel_overview_ui_probe(g_probe.renderer, g_probe.text_measure_cache);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "channel_overview_native_ui_passed" : "channel_overview_native_ui_failed");
-        return finish_probe(valid ? 0 : 261);
-    }
-    if (probe_option_enabled(L"MAICORD_LONG_EMBED_UI_PROBE")) {
-        const bool valid = initialize_fixture(true) && probe_long_embed_text() && probe_embed_code_block();
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "long_embed_native_ui_passed" : "long_embed_native_ui_failed");
-        return finish_probe(valid ? 0 : 263);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_SURFACE_MOTION_PROBE")) {
-        const bool valid = initialize_fixture(true) && probe_ui_surface_motion();
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "surface_motion_native_ui_passed" : "surface_motion_native_ui_failed");
-        return finish_probe(valid ? 0 : 260);
-    }
-    if (probe_option_enabled(L"MAICORD_MEDIA_FAVORITES_UI_PROBE")) {
-        const bool valid = initialize_fixture(true) && probe_media_gallery(true);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "media_favorites_native_ui_passed" : "media_favorites_native_ui_failed");
-        return finish_probe(valid ? 0 : 259);
-    }
-    if (probe_option_enabled(L"MAICORD_MEDIA_PICKER_UI_PROBE")) {
-        const bool valid = initialize_fixture(true) && probe_media_gallery();
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "media_gallery_native_ui_passed" : "media_gallery_native_ui_failed");
-        return finish_probe(valid ? 0 : 258);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_FORWARDED_MESSAGES_PROBE")) {
-        const bool valid = initialize_fixture(true) && forwarded_messages_ui_probe(
-            g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "forwarded_messages_native_ui_passed" : "forwarded_messages_native_ui_failed");
-        return finish_probe(valid ? 0 : 289);
-    }
+    if (probe_option_enabled(L"MAICORD_UI_GUILD_ROLES_PROBE"))
+        return finish_gate(initialize_fixture(true) && guild_roles_ui_probe(g_probe.renderer),
+                           "guild_roles_native_ui_passed", "guild_roles_native_ui_failed", 279);
+    if (probe_option_enabled(L"MAICORD_UI_CHANNEL_OVERVIEW_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
+                           channel_overview_ui_probe(g_probe.renderer, g_probe.text_measure_cache),
+                           "channel_overview_native_ui_passed", "channel_overview_native_ui_failed", 261);
+    if (probe_option_enabled(L"MAICORD_LONG_EMBED_UI_PROBE"))
+        return finish_gate(initialize_fixture(true) && probe_long_embed_text() && probe_embed_code_block(),
+                           "long_embed_native_ui_passed", "long_embed_native_ui_failed", 263);
+    if (probe_option_enabled(L"MAICORD_UI_SURFACE_MOTION_PROBE"))
+        return finish_gate(initialize_fixture(true) && probe_ui_surface_motion(),
+                           "surface_motion_native_ui_passed", "surface_motion_native_ui_failed", 260);
+    if (probe_option_enabled(L"MAICORD_MEDIA_FAVORITES_UI_PROBE"))
+        return finish_gate(initialize_fixture(true) && probe_media_gallery(true),
+                           "media_favorites_native_ui_passed", "media_favorites_native_ui_failed", 259);
+    if (probe_option_enabled(L"MAICORD_MEDIA_PICKER_UI_PROBE"))
+        return finish_gate(initialize_fixture(true) && probe_media_gallery(),
+                           "media_gallery_native_ui_passed", "media_gallery_native_ui_failed", 258);
+    if (probe_option_enabled(L"MAICORD_UI_FORWARDED_MESSAGES_PROBE"))
+        return finish_gate(initialize_fixture(true) && forwarded_messages_ui_probe(
+            g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame),
+                           "forwarded_messages_native_ui_passed", "forwarded_messages_native_ui_failed", 289);
     if (probe_option_enabled(L"MAICORD_UI_SHORTCUTS_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            shortcuts_ui_probe(g_probe.renderer, +[](const wchar_t* filename, const Theme& theme) noexcept {
@@ -10154,83 +10098,50 @@ int run_probe() noexcept {
                   valid ? "downloads_native_ui_passed" : "downloads_native_ui_failed");
         return finish_probe(valid ? 0 : 291);
     }
-    if (probe_option_enabled(L"MAICORD_UI_REPLY_DRAFT_PROBE")) {
-        const bool valid = initialize_fixture(true) && reply_draft_ui_probe(
-            g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-            valid ? "reply_draft_native_ui_passed" : "reply_draft_native_ui_failed");
-        return finish_probe(valid ? 0 : 296);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_FORUM_MEDIA_PROBE")) {
-        const bool valid =
+    if (probe_option_enabled(L"MAICORD_UI_REPLY_DRAFT_PROBE"))
+        return finish_gate(initialize_fixture(true) && reply_draft_ui_probe(
+            g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame),
+                           "reply_draft_native_ui_passed", "reply_draft_native_ui_failed", 296);
+    if (probe_option_enabled(L"MAICORD_UI_FORUM_MEDIA_PROBE"))
+        return finish_gate(
             initialize_fixture(true) && forum_post_ui_probe(g_probe.renderer, g_probe.text_measure_cache,
-                                                            g_probe.window, probe_capture_frame, true);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "forum_media_native_ui_passed" : "forum_media_native_ui_failed");
-        return finish_probe(valid ? 0 : 301);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_FORUM_POST_PROBE")) {
-        const bool valid =
+                                                            g_probe.window, probe_capture_frame, true),
+            "forum_media_native_ui_passed", "forum_media_native_ui_failed", 301);
+    if (probe_option_enabled(L"MAICORD_UI_FORUM_POST_PROBE"))
+        return finish_gate(
             initialize_fixture(true) && forum_post_ui_probe(g_probe.renderer, g_probe.text_measure_cache,
-                                                            g_probe.window, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-            valid ? "forum_post_native_ui_passed" : "forum_post_native_ui_failed");
-        return finish_probe(valid ? 0 : 299);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_THREAD_CREATION_PROBE")) {
-        const bool valid = initialize_fixture(true) && thread_creation_ui_probe(
-            g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-            valid ? "thread_creation_native_ui_passed" : "thread_creation_native_ui_failed");
-        return finish_probe(valid ? 0 : 298);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_THREAD_BROWSER_PROBE")) {
-        const bool valid = initialize_fixture(true) && thread_browser_ui_probe(
-            g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-            valid ? "thread_browser_native_ui_passed" : "thread_browser_native_ui_failed");
-        return finish_probe(valid ? 0 : 297);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_THREAD_MEMBERSHIP_PROBE")) {
-        const bool valid = initialize_fixture(true) && thread_membership_ui_probe(
-            g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-            valid ? "thread_membership_native_ui_passed" : "thread_membership_native_ui_failed");
-        return finish_probe(valid ? 0 : 295);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_REACTION_INTENT_PROBE")) {
-        const bool valid = initialize_fixture(true) && reaction_intent_ui_probe(
-            g_probe.renderer,g_probe.text_measure_cache,g_probe.window,probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error,"probe",
-            valid ? "reaction_intent_native_ui_passed" : "reaction_intent_native_ui_failed");
-        return finish_probe(valid ? 0 : 294);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_RICH_SEARCH_PROBE")) {
-        const bool valid = initialize_fixture(true) && rich_search_ui_probe(
-            g_probe.renderer,g_probe.text_measure_cache,probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error,"probe",
-            valid ? "rich_search_native_ui_passed" : "rich_search_native_ui_failed");
-        return finish_probe(valid ? 0 : 293);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_UNREAD_BOUNDARY_PROBE")) {
-        const bool valid = initialize_fixture(true) && unread_boundary_ui_probe(
-            g_probe.renderer,g_probe.text_measure_cache,probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error,"probe",
-            valid ? "unread_boundary_native_ui_passed" : "unread_boundary_native_ui_failed");
-        return finish_probe(valid ? 0 : 292);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_MESSAGE_FORWARD_PROBE")) {
-        const bool valid = initialize_fixture(true) && message_forward_ui_probe(g_probe.renderer, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "message_forward_native_ui_passed" : "message_forward_native_ui_failed");
-        return finish_probe(valid ? 0 : 290);
-    }
-    if (probe_option_enabled(L"MAICORD_UI_QUICK_SWITCHER_PROBE")) {
-        const bool valid = initialize_fixture(true) && quick_switcher_ui_probe(g_probe.renderer, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "quick_switcher_native_ui_passed" : "quick_switcher_native_ui_failed");
-        return finish_probe(valid ? 0 : 288);
-    }
+                                                            g_probe.window, probe_capture_frame),
+            "forum_post_native_ui_passed", "forum_post_native_ui_failed", 299);
+    if (probe_option_enabled(L"MAICORD_UI_THREAD_CREATION_PROBE"))
+        return finish_gate(initialize_fixture(true) && thread_creation_ui_probe(
+            g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame),
+                           "thread_creation_native_ui_passed", "thread_creation_native_ui_failed", 298);
+    if (probe_option_enabled(L"MAICORD_UI_THREAD_BROWSER_PROBE"))
+        return finish_gate(initialize_fixture(true) && thread_browser_ui_probe(
+            g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame),
+                           "thread_browser_native_ui_passed", "thread_browser_native_ui_failed", 297);
+    if (probe_option_enabled(L"MAICORD_UI_THREAD_MEMBERSHIP_PROBE"))
+        return finish_gate(initialize_fixture(true) && thread_membership_ui_probe(
+            g_probe.renderer, g_probe.text_measure_cache, g_probe.window, probe_capture_frame),
+                           "thread_membership_native_ui_passed", "thread_membership_native_ui_failed", 295);
+    if (probe_option_enabled(L"MAICORD_UI_REACTION_INTENT_PROBE"))
+        return finish_gate(initialize_fixture(true) && reaction_intent_ui_probe(
+            g_probe.renderer,g_probe.text_measure_cache,g_probe.window,probe_capture_frame),
+                           "reaction_intent_native_ui_passed", "reaction_intent_native_ui_failed", 294);
+    if (probe_option_enabled(L"MAICORD_UI_RICH_SEARCH_PROBE"))
+        return finish_gate(initialize_fixture(true) && rich_search_ui_probe(
+            g_probe.renderer,g_probe.text_measure_cache,probe_capture_frame),
+                           "rich_search_native_ui_passed", "rich_search_native_ui_failed", 293);
+    if (probe_option_enabled(L"MAICORD_UI_UNREAD_BOUNDARY_PROBE"))
+        return finish_gate(initialize_fixture(true) && unread_boundary_ui_probe(
+            g_probe.renderer,g_probe.text_measure_cache,probe_capture_frame),
+                           "unread_boundary_native_ui_passed", "unread_boundary_native_ui_failed", 292);
+    if (probe_option_enabled(L"MAICORD_UI_MESSAGE_FORWARD_PROBE"))
+        return finish_gate(initialize_fixture(true) && message_forward_ui_probe(g_probe.renderer, probe_capture_frame),
+                           "message_forward_native_ui_passed", "message_forward_native_ui_failed", 290);
+    if (probe_option_enabled(L"MAICORD_UI_QUICK_SWITCHER_PROBE"))
+        return finish_gate(initialize_fixture(true) && quick_switcher_ui_probe(g_probe.renderer, probe_capture_frame),
+                           "quick_switcher_native_ui_passed", "quick_switcher_native_ui_failed", 288);
     if (probe_option_enabled(L"MAICORD_UI_COMPOSER_WORKFLOW_PROBE")) {
         const auto publish = +[](const ComposerWorkflowProbeState& state) noexcept {
             auto& renderer = g_probe.renderer;
@@ -10266,44 +10177,27 @@ int run_probe() noexcept {
                   valid ? "composer_workflow_native_ui_passed" : "composer_workflow_native_ui_failed");
         return finish_probe(valid ? 0 : 287);
     }
-    if (probe_option_enabled(L"MAICORD_UI_PINNED_MESSAGES_PROBE")) {
-        const bool valid = initialize_fixture(true) &&
-                           pinned_messages_ui_probe(g_probe.renderer, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "pinned_messages_native_ui_passed" : "pinned_messages_native_ui_failed");
-        return finish_probe(valid ? 0 : 286);
-    }
-    if (probe_option_enabled(L"MAICORD_SEARCH_UI_PROBE")) {
-        const bool valid =
-            initialize_fixture(true) && search_ui_probe(g_probe.renderer, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "search_native_ui_passed" : "search_native_ui_failed");
-        return finish_probe(valid ? 0 : 256);
-    }
-    if (probe_option_enabled(L"MAICORD_TOOLTIP_UI_PROBE")) {
-        const bool valid =
-            initialize_fixture(true) && tooltip_ui_probe(g_probe.renderer, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "tooltip_native_ui_passed" : "tooltip_native_ui_failed");
-        return finish_probe(valid ? 0 : 254);
-    }
-    if (GetEnvironmentVariableW(L"MAICORD_TOAST_UI_PROBE", nullptr, 0)) {
-        const bool valid = initialize_fixture(true) && toast_ui_probe(g_probe.renderer, probe_capture_frame);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "toast_native_ui_passed" : "toast_native_ui_failed");
-        return finish_probe(valid ? 0 : 276);
-    }
-    if(GetEnvironmentVariableW(L"MAICORD_CATALOG_APNG_UI_PROBE",nullptr,0)) {
-        const bool valid=initialize_fixture(true) && probe_catalog_apng();
-        log_write(valid?LogLevel::info:LogLevel::error,"probe",valid?"catalog_apng_native_ui_passed":"catalog_apng_native_ui_failed");
-        return finish_probe(valid?0:273);
-    }
-    if (probe_option_enabled(L"MAICORD_TRANSPARENT_GUILD_UI_PROBE")) {
-        const bool valid = initialize_fixture(true) && probe_transparent_guild_icon();
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-            valid ? "transparent_guild_native_ui_passed" : "transparent_guild_native_ui_failed");
-        return finish_probe(valid ? 0 : 271);
-    }
+    if (probe_option_enabled(L"MAICORD_UI_PINNED_MESSAGES_PROBE"))
+        return finish_gate(initialize_fixture(true) &&
+                           pinned_messages_ui_probe(g_probe.renderer, probe_capture_frame),
+                           "pinned_messages_native_ui_passed", "pinned_messages_native_ui_failed", 286);
+    if (probe_option_enabled(L"MAICORD_SEARCH_UI_PROBE"))
+        return finish_gate(
+            initialize_fixture(true) && search_ui_probe(g_probe.renderer, probe_capture_frame),
+            "search_native_ui_passed", "search_native_ui_failed", 256);
+    if (probe_option_enabled(L"MAICORD_TOOLTIP_UI_PROBE"))
+        return finish_gate(
+            initialize_fixture(true) && tooltip_ui_probe(g_probe.renderer, probe_capture_frame),
+            "tooltip_native_ui_passed", "tooltip_native_ui_failed", 254);
+    if (GetEnvironmentVariableW(L"MAICORD_TOAST_UI_PROBE", nullptr, 0))
+        return finish_gate(initialize_fixture(true) && toast_ui_probe(g_probe.renderer, probe_capture_frame),
+                           "toast_native_ui_passed", "toast_native_ui_failed", 276);
+    if (GetEnvironmentVariableW(L"MAICORD_CATALOG_APNG_UI_PROBE", nullptr, 0))
+        return finish_gate(initialize_fixture(true) && probe_catalog_apng(), "catalog_apng_native_ui_passed",
+                           "catalog_apng_native_ui_failed", 273);
+    if (probe_option_enabled(L"MAICORD_TRANSPARENT_GUILD_UI_PROBE"))
+        return finish_gate(initialize_fixture(true) && probe_transparent_guild_icon(),
+                           "transparent_guild_native_ui_passed", "transparent_guild_native_ui_failed", 271);
     if (probe_option_enabled(L"MAICORD_PROFILE_EDITOR_UI_PROBE")) {
         const bool valid = initialize_fixture(true) &&
                            profile_editor_ui_probe(g_probe.renderer, &g_probe.text_measure_cache, &g_probe.chat_state,
@@ -10318,12 +10212,9 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : static_cast<int>(g_probe.failure_stage ? g_probe.failure_stage : 742);
     }
-    if (probe_option_enabled(L"MAICORD_PROFILE_BRAILLE_UI_PROBE")) {
-        const bool valid = initialize_fixture(true) && probe_braille_profile();
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-            valid ? "braille_profile_native_ui_passed" : "braille_profile_native_ui_failed");
-        return finish_probe(valid ? 0 : 270);
-    }
+    if (probe_option_enabled(L"MAICORD_PROFILE_BRAILLE_UI_PROBE"))
+        return finish_gate(initialize_fixture(true) && probe_braille_profile(),
+                           "braille_profile_native_ui_passed", "braille_profile_native_ui_failed", 270);
     if (probe_option_enabled(L"MAICORD_ANIMATION_HANDOFF_UI_PROBE")) {
         bool valid = initialize_fixture(true);
         valid = valid && application_media_animation_ui_probe(g_probe.renderer, probe_capture_frame);
@@ -10432,103 +10323,98 @@ int run_probe() noexcept {
                                        false,
                                        false,
                                        true};
-    const bool tibetan_wrap_render = probe_option_enabled(L"MAICORD_TIBETAN_WRAP_RENDER_PROBE");
-    const bool myanmar_wrap_render = probe_option_enabled(L"MAICORD_MYANMAR_WRAP_RENDER_PROBE");
-    const bool khmer_wrap_render = probe_option_enabled(L"MAICORD_KHMER_WRAP_RENDER_PROBE");
-    const bool sinhala_wrap_render = probe_option_enabled(L"MAICORD_SINHALA_WRAP_RENDER_PROBE");
-    const bool malayalam_wrap_render = probe_option_enabled(L"MAICORD_MALAYALAM_WRAP_RENDER_PROBE");
-    const bool kannada_wrap_render = probe_option_enabled(L"MAICORD_KANNADA_WRAP_RENDER_PROBE");
-    const bool telugu_wrap_render = probe_option_enabled(L"MAICORD_TELUGU_WRAP_RENDER_PROBE");
-    const bool odia_wrap_render = probe_option_enabled(L"MAICORD_ODIA_WRAP_RENDER_PROBE");
-    const bool gurmukhi_wrap_render = probe_option_enabled(L"MAICORD_GURMUKHI_WRAP_RENDER_PROBE");
-    const bool gujarati_wrap_render = probe_option_enabled(L"MAICORD_GUJARATI_WRAP_RENDER_PROBE");
-    const bool bengali_wrap_render = probe_option_enabled(L"MAICORD_BENGALI_WRAP_RENDER_PROBE");
-    const bool tamil_wrap_render = probe_option_enabled(L"MAICORD_TAMIL_WRAP_RENDER_PROBE");
-    if (tibetan_wrap_render || myanmar_wrap_render || khmer_wrap_render || sinhala_wrap_render ||
-        malayalam_wrap_render || kannada_wrap_render || telugu_wrap_render || odia_wrap_render ||
-        gurmukhi_wrap_render || gujarati_wrap_render || bengali_wrap_render || tamil_wrap_render ||
-        (probe_option_enabled(L"MAICORD_THAI_WRAP_RENDER_PROBE"))) {
-        const bool valid = initialize_fixture(true) &&
-                           probe_script_wrapped(tibetan_wrap_render     ? WrappedProbeScript::tibetan
-                                                : myanmar_wrap_render   ? WrappedProbeScript::myanmar
-                                                : khmer_wrap_render     ? WrappedProbeScript::khmer
-                                                : sinhala_wrap_render   ? WrappedProbeScript::sinhala
-                                                : malayalam_wrap_render ? WrappedProbeScript::malayalam
-                                                : kannada_wrap_render   ? WrappedProbeScript::kannada
-                                                : telugu_wrap_render    ? WrappedProbeScript::telugu
-                                                : odia_wrap_render      ? WrappedProbeScript::odia
-                                                : gurmukhi_wrap_render  ? WrappedProbeScript::gurmukhi
-                                                : gujarati_wrap_render  ? WrappedProbeScript::gujarati
-                                                : bengali_wrap_render   ? WrappedProbeScript::bengali
-                                                : tamil_wrap_render     ? WrappedProbeScript::tamil
-                                                                        : WrappedProbeScript::thai);
-        log_write(
-            valid ? LogLevel::info : LogLevel::error, "probe",
-            tibetan_wrap_render
-                ? (valid ? "tibetan_wrap_render_probe_passed" : "tibetan_wrap_render_probe_failed")
-            : myanmar_wrap_render
-                ? (valid ? "myanmar_wrap_render_probe_passed" : "myanmar_wrap_render_probe_failed")
-            : khmer_wrap_render
-                ? (valid ? "khmer_wrap_render_probe_passed" : "khmer_wrap_render_probe_failed")
-            : sinhala_wrap_render
-                ? (valid ? "sinhala_wrap_render_probe_passed" : "sinhala_wrap_render_probe_failed")
-            : malayalam_wrap_render
-                ? (valid ? "malayalam_wrap_render_probe_passed" : "malayalam_wrap_render_probe_failed")
-            : kannada_wrap_render
-                ? (valid ? "kannada_wrap_render_probe_passed" : "kannada_wrap_render_probe_failed")
-            : telugu_wrap_render
-                ? (valid ? "telugu_wrap_render_probe_passed" : "telugu_wrap_render_probe_failed")
-            : odia_wrap_render ? (valid ? "odia_wrap_render_probe_passed" : "odia_wrap_render_probe_failed")
-            : gurmukhi_wrap_render
-                ? (valid ? "gurmukhi_wrap_render_probe_passed" : "gurmukhi_wrap_render_probe_failed")
-            : gujarati_wrap_render
-                ? (valid ? "gujarati_wrap_render_probe_passed" : "gujarati_wrap_render_probe_failed")
-            : bengali_wrap_render
-                ? (valid ? "bengali_wrap_render_probe_passed" : "bengali_wrap_render_probe_failed")
-            : tamil_wrap_render
-                ? (valid ? "tamil_wrap_render_probe_passed" : "tamil_wrap_render_probe_failed")
-                : (valid ? "thai_wrap_render_probe_passed" : "thai_wrap_render_probe_failed"));
+    struct WrappedRenderProbe {
+        const wchar_t* option;
+        WrappedProbeScript script;
+        const char* passed;
+        const char* failed;
+    };
+    static constexpr WrappedRenderProbe wrapped_render_probes[]{
+        {L"MAICORD_TIBETAN_WRAP_RENDER_PROBE", WrappedProbeScript::tibetan, "tibetan_wrap_render_probe_passed",
+         "tibetan_wrap_render_probe_failed"},
+        {L"MAICORD_MYANMAR_WRAP_RENDER_PROBE", WrappedProbeScript::myanmar, "myanmar_wrap_render_probe_passed",
+         "myanmar_wrap_render_probe_failed"},
+        {L"MAICORD_KHMER_WRAP_RENDER_PROBE", WrappedProbeScript::khmer, "khmer_wrap_render_probe_passed",
+         "khmer_wrap_render_probe_failed"},
+        {L"MAICORD_SINHALA_WRAP_RENDER_PROBE", WrappedProbeScript::sinhala, "sinhala_wrap_render_probe_passed",
+         "sinhala_wrap_render_probe_failed"},
+        {L"MAICORD_MALAYALAM_WRAP_RENDER_PROBE", WrappedProbeScript::malayalam,
+         "malayalam_wrap_render_probe_passed", "malayalam_wrap_render_probe_failed"},
+        {L"MAICORD_KANNADA_WRAP_RENDER_PROBE", WrappedProbeScript::kannada, "kannada_wrap_render_probe_passed",
+         "kannada_wrap_render_probe_failed"},
+        {L"MAICORD_TELUGU_WRAP_RENDER_PROBE", WrappedProbeScript::telugu, "telugu_wrap_render_probe_passed",
+         "telugu_wrap_render_probe_failed"},
+        {L"MAICORD_ODIA_WRAP_RENDER_PROBE", WrappedProbeScript::odia, "odia_wrap_render_probe_passed",
+         "odia_wrap_render_probe_failed"},
+        {L"MAICORD_GURMUKHI_WRAP_RENDER_PROBE", WrappedProbeScript::gurmukhi, "gurmukhi_wrap_render_probe_passed",
+         "gurmukhi_wrap_render_probe_failed"},
+        {L"MAICORD_GUJARATI_WRAP_RENDER_PROBE", WrappedProbeScript::gujarati, "gujarati_wrap_render_probe_passed",
+         "gujarati_wrap_render_probe_failed"},
+        {L"MAICORD_BENGALI_WRAP_RENDER_PROBE", WrappedProbeScript::bengali, "bengali_wrap_render_probe_passed",
+         "bengali_wrap_render_probe_failed"},
+        {L"MAICORD_TAMIL_WRAP_RENDER_PROBE", WrappedProbeScript::tamil, "tamil_wrap_render_probe_passed",
+         "tamil_wrap_render_probe_failed"},
+        {L"MAICORD_THAI_WRAP_RENDER_PROBE", WrappedProbeScript::thai, "thai_wrap_render_probe_passed",
+         "thai_wrap_render_probe_failed"},
+    };
+    for (const auto& wrapped : wrapped_render_probes) {
+        if (!probe_option_enabled(wrapped.option))
+            continue;
+        const bool valid = initialize_fixture(true) && probe_script_wrapped(wrapped.script);
+        log_write(valid ? LogLevel::info : LogLevel::error, "probe", valid ? wrapped.passed : wrapped.failed);
         renderer_shutdown(&g_probe.renderer);
         d3d11_draw_pipeline_release(&g_probe.renderer.pipeline);
         DestroyWindow(g_probe.window);
         return valid ? 0 : 241;
     }
-    const bool direction_tracking_render = probe_option_enabled(L"MAICORD_DIRECTION_TRACKING_RENDER_PROBE");
-    const bool deva_direction_render = probe_option_enabled(L"MAICORD_DEVANAGARI_DIRECTION_RENDER_PROBE");
-    const bool deva_tracking_render = probe_option_enabled(L"MAICORD_DEVANAGARI_TRACKING_RENDER_PROBE");
-    const bool deva_render =
-        direction_tracking_render || deva_direction_render || deva_tracking_render ||
-        (probe_option_enabled(L"MAICORD_DEVANAGARI_RENDER_PROBE"));
-    const bool extended_render = probe_option_enabled(L"MAICORD_EXTENDED_STANDARD_RENDER_PROBE");
-    const bool standard_render =
-        extended_render ||
-        (probe_option_enabled(L"MAICORD_STANDARD_RENDER_PROBE"));
-    if (deva_render || standard_render ||
-        (probe_option_enabled(L"MAICORD_HANGUL_RENDER_PROBE"))) {
-        const Utf8View hangul_samples[]{utf8_literal("한국어 메시지 😀"), utf8_literal("한글 각 각"),
-                                        utf8_literal("ᄓᅡᇫ ᅟᅠᆨ 가〮 각〯"),
-                                        utf8_literal("〮 가〮〯 가〮")};
-        const Utf8View extended_samples[]{utf8_literal("ሰላም ዓለም 😀"), utf8_literal("ሀ፝ ሁ፞ ሂ፟ ፩፪፫ ፲፻፼"),
-                                          utf8_literal("ᎣᏏᏲ ᏣᎳᎩ ꭰꭱꭲ"), utf8_literal("Ꭰ́ Ꭱ̄ שלום ሰላም")};
-        const Utf8View standard_samples[]{utf8_literal("Բարև աշխարհ 😀"), utf8_literal("և եւ ﬓ ﬔ ﬕ ﬖ ﬗ ա́"),
-                                          utf8_literal("ქართული ᲥᲐᲠᲗᲣᲚᲘ"), utf8_literal("ႠႡႢ ⴀⴁⴂ ა́ ա̄")};
-        const Utf8View deva_samples[]{utf8_literal("नमस्ते दुनिया 😀"), utf8_literal("र्कि किं कृ त्र ज्ञ"),
-                                      utf8_literal("क्‍ष क्‌ष क़ि"),
-                                      utf8_literal("ि ़ ॑ क॑ कः")};
-        const Utf8View deva_direction_samples[]{
-            utf8_literal("A \u202eर्कि हिन्दी 😀\u202c B"),
-            utf8_literal("\u202eक्‍ष क्‌ष क्षेत्र\u202c"),
-            utf8_literal("אב हिन्दी \u202eर्कि\u202c"), utf8_literal("\u2067हिन्दी \u202eर्कि\u202c\u2069")};
-        const Utf8View direction_tracking_samples[]{
-            utf8_literal("A \u202eर्कि हिन्दी 😀\u202c B"), utf8_literal("אָבּ גּד हिन्दी"),
-            utf8_literal("سَلَامٌ \u202dب\u034fب بَ\u034fب\u202c"),
-            utf8_literal("سَّلَام 👩‍👩‍👧‍👦 A")};
-        const auto* samples = extended_render           ? extended_samples
-                              : direction_tracking_render ? direction_tracking_samples
-                              : deva_direction_render     ? deva_direction_samples
-                              : deva_render               ? deva_samples
-                              : standard_render           ? standard_samples
-                                                          : hangul_samples;
+    static constexpr Utf8View hangul_samples[]{utf8_literal("한국어 메시지 😀"), utf8_literal("한글 각 각"),
+                                               utf8_literal("ᄓᅡᇫ ᅟᅠᆨ 가〮 각〯"), utf8_literal("〮 가〮〯 가〮")};
+    static constexpr Utf8View extended_samples[]{utf8_literal("ሰላም ዓለም 😀"), utf8_literal("ሀ፝ ሁ፞ ሂ፟ ፩፪፫ ፲፻፼"),
+                                                 utf8_literal("ᎣᏏᏲ ᏣᎳᎩ ꭰꭱꭲ"), utf8_literal("Ꭰ́ Ꭱ̄ שלום ሰላም")};
+    static constexpr Utf8View standard_samples[]{utf8_literal("Բարև աշխարհ 😀"), utf8_literal("և եւ ﬓ ﬔ ﬕ ﬖ ﬗ ա́"),
+                                                 utf8_literal("ქართული ᲥᲐᲠᲗᲣᲚᲘ"), utf8_literal("ႠႡႢ ⴀⴁⴂ ა́ ա̄")};
+    static constexpr Utf8View deva_samples[]{utf8_literal("नमस्ते दुनिया 😀"), utf8_literal("र्कि किं कृ त्र ज्ञ"),
+                                             utf8_literal("क्‍ष क्‌ष क़ि"), utf8_literal("ि ़ ॑ क॑ कः")};
+    static constexpr Utf8View deva_direction_samples[]{
+        utf8_literal("A \u202eर्कि हिन्दी 😀\u202c B"), utf8_literal("\u202eक्‍ष क्‌ष क्षेत्र\u202c"),
+        utf8_literal("אב हिन्दी \u202eर्कि\u202c"), utf8_literal("\u2067हिन्दी \u202eर्कि\u202c\u2069")};
+    static constexpr Utf8View direction_tracking_samples[]{
+        utf8_literal("A \u202eर्कि हिन्दी 😀\u202c B"), utf8_literal("אָבּ גּד हिन्दी"),
+        utf8_literal("سَلَامٌ \u202dب\u034fب بَ\u034fب\u202c"), utf8_literal("سَّلَام 👩‍👩‍👧‍👦 A")};
+    // How a probe sets the text system's tracking: leave it, none, or alternate by sample.
+    enum class RenderTracking : u8 { keep, none, alternate };
+    struct RenderProbe {
+        const wchar_t* option;
+        const Utf8View* samples;
+        wchar_t capture[32];
+        u32 digit;
+        RenderTracking tracking;
+        const char* passed;
+        const char* failed;
+    };
+    static constexpr RenderProbe render_probes[]{
+        {L"MAICORD_EXTENDED_STANDARD_RENDER_PROBE", extended_samples, L"extended-standard-0-0-0.bmp", 18,
+         RenderTracking::alternate, "extended_standard_render_probe_passed", "extended_standard_render_probe_failed"},
+        {L"MAICORD_DIRECTION_TRACKING_RENDER_PROBE", direction_tracking_samples, L"direction-tracking-0-0-0.bmp",
+         19, RenderTracking::alternate, "direction_tracking_render_probe_passed",
+         "direction_tracking_render_probe_failed"},
+        {L"MAICORD_DEVANAGARI_DIRECTION_RENDER_PROBE", deva_direction_samples, L"devanagari-direction-0-0-0.bmp",
+         21, RenderTracking::none, "devanagari_direction_render_probe_passed",
+         "devanagari_direction_render_probe_failed"},
+        {L"MAICORD_DEVANAGARI_TRACKING_RENDER_PROBE", deva_samples, L"devanagari-tracking-0-0-0.bmp", 20,
+         RenderTracking::alternate, "devanagari_tracking_render_probe_passed",
+         "devanagari_tracking_render_probe_failed"},
+        {L"MAICORD_DEVANAGARI_RENDER_PROBE", deva_samples, L"devanagari-0-0-0.bmp", 11, RenderTracking::keep,
+         "devanagari_render_probe_passed", "devanagari_render_probe_failed"},
+        {L"MAICORD_STANDARD_RENDER_PROBE", standard_samples, L"standard-0-0-0.bmp", 9, RenderTracking::keep,
+         "standard_render_probe_passed", "standard_render_probe_failed"},
+        {L"MAICORD_HANGUL_RENDER_PROBE", hangul_samples, L"hangul-0-0-0.bmp", 7, RenderTracking::keep,
+         "hangul_render_probe_passed", "hangul_render_probe_failed"},
+    };
+    for (const auto& render : render_probes) {
+        if (!probe_option_enabled(render.option))
+            continue;
+        const Utf8View* samples = render.samples;
         auto& system = g_probe.renderer.glyph_text.system;
         const float saved_tracking = system.tracking;
         const bool saved_independent = system.independent_letters;
@@ -10539,16 +10425,8 @@ int run_probe() noexcept {
             renderer_set_dpi(&g_probe.renderer, dpis[scale]);
             for (u32 i = 0; valid && i < 4; ++i)
                 for (u32 mode = 0; valid && mode < 3; ++mode) {
-                    if (deva_tracking_render) {
-                        system.tracking = (i & 1) ? .13f : .03f;
-                        system.independent_letters = i >= 2;
-                    }
-                    if (deva_direction_render) {
-                        system.tracking = 0;
-                        system.independent_letters = i >= 2;
-                    }
-                    if (direction_tracking_render || extended_render) {
-                        system.tracking = (i & 1) ? .13f : .03f;
+                    if (render.tracking != RenderTracking::keep) {
+                        system.tracking = render.tracking == RenderTracking::none ? 0 : (i & 1) ? .13f : .03f;
                         system.independent_letters = i >= 2;
                     }
                     u32 characters = 0;
@@ -10569,30 +10447,11 @@ int run_probe() noexcept {
                     view.edit_composition_active = mode == 2;
                     view.edit_composition = mode == 2 ? ConstSlice<TextCompositionSpan>{&composition, 1}
                                                       : ConstSlice<TextCompositionSpan>{};
-                    wchar_t hangul_capture[] = L"hangul-0-0-0.bmp",
-                            standard_capture[] = L"standard-0-0-0.bmp";
-                    wchar_t deva_capture[] = L"devanagari-0-0-0.bmp";
-                    wchar_t deva_tracking_capture[] = L"devanagari-tracking-0-0-0.bmp";
-                    wchar_t deva_direction_capture[] = L"devanagari-direction-0-0-0.bmp";
-                    wchar_t direction_tracking_capture[] = L"direction-tracking-0-0-0.bmp",
-                            extended_capture[] = L"extended-standard-0-0-0.bmp";
-                    auto* capture = extended_render           ? extended_capture
-                                    : direction_tracking_render ? direction_tracking_capture
-                                    : deva_direction_render     ? deva_direction_capture
-                                    : deva_tracking_render      ? deva_tracking_capture
-                                    : deva_render               ? deva_capture
-                                    : standard_render           ? standard_capture
-                                                                : hangul_capture;
-                    const u32 digit = extended_render           ? 18u
-                                      : direction_tracking_render ? 19u
-                                      : deva_direction_render     ? 21u
-                                      : deva_tracking_render      ? 20u
-                                      : deva_render               ? 11u
-                                      : standard_render           ? 9u
-                                                                  : 7u;
-                    capture[digit] += static_cast<wchar_t>(i);
-                    capture[digit + 2] += static_cast<wchar_t>(mode);
-                    capture[digit + 4] += static_cast<wchar_t>(scale);
+                    wchar_t capture[32];
+                    copy_bytes(capture, render.capture, sizeof(capture));
+                    capture[render.digit] += static_cast<wchar_t>(i);
+                    capture[render.digit + 2] += static_cast<wchar_t>(mode);
+                    capture[render.digit + 4] += static_cast<wchar_t>(scale);
                     valid = set_probe_login_view(view) && probe_prepare_capture();
                     if (mode)
                         valid = valid && g_probe.renderer.login_edit.active &&
@@ -10606,19 +10465,7 @@ int run_probe() noexcept {
         }
         system.tracking = saved_tracking;
         system.independent_letters = saved_independent;
-        log_write(
-            valid ? LogLevel::info : LogLevel::error, "probe",
-            extended_render ? (valid ? "extended_standard_render_probe_passed"
-                                      : "extended_standard_render_probe_failed")
-            : direction_tracking_render ? (valid ? "direction_tracking_render_probe_passed"
-                                                 : "direction_tracking_render_probe_failed")
-            : deva_direction_render     ? (valid ? "devanagari_direction_render_probe_passed"
-                                                 : "devanagari_direction_render_probe_failed")
-            : deva_tracking_render      ? (valid ? "devanagari_tracking_render_probe_passed"
-                                                 : "devanagari_tracking_render_probe_failed")
-            : deva_render ? (valid ? "devanagari_render_probe_passed" : "devanagari_render_probe_failed")
-            : standard_render ? (valid ? "standard_render_probe_passed" : "standard_render_probe_failed")
-                              : (valid ? "hangul_render_probe_passed" : "hangul_render_probe_failed"));
+        log_write(valid ? LogLevel::info : LogLevel::error, "probe", valid ? render.passed : render.failed);
         renderer_shutdown(&g_probe.renderer);
         d3d11_draw_pipeline_release(&g_probe.renderer.pipeline);
         DestroyWindow(g_probe.window);

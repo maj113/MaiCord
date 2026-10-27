@@ -65,22 +65,6 @@ bool owned_units(ScriptShapeOwner& owner,Arena& state,SfntShapeStorage s) noexce
     CHECK(fallback.close());
     print("PASS Myanmar owned units; assertions=");number(checks);print(" retained_root_bytes_both_modes=");number(retained);print(" retained_profile_bytes_both_modes=");number(total_retained);print(" profile_bytes=");number(sizeof(NativeMyanmarPlan));print("\n");return true;
 }
-bool owned_stream(const wchar_t* path,Arena& a,SfntShapeStorage s,bool units_only) noexcept {
-    ScriptShapeOwner owner;CHECK(owner.open(path));if(units_only)return owned_units(owner,a,s);
-    NativeMyanmarPlan prepared{};CHECK(native_myanmar_plan_prepare(owner.store,owner.run,flag(L"MAICORD_MYANMAR_INDEPENDENT"),&a,&owner.scratch,&prepared)==SfntStatus::ok);
-    const bool rtl=flag(L"MAICORD_MYANMAR_RTL"),compact=flag(L"MAICORD_MYANMAR_COMPACT");
-    u8 header[12];CHECK(read(header,12)&&bytes_equal(header,"MDSHP1\0\0",8));const u32 cases=byte_load_le32(header+8);CHECK(cases&&cases<=100000&&write(header,12));
-    for(u32 row=0;row<cases;++row){u32 n=0,input[256],sources[256];u16 glyphs[512];char text[1024];SfntShapeRunResult result{};
-        CHECK(read(&n,4)&&n&&n<=256&&read(input,n*4));u32 bytes=0;
-        for(u32 i=0;i<n;++i){const u8 width=utf8_encode(input[i],text+bytes);CHECK(width);bytes+=width;}
-        SfntStatus status;
-        if(compact){NativeAsciiStorage target{{},s,{reinterpret_cast<u16*>(s.glyphs.data),s.glyphs.count},s.placements,s.character_glyphs};NativeAsciiResult output{};
-            status=native_myanmar_run(owner.store,prepared,{text,bytes},1000,target,&output,{},rtl);
-            result.glyph_count=output.glyph_count;result.source_units=output.source_units;copy_bytes(glyphs,target.glyphs.data,result.glyph_count*2);
-        }else{status=native_myanmar_run(owner.store,prepared,{text,bytes},1000,s,&result,{},rtl);
-            for(u32 i=0;i<result.glyph_count;++i)glyphs[i]=s.glyphs[i].glyph.glyph;}
-        CHECK(result.glyph_count<=512);const u32 code=static_cast<u32>(status);u32 units=0;
-        for(u32 i=0;i<n;++i){sources[i]=status==SfntStatus::ok?s.character_glyphs[units]:0;units+=input[i]>0xffff?2u:1u;}
-        CHECK(write(&code,4)&&write(&result.glyph_count,4)&&write(glyphs,result.glyph_count*2)&&write(sources,n*4)&&write(s.placements.data,result.glyph_count*sizeof(SfntPlacement)));
-    }return owner.close();
+bool owned_stream(const wchar_t* path,Arena& a,SfntShapeStorage s) noexcept {
+    ScriptShapeOwner owner;CHECK(owner.open(path));return owned_units(owner,a,s);
 }

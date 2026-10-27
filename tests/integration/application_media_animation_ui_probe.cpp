@@ -353,7 +353,6 @@ bool application_media_animation_ui_probe(D3D11Renderer& renderer,
     }
     log_write(valid ? LogLevel::info : LogLevel::error, "probe",
               valid ? "animation_owned_next_frame_ui_passed" : "animation_owned_next_frame_ui_failed");
-    log_u64(LogLevel::info, "probe", "animation_visual_owner_slot_bytes", sizeof(AnimationVisualState));
     if (failure_stage)
         log_u64(LogLevel::error, "probe", "animation_owned_next_frame_ui_failure_stage", failure_stage);
     message_scene_release(&application->message_scene);

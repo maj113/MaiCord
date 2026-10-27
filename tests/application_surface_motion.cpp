@@ -240,10 +240,5 @@ void run() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_surface_motion_entry() noexcept {
     maicord::surface_motion_test::run();
-    const bool failed = maicord::surface_motion_test::failures != 0;
-    constexpr char passed[] = "PASS surface motion\n", failure[] = "FAIL surface motion\n";
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? failure : passed, sizeof(passed) - 1, &written,
-              nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::surface_motion_test::failures, "surface motion");
 }

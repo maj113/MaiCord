@@ -1,11 +1,9 @@
 #include "maicord/text/tt_interpreter.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 namespace maicord {namespace {
 #include "generated/tt_interpreter_fixture.inc"
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
-bool fail(u32 item,u32 code) noexcept {print(utf8_literal("FAIL item="));number(item);print(utf8_literal(" code="));number(code);print(utf8_literal("\n"));return false;}
+bool fail(u32 item,u32 code) noexcept {test_write_text("FAIL item=");test_write_u64(item);test_write_text(" code=");test_write_u64(code);test_write_text("\n");return false;}
 struct Reader {ConstSlice<u8> bytes;u32 at=0;bool word(u32* v) noexcept {if(bytes.count-at<4)return false;*v=byte_load_le32(bytes.data+at);at+=4;return true;}bool take(u32 n,ConstSlice<u8>* v) noexcept {if(n>bytes.count-at)return false;*v={bytes.data+at,n};at+=n;return true;}};
 struct Fixture {u32 upem,point_count,contours,cvt_count;ConstSlice<u8> points,ends,cvt,code[3],expected;};
 i32 stack[1024],storage[128],cvt[2048];TtFunction functions[256];TtCallFrame frames[32];TtPoint points[256],twilight[64];u32 ends[32];
@@ -148,28 +146,9 @@ bool errors() noexcept {
     if(tt_execute(nullptr,{},TtPhase::glyph,&r)!=SfntStatus::invalid_input || tt_execute(&s,{},TtPhase::glyph,nullptr)!=SfntStatus::invalid_input)return fail(0,24);invalid+=2;
     return true;
 }
-bool argument(const wchar_t** command,wchar_t* out,u32 capacity) noexcept {auto* p=*command;while(*p==' '||*p=='\t')++p;const bool quoted=*p=='"';if(quoted)++p;u32 n=0;while(*p && !(quoted?*p=='"':*p==' '||*p=='\t')){if(n+1==capacity)return false;out[n++]=*p++;}if(quoted){if(*p!='"')return false;++p;}out[n]=0;*command=p;return n!=0;}
-bool programs(const SfntFace& face) noexcept {
-    ConstSlice<u8> maxp{},values{},font{},prep{};SfntHorizontalMetrics metrics{};
-    if(sfnt_table(face,sfnt_tag('m','a','x','p'),&maxp)!=SfntStatus::ok || maxp.count<32 || sfnt_horizontal_metrics_open(face,&metrics)!=SfntStatus::ok)return false;
-    const auto value_status=sfnt_table(face,sfnt_tag('c','v','t',' '),&values),font_status=sfnt_table(face,sfnt_tag('f','p','g','m'),&font),prep_status=sfnt_table(face,sfnt_tag('p','r','e','p'),&prep);
-    const SfntStatus statuses[]{value_status,font_status,prep_status};for(auto status:statuses)if(status!=SfntStatus::ok && status!=SfntStatus::missing_table)return false;
-    const u32 storage_count=byte_load_be16(maxp.data+18),function_count=byte_load_be16(maxp.data+20),stack_count=byte_load_be16(maxp.data+24),twilight_count=byte_load_be16(maxp.data+16);
-    if(storage_count>128 || function_count>256 || stack_count>1024 || twilight_count>64 || values.count%2 || values.count/2>2048)return false;
-    auto s=fresh();s.units_per_em=metrics.units_per_em;s.storage.count=storage_count;s.functions.count=function_count;s.stack.count=stack_count;s.twilight.count=twilight_count;s.glyph.count=0;s.cvt.count=values.count/2;
-    for(u32 i=0;i<s.cvt.count;++i)cvt[i]=static_cast<i16>(byte_load_be16(values.data+i*2))*64;
-    const ConstSlice<u8> code[]{font,prep};for(u32 phase=0;phase<2;++phase){s.stack_count=0;s.graphics={};TtExecution r{};const auto status=tt_execute(&s,code[phase],static_cast<TtPhase>(phase),&r);
-        print(utf8_literal("phase="));number(phase);print(utf8_literal(" status="));number(static_cast<u32>(status));print(utf8_literal(" operations="));number(r.operations);print(utf8_literal(" offset="));number(r.byte_offset);print(utf8_literal(" opcode="));number(r.opcode);print(utf8_literal(" stack="));number(r.stack_count);print(utf8_literal(" depth="));number(r.call_depth);print(utf8_literal("\n"));
-        if(status!=SfntStatus::ok)return false;
-    }return true;
-}
-int file(const wchar_t* path) noexcept {
-    HANDLE handle=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(handle==INVALID_HANDLE_VALUE)return 2;LARGE_INTEGER size{};if(!GetFileSizeEx(handle,&size)||size.QuadPart<=0||size.QuadPart>0xffffffffll){CloseHandle(handle);return 2;}
-    HANDLE mapping=CreateFileMappingW(handle,nullptr,PAGE_READONLY,0,0,nullptr);auto* data=mapping?static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0)):nullptr;SfntFace face{};const bool ok=data && sfnt_open({data,static_cast<u32>(size.QuadPart)},0,&face)==SfntStatus::ok && programs(face);
-    if(data)UnmapViewOfFile(data);if(mapping)CloseHandle(mapping);CloseHandle(handle);return ok?0:1;
-}
 int run() noexcept {
-    const wchar_t* command=GetCommandLineW();wchar_t path[32768];if(!argument(&command,path,32768))return 2;while(*command==' '||*command=='\t')++command;if(*command){if(!argument(&command,path,32768))return 2;while(*command==' '||*command=='\t')++command;if(*command)return 2;return file(path);}
-    const bool ok=corpus()&&control_flow()&&repeated_branches()&&skipped_pushes()&&push_batches()&&errors();print(utf8_literal("cases="));number(cases);print(utf8_literal("\ncoordinate_bits="));number(coordinates);print(utf8_literal("\nbudgets="));number(budgets);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\ncontrols="));number(controls);print(utf8_literal("\npush_cases="));number(push_cases);print(utf8_literal("\nskip_cases="));number(skip_cases);print(utf8_literal("\ninvalid="));number(invalid);print(ok?utf8_literal("\nPASS native TT instruction core\n"):utf8_literal("\nFAIL native TT instruction core\n"));return ok?0:1;}
+    const bool ok=corpus()&&control_flow()&&repeated_branches()&&skipped_pushes()&&push_batches()&&errors();
+    test_write_metric("cases=",cases);test_write_metric("coordinate_bits=",coordinates);test_write_metric("budgets=",budgets);test_write_metric("guards=",guards);test_write_metric("controls=",controls);test_write_metric("push_cases=",push_cases);test_write_metric("skip_cases=",skip_cases);test_write_metric("invalid=",invalid);
+    test_write_line(ok?"PASS native TT instruction core":"FAIL native TT instruction core");return ok?0:1;}
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_tt_interpreter_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

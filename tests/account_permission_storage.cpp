@@ -10,9 +10,6 @@ u32 failures = 0;
 void check(bool valid, const char* name) noexcept {
     test_check(&failures, valid, name);
 }
-void measurement(const char* name, usize value) noexcept {
-    test_write_metric(name, value);
-}
 bool vm(const void* address, DWORD expected) noexcept {
     Win32MemoryInformation info{};
     return address && VirtualQuery(address, info.native(), sizeof(info)) == sizeof(info) && info.State == expected;
@@ -65,9 +62,6 @@ void run() noexcept {
     check(VirtualQuery(owner, owner_vm.native(), sizeof(owner_vm)) == sizeof(owner_vm) &&
         owner_vm.State == MEM_COMMIT && owner_vm.AllocationBase == owner &&
         owner_vm.RegionSize == pages(sizeof(AccountUiRuntime), page), "permission actual owner commitment follows compiled size");
-    measurement("MEASURE account_ui_owner_bytes=", sizeof(AccountUiRuntime));
-    measurement("MEASURE account_ui_owner_committed_bytes=", owner_vm.RegionSize);
-    measurement("MEASURE chat_state_store_bytes=", sizeof(ChatStateStore));
     const bool initialized = initialize_model(*owner) && account_permission_storage_initialize(*owner);
     check(initialized, "permission production owner binds both zero-backed reserved banks");
     if (!initialized) { account_permission_storage_release(*owner); VirtualFree(owner, 0, MEM_RELEASE); return; }
@@ -85,7 +79,6 @@ void run() noexcept {
     check(chat_state_store_prepare_permissions(&state, 0, 0) &&
         !owner->role_storage.arena.committed && !owner->overwrite_storage.arena.committed,
         "permission zero admission commits no VM");
-    measurement("MEASURE permission_empty_committed_bytes=", owner->role_storage.arena.committed + owner->overwrite_storage.arena.committed);
     const bool seeded = chat_state_store_upsert_guild(&state, {7, utf8_literal("Guild"), GuildMutationKind::create, 70}).ok() &&
         chat_state_store_upsert_channel(&state, {71, 7, 0, utf8_literal("chat"), 0, 0, 0}).ok();
     check(seeded && state.channels[0].occupied && !state.channels[0].permissions_resolved &&
@@ -104,7 +97,6 @@ void run() noexcept {
         prefix(owner->role_storage, 1, page) && prefix(owner->overwrite_storage, 1, page) &&
         state.channels[0].permissions_resolved && (state.channels[0].actions & channel_action_send_messages),
         "permission tiny production state commits one OS page per unchanged-stride bank and resolves actions");
-    measurement("MEASURE permission_small_committed_bytes=", owner->role_storage.arena.committed + owner->overwrite_storage.arena.committed);
     const u32 role_commits = owner->role_storage.arena.commit_count;
     const u32 overwrite_commits = owner->overwrite_storage.arena.commit_count;
     check(chat_state_store_upsert_role(&state, {7, 7, permissions, {}}) &&
@@ -133,7 +125,6 @@ void run() noexcept {
         zero(state.overwrites + 1, 163 * sizeof(PermissionOverwriteRecord)) &&
         owner->role_storage.arena.base == roles && owner->overwrite_storage.arena.base == overwrites,
         "permission retry admits exact two-page prefixes at stable bases and zeroes only newly writable records");
-    measurement("MEASURE permission_crossing_committed_bytes=", owner->role_storage.arena.committed + owner->overwrite_storage.arena.committed);
     const u32 crossing_role_commits = owner->role_storage.arena.commit_count;
     const u32 crossing_overwrite_commits = owner->overwrite_storage.arena.commit_count;
     check(!chat_state_store_prepare_permissions(&state, kChatStateRoleCapacity + 1, 0) &&
@@ -149,8 +140,6 @@ void run() noexcept {
         owner->role_storage.element_bytes == 48 && owner->role_storage.alignment == 8,
         "permission maximum admission preserves packed 25-byte overwrite and 40-byte role strides and original caps");
     if (!maximum_admitted) { account_permission_storage_release(*owner); VirtualFree(owner, 0, MEM_RELEASE); return; }
-    const usize highwater = owner->role_storage.arena.committed + owner->overwrite_storage.arena.committed;
-    measurement("MEASURE permission_max_committed_bytes=", highwater);
     state = {}; account_permission_storage_release(*owner);
     check(!owner->role_storage.arena.base && !owner->overwrite_storage.arena.base &&
         vm(roles, MEM_FREE) && vm(overwrites, MEM_FREE), "permission detached production owner releases both actual VM reservations");

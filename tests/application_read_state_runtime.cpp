@@ -803,9 +803,5 @@ bool refresh_message_composer_ui() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_read_state_runtime_entry() noexcept {
     maicord::read_state_runtime_test::run();
-    const bool failed = maicord::read_state_runtime_test::seen.failures != 0;
-    constexpr char pass[] = "PASS read state runtime\n", fail[] = "FAIL read state runtime\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::read_state_runtime_test::seen.failures, "read state runtime");
 }

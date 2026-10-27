@@ -654,37 +654,17 @@ bool warm(u32 sample) noexcept {
     const auto before = snapshot();
     const auto skips = r.unchanged_present_skips;
     const auto posts = fixture->total_posts;
-    const auto metrics = renderer_login_form_text_metrics(r);
     for (u32 i = 0; i < 64; ++i) {
         application_account_logout_pump();
         if (!project() || !probe_present(&r, fixture->theme))
             return false;
     }
     const auto after = snapshot();
-    constexpr const char* names[]{"shell_layout_delta", "login_layout_delta",  "form_revision_delta",
-                                  "text_build_delta",   "glyph_cache_delta",   "paint_build_delta",
-                                  "paint_upload_delta", "text_upload_delta",   "media_upload_delta",
-                                  "painted_delta",      "frame_request_delta", "measure_delta"};
-    log_u64(LogLevel::info, "logout_warm", "sample", sample);
     bool valid = r.unchanged_present_skips - skips == 64 &&
                  before.owner_committed == after.owner_committed &&
                  before.form_signature == after.form_signature && fixture->total_posts == posts;
-    for (u32 i = 0; i < 12; ++i) {
-        log_u64(LogLevel::info, "logout_warm", names[i], after.values[i] - before.values[i]);
+    for (u32 i = 0; i < 12; ++i)
         valid = valid && before.values[i] == after.values[i];
-    }
-    log_u64(LogLevel::info, "logout_warm", "unchanged_skips", r.unchanged_present_skips - skips);
-    log_u64(LogLevel::info, "logout_warm", "owner_committed_delta",
-            after.owner_committed - before.owner_committed);
-    log_u64(LogLevel::info, "logout_warm", "form_signature_changed",
-            after.form_signature != before.form_signature);
-    log_u64(LogLevel::info, "logout_warm", "post_delta", fixture->total_posts - posts);
-    log_u64(LogLevel::info, "logout_warm", "owner_bytes", metrics.owner_bytes);
-    log_u64(LogLevel::info, "logout_warm", "reserved_bytes", metrics.reserved_bytes);
-    log_u64(LogLevel::info, "logout_warm", "committed_bytes", metrics.committed_bytes);
-    log_u64(LogLevel::info, "logout_warm", "commands", metrics.commands);
-    log_u64(LogLevel::info, "logout_warm", "display_bytes", metrics.display_bytes);
-    log_u64(LogLevel::info, "logout_warm", "glyph_instance_capacity", r.pipeline.glyph_instance_capacity);
     return require(valid, 250 + sample);
 }
 } // namespace maicord::logout_native
@@ -1031,19 +1011,6 @@ bool scenarios() noexcept {
               "account_logout_native_injected_server_and_lifecycle_real_native_ui");
     log_write(LogLevel::info, "probe",
               "account_logout_native_real_fixture_files_async_join_no_live_revocation");
-    log_u64(LogLevel::info, "probe", "account_logout_native_fixture_bytes", sizeof(Fixture));
-    log_u64(LogLevel::info, "probe", "account_logout_native_account_ui_bytes", sizeof(AccountUiRuntime));
-    log_u64(LogLevel::info, "probe", "account_logout_native_controller_bytes",
-            sizeof(ApplicationAccountLogout));
-    log_u64(LogLevel::info, "probe", "account_logout_native_captures", f.captures);
-    log_u64(LogLevel::info, "probe", "account_logout_native_total_posts", f.total_posts);
-    log_u64(LogLevel::info, "probe", "account_logout_native_stop_attempts", f.stop_attempts);
-    log_u64(LogLevel::info, "probe", "account_logout_native_stop_observations", f.stop_observations);
-    log_u64(LogLevel::info, "probe", "account_logout_native_account_ui_releases", f.account_ui_releases);
-    log_u64(LogLevel::info, "probe", "account_logout_native_unexpected_routes", f.unexpected);
-    log_u64(LogLevel::info, "probe", "account_logout_native_order_errors",
-            f.file_order_error || f.host_order_error);
-    log_u64(LogLevel::info, "probe", "account_logout_native_login_inputs", f.login_inputs);
     return require(f.captures == 13 && f.total_posts == 2 && f.stop_attempts == 3 &&
                        f.stop_observations == 3 && f.account_ui_releases == 3 && !f.unexpected &&
                        !f.file_order_error && !f.host_order_error && f.refresh_ok && !f.failures,

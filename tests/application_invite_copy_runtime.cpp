@@ -212,9 +212,5 @@ bool form_save(TextFormOwnerKey, Utf8View) noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_invite_copy_runtime_entry() noexcept {
     using namespace maicord::invite_copy_test;
     run();
-    const bool failed = failures != 0;
-    constexpr char pass[] = "PASS invite copy\n", fail[] = "FAIL invite copy\n";
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(failures, "invite copy");
 }

@@ -165,10 +165,5 @@ void run() noexcept {
 } // namespace maicord::self_status_runtime_test
 extern "C" __declspec(noreturn) void WINAPI maicord_self_status_runtime_entry() noexcept {
     maicord::self_status_runtime_test::run();
-    const bool failed = maicord::self_status_runtime_test::failures != 0;
-    constexpr char passed[] = "PASS self status frontend\n", failure[] = "FAIL self status frontend\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? failure : passed, sizeof(passed) - 1, &written,
-              nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::self_status_runtime_test::failures, "self status frontend");
 }

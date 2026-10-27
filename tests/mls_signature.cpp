@@ -143,24 +143,7 @@ void codec(Check check) noexcept {
           "P1363 exact output guard");
     VirtualFree(allocation, 0, MEM_RELEASE);
 }
-void record(Check check, HANDLE file, const P256Key& key, ConstSlice<u8> label, ConstSlice<u8> content,
-            ConstSlice<u8> signature) noexcept {
-    if (file == INVALID_HANDLE_VALUE)
-        return;
-    u8 header[77];
-    check(p256_export_public(key, {header, 65}).ok(), "MLS signature QA public point");
-    u32 lengths[]{label.count, content.count, signature.count};
-    for (u32 i = 0; i != 3; ++i)
-        for (u32 j = 0; j != 4; ++j)
-            header[65 + i * 4 + j] = static_cast<u8>(lengths[i] >> (j * 8));
-    ConstSlice<u8> parts[]{{header, 77}, label, content, signature};
-    for (auto part : parts) {
-        DWORD written = 0;
-        check(WriteFile(file, part.data, part.count, &written, nullptr) != 0 && written == part.count,
-              "MLS signature public QA record");
-    }
-}
-void framed(Check check, KdfSha256Workspace& workspace, u8* label, u8* content, HANDLE file) noexcept {
+void framed(Check check, KdfSha256Workspace& workspace, u8* label, u8* content) noexcept {
     u8 scalar[32], point[65], output[96], der[72];
     test_unhex(signature_scalar, scalar);
     test_unhex(signature_point, point);
@@ -191,7 +174,6 @@ void framed(Check check, KdfSha256Workspace& workspace, u8* label, u8* content, 
                                         {output, signed_value.bytes})
                       .ok(),
                   "MLS native signed value verifies");
-            record(check, file, key, {label, nl}, {content, nc}, {output, signed_value.bytes});
         }
         for (u32 i = 0; i < ns; ++i) {
             der[i] ^= 1;
@@ -320,17 +302,8 @@ void test_mls_signature(Check check) noexcept {
     auto* buffers =
         static_cast<u8*>(VirtualAlloc(nullptr, 32768, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(buffers != nullptr, "MLS signature fixture buffers");
-    wchar_t path[1024];
-    const DWORD n = GetEnvironmentVariableW(L"MAICORD_MLS_SIGNATURE_OUTPUT", path, 1024);
-    HANDLE file = INVALID_HANDLE_VALUE;
-    if (n && n < 1024) {
-        file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        check(file != INVALID_HANDLE_VALUE, "MLS signature QA file open");
-    }
     if (buffers && workspace.storage.data)
-        framed(check, workspace, buffers, buffers + 16384, file);
-    if (file != INVALID_HANDLE_VALUE)
-        CloseHandle(file);
+        framed(check, workspace, buffers, buffers + 16384);
     if (buffers)
         VirtualFree(buffers, 0, MEM_RELEASE);
     kdf_sha256_release(&workspace);

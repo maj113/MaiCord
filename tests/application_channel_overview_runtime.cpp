@@ -764,10 +764,5 @@ float client_dip_y(LPARAM value) noexcept {
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_application_channel_overview_runtime_entry() noexcept {
     maicord::channel_overview_runtime_test::run();
-    const bool failed = maicord::channel_overview_runtime_test::failures != 0;
-    constexpr char pass[] = "PASS application channel Overview runtime\n";
-    constexpr char fail[] = "FAIL application channel Overview runtime\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::channel_overview_runtime_test::failures, "application channel Overview runtime");
 }

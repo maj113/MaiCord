@@ -1,5 +1,6 @@
 #include "maicord/platform/notification_audio.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -259,11 +260,7 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
 
 namespace maicord {
 namespace notification_audio_entry {u32 failures;
-void check(bool passed,const char* message) noexcept {
-    if(passed)return;++failures;u32 n=0;while(message[n])++n;DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message,n,&written,nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),"\r\n",2,&written,nullptr);
-}
+void check(bool passed,const char* message) noexcept { test_check(&failures,passed,message); }
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_notification_audio_tests_entry() noexcept {
     maicord::test_native_notification_audio(maicord::notification_audio_entry::check);ExitProcess(maicord::notification_audio_entry::failures?1:0);

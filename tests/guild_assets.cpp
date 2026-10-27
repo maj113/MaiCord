@@ -21,7 +21,7 @@ void check(bool valid, const char* label) noexcept {
 struct Capture {
     RestRouteKey route;
     u64 id;
-    u32 submissions, large_submissions, cancellations, target_bytes, body_bytes, reason_bytes, boundary_bytes,
+    u32 submissions, large_submissions, target_bytes, body_bytes, reason_bytes, boundary_bytes,
         timeout_ms;
     u8 target[kRestClientMaximumTargetBytes], reason[kRestAuditReasonMaximumEncodedBytes], boundary[80];
     u8* body;
@@ -723,11 +723,8 @@ void test_account() noexcept {
     capture.result = RestClientSubmitError::busy;
     request = asset(GuildAssetOperation::guild_delete);
     check(account_guild_assets_submit(&details, &request, 212).error == RestClientSubmitError::busy &&
-              (capture.result = RestClientSubmitError::none, account_guild_assets_cancel(&details, 212).ok()) &&
-              capture.cancellations == 1 &&
-              account_guild_assets_cancel(&details, 0).error == RestClientSubmitError::invalid_input &&
               account_guild_assets_submit(nullptr, &request, 1).error == RestClientSubmitError::invalid_input,
-          "account: transport refusals propagate and cancellation targets the exact request");
+          "account: transport refusals propagate");
 }
 
 } // namespace guild_assets_test
@@ -771,11 +768,6 @@ static RestClientSubmitResult submit_large_stub(RestClient*,
     return record(request, true);
 }
 
-static bool cancel_stub(RestClient*, u64 request_id) noexcept {
-    ++guild_assets_test::capture.cancellations;
-    return request_id == 212;
-}
-
 static RestClientSubmitResult submit_large_owned_stub(
     RestClient* client, const RestClientRequest& request, u8** body_owner) noexcept {
     if (!body_owner || !*body_owner || *body_owner != request.body.data)
@@ -789,8 +781,7 @@ static RestClientSubmitResult submit_large_owned_stub(
 extern "C" __declspec(noreturn) void WINAPI maicord_guild_assets_entry() noexcept {
     maicord::rest_install_hooks({.submit = maicord::submit_stub,
         .submit_large = maicord::submit_large_stub,
-        .submit_large_owned = maicord::submit_large_owned_stub,
-        .cancel = maicord::cancel_stub});
+        .submit_large_owned = maicord::submit_large_owned_stub});
     using namespace maicord::guild_assets_test;
     test_protocol();
     test_images();

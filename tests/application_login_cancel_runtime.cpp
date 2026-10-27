@@ -1191,10 +1191,5 @@ WindowsWebAuthnResult windows_webauthn_authenticate(HWND, const WebAuthnMfaReque
 
 extern "C" __declspec(noreturn) void WINAPI maicord_login_cancel_runtime_entry() noexcept {
     maicord::login_cancel_test::run();
-    constexpr char pass[] = "PASS application login cancel runtime\n";
-    constexpr char fail[] = "FAIL application login cancel runtime\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), maicord::login_cancel_test::failures ? fail : pass,
-        sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(maicord::login_cancel_test::failures ? 1 : 0);
+    maicord::test_exit(maicord::login_cancel_test::failures, "application login cancel runtime");
 }

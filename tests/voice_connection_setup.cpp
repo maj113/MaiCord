@@ -6,9 +6,6 @@ namespace {
 JsonString text(Utf8View value, bool escaped = false) noexcept {
     return {value, 0, escaped};
 }
-bool equal(Utf8View left, Utf8View right) noexcept {
-    return left.bytes == right.bytes && bytes_equal(left.data, right.data, left.bytes);
-}
 bool zero(const SecureBuffer& buffer) noexcept {
     for (u32 i = 0; i < buffer.capacity; ++i)
         if (buffer.data[i])
@@ -37,9 +34,9 @@ void test_voice_connection_setup(void (*check)(bool, const char*) noexcept) noex
     check(voice_setup_state(&setup, state) == VoiceSetupResult::credentials_ready &&
               voice_setup_credentials(setup, &credentials) && credentials.server_id == 10 &&
               credentials.channel_id == 20 && credentials.user_id == 30 &&
-              equal(credentials.session, session.encoded) &&
-              equal(credentials.token, server.token.encoded) &&
-              equal(credentials.endpoint, server.endpoint.encoded) && !setup.state_deadline_ms,
+              utf8_equal(credentials.session, session.encoded) &&
+              utf8_equal(credentials.token, server.token.encoded) &&
+              utf8_equal(credentials.endpoint, server.endpoint.encoded) && !setup.state_deadline_ms,
           "guild rendezvous exposes owned credentials and retires the state deadline");
     auto generation = credentials.generation;
     check(!voice_setup_current(setup, request_generation) && voice_setup_current(setup, generation),
@@ -79,7 +76,7 @@ void test_voice_connection_setup(void (*check)(bool, const char*) noexcept) noex
     check(voice_setup_server(&setup, server) == VoiceSetupResult::credentials_ready &&
               setup.server_credentials.data == allocation && !voice_setup_current(setup, generation) &&
               voice_setup_credentials(setup, &credentials) &&
-              equal(credentials.token, server.token.encoded),
+              utf8_equal(credentials.token, server.token.encoded),
           "same endpoint with a new token replaces credentials without another allocation");
     generation = setup.generation;
     server.endpoint = text(utf8_literal("other.example.test:8443"));
@@ -161,7 +158,7 @@ void test_voice_connection_setup(void (*check)(bool, const char*) noexcept) noex
           "escaped server credentials decode directly into protected storage");
     clear_bytes(encoded_token, sizeof(encoded_token));
     check(voice_setup_credentials(setup, &credentials) &&
-              equal(credentials.token, utf8_literal("test-token")),
+              utf8_equal(credentials.token, utf8_literal("test-token")),
           "credential ownership survives reused receive buffers");
     generation = setup.generation;
     server.token = text(utf8_literal("test-token"));

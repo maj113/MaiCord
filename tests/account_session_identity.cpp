@@ -155,9 +155,11 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
                   captured.self_user_id == saved.self_user_id && captured.profile_id == profile_id &&
                   captured.resume.sequence == saved.resume.sequence,
               "worker restores the session and matching identity before dispatch or READY");
+        AccountProfile returned{};
         if (client.runtime || client.worker.thread)
-            gateway_client_stop(&client, 5000);
+            gateway_client_stop_return_user_profile(&client, 5000, &returned);
         check(!client.runtime && !client.worker.thread, "restored worker teardown drains its operations");
+        account_profile_release(&returned);
         account_profile_release(&profile);
     }
     GatewayUserSessionSnapshot empty{};

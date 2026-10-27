@@ -326,9 +326,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_scoped_read_runtime_entry() 
             maicord_scoped_read_runtime_reused_entry();
     }
     maicord::scoped_read_runtime_test::run();
-    const bool failed = maicord::read_state_runtime_test::seen.failures != 0;
-    constexpr char pass[] = "PASS scoped read runtime\n", fail[] = "FAIL scoped read runtime\n";
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::read_state_runtime_test::seen.failures, "scoped read runtime");
 }

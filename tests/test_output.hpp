@@ -72,6 +72,13 @@ inline void test_check(u32* failures, bool valid, const char* label) noexcept {
     test_write_line(label);
 }
 
+// Reports "PASS <name>" or "FAIL <name>" and ends the test process with its exit code.
+[[noreturn]] inline void test_exit(u32 failures, const char* name) noexcept {
+    test_write_text(failures ? "FAIL " : "PASS ");
+    test_write_line(name);
+    ExitProcess(failures ? 1 : 0);
+}
+
 // Reports whether every one of count bytes equals value.
 inline bool test_filled(const u8* bytes, u32 count, u8 value) noexcept {
     for (u32 i = 0; i != count; ++i)

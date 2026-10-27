@@ -33,8 +33,6 @@ bool same_color(const Color& a, const Color& b) noexcept {
 
 void frame_insets() noexcept {
     const i32 border96 = window_frame_border(96), border192 = window_frame_border(192);
-    test_write_metric("resize border px at 96 dpi: ", static_cast<u64>(border96));
-    test_write_metric("resize border px at 192 dpi: ", static_cast<u64>(border192));
     check(border96 > 0 && border192 > border96, "resize border grows with DPI");
     constexpr i32 b = 8;
     const RECT restored = window_frame_client({100, 50, 1100, 850}, b, false, {}, 0);
@@ -561,6 +559,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_window_caption_tests_entry()
     maicord::restored_window_insets();
     maicord::hit_testing();
     maicord::layout_and_states();
-    maicord::test_write_metric("window caption failures: ", maicord::failures);
     ExitProcess(maicord::failures ? 1 : 0);
 }

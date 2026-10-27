@@ -19,27 +19,6 @@ bool repeated_hit_point(float x,float y) noexcept {
 void hit_metric(const DWRITE_HIT_TEST_METRICS& m) noexcept {
     print("[");number(m.textPosition);print(",");number(m.length);print(",");real(m.left);print(",");real(m.top);print(",");real(m.width);print(",");real(m.height);print(",");number(m.bidiLevel);print(",");number(m.isText);print(",");number(m.isTrimmed);print("]");
 }
-bool inspect_hits(bool styled=false) noexcept {
-    const Utf8View texts[]{utf8_literal("a\nb"),utf8_literal("\r\n"),utf8_literal("\n"),utf8_literal("a\t\tb\r\n"),utf8_literal("AV AV"),utf8_literal("ffi ffi "),utf8_literal("a  b\n\n"),utf8_literal("   "),utf8_literal("a\rb"),utf8_literal("a\t ")};
-    const float widths[]{13.f,37.f,1000.f};
-    for(u32 sample=0;sample<10;++sample)for(float width:widths){
-        const auto text=texts[sample];for(u32 i=0;i<text.bytes;++i)utf16[i]=text.data[i];
-        IDWriteTextLayout* layout=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextLayout(utf16,text.bytes,owner.format,width,1000,&layout)));
-        struct Release {IDWriteTextLayout*& p;~Release() noexcept {com_release(p);}} release{layout};
-        const TextStyleSpan styles[]{ {0,1,text_style_heading_1},{1,text.bytes-1,text_style_subtext} };
-        CHECK(SUCCEEDED(text_apply_layout_styles(owner,layout,text,styled?ConstSlice<TextStyleSpan>{styles,text.bytes>1?2u:1u}:ConstSlice<TextStyleSpan>{})));
-        print("{\"sample\":");number(sample);print(",\"width\":");real(width);print(",\"positions\":[");
-        for(u32 p=0;p<=text.bytes;++p)for(u32 trailing=0;trailing<2;++trailing){float x=0,y=0;DWRITE_HIT_TEST_METRICS m{};
-            CHECK(SUCCEEDED(layout->HitTestTextPosition(p,trailing,&x,&y,&m)));if(p||trailing)print(",");print("[");number(p);print(",");number(trailing);print(",");real(x);print(",");real(y);print(",");hit_metric(m);print("]");}
-        print("],\"points\":[");const float xs[]{-1.f,0.f,4.f,8.f,13.f,37.f,64.f,1000.f},ys[]{-1.f,0.f,10.f,21.28125f,21.3f,42.6f,1000.f};bool comma=false;
-        for(float y:ys)for(float x:xs){BOOL trailing=FALSE,inside=FALSE;DWRITE_HIT_TEST_METRICS m{};CHECK(SUCCEEDED(layout->HitTestPoint(x,y,&trailing,&inside,&m)));
-            if(comma)print(",");comma=true;print("[");real(x);print(",");real(y);print(",");number(trailing);print(",");number(inside);print(",");hit_metric(m);print("]");}
-        print("],\"ranges\":[");comma=false;
-        for(u32 a=0;a<=text.bytes;++a)for(u32 b=a;b<=text.bytes;++b){DWRITE_HIT_TEST_METRICS m[32];u32 count=0;CHECK(SUCCEEDED(layout->HitTestTextRange(a,b-a,0,0,m,32,&count))&&count<=32);
-            if(comma)print(",");comma=true;print("[");number(a);print(",");number(b);print(",[");for(u32 i=0;i<count;++i){if(i)print(",");hit_metric(m[i]);}print("]]");}
-        print("]}\n");
-    }return true;
-}
 NativeParagraphHitCluster hit_clusters[256];NativeParagraphHitLine hit_lines[257];float hit_advances[1280];NativeParagraphHitRun hit_visual_runs[256];
 struct HitRunCapture final : IDWriteTextRenderer {
     bool comma=false;
@@ -74,8 +53,6 @@ bool same_hit(const NativeParagraphHitMetric& a,const DWRITE_HIT_TEST_METRICS& b
     if(a.source_first!=b.textPosition||a.source_count!=b.length||a.left!=b.left||a.top!=b.top||a.width!=b.width||a.height!=b.height||a.bidi_level!=b.bidiLevel||!b.isText||b.isTrimmed){
         print("native hit=[");number(a.source_first);print(",");number(a.source_count);print(",");real(a.left);print(",");real(a.top);print(",");real(a.width);print(",");real(a.height);print(",");number(a.bidi_level);print("] ref=");hit_metric(b);print("\n");return false;}return true;
 }
-#include "paragraph_hit_observer.inc"
-#include "paragraph_hit_audit.inc"
 bool compare_hits(DWriteTextSystem system,Utf8View text,float width,TextWrapping wrapping,ConstSlice<TextStyleSpan> styles,bool detached,bool tracked_layout,bool captured_format) noexcept {
     ++cases;NativeParagraphHits native{};NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{hit_advances,1280},&native};TextMeasureResult measured{};
     SfntFontLineParts parts[513];storage.styles={parts,513};storage.visual_runs={hit_visual_runs,256};
@@ -106,8 +83,6 @@ bool compare_hits(DWriteTextSystem system,Utf8View text,float width,TextWrapping
     if(system.independent_letters){IDWriteTypography* typography=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTypography(&typography)));
         struct ReleaseTypography {IDWriteTypography*& p;~ReleaseTypography() noexcept {com_release(p);}} release_typography{typography};
         CHECK(SUCCEEDED(typography->AddFontFeature({DWRITE_FONT_FEATURE_TAG_STANDARD_LIGATURES,0}))&&SUCCEEDED(typography->AddFontFeature({DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_LIGATURES,0}))&&SUCCEEDED(typography->AddFontFeature({DWRITE_FONT_FEATURE_TAG_KERNING,0}))&&SUCCEEDED(layout->SetTypography(typography,{0,units})));}
-    bool audited=false;CHECK(audit_hit_geometry(native,layout,units,&audited));if(audited)return true;
-    bool observation_only=false;CHECK(observe_hit_points(native,layout,text,system.em_size,system.tracking,styles,&observation_only));if(observation_only)return true;
     // The immutable layout receives many identical coordinates from adjacent
     // positions and leading/trailing carets. Verify each distinct point once.
     begin_hit_point_probes();
@@ -127,11 +102,6 @@ bool compare_hits(DWriteTextSystem system,Utf8View text,float width,TextWrapping
             if(repeated_hit_point(px,py))continue;
             CHECK(SUCCEEDED(layout->HitTestPoint(px,py,&t,&inside,&pm))&&native_paragraph_hit_point(native,px,py,&np)==SfntStatus::ok);
             if(np.source_position!=pm.textPosition+(t?pm.length:0)||np.inside!=(inside!=0)){
-                // Opt-in debugger handoff avoids trapping on every point query.
-                wchar_t debug[2]{};
-                if(GetEnvironmentVariableW(L"MAICORD_HIT_DEBUG",debug,2)==1&&debug[0]=='1'){
-                    DebugBreak();layout->HitTestPoint(px,py,&t,&inside,&pm);
-                }
                 print("point x/y=");real(px);print(",");real(py);print(" position/inside native=");number(np.source_position);print(",");number(np.inside);print(" ref=");number(pm.textPosition+(t?pm.length:0));print(",");number(inside);print(" metric=");hit_metric(pm);print("\n");
                 for(u32 diagnostic=0;diagnostic<native.clusters.count;++diagnostic){const auto& cluster=native.clusters[diagnostic];NativeParagraphHitMetric observed{};float caret=0;DWRITE_HIT_TEST_METRICS expected{};float rx=0,ry=0;
                     native_paragraph_hit_position(native,cluster.source_first,false,&observed,&caret);layout->HitTestTextPosition(cluster.source_first,FALSE,&rx,&ry,&expected);

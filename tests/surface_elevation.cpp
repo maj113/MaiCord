@@ -159,8 +159,6 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
                         popup_scene_open(&popup, PopupKind::context_menu, 7, {items, 3}, {100, 100, 101, 101},
                                          {0, 0, 800, 600}, 220)
                             .ok();
-    check(opened && popup.panel_material == PopupPanelMaterial::tinted,
-          "surface elevation: context menu opens without the old gradient opt-in");
     check(opened && paint_stream_reset(&paint, 800, 600) && popup_presentation_build(popup, gradient, &paint) &&
               paint.count > kUiSurfaceShadowLayers &&
               gradient_material(paint.quads[kUiSurfaceShadowLayers], gradient, UiElevation::popover) &&

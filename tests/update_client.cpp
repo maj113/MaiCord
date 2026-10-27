@@ -3,16 +3,8 @@
 // state machine and the HTTP response reader against fakes, updater logging,
 // the full check pipeline staging the built executable beside a temporary
 // one with a throwaway publisher key, the exit swap and its failure paths,
-// startup cleanup, the Settings rows and changelog sections, and an offline
-// replay of a synthetic preview build. Nothing here contacts the network.
-//
-// Offline replay of published files: set MAICORD_UPDATE_REPLAY_DIR to a
-// directory holding maicord-<channel>.manifest.json, its .sig, optionally
-// maicord-<channel>.changelog.json and its .sig, MaiCord-x64-p2-<version>.zip and
-// public-key.txt (the 130-digit hex point), and optionally
-// MAICORD_UPDATE_REPLAY_OWN to the installed version number (default 1000999,
-// v0.1.0). The pipeline then runs against those exact bytes and prints every
-// updater log line.
+// startup cleanup, the Settings rows and changelog sections, and a replay of
+// a synthetic preview build. Nothing here contacts the network.
 #include "maicord/app/update_service.hpp"
 #include "maicord/app/update_https.hpp"
 #include "maicord/app/update_log.hpp"
@@ -56,9 +48,7 @@ bool same_location(const UpdateLocation& l, UpdateHost host, const char* host_na
 char g_lines[32][400];
 const char* g_categories[32];
 u32 g_line_count;
-bool g_echo;
 void capture(LogLevel, const char* category, const char* line) noexcept {
-    if (g_echo) test_write_line(line);
     if (g_line_count == 32) return;
     u32 n = 0; while (line[n] && n + 1 < sizeof(g_lines[0])) { g_lines[g_line_count][n] = line[n]; ++n; }
     g_categories[g_line_count] = category;
@@ -1181,24 +1171,6 @@ u64 unix_now() noexcept {
     FILETIME ft{}; GetSystemTimeAsFileTime(&ft);
     return ((static_cast<u64>(ft.dwHighDateTime) << 32 | ft.dwLowDateTime) / 10000000ull) - 11644473600ull;
 }
-void test_replay() noexcept {
-    wchar_t dir[MAX_PATH]{};
-    const DWORD dn = GetEnvironmentVariableW(L"MAICORD_UPDATE_REPLAY_DIR", dir, MAX_PATH);
-    if (!dn || dn >= MAX_PATH - 64) return;
-    test_write_line("update replay: running the published files offline");
-    wchar_t own_text[24]{}; u64 own = 1000999;
-    if (const DWORD on = GetEnvironmentVariableW(L"MAICORD_UPDATE_REPLAY_OWN", own_text, 24); on && on < 24) {
-        own = 0; for (u32 i = 0; i < on; ++i) own = own * 10 + static_cast<u64>(own_text[i] - L'0');
-    }
-    ReplayOffer offer{};
-    g_echo = true;
-    const auto r = replay(dir, own, &offer);
-    g_echo = false;
-    test_write_metric("update replay outcome=", static_cast<u64>(r.outcome));
-    test_write_metric("update replay error=", static_cast<u64>(r.error));
-    test_write_metric("update replay changelog entries=", offer.entries);
-    check(r.outcome == UpdateCheckOutcome::ready, "update replay: the published release is verified and staged beside a temporary executable");
-}
 bool write_file(const wchar_t* dir, const wchar_t* name, const void* data, u32 bytes) noexcept {
     wchar_t path[MAX_PATH]{}; child(dir, name, path);
     const HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1383,6 +1355,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_client_tests_entry() 
     maicord::test_swap();
     maicord::test_service();
     maicord::test_preview_replay();
-    maicord::test_replay();
     ExitProcess(maicord::failures ? 1 : 0);
 }

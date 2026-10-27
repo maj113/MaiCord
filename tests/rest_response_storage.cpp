@@ -7,8 +7,6 @@
 #include "maicord/protocol/thread_browser.hpp"
 #include "maicord/protocol/message_history.hpp"
 #include "maicord/protocol/message_create.hpp"
-#if defined(MAICORD_REST_STORAGE_BENCHMARK)
-#endif
 
 namespace maicord {
 namespace {

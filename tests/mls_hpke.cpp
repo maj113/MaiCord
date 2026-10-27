@@ -10,23 +10,6 @@ using Check = void (*)(bool, const char*) noexcept;
 bool filled(const void* ptr, u32 n, u8 v = 0xa5) noexcept {
     return test_filled(static_cast<const u8*>(ptr), n, v);
 }
-void record(Check check, HANDLE file, ConstSlice<u8> enc, ConstSlice<u8> label, ConstSlice<u8> context,
-            ConstSlice<u8> pt, ConstSlice<u8> ct) noexcept {
-    if (file == INVALID_HANDLE_VALUE)
-        return;
-    u8 header[81];
-    copy_bytes(header, enc.data, 65);
-    const u32 lengths[]{label.count, context.count, pt.count, ct.count};
-    for (u32 i = 0; i != 4; ++i)
-        for (u32 j = 0; j != 4; ++j)
-            header[65 + i * 4 + j] = static_cast<u8>(lengths[i] >> (j * 8));
-    const ConstSlice<u8> spans[]{{header, 81}, label, context, pt, ct};
-    for (auto span : spans) {
-        DWORD written = 0;
-        check(WriteFile(file, span.data, span.count, &written, nullptr) && written == span.count,
-              "MLS HPKE public test record");
-    }
-}
 void published(Check check, KdfSha256Workspace& workspace, const P256Key& key) noexcept {
     u8 label[64], context[64], enc[65], ct[64], pt[64], out[80];
     const u32 nl = test_unhex(mls_hpke_label, label), nx = test_unhex(mls_hpke_context, context),
@@ -64,7 +47,7 @@ void published(Check check, KdfSha256Workspace& workspace, const P256Key& key) n
             bytes_equal(out, pt, np),
         "MLS HPKE exact in-place decryption");
 }
-void boundaries(Check check, KdfSha256Workspace& workspace, const P256Key& key, HANDLE file, u8* label,
+void boundaries(Check check, KdfSha256Workspace& workspace, const P256Key& key, u8* label,
                 u8* context) noexcept {
     u8 point[65], enc[80], ct[1056], pt[1024], out[1056];
     test_unhex(mls_hpke_point, point);
@@ -93,8 +76,6 @@ void boundaries(Check check, KdfSha256Workspace& workspace, const P256Key& key, 
                   filled(ct + result.bytes, sizeof(ct) - result.bytes),
               "MLS native in-place encryption boundary/tails");
         if (result.ok()) {
-            record(check, file, {enc, 65}, {label, v.label}, {context, v.context}, {pt, v.plain},
-                   {ct, result.bytes});
             check(mls_decrypt_with_label(workspace, key, {label, v.label}, {context, v.context}, {enc, 65},
                                          {ct, result.bytes}, {out, sizeof(out)})
                           .ok() &&
@@ -245,26 +226,17 @@ void test_mls_hpke(Check check) noexcept {
     check(kdf_sha256_initialize(&workspace).ok() &&
               p256_import_private(&key, P256Kind::ecdh, {scalar, 32}).ok(),
           "MLS HPKE setup fixtures");
-    wchar_t path[1024];
-    const DWORD n = GetEnvironmentVariableW(L"MAICORD_MLS_HPKE_OUTPUT", path, 1024);
-    HANDLE file = INVALID_HANDLE_VALUE;
-    if (n && n < 1024) {
-        file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        check(file != INVALID_HANDLE_VALUE, "MLS HPKE QA output");
-    }
     auto* buffers =
         static_cast<u8*>(VirtualAlloc(nullptr, 32768, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(buffers != nullptr, "MLS HPKE boundary buffers");
     if (workspace.storage.data && key.handle) {
         published(check, workspace, key);
         if (buffers)
-            boundaries(check, workspace, key, file, buffers, buffers + 16384);
+            boundaries(check, workspace, key, buffers, buffers + 16384);
         guards(check, workspace, key);
     }
     if (buffers)
         VirtualFree(buffers, 0, MEM_RELEASE);
-    if (file != INVALID_HANDLE_VALUE)
-        CloseHandle(file);
     p256_release(&key);
     kdf_sha256_release(&workspace);
     secure_clear_bytes(scalar, 32);

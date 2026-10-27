@@ -29,16 +29,3 @@ bool lazy_substitution_units(NativeRunPlanHandle handle) noexcept {
     MEMORY_BASIC_INFORMATION info{};CHECK(VirtualQuery(plans[handle.slot-1].state.base,&info,sizeof(info))==sizeof(info)&&info.Protect==PAGE_READONLY);
     CHECK(release(handle)&&!store.substitutions);print("lazy_rollbacks=3 lazy_publications=3 pool_released=1\n");return true;
 }
-bool lazy_substitution_failure(NativeRunPlanHandle handle) noexcept {
-    const auto* shape=native_run_plan_get(store,handle);CHECK(shape&&shape->substitutions&&shape->substitutions->source&&store.substitutions);
-    const auto& program=*shape->substitutions;CHECK(program.lookups.count==2);
-    CHECK(sfnt_gsub_lookup_prepare(program,0)==SfntStatus::ok&&sfnt_gsub_lookup(program,0)->type==5&&!sfnt_gsub_lookup(program,1));
-    const auto* parent=sfnt_gsub_lookup(program,0);SfntGsubExecutableLookup snapshot;copy_bytes(&snapshot,parent,sizeof(snapshot));
-    const auto mark=store.substitutions->offset,digest=substitution_digest(program);
-    for(u32 i=0;i<2;++i){NativeAsciiResult result{};
-        CHECK(native_ascii_run(store,handle,utf8_literal("a"),false,17.5f,ascii_buffers.storage(),&result)==SfntStatus::malformed&&!result.glyph_count);
-        CHECK(store.substitutions->offset==mark&&sfnt_gsub_lookup(program,0)==parent&&bytes_equal(&snapshot,parent,sizeof(snapshot))&&!sfnt_gsub_lookup(program,1)&&substitution_digest(program)==digest);
-        CHECK(sfnt_gsub_lookup_prepare(program,0)==SfntStatus::ok&&store.substitutions->offset==mark);
-    }
-    CHECK(release(handle)&&!store.substitutions);print("lazy_nested_failures=2 parent_unchanged=1 pool_released=1\n");return true;
-}

@@ -117,10 +117,6 @@ void transport() noexcept {
               !account_private_channel_submit(&details, nullptr, 120).ok() &&
               !account_private_channel_submit(&details, &leave, 0).ok() && capture.submissions == before,
           "private channel: invalid recipients, names and identities never reach transport");
-    capture.active_id = 200;
-    check(account_private_channel_cancel(&details, 199).error == RestClientSubmitError::busy &&
-              capture.active_id == 200 && account_private_channel_cancel(&details, 200).ok() && !capture.active_id,
-          "private channel: exact cancellation only");
 }
 } // namespace private_channel_account_test
 } // namespace maicord

@@ -83,17 +83,6 @@ void run() noexcept {
         check(account_thread_action_submit(&rest, &request, 107).error == error && capture.submissions == before + 1,
             "thread account: admission errors propagate once without fallback method/retry");
     }
-    capture.active_id = 200;
-    check(account_thread_action_cancel(&rest, 199).error == RestClientSubmitError::busy &&
-        capture.active_id == 200 && account_thread_action_cancel(&rest, 200).ok() && capture.active_id == 0,
-        "thread account: cancellation cannot steal a different DETAILS request");
-    capture.active_id = 201; capture.published = true;
-    const u32 before_cancel_invalid = capture.cancellations;
-    check(account_thread_action_cancel(&rest, 201).error == RestClientSubmitError::busy &&
-        capture.active_id == 201 && account_thread_action_cancel(nullptr, 201).error == RestClientSubmitError::invalid_input &&
-        account_thread_action_cancel(&rest, 0).error == RestClientSubmitError::invalid_input &&
-        capture.cancellations == before_cancel_invalid + 1,
-        "thread account: late cancel preserves published receipt and invalid cancel emits no work");
 
     ThreadMemberSnapshot member{};
     check(thread_member_decode(utf8_literal(
@@ -146,10 +135,5 @@ void run() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_account_thread_actions_test_entry() noexcept {
     maicord::rest_install_capture(maicord::thread_action_test::capture);
     maicord::thread_action_test::run();
-    constexpr auto pass = maicord::utf8_literal("PASS thread actions protocol/account\n");
-    constexpr auto fail = maicord::utf8_literal("FAIL thread actions protocol/account\n");
-    const bool failed = maicord::thread_action_test::failures != 0;
-    const auto result = failed ? fail : pass;
-    DWORD written{}; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), result.data, result.bytes, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::thread_action_test::failures, "thread actions protocol/account");
 }

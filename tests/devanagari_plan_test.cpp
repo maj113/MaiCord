@@ -1,10 +1,9 @@
 // Indic shaping plans, profiles and corpora (MaiCordDevanagariPlanTests). The built-in
 // --<script>-plan/-profile/-input/-shape modes are the suite (cmake/test_registry.cmake).
-// Manual QA modes, not run by it: --clusters and --<script>-clusters (stdin cluster streams
-// for the Python oracles), --malayalam-font-profile, a font path as the only argument,
-// MAICORD_*_BATCH / MAICORD_*_RUN / MAICORD_*_COMPACT / MAICORD_DEVANAGARI_RTL (stdin batches over
-// system fonts), MAICORD_*_FONT=<font file>, and the benchmarks MAICORD_INDIC_RUN_BENCH and
-// MAICORD_DEVANAGARI_MEMO_BENCH (tools/benchmark_indic_window.py, benchmark_devanagari_memo.py).
+// Manual QA modes, not run by the suite: a font path as the only argument (the output
+// tools/font_reference/devanagari_plan_oracle.py reads; MAICORD_DEVANAGARI_RTL=1 shapes right to left)
+// and the benchmarks MAICORD_<BENGALI|GUJARATI>_RUN (warm runs, tools/benchmark_indic_window.py) and
+// MAICORD_DEVANAGARI_MEMO_BENCH (tools/benchmark_devanagari_memo.py).
 #include "../src/text/indic_forms.hpp"
 #include "../src/text/indic_cluster.hpp"
 #include "maicord/text/devanagari_plan.hpp"
@@ -152,18 +151,6 @@ bool cluster_units() noexcept {
     CHECK(sfnt_devanagari_cluster_boundaries({long_input,32768},{long_output,32768},32768*4)==SfntStatus::ok);
     for(u32 i=0;i<32768;++i)CHECK(long_output[i]==(i%10==0));
     return true;
-}
-bool cluster_transfer(bool write,void* bytes,u32 count) noexcept {
-    auto* p=static_cast<u8*>(bytes);HANDLE stream=GetStdHandle(write?STD_OUTPUT_HANDLE:STD_INPUT_HANDLE);
-    while(count){DWORD done=0;if(!(write?WriteFile(stream,p,count,&done,nullptr):ReadFile(stream,p,count,&done,nullptr))||!done)return false;p+=done;count-=done;}return true;
-}
-bool cluster_stream(SfntIndicProfile profile=SfntIndicProfile::devanagari,ConstSlice<u8> forms={}) noexcept {
-    char magic[8];u32 rows=0;CHECK(cluster_transfer(false,magic,8)&&bytes_equal(magic,"MDVCL1\0\0",8));
-    CHECK(cluster_transfer(false,&rows,4)&&rows<=200000);CHECK(cluster_transfer(true,magic,8)&&cluster_transfer(true,&rows,4));
-    u32 scalars[4096];u8 boundaries[4096];
-    for(u32 row=0;row<rows;++row){u32 count=0;CHECK(cluster_transfer(false,&count,4)&&count&&count<=4096);
-        CHECK(cluster_transfer(false,scalars,count*4));CHECK(sfnt_indic_cluster_boundaries(profile,{scalars,count},{boundaries,count},1000000,forms)==SfntStatus::ok);
-        CHECK(cluster_transfer(true,boundaries,count));}return true;
 }
 bool cluster_shape_units() noexcept {
     // First-party font views: Ra=1, halant=2, pre-matra=3, reph=4, space=5,
@@ -359,26 +346,9 @@ bool units() noexcept {
     print("PASS Devanagari stages, eligibility, reuse, capacity and work limits\n");return true;
 }
 template<class T> Slice<T> allocate(Arena& arena,u32 count) noexcept {return {arena_allocate<T>(&arena,count),count};}
-bool shape_batch_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_DEVANAGARI_BATCH",value,2)==1&&value[0]=='1';}
-bool tamil_shape_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_TAMIL_BATCH",value,2)==1&&value[0]=='1';}
-bool tamil_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_TAMIL_RUN",value,2)==1&&value[0]=='1';}
 bool gujarati_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_GUJARATI_RUN",value,2)==1&&value[0]=='1';}
-bool gurmukhi_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_GURMUKHI_RUN",value,2)==1&&value[0]=='1';}
-bool gurmukhi_shape_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_GURMUKHI_BATCH",value,2)==1&&value[0]=='1';}
-bool telugu_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_TELUGU_RUN",value,2)==1&&value[0]=='1';}
-bool kannada_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_KANNADA_RUN",value,2)==1&&value[0]=='1';}
-bool malayalam_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_MALAYALAM_RUN",value,2)==1&&value[0]=='1';}
-bool malayalam_shape_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_MALAYALAM_BATCH",value,2)==1&&value[0]=='1';}
-bool kannada_shape_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_KANNADA_BATCH",value,2)==1&&value[0]=='1';}
-bool telugu_shape_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_TELUGU_BATCH",value,2)==1&&value[0]=='1';}
-bool odia_shape_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_ODIA_BATCH",value,2)==1&&value[0]=='1';}
-bool odia_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_ODIA_RUN",value,2)==1&&value[0]=='1';}
-bool gujarati_shape_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_GUJARATI_BATCH",value,2)==1&&value[0]=='1';}
-bool bengali_shape_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_BENGALI_BATCH",value,2)==1&&value[0]=='1';}
 bool bengali_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_BENGALI_RUN",value,2)==1&&value[0]=='1';}
-bool bengali_compact_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_BENGALI_COMPACT",value,2)==1&&value[0]=='1';}
 bool shape_right_to_left=false;
-bool indic_run_benchmark_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_INDIC_RUN_BENCH",value,2)==1&&value[0]=='1';}
 bool memo_benchmark_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_DEVANAGARI_MEMO_BENCH",value,2)==1&&value[0]=='1';}
 struct TextOutput {u16 glyphs[1024];SfntPlacement placements[1024];u32 clusters[256];u32 count;};
 struct OwnedProfile {
@@ -476,66 +446,12 @@ SfntStatus shape_text(ConstSlice<u32> scalars,SfntShapeStorage storage,TextOutpu
     for(u32 i=0;i<scalars.count;++i){output.clusters[i]=characters[source_units];source_units+=scalars[i]>0xffff?2u:1u;}
     output.count=result.glyph_count;return SfntStatus::ok;
 }
-bool shape_stream(SfntShapeStorage storage,const OwnedProfile& owned) noexcept {
-    char magic[8];u32 rows=0;CHECK(cluster_transfer(false,magic,8)&&bytes_equal(magic,"MDSHP1\0\0",8));
-    CHECK(cluster_transfer(false,&rows,4)&&rows<=200000);CHECK(cluster_transfer(true,magic,8)&&cluster_transfer(true,&rows,4));
-    u32 scalars[256];TextOutput output{};
-    for(u32 row=0;row<rows;++row){u32 count=0;CHECK(cluster_transfer(false,&count,4)&&count&&count<=256);CHECK(cluster_transfer(false,scalars,count*4));
-        u32 status=static_cast<u32>(shape_text({scalars,count},storage,output,owned));
-        CHECK(cluster_transfer(true,&status,4)&&cluster_transfer(true,&output.count,4)&&cluster_transfer(true,output.glyphs,output.count*2));
-        CHECK(cluster_transfer(true,output.clusters,count*4)&&cluster_transfer(true,output.placements,output.count*12));}
-    return true;
-}
 #include "devanagari_memo_bench.inc"
-bool tamil_shape_stream(const OwnedProfile& owned,SfntShapeStorage storage) noexcept {
-    char magic[8];u32 rows=0;CHECK(cluster_transfer(false,magic,8)&&bytes_equal(magic,"MDSHP1\0\0",8));
-    CHECK(cluster_transfer(false,&rows,4)&&rows<=200000);CHECK(cluster_transfer(true,magic,8)&&cluster_transfer(true,&rows,4));
-    u32 scalars[256]{},clusters[256]{};u16 glyphs[1024]{};const bool run=tamil_run_mode();
-    for(u32 row=0;row<rows;++row){u32 count=0;CHECK(cluster_transfer(false,&count,4)&&count&&count<=(run?256u:31u));CHECK(cluster_transfer(false,scalars,count*4));
-        char text[1024]{};u32 length=0;
-        for(u32 i=0;i<count;++i){char encoded[4];const u8 bytes=utf8_encode(scalars[i],encoded);CHECK(bytes&&length+bytes<=1024);copy_bytes(text+length,encoded,bytes);length+=bytes;}
-        SfntShapeRunResult result{};const auto status=native_tamil_run(owned.store,owned.indic,{text,length},1000,storage,&result);
-        u32 code=static_cast<u32>(status);CHECK(result.glyph_count<=1024);u32 units=0;
-        for(u32 i=0;i<count;++i){clusters[i]=status==SfntStatus::ok?storage.character_glyphs[units]:0;units+=scalars[i]>0xffff?2u:1u;}
-        for(u32 i=0;i<result.glyph_count;++i)glyphs[i]=storage.glyphs[i].glyph.glyph;
-        CHECK(cluster_transfer(true,&code,4)&&cluster_transfer(true,&result.glyph_count,4)&&cluster_transfer(true,glyphs,result.glyph_count*2));
-        CHECK(cluster_transfer(true,clusters,count*4)&&cluster_transfer(true,storage.placements.data,result.glyph_count*12));}
-    return true;
-}
-bool bengali_shape_stream(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u8> forms,ConstSlice<SfntLookupStep> steps,SfntShapeStorage storage,
-    const NativeRunPlanStore* owner=nullptr,const NativeIndicFormPlan* prepared=nullptr,bool gujarati=false,bool gurmukhi=false,bool odia=false,bool telugu=false,bool kannada=false,bool malayalam=false) noexcept {
-    char magic[8];u32 rows=0;CHECK(cluster_transfer(false,magic,8)&&bytes_equal(magic,"MDSHP1\0\0",8));
-    CHECK(cluster_transfer(false,&rows,4)&&rows<=200000);CHECK(cluster_transfer(true,magic,8)&&cluster_transfer(true,&rows,4));
-    u32 scalars[256]{},clusters[256]{};u16 glyphs[1024]{};const bool run=malayalam?malayalam_run_mode():kannada?kannada_run_mode():telugu?telugu_run_mode():odia?odia_run_mode():gurmukhi?gurmukhi_run_mode():gujarati?gujarati_run_mode():bengali_run_mode(),compact=bengali_compact_mode();
-    for(u32 row=0;row<rows;++row){u32 count=0;CHECK(cluster_transfer(false,&count,4)&&count&&count<=(run?256u:31u));CHECK(cluster_transfer(false,scalars,count*4));
-        char text[1024]{};u32 bytes=0;if(run){CHECK(owner&&prepared);for(u32 i=0;i<count;++i){const u8 width=utf8_encode(scalars[i],text+bytes);CHECK(width);bytes+=width;}}
-        SfntShapeRunResult result{};SfntStatus status=SfntStatus::ok;
-        const auto profile=malayalam?SfntIndicProfile::malayalam:kannada?SfntIndicProfile::kannada:telugu?SfntIndicProfile::telugu:odia?SfntIndicProfile::odia:gurmukhi?SfntIndicProfile::gurmukhi:gujarati?SfntIndicProfile::gujarati:SfntIndicProfile::bengali;
-        if(run&&compact){NativeAsciiResult published{};NativeAsciiStorage output{{},storage,
-                {reinterpret_cast<u16*>(storage.glyphs.data),storage.glyphs.count},storage.placements,storage.character_glyphs};
-            status=indic_owned_run(profile,*owner,*prepared,{text,bytes},1000,output,&published,{},shape_right_to_left,0);
-            result.glyph_count=published.glyph_count;result.source_units=published.source_units;
-        }else if(run)status=indic_owned_run(profile,*owner,*prepared,{text,bytes},1000,storage,&result,{},shape_right_to_left,0);
-        else{// Batch rows are single original clusters; establish that before the private cluster entry.
-            u8 boundaries[31]{};status=sfnt_indic_cluster_boundaries(profile,{scalars,count},{boundaries,31},1000000,telugu||kannada||malayalam?forms:ConstSlice<u8>{});
-            for(u32 i=1;status==SfntStatus::ok&&i<count;++i)if(boundaries[i])status=SfntStatus::unsupported_sequence;
-            auto cluster_plan=plan;if(odia)cluster_plan.position_instance.source_mark_targets=true;
-            if(status==SfntStatus::ok)status=indic_scalar_cluster(profile,cluster_plan,cmap,{scalars,count},forms,1000,storage,&result,steps,{},profile==SfntIndicProfile::bengali,false,0,shape_right_to_left,false);}
-        u32 code=static_cast<u32>(status),units=0;CHECK(result.glyph_count<=1024);
-        for(u32 i=0;i<count;++i){clusters[i]=status==SfntStatus::ok?storage.character_glyphs[units]:0;units+=scalars[i]>0xffff?2u:1u;}
-        for(u32 i=0;i<result.glyph_count;++i)glyphs[i]=run&&compact?reinterpret_cast<const u16*>(storage.glyphs.data)[i]:storage.glyphs[i].glyph.glyph;
-        CHECK(cluster_transfer(true,&code,4)&&cluster_transfer(true,&result.glyph_count,4)&&cluster_transfer(true,glyphs,result.glyph_count*2));
-        CHECK(cluster_transfer(true,clusters,count*4)&&cluster_transfer(true,storage.placements.data,result.glyph_count*12));}
-    return true;
-}
 #include "indic_run_bench.inc"
 bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,bool profile_only) noexcept {
     if(tamil_profile)return tamil_font_plan(bytes,index);
-    wchar_t cluster_mode[2]{};const bool telugu_cluster_mode=GetEnvironmentVariableW(L"MAICORD_TELUGU_CLUSTER_STREAM",cluster_mode,2)==1&&cluster_mode[0]==L'1';
-    const bool kannada_cluster_mode=GetEnvironmentVariableW(L"MAICORD_KANNADA_CLUSTER_STREAM",cluster_mode,2)==1&&cluster_mode[0]==L'1';
-    const bool malayalam_cluster_mode=GetEnvironmentVariableW(L"MAICORD_MALAYALAM_CLUSTER_STREAM",cluster_mode,2)==1&&cluster_mode[0]==L'1';
-    const bool malayalam=malayalam_shape_mode(),kannada=kannada_shape_mode()||kannada_run_mode(),telugu=telugu_shape_mode()||telugu_run_mode(),odia=odia_shape_mode()||odia_run_mode(),gurmukhi=gurmukhi_shape_mode()||gurmukhi_run_mode(),gujarati=gujarati_shape_mode()||gujarati_run_mode(),batch=shape_batch_mode(),tamil=tamil_shape_mode()||tamil_run_mode()||tamil_owned_profile,bengali=bengali_shape_mode()||bengali_run_mode(),benchmark=memo_benchmark_mode(),quiet=malayalam||malayalam_cluster_mode||kannada||kannada_cluster_mode||telugu||batch||profile_only||telugu_cluster_mode||benchmark||tamil||bengali||gujarati||gurmukhi||odia;
-    const auto profile=malayalam_profile||malayalam?SfntIndicProfile::malayalam:kannada_profile||kannada?SfntIndicProfile::kannada:telugu_profile||telugu?SfntIndicProfile::telugu:odia_profile||odia?SfntIndicProfile::odia:gurmukhi_profile||gurmukhi?SfntIndicProfile::gurmukhi:gujarati_profile||gujarati?SfntIndicProfile::gujarati:bengali_profile||bengali?SfntIndicProfile::bengali:tamil?SfntIndicProfile::tamil:SfntIndicProfile::devanagari;
+    const bool gujarati=gujarati_run_mode(),bengali=bengali_run_mode(),benchmark=memo_benchmark_mode(),quiet=profile_only||benchmark||gujarati||bengali;
+    const auto profile=malayalam_profile?SfntIndicProfile::malayalam:kannada_profile?SfntIndicProfile::kannada:telugu_profile?SfntIndicProfile::telugu:odia_profile?SfntIndicProfile::odia:gurmukhi_profile?SfntIndicProfile::gurmukhi:gujarati_profile||gujarati?SfntIndicProfile::gujarati:bengali_profile||bengali?SfntIndicProfile::bengali:tamil_owned_profile?SfntIndicProfile::tamil:SfntIndicProfile::devanagari;
     arena_reset(&arena);SfntFace face{};SfntCmap cmap{};SfntHorizontalMetrics metrics{};SfntGdef gdef{};ConstSlice<u8> data{};
     CHECK(sfnt_open(bytes,index,&face)==SfntStatus::ok&&sfnt_cmap_open(face,&cmap)==SfntStatus::ok&&sfnt_horizontal_metrics_open(face,&metrics)==SfntStatus::ok);
     CHECK(sfnt_table(face,sfnt_tag('G','D','E','F'),&data)==SfntStatus::ok&&sfnt_gdef_open(data,metrics.glyph_count,&gdef)==SfntStatus::ok);
@@ -561,17 +477,16 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
     double advances[32]{},prefix[32]{};SfntPosition states[32]{};SfntPlacement placements[32]{};SfntMarkAssociation associations[32]{};
     SfntShapeStorage storage{{glyphs,32},{nodes,64},{bits,2},{characters,32},{targets,32},{associations,32},{advances,32},{flags,32},{states,32},{placements,32},
         {{frames,16},{positions,128},{rebased,128},{consumed,32},{reinterpret_cast<u8*>(replacement),sizeof(replacement)},{journal,512}},{{gp_frames,16},{gp_positions,128},{chains,2},{prefix,32},{cursive,32}}};
-    if(malayalam||kannada||telugu||odia||gurmukhi_run_mode()||tamil_run_mode()||bengali_run_mode()||gujarati_run_mode())storage={allocate<SfntComponentGlyph>(arena,1024),allocate<SfntComponentNode>(arena,2048),allocate<u64>(arena,16),
+    if(gujarati||bengali)storage={allocate<SfntComponentGlyph>(arena,1024),allocate<SfntComponentNode>(arena,2048),allocate<u64>(arena,16),
             allocate<u32>(arena,512),allocate<u32>(arena,1024),allocate<SfntMarkAssociation>(arena,1024),allocate<double>(arena,1024),
             allocate<u8>(arena,1024),allocate<SfntPosition>(arena,1024),allocate<SfntPlacement>(arena,1024),
             {allocate<SfntGsubExecutionFrame>(arena,32),allocate<u32>(arena,4096),allocate<u32>(arena,4096),allocate<u32>(arena,1024),
              allocate<u8>(arena,1024*sizeof(SfntComponentGlyph)),allocate<SfntComponentUndo>(arena,8192)},
             {allocate<SfntGposExecutionFrame>(arena,32),allocate<u32>(arena,4096),allocate<u64>(arena,16),allocate<double>(arena,1024),allocate<SfntCursiveChainNode>(arena,1024)}};
-    if(tamil){OwnedProfile owned;CHECK(owned.prepare(path,index,arena,storage,true));
+    if(tamil_owned_profile){OwnedProfile owned;CHECK(owned.prepare(path,index,arena,storage,true));
         CHECK(owned.indic.substitution_count==count&&bytes_equal(owned.indic.substitution_steps,steps,count*sizeof(SfntLookupStep)));
         CHECK(owned.indic.positioning_count==root_count&&bytes_equal(owned.indic.positioning_roots,roots,root_count*sizeof(u16)));
-        if(profile_only){print("PASS Tamil owned profile face=");number(index);print(" root_bytes=");number(count*sizeof(SfntLookupStep)+root_count*sizeof(u16));print(" profile_bytes=");number(sizeof(NativeIndicPlan));print("\n");return owned.close();}
-        CHECK(tamil_shape_stream(owned,storage));return owned.close();}
+        print("PASS Tamil owned profile face=");number(index);print(" root_bytes=");number(count*sizeof(SfntLookupStep)+root_count*sizeof(u16));print(" profile_bytes=");number(sizeof(NativeIndicPlan));print("\n");return owned.close();}
     SfntShapeStagePolicy policy{nullptr,+[](void*,u16,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest*,const SfntGsubExecutionScratch&,u64,u64* used) noexcept {*used=0;return SfntStatus::ok;},13};
     const SfntDevanagariForm forms[]{sfnt_deva_reph,sfnt_deva_half,sfnt_deva_pre,sfnt_deva_below,sfnt_deva_post};u8 font_forms[128]{};
     const u32 block=sfnt_indic_script(profile)->block_first;
@@ -588,45 +503,11 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
     indic_form_defaults(profile,font_forms);
     if(profile==SfntIndicProfile::malayalam&&(font_forms[0x2f]&indic_default_position)){SfntLookupPlanResult reordered{};
         CHECK(sfnt_indic_lookup_plan(substitution_layout,{},profile,false,{scratch,4096},{steps,4096},&reordered,1000000,true)==SfntStatus::ok);count=reordered.lookup_count;}
-    if(kannada_profile&&kannada_cluster_mode){CHECK(cluster_stream(SfntIndicProfile::kannada,{font_forms,128}));return true;}
-    if(malayalam_profile&&malayalam_cluster_mode){CHECK(cluster_stream(SfntIndicProfile::malayalam,{font_forms,128}));return true;}
-    wchar_t telugu_stream[2]{};if(telugu_profile&&GetEnvironmentVariableW(L"MAICORD_TELUGU_CLUSTER_STREAM",telugu_stream,2)==1&&telugu_stream[0]==L'1'){CHECK(cluster_stream(SfntIndicProfile::telugu,{font_forms,128}));return true;}
-    if(malayalam){if(!malayalam_run_mode())return bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,nullptr,nullptr,false,false,false,false,false,true);
-        OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
-        CHECK(native_indic_plan_prepare(owned.store,owned.run,SfntIndicProfile::malayalam,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
+    if(gujarati||bengali){OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
+        CHECK(native_indic_plan_prepare(owned.store,owned.run,profile,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
         CHECK(bytes_equal(prepared.forms,font_forms,128));
-        CHECK(bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,&owned.store,&prepared,false,false,false,false,false,true));return owned.close();}
-    if(kannada){if(!kannada_run_mode())return bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,nullptr,nullptr,false,false,false,false,true);
-        OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
-        CHECK(native_indic_plan_prepare(owned.store,owned.run,SfntIndicProfile::kannada,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
-        CHECK(bytes_equal(prepared.forms,font_forms,128));
-        CHECK(bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,&owned.store,&prepared,false,false,false,false,true));return owned.close();}
-    if(telugu){if(!telugu_run_mode())return bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,nullptr,nullptr,false,false,false,true);
-        OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
-        CHECK(native_indic_plan_prepare(owned.store,owned.run,SfntIndicProfile::telugu,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
-        CHECK(bytes_equal(prepared.forms,font_forms,128));
-        CHECK(bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,&owned.store,&prepared,false,false,false,true));return owned.close();}
-    if(odia){if(!odia_run_mode())return bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,nullptr,nullptr,false,false,true);
-        OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
-        CHECK(native_indic_plan_prepare(owned.store,owned.run,SfntIndicProfile::odia,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
-        CHECK(bytes_equal(prepared.forms,font_forms,128));
-        CHECK(bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,&owned.store,&prepared,false,false,true));return owned.close();}
-    if(gurmukhi){if(!gurmukhi_run_mode())return bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,nullptr,nullptr,false,true);
-        OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
-        CHECK(native_indic_plan_prepare(owned.store,owned.run,SfntIndicProfile::gurmukhi,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
-        CHECK(bytes_equal(prepared.forms,font_forms,128));
-        CHECK(bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,&owned.store,&prepared,false,true));return owned.close();}
-    if(gujarati){if(!gujarati_run_mode())return bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,nullptr,nullptr,true);
-        OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
-        CHECK(native_indic_plan_prepare(owned.store,owned.run,SfntIndicProfile::gujarati,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
-        CHECK(bytes_equal(prepared.forms,font_forms,128));
-        CHECK(indic_run_benchmark_mode()?indic_run_benchmark(owned.store,prepared,storage):bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,&owned.store,&prepared,true));return owned.close();}
+        CHECK(indic_run_benchmark(owned.store,prepared,storage));return owned.close();}
     if(bengali_profile||gujarati_profile||gurmukhi_profile||odia_profile||telugu_profile||kannada_profile||malayalam_profile)return bengali_owned_plan(path,index,arena,storage,{steps,count},{roots,root_count},font_forms,profile);
-    if(bengali){if(!bengali_run_mode())return bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage);
-        OwnedProfile owned;CHECK(owned.prepare_parent(path,index));NativeIndicFormPlan prepared{};
-        CHECK(native_indic_plan_prepare(owned.store,owned.run,SfntIndicProfile::bengali,&arena,&owned.scratch,storage,&prepared.indic,{prepared.forms,128})==SfntStatus::ok);
-        CHECK(bytes_equal(prepared.forms,font_forms,128));
-        CHECK(indic_run_benchmark_mode()?indic_run_benchmark(owned.store,prepared,storage):bengali_shape_stream(plan,cmap,{font_forms,128},{steps,count},storage,&owned.store,&prepared));return owned.close();}
     OwnedProfile owned;CHECK(owned.prepare(path,index,arena,storage));
     if(benchmark){CHECK(memo_benchmark(storage,owned));return owned.close();}
     CHECK(owned.profile.substitutions.count==count&&bytes_equal(owned.profile.substitutions.data,steps,count*sizeof(SfntLookupStep)));
@@ -634,7 +515,6 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
     CHECK(bytes_equal(owned.profile.forms,font_forms,128));
     if(profile_only){print("PASS Devanagari profile face=");number(index);print(" root_bytes=");number(count*sizeof(SfntLookupStep)+root_count*sizeof(u16));
         print(" profile_bytes=");number(sizeof(NativeDevanagariPlan));print("\n");return owned.close();}
-    if(batch){CHECK(shape_stream(storage,owned));return owned.close();}
     for(u32 sample=0;sample<sizeof(deva_shape_samples)/sizeof(deva_shape_samples[0]);++sample){
         u32 scalars[256]{},length=0;const auto* text=deva_shape_samples[sample];while(text[length]){CHECK(length<256);scalars[length]=text[length];++length;}
         TextOutput output{};const auto shaped=shape_text({scalars,length},storage,output,owned);
@@ -661,25 +541,19 @@ bool font_file(const wchar_t* path,bool profile_only=false) noexcept {
     const auto* data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(data);struct Unmap {const void* p;~Unmap() noexcept {UnmapViewOfFile(p);}} unmap{data};
     Arena arena{};CHECK(arena_initialize(&arena,32*1024*1024,65536));struct Release {Arena* a;~Release() noexcept {arena_release(a);}} release{&arena};
     const ConstSlice<u8> bytes{data,static_cast<u32>(size.QuadPart)};SfntFace first{};CHECK(sfnt_open(bytes,0,&first)==SfntStatus::ok&&first.face_count<=32);
-    if(kannada_run_mode()||kannada_shape_mode()||telugu_run_mode()||telugu_shape_mode()||odia_shape_mode()||odia_run_mode()||gurmukhi_run_mode()||gurmukhi_shape_mode()||gujarati_run_mode()||gujarati_shape_mode()||shape_batch_mode()||tamil_shape_mode()||tamil_run_mode()||bengali_shape_mode()||bengali_run_mode())CHECK(first.face_count==1);
+    if(bengali_run_mode()||gujarati_run_mode())CHECK(first.face_count==1);
     for(u32 i=0;i<first.face_count;++i)CHECK(font_case(bytes,i,arena,path,profile_only));return true;
 }
 bool run() noexcept {
     const wchar_t* p=GetCommandLineW();bool quoted=false;while(*p){if(*p=='"')quoted=!quoted;else if(!quoted&&(*p==' '||*p=='\t'))break;++p;}while(*p==' '||*p=='\t')++p;
     if(!*p)return units();quoted=*p=='"';if(quoted)++p;wchar_t path[1024]{};u32 n=0;
     while(*p&&!(quoted?*p=='"':*p==' '||*p=='\t')){CHECK(n+1<1024);path[n++]=*p++;}if(quoted){CHECK(*p=='"');++p;}while(*p==' '||*p=='\t')++p;CHECK(n&&!*p);
-    if(bytes_equal(path,L"--clusters",sizeof(L"--clusters")))return cluster_stream();
     if(bytes_equal(path,L"--gujarati-shape",sizeof(L"--gujarati-shape")))return gujarati_shape_units();
     if(bytes_equal(path,L"--gujarati-input",sizeof(L"--gujarati-input")))return gujarati_input_units();
-    if(bytes_equal(path,L"--gujarati-clusters",sizeof(L"--gujarati-clusters")))return cluster_stream(SfntIndicProfile::gujarati);
     if(bytes_equal(path,L"--gurmukhi-shape",sizeof(L"--gurmukhi-shape")))return gurmukhi_shape_units();
     if(bytes_equal(path,L"--gurmukhi-input",sizeof(L"--gurmukhi-input")))return gurmukhi_input_units();
-    if(bytes_equal(path,L"--gurmukhi-clusters",sizeof(L"--gurmukhi-clusters")))return cluster_stream(SfntIndicProfile::gurmukhi);
     if(bytes_equal(path,L"--gurmukhi-plan",sizeof(L"--gurmukhi-plan")))return tamil_plan_units(SfntIndicProfile::gurmukhi);
-    if(bytes_equal(path,L"--telugu-clusters",sizeof(L"--telugu-clusters"))){telugu_profile=true;const auto path_length=GetEnvironmentVariableW(L"MAICORD_TELUGU_FONT",path,1024);CHECK(path_length&&path_length<1024);return font_file(path);}
     if(bytes_equal(path,L"--telugu-shape",sizeof(L"--telugu-shape")))return telugu_shape_units();
-    if(bytes_equal(path,L"--kannada-clusters",sizeof(L"--kannada-clusters"))){kannada_profile=true;const auto path_length=GetEnvironmentVariableW(L"MAICORD_KANNADA_FONT",path,1024);CHECK(path_length&&path_length<1024);return font_file(path);}
-    if(bytes_equal(path,L"--malayalam-clusters",sizeof(L"--malayalam-clusters"))||bytes_equal(path,L"--malayalam-font-profile",sizeof(L"--malayalam-font-profile"))){malayalam_profile=true;const auto path_length=GetEnvironmentVariableW(L"MAICORD_MALAYALAM_FONT",path,1024);CHECK(path_length&&path_length<1024);return font_file(path);}
     if(bytes_equal(path,L"--malayalam-shape",sizeof(L"--malayalam-shape")))return malayalam_shape_units();
     if(bytes_equal(path,L"--kannada-shape",sizeof(L"--kannada-shape")))return kannada_shape_units();
     if(bytes_equal(path,L"--malayalam-plan",sizeof(L"--malayalam-plan")))return tamil_plan_units(SfntIndicProfile::malayalam)&&malayalam_presentation_units();
@@ -691,9 +565,7 @@ bool run() noexcept {
     if(bytes_equal(path,L"--odia-plan",sizeof(L"--odia-plan")))return tamil_plan_units(SfntIndicProfile::odia);
     if(bytes_equal(path,L"--odia-input",sizeof(L"--odia-input")))return odia_input_units();
     if(bytes_equal(path,L"--odia-shape",sizeof(L"--odia-shape")))return odia_shape_units();
-    if(bytes_equal(path,L"--odia-clusters",sizeof(L"--odia-clusters")))return cluster_stream(SfntIndicProfile::odia);
     if(bytes_equal(path,L"--gujarati-plan",sizeof(L"--gujarati-plan")))return tamil_plan_units(SfntIndicProfile::gujarati);
-    if(bytes_equal(path,L"--bengali-clusters",sizeof(L"--bengali-clusters")))return cluster_stream(SfntIndicProfile::bengali);
     if(bytes_equal(path,L"--bengali-input",sizeof(L"--bengali-input")))return bengali_input_units();
     if(bytes_equal(path,L"--bengali-shape",sizeof(L"--bengali-shape")))return bengali_shape_units();
     if(bytes_equal(path,L"--bengali-plan",sizeof(L"--bengali-plan")))return bengali_plan_units();

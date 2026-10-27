@@ -7,11 +7,8 @@
 #include "maicord/app/segmented_video_fetch.hpp"
 #include "maicord/media/h264_parameters.hpp"
 #include "maicord/media/h264_slice.hpp"
-#include "maicord/platform/aac_decoder.hpp"
-#include "maicord/sys/com.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/sys/d3d11.hpp"
 #include "test_output.hpp"
 #include "h264_stream_fixture.hpp"
 
@@ -343,125 +340,6 @@ void paired_wrap_tests() noexcept {
         if(media) VirtualFree(media,0,MEM_RELEASE);
     }
 }
-bool video_samples(ConstSlice<u8> input,u16 pid,Slice<u8> scratch,Slice<u8> packed) noexcept {
-    MpegTsReader reader{input,0,~u32{0},pid}; MpegTsPes pes{}; MpegTsAvcConfiguration config{};
-    H264Sps sps{}; H264Pps pps{}; u32 pictures=0; u64 previous=0; E error{};
-    while((error=mpeg_ts_next(&reader,scratch,&pes))==E::none) {
-        u32 size{};
-        if(mpeg_ts_avc_sample(pes.payload,packed,&size)!=E::none) return false;
-        if(!pictures) {
-            if(mpeg_ts_avc_configuration(pes.payload,&config)!=E::none) return false;
-            H264NalCursor nals{{packed.data,size},0,4}; u8 identity{}; bool found=false;
-            for(;;) {const auto nal=h264_next_nal(&nals); if(nal.error!=H264Error::none) break;
-                if(nal.type==1 || nal.type==5) {found=h264_slice_parameter_id(nal.bytes,&identity)==H264Error::none;break;}}
-            if(!found || h264_select_parameters({config.bytes,config.count},identity,&sps,&pps)!=H264Error::none) return false;
-        }
-        H264Picture picture{}; u64 time{};
-        if(h264_parse_picture({packed.data,size},4,sps,pps,&picture,{config.bytes,config.count})!=H264Error::none ||
-            (!pictures && !picture.first.idr) || !mpeg_ts_unwrap(pes.dts,pictures?previous:pes.dts,&time) ||
-            (pictures && time<=previous)) return false;
-        previous=time; ++pictures;
-    }
-    test_write_metric("TS AVC pictures validated: ",pictures);
-    test_write_metric("TS AVC width: ",config.width); test_write_metric("TS AVC height: ",config.height);
-    return error==E::end_of_stream && pictures && config.width && config.height;
-}
-bool audio_decode(ConstSlice<u8> input, u16 pid, Slice<u8> scratch) noexcept {
-    const auto apartment=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
-    if(FAILED(apartment)) return false;
-    MpegTsReader reader{input,0,~u32{0},pid}; MpegTsPes pes{}; u32 at=0,packets=0,frames=0;
-    u64 origin=0; AacDecoder decoder{}; u8 pcm[kAacDecoderMaximumOutputBytes]; bool valid=true,draining=false,ended=false;
-    for(u32 calls=0;valid && !ended && calls<4096;++calls) {
-        if(decoder.initialized) {
-            const auto block=aac_decoder_read(&decoder,{pcm,sizeof(pcm)});
-            if(block.ok()) {valid=block.timestamp_valid; frames+=block.frames;continue;}
-            if(block.error==AacDecodeError::end_of_stream) {ended=draining;break;}
-            if(block.error!=AacDecodeError::need_input || draining) {valid=false;break;}
-        }
-        if(at==pes.payload.count) {
-            E next{};
-            if(pid==kMpegTsNoPid) {
-                if(reader.offset) next=E::end_of_stream;
-                else {PackedAudioSegment packed{};next=packed_aac_segment(input,&packed);
-                    if(next==E::none) {pes={packed.payload,packed.timestamp,packed.timestamp};reader.offset=input.count;}}
-            } else next=mpeg_ts_next(&reader,scratch,&pes);
-            if(next==E::end_of_stream) {valid=decoder.initialized && aac_decoder_drain(&decoder).ok();draining=true;continue;}
-            if(next!=E::none || pes.pts!=pes.dts) {valid=false;break;}
-            if(!packets) origin=pes.pts;
-            else {
-                u64 time{}; valid=mpeg_ts_unwrap(pes.pts,origin,&time) && time>=origin;
-                const u64 actual=valid?(time-origin)*decoder.sample_rate:0, expected=u64{packets}*1024*90000;
-                valid=valid && (actual>expected?actual-expected:expected-actual)<=decoder.sample_rate;
-                if(!valid) break;
-            }
-            at=0;
-        }
-        MpegTsAacFrame frame{};
-        valid=mpeg_ts_aac_frame({pes.payload.data+at,pes.payload.count-at},&frame)==E::none;
-        if(!valid) break;
-        if(!decoder.initialized) valid=aac_decoder_initialize(&decoder,{frame.configuration,2},frame.sample_rate,frame.channels).ok();
-        else valid=frame.sample_rate==decoder.sample_rate && frame.channels==decoder.channels && bytes_equal(frame.configuration,decoder.asc,2);
-        if(!valid) break;
-        const u64 from=u64{packets}*1024*10000000/decoder.sample_rate,to=u64{packets+1}*1024*10000000/decoder.sample_rate;
-        valid=valid && aac_decoder_submit(&decoder,frame.payload,static_cast<i64>(from),to-from).ok();
-        if(valid) {++packets;at+=frame.bytes;}
-    }
-    test_write_metric("TS AAC packets decoded: ",packets); test_write_metric("TS AAC PCM frames: ",frames);
-    valid=valid && ended && packets && frames==packets*1024;
-    valid=aac_decoder_release(&decoder).ok() && valid; CoUninitialize(); return valid;
-}
-bool stored_session(ConstSlice<u8> input) noexcept {
-    using D=Mp4DemuxError;
-    const auto apartment=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
-    const HANDLE event=CreateEventW(nullptr,FALSE,FALSE,nullptr);
-    Mp4SegmentStore stores[2]{}; Mp4FragmentSource sources[2]{}; Mp4FragmentAudio audio{};
-    Mp4Decoder decoder{}; AccountVideoSession session{}; ID3D11Device* device{}; ID3D11DeviceContext* context{};
-    bool valid=SUCCEEDED(apartment)&&event;
-    for(u32 i=0;valid&&i<2;++i) valid=mpeg_ts_segment_store_initialize(stores+i,input,i!=0,1,2000000)==D::none &&
-        stores[i].transport && mp4_segment_store_extend(stores+i,0,1,true)==D::none &&
-        mp4_fragment_source_initialize_segments(stores+i,sources+i)==D::none;
-    u32 stage=valid?1u:0u;
-    if(valid) {
-        const u64 vt=sources[0].index.first_time,at=sources[1].index.first_time;
-        const u64 vs=sources[0].track.timescale,as=sources[1].track.timescale;
-        const bool later=vt/vs!=at/as?vt/vs>at/as:(vt%vs)*as>(at%as)*vs;
-        const u64 origin=later?vt:at,scale=later?vs:as;
-        for(auto& source:sources) source.track.media_start=static_cast<i64>((origin/scale)*source.track.timescale+
-            ((origin%scale)*source.track.timescale+scale/2)/scale);
-        valid=mp4_fragment_audio_initialize(sources+1,&audio)==D::none;
-    }
-    const D3D_FEATURE_LEVEL levels[]{D3D_FEATURE_LEVEL_11_1,D3D_FEATURE_LEVEL_11_0}; D3D_FEATURE_LEVEL level{};
-    valid=valid&&SUCCEEDED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,
-        D3D11_CREATE_DEVICE_VIDEO_SUPPORT|D3D11_CREATE_DEVICE_BGRA_SUPPORT,levels,2,D3D11_SDK_VERSION,&device,&level,&context)) &&
-        mp4_decoder_initialize_fragmented(&decoder,sources,device);
-    if(valid) stage=2;
-    const AccountVideoIdentity identity{1,2,3,4,0,1,0};
-    valid=valid&&account_video_session_initialize(&session,&decoder,identity,event,{},&audio).ok() &&
-        account_video_session_control(&session,identity,1,AccountVideoCommand::mute,0,1,true).ok() &&
-        account_video_session_control(&session,identity,2,AccountVideoCommand::play).ok();
-    if(valid) stage=3;
-    const auto epoch=session.playback_epoch; u32 frames=0;
-    const auto until=GetTickCount64()+4000;
-    while(valid&&!session.status.ended&&GetTickCount64()<until) {
-        const auto work=account_video_session_service(&session);
-        valid=session.status.error==AccountVideoError::none&&session.playback_epoch==epoch;
-        if(work.frame_ready) {++frames;valid=valid&&work.frame.gpu&&work.frame.width==852&&work.frame.height==480&&
-            account_video_session_acknowledge(&session,identity,work.playback_epoch,work.frame_serial);}
-        if(!work.needs_service) WaitForSingleObject(event,minimum(10u,work.next_service_delay_ms));
-    }
-    const auto progress=account_video_session_audio_progress(&session);
-    valid=valid&&frames&&session.status.ended&&session.video_eof&&session.audio_eof&&
-        progress.written_frames&&progress.consumed_frames==progress.written_frames;
-    test_write_metric("TS stored session stage: ",stage); test_write_metric("TS stored session error: ",static_cast<u32>(session.status.error));
-    test_write_metric("TS stored session native: ",session.status.native_error); test_write_metric("TS GPU frames: ",frames);
-    test_write_metric("TS stored PCM written: ",progress.written_frames); test_write_metric("TS stored PCM consumed: ",progress.consumed_frames);
-    u32 committed=0; for(const auto& store:stores) committed+=store.initialization.committed+store.slots[0].storage.committed+store.slots[1].storage.committed;
-    test_write_metric("TS store committed bytes: ",committed);
-    if(session.initialized&&!account_video_session_release(&session,1000).ok()) ExitProcess(1);
-    mp4_decoder_release(&decoder); if(context) context->Release();if(device) device->Release();
-    for(u32 i=0;i<2;++i) {mp4_fragment_source_release(sources+i);mp4_segment_store_release(stores+i);}
-    if(event) CloseHandle(event);if(SUCCEEDED(apartment)) CoUninitialize(); return valid;
-}
 void store_lifetimes() noexcept {
     using D=Mp4DemuxError;
     const auto file=[](u32 index,bool broken=false) noexcept {
@@ -582,61 +460,9 @@ void store_expansion() noexcept {
     check(valid,"transport store grows only its candidate pages and preserves every expanded sample");
     mp4_segment_store_release(&store);reserved_bytes_release(&input);
 }
-void capture(const char* name) noexcept {
-    char path[1024]{}; wchar_t wide[1024]{};
-    const u32 length = GetEnvironmentVariableA(name,path,sizeof(path));
-    if (!length) return;
-    if (length >= sizeof(path)) { check(false,"capture path bound"); return; }
-    for (u32 i = 0; i < length; ++i) { if (static_cast<u8>(path[i]) >= 128) { check(false,"capture path encoding"); return; } wide[i] = path[i]; }
-    const HANDLE file = CreateFileW(wide,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
-    if (file == INVALID_HANDLE_VALUE) { check(false,"capture open"); return; }
-    Win32LargeInteger size{}; DWORD read{};
-    const bool sized = GetFileSizeEx(file,size.native()) && size.QuadPart > 0 && size.QuadPart <= kMpegTsMaximumBytes;
-    auto* memory = sized ? static_cast<u8*>(VirtualAlloc(nullptr,static_cast<usize>(size.QuadPart)*3,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE)) : nullptr;
-    bool valid = memory && ReadFile(file,memory,static_cast<DWORD>(size.QuadPart),&read,nullptr) && read == size.QuadPart;
-    CloseHandle(file); MpegTsProgram p{};
-    if(valid && read>=3 && bytes_equal(memory,"ID3",3)) {
-        Mp4SegmentStore store{};
-        const auto error=mpeg_ts_segment_store_initialize(&store,{memory,read},true,1,5000000);
-        test_write_metric("packed AAC store error: ",static_cast<u32>(error));
-        test_write_metric("packed AAC sample rate: ",store.track.sample_rate);
-        check(error==Mp4DemuxError::none && audio_decode({memory,read},kMpegTsNoPid,{}),
-            "captured packed AAC preserves its transport clock and decodes every native audio frame");
-        mp4_segment_store_release(&store);VirtualFree(memory,0,MEM_RELEASE);return;
-    }
-    const auto parsed = valid ? mpeg_ts_program({memory,read},&p) : E::invalid_input;
-    test_write_metric("TS program error: ",static_cast<u32>(parsed));
-    valid = valid && parsed == E::none;
-    const u16 identities[]{p.video_pid,p.audio_pid};
-    for (u16 id : identities) {
-        if (!valid || id == kMpegTsNoPid) continue;
-        MpegTsReader r{{memory,read},0,~u32{0},id}; u32 packets = 0, payload = 0; MpegTsPes sample{}; E error{};
-        while ((error = mpeg_ts_next(&r,{memory+read,read},&sample)) == E::none) { ++packets; payload += sample.payload.count; }
-        valid = error == E::end_of_stream && packets && payload;
-        test_write_metric("TS PES result: ",static_cast<u32>(error));
-        test_write_metric("TS elementary PID: ",id); test_write_metric("TS PES packets: ",packets); test_write_metric("TS payload bytes: ",payload);
-    }
-    check(valid,"captured clear Twitch segment has complete native AVC/AAC PES streams");
-    if(valid && p.video_pid!=kMpegTsNoPid)
-        check(video_samples({memory,read},p.video_pid,{memory+read,read},{memory+2*read,read}),
-            "captured TS AVC uses existing native parameter and picture validation");
-    if(valid && p.audio_pid!=kMpegTsNoPid)
-        check(audio_decode({memory,read},p.audio_pid,{memory+read,read}),"captured TS AAC decodes through existing native codec with exact frame count");
-    if(valid && p.video_pid!=kMpegTsNoPid && p.audio_pid!=kMpegTsNoPid)
-        check(stored_session({memory,read}),"captured TS plays through the existing GPU and muted native audio session");
-    if(valid && p.video_pid!=kMpegTsNoPid && p.audio_pid==kMpegTsNoPid) {
-        Mp4SegmentStore store{};const auto error=mpeg_ts_segment_store_initialize(&store,{memory,read},false,1,5000000);
-        test_write_metric("captured video store error: ",static_cast<u32>(error));
-        check(error==Mp4DemuxError::none,"captured video-only TS fills the native sample store");
-        mp4_segment_store_release(&store);
-    }
-    if (memory) VirtualFree(memory,0,MEM_RELEASE);
-}
 } // namespace
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_mpeg_ts_entry() noexcept {
     maicord::run(); maicord::codecs(); maicord::packed_audio_tests(); maicord::paired_wrap_tests(); maicord::store_lifetimes(); maicord::split_video_units(); maicord::store_expansion();
-    const char* names[]{"MAICORD_TS_PROBE","MAICORD_TS_NEXT_PROBE","MAICORD_TS_AUDIO_PROBE","MAICORD_TS_AUDIO_NEXT_PROBE"};
-    for (const auto* name : names) maicord::capture(name);
     ExitProcess(maicord::failures ? 1 : 0);
 }

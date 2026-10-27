@@ -207,7 +207,6 @@ bool account_menu_ui_probe(D3D11Renderer& renderer,
         if (gradient_passed && !valid)
             log_u64(LogLevel::error, "probe", "account_menu_native_failure_stage", 6);
     }
-    log_u64(LogLevel::info, "probe", "account_menu_model_bytes", sizeof(UiAccountMenuModel));
     log_write(valid && restored ? LogLevel::info : LogLevel::error, "probe",
               valid && restored ? "account_menu_native_passed" : "account_menu_native_failed");
     return valid && restored;

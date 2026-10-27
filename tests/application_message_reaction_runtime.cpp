@@ -46,19 +46,9 @@ u64 unix_clock() noexcept {
     return unix_ms;
 }
 
-void write(Utf8View value) noexcept {
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value.data, value.bytes, &written, nullptr);
-}
-
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
-
-void metric(const char* label, u64 value) noexcept {
-    test_write_metric(label, value);
-}
-
 Utf8View glyph(u32 index = 0) noexcept {
     return unicode_emoji_catalog()[index].glyph();
 }
@@ -511,9 +501,6 @@ void run() noexcept {
     MEMORY_BASIC_INFORMATION owner_region{}, bank_region{};
     VirtualQuery(owner, &owner_region, sizeof(owner_region));
     VirtualQuery(owner->storage.arena.base, &bank_region, sizeof(bank_region));
-    metric("reaction owner sizeof=", sizeof(ReactionOwner));
-    metric("reaction owner committed=", owner_region.RegionSize);
-    metric("reaction initial bank committed=", bank_region.RegionSize);
     check(owner_region.State == MEM_COMMIT && owner_region.RegionSize == 4096 &&
               bank_region.State == MEM_COMMIT && bank_region.RegionSize == 4096,
           "reaction runtime: first action commits one owner page and one ledger page");
@@ -839,8 +826,6 @@ void run() noexcept {
               !reaction(900, 4),
           "reaction runtime:65th action refuses without touching model or existing choices");
     VirtualQuery(owner->storage.arena.base, &bank_region, sizeof(bank_region));
-    metric("reaction full bank committed=", bank_region.RegionSize);
-    metric("reaction full logical intents=", owner->controller.count);
     check(bank_region.RegionSize == 16384 && bank_region.State == MEM_COMMIT,
           "reaction runtime:64 entries commit bounded16KiB ledger and no per-intent allocation");
     const auto text_refreshes = refreshes;
@@ -874,8 +859,5 @@ void application_media_picker_reaction_changed() noexcept {}
 
 extern "C" __declspec(noreturn) void WINAPI mainCRTStartup() noexcept {
     maicord::reaction_runtime_test::run();
-    maicord::reaction_runtime_test::write(maicord::reaction_runtime_test::failures
-                                              ? maicord::utf8_literal("FAIL reaction host runtime\n")
-                                              : maicord::utf8_literal("PASS reaction host runtime\n"));
-    ExitProcess(maicord::reaction_runtime_test::failures ? 1 : 0);
+    maicord::test_exit(maicord::reaction_runtime_test::failures, "reaction host runtime");
 }

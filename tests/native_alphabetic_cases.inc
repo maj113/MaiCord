@@ -50,21 +50,3 @@ bool alphabetic_corpus(DWriteTextSystem system,bool required) noexcept {
         }
     }return true;
 }
-bool alphabetic_benchmark() noexcept {
-    CHECK(native_text_format_capture(&owner));const u32 pairs[][2]{{0,3},{1,2},{5,17},{7,8}};LARGE_INTEGER frequency{};CHECK(QueryPerformanceFrequency(&frequency));
-    auto reference=owner;reference.native_text=nullptr;
-    for(u32 pair=0;pair<4;++pair){for(u32 item=0;item<2;++item){const auto text=alphabetic_samples[pairs[pair][item]];
-            shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
-            CHECK(native_text_candidate_line(owner,text,120,1000000,&native_output.text,nullptr));
-            CHECK(text_shape_utf8(&reference,text,120,1000000,{utf16,256},&reference_output.text).ok()&&same(native_output,reference_output,true));}
-        for(u32 mode=0;mode<2;++mode){print("{\"kind\":\"alphabetic_app\",\"pair\":");number(pair);print(",\"fresh\":");number(mode);print(",\"frequency\":");number(frequency.QuadPart);print(",\"iterations\":1024,\"batches\":[");
-            for(u32 batch=0;batch<12;++batch){u64 ticks[2]{};
-                for(u32 order=0;order<2;++order){const u32 legacy=order^(batch&1);auto system=legacy?reference:owner;auto* out=legacy?&reference_output.text:&native_output.text;
-                    CHECK(text_shape_utf8(&system,alphabetic_samples[pairs[pair][0]],120,1000000,{utf16,256},out).ok());
-                    const auto before=native_text_candidate_counts(owner);LARGE_INTEGER start{},end{};CHECK(QueryPerformanceCounter(&start));
-                    for(u32 i=0;i<1024;++i)CHECK(text_shape_utf8(&system,alphabetic_samples[pairs[pair][mode?(i&1):0]],120,1000000,{utf16,256},out).ok());
-                    CHECK(QueryPerformanceCounter(&end));ticks[legacy]=end.QuadPart-start.QuadPart;const auto after=native_text_candidate_counts(owner);
-                    CHECK(after.shaped-before.shaped==(legacy?0u:1024u));}
-                if(batch)print(",");print("[");number(ticks[0]);print(",");number(ticks[1]);print("]");}print("]}\n");}
-    }return true;
-}

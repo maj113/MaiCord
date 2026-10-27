@@ -1,35 +1,4 @@
 u32 emoji_draw_declines=0,emoji_hit_declines=0;
-bool native_emoji_dispatch_benchmark(bool mixed=false) noexcept {
-    CHECK(native_text_format_capture(&owner));
-    const Utf8View emoji_seeds[]{utf8_literal("\xf0\x9f\x98\x80"),
-        utf8_literal("\xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x91\xa7\xe2\x80\x8d\xf0\x9f\x91\xa6"),
-        utf8_literal("\xf0\x9f\x91\xa9\xe2\x80\x8d\xe2\x9d\xa4\xef\xb8\x8f\xe2\x80\x8d\xf0\x9f\x91\xa8"),
-        utf8_literal("\xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf")};
-    const Utf8View mixed_seeds[]{utf8_literal("A\xf0\x9f\x98\x80" "B"),
-        utf8_literal("a \xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9\xe2\x80\x8d\xf0\x9f\x91\xa7\xe2\x80\x8d\xf0\x9f\x91\xa6 b"),
-        utf8_literal("a \xf0\x9f\x91\xa9\xe2\x80\x8d\xe2\x9d\xa4\xef\xb8\x8f\xe2\x80\x8d\xf0\x9f\x91\xa8 b"),
-        utf8_literal("a \xf0\x9f\x8f\xb4\xf3\xa0\x81\xa7\xf3\xa0\x81\xa2\xf3\xa0\x81\xa5\xf3\xa0\x81\xae\xf3\xa0\x81\xa7\xf3\xa0\x81\xbf b")};
-    const auto* seeds=mixed?mixed_seeds:emoji_seeds;
-    LARGE_INTEGER frequency{};CHECK(QueryPerformanceFrequency(&frequency));
-    for(u32 sample=0;sample<4;++sample){char a[512],b[512];const u32 repeats=sample?4u:32u,bytes=seeds[sample].bytes*repeats;
-        for(u32 i=0;i<repeats;++i)copy_bytes(a+i*seeds[sample].bytes,seeds[sample].data,seeds[sample].bytes);
-        copy_bytes(b,a,bytes);const auto suffix=utf8_literal("\xf0\x9f\x98\x83");copy_bytes(b+bytes,suffix.data,suffix.bytes);const Utf8View inputs[]{{a,bytes},{b,bytes+suffix.bytes}};
-        for(u32 draw=0;draw<2;++draw)for(u32 alternate=0;alternate<2;++alternate){
-            print("{\"sample\":");number(sample);print(",\"draw\":");number(draw);print(",\"alternate\":");number(alternate);print(",\"frequency\":");number(frequency.QuadPart);print(",\"iterations\":256,\"batches\":[");
-            for(u32 batch=0;batch<12;++batch){u64 ticks[2]{};
-                for(u32 order=0;order<2;++order){const u32 legacy=order^(batch&1);auto system=owner;if(legacy)system.native_text=nullptr;auto& out=legacy?reference_output:native_output;
-                    const auto execute=[&](u32 i) noexcept {const auto input=inputs[alternate?i&1:0];
-                        if(draw)return text_shape_utf8(&system,input,120,1000000,{utf16,256},&out.text).ok()&&(legacy||out.text.native_fonts());
-                        const auto before=native_text_candidate_counts(system);const auto result=text_measure_utf8_styled(&system,input,{},120,1000000,{utf16,256});
-                        return result.ok()&&(legacy||native_text_candidate_counts(system).measured==before.measured+1);};
-                    for(u32 i=0;i<32;++i)CHECK(execute(i));LARGE_INTEGER start{},end{};CHECK(QueryPerformanceCounter(&start));
-                    for(u32 i=0;i<256;++i)CHECK(execute(i));CHECK(QueryPerformanceCounter(&end));ticks[legacy]=end.QuadPart-start.QuadPart;
-                }
-                if(batch)print(",");print("[");number(ticks[0]);print(",");number(ticks[1]);print("]");
-            }print("]}\n");
-        }
-    }return true;
-}
 bool emoji_dispatch_case(DWriteTextSystem system,DWriteTextSystem reference,Utf8View text,bool detailed,bool required=true,bool mixed=false) noexcept {
     struct Scenario {float width;TextWrapping wrap;};
     const Scenario scenarios[]{{8,TextWrapping::wrap},{37,TextWrapping::wrap},{1000000,TextWrapping::no_wrap}};

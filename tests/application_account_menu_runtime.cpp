@@ -51,9 +51,6 @@ struct KeyboardFixture {
               "account menu runtime: synthetic keyboard fixture restores exact thread state");
     }
 };
-void metric(const char* label, u64 value) noexcept {
-    test_write_metric(label, value);
-}
 void run() noexcept {
     KeyboardFixture keyboard;
     check(keyboard.apply(), "account menu runtime: synthetic keyboard state has controlled modifiers");
@@ -122,10 +119,6 @@ void run() noexcept {
               VirtualQuery(g_app.account_menu, region.native(), sizeof(region)) == sizeof(region) &&
               region.RegionSize <= 4096 && application_account_menu_owner_bytes() <= 4096,
           "account menu runtime: lazy private menu owner commits at most one page");
-    metric("account_menu_model_bytes=", sizeof(UiAccountMenuModel));
-    metric("account_menu_owner_bytes=", application_account_menu_owner_bytes());
-    metric("account_menu_owner_committed_bytes=", region.RegionSize);
-    metric("account_menu_application_bytes=", sizeof(Application));
     bool changed = false;
     popup_scene_select_index(&g_app.popup_scene, 1, &changed);
     const u32 prior_opens = g_app.popup_scene.opens;
@@ -372,10 +365,5 @@ bool application_profile_open_edit(u64 user, UiRect, ProfileAnchor) noexcept {
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_account_menu_runtime_entry() noexcept {
     maicord::account_menu_runtime_test::run();
-    constexpr char passed[] = "PASS account menu runtime\n", failed[] = "FAIL account menu runtime\n";
-    const bool failure = maicord::account_menu_runtime_test::failures != 0;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failure ? failed : passed, sizeof(passed) - 1, &written,
-              nullptr);
-    ExitProcess(failure ? 1 : 0);
+    maicord::test_exit(maicord::account_menu_runtime_test::failures, "account menu runtime");
 }

@@ -175,9 +175,8 @@ struct PixelReadback {
         rgb[2] = pixel[bgra ? 0 : 2];
         return true;
     }
-    bool secondary_ink(UiRect rectangle, Color ink) const noexcept {
-        if (!readable || !ui_rect_has_area(rectangle))
-            return false;
+    // Pixels of the region within `tolerance` of `ink` per channel; `canvas` (optional) counts near-white pixels.
+    u32 ink_pixels(UiRect rectangle, Color ink, i32 tolerance, u32* canvas) const noexcept {
         const float scale = renderer.dpi / 96.f;
         const u32 left = static_cast<u32>(maximum(0.f, rectangle.left * scale));
         const u32 top = static_cast<u32>(maximum(0.f, rectangle.top * scale));
@@ -193,11 +192,19 @@ struct PixelReadback {
                 bool matching = true;
                 for (u32 channel = 0; channel < 3; ++channel) {
                     const i32 delta = rgb[channel] - expected[channel];
-                    matching = matching && delta >= -20 && delta <= 20;
+                    matching = matching && delta >= -tolerance && delta <= tolerance;
                 }
                 if (matching)
                     ++matching_ink;
+                if (canvas && rgb[0] >= 200 && rgb[1] >= 200 && rgb[2] >= 200)
+                    ++*canvas;
             }
+        return matching_ink;
+    }
+    bool secondary_ink(UiRect rectangle, Color ink) const noexcept {
+        if (!readable || !ui_rect_has_area(rectangle))
+            return false;
+        const u32 matching_ink = ink_pixels(rectangle, ink, 20, nullptr);
         log_u64(LogLevel::info, "probe", "theme_editor_light_actual_styled_timestamp_ink_pixels",
                 matching_ink);
         return matching_ink >= 4;
@@ -205,28 +212,8 @@ struct PixelReadback {
     bool dark_text_ink(UiRect rectangle, Color ink) const noexcept {
         if (!readable || !ui_rect_has_area(rectangle))
             return false;
-        const float scale = renderer.dpi / 96.f;
-        const u32 left = static_cast<u32>(maximum(0.f, rectangle.left * scale));
-        const u32 top = static_cast<u32>(maximum(0.f, rectangle.top * scale));
-        const u32 right = minimum(width, static_cast<u32>(maximum(0.f, rectangle.right * scale)));
-        const u32 bottom = minimum(height, static_cast<u32>(maximum(0.f, rectangle.bottom * scale)));
-        const i32 expected[]{static_cast<i32>(ink.red * 255 + .5f), static_cast<i32>(ink.green * 255 + .5f),
-                             static_cast<i32>(ink.blue * 255 + .5f)};
-        u32 solid_ink = 0, canvas = 0;
-        for (u32 y = top; y < bottom; ++y)
-            for (u32 x = left; x < right; ++x) {
-                const auto* pixel = static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch + x * 4;
-                const i32 rgb[]{pixel[bgra ? 2 : 0], pixel[1], pixel[bgra ? 0 : 2]};
-                bool matching = true;
-                for (u32 channel = 0; channel < 3; ++channel) {
-                    const i32 delta = rgb[channel] - expected[channel];
-                    matching = matching && delta >= -24 && delta <= 24;
-                }
-                if (matching)
-                    ++solid_ink;
-                if (rgb[0] >= 200 && rgb[1] >= 200 && rgb[2] >= 200)
-                    ++canvas;
-            }
+        u32 canvas = 0;
+        const u32 solid_ink = ink_pixels(rectangle, ink, 24, &canvas);
         log_u64(LogLevel::info, "probe", "theme_editor_light_actual_body_ink_pixels", solid_ink);
         return solid_ink >= 8 && canvas >= 32;
     }

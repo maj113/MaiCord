@@ -136,30 +136,3 @@ bool edit_hits() noexcept {
     print("native_edit_storage_commit=");number(native.storage.arena.committed);print(" legacy_utf16_commit=");number(legacy.storage.arena.committed);print("\n");
     return true;
 }
-bool edit_benchmark(bool styled=false,bool directional=false) noexcept {
-    CHECK(native_text_format_capture(&owner));
-    DWriteEditLayoutOwner layouts[2]{};TextEditMetric selections[2][48];
-    struct Release {DWriteEditLayoutOwner* p;~Release() noexcept {text_edit_layout_release(p);text_edit_layout_release(p+1);}} release{layouts};
-    for(u32 i=0;i<2;++i){layouts[i].selections=selections[i];layouts[i].selection_capacity=48;}
-    const Utf8View ordinary[]{utf8_literal("A paragraph with ordinary words, AV kerning, punctuation, and enough text to wrap across several lines.\nA second line\twith a tab."),utf8_literal("Another paragraph changes the input and forces fresh shaping of words and AV pairs.\nThere are several short lines\tand tabs here.")};
-    const Utf8View rtl[]{utf8_literal("A \xd7\x90\xd7\x91\xd7\x92 123 abc \xf0\x9f\x98\x80 B\n\xd7\x90\xd7\x91 \xce\xb1 \xd0\x91 xyz"),utf8_literal("Other \xd7\x90\xd7\x91 456 \xf0\x9f\x98\x83 CD\n\xd7\x90 (abc) \xd7\x91 12")};
-    const auto& texts=directional?rtl:ordinary;u32 units[2];for(u32 i=0;i<2;++i)CHECK(utf8_utf16_position_for_byte_offset(texts[i],texts[i].bytes,&units[i]));
-    const TextStyleSpan styles[]{{3,6,text_style_bold|text_style_heading_2},{20,18,text_style_italic|text_style_subtext}};
-    LARGE_INTEGER frequency{};CHECK(QueryPerformanceFrequency(&frequency));
-    for(u32 mode=0;mode<4;++mode){print("{\"mode\":");number(mode);print(",\"frequency\":");number(frequency.QuadPart);print(",\"iterations\":128,\"batches\":[");
-        for(u32 batch=0;batch<10;++batch){u64 ticks[2]{};
-            for(u32 order=0;order<2;++order){const u32 legacy=order^(batch&1);auto system=owner;if(legacy)system.native_text=nullptr;else if(directional){system.factory=nullptr;system.format=nullptr;}auto& layout=layouts[legacy];
-                TextEditLayoutInput input{texts[0],text_edit_signature(texts[0]),0,0,3.25f,18.5f,120,80,1000000,7,{styles,styled?2u:0u}};
-                CHECK(text_edit_layout_measure(&layout,input,system)&&((legacy!=0)||layout.geometry));LARGE_INTEGER start{},end{};CHECK(QueryPerformanceCounter(&start));
-                for(u32 i=0;i<128;++i){
-                    if(mode<2){if(mode==0){input.text=texts[i&1];input.text_signature=text_edit_signature(input.text);}input.caret_utf16=i%units[mode==0?i&1:0];CHECK(text_edit_layout_measure(&layout,input,system));}
-                    else if(mode==2){u32 position=0;CHECK(text_edit_layout_hit_test(layout,static_cast<float>(i),static_cast<float>(i*3),&position)&&position<=units[0]);}
-                    else {TextEditMetric metrics[48];u32 count=0;const u32 first=i%units[0];CHECK(text_edit_layout_raw_range_geometry(layout,first,units[0],{metrics,48},&count));}
-                }
-                CHECK(QueryPerformanceCounter(&end)&&((legacy!=0)||layout.geometry));ticks[legacy]=end.QuadPart-start.QuadPart;
-            }
-            if(batch)print(",");print("[");number(ticks[0]);print(",");number(ticks[1]);print("]");
-        }print("]}\n");
-    }
-    print("edit_geometry_committed=");number(layouts[0].storage.arena.committed);print(" legacy_utf16_committed=");number(layouts[1].storage.arena.committed);print("\n");return true;
-}

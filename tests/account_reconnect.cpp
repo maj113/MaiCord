@@ -153,9 +153,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_reconnect_tests_entr
     test_schedule_and_wakes();
     test_user_stops();
     test_connection();
-    const bool failed = failures != 0;
-    constexpr char pass[] = "PASS account_reconnect\n", fail[] = "FAIL account_reconnect\n";
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(failures, "account_reconnect");
 }

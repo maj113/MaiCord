@@ -195,9 +195,6 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
         stats.uploaded_bytes - 6 * (sizeof(DXVA_PicParams_AV1) + 2 * sizeof(DXVA_Tile_AV1));
     if (tile_bytes % 128 || tile_bytes > 6 * 128 + 3669)
         finish(7);
-    test_write_metric("av1 uploaded bytes per frame: ", stats.uploaded_bytes / 6);
-    test_write_metric("av1 surface bytes: ",
-                      u64{stats.surfaces} * kAv1FixtureWidth * kAv1FixtureHeight * 3 / 2);
 
     // A reader holds the newest slice: the next pass never decodes into it.
     capture.held = capture.last_subresource;

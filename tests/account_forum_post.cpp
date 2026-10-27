@@ -178,18 +178,18 @@ void transport() noexcept {
     capture.error = RestClientSubmitError::none;
     capture.active_id = 200;
     const u32 cancels = capture.cancellations;
-    check(!account_forum_post_cancel(nullptr, 200).ok() && !account_forum_post_cancel(&details, 0).ok() &&
+    check(!rest_client_cancel_result(nullptr, 200).ok() && !rest_client_cancel_result(&details, 0).ok() &&
               capture.cancellations == cancels,
-          "forum account: invalid cancellation does not touch worker");
-    check(account_forum_post_cancel(&details, 199).error == RestClientSubmitError::busy &&
-              capture.active_id == 200 && account_forum_post_cancel(&details, 200).ok() &&
+          "rest cancel: invalid cancellation does not touch worker");
+    check(rest_client_cancel_result(&details, 199).error == RestClientSubmitError::busy &&
+              capture.active_id == 200 && rest_client_cancel_result(&details, 200).ok() &&
               !capture.active_id,
-          "forum account: cancellation cannot retire another DETAILS request");
+          "rest cancel: cancellation cannot retire another DETAILS request");
     capture.active_id = 201;
     capture.published = true;
-    check(account_forum_post_cancel(&details, 201).error == RestClientSubmitError::busy &&
+    check(rest_client_cancel_result(&details, 201).error == RestClientSubmitError::busy &&
               capture.active_id == 201,
-          "forum account: published receipt remains available for exact drain");
+          "rest cancel: published receipt remains available for exact drain");
 }
 } // namespace forum_account_test
 } // namespace maicord

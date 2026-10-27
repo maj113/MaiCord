@@ -1,6 +1,7 @@
 #include "maicord/media/notification_pcm.hpp"
 #include "fixtures/notification_pcm_fixture.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 void test_notification_pcm(void(*check)(bool,const char*)noexcept) noexcept {
@@ -48,11 +49,7 @@ void test_notification_pcm(void(*check)(bool,const char*)noexcept) noexcept {
 
 namespace maicord {
 namespace notification_pcm_entry {u32 failures;
-void check(bool passed,const char* message) noexcept {
-    if(passed)return;++failures;u32 n=0;while(message[n])++n;DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message,n,&written,nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),"\r\n",2,&written,nullptr);
-}
+void check(bool passed,const char* message) noexcept { test_check(&failures,passed,message); }
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_notification_pcm_tests_entry() noexcept {
     maicord::test_notification_pcm(maicord::notification_pcm_entry::check);ExitProcess(maicord::notification_pcm_entry::failures?1:0);

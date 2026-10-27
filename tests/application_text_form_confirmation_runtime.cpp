@@ -55,26 +55,6 @@ bool freed(void* pointer) noexcept {
     MEMORY_BASIC_INFORMATION info{};
     return pointer && VirtualQuery(pointer, &info, sizeof(info)) == sizeof(info) && info.State == MEM_FREE;
 }
-void report_number(const char* label, u64 value) noexcept {
-    u32 bytes = 0;
-    while (label[bytes])
-        ++bytes;
-    char digits[20];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    for (u32 i = 0; i < count / 2; ++i) {
-        const char saved = digits[i];
-        digits[i] = digits[count - i - 1];
-        digits[count - i - 1] = saved;
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), label, bytes, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), digits, count, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-}
 void footprint(const ApplicationTextForm& form) noexcept {
     MEMORY_BASIC_INFORMATION owner{}, scene{};
     const bool queried =
@@ -85,23 +65,6 @@ void footprint(const ApplicationTextForm& form) noexcept {
               scene.AllocationBase == form.scene.storage.arena.base &&
               scene.RegionSize >= form.scene.storage.arena.committed,
           "confirmation footprint: actual owner/scene committed regions contain their retained objects");
-    report_number("Confirmation sizeof ApplicationTextForm: ", sizeof(form));
-    report_number("Confirmation sizeof TextFormScene: ", sizeof(form.scene));
-    report_number("Confirmation sizeof TextFormSurface: ", sizeof(form.surface));
-    report_number("Confirmation sizeof SecureEdit: ", sizeof(form.edit));
-    report_number("Confirmation sizeof SecureTextStore: ", sizeof(form.store));
-    report_number("Confirmation sizeof SecureTextComposition: ", sizeof(form.composition));
-    report_number("Confirmation inline display bytes: ", 0);
-    report_number("Confirmation inline labels capacity bytes: ", sizeof(form.labels));
-    report_number("Confirmation copied label bytes: ",
-                  form.request.title.bytes + form.request.context.bytes + form.request.label.bytes +
-                      form.request.accept.bytes);
-    report_number("Confirmation scene arena committed bytes: ", form.scene.storage.arena.committed);
-    report_number("Confirmation scene arena used bytes: ", form.scene.storage.arena.offset);
-    if (queried) {
-        report_number("Confirmation owner committed region bytes: ", owner.RegionSize);
-        report_number("Confirmation scene committed region bytes: ", scene.RegionSize);
-    }
 }
 ApplicationTextFormRequest request() noexcept {
     return {utf8_literal("Remove friend?"),

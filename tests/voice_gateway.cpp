@@ -5,9 +5,6 @@
 
 namespace maicord {
 namespace {
-bool equal(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
 template <typename Write>
 void wire_case(void (*check)(bool, const char*) noexcept, Write write, Utf8View expected) noexcept {
     u8 output[512];
@@ -60,9 +57,9 @@ void test_voice_gateway(void (*check)(bool, const char*) noexcept) noexcept {
         bool valid = voice_gateway_endpoint(c.source, &endpoint) == GatewayEndpointError::none &&
                      gateway_endpoint_validate(endpoint) && endpoint.port == c.port &&
                      endpoint.policy == GatewayEndpointPolicy::voice_v9_json &&
-                     equal({endpoint.authority, endpoint.authority_bytes}, c.authority) &&
+                     utf8_equal({endpoint.authority, endpoint.authority_bytes}, c.authority) &&
                      endpoint.host_bytes == c.host.bytes &&
-                     equal({endpoint.target, endpoint.target_bytes}, utf8_literal("/?v=9"));
+                     utf8_equal({endpoint.target, endpoint.target_bytes}, utf8_literal("/?v=9"));
         for (u32 i = 0; valid && i < c.host.bytes; ++i)
             valid &= endpoint.host_wide[i] == c.host.data[i];
         check(valid, "voice authority produces canonical v9 resolver TLS and WebSocket fields");
@@ -99,7 +96,7 @@ void test_voice_gateway(void (*check)(bool, const char*) noexcept) noexcept {
     check(gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg"),
                                              GatewayEndpointPolicy::user_v9_etf_zstd_stream,
                                              &main) == GatewayEndpointError::none &&
-              equal({main.target, main.target_bytes},
+              utf8_equal({main.target, main.target_bytes},
                     utf8_literal("/?encoding=etf&v=9&compress=zstd-stream")),
           "voice endpoint policy does not change the authenticated main Gateway policy");
 

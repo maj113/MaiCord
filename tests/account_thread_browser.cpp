@@ -111,21 +111,6 @@ void transport() noexcept {
               "hidden retry");
     }
     capture.error = RestClientSubmitError::none;
-    capture.active_id = 200;
-    check(account_thread_browser_cancel(&details, 199).error == RestClientSubmitError::busy &&
-              capture.active_id == 200 && account_thread_browser_cancel(&details, 200).ok() &&
-              capture.active_id == 0,
-          "thread browser account: cancellation cannot steal another shared DETAILS request identity");
-    capture.active_id = 201;
-    capture.published = true;
-    const u32 before_cancel = capture.cancellations;
-    check(account_thread_browser_cancel(&details, 201).error == RestClientSubmitError::busy &&
-              capture.active_id == 201 &&
-              account_thread_browser_cancel(nullptr, 201).error == RestClientSubmitError::invalid_input &&
-              account_thread_browser_cancel(&details, 0).error == RestClientSubmitError::invalid_input &&
-              capture.cancellations == before_cancel + 1,
-          "thread browser account: late cancellation preserves published receipt and invalid cancellation "
-          "emits no work");
 }
 } // namespace thread_browser_account_test
 } // namespace maicord
@@ -133,11 +118,5 @@ void transport() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_account_thread_browser_test_entry() noexcept {
     maicord::rest_install_capture(maicord::thread_browser_account_test::capture);
     maicord::thread_browser_account_test::transport();
-    constexpr auto pass = maicord::utf8_literal("PASS thread browser account transport\n");
-    constexpr auto fail = maicord::utf8_literal("FAIL thread browser account transport\n");
-    const bool failed = maicord::thread_browser_account_test::failures != 0;
-    const auto result = failed ? fail : pass;
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), result.data, result.bytes, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::thread_browser_account_test::failures, "thread browser account transport");
 }

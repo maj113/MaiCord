@@ -1,7 +1,7 @@
 #include "maicord/text/tt_outline.hpp"
 #include "maicord/text/font_geometry.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 namespace maicord {namespace {
 namespace bold_oblique_fixture {
 #include "generated/tt_bold_oblique_fixture.inc"
@@ -48,9 +48,7 @@ bool outline_mode(OutlineMode* mode) noexcept {
     else return false;
     return true;
 }
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
-bool fail(u32 item,u32 code) noexcept {print(utf8_literal("FAIL font="));number(item);print(utf8_literal(" code="));number(code);print(utf8_literal("\n"));return false;}
+bool fail(u32 item,u32 code) noexcept {test_write_text("FAIL font=");test_write_u64(item);test_write_text(" code=");test_write_u64(code);test_write_text("\n");return false;}
 struct Reader {ConstSlice<u8> bytes;u32 at=0;bool word(u32* v) noexcept {if(bytes.count-at<4)return false;*v=byte_load_le32(bytes.data+at);at+=4;return true;}bool take(u32 n,ConstSlice<u8>* v) noexcept {if(n>bytes.count-at)return false;*v={bytes.data+at,n};at+=n;return true;}};
 struct Expected {u32 id,count,fill,bounds[4],has_bounds;ConstSlice<u8> commands;};
 i32 stack[256],prep_storage[128],prep_cvt[128],storage[128],cvt[128];TtFunction functions[128];TtCallFrame frames[32];TtPoint twilight[64],prep_twilight[64],vm_points[512];u32 vm_ends[128];
@@ -135,7 +133,7 @@ bool corpus(ConstSlice<u8> fixture) noexcept {
     }return r.at==r.bytes.count;
 }
 int run() noexcept {
-    OutlineMode mode{};if(!outline_mode(&mode)){print(utf8_literal("FAIL outline mode\n"));return 2;}
+    OutlineMode mode{};if(!outline_mode(&mode)){test_write_line("FAIL outline mode");return 2;}
     ConstSlice<u8> fixture{normal_fixture::tt_outline_fixture,sizeof(normal_fixture::tt_outline_fixture)};
     switch(mode){
     case OutlineMode::normal:break;
@@ -148,6 +146,6 @@ int run() noexcept {
     simulate_bold=mode==OutlineMode::bold||mode==OutlineMode::bold_oblique;
     bool ok=corpus(fixture);
     if(ok&&mode==OutlineMode::normal)ok=corpus({normal_fixture::tt_recovery_fixture,sizeof(normal_fixture::tt_recovery_fixture)});
-    print(utf8_literal("fonts="));number(fonts);print(utf8_literal("\noutlines="));number(outlines);print(utf8_literal("\ncommands="));number(command_checks);print(utf8_literal("\nbounds="));number(bound_checks);print(utf8_literal("\nbudgets="));number(budgets);print(utf8_literal("\ninvalid="));number(invalid);print(utf8_literal("\nvertical="));number(vertical_checks);print(ok?utf8_literal("\nPASS native instructed outlines\n"):utf8_literal("\nFAIL native instructed outlines\n"));return ok?0:1;}
+    test_write_metric("fonts=",fonts);test_write_metric("outlines=",outlines);test_write_metric("commands=",command_checks);test_write_metric("bounds=",bound_checks);test_write_metric("budgets=",budgets);test_write_metric("invalid=",invalid);test_write_metric("vertical=",vertical_checks);test_write_line(ok?"PASS native instructed outlines":"FAIL native instructed outlines");return ok?0:1;}
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_tt_outline_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

@@ -1,3 +1,24 @@
+const Utf8View directional_editor_samples[]{
+        utf8_literal("\xd7\x90\xd7\x91\xd7\x92"),
+        utf8_literal("A \xd7\x90\xd7\x91\xd7\x92 B"),
+        utf8_literal("\xd7\x90 123 \xd7\x91"),
+        utf8_literal("\xd7\x90 (abc) 12 \xd7\x91"),
+        utf8_literal("\xd7\x90 \xce\xb1 \xd0\x91 \xd7\x91"),
+        utf8_literal("A \xd7\x90\xd6\xb0\xd6\xb0 B"),
+        utf8_literal("A \xd7\xa9\xd6\xb8\xd6\xbc\xd7\x81 xyz"),
+        utf8_literal("\xd7\x90\xe2\x80\x8d \xd7\x91"),
+        utf8_literal("\xd7\x90\xcd\x8f \xd7\x91"),
+        utf8_literal("abc\t\xd7\x90\r\n\xd7\x91 xyz  "),
+        utf8_literal("A \xd7\x90 \xe2\x9d\xa4\xef\xb8\x8f \xd7\x91 Z"),
+        utf8_literal("A \xd7\x90 1\xef\xb8\x8f\xe2\x83\xa3 \xd7\x91 Z"),
+        utf8_literal("A \xe2\x9d\xa4\xef\xb8\x8e B"),
+        utf8_literal("\xce\xb1 \xe2\x9d\xa4\xef\xb8\x8e \xd0\x91"),
+        utf8_literal("\xf0\x9f\x98\x80" "A"),
+        utf8_literal("A\xef\xb8\x8f B"),
+        utf8_literal("e\xcc\x81 \xd7\x90 A\xcc\x81\xcc\x88"),
+        utf8_literal("\xd7\x90 \xf0\x9f\x98\x80 \xf0\x9f\x98\x83 \xd7\x91"),
+        utf8_literal("  \xd7\x90 \n\n\xd7\x91  "),
+        utf8_literal("A \xd7\x90\xd7\x91\xd7\x92 abc \xd7\x93\xd7\x94\xd7\x95 B")};
 bool directional_semantic_large_origin(DWriteTextSystem system) noexcept {
     struct LargeOutput {ShapedText text;TextGlyph glyphs[4096];TextRun runs[4096];u16 clusters[4096];TextHitRegion hits[8];};
     static LargeOutput actual{},expected{};static char bytes[4005];static wchar_t wide[4096];
@@ -38,27 +59,7 @@ bool directional_semantic_options(DWriteTextSystem system) noexcept {
 }
 bool directional_semantic_corpus(DWriteTextSystem system) noexcept {
     CHECK(directional_semantic_options(system));
-    const Utf8View texts[]{
-        utf8_literal("\xd7\x90\xd7\x91\xd7\x92"),
-        utf8_literal("A \xd7\x90\xd7\x91\xd7\x92 B"),
-        utf8_literal("\xd7\x90 123 \xd7\x91"),
-        utf8_literal("\xd7\x90 (abc) 12 \xd7\x91"),
-        utf8_literal("\xd7\x90 \xce\xb1 \xd0\x91 \xd7\x91"),
-        utf8_literal("A \xd7\x90\xd6\xb0\xd6\xb0 B"),
-        utf8_literal("A \xd7\xa9\xd6\xb8\xd6\xbc\xd7\x81 xyz"),
-        utf8_literal("\xd7\x90\xe2\x80\x8d \xd7\x91"),
-        utf8_literal("\xd7\x90\xcd\x8f \xd7\x91"),
-        utf8_literal("abc\t\xd7\x90\r\n\xd7\x91 xyz  "),
-        utf8_literal("A \xd7\x90 \xe2\x9d\xa4\xef\xb8\x8f \xd7\x91 Z"),
-        utf8_literal("A \xd7\x90 1\xef\xb8\x8f\xe2\x83\xa3 \xd7\x91 Z"),
-        utf8_literal("A \xe2\x9d\xa4\xef\xb8\x8e B"),
-        utf8_literal("\xce\xb1 \xe2\x9d\xa4\xef\xb8\x8e \xd0\x91"),
-        utf8_literal("\xf0\x9f\x98\x80" "A"),
-        utf8_literal("A\xef\xb8\x8f B"),
-        utf8_literal("e\xcc\x81 \xd7\x90 A\xcc\x81\xcc\x88"),
-        utf8_literal("\xd7\x90 \xf0\x9f\x98\x80 \xf0\x9f\x98\x83 \xd7\x91"),
-        utf8_literal("  \xd7\x90 \n\n\xd7\x91  "),
-        utf8_literal("A \xd7\x90\xd7\x91\xd7\x92 abc \xd7\x93\xd7\x94\xd7\x95 B")};
+    const auto& texts=directional_editor_samples;
     const u32 flags[]{0,text_style_link,text_style_underline,text_style_bold|text_style_italic,text_style_monospace,text_style_heading_3,text_style_quote,text_style_mention};
     const float widths[]{1,16,37,95,1000000};
     for(u32 sample=0;sample<sizeof(texts)/sizeof(texts[0]);++sample){const auto text=texts[sample];u32 offsets[256],scalars=0;

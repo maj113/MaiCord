@@ -252,38 +252,9 @@ void test_loopback(Check check) noexcept {
     if (drained)
         network_loop_release(&value.loop);
 }
-// Opt-in (MAICORD_VOICE_AUDIO_OUTPUT=1): opens the real default endpoint.
-struct Tone {
-    volatile LONG64 frames;
-    u32 phase;
-};
-void tone(void* context, Slice<i16> pcm, u64) noexcept {
-    auto& value = *static_cast<Tone*>(context);
-    for (u32 i = 0; i + 1 < pcm.count; i += 2) {
-        // Quiet 375 Hz square wave.
-        const i16 sample = (value.phase++ / 64) & 1 ? 600 : -600;
-        pcm[i] = pcm[i + 1] = sample;
-    }
-    InterlockedAdd64(&value.frames, pcm.count / 2);
-}
-void test_device(Check check) noexcept {
-    wchar_t flag[4]{};
-    if (!GetEnvironmentVariableW(L"MAICORD_VOICE_AUDIO_OUTPUT", flag, 4) || flag[0] != L'1')
-        return;
-    static VoiceAudioOutput output;
-    static Tone value;
-    check(voice_audio_output_start_device(&output, nullptr, tone, &value), "Voice audio output: thread starts");
-    const u64 deadline = GetTickCount64() + 3000;
-    while (GetTickCount64() < deadline && ReadAcquire64(&value.frames) < 24000)
-        Sleep(20);
-    voice_audio_output_stop(&output);
-    check(ReadAcquire64(&value.frames) >= 24000 && !voice_audio_output_running(output),
-          "Voice audio output: WASAPI pulls 48 kHz PCM16 events and stops cleanly");
-}
 } // namespace
 void test_voice_receive(Check check) noexcept {
     test_rtp_vectors(check);
     test_loopback(check);
-    test_device(check);
 }
 } // namespace maicord

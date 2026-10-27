@@ -9,9 +9,6 @@
 #include "maicord/core/win32_user.hpp"
 
 namespace maicord {
-namespace settings_runtime_test {
-void measurement(const char*, u64) noexcept;
-}
 namespace settings_choice_runtime {
 using namespace app_detail;
 constexpr u64 owner = 0x4D4343484F494345ull;
@@ -39,57 +36,6 @@ struct Fixture {
     u64 previous_preferences_revision;
     bool previous_preferences_pending, previous_preferences_failed;
 } fixture{};
-struct MouseObservation {
-    u32 stage, message, active, owner_kind, opens, generation, callbacks, selected, captured, focused;
-};
-MouseObservation mouse_observations[24]{};
-u32 mouse_observation_count;
-void observe_mouse(u32 stage, UINT message = 0) noexcept {
-    if (mouse_observation_count == 24)
-        return;
-    mouse_observations[mouse_observation_count++] = {stage,
-                                                     message,
-                                                     g_app.popup_scene.active,
-                                                     static_cast<u32>(g_app.popup_owner_kind),
-                                                     g_app.popup_scene.opens,
-                                                     g_app.popup_scene.widgets.generation,
-                                                     fixture.callbacks,
-                                                     fixture.selected,
-                                                     GetCapture() == fixture.window,
-                                                     GetFocus() == fixture.window};
-}
-void dump_mouse() noexcept {
-    constexpr const char* names[]{"stage",      "message",   "active",   "owner",    "opens",
-                                  "generation", "callbacks", "selected", "captured", "focused"};
-    for (u32 index = 0; index < mouse_observation_count; ++index) {
-        char line[240];
-        u32 used = 0;
-        constexpr char prefix[] = "TRACE choice_mouse ";
-        for (u32 i = 0; i < sizeof(prefix) - 1; ++i)
-            line[used++] = prefix[i];
-        const auto& record = mouse_observations[index];
-        const u32 values[]{record.stage,    record.message,    record.active,    record.owner_kind,
-                           record.opens,    record.generation, record.callbacks, record.selected,
-                           record.captured, record.focused};
-        for (u32 field = 0; field < 10; ++field) {
-            for (u32 i = 0; names[field][i]; ++i)
-                line[used++] = names[field][i];
-            line[used++] = '=';
-            char digits[10];
-            u32 count = 0, value = values[field];
-            do {
-                digits[count++] = static_cast<char>('0' + value % 10);
-                value /= 10;
-            } while (value);
-            while (count)
-                line[used++] = digits[--count];
-            line[used++] = ' ';
-        }
-        line[used++] = '\n';
-        DWORD written = 0;
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, used, &written, nullptr);
-    }
-}
 constexpr wchar_t window_class_name[] = L"MaiCordSettingsChoiceRuntimeFixture";
 LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     if (message == WM_MOUSEMOVE || message == WM_LBUTTONDOWN || message == WM_LBUTTONUP ||
@@ -101,9 +47,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             g_app.message_text_pointer_selection = true;
     }
     if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS) {
-        observe_mouse(10, message);
         application_settings_window_message(message, wparam, lparam);
-        observe_mouse(11, message);
         if (message == WM_CAPTURECHANGED) {
             ++fixture.capture_cancellations;
             if (fixture.replace_on_capture) {
@@ -348,16 +292,6 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
     }
     check(native_palette && found_card, "choice runtime: native Theme swatches activate the exact swatch "
                                         "through real pointer capture");
-    if (!native_palette || !found_card) {
-        settings_runtime_test::measurement("TRACE native_palette_valid=", native_palette);
-        settings_runtime_test::measurement("TRACE native_palette_found=", found_card);
-        settings_runtime_test::measurement("TRACE native_palette_theme=",
-                                           static_cast<u32>(g_app.preferences.theme));
-        settings_runtime_test::measurement("TRACE native_palette_before=", static_cast<u32>(theme));
-        settings_runtime_test::measurement("TRACE native_palette_revision_delta=",
-                                           g_app.preferences_request_revision - preference_revision);
-        settings_runtime_test::measurement("TRACE native_palette_capture=", GetCapture() == f.window);
-    }
     LPARAM section_point = 0, toggle_point = 0;
     const UiSettingsTarget accessibility{UiSettingsTargetKind::page, kAccessibilityPage, 0};
     const UiSettingsTarget smooth{UiSettingsTargetKind::control, kAccessibilityPage, cid("accessibility.smooth_scroll")};
@@ -456,11 +390,8 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         const LPARAM point = MAKELPARAM(
             static_cast<short>((item.visible_rectangle.left + item.visible_rectangle.right) * .5f),
             static_cast<short>((item.visible_rectangle.top + item.visible_rectangle.bottom) * .5f));
-        observe_mouse(1);
         mouse = application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point);
-        observe_mouse(2);
         mouse = mouse && application_settings_window_message(WM_LBUTTONUP, 0, point);
-        observe_mouse(3);
     }
     const bool mouse_passed = mouse && f.callbacks == 4 && f.selected == 1 && f.dismissed && f.guarded &&
                               !g_app.popup_scene.active && f.capture_cancellations > cancellations &&
@@ -472,19 +403,14 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
         const LPARAM point = MAKELPARAM(
             static_cast<short>((item.visible_rectangle.left + item.visible_rectangle.right) * .5f),
             static_cast<short>((item.visible_rectangle.top + item.visible_rectangle.bottom) * .5f));
-        observe_mouse(4);
         replaced = application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point);
-        observe_mouse(5);
         f.replace_on_capture = true;
         replaced = replaced && application_settings_window_message(WM_LBUTTONUP, 0, point);
-        observe_mouse(6);
     }
     const bool replacement_passed = replaced && f.callbacks == 4 && g_app.popup_scene.active &&
                                     g_app.popup_scene.items[0].action == 731;
     check(replacement_passed, "choice runtime: capture cancellation's reentrant replacement bank rejects "
                               "the old choice and preserves its new owner");
-    if (!mouse_passed || !replacement_passed)
-        dump_mouse();
     f.replace_on_capture = false;
     popup_scene_close(&g_app.popup_scene);
     g_app.popup_owner_kind = PopupOwnerKind::none;

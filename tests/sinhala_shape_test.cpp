@@ -1,5 +1,4 @@
-// No argument runs the registered checks. Manual: MAICORD_SINHALA_FONT=<font file> streams that
-// font's shaping results for external comparison (QA only).
+// No argument runs the registered checks; MAICORD_SINHALA_OWNED_TEST=1 runs the owned-plan checks against the system font.
 #include "maicord/text/sinhala_shape_run.hpp"
 #include "maicord/text/sinhala_run.hpp"
 #include "maicord/core/utf.hpp"
@@ -93,55 +92,14 @@ bool units(SfntShapeStorage s) noexcept {
     CHECK(s.glyphs[0].glyph.glyph==6&&s.glyphs[1].glyph.glyph==2&&s.glyphs[2].glyph.glyph==3&&s.character_glyphs[2]==2);
     print("PASS Sinhala shape units; assertions=");number(checks);print("\n");return true;
 }
-bool read(void* p,u32 n) noexcept {auto* b=static_cast<u8*>(p);while(n){DWORD got=0;if(!ReadFile(GetStdHandle(STD_INPUT_HANDLE),b,n,&got,nullptr)||!got)return false;b+=got;n-=got;}return true;}
-bool write(const void* p,u32 n) noexcept {auto* b=static_cast<const u8*>(p);while(n){DWORD done=0;if(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),b,n,&done,nullptr)||!done)return false;b+=done;n-=done;}return true;}
 bool flag(const wchar_t* name) noexcept {wchar_t v[2];return GetEnvironmentVariableW(name,v,2)==1&&v[0]=='1';}
 #include "sinhala_owned_tests.inc"
-bool font_stream(ConstSlice<u8> bytes,Arena& a,SfntShapeStorage s) noexcept {
-    SfntFace face{};SfntCmap cmap{};SfntHorizontalMetrics metrics{};SfntGdef gdef{};ConstSlice<u8> table{};
-    CHECK(sfnt_open(bytes,0,&face)==SfntStatus::ok&&sfnt_cmap_open(face,&cmap)==SfntStatus::ok&&sfnt_horizontal_metrics_open(face,&metrics)==SfntStatus::ok);
-    auto status=sfnt_table(face,sfnt_tag('G','D','E','F'),&table);
-    if(status!=SfntStatus::missing_table)CHECK(status==SfntStatus::ok&&sfnt_gdef_open(table,metrics.glyph_count,&gdef)==SfntStatus::ok);
-    SfntGsubProgram gsub{};SfntGposProgram gpos{};SfntLookupStep steps[4096],chosen[4096];u32 step_count=0,root_count=0;u16 roots[4096];u8 scratch[4096];
-    const bool independent=flag(L"MAICORD_SINHALA_INDEPENDENT"),rtl=flag(L"MAICORD_SINHALA_RTL");
-    for(u32 kind=0;kind<2;++kind){SfntLayout layout{};SfntLookupPlanResult result{};
-        status=sfnt_table(face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&table);if(status==SfntStatus::missing_table)continue;
-        CHECK(status==SfntStatus::ok&&sfnt_layout_open(table,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout)==SfntStatus::ok);
-        CHECK(sfnt_sinhala_lookup_plan(layout,{},independent,{scratch,4096},{chosen,4096},&result)==SfntStatus::ok&&result.language_found);
-        if(!kind){step_count=result.lookup_count;copy_bytes(steps,chosen,step_count*sizeof(SfntLookupStep));SfntGsubProgramRequirements n{};
-            CHECK(gsub_program_needs(layout,&n)==SfntStatus::ok);
-            CHECK(prepare_gsub_program(layout,gdef,metrics.glyph_count,{allocate<SfntGsubExecutableLookup>(a,n.lookups),allocate<SfntGsubExecutableSubtable>(a,n.subtables),allocate<SfntCoverage>(a,n.coverages),allocate<SfntClassDef>(a,n.classes)},&gsub)==SfntStatus::ok);
-        }else{root_count=result.lookup_count;for(u32 i=0;i<root_count;++i)roots[i]=chosen[i].lookup;SfntGposProgramRequirements n{};
-            CHECK(sfnt_gpos_program_requirements(layout,&n)==SfntStatus::ok);
-            CHECK(sfnt_gpos_program_prepare(layout,gdef,metrics.glyph_count,{allocate<SfntGposExecutableLookup>(a,n.lookups),allocate<SfntGposSubtable>(a,n.basic),allocate<SfntGposAttachment>(a,n.attachments),allocate<SfntContext>(a,n.contexts),allocate<SfntCoverage>(a,n.coverages),allocate<SfntClassDef>(a,n.classes)},&gpos)==SfntStatus::ok);
-        }
-    }
-    SfntShapePlan plan{};plan.substitutions=&gsub;plan.positioning=&gpos;plan.positioning_roots={roots,root_count};plan.gdef=gdef;plan.units_per_em=metrics.units_per_em;plan.metric_context=&metrics;plan.refresh_substitution_classes=true;
-    plan.advance=+[](void* p,u16 glyph,double* value) noexcept {SfntGlyphMetrics m{};const auto status=sfnt_horizontal_metrics(*static_cast<SfntHorizontalMetrics*>(p),glyph,&m);*value=m.advance;return status;};
-    u8 header[12];CHECK(read(header,12)&&bytes_equal(header,"MDSHP1\0\0",8));const u32 cases=byte_load_le32(header+8);CHECK(cases&&cases<=100000&&write(header,12));
-    for(u32 row=0;row<cases;++row){u32 n=0,input[256],sources[256];u16 glyphs[512];SfntShapeRunResult result{};
-        CHECK(read(&n,4)&&n&&n<=256&&read(input,n*4));
-        const auto shaped=sfnt_sinhala_shape_run(plan,cmap,{input,n},1000,s,&result,{steps,step_count},{},rtl);
-        const u32 code=static_cast<u32>(shaped);CHECK(result.glyph_count<=512);
-        u32 units=0;for(u32 i=0;i<n;++i){sources[i]=shaped==SfntStatus::ok?s.character_glyphs[units]:0;units+=input[i]>0xffff?2u:1u;}
-        for(u32 i=0;i<result.glyph_count;++i)glyphs[i]=s.glyphs[i].glyph.glyph;
-        CHECK(write(&code,4)&&write(&result.glyph_count,4)&&write(glyphs,result.glyph_count*2)&&write(sources,n*4)&&write(s.placements.data,result.glyph_count*sizeof(SfntPlacement)));
-    }return true;
-}
 int run() noexcept {
     Arena a{};if(!arena_initialize(&a,16*1024*1024,64*1024))return 2;
     struct Release {Arena& a;~Release() noexcept {arena_release(&a);}} release{a};auto s=storage(a);
-    if(flag(L"MAICORD_SINHALA_OWNED_TEST")){wchar_t path[32768];const u32 n=GetWindowsDirectoryW(path,32700);if(!n||n>=32700)return 2;
-        const wchar_t tail[]=L"\\Fonts\\Nirmala.ttc";copy_bytes(path+n,tail,sizeof(tail));return owned_stream(path,a,s,true)?0:1;}
-    wchar_t path[32768];const DWORD n=GetEnvironmentVariableW(L"MAICORD_SINHALA_FONT",path,32768);
-    if(!n)return units(s)?0:1;if(n>=32768)return 2;
-    if(flag(L"MAICORD_SINHALA_OWNED"))return owned_stream(path,a,s,false)?0:1;
-    const HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return 2;
-    LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size)||size.QuadPart<12||size.QuadPart>0xffffffffll){CloseHandle(file);return 2;}
-    const HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);
-    const auto* bytes=mapping?static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0)):nullptr;
-    const bool ok=bytes&&font_stream({bytes,static_cast<u32>(size.QuadPart)},a,s);
-    if(bytes)UnmapViewOfFile(bytes);if(mapping)CloseHandle(mapping);CloseHandle(file);return ok?0:3;
+    if(!flag(L"MAICORD_SINHALA_OWNED_TEST"))return units(s)?0:1;
+    wchar_t path[32768];const u32 n=GetWindowsDirectoryW(path,32700);if(!n||n>=32700)return 2;
+    const wchar_t tail[]=L"\\Fonts\\Nirmala.ttc";copy_bytes(path+n,tail,sizeof(tail));return owned_run(path,a,s)?0:1;
 }
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_sinhala_shape_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

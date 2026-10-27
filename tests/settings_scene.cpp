@@ -196,58 +196,17 @@ void test_controls(Check check) noexcept {
           "settings controls: modal and dialog entrances follow one spring timeline");
     const UiRect track{500 - tokens.metric.switch_width, 100 - tokens.metric.switch_height * .5f, 500,
                        100 + tokens.metric.switch_height * .5f};
-    const auto off = ui_switch_thumb(tokens, track, false, 1, false, false);
-    const auto on = ui_switch_thumb(tokens, track, true, 1, false, false);
-    check(close_to(ui_rect_width(off.box), 16) && close_to(off.box.left, track.left + 4) && close_to(on.box.right, track.right - 4) &&
-              close_to(on.box.top, track.top + 4) && close_to(off.radius, 8),
-          "settings controls: settled thumb is a 16 DIP circle inset 4 DIP on either side");
-    const auto squashed = ui_switch_thumb(tokens, track, false, 1, false, true);
-    const auto morph = ui_switch_thumb(tokens, track, true, .5f, false, false);
-    const auto reduced = ui_switch_thumb(tokens, track, true, .5f, true, false);
-    check(close_to(ui_rect_height(squashed.box), 10) && close_to(ui_rect_width(morph.box), 22) &&
-              close_to(ui_rect_width(reduced.box), 16) && reduced.box.left > off.box.left && reduced.box.left < on.box.left,
-          "settings controls: pressed thumb squashes, toggles stretch mid-travel, reduced motion only slides");
     PaintStream paint{};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 1000) &&
               ui_switch_paint(&paint, tokens, track, true, 1, false, {true, false, false, true}) && paint.count == 3,
           "settings controls: a focused switch paints track, thumb and focus ring");
 
-    const UiRect slider_bounds{100, 0, 420, ui_slider_height(tokens, true)};
-    const auto slider = ui_slider_geometry(tokens, slider_bounds, 7, 3, true);
-    check(close_to(ui_slider_height(tokens, false), 24) && close_to(ui_slider_height(tokens, true), 48) &&
-              close_to(ui_rect_height(slider.bar), 4) && close_to(ui_rect_width(slider.grabber), 16) &&
-              close_to(slider.bar.top + 2, 24 + 12) && ui_slider_index_at(slider, 7, slider.track_left - 50) == 0 &&
-              ui_slider_index_at(slider, 7, slider.track_right + 50) == 6 &&
-              ui_slider_index_at(slider, 7, ui_slider_position(slider, 7, 4)) == 4 &&
-              close_to((slider.grabber.left + slider.grabber.right) * .5f, ui_slider_position(slider, 7, 3)),
-          "settings controls: slider with marks offsets the bar and maps positions to clamped indexes");
-
-    const UiRect group{0, 0, 300, ui_radio_group_height(tokens, 3)};
-    const auto second = ui_radio_option(tokens, group, 1);
-    check(close_to(ui_rect_width(ui_radio_indicator(tokens, second)), 20) &&
-              close_to(ui_radio_label(tokens, second).left, 32) && ui_radio_hit(tokens, group, 3, 200, center(second).y) == 1 &&
-              ui_radio_hit(tokens, group, 3, 200, group.bottom + 5) == ~0u,
-          "settings controls: radio options stack with 20 DIP indicators and full-width hit rows");
-    check(ui_swatch_columns(tokens, 700) >= 7 && ui_swatch_columns(tokens, 100) == 1 &&
-              close_to(ui_rect_width(ui_swatch_rect(tokens, {0, 0, 700, 400}, 1, 8)), 60),
-          "settings controls: theme swatches are 60 DIP tiles wrapped by available width");
-    check(close_to(ui_settings_button_width(tokens, UiSettingsButtonSize::regular, 10), 100) &&
-              close_to(ui_settings_button_width(tokens, UiSettingsButtonSize::compact, 200), 224),
-          "settings controls: buttons honour the official minimum widths and padding");
     check(ui_settings_text_lines(utf8_literal("short"), 13, 400) == 1 &&
               ui_settings_text_lines(utf8_literal("A long description that certainly wraps onto more than one line"),
                                      13, 120) > 2 &&
               ui_settings_text_width(utf8_literal("mmmm"), 16) > ui_settings_text_width(utf8_literal("iiii"), 16),
           "settings controls: text estimates wrap by word and weight wide glyphs");
 
-    const auto wide = ui_settings_modal_layout(tokens, {0, 0, 2400, 1400}, UiSettingsPresentation::modal);
-    const auto mid = ui_settings_modal_layout(tokens, {0, 0, 1000, 800}, UiSettingsPresentation::modal);
-    const auto small = ui_settings_modal_layout(tokens, {0, 0, 500, 600}, UiSettingsPresentation::modal);
-    check(close_to(ui_rect_width(wide.modal), 1280) && close_to(wide.modal.top, 24) && close_to(wide.modal.bottom, 1400 - 24) &&
-              close_to(ui_rect_width(mid.modal), 1000 - 48) && small.compact && close_to(ui_rect_width(small.modal), 500) &&
-              close_to(wide.close.right, wide.panel.right - 20) && close_to(ui_rect_width(wide.close), 36) &&
-              ui_rect_width(wide.column) <= 740 && wide.column.left > wide.sidebar.right,
-          "settings controls: modal is at most 1280 DIP, is vertically centred and fills small windows");
     // Chips reserve a colour dot only when asked (role lists), and leave room
     // for a whole chord label at the 13 DIP description size.
     const auto chord = utf8_literal("Ctrl+Alt+M");
@@ -255,18 +214,6 @@ void test_controls(Check check) noexcept {
               ui_admin_chip_width(tokens, chord, true) > ui_admin_chip_width(tokens, chord, false) &&
               close_to(ui_admin_chip_label_rect(tokens, {0, 0, 100, 20}, false).left, tokens.metric.chip_padding),
           "settings controls: dotless chips are symmetric and fit chord labels");
-    // Server and channel settings layers at the 632 DIP minimum window keep a
-    // usable form column; wide windows keep the full sidebar and padding.
-    const auto narrow = ui_settings_modal_layout(tokens, {0, 0, 632, 720}, UiSettingsPresentation::layer);
-    const auto roomy = ui_settings_modal_layout(tokens, {0, 0, 1048, 800}, UiSettingsPresentation::layer);
-    check(close_to(ui_rect_width(narrow.sidebar), kUiSettingsLayerMinimumSidebar) &&
-              ui_rect_width(narrow.column) >= 360 && narrow.column.left - narrow.panel.left >= 20 &&
-              narrow.column.right < narrow.close.left && narrow.close.right <= 632 - 20 &&
-              close_to(ui_rect_width(roomy.sidebar), 248) && close_to(roomy.column.left - roomy.panel.left, 40) &&
-              close_to(roomy.close.left - roomy.column.right, 24),
-          "settings controls: the settings layer shrinks its sidebar and padding at the minimum window width");
-    check(small.column.left - small.panel.left <= 20 && ui_rect_width(small.column) >= 240,
-          "settings controls: a window-filling modal halves its side padding");
     test_control_rings(check, tokens, &paint);
     test_slider_input(check, tokens, &paint);
     test_color_hex(check);

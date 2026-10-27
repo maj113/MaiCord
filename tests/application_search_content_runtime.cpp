@@ -360,9 +360,5 @@ bool application_search_navigation_link(const ApplicationSearchSourceTicket&, co
 } // namespace maicord::app_detail
 extern "C" __declspec(noreturn) void WINAPI maicord_application_search_content_runtime_entry() noexcept {
     maicord::search_content_test::run();
-    constexpr char pass[] = "PASS Search content runtime\n";
-    constexpr char fail[] = "FAIL Search content runtime\n";
-    DWORD written{}; const bool failed = maicord::search_content_test::failures != 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::search_content_test::failures, "Search content runtime");
 }

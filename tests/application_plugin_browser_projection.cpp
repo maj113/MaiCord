@@ -313,7 +313,7 @@ struct SceneFixture {
     UiTextCommand commands[512];
 };
 SceneFixture g_scene;
-u32 g_scene_line, g_scene_commands, g_scene_count;
+u32 g_scene_count;
 bool lays_out(u32 count, UiRect viewport) noexcept {
     auto& f = g_scene;
     ui_settings_scene_release(&f.scene);
@@ -322,13 +322,13 @@ bool lays_out(u32 count, UiRect viewport) noexcept {
     UiTextCommandStream stream{};
     UiTextOutput stream_output{&stream, nullptr};
     if (!ui_page_registry_initialize(&f.registry, {&f.page, 1}) ||
-        !ui_page_registry_register(&f.registry, {{1, 4}, utf8_literal("Plugins"), &f.content}).ok()) { g_scene_line = __LINE__; return false; }
-    if (!ui_settings_scene_update(&f.scene, &f.registry, viewport)) { g_scene_line = __LINE__; return false; }
-    if (!ui_text_command_stream_initialize(&stream, {f.commands, 512}) || !ui_settings_scene_text_output(f.scene, kDefaultTheme, &stream_output)) {
-        g_scene_line = __LINE__;
+        !ui_page_registry_register(&f.registry, {{1, 4}, utf8_literal("Plugins"), &f.content}).ok())
         return false;
-    }
-    g_scene_commands = maximum(g_scene_commands, stream.count);
+    if (!ui_settings_scene_update(&f.scene, &f.registry, viewport))
+        return false;
+    if (!ui_text_command_stream_initialize(&stream, {f.commands, 512}) ||
+        !ui_settings_scene_text_output(f.scene, kDefaultTheme, &stream_output))
+        return false;
     g_scene_count = stream.count;
     return true;
 }
@@ -344,35 +344,31 @@ void test_scene() noexcept {
     build();
     const UiRect wide{0, 0, 2560, 1440}, narrow{0, 0, 640, 480};
     PluginBrowserUiState ui{};
-    u32 failed = 0, first_failed = ~0u;
-    const auto view = [&](u32 index) noexcept {
+    u32 failed = 0;
+    const auto view = [&]() noexcept {
         const u32 count = plugin_browser_project(ui, facts(), &w.bank);
-        if (!lays_out(count, wide) || !lays_out(plugin_browser_project(ui, facts(), &w.bank), narrow)) {
+        if (!lays_out(count, wide) || !lays_out(plugin_browser_project(ui, facts(), &w.bank), narrow))
             ++failed;
-            if (first_failed == ~0u) first_failed = index * 1000 + g_scene_line;
-        }
     };
-    view(1);
+    view();
     ui.source = PluginBrowserSource::community;
-    view(2);
+    view();
     ui = {};
     ui.detail = true; ui.detail_provider = kPluginProviderOfficial; ui.detail_owner = w.entries[0].owner;
-    view(3);
+    view();
     ui.detail_owner = w.entries[1].owner;
-    view(4);
+    view();
     ui.detail_owner = w.entries[5].owner;
-    view(5);
+    view();
     ui.detail_provider = kCustomId; ui.detail_owner = w.entries[101].owner;
-    view(6);
+    view();
     ui = {};
     ui.tab = PluginBrowserTab::updates;
-    view(7);
+    view();
     ui.tab = PluginBrowserTab::providers;
-    view(8);
+    view();
     w.snapshot.providers[1].status = PluginCatalogStatus::key_changed;
-    view(9);
-    if (failed) { test_write_text("first failing view*1000+line: "); test_write_u64(first_failed); test_write_text("\n"); }
-    test_write_text("MEASURE plugin_browser_text_commands="); test_write_u64(g_scene_commands); test_write_text("\n");
+    view();
     check(!failed, "plugin browser: every tab and detail view lays out and draws its text in the settings scene");
     ui = {};
     ui.source = PluginBrowserSource::community;

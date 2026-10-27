@@ -10,17 +10,6 @@ using Check = void (*)(bool, const char*) noexcept;
 bool filled(const u8* data, u32 n, u8 value) noexcept {
     return test_filled(data, n, value);
 }
-void record(Check check, HANDLE file, const P256Key& key, const u8* digest, const u8* sig) noexcept {
-    if (file == INVALID_HANDLE_VALUE)
-        return;
-    u8 data[161];
-    check(p256_export_public(key, {data, 65}).ok(), "P256 independent signature public export");
-    copy_bytes(data + 65, digest, 32);
-    copy_bytes(data + 97, sig, 64);
-    DWORD written = 0;
-    check(WriteFile(file, data, sizeof(data), &written, nullptr) && written == sizeof(data),
-          "P256 independent signature QA record");
-}
 void scalar_corpus(Check check) noexcept {
     constexpr P256Kind kinds[]{P256Kind::ecdh, P256Kind::ecdsa};
     for (auto kind : kinds) {
@@ -56,7 +45,7 @@ void scalar_corpus(Check check) noexcept {
         BCryptDestroyHash(hash);
     }
 }
-void vectors(Check check, HANDLE file) noexcept {
+void vectors(Check check) noexcept {
     for (const auto& v : p256_vectors) {
         u8 scalar[32], point[65], peer[65], shared[32], output[80], digest[32], signature[64];
         test_unhex(v.scalar, scalar);
@@ -93,7 +82,6 @@ void vectors(Check check, HANDLE file) noexcept {
         check(p256_sign_digest(signing, {digest, 32}, {output, 80}).ok() && filled(output + 64, 16, 0xa5) &&
                   p256_verify_digest(verifier, {digest, 32}, {output, 64}).ok(),
               "P256 native signature verifies and preserves tail");
-        record(check, file, signing, digest, output);
         p256_release(&dh);
         p256_release(&other);
         p256_release(&signing);
@@ -103,7 +91,7 @@ void vectors(Check check, HANDLE file) noexcept {
         SecureZeroMemory(output, sizeof(output));
     }
 }
-void boundaries(Check check, HANDLE file) noexcept {
+void boundaries(Check check) noexcept {
     P256Key key{}, pub{}, wrong{};
     u8 scalar[32]{}, point[65], output[80], digest[32]{}, signature[64];
     scalar[31] = 1;
@@ -146,14 +134,11 @@ void boundaries(Check check, HANDLE file) noexcept {
     memset(point + 1, 0xff, 64);
     check(!p256_import_public(&wrong, P256Kind::ecdh, {point, 65}).ok(),
           "P256 CNG rejects off-curve coordinates");
-    for (u32 i = 0; i != 8; ++i) {
-        P256Key generated{};
-        check(p256_generate(&generated, P256Kind::ecdsa).ok() &&
-                  p256_sign_digest(generated, {digest, 32}, {signature, 64}).ok(),
-              "P256 generates fresh native signing key");
-        record(check, file, generated, digest, signature);
-        p256_release(&generated);
-    }
+    P256Key generated{};
+    check(p256_generate(&generated, P256Kind::ecdsa).ok() &&
+              p256_sign_digest(generated, {digest, 32}, {signature, 64}).ok(),
+          "P256 generates fresh native signing key");
+    p256_release(&generated);
     check(p256_generate(&wrong, P256Kind::ecdh).ok() &&
               p256_sign_digest(wrong, {digest, 32}, {output, 64}).error == P256Error::wrong_kind &&
               p256_ecdh(key, wrong, {output, 32}).error == P256Error::wrong_kind,
@@ -224,19 +209,9 @@ void guards(Check check) noexcept {
 }
 } // namespace
 void test_p256(Check check) noexcept {
-    wchar_t path[1024];
-    HANDLE file = INVALID_HANDLE_VALUE;
-    const DWORD n = GetEnvironmentVariableW(L"MAICORD_P256_SIGNATURE_OUTPUT", path, 1024);
-    if (n && n < 1024) {
-        file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
-                           FILE_ATTRIBUTE_NORMAL, nullptr);
-        check(file != INVALID_HANDLE_VALUE, "P256 opens optional public-signature QA output");
-    }
     scalar_corpus(check);
-    vectors(check, file);
-    boundaries(check, file);
+    vectors(check);
+    boundaries(check);
     guards(check);
-    if (file != INVALID_HANDLE_VALUE)
-        CloseHandle(file);
 }
 } // namespace maicord

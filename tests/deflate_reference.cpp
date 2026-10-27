@@ -74,17 +74,8 @@ struct FixedDeflateTables {
     u16 distance_symbols[kDeflateDistanceSymbolCapacity];
 };
 
-consteval void make_constant_table(const u8* lengths, u32 symbol_count, DeflatePrefixTable* table,
-                                   u16* symbols) noexcept {
-    for (u32 symbol = 0; symbol < symbol_count; ++symbol) {
-        const u8 length = lengths[symbol];
-        if (length != 0) {
-            ++table->counts[length];
-            if (length > table->maximum_bits) {
-                table->maximum_bits = length;
-            }
-        }
-    }
+constexpr void assign_canonical_symbols(const u8* lengths, u32 symbol_count, DeflatePrefixTable* table,
+                                        u16* symbols) noexcept {
     u32 code = 0;
     u32 first_symbol = 0;
     for (u32 bits = 1; bits <= 15; ++bits) {
@@ -103,6 +94,20 @@ consteval void make_constant_table(const u8* lengths, u32 symbol_count, DeflateP
             symbols[offsets[length]++] = static_cast<u16>(symbol);
         }
     }
+}
+
+consteval void make_constant_table(const u8* lengths, u32 symbol_count, DeflatePrefixTable* table,
+                                   u16* symbols) noexcept {
+    for (u32 symbol = 0; symbol < symbol_count; ++symbol) {
+        const u8 length = lengths[symbol];
+        if (length != 0) {
+            ++table->counts[length];
+            if (length > table->maximum_bits) {
+                table->maximum_bits = length;
+            }
+        }
+    }
+    assign_canonical_symbols(lengths, symbol_count, table, symbols);
 }
 
 consteval FixedDeflateTables make_fixed_tables() noexcept {
@@ -235,24 +240,7 @@ bool build_table(const u8* lengths, u32 symbol_count, DeflatePrefixTable* table,
         return false;
     }
 
-    u32 code = 0;
-    u32 first_symbol = 0;
-    for (u32 bits = 1; bits <= 15; ++bits) {
-        code = (code + table->counts[bits - 1]) << 1;
-        table->first_codes[bits] = static_cast<u16>(code);
-        table->first_symbols[bits] = static_cast<u16>(first_symbol);
-        first_symbol += table->counts[bits];
-    }
-    u16 offsets[16]{};
-    for (u32 bits = 1; bits <= 15; ++bits) {
-        offsets[bits] = table->first_symbols[bits];
-    }
-    for (u32 symbol = 0; symbol < symbol_count; ++symbol) {
-        const u8 length = lengths[symbol];
-        if (length != 0) {
-            symbols[offsets[length]++] = static_cast<u16>(symbol);
-        }
-    }
+    assign_canonical_symbols(lengths, symbol_count, table, symbols);
     return true;
 }
 

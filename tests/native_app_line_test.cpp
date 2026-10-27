@@ -1,15 +1,8 @@
 // Native text engine against DirectWrite (MaiCordNativeAppLineTests). The modes
 // registered in cmake/test_registry.cmake are the suite. Manual modes, not run by it:
-//   benchmarks  --bench, --paragraph-bench, --latin-bench, --latin-cpu, --latin-paragraph-bench,
-//     --style-bench, --decoration-bench, --cluster-bench, --edit-bench, --styled-edit-bench,
-//     --semantic-bench, --directional-semantic-bench, --directional-edit-bench, --emoji-bench,
-//     --mixed-bench, --tracking-bench, --alphabetic-bench, --hangul-bench, --devanagari-bench,
-//     --fallback-bench, --system-fallback-bench, --simulation-bench, --hebrew-*bench,
-//     --mixed-bidi-*bench, --bidi-styles-*bench, --bidi-emoji-*bench, --thai-word-benchmark,
-//     --fresh-engine <index> <side> (tools/benchmark_native_text_*.py)
-//   dumps for external comparison  --inspect, --inspect-hits, --inspect-styled-hits,
-//     --inspect-style-clusters, --bidi-range-probe (the registered --bidi-range-check is
-//     its quiet form)
+//   benchmarks  --devanagari-bench (tools/benchmark_devanagari.py)
+//   dumps for external comparison  --inspect, --inspect-style-clusters (the registered
+//     --bidi-range-check is the quiet form of the bidi range dump)
 //   exhaustive variants  --matrix-batch (the union of the registered --matrix-profile 0-4, which
 //     run --ellipsis-hit-profile, the quick --multiline-hit-profile, --style-profile and
 //     --decoration-profile) and the unsampled --multiline-hit-profile, --multiline-trim-profile
@@ -17,11 +10,9 @@
 //   slower checks, left out of the suite's 20 s budget  --alphabetic-paragraph (2 s),
 //     --arabic-paragraph-profile, --arabic-editor-profile and --cjk-editor-paint-profile (1-2 s each,
 //     with --family "Segoe UI" 400)
-//   needs external input  --thai-break-probe, --thai-analysis-probe, --thai-shaped-break-probe
-//     <text file>; --paragraph-expansion <font> <weight> (a font whose letters expand)
-//   debug toggles inside the registered corpora  MAICORD_HIT_AUDIT, MAICORD_HIT_DEBUG,
-//     MAICORD_HIT_OBSERVE, MAICORD_ELLIPSIS_CUT_AUDIT (extra logging) and MAICORD_CJK_SAMPLE,
-//     MAICORD_CJK_VARIANT, MAICORD_DEVANAGARI_SAMPLE (select one sample)
+//   needs external input  --paragraph-expansion <font> <weight> (a font whose letters expand)
+//   debug toggles inside the registered corpora  MAICORD_ELLIPSIS_CUT_AUDIT (extra logging) and
+//     MAICORD_CJK_SAMPLE, MAICORD_CJK_VARIANT, MAICORD_DEVANAGARI_SAMPLE (select one sample)
 #include "maicord/text/detail/thai_lexical.hpp"
 #include "maicord/text/detail/thai_syllable.hpp"
 #include "../src/ui/native_text_trim_plan.hpp"
@@ -50,18 +41,15 @@ namespace maicord {namespace {
 u32 checks=0,cases=0,native_cases=0,simulated_cases=0;bool print_ok=true;
 u64 matrix_seen=0;
 u32 invisible_offset_differences=0;
-bool benchmark=false,benchmarked=false,paragraph_profiles=false,paragraph_expansion=false,paragraph_bench_fonts=false;
+bool paragraph_profiles=false,paragraph_expansion=false;
 bool hit_profiles=false;
 bool latin_profiles=false;
 bool latin_paragraph_profiles=false,latin_paragraph_hits=false;
-bool latin_paragraph_bench=false;
 bool style_profiles=false,decoration_profiles=false;
 bool semantic_profiles=false,directional_semantic_profiles=false,directional_large_profiles=false,directional_editor_profiles=false,directional_editor_cuts_profiles=false;
 bool styled_hit_profiles=false;
 bool style_cluster_profiles=false;
 bool style_continuity_profiles=false,tracking_profiles=false;
-bool latin_bench_fonts=false;
-bool latin_cpu=false;
 bool alphabetic_profiles=false;
 bool simulated_profiles=false;
 bool system_fallback_profiles=false;
@@ -110,8 +98,6 @@ bool styled_hit_corpus(DWriteTextSystem,bool) noexcept;
 bool style_cluster_corpus(DWriteTextSystem,bool) noexcept;
 bool style_continuity_corpus(DWriteTextSystem) noexcept;
 bool native_tracking_corpus(DWriteTextSystem) noexcept;
-bool paragraph_benchmark(DWriteTextSystem) noexcept;
-bool latin_benchmark(DWriteTextSystem) noexcept;
 void real(float) noexcept;
 const Utf8View paragraph_samples[]{utf8_literal("AV AV"),utf8_literal("AV"),utf8_literal("fi fi"),utf8_literal("ffi"),utf8_literal("a\r\nb"),utf8_literal("a\nb"),utf8_literal("a\n"),utf8_literal("\n"),utf8_literal("a  b"),utf8_literal(" a b"),utf8_literal("a\tb"),utf8_literal(" \t "),utf8_literal("a-b/c"),utf8_literal("a...b"),utf8_literal("(a b) c"),utf8_literal("   "),utf8_literal("a     "),utf8_literal("Hello world\nThis is an ordinary wrapped paragraph."),utf8_literal(" a abcdefghijklmnopqrstuvwxyz 0123456789"),utf8_literal("a\t\tb\r\n\n\t\n")};
 void print(const char* text) noexcept {u32 n=0;while(text[n])++n;DWORD written=0;print_ok=print_ok&&WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,n,&written,nullptr)&&written==n;}
@@ -234,18 +220,6 @@ bool reference_shape_measure(DWriteTextSystem& reference,Utf8View input,ConstSli
     }else ++reference_measure_reuses;
     return true;
 }
-bool benchmark_source(const DWriteTextSystem& system,NativeFontRunHandle font,IDWriteFontFace* selected,Arena& scratch) noexcept {
-    LARGE_INTEGER frequency{};CHECK(QueryPerformanceFrequency(&frequency)&&frequency.QuadPart>0&&frequency.QuadPart<=0xffffffffll);
-    print("{\"kind\":\"binding_benchmark\",\"iterations\":256,\"frequency\":");number(static_cast<u32>(frequency.QuadPart));print(",\"batches\":[");
-    for(u32 batch=0;batch<10;++batch){u32 ticks[2]{};
-        for(u32 order=0;order<2;++order){const u32 legacy=order^(batch&1);LARGE_INTEGER start{},end{};CHECK(QueryPerformanceCounter(&start));
-            for(u32 i=0;i<256;++i){NativeFontInstanceHandle handle{};
-                const auto result=legacy?native_font_bind_selected(system.native_fonts,selected,true,&scratch,&handle):native_font_run_prepare(native_font_session_runs(system.native_fonts),font,&scratch,&handle);
-                CHECK(result.ok()&&native_font_instance_release(native_font_session_instances(system.native_fonts),handle));}
-            CHECK(QueryPerformanceCounter(&end)&&end.QuadPart>=start.QuadPart&&end.QuadPart-start.QuadPart<=0xffffffffll);ticks[legacy]=static_cast<u32>(end.QuadPart-start.QuadPart);}
-        if(batch)print(",");print("[");number(ticks[0]);print(",");number(ticks[1]);print("]");}
-    print("]}\n");return true;
-}
 bool draw_source(const DWriteTextSystem& system,const ShapedText& text) noexcept {
     CHECK(text.native_fonts()==system.native_fonts&&text.run_count&&text.runs[0].native_font);
     const auto font=text.runs[0].native_face;IDWriteFontFace* selected=nullptr;
@@ -269,7 +243,6 @@ bool draw_source(const DWriteTextSystem& system,const ShapedText& text) noexcept
         if(retained&&!bound){bound=&draw_bound[draw_bound_next++&7u];com_release(bound->face);selected->AddRef();
             *bound={selected,reused,0,b_oblique,b_bold};}}
     CHECK(a_oblique==b_oblique&&a_bold==b_bold);
-    if(benchmark&&!benchmarked){CHECK(benchmark_source(system,font,selected,scratch));benchmarked=true;}
     NativeFontInstanceHandle rejected{};
     CHECK(!native_font_run_prepare(nullptr,font,&scratch,&rejected).ok()&&!rejected.slot);
     CHECK(!native_font_run_prepare(native_font_session_runs(system.native_fonts),{font.slot,font.generation+1},&scratch,&rejected).ok()&&!rejected.slot);
@@ -386,7 +359,6 @@ bool same_visual_runs(Output& a,Output& b) noexcept {
     return true;
 }
 #include "semantic_ranges_cases.inc"
-#include "semantic_ranges_benchmark.inc"
 bool compare(DWriteTextSystem system,Utf8View input,bool require_native,float width=1000000,float height=1000000,TextWrapping wrapping=TextWrapping::wrap,TextOverflow overflow=TextOverflow::clip) noexcept {
     ++cases;shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
     if(require_native){CHECK(native_text_candidate_line(system,input,width,height,&native_output.text,nullptr,wrapping,overflow));CHECK(draw_source(system,native_output.text));++native_cases;shaped_text_reset(&native_output.text);}
@@ -488,11 +460,9 @@ bool inspect_style_layout(DWriteTextSystem system,Utf8View text,ConstSlice<TextS
     return true;
 }
 bool corpus(IDWriteFontCollection* collection,const wchar_t* family,u32 weight) noexcept {
-    if(paragraph_expansion||paragraph_bench_fonts||latin_bench_fonts){
+    if(paragraph_expansion){
         IDWriteTextFormat* format=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextFormat(family,collection,static_cast<DWRITE_FONT_WEIGHT>(weight?weight:400),DWRITE_FONT_STYLE_NORMAL,DWRITE_FONT_STRETCH_NORMAL,16,L"en-US",&format)));
         struct Release {IDWriteTextFormat*& p;~Release() noexcept {com_release(p);}} release{format};auto system=owner;system.format=format;CHECK(native_text_format_capture(&system));
-        if(paragraph_bench_fonts)return paragraph_benchmark(system);
-        if(latin_bench_fonts)return latin_benchmark(system);
         char text[123];for(u32 i=0;i<123;++i)text[i]='A';
         CHECK(compare(system,{text,40},true));CHECK(native_output.text.glyph_count==160);
         CHECK(compare(system,{text,40},true,39,1));CHECK(native_output.text.glyph_count==160);
@@ -813,54 +783,6 @@ bool latin_paragraph_fuzz() noexcept {
             print("latin fuzz sample=");number(sample);print(" width=");real(width);print(" nowrap=");number(nowrap);print(" bytes=[");for(u32 i=0;i<count;++i){if(i)print(",");number(static_cast<u8>(bytes[i]));}print("]\n");return false;}
     }return true;
 }
-bool paragraph_benchmark(DWriteTextSystem source) noexcept {
-    const Utf8View ascii[]{utf8_literal("A paragraph with ordinary words, AV kerning, punctuation, and enough text to wrap across several lines.\nA second line\twith a tab."),utf8_literal("Another paragraph changes the input and forces fresh shaping of words and AV pairs.\nThere are several short lines\tand tabs here.")};
-    const Utf8View latin[]{utf8_literal("Caf\xc3\xa9, fianc\xc3\xa9" "e, na\xc3\xafve, r\xc3\xa9sum\xc3\xa9. AV To office.\n\xc4\x8clovek\t\xc5\xbd" "ivjo \xc4\x8d\xc5\xa1\xc5\xbe."),utf8_literal("Re\xcc\x81sume\xcc\x81, cafe\xcc\x81, nai\xcc\x88ve. To AV office.\n\xc5\x81\xc3\xb3" "d\xc5\xba\t\xc4\xb0stanbul." )};
-    const auto* samples=latin_paragraph_bench?latin:ascii;
-    for(u32 i=0;i<2;++i)CHECK(compare(source,samples[i],true,120,1000));
-    LARGE_INTEGER frequency{};CHECK(QueryPerformanceFrequency(&frequency)&&frequency.QuadPart>0&&frequency.QuadPart<=0xffffffffll);
-    for(u32 mode=0;mode<2;++mode){print("{\"kind\":\"paragraph_benchmark\",\"alternating_text\":");number(mode);print(",\"iterations\":128,\"frequency\":");number(static_cast<u32>(frequency.QuadPart));print(",\"batches\":[");
-        for(u32 batch=0;batch<10;++batch){u32 elapsed[2]{};
-            for(u32 order=0;order<2;++order){const u32 legacy=order^(batch&1);auto system=source;if(legacy)system.native_text=nullptr;auto* out=legacy?&reference_output.text:&native_output.text;
-                CHECK(text_shape_utf8(&system,samples[0],120,1000,{utf16,256},out).ok());const auto before=native_text_candidate_counts(owner);LARGE_INTEGER start{},end{};CHECK(QueryPerformanceCounter(&start));
-                for(u32 i=0;i<128;++i)CHECK(text_shape_utf8(&system,samples[mode?(i&1):0],120,1000,{utf16,256},out).ok());
-                CHECK(QueryPerformanceCounter(&end)&&end.QuadPart>=start.QuadPart&&end.QuadPart-start.QuadPart<=0xffffffffll);elapsed[legacy]=static_cast<u32>(end.QuadPart-start.QuadPart);
-                const auto after=native_text_candidate_counts(owner);CHECK(after.paragraphs_shaped-before.paragraphs_shaped==(legacy?0u:128u));
-            }
-            if(batch)print(",");print("[");number(elapsed[0]);print(",");number(elapsed[1]);print("]");
-        }print("]}\n");
-    }return true;
-}
-bool latin_benchmark(DWriteTextSystem source) noexcept {
-    const Utf8View samples[2][2]{
-        {utf8_literal("Caf\xc3\xa9, fianc\xc3\xa9" "e, na\xc3\xafve, r\xc3\xa9sum\xc3\xa9. AV To office."),utf8_literal("R\xc3\xa9sum\xc3\xa9, caf\xc3\xa9, na\xc3\xafve, fianc\xc3\xa9" "e. To AV office.")},
-        {utf8_literal("Cafe\xcc\x81, fiance\xcc\x81" "e, nai\xcc\x88ve, re\xcc\x81sume\xcc\x81. AV To office."),utf8_literal("Re\xcc\x81sume\xcc\x81, cafe\xcc\x81, nai\xcc\x88ve, fiance\xcc\x81" "e. To AV office.")}};
-    LARGE_INTEGER frequency{};CHECK(QueryPerformanceFrequency(&frequency)&&frequency.QuadPart>0&&frequency.QuadPart<=0xffffffffll);
-    const u32 iterations=latin_cpu?16384u:128u;
-    for(u32 mode=0;mode<4;++mode){if(latin_cpu&&!(mode&1))continue;bool supported=true;
-        for(auto text:samples[mode/2]){shaped_text_reset(&native_output.text);const bool native=native_text_candidate_line(source,text,1000000,1000000,&native_output.text,nullptr);
-            shaped_text_reset(&native_output.text);CHECK(compare(source,text,native));supported&=native;}
-        print(latin_cpu?"{\"kind\":\"latin_cpu\",\"mode\":" : "{\"kind\":\"latin_benchmark\",\"mode\":");number(mode);print(",\"supported\":");print(supported?"true":"false");
-        print(",\"iterations\":");number(iterations);print(",\"frequency\":");number(static_cast<u32>(frequency.QuadPart));print(",\"batches\":[");
-        if(supported)for(u32 batch=0;batch<(latin_cpu?3u:10u);++batch){u32 elapsed[2]{};u64 cpu[2]{},cycles[2]{};
-            for(u32 order=0;order<2;++order){const u32 legacy=order^(batch&1);auto system=source;if(legacy)system.native_text=nullptr;auto* out=legacy?&reference_output.text:&native_output.text;
-                CHECK(text_shape_utf8(&system,samples[mode/2][0],1000000,1000000,{utf16,256},out).ok());const auto before=native_text_candidate_counts(source);LARGE_INTEGER start{},end{};
-                FILETIME created{},exited{},kernel_start{},user_start{},kernel_end{},user_end{};ULONG64 cycles_start=0,cycles_end=0;
-                if(latin_cpu)CHECK(GetThreadTimes(GetCurrentThread(),&created,&exited,&kernel_start,&user_start)&&QueryThreadCycleTime(GetCurrentThread(),&cycles_start));
-                CHECK(QueryPerformanceCounter(&start));
-                for(u32 i=0;i<iterations;++i)CHECK(text_shape_utf8(&system,samples[mode/2][(mode&1)?(i&1):0],1000000,1000000,{utf16,256},out).ok());
-                CHECK(QueryPerformanceCounter(&end)&&end.QuadPart>=start.QuadPart&&end.QuadPart-start.QuadPart<=0xffffffffll);elapsed[legacy]=static_cast<u32>(end.QuadPart-start.QuadPart);
-                if(latin_cpu){CHECK(QueryThreadCycleTime(GetCurrentThread(),&cycles_end)&&GetThreadTimes(GetCurrentThread(),&created,&exited,&kernel_end,&user_end));
-                    const auto ticks=[](FILETIME f) noexcept {return (static_cast<u64>(f.dwHighDateTime)<<32)|f.dwLowDateTime;};
-                    CHECK(cycles_end>=cycles_start&&ticks(kernel_end)>=ticks(kernel_start)&&ticks(user_end)>=ticks(user_start));
-                    cycles[legacy]=cycles_end-cycles_start;cpu[legacy]=ticks(kernel_end)-ticks(kernel_start)+ticks(user_end)-ticks(user_start);}
-                const auto after=native_text_candidate_counts(source);CHECK(after.latin_shaped-before.latin_shaped==(legacy?0u:iterations));
-            }
-            if(batch)print(",");print("[");number(elapsed[0]);print(",");number(elapsed[1]);
-            if(latin_cpu){print(",");number(cpu[0]);print(",");number(cpu[1]);print(",");number(cycles[0]);print(",");number(cycles[1]);}print("]");
-        }print("]}\n");
-    }return true;
-}
 bool paragraph_options() noexcept {
     const float stops[]{3.5f,64.f,91.25f};const float widths[]{5.f,39.f,1000.f};const float heights[]{1.f,1000.f};
     for(float stop:stops){CHECK(SUCCEEDED(owner.format->SetIncrementalTabStop(stop)));
@@ -922,8 +844,8 @@ bool paragraph_options() noexcept {
 #include "native_mixed_bidi_cases.inc"
 #include "native_bidi_styles_cases.inc"
 #include "native_editor_policy_probe.inc"
-#include "native_fresh_engine_benchmark.inc"
 #include "native_font_selection_cases.inc"
+#include "native_fresh_engine_cases.inc"
 #include "native_font_context_cases.inc"
 #include "native_request_recovery.inc"
 bool run() noexcept {
@@ -934,8 +856,6 @@ bool run() noexcept {
     if(!selection_check[selection_match_check]&&!p[selection_match_check])return native_font_selection_cases();
     static const wchar_t contexts_check[]=L"--font-context-layouts";u32 contexts_match=0;while(contexts_check[contexts_match]&&p[contexts_match]==contexts_check[contexts_match])++contexts_match;
     if(!contexts_check[contexts_match]&&!p[contexts_match])return native_font_context_layouts();
-    static const wchar_t fresh_option[]=L"--fresh-engine";u32 fresh_match=0;while(fresh_option[fresh_match]&&p[fresh_match]==fresh_option[fresh_match])++fresh_match;
-    if(!fresh_option[fresh_match]&&p[fresh_match]==' ')return native_fresh_engine_benchmark(p+fresh_match);
     static const wchar_t storage_option[]=L"--script-storage-check";u32 storage_match=0;while(storage_option[storage_match]&&p[storage_match]==storage_option[storage_match])++storage_match;
     if(!storage_option[storage_match]&&!p[storage_match])return native_script_storage_cases();
     CHECK(text_system_initialize(&owner,L"Segoe UI",16,L"en-US").ok());
@@ -960,18 +880,8 @@ bool run() noexcept {
     if(!alphabetic_paragraph_option[alphabetic_paragraph_match]&&!p[alphabetic_paragraph_match])return native_alphabetic_paragraph_corpus();
     static const wchar_t han_option[]=L"--han-paragraph";u32 han_match=0;while(han_option[han_match]&&p[han_match]==han_option[han_match])++han_match;
     if(!han_option[han_match]&&!p[han_match])return native_han_paragraph_corpus();
-    static const wchar_t thai_break_option[]=L"--thai-break-probe";u32 thai_break_match=0;while(thai_break_option[thai_break_match]&&p[thai_break_match]==thai_break_option[thai_break_match])++thai_break_match;
-    if(!thai_break_option[thai_break_match]&&p[thai_break_match]==' ')return thai_layout_break_probe(p+thai_break_match);
-    static const wchar_t thai_analysis_option[]=L"--thai-analysis-probe";u32 thai_analysis_match=0;while(thai_analysis_option[thai_analysis_match]&&p[thai_analysis_match]==thai_analysis_option[thai_analysis_match])++thai_analysis_match;
-    if(!thai_analysis_option[thai_analysis_match]&&p[thai_analysis_match]==' ')return thai_layout_break_probe(p+thai_analysis_match,false,true);
-    static const wchar_t thai_shaped_option[]=L"--thai-shaped-break-probe";u32 thai_shaped_match=0;while(thai_shaped_option[thai_shaped_match]&&p[thai_shaped_match]==thai_shaped_option[thai_shaped_match])++thai_shaped_match;
-    if(!thai_shaped_option[thai_shaped_match]&&p[thai_shaped_match]==' ')return thai_layout_break_probe(p+thai_shaped_match,false,false,true);
     static const wchar_t thai_context_option[]=L"--thai-context-check";u32 thai_context_match=0;while(thai_context_option[thai_context_match]&&p[thai_context_match]==thai_context_option[thai_context_match])++thai_context_match;
     if(!thai_context_option[thai_context_match]&&!p[thai_context_match])return native_thai_context_cases();
-    static const wchar_t thai_word_bench_option[]=L"--thai-word-benchmark";u32 thai_word_bench_match=0;while(thai_word_bench_option[thai_word_bench_match]&&p[thai_word_bench_match]==thai_word_bench_option[thai_word_bench_match])++thai_word_bench_match;
-    if(!thai_word_bench_option[thai_word_bench_match]&&p[thai_word_bench_match]==' ')return thai_layout_break_probe(p+thai_word_bench_match,true);
-    static const wchar_t hangul_bench_option[]=L"--hangul-bench";u32 hangul_bench_match=0;while(hangul_bench_option[hangul_bench_match]&&p[hangul_bench_match]==hangul_bench_option[hangul_bench_match])++hangul_bench_match;
-    if(!hangul_bench_option[hangul_bench_match]&&!p[hangul_bench_match])return native_hangul_benchmark();
     static const wchar_t deva_bench_option[]=L"--devanagari-bench";u32 deva_bench_match=0;while(deva_bench_option[deva_bench_match]&&p[deva_bench_match]==deva_bench_option[deva_bench_match])++deva_bench_match;
     if(!deva_bench_option[deva_bench_match]&&!p[deva_bench_match])return native_devanagari_memory_benchmark();
     static const wchar_t deva_memory_option[]=L"--devanagari-memory-check";u32 deva_memory_match=0;while(deva_memory_option[deva_memory_match]&&p[deva_memory_match]==deva_memory_option[deva_memory_match])++deva_memory_match;
@@ -1066,9 +976,7 @@ bool run() noexcept {
         print("quick sampled coverage; exhaustive combinations remain available without --quick\n");}
     static const wchar_t editor_policy_option[]=L"--editor-policy-probe";u32 editor_match=0;while(editor_policy_option[editor_match]&&p[editor_match]==editor_policy_option[editor_match])++editor_match;
     static const wchar_t mixed_gates_option[]=L"--mixed-bidi-gates";u32 mixed_gates_match=0;while(mixed_gates_option[mixed_gates_match]&&p[mixed_gates_match]==mixed_gates_option[mixed_gates_match])++mixed_gates_match;
-    static const wchar_t bidi_range_option[]=L"--bidi-range-probe";u32 bidi_range_match=0;while(bidi_range_option[bidi_range_match]&&p[bidi_range_match]==bidi_range_option[bidi_range_match])++bidi_range_match;
-    if(bidi_range_match+1==sizeof(bidi_range_option)/sizeof(wchar_t)&&!p[bidi_range_match])return native_bidi_style_range_probe();
-    static const wchar_t bidi_range_check[]=L"--bidi-range-check";bidi_range_match=0;while(bidi_range_check[bidi_range_match]&&p[bidi_range_match]==bidi_range_check[bidi_range_match])++bidi_range_match;
+    static const wchar_t bidi_range_check[]=L"--bidi-range-check";u32 bidi_range_match=0;while(bidi_range_check[bidi_range_match]&&p[bidi_range_match]==bidi_range_check[bidi_range_match])++bidi_range_match;
     if(bidi_range_match+1==sizeof(bidi_range_check)/sizeof(wchar_t)&&!p[bidi_range_match])return native_bidi_style_range_probe(true);
     if(mixed_gates_match+1==sizeof(mixed_gates_option)/sizeof(wchar_t)&&!p[mixed_gates_match])return native_mixed_bidi_gates();
     if(editor_match==21&&!p[21])return native_editor_policy_probe();
@@ -1092,63 +1000,28 @@ bool run() noexcept {
     if(hebrew_wrap_match+1==sizeof(hebrew_wrap_profile)/sizeof(wchar_t)&&p[hebrew_wrap_match]==' '){hebrew_profiles=hebrew_wrap_profiles=true;p+=hebrew_wrap_match;while(*p==' '||*p=='\t')++p;}
     if(hebrew_match+1==sizeof(hebrew_profile)/sizeof(wchar_t)&&p[hebrew_match]==' '){hebrew_profiles=true;p+=hebrew_match;while(*p==' '||*p=='\t')++p;}
     if(system_match==25&&p[25]==' '){system_fallback_profiles=true;p+=25;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t system_bench[]=L"--system-fallback-bench";system_match=0;while(system_bench[system_match]&&p[system_match]==system_bench[system_match])++system_match;
-    const wchar_t* mixed_benches[]{L"--mixed-bidi-bench",L"--mixed-bidi-wrap-bench",L"--mixed-bidi-wrap-independent-bench"};
-    const wchar_t* styled_benches[]{L"--bidi-styles-bench",L"--bidi-styles-wrap-bench",L"--bidi-styles-wrap-independent-bench"};
-    const wchar_t* bidi_emoji_benches[]{L"--bidi-emoji-bench",L"--bidi-emoji-wrap-bench",L"--bidi-emoji-wrap-independent-bench"};
-    for(u32 i=0;i<3;++i){u32 match=0;while(bidi_emoji_benches[i][match]&&p[match]==bidi_emoji_benches[i][match])++match;
-        if(!bidi_emoji_benches[i][match]&&!p[match])return native_fallback_binding_benchmark(false,false,true,i!=0,i==2,true,true,true);}
-    for(u32 i=0;i<3;++i){u32 match=0;while(styled_benches[i][match]&&p[match]==styled_benches[i][match])++match;
-        if(!styled_benches[i][match]&&!p[match])return native_fallback_binding_benchmark(false,false,true,i!=0,i==2,true,true);}
-    for(u32 i=0;i<3;++i){u32 match=0;while(mixed_benches[i][match]&&p[match]==mixed_benches[i][match])++match;
-        if(!mixed_benches[i][match]&&!p[match])return native_fallback_binding_benchmark(false,false,true,i!=0,i==2,true);}
-    static const wchar_t hebrew_bench[]=L"--hebrew-bench";hebrew_match=0;while(hebrew_bench[hebrew_match]&&p[hebrew_match]==hebrew_bench[hebrew_match])++hebrew_match;
-    if(hebrew_match+1==sizeof(hebrew_bench)/sizeof(wchar_t)&&!p[hebrew_match])return native_fallback_binding_benchmark(false,false,true);
-    static const wchar_t wrapped_bench[]=L"--hebrew-wrap-bench";u32 wrapped_match=0;while(wrapped_bench[wrapped_match]&&p[wrapped_match]==wrapped_bench[wrapped_match])++wrapped_match;
-    if(wrapped_match+1==sizeof(wrapped_bench)/sizeof(wchar_t)&&!p[wrapped_match])return native_fallback_binding_benchmark(false,false,true,true);
-    static const wchar_t independent_bench[]=L"--hebrew-wrap-independent-bench";wrapped_match=0;while(independent_bench[wrapped_match]&&p[wrapped_match]==independent_bench[wrapped_match])++wrapped_match;
-    if(wrapped_match+1==sizeof(independent_bench)/sizeof(wchar_t)&&!p[wrapped_match])return native_fallback_binding_benchmark(false,false,true,true,true);
-    if(system_match+1==sizeof(system_bench)/sizeof(wchar_t)&&!p[system_match])return native_fallback_binding_benchmark(false,true);
-    static const wchar_t simulation_bench[]=L"--simulation-bench";simulated_match=0;while(simulation_bench[simulated_match]&&p[simulated_match]==simulation_bench[simulated_match])++simulated_match;
-    if(simulated_match==18&&!p[18])return native_fallback_binding_benchmark(true);
     static const wchar_t fallback_option[]=L"--fallback-bindings";u32 fallback_match=0;while(fallback_option[fallback_match]&&p[fallback_match]==fallback_option[fallback_match])++fallback_match;
     if(fallback_match==19&&!p[19])return native_fallback_binding_corpus();
-    static const wchar_t fallback_bench[]=L"--fallback-bench";fallback_match=0;while(fallback_bench[fallback_match]&&p[fallback_match]==fallback_bench[fallback_match])++fallback_match;
-    if(fallback_match==16&&!p[16])return native_fallback_binding_benchmark();
     static const wchar_t alphabetic_option[]=L"--alphabetic-profile";u32 alphabetic_match=0;while(alphabetic_option[alphabetic_match]&&p[alphabetic_match]==alphabetic_option[alphabetic_match])++alphabetic_match;
     if(alphabetic_match==20&&p[20]==' '){alphabetic_profiles=true;p+=20;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t alphabetic_bench[]=L"--alphabetic-bench";alphabetic_match=0;while(alphabetic_bench[alphabetic_match]&&p[alphabetic_match]==alphabetic_bench[alphabetic_match])++alphabetic_match;
-    if(alphabetic_match==18&&!p[18])return alphabetic_benchmark();
     static const wchar_t mixed_option[]=L"--mixed-emoji";u32 mixed_match=0;while(mixed_option[mixed_match]&&p[mixed_match]==mixed_option[mixed_match])++mixed_match;
     if(mixed_match==13&&(!p[13]||p[13]==' ')){p+=13;while(*p==' '||*p=='\t')++p;return *p?native_emoji_dispatch_corpus(p,true):native_mixed_emoji_corpus();}
-    static const wchar_t mixed_benchmark[]=L"--mixed-bench";mixed_match=0;while(mixed_benchmark[mixed_match]&&p[mixed_match]==mixed_benchmark[mixed_match])++mixed_match;
-    if(mixed_match==13&&!p[13])return native_emoji_dispatch_benchmark(true);
     static const wchar_t emoji_option[]=L"--emoji-dispatch";u32 emoji_match=0;while(emoji_option[emoji_match]&&p[emoji_match]==emoji_option[emoji_match])++emoji_match;
     if(emoji_match==16&&(!p[16]||p[16]==' ')){p+=16;while(*p==' '||*p=='\t')++p;return native_emoji_dispatch_corpus(p);}
-    static const wchar_t emoji_bench[]=L"--emoji-bench";emoji_match=0;while(emoji_bench[emoji_match]&&p[emoji_match]==emoji_bench[emoji_match])++emoji_match;
-    if(emoji_match==13&&!p[13])return native_emoji_dispatch_benchmark();
     static const wchar_t tracking_option[]=L"--tracking-profile";u32 tracking_match=0;while(tracking_option[tracking_match]&&p[tracking_match]==tracking_option[tracking_match])++tracking_match;
     if(tracking_match==18&&p[18]==' '){tracking_profiles=true;p+=18;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t tracking_bench[]=L"--tracking-bench";tracking_match=0;while(tracking_bench[tracking_match]&&p[tracking_match]==tracking_bench[tracking_match])++tracking_match;
-    if(tracking_match==16&&!p[16]){owner.tracking=.03f;return styled_paragraph_benchmark(true);}
     static const wchar_t native_formats[]=L"--native-formats";u32 format_option=0;while(native_formats[format_option]&&p[format_option]==native_formats[format_option])++format_option;if(format_option==16&&!p[16])return native_format_corpus();
-    static const wchar_t hits[]=L"--inspect-hits";u32 matched_hits=0;while(hits[matched_hits]&&p[matched_hits]==hits[matched_hits])++matched_hits;if(matched_hits==14&&!p[14])return inspect_hits();
-    static const wchar_t styled_hits[]=L"--inspect-styled-hits";matched_hits=0;while(styled_hits[matched_hits]&&p[matched_hits]==styled_hits[matched_hits])++matched_hits;if(matched_hits==21&&!p[21])return inspect_hits(true);
-    static const wchar_t cluster_probe[]=L"--inspect-style-clusters";matched_hits=0;while(cluster_probe[matched_hits]&&p[matched_hits]==cluster_probe[matched_hits])++matched_hits;if(matched_hits==24&&!p[24])return inspect_style_clusters();
+    static const wchar_t cluster_probe[]=L"--inspect-style-clusters";u32 matched_hits=0;while(cluster_probe[matched_hits]&&p[matched_hits]==cluster_probe[matched_hits])++matched_hits;if(matched_hits==24&&!p[24])return inspect_style_clusters();
     static const wchar_t cluster_cases[]=L"--style-clusters";matched_hits=0;while(cluster_cases[matched_hits]&&p[matched_hits]==cluster_cases[matched_hits])++matched_hits;if(matched_hits==16&&!p[16])return inspect_style_clusters(true);
-    static const wchar_t cluster_bench[]=L"--cluster-bench";matched_hits=0;while(cluster_bench[matched_hits]&&p[matched_hits]==cluster_bench[matched_hits])++matched_hits;if(matched_hits==15&&!p[15])return styled_paragraph_benchmark(true,true);
     static const wchar_t cluster_profile[]=L"--style-cluster-profile";matched_hits=0;while(cluster_profile[matched_hits]&&p[matched_hits]==cluster_profile[matched_hits])++matched_hits;if(matched_hits==23&&p[23]==' '){style_cluster_profiles=true;p+=23;while(*p==' '||*p=='\t')++p;}
     static const wchar_t continuity_profile[]=L"--continuity-profile";matched_hits=0;while(continuity_profile[matched_hits]&&p[matched_hits]==continuity_profile[matched_hits])++matched_hits;if(matched_hits==20&&p[20]==' '){style_continuity_profiles=true;p+=20;while(*p==' '||*p=='\t')++p;}
     static const wchar_t hit_tests[]=L"--paragraph-hits";matched_hits=0;while(hit_tests[matched_hits]&&p[matched_hits]==hit_tests[matched_hits])++matched_hits;if(matched_hits==16&&!p[16])return paragraph_hits();
     if (lstrcmpW(p,L"--tsf-points")==0) return tsf_point_geometry();
     if (lstrcmpW(p,L"--historic")==0) return historic_cases();
     static const wchar_t edit_tests[]=L"--edit-hits";matched_hits=0;while(edit_tests[matched_hits]&&p[matched_hits]==edit_tests[matched_hits])++matched_hits;if(matched_hits==11&&!p[11])return edit_hits();
-    static const wchar_t directional_edit_bench[]=L"--directional-edit-bench";matched_hits=0;while(directional_edit_bench[matched_hits]&&p[matched_hits]==directional_edit_bench[matched_hits])++matched_hits;if(matched_hits==sizeof(directional_edit_bench)/sizeof(wchar_t)-1&&!p[matched_hits])return edit_benchmark(false,true);
     static const wchar_t directional_edit_cuts_option[]=L"--directional-edit-cuts";matched_hits=0;while(directional_edit_cuts_option[matched_hits]&&p[matched_hits]==directional_edit_cuts_option[matched_hits])++matched_hits;if(matched_hits==sizeof(directional_edit_cuts_option)/sizeof(wchar_t)-1&&!p[matched_hits])return directional_edit_cuts();
     static const wchar_t directional_edit_option[]=L"--directional-edit";matched_hits=0;while(directional_edit_option[matched_hits]&&p[matched_hits]==directional_edit_option[matched_hits])++matched_hits;if(matched_hits==sizeof(directional_edit_option)/sizeof(wchar_t)-1&&!p[matched_hits])return directional_edit();
     static const wchar_t styled_edit_option[]=L"--styled-edit";matched_hits=0;while(styled_edit_option[matched_hits]&&p[matched_hits]==styled_edit_option[matched_hits])++matched_hits;if(matched_hits==13&&!p[13])return styled_edit();
-    static const wchar_t styled_edit_bench_option[]=L"--styled-edit-bench";matched_hits=0;while(styled_edit_bench_option[matched_hits]&&p[matched_hits]==styled_edit_bench_option[matched_hits])++matched_hits;if(matched_hits==19&&!p[19])return edit_benchmark(true);
-    static const wchar_t edit_bench[]=L"--edit-bench";matched_hits=0;while(edit_bench[matched_hits]&&p[matched_hits]==edit_bench[matched_hits])++matched_hits;if(matched_hits==12&&!p[12])return edit_benchmark();
     static const wchar_t inspect[]=L"--inspect";u32 inspected=0;while(inspect[inspected]&&p[inspected]==inspect[inspected])++inspected;if(inspected==9&&!p[9])return inspect_paragraphs();
     static const wchar_t paragraphs[]=L"--paragraphs";inspected=0;while(paragraphs[inspected]&&p[inspected]==paragraphs[inspected])++inspected;if(inspected==12&&!p[12])return inspect_paragraphs(true);
     static const wchar_t fuzz[]=L"--paragraph-fuzz";inspected=0;while(fuzz[inspected]&&p[inspected]==fuzz[inspected])++inspected;if(inspected==16&&!p[16])return paragraph_fuzz();
@@ -1158,7 +1031,6 @@ bool run() noexcept {
     static const wchar_t latin_profile[]=L"--latin-profile";inspected=0;while(latin_profile[inspected]&&p[inspected]==latin_profile[inspected])++inspected;if(inspected==15&&p[15]==' '){latin_profiles=true;p+=15;while(*p==' '||*p=='\t')++p;}
     static const wchar_t latin_paragraph_option[]=L"--latin-paragraph";inspected=0;while(latin_paragraph_option[inspected]&&p[inspected]==latin_paragraph_option[inspected])++inspected;if(inspected==17&&p[17]==' '){latin_paragraph_profiles=true;p+=17;while(*p==' '||*p=='\t')++p;}
     static const wchar_t latin_hits_option[]=L"--latin-hits";inspected=0;while(latin_hits_option[inspected]&&p[inspected]==latin_hits_option[inspected])++inspected;if(inspected==12&&p[12]==' '){latin_paragraph_hits=true;p+=12;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t latin_paragraph_bench_option[]=L"--latin-paragraph-bench";inspected=0;while(latin_paragraph_bench_option[inspected]&&p[inspected]==latin_paragraph_bench_option[inspected])++inspected;if(inspected==23&&!p[23]){latin_paragraph_bench=true;return paragraph_benchmark(owner);}
     static const wchar_t latin_fuzz_option[]=L"--latin-paragraph-fuzz";inspected=0;while(latin_fuzz_option[inspected]&&p[inspected]==latin_fuzz_option[inspected])++inspected;if(inspected==22&&!p[22])return latin_paragraph_fuzz();
     static const wchar_t directional_semantic_option[]=L"--directional-semantic-profile";inspected=0;while(directional_semantic_option[inspected]&&p[inspected]==directional_semantic_option[inspected])++inspected;
     if(inspected+1==sizeof(directional_semantic_option)/sizeof(wchar_t)&&p[inspected]==' '){directional_semantic_profiles=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
@@ -1183,26 +1055,17 @@ bool run() noexcept {
     static const wchar_t semantic_option[]=L"--semantic-profile";inspected=0;while(semantic_option[inspected]&&p[inspected]==semantic_option[inspected])++inspected;if(inspected==18&&p[18]==' '){semantic_profiles=true;p+=18;while(*p==' '||*p=='\t')++p;}
     static const wchar_t styled_hit_option[]=L"--styled-hit-profile";inspected=0;while(styled_hit_option[inspected]&&p[inspected]==styled_hit_option[inspected])++inspected;if(inspected==20&&p[20]==' '){styled_hit_profiles=true;p+=20;while(*p==' '||*p=='\t')++p;}
     static const wchar_t semantic_options_option[]=L"--semantic-options";inspected=0;while(semantic_options_option[inspected]&&p[inspected]==semantic_options_option[inspected])++inspected;if(inspected==18&&!p[18])return semantic_options();
-    static const wchar_t semantic_bench_option[]=L"--semantic-bench";inspected=0;while(semantic_bench_option[inspected]&&p[inspected]==semantic_bench_option[inspected])++inspected;if(inspected==16&&!p[16])return semantic_benchmark();
-    static const wchar_t directional_bench_option[]=L"--directional-semantic-bench";inspected=0;while(directional_bench_option[inspected]&&p[inspected]==directional_bench_option[inspected])++inspected;if(inspected==sizeof(directional_bench_option)/sizeof(wchar_t)-1&&!p[inspected])return directional_semantic_benchmark();
     static const wchar_t style_option[]=L"--style-profile";inspected=0;while(style_option[inspected]&&p[inspected]==style_option[inspected])++inspected;if(inspected==15&&p[15]==' '){style_profiles=true;p+=15;while(*p==' '||*p=='\t')++p;}
     static const wchar_t decoration_option[]=L"--decoration-profile";inspected=0;while(decoration_option[inspected]&&p[inspected]==decoration_option[inspected])++inspected;if(inspected==20&&p[20]==' '){decoration_profiles=true;p+=20;while(*p==' '||*p=='\t')++p;}
     static const wchar_t decoration_options_option[]=L"--decoration-options";inspected=0;while(decoration_options_option[inspected]&&p[inspected]==decoration_options_option[inspected])++inspected;if(inspected==20&&!p[20])return decoration_options();
     static const wchar_t smoke_option[]=L"--smoke ";inspected=0;while(smoke_option[inspected]&&p[inspected]==smoke_option[inspected])++inspected;if(!smoke_option[inspected]){benchmark_smoke=true;p+=inspected;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t telugu_bench_option[]=L"--telugu-bench";inspected=0;while(telugu_bench_option[inspected]&&p[inspected]==telugu_bench_option[inspected])++inspected;if(!telugu_bench_option[inspected]&&!p[inspected])return styled_paragraph_benchmark(false,false,false,true);
-    static const wchar_t arabic_bench_option[]=L"--arabic-bench";inspected=0;while(arabic_bench_option[inspected]&&p[inspected]==arabic_bench_option[inspected])++inspected;if(!arabic_bench_option[inspected]&&!p[inspected])return styled_paragraph_benchmark(false,false,false,false,false,true);
-    static const wchar_t kannada_bench_option[]=L"--kannada-bench";inspected=0;while(kannada_bench_option[inspected]&&p[inspected]==kannada_bench_option[inspected])++inspected;if(!kannada_bench_option[inspected]&&!p[inspected])return styled_paragraph_benchmark(false,false,false,false,true);
-    static const wchar_t odia_bench_option[]=L"--odia-bench";inspected=0;while(odia_bench_option[inspected]&&p[inspected]==odia_bench_option[inspected])++inspected;if(inspected==12&&!p[12])return styled_paragraph_benchmark(false,false,true);
-    static const wchar_t style_bench_option[]=L"--style-bench";inspected=0;while(style_bench_option[inspected]&&p[inspected]==style_bench_option[inspected])++inspected;if(inspected==13&&!p[13])return styled_paragraph_benchmark();
-    static const wchar_t decoration_bench_option[]=L"--decoration-bench";inspected=0;while(decoration_bench_option[inspected]&&p[inspected]==decoration_bench_option[inspected])++inspected;if(inspected==18&&!p[18])return styled_paragraph_benchmark(true);
-    static const wchar_t latin_bench[]=L"--latin-bench";inspected=0;while(latin_bench[inspected]&&p[inspected]==latin_bench[inspected])++inspected;if(inspected==13&&(p[13]==0||p[13]==' ')){if(!p[13])return latin_benchmark(owner);latin_bench_fonts=true;p+=13;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t latin_cpu_option[]=L"--latin-cpu";inspected=0;while(latin_cpu_option[inspected]&&p[inspected]==latin_cpu_option[inspected])++inspected;if(inspected==11&&(p[11]==0||p[11]==' ')){latin_cpu=true;if(!p[11])return latin_benchmark(owner);latin_bench_fonts=true;p+=11;while(*p==' '||*p=='\t')++p;}
+    static const wchar_t telugu_bench_option[]=L"--telugu-bench";inspected=0;while(telugu_bench_option[inspected]&&p[inspected]==telugu_bench_option[inspected])++inspected;if(!telugu_bench_option[inspected]&&!p[inspected])return styled_paragraph_benchmark(true,false,false);
+    static const wchar_t arabic_bench_option[]=L"--arabic-bench";inspected=0;while(arabic_bench_option[inspected]&&p[inspected]==arabic_bench_option[inspected])++inspected;if(!arabic_bench_option[inspected]&&!p[inspected])return styled_paragraph_benchmark(false,false,true);
+    static const wchar_t kannada_bench_option[]=L"--kannada-bench";inspected=0;while(kannada_bench_option[inspected]&&p[inspected]==kannada_bench_option[inspected])++inspected;if(!kannada_bench_option[inspected]&&!p[inspected])return styled_paragraph_benchmark(false,true,false);
+    static const wchar_t odia_bench_option[]=L"--odia-bench";inspected=0;while(odia_bench_option[inspected]&&p[inspected]==odia_bench_option[inspected])++inspected;if(inspected==12&&!p[12])return styled_paragraph_benchmark(false,false,false);
     static const wchar_t profile[]=L"--paragraph-profile";inspected=0;while(profile[inspected]&&p[inspected]==profile[inspected])++inspected;if(inspected==19&&(p[19]==0||p[19]==' ')){paragraph_profiles=true;p+=19;while(*p==' '||*p=='\t')++p;}
     static const wchar_t expansion[]=L"--paragraph-expansion";inspected=0;while(expansion[inspected]&&p[inspected]==expansion[inspected])++inspected;if(inspected==21&&p[21]==' '){paragraph_expansion=true;p+=21;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t bench_para[]=L"--paragraph-bench";inspected=0;while(bench_para[inspected]&&p[inspected]==bench_para[inspected])++inspected;if(inspected==17){if(!p[17])return paragraph_benchmark(owner);if(p[17]==' '){paragraph_bench_fonts=true;p+=17;while(*p==' '||*p=='\t')++p;}}
-    static const wchar_t option[]=L"--bench";u32 matched=0;while(option[matched]&&p[matched]==option[matched])++matched;
-    if(matched==7&&(p[7]==0||p[7]==' '||p[7]=='\t')){benchmark=true;p+=7;while(*p==' '||*p=='\t')++p;}
-    static const wchar_t family_option[]=L"--family";matched=0;while(family_option[matched]&&p[matched]==family_option[matched])++matched;
+    static const wchar_t family_option[]=L"--family";u32 matched=0;while(family_option[matched]&&p[matched]==family_option[matched])++matched;
     const bool system_family=matched==8&&(p[8]==0||p[8]==' '||p[8]=='\t');if(system_family){p+=8;while(*p==' '||*p=='\t')++p;}
     if(*p){wchar_t path[32768];u32 n=0;quote=*p=='"';if(quote)++p;while(*p&&!(quote?*p=='"':*p==' '||*p=='\t')){CHECK(n+1<32768);path[n++]=*p++;}path[n]=0;if(quote&&*p=='"')++p;while(*p==' '||*p=='\t')++p;u32 weight=0;while(*p>='0'&&*p<='9'){CHECK(weight<10000);weight=weight*10+*p++-'0';}return system_family?corpus(nullptr,path,weight):custom(path,weight);}
     CHECK(input_validation());

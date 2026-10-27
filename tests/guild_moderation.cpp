@@ -22,7 +22,7 @@ constexpr u64 kDayMs = 86'400'000ull;
 struct Capture {
     RestRouteKey route;
     u64 id;
-    u32 submissions, cancellations, target_bytes, body_bytes, reason_bytes, response_capacity;
+    u32 submissions, target_bytes, body_bytes, reason_bytes, response_capacity;
     u8 target[kRestClientMaximumTargetBytes], body[8192], reason[kRestAuditReasonMaximumEncodedBytes];
     bool json, empty_reason;
 } capture;
@@ -295,9 +295,8 @@ void test_transport() noexcept {
               same(capture.body, capture.body_bytes, utf8_literal(R"({"user_ids":["5"],"delete_message_seconds":0})")) &&
               !capture.reason_bytes && capture.empty_reason,
           "guild moderation account: an untouched bulk ban reason sends an empty header");
-    check(account_guild_moderation_cancel(&details, 201).ok() && capture.cancellations == 1 &&
-              !account_guild_moderation_submit(&details, &request, 0).ok(),
-          "guild moderation account: a superseded search is cancelled by its ID; zero IDs are refused");
+    check(!account_guild_moderation_submit(&details, &request, 0).ok(),
+          "guild moderation account: zero request IDs are refused");
 }
 
 } // namespace guild_moderation_test
@@ -329,17 +328,11 @@ static RestClientSubmitResult submit_large_response_stub(RestClient* client, con
     return result;
 }
 
-static bool cancel_stub(RestClient*, u64 request_id) noexcept {
-    ++guild_moderation_test::capture.cancellations;
-    return request_id == 201;
-}
-
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_guild_moderation_entry() noexcept {
     maicord::rest_install_hooks({.submit = maicord::submit_stub,
-        .submit_large_response = maicord::submit_large_response_stub,
-        .cancel = maicord::cancel_stub});
+        .submit_large_response = maicord::submit_large_response_stub});
     using namespace maicord::guild_moderation_test;
     test_search_bodies();
     test_bans();

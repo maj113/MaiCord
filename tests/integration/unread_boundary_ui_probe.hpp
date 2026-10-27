@@ -24,9 +24,6 @@ struct Fixture {
     UiWidget menu_widgets[50]{}; UiLayoutNode menu_nodes[50]{};
     ~Fixture() noexcept { popup_scene_release(&menu); message_scene_release(&scene); message_rich_store_release(&rich); }
 };
-inline bool text_equal(Utf8View a,Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data,b.data,a.bytes);
-}
 struct Geometry { UiRect line,avatar,frame,edge; };
 inline Geometry geometry(const MessageScene& scene,u64 first) noexcept {
     Geometry result{};
@@ -255,7 +252,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
         }
         for (u32 i = 0; i < f.presentation.command_count; ++i) {
             const auto& command = f.presentation.commands[i];
-            if (!text_equal(command.text,kUiUnreadDividerLabel)) continue;
+            if (!utf8_equal(command.text,kUiUnreadDividerLabel)) continue;
             ++labels; const auto color = ui_unread_divider_text_color(theme);
             if (command.message_id || command.measurement_kind != MessageTextMeasurementKind::none ||
                 command.measurement_index != kInvalidMessageTextMeasurement ||
@@ -304,7 +301,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
     bool message_label = false;
     for (u32 i = 0; i < menu.count; ++i)
         if (menu.items[i].action == static_cast<u32>(MessageContextAction::mark_unread))
-            message_label = text_equal(menu.items[i].label,utf8_literal("Mark unread")) && (menu.items[i].flags & popup_item_enabled);
+            message_label = utf8_equal(menu.items[i].label,utf8_literal("Mark unread")) && (menu.items[i].flags & popup_item_enabled);
     if (!require(message_label &&
         show_menu({menu.items,menu.count},first + 1,static_cast<u32>(MessageContextAction::mark_unread),L"unread-message-menu.bmp"),11)) return false;
     PopupItem channel_items[4]{};
@@ -312,7 +309,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
     bool channel_label = false;
     for (u32 i = 0; i < channel_count; ++i)
         if (channel_items[i].action == 703)
-            channel_label = text_equal(channel_items[i].label,utf8_literal("Mark as unread")) && (channel_items[i].flags & popup_item_enabled);
+            channel_label = utf8_equal(channel_items[i].label,utf8_literal("Mark as unread")) && (channel_items[i].flags & popup_item_enabled);
     if (!require(channel_label && show_menu({channel_items,channel_count},121,703,L"unread-channel-menu.bmp") &&
         probe_resize_surface(1200,800) && project(),12)) return false;
     const float outside = renderer.width * 96.f / renderer.dpi - ui_rect_width(f.scene.viewport);
@@ -381,7 +378,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
     if (!require(message_scene_set_unread_cursor(&f.scene,channel,first + 3,true,&changed) && changed &&
         show(L"unread-cleared.bmp") && !f.scene.unread_first_message_id,20)) return false;
     for (u32 i = 0; i < f.presentation.command_count; ++i)
-        if (text_equal(f.presentation.commands[i].text,kUiUnreadDividerLabel)) return require(false,21);
+        if (utf8_equal(f.presentation.commands[i].text,kUiUnreadDividerLabel)) return require(false,21);
     if (!require(message_scene_set_unread_cursor(&f.scene,channel,0,false) && project() && !f.scene.unread_first_message_id,22)) return false;
     renderer_set_dpi(&renderer,dpi);
     if (!require(probe_resize_surface(width,height),23)) return false;

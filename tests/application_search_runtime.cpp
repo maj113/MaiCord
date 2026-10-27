@@ -88,27 +88,6 @@ void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
 
-void measurement(const char* label, usize value) noexcept {
-    char output[128];
-    char digits[20];
-    u32 used = 0;
-    while (*label) {
-        output[used++] = *label++;
-    }
-    output[used++] = '=';
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    while (count) {
-        output[used++] = digits[--count];
-    }
-    output[used++] = '\n';
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, used, &written, nullptr);
-}
-
 usize committed(const void* pointer) noexcept {
     MEMORY_BASIC_INFORMATION information{};
     return pointer && VirtualQuery(pointer, &information, sizeof(information)) &&
@@ -346,7 +325,6 @@ void rich_bank_capacity() noexcept {
         bank_release(b);
         return;
     }
-    measurement("search_empty_bank_total_committed_bytes", bank_committed(b));
     for (u32 body = 0; body < 2; ++body) {
         for (u32 j = 0; j < kGatewayMessageAttachmentMaximum; ++j)
             scratch->attachments[body][j] = {
@@ -475,71 +453,7 @@ void rich_bank_capacity() noexcept {
                          utf8_literal("Original forwarded body")) &&
               user_store_find(b->users, 3000),
           "search rich bank: scratch reuse cannot mutate retained text, media or named mentions");
-    measurement("search_full125_bank_total_committed_bytes", bank_committed(b));
     VirtualFree(scratch, 0, MEM_RELEASE);
-    bank_release(b);
-}
-void diagnose_rich_decode(Utf8View body) noexcept {
-    auto* b = static_cast<SearchBank*>(
-        VirtualAlloc(nullptr, sizeof(SearchBank), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    auto* scratch = static_cast<SearchDecodeScratch*>(
-        VirtualAlloc(nullptr, sizeof(SearchDecodeScratch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    auto* text =
-        static_cast<char*>(VirtualAlloc(nullptr, body.bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (b && scratch && text && bank_initialize(*b)) {
-        MessageSearchQuery q{};
-        q.scope = MessageSearchScope::guild;
-        q.scope_id = 7;
-        q.limit = 25;
-        const auto content = utf8_literal("rich original");
-        copy_bytes(q.content, content.data, content.bytes);
-        q.content_bytes = static_cast<u16>(content.bytes);
-        const auto result = decode_message_search_page(
-            body, q,
-            {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
-            {g_app.account_ui->message_history_object_structurals, kMessageHistoryObjectStructuralCount},
-            64, {text, body.bytes}, {b->groups, kMessageSearchMaximumGroups},
-            {b->messages, kMessageSearchMaximumMessages}, decode_scratch(*scratch),
-            {b, +[](void* opaque, u32 index, const MessageSearchMessage& item) noexcept {
-                 auto& bank = *static_cast<SearchBank*>(opaque);
-                 const bool accepted = bank_accept(opaque, index, item);
-                 if (!accepted) {
-                     measurement("search_sink_rejected_index", index);
-                     measurement("search_sink_input_fields", item.message.fields);
-                     measurement("search_sink_input_truncations", item.message.rich_truncations);
-                     measurement("search_sink_snapshot_truncations",
-                                 item.message.snapshot.rich_truncations);
-                     measurement("search_sink_base_rejected", bank.store.rejected);
-                     measurement("search_sink_rich_rejected", bank.rich.rejected);
-                     const auto found = message_store_find(bank.store, item.message.id);
-                     const auto* r = found.ok() ? message_store_resolve(bank.store, found.handle) : nullptr;
-                     measurement("search_sink_duplicate_base_present", r != nullptr);
-                     if (r) {
-                         measurement("search_sink_timestamp_equal",
-                                     r->timestamp_ms ==
-                                         (item.message.timestamp_ms
-                                              ? item.message.timestamp_ms
-                                              : snowflake_timestamp_ms(item.message.id)));
-                         measurement("search_sink_content_equal",
-                                     utf8_equal(message_store_content(bank.store, found.handle),
-                                                item.message.content));
-                         measurement("search_sink_rich_equal",
-                                     rich_body_same(bank.rich,
-                                                    message_rich_store_find(bank.rich, item.message.id),
-                                                    item.message));
-                     }
-                 }
-                 return accepted;
-             }});
-        measurement("search_direct_decode_error", static_cast<u32>(result.error));
-        measurement("search_direct_message_error", static_cast<u32>(result.message_error));
-        measurement("search_direct_error_offset", result.error_offset);
-        measurement("search_direct_decoded_count", result.page.message_count);
-    }
-    if (text)
-        VirtualFree(text, 0, MEM_RELEASE);
-    if (scratch)
-        VirtualFree(scratch, 0, MEM_RELEASE);
     bank_release(b);
 }
 void private_privacy() noexcept {
@@ -702,15 +616,6 @@ void rich_publication() noexcept {
     const bool received = submitted && response(950, 200, body);
     check(queued && submitted && received,
           "search rich publication: actual rich decoder response publishes repeated coherent context");
-    if (!received || !g_app.search->bank) {
-        measurement("search_fixture_query_ok", queued);
-        measurement("search_fixture_submit_ok", submitted);
-        measurement("search_fixture_response_ok", received);
-        measurement("search_fixture_controller_state", static_cast<u32>(g_app.search->controller.state));
-        measurement("search_fixture_controller_failure",
-                    static_cast<u32>(g_app.search->controller.failure));
-        diagnose_rich_decode(body);
-    }
     ApplicationSearchSourceTicket ticket{};
     ApplicationSearchSourceView outer{}, child{};
     check(application_search_source_ticket(0, &ticket) &&
@@ -736,8 +641,6 @@ void rich_publication() noexcept {
                     text_owner->builds == builds && bank_committed(g_app.search->bank) == bank_bytes;
     check(unchanged, "search rich publication:64 unchanged passes reuse owning text projection and "
                      "committed bank backing without reparsing");
-    measurement("search_rich_presentation_owner_bytes", sizeof(SearchTextOwner));
-    measurement("search_active_rich_bank_total_committed_bytes", bank_bytes);
     auto* native = ui_search_scene_message_scene(&g_app.search->scene);
     const auto* row = native ? message_scene_find_row(*native, 0) : nullptr;
     const auto file = row ? message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, 0)
@@ -1110,11 +1013,8 @@ void filter_choices_runtime() noexcept {
     auto* bank = g_app.search->choices;
     if (!bank)
         return;
-    measurement("search_filter_choice_owner_bytes", sizeof(SearchFilterChoices));
-    measurement("search_filter_choice_committed_bytes", committed(bank));
     const auto scans = bank->scans, copies = bank->copies, rebuilds = bank->rebuilds;
     const auto revision = bank->source.revision, scene_revision = g_app.search->scene.revision;
-    const auto content_revision = g_app.search->content.revision;
     const auto layout_revision = g_app.search->scene.widgets.layout.revision;
     bool stable = true;
     for (u32 i = 0; i < 64; ++i)
@@ -1125,22 +1025,6 @@ void filter_choices_runtime() noexcept {
                                 g_app.search->scene.revision == scene_revision &&
                                 g_app.search->scene.widgets.layout.revision == layout_revision &&
                                 account.submissions == submissions_before && committed(bank) <= 4096;
-    if (!warm_unchanged) {
-        measurement("search_choices_warm_sync_ok", stable);
-        measurement("search_choices_warm_bank_same", bank == g_app.search->choices);
-        measurement("search_choices_warm_scans_delta", bank->scans - scans);
-        measurement("search_choices_warm_copies_delta", bank->copies - copies);
-        measurement("search_choices_warm_rebuilds_delta", bank->rebuilds - rebuilds);
-        measurement("search_choices_warm_publication_delta", bank->source.revision - revision);
-        measurement("search_choices_warm_content_revision_delta",
-                    g_app.search->content.revision - content_revision);
-        measurement("search_choices_warm_scene_revision_delta",
-                    g_app.search->scene.revision - scene_revision);
-        measurement("search_choices_warm_layout_revision_delta",
-                    g_app.search->scene.widgets.layout.revision - layout_revision);
-        measurement("search_choices_warm_requests_delta", account.submissions - submissions_before);
-        measurement("search_choices_warm_bank_committed", committed(bank));
-    }
     check(warm_unchanged,
           "search choices: 64 retained synchronizations perform no inventory scans, copies, rebuilds, "
           "layouts, allocation or requests");
@@ -1631,8 +1515,6 @@ void rich_scroll_runtime() noexcept {
     check(query(utf8_literal("scroll fixture")) && application_search_submit(980, 1) && response(980, 200, body),
           "search scrolling: four rich results publish through the real controller");
     auto& s = *g_app.search;
-    measurement("search_scroll_maximum", static_cast<u64>(ui_search_scene_scroll_maximum(s.scene)));
-    measurement("search_scroll_total", static_cast<u64>(ui_extent_dips(s.bank->list.total_units)));
     check(ui_search_scene_scroll_maximum(s.scene) > 0 &&
           ui_scrollbar_geometry(s.scene.body, s.scene.scroll_dips, ui_extent_dips(s.bank->list.total_units)).visible,
           "search scrolling: rich media contributes to the scrollbar extent");
@@ -1682,12 +1564,6 @@ void run() noexcept {
     const auto timeline_before = g_app.message_view.timeline;
     const auto store_before = g_app.message_view.store;
     const auto record_before = records[0];
-    measurement("search_controller_owner_bytes", sizeof(ApplicationSearch));
-    measurement("search_scene_owner_bytes", sizeof(UiSearchScene));
-    measurement("search_visible_row_bytes", sizeof(UiSearchRow));
-    measurement("search_borrowed_source_bytes", sizeof(UiSearchSource));
-    measurement("search_result_bank_bytes", sizeof(SearchBank));
-    measurement("search_owner_committed_bytes", committed(g_app.search));
     check(!g_app.search->bank && !g_app.search->candidate && !application_search_pending(1) &&
               !application_search_read_blocked() && !application_search_next_wake(),
           "search runtime: dormant title field has no results bank, request or idle deadline");
@@ -1755,7 +1631,6 @@ void run() noexcept {
             utf8_equal(g_app.search->content.status,
                        utf8_literal("Press Enter to update results.")),
         "search runtime: ready-result draft typing keeps the owned bank and committed query without REST");
-    measurement("search_active_bank_committed_bytes", committed(g_app.search->bank));
     check(g_app.search->suggestions && key(VK_ESCAPE) && !g_app.search->suggestions &&
               g_app.search->panel && g_app.search->bank == ready_bank &&
               account.submissions == submissions_before_refinement,
@@ -1774,8 +1649,6 @@ void run() noexcept {
             account.query.offset == 25 && !response(103, 200, result_body) &&
             response(104, 200, result_body),
         "search runtime: page activation uses server offset and ignores prior-page duplicate replies");
-    measurement("search_double_bank_committed_bytes",
-                committed(g_app.search->bank) + committed(g_app.search->candidate));
     check(bytes_equal(&timeline_before, &g_app.message_view.timeline, sizeof(timeline_before)) &&
               bytes_equal(&store_before, &g_app.message_view.store, sizeof(store_before)) &&
               bytes_equal(&record_before, records, sizeof(record_before)) &&
@@ -2166,10 +2039,5 @@ bool application_navigate_notification(u64 channel, u64 message) noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_application_search_runtime_entry() noexcept {
     maicord::search_runtime_test::run();
-    const bool failed = maicord::search_runtime_test::failures != 0;
-    constexpr char pass[] = "PASS application search runtime\n";
-    constexpr char fail[] = "FAIL application search runtime\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::search_runtime_test::failures, "application search runtime");
 }

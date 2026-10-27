@@ -222,12 +222,10 @@ void folders() noexcept {
               GuildFolderEditError::unchanged,
           "folders: dropping in place changes nothing");
     // Charlie (30, in Games) next to Echo (50, in folder 9): joins folder 9.
-    const u64 nested[]{50, 30};
     check(guild_folders_move(&work, {30, false}, {50, false}, GuildFolderDrop::after, 0) == GuildFolderEditError::none &&
               folder_is(work, 2, 7, {ids + 1, 1}) && work.folders[3].guild_count == 3 &&
               work.guild_ids[work.folders[3].first_guild] == 50 && work.guild_ids[work.folders[3].first_guild + 1] == 30,
           "folders: a guild dropped beside a folder member joins that folder");
-    (void)nested;
     // Delta (40), the last of Games, moves top level: Games disappears.
     check(guild_folders_move(&work, {40, false}, {20, false}, GuildFolderDrop::before, 0) == GuildFolderEditError::none &&
               guild_folders_find_folder(work, 7) == ~0u && work.guild_ids[0] == 40,

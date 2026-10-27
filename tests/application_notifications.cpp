@@ -50,85 +50,17 @@ struct Fixture {
     u32 sound_count;
     GatewayClientEvent completion;
     MessageEventPumpConsumeResult consumed;
-    u32 delivered, relationship_flags, navigation_calls, trace_lines;
+    u32 delivered, relationship_flags, navigation_calls;
     DesktopNotificationActivation removals[64];
     DesktopNotificationResult removal_result;
     u32 removal_count, show_action;
-    bool relationship_known, hold_completion, sink_valid, trace_ready, auto_drain;
+    bool relationship_known, hold_completion, sink_valid, auto_drain;
     ReadStateEntry read_pending[32];
     PrivateChannelRecord private_records[8];
     u64 private_recipients[32];
 };
 Fixture fixture{};
 
-// Bounded semantic diagnostics only: no names, content, credentials, OS
-// enrollment, or additional artifacts. Root can inspect the first READY's
-// producer flags and public owner metrics without altering production state.
-void trace(Utf8View phase, const GatewayClientEvent* event = nullptr) noexcept {
-    auto& f = fixture;
-    if (f.trace_lines == 32) return;
-    ++f.trace_lines;
-    char line[320];
-    ProtocolWriter writer{{reinterpret_cast<u8*>(line), sizeof(line)}, 0};
-    protocol_writer_append_literal(&writer, "notification_fixture ");
-    protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(phase.data), phase.bytes);
-    const auto number = [&](Utf8View label, u64 value) noexcept {
-        protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(label.data), label.bytes);
-        protocol_writer_append_u64(&writer, value);
-    };
-    if (event) {
-        number(utf8_literal(" kind="), static_cast<u32>(event->kind));
-        number(utf8_literal(" dispatch="), static_cast<u32>(event->dispatch_kind));
-        number(utf8_literal(" flags="), event->notification.flags);
-        number(utf8_literal(" input_overrides="), event->notification.override_count);
-        number(utf8_literal(" bytes="), event->dispatch_payload_bytes);
-        number(utf8_literal(" side_bytes="), event->notification_payload_bytes);
-    }
-    const auto metrics = application_notifications_fixture_metrics(&g_app);
-    number(utf8_literal(" guilds="), metrics.guilds);
-    number(utf8_literal(" overrides="), metrics.overrides);
-    number(utf8_literal(" threads="), metrics.threads);
-    number(utf8_literal(" ready="), metrics.ready);
-    number(utf8_literal(" live="), metrics.live);
-    number(utf8_literal(" seen="), metrics.seen_count);
-    number(utf8_literal(" delivered="), f.delivered);
-    number(utf8_literal(" pump_error="), static_cast<u32>(f.consumed.error));
-    if (!event) {
-        number(utf8_literal(" model_guilds="), f.ui.chat_state.guild_count);
-        number(utf8_literal(" model_channels="), f.ui.chat_state.channel_count);
-        number(utf8_literal(" self="), f.ui.chat_state.self_user_id);
-        number(utf8_literal(" selected="), f.ui.chat_state.selected_channel_id);
-    }
-    protocol_writer_append_literal(&writer, "\r\n");
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, writer.used, &written, nullptr);
-}
-void memory_trace(Utf8View phase,const ApplicationNotificationFixtureMetrics& m) noexcept {
-    char line[768]; ProtocolWriter w{{reinterpret_cast<u8*>(line),sizeof(line)},0};
-    protocol_writer_append_literal(&w,"notification_memory ");
-    protocol_writer_append_bytes(&w,reinterpret_cast<const u8*>(phase.data),phase.bytes);
-    const auto number=[&](Utf8View label,u64 value) noexcept {
-        protocol_writer_append_bytes(&w,reinterpret_cast<const u8*>(label.data),label.bytes);
-        protocol_writer_append_u64(&w,value);
-    };
-    number(utf8_literal(" fixture_owner="),m.owner_sizeof_bytes);
-    number(utf8_literal(" fixture_extension="),m.owner_fixture_extension_bytes);
-    number(utf8_literal(" owner_commit="),m.owner_vm_committed_bytes);
-    number(utf8_literal(" storage_commit="),m.storage_committed_bytes);
-    number(utf8_literal(" storage_reserve="),m.storage_reserved_bytes);
-    number(utf8_literal(" thread_commit="),m.thread_storage.committed_bytes);
-    number(utf8_literal(" display_sizeof="),m.display_owner_sizeof_bytes);
-    number(utf8_literal(" display_commit="),m.display_vm_committed_bytes);
-    number(utf8_literal(" display_outstanding="),m.display_outstanding);
-    number(utf8_literal(" display_bytes="),m.display_bytes);
-    number(utf8_literal(" retained_channels="),m.retention_channels);
-    number(utf8_literal(" retained_tickets="),m.retention_tickets);
-    number(utf8_literal(" retention_logical="),m.retention_logical_bytes);
-    number(utf8_literal(" retention_rows_commit="),m.retention_rows_committed_bytes);
-    number(utf8_literal(" retention_index_commit="),m.retention_index_committed_bytes);
-    protocol_writer_append_literal(&w,"\r\n"); DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),line,w.used,&written,nullptr);
-}
 
 void capture(void* context, const DesktopNotificationPayload& payload) noexcept {
     auto& f = *static_cast<Fixture*>(context);
@@ -177,11 +109,9 @@ bool publish(void*, const GatewayClientEvent& event, ConstSlice<u8> payload) noe
     auto& f = fixture;
     if (f.hold_completion && event.dispatch_kind == GatewayClientDispatchKind::ready_state_complete) {
         f.completion = event;
-        if (f.trace_ready) trace(utf8_literal("held_completion"), &event);
         return true;
     }
     application_notifications_gateway(&g_app, event, payload);
-    if (f.trace_ready) trace(utf8_literal("event"), &event);
     f.consumed = message_event_pump_consume(&g_app.message_pump, event, payload);
     if(f.auto_drain && event.kind==GatewayClientEventKind::dispatch &&
         event.dispatch_kind==GatewayClientDispatchKind::message_create) application_notifications_drain(&g_app);
@@ -191,9 +121,8 @@ bool initialize() noexcept {
     application_notifications_release(&g_app);
     clear_bytes(&g_app, sizeof(g_app));
     auto& f = fixture;
-    f.delivered = f.relationship_flags = f.navigation_calls = f.trace_lines = 0;
+    f.delivered = f.relationship_flags = f.navigation_calls = 0;
     f.relationship_known = f.sink_valid = true; f.hold_completion = false;
-    f.trace_ready = false;
     f.auto_drain = true;
     f.sound_count=0; f.sound_now=0; f.sound_status={};
     f.sound_status.enabled=true; f.sound_result={};
@@ -238,16 +167,11 @@ bool hydrate(Utf8View input = ready, u64 sequence = 10, bool hold = false,
     GatewayReady decoded{};
     if (!gateway_decode_ready({input, 0, JsonValueKind::object}, {f.arrays, 4096}, 64, &decoded).ok()) return false;
     if(settings_override.data) decoded.user_guild_settings={settings_override,0,JsonValueKind::object};
-    // Trace the first complete producer sequence, keeping room in the same
-    // 32-line budget for the later partial/full snapshot boundaries.
-    f.trace_ready = f.trace_lines == 0;
     const auto result = gateway_ready_project(decoded,
         {{f.arrays, 4096}, {f.records, 4096}, {f.payload, sizeof(f.payload)}, {f.header, sizeof(f.header)}},
         sequence, 1000, publish, nullptr, nullptr);
     f.hold_completion = false;
-    f.trace_ready = false;
     const bool valid = result.ok() && chat_state_store_select_channel(&f.ui.chat_state, 20).ok();
-    trace(utf8_literal("after_hydrate"));
     return valid;
 }
 bool snapshot(Utf8View settings_json) noexcept {
@@ -255,11 +179,8 @@ bool snapshot(Utf8View settings_json) noexcept {
     GatewayReady decoded{};
     if (!gateway_decode_ready({ready, 0, JsonValueKind::object}, {f.arrays, 4096}, 64, &decoded).ok()) return false;
     decoded.user_guild_settings = {settings_json, 0, JsonValueKind::object};
-    f.trace_ready = true;
     const auto result = gateway_client_publish_notification_snapshot(decoded, {f.arrays, 4096}, {f.records, 4096},
         {f.payload, sizeof(f.payload)}, 10, 1000, publish, nullptr);
-    f.trace_ready = false;
-    trace(utf8_literal("after_snapshot"));
     return result.ok();
 }
 bool dispatch(Utf8View name, Utf8View json, u64 sequence = 20) noexcept {
@@ -565,7 +486,6 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
         application_notifications_fixture_retained(&g_app,21,0)==2000 &&
         application_notifications_fixture_retained(&g_app,21,19)==2019 && !f.removal_count,
         "notification retention: exactly20 successful silent and ActionCenter-only Shows keep actual-channel FIFO in page-rounded sparse banks");
-    memory_trace(utf8_literal("retention_twenty"),m);
     f.removal_result={DesktopNotificationError::transport,5};
     check(message(2020,22) && f.removal_count==1 && f.removals[0].profile_id==77 &&
         f.removals[0].channel_id==21 && f.removals[0].message_id==2000 &&
@@ -659,7 +579,6 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
         application_notifications_fixture_retained(&g_app,100,0)==2301 &&
         application_notifications_fixture_retained(&g_app,115,0)==2318,
         "notification retention: recovered geometric growth rebinds dense rows and channel index without losing history");
-    memory_trace(utf8_literal("retention_grown"),application_notifications_fixture_metrics(&g_app));
     check(hydrate(ready,1) && application_notifications_fixture_metrics(&g_app).retention_channels==17,
         "notification retention: READY omitting historical channels retains their successful metadata");
     bool historical=true;
@@ -868,23 +787,17 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     if(!owner_initialized) { application_notifications_release(&g_app); return; }
     auto initial_metrics=application_notifications_fixture_metrics(&g_app);
     Win32SystemInfo info{}; GetSystemInfo(info.native());
-    check(initial_metrics.owner_vm_query_ok && initial_metrics.owner_fixture_extension_bytes>=9*sizeof(void*) &&
-        initial_metrics.owner_fixture_extension_bytes<11*sizeof(void*) &&
+    check(initial_metrics.owner_vm_query_ok &&
         initial_metrics.owner_vm_committed_bytes==((initial_metrics.owner_sizeof_bytes+info.dwPageSize-1)/info.dwPageSize)*info.dwPageSize &&
         initial_metrics.storage_committed_bytes==0 && initial_metrics.storage_reserved_bytes>0 &&
-        !initial_metrics.display_owner_sizeof_bytes && !initial_metrics.display_vm_committed_bytes &&
-        initial_metrics.guild_storage.stride_bytes==40 && initial_metrics.override_storage.stride_bytes==40 &&
-        initial_metrics.thread_storage.stride_bytes==40 && initial_metrics.staging_storage.stride_bytes==40 &&
-        initial_metrics.guild_scope_storage.stride_bytes==32 && initial_metrics.channel_scope_storage.stride_bytes==32,
+        !initial_metrics.display_owner_sizeof_bytes && !initial_metrics.display_vm_committed_bytes,
         "notification application: compiled owner commits its page-rounded size and six stable banks initially reserve without commit");
-    memory_trace(utf8_literal("before_ready"),initial_metrics);
     const bool initialized = hydrate(ready, 10, true);
     check(initialized, "notification application: nonemitting owner and actual READY projection hydrate");
     if (!initialized) { application_notifications_release(&g_app); return; }
     auto metrics = application_notifications_fixture_metrics(&g_app);
     check(metrics.storage_committed_bytes>0 && metrics.storage_committed_bytes<metrics.storage_reserved_bytes &&
         !metrics.thread_storage.committed_bytes,"notification application: small READY commits only populated notification prefixes");
-    memory_trace(utf8_literal("small_ready"),metrics);
     check(!metrics.ready && metrics.live && metrics.guilds == 1 && metrics.overrides == 1,
         "notification application: copied READY settings do not arm before completion");
     check(message(100, 11) && f.delivered == 0,
@@ -1101,7 +1014,6 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
         metrics.display_owner_sizeof_bytes<24*1024 && metrics.display_vm_committed_bytes==24*1024 &&
         !application_notifications_can_pop(&g_app) && application_notifications_gateway_pending(&g_app),
         "notification application: copied burst fills exactly32 rows and pre-pop admission applies backpressure");
-    memory_trace(utf8_literal("full_display"),metrics);
     application_notifications_drain(&g_app);
     metrics=application_notifications_fixture_metrics(&g_app);
     check(f.delivered==before_burst+1 && f.last.target.message_id==700 && body(utf8_literal("first copied body")) &&

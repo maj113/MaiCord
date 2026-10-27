@@ -1031,11 +1031,11 @@ maicord_font_test(MaiCordKhmerInputTests maicord_khmer_input_entry khmer_input_t
     LABELS native-text-khmer-input TEST maicord_native_khmer_input)
 maicord_font_test(MaiCordUsePlanTests maicord_use_plan_entry use_plan_test STANDALONE TIMEOUT 2
     LABELS native-text-use-plan TEST maicord_native_use_plan)
-maicord_font_test(MaiCordMyanmarShapeTests maicord_myanmar_shape_entry myanmar_shape_test UNICODE STANDALONE TIMEOUT 2
+maicord_font_test(MaiCordMyanmarShapeTests maicord_myanmar_shape_entry myanmar_shape_test UNICODE TIMEOUT 2
     LABELS native-text-myanmar-shape TEST maicord_native_myanmar_shape)
 maicord_add_tests(MaiCordMyanmarShapeTests TIMEOUT 2 LABELS native-text-myanmar-shape
     ENVIRONMENT MAICORD_MYANMAR_OWNED_TEST=1 TEST maicord_native_myanmar_owned)
-maicord_font_test(MaiCordMyanmarInputTests maicord_myanmar_input_entry myanmar_input_test STANDALONE TIMEOUT 2
+maicord_font_test(MaiCordMyanmarInputTests maicord_myanmar_input_entry myanmar_input_test TIMEOUT 2
     LABELS native-text-myanmar-input TEST maicord_native_myanmar_input)
 maicord_add_tests(MaiCordUsePlanTests TIMEOUT 2 LABELS native-text-tibetan-plan
     TEST maicord_native_tibetan_plan --tibetan)
@@ -1098,9 +1098,7 @@ maicord_font_test(MaiCordFontMatchTests maicord_font_match_entry font_match_test
 maicord_font_test(MaiCordFontNamesTests maicord_font_names_entry font_names_test STANDALONE TIMEOUT 2
     LABELS native-text-font-names TEST maicord_native_font_names)
 maicord_font_test(MaiCordRunPlanTests maicord_run_plan_entry run_plan_test STANDALONE TEST maicord_native_run_plans)
-# <font> <weight> <command> runs one font through a single check. The cost
-# commands, lazy-failure (it needs a purpose-built font) and the
-# q:/line:/ascii:/metrics/range audits are manual tools.
+# <font> <weight> <command> runs one font through a single check.
 maicord_add_tests(MaiCordRunPlanTests TIMEOUT 5
     TEST maicord_native_run_plan_lazy_units "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf" 400 lazy-units
     TEST maicord_native_run_plan_profiles "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf" 400 profiles)
@@ -1646,14 +1644,11 @@ maicord_test(MaiCordEmbedProviderTests ENTRY maicord_embed_provider_entry SOURCE
 maicord_test(MaiCordYoutubePlayerTests ENTRY maicord_youtube_player_entry SOURCES tests/youtube_player.cpp
     BUNDLE MaiCordProtocolTests TIMEOUT 5 TEST maicord_youtube_player)
 
-# MAICORD_SOUNDCLOUD_LIVE_PROBE=5 checks collection track switches and stale commands.
-# MAICORD_YTM_LIVE_PROBE=1 exercises the reported music streams; adding
-# MAICORD_AAC_SEEK_PROBE=1 compares sought PCM against continuous native decode.
 maicord_test(MaiCordEmbedResolverTests ENTRY maicord_youtube_resolver_entry
-    # Public SoundCloud queues; opt-in native YouTube HD and adaptive AAC seek comparison.
-    SOURCES tests/youtube_resolver.cpp tests/twitch_live_fetch.cpp tests/soundcloud_player.cpp
+    # Public SoundCloud queues.
+    SOURCES tests/youtube_resolver.cpp tests/soundcloud_player.cpp
         tests/soundcloud_collection.cpp tests/youtube_collection.cpp tests/apple_music_album.cpp
-        tests/apple_music_playlist.cpp tests/native_player_perf.cpp src/app/update_https.cpp
+        tests/apple_music_playlist.cpp src/app/update_https.cpp
     LIBS maicord_account_media maicord_app_core maicord_protocol maicord_platform maicord_core
         d3d11 dxgi ole32 user32 kernel32 ws2_32 maicord_sspicli bcrypt
     TIMEOUT 20 TEST maicord_youtube_resolver)
@@ -1682,8 +1677,7 @@ maicord_test(MaiCordAppleMusicPlayerTests ENTRY maicord_apple_music_player_entry
     BUNDLE MaiCordProtocolTests TIMEOUT 5 TEST maicord_apple_music_player)
 
 maicord_test(MaiCordMp4FragmentTests ENTRY maicord_mp4_fragment_entry
-    SOURCES tests/mp4_fragment.cpp tests/steam_playback_probe.cpp tests/twitch_fragment_probe.cpp
-        tests/twitch_live_session.cpp tests/fragment_audio_playback_probe.cpp
+    SOURCES tests/mp4_fragment.cpp tests/fragment_audio_playback_probe.cpp
     LIBS maicord_account_media maicord_media_codec maicord_platform maicord_core kernel32 ole32 user32 d3d11 dxgi
     TIMEOUT 10 TEST maicord_mp4_fragment)
 

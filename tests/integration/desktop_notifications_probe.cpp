@@ -43,47 +43,4 @@ bool probe_desktop_notifications() noexcept {
     desktop_notifications_release(&owner);if(callback){ok=ok&&callback->Activate(L"MaiCord.Native.NonemittingProbe",args,nullptr,0)==CO_E_SERVER_STOPPING;callback->Release();}
     if(factory)ok=(factory->Release()==0)&&ok;return ok&&!owner.runtime;
 }
-namespace {
-constexpr GUID kLiveActivator{0x5d0c6f3e,0x8a41,0x4b8e,{0x9e,0x27,0x31,0xc4,0x6a,0x0b,0x52,0xd9}};
-constexpr wchar_t kLiveSettings[]=L"Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\MaiCord.SelfTest.Live";
-struct Report {
-    char text[1024]; u32 count;
-    void add(const char* s) noexcept {while(*s&&count+1<sizeof(text))text[count++]=*s++;}
-    void hex(const char* name,u32 v) noexcept {add(name);add("=0x");for(u32 i=8;i--;){const char d[2]={"0123456789abcdef"[(v>>(i*4))&15],0};add(d);}add("\r\n");}
-};
-bool key_exists(const wchar_t* key) noexcept {HKEY k=nullptr;const bool found=RegOpenKeyExW(HKEY_CURRENT_USER,key,0,KEY_QUERY_VALUE,&k)==ERROR_SUCCESS;if(k)RegCloseKey(k);return found;}
-}
-// Manual live check; the suite never runs it. With MAICORD_NOTIFICATION_LIVE_REPORT
-// naming a report file, it enrolls a test AUMID/CLSID in the real
-// HKCU\Software\Classes, registers the activator, reads Windows'
-// NotificationSetting for it and removes everything again. A real toast is
-// shown only when MAICORD_NOTIFICATION_LIVE_TOAST=1 is also set.
-bool probe_desktop_notifications_live(const wchar_t* report_path,bool toast) noexcept {
-    wchar_t exe[1024]{};const u32 e=GetModuleFileNameW(nullptr,exe,1024);if(!e||e>=1024)return false;
-    const NotificationIdentityConfig id{wide(L"MaiCord.SelfTest.Live"),kLiveActivator,{exe,e},wide(L"MaiCord self-test"),{},
-        wide(L"MaiCordSelfTestLiveNonce0001"),{}};
-    Report report{};const bool settings_before=key_exists(kLiveSettings);
-    const auto before=notification_identity_check(id);report.hex("check_before",static_cast<u32>(before.error));
-    const auto created=notification_identity_create(id);report.hex("create_error",static_cast<u32>(created.error));report.hex("create_native",created.native_error);
-    const auto checked=notification_identity_check(id);report.hex("check_after_create",static_cast<u32>(checked.error));
-    DesktopNotifications owner{};u32 setting=~0u;
-    auto init=checked.ok()?desktop_notifications_initialize(&owner,{id.app_id,id.activator_id,nullptr,0,true}):DesktopNotificationResult{DesktopNotificationError::identity,0};
-    report.hex("activator_register",init.native_error);
-    if(init.ok()){
-        const auto queried=desktop_notifications_setting(&owner,&setting);report.hex("setting_hr",queried.native_error);report.hex("setting",setting);
-        if(toast){
-            const DesktopNotificationPayload payload{{1,2,3},utf8_literal("MaiCord notification self-test"),utf8_literal("Desktop notifications are working."),{},false,false};
-            report.hex("show_hr",desktop_notifications_show_once(&owner,payload).result.native_error);Sleep(8000);
-        }
-        desktop_notifications_release(&owner);
-    }
-    const auto removed=notification_identity_remove_owned(id);report.hex("remove_error",static_cast<u32>(removed.error));
-    const auto after=notification_identity_check(id);report.hex("check_after_remove",static_cast<u32>(after.error));
-    // Windows may record per-app settings for the test AUMID; drop what this run added.
-    const bool settings_added=!settings_before&&key_exists(kLiveSettings);report.hex("windows_settings_key_added",settings_added);
-    if(settings_added)RegDeleteTreeW(HKEY_CURRENT_USER,kLiveSettings);
-    const HANDLE file=CreateFileW(report_path,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
-    if(file!=INVALID_HANDLE_VALUE){DWORD written{};WriteFile(file,report.text,report.count,&written,nullptr);CloseHandle(file);}
-    return created.ok()&&checked.ok()&&init.ok()&&removed.ok()&&after.error==NotificationIdentityError::absent;
-}
 }

@@ -14,7 +14,7 @@ struct Capture {
     RestClient* client;
     RestRouteKey route;
     u64 id;
-    u32 submissions, cancellations, target_bytes, body_bytes, reason_bytes, timeout_ms;
+    u32 submissions, target_bytes, body_bytes, reason_bytes, timeout_ms;
     // Nonzero when the request asked for an extended response bank.
     u32 response_capacity;
     u8 target[kRestClientMaximumTargetBytes], body[8192], reason[kRestAuditReasonMaximumEncodedBytes];
@@ -352,9 +352,7 @@ void test_transport() noexcept {
         propagated = account_guild_admin_submit(&details, &request, 106).error == error && propagated;
     }
     capture.result = RestClientSubmitError::none;
-    check(propagated && account_guild_admin_cancel(&details, 106).ok() && capture.cancellations == 1 &&
-              account_guild_admin_cancel(&details, 0).error == RestClientSubmitError::invalid_input,
-          "guild admin account: transport refusals propagate and cancellation targets the exact request");
+    check(propagated, "guild admin account: transport refusals propagate exactly");
 }
 
 void test_routes() noexcept {
@@ -532,11 +530,8 @@ void test_routes() noexcept {
                                guild_admin_method(row.request.operation) == row.method && route.method == row.method &&
                                same(target, t.bytes, row.target) && same(body, b.bytes, row.body) &&
                                guild_admin_has_body(row.request.operation) == (row.body.bytes != 0);
-        if (!row_exact) {
+        if (!row_exact)
             check(false, "guild admin protocol: route row mismatch");
-            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), row.target.data, row.target.bytes, nullptr, nullptr);
-            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, nullptr, nullptr);
-        }
         exact = exact && row_exact;
         short_buffers = bounded(row.request) && short_buffers;
     }
@@ -1074,18 +1069,12 @@ static RestClientSubmitResult submit_large_response_stub(RestClient* client,
     return result;
 }
 
-static bool cancel_stub(RestClient*, u64 request_id) noexcept {
-    ++guild_admin_test::capture.cancellations;
-    return request_id == 106;
-}
-
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_account_guild_admin_entry() noexcept {
     maicord::rest_install_hooks({.submit = maicord::submit_stub,
         .submit_large = maicord::submit_large_stub,
-        .submit_large_response = maicord::submit_large_response_stub,
-        .cancel = maicord::cancel_stub});
+        .submit_large_response = maicord::submit_large_response_stub});
     using namespace maicord::guild_admin_test;
     test_transport();
     test_routes();
@@ -1093,9 +1082,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_guild_admin_entry() 
     test_role_toggle();
     test_decoders();
     test_profile_and_boost();
-    constexpr char pass[] = "PASS guild admin protocol and transport\n";
-    constexpr char fail[] = "FAIL guild admin protocol and transport\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "guild admin protocol and transport");
 }

@@ -89,12 +89,6 @@ void transport() noexcept {
     check(account_poll_create_submit(&details, 20, 80, &poll, 104).error == RestClientSubmitError::busy &&
               capture.submissions == before + 1,
           "poll create: admission error propagates without retry");
-    capture.error = RestClientSubmitError::none;
-    capture.active_id = 200;
-    check(account_poll_create_cancel(&details, 199).error == RestClientSubmitError::busy &&
-              capture.active_id == 200 && account_poll_create_cancel(&details, 200).ok() && !capture.active_id &&
-              account_poll_create_cancel(nullptr, 200).error == RestClientSubmitError::invalid_input,
-          "poll create: exact cancellation only");
 }
 } // namespace poll_create_account_test
 } // namespace maicord

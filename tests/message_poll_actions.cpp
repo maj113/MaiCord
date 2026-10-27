@@ -53,8 +53,7 @@ void test_message_poll_actions(void (*check)(bool,const char*) noexcept) noexcep
     check(write_poll_request(request,{target,1},{body,sizeof(body)}).error==PollWriteError::output_capacity &&
               target[0]==123 && body[0]==124,
           "poll transactional staging preserves output on target capacity failure");
-    check(account_message_poll_submit(nullptr,&request,1).error==RestClientSubmitError::invalid_input &&
-              account_message_poll_cancel(nullptr,1).error==RestClientSubmitError::invalid_input,
+    check(account_message_poll_submit(nullptr,&request,1).error==RestClientSubmitError::invalid_input,
           "poll account transport helper cannot create a worker or submit without existing authenticated owner");
     u32 page_scratch[512]{},object_scratch[128]{};
     char text[4096]{};

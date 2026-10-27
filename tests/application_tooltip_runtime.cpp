@@ -27,9 +27,6 @@ UiTooltipTarget video_target;
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
-void metric(const char* label, u64 value) noexcept {
-    test_write_metric(label, value);
-}
 bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
     value->size = {minimum(request.constraint.width, request.text.bytes * 7.f), 18};
     return true;
@@ -101,11 +98,6 @@ void run() noexcept {
               application_tooltip_owner_bytes() <= 4096 && !g_app.renderer.tooltip_scene->visible,
           "tooltip runtime: real Settings gear lazily owns at most one committed page and exact pending "
           "delay");
-    metric("tooltip_scene_bytes=", sizeof(UiTooltipScene));
-    metric("tooltip_owner_bytes=", application_tooltip_owner_bytes());
-    metric("tooltip_owner_committed_bytes=", queried ? region.RegionSize : 0);
-    metric("tooltip_application_bytes=", sizeof(Application));
-    metric("tooltip_renderer_bytes=", sizeof(D3D11Renderer));
     auto* owner = g_app.tooltip;
     check(application_tooltip_synchronize(deadline - 1) && !g_app.renderer.tooltip_scene->visible &&
               application_tooltip_synchronize(deadline) &&

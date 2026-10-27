@@ -10,7 +10,6 @@
 #include "maicord/sys/crypto.hpp"
 
 namespace maicord {
-namespace settings_runtime_test { void measurement(const char*, u64) noexcept; }
 namespace app_detail { const ApplicationTextFormRequest* settings_runtime_text_form() noexcept; }
 namespace plugin_catalog_runtime {
 using namespace app_detail;
@@ -229,8 +228,6 @@ void test_application_plugin_catalog_runtime(void (*check)(bool, const char*) no
         catalog_region.State == MEM_COMMIT &&
         VirtualQuery(g_app.plugins, &plugins_region, sizeof(plugins_region)) == sizeof(plugins_region) && plugins_region.State == MEM_COMMIT,
         "catalog UI: lazy catalog and plugin runtime expose committed VM ownership");
-    settings_runtime_test::measurement("MEASURE plugin_catalog_committed_bytes=", catalog_region.RegionSize);
-    settings_runtime_test::measurement("MEASURE plugins_runtime_committed_bytes=", plugins_region.RegionSize);
     const bool prepared = catalog_memory && prepare_files(f);
     check(prepared, "catalog UI: bounded ten-manifest fixture and known compiled DLL created");
     if (!prepared) return;

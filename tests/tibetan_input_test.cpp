@@ -1,13 +1,9 @@
-// No argument runs the registered checks. Manual: MAICORD_TIBETAN_INPUT_STREAM=1 answers cluster
-// boundary queries from stdin for the Python oracles (QA only).
 #include "maicord/text/tibetan_input.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;
-void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
-void number(u64 v) noexcept {char b[32];u32 n=0;do{b[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);while(n){const char s[]{b[--n],0};print(s);}}
-bool fail(u32 line) noexcept {print("FAIL Tibetan input line ");number(line);print("\n");return false;}
+bool fail(u32 line) noexcept {test_write_text("FAIL Tibetan input line ");test_write_u64(line);test_write_text("\n");return false;}
 #define CHECK(x) do{++checks;if(!(x))return fail(__LINE__);}while(false)
 bool boundaries(ConstSlice<u32> input,ConstSlice<u8> expected) noexcept {
     u8 output[256];CHECK(input.count==expected.count&&input.count<=256);
@@ -51,21 +47,8 @@ bool units() noexcept {
         good=sfnt_tibetan_cluster_boundaries({input,7},{memory+page*3-7,7})==SfntStatus::ok;
     }
     CHECK(VirtualFree(memory,0,MEM_RELEASE));CHECK(committed&&good);
-    print("PASS Tibetan input; assertions=");number(checks);print("\n");return true;
+    test_write_text("PASS Tibetan input; assertions=");test_write_u64(checks);test_write_text("\n");return true;
 }
-bool read(void* destination,u32 count) noexcept {u8* out=static_cast<u8*>(destination);while(count){DWORD got=0;if(!ReadFile(GetStdHandle(STD_INPUT_HANDLE),out,count,&got,nullptr)||!got)return false;out+=got;count-=got;}return true;}
-bool write(const void* source,u32 count) noexcept {const u8* in=static_cast<const u8*>(source);while(count){DWORD done=0;if(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),in,count,&done,nullptr)||!done)return false;in+=done;count-=done;}return true;}
-bool stream() noexcept {
-    u8 header[12];CHECK(read(header,12)&&bytes_equal(header,"MDVCL1\0\0",8));const u32 cases=byte_load_le32(header+8);CHECK(cases&&cases<=100000&&write(header,12));
-    for(u32 row=0;row<cases;++row){u32 n=0,input[256];u8 boundaries[256];
-        CHECK(read(&n,4)&&n&&n<=256&&read(input,n*4));
-        CHECK(sfnt_tibetan_cluster_boundaries({input,n},{boundaries,256})==SfntStatus::ok&&write(boundaries,n));
-    }return true;
-}
-int run() noexcept {
-    wchar_t mode[16];const DWORD n=GetEnvironmentVariableW(L"MAICORD_TIBETAN_INPUT_STREAM",mode,16);
-    if(n)return n<16&&stream()?0:2;
-    return units()?0:1;
-}
+int run() noexcept {return units()?0:1;}
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_tibetan_input_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}
