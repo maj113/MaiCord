@@ -111,7 +111,11 @@ add_library(${MAIOPUS_DECODER_TARGET} STATIC
 target_include_directories(${MAIOPUS_DECODER_TARGET} PUBLIC include PRIVATE . celt silk src)
 target_compile_features(${MAIOPUS_DECODER_TARGET} PRIVATE c_std_17)
 target_compile_definitions(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_definitions})
-target_compile_options(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_options} /O2 /Ob1)
+# Type-based alias analysis, which upstream builds with (GCC and Clang enable
+# it at -O2; clang-cl does not): the decoder's filter states then stay in
+# registers across their int16 output stores. Measured: SILK decode 33,612 ->
+# 30,900 cycles per frame, hybrid 82,021 -> 79,166, CELT unchanged, PCM bit-exact.
+target_compile_options(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_options} /O2 /Ob1 /clang:-fstrict-aliasing)
 set_target_properties(${MAIOPUS_DECODER_TARGET} PROPERTIES
     C_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")
 

@@ -633,9 +633,10 @@
       "status": "modified",
       "upstream_sha256": "9bec65a48d32f0b4843eaaa02cd6b49b0e853186f47695ce3f3c178d4bd3452f",
       "changes": [
-        "The LTP rewhitening index check uses celt_packet_check()."
+        "The LTP rewhitening index check uses celt_packet_check().",
+        "The LPC synthesis prediction calls silk_noise_shape_quantizer_short_prediction_c() (NSQ.h), the same sum with the taps addressed from one pointer: SILK decode 36,376 -> 33,612 cycles per frame."
       ],
-      "sha256": "73d0ba2ab4aa90e29d2a1fa71a45a9d19bceb9442039a45db08f6ce8230941fc"
+      "sha256": "81ca2320340ad324be2470aeee40997978ee58080ddaf3fc350f4c28d92eb58a"
     },
     {
       "path": "silk/decode_frame.c",

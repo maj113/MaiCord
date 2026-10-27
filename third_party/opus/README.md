@@ -49,7 +49,8 @@ modes, the float build, other architectures, build systems, tools and tests.
 links it. A parent project can set `MAIOPUS_DECODER_TARGET`,
 `MAIOPUS_ENCODER_TARGET`, `MAIOPUS_LINK_CONTRACT` (an INTERFACE target for link
 options), `MAIOPUS_LTCG`, `MAIOPUS_SSE4_1` and `MAIOPUS_ARCH`. Encoder-only
-units build at `/O1` except the CELT encoder.
+units build at `/O1` except the CELT encoder; the decoder builds with type-based
+alias analysis (`-fstrict-aliasing`), as upstream's GCC and Clang builds do.
 
 ## Verification
 

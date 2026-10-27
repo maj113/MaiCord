@@ -28,6 +28,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "main.h"
 #include "stack_alloc.h"
+#include "NSQ.h"
 
 /**********************************************************/
 /* Core decoder. Performs inverse NSQ operation LTP + LPC */
@@ -195,27 +196,7 @@ void silk_decode_core(
 
         for( i = 0; i < psDec->subfr_length; i++ ) {
             /* Short-term prediction */
-            celt_assert( psDec->LPC_order == 10 || psDec->LPC_order == 16 );
-            /* Avoids introducing a bias because silk_SMLAWB() always rounds to -inf */
-            LPC_pred_Q10 = silk_RSHIFT( psDec->LPC_order, 1 );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i -  1 ], A_Q12_tmp[ 0 ] );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i -  2 ], A_Q12_tmp[ 1 ] );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i -  3 ], A_Q12_tmp[ 2 ] );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i -  4 ], A_Q12_tmp[ 3 ] );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i -  5 ], A_Q12_tmp[ 4 ] );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i -  6 ], A_Q12_tmp[ 5 ] );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i -  7 ], A_Q12_tmp[ 6 ] );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i -  8 ], A_Q12_tmp[ 7 ] );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i -  9 ], A_Q12_tmp[ 8 ] );
-            LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i - 10 ], A_Q12_tmp[ 9 ] );
-            if( psDec->LPC_order == 16 ) {
-                LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i - 11 ], A_Q12_tmp[ 10 ] );
-                LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i - 12 ], A_Q12_tmp[ 11 ] );
-                LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i - 13 ], A_Q12_tmp[ 12 ] );
-                LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i - 14 ], A_Q12_tmp[ 13 ] );
-                LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i - 15 ], A_Q12_tmp[ 14 ] );
-                LPC_pred_Q10 = silk_SMLAWB( LPC_pred_Q10, sLPC_Q14[ MAX_LPC_ORDER + i - 16 ], A_Q12_tmp[ 15 ] );
-            }
+            LPC_pred_Q10 = silk_noise_shape_quantizer_short_prediction_c( &sLPC_Q14[ MAX_LPC_ORDER + i - 1 ], A_Q12_tmp, psDec->LPC_order );
 
             /* Add prediction to LPC excitation */
             sLPC_Q14[ MAX_LPC_ORDER + i ] = silk_ADD_SAT32( pres_Q14[ i ], silk_LSHIFT_SAT32( LPC_pred_Q10, 4 ) );
