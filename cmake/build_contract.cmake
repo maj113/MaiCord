@@ -114,6 +114,19 @@ target_compile_options(maicord_compile_contract INTERFACE
     "$<$<COMPILE_LANGUAGE:CXX>:-Wno-missing-field-initializers;-Wno-invalid-offsetof;-Wno-ignored-attributes;-Wno-overloaded-virtual;-Wno-duplicate-decl-specifier;-Wno-misleading-indentation;-Wno-logical-op-parentheses;-Wno-missing-braces;-Wno-bitwise-instead-of-logical>"
     # No C library: LLVM must not turn string-length loops into strlen/wcslen calls.
     "$<$<COMPILE_LANGUAGE:C,CXX>:-fno-builtin-strlen;-fno-builtin-wcslen>")
+# No unwind tables (.pdata/.xdata): MaiCord code never throws, catches or walks
+# a stack. A crash still ends the process (Windows Error Reporting, __fastfail),
+# but frame-based exception dispatch stops at the first MaiCord frame, so
+# unhandled-exception filters never run (the tests report crashes from a
+# vectored handler) and debuggers walk crash-dump stacks by heuristics. The
+# in-process stack walkers (the perf probe's sampler and allocation sites,
+# benchmark profiling) configure with MAICORD_UNWIND_TABLES.
+option(MAICORD_UNWIND_TABLES "Emit unwind tables for in-process stack walkers" OFF)
+set(MAICORD_UNWIND_OPTIONS)
+if(NOT MAICORD_UNWIND_TABLES)
+    set(MAICORD_UNWIND_OPTIONS /clang:-fno-asynchronous-unwind-tables /clang:-fno-unwind-tables)
+endif()
+target_compile_options(maicord_compile_contract INTERFACE "$<$<COMPILE_LANGUAGE:C,CXX>:${MAICORD_UNWIND_OPTIONS}>")
 
 add_library(maicord_runtime OBJECT
     src/core/runtime_x64.asm)

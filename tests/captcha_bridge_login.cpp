@@ -386,7 +386,10 @@ void report(bool value, const char* label) noexcept {
     maicord::test_write_text("FAIL ");
     maicord::test_write_line(label);
 }
+// A vectored handler (MaiCord code has no unwind tables; see test_main.cpp's
+// report_crash): error-status codes only.
 LONG WINAPI report_crash(EXCEPTION_POINTERS* info) noexcept {
+    if ((info->ExceptionRecord->ExceptionCode & 0xF0000000u) != 0xC0000000u) return EXCEPTION_CONTINUE_SEARCH;
     char code[9]{};
     for (maicord::u32 i = 0; i < 8; ++i) {
         const maicord::u32 nibble = (info->ExceptionRecord->ExceptionCode >> (28 - 4 * i)) & 15u;
@@ -400,7 +403,7 @@ LONG WINAPI report_crash(EXCEPTION_POINTERS* info) noexcept {
 }
 }
 extern "C" __declspec(noreturn) void WINAPI maicord_captcha_bridge_tests_entry() noexcept {
-    SetUnhandledExceptionFilter(report_crash);
+    AddVectoredExceptionHandler(1, report_crash);
     maicord::captcha_login_test::check_fn = report;
     maicord::test_captcha_bridge_protocol(report);
     maicord::test_captcha_bridge_runtime(report);

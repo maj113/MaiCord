@@ -12,8 +12,7 @@
 #define CONTEXT_AMD64 0x00100000L
 #define CONTEXT_CONTROL (CONTEXT_AMD64 | 0x00000001L)
 #define CONTEXT_INTEGER (CONTEXT_AMD64 | 0x00000002L)
-typedef LONG(__stdcall* PTOP_LEVEL_EXCEPTION_FILTER)(struct _EXCEPTION_POINTERS* ExceptionInfo);
-typedef PTOP_LEVEL_EXCEPTION_FILTER LPTOP_LEVEL_EXCEPTION_FILTER;
+typedef LONG(__stdcall* PVECTORED_EXCEPTION_HANDLER)(struct _EXCEPTION_POINTERS* ExceptionInfo);
 
 MAICORD_SYS_TYPES_BEGIN
 // <excpt.h>
@@ -220,8 +219,9 @@ extern "C" __declspec(dllimport) WORD WINAPI RtlCaptureStackBackTrace(DWORD Fram
 extern "C" __declspec(dllimport) PEXCEPTION_ROUTINE WINAPI RtlVirtualUnwind(DWORD HandlerType, DWORD64 ImageBase,
     DWORD64 ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID* HandlerData,
     PDWORD64 EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
+// <errhandlingapi.h>
+extern "C" __declspec(dllimport) PVOID WINAPI AddVectoredExceptionHandler(ULONG First,
+    PVECTORED_EXCEPTION_HANDLER Handler);
 // <debugapi.h>
 extern "C" __declspec(dllimport) BOOL WINAPI IsDebuggerPresent();
-extern "C" __declspec(dllimport) LPTOP_LEVEL_EXCEPTION_FILTER WINAPI SetUnhandledExceptionFilter(
-    LPTOP_LEVEL_EXCEPTION_FILTER lpTopLevelExceptionFilter);
 extern "C" __declspec(dllimport) BOOL WINAPI GetThreadContext(HANDLE hThread, LPCONTEXT lpContext);

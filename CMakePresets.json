@@ -10,7 +10,8 @@
         "CMAKE_BUILD_TYPE": "Release",
         "MAICORD_BUILD_TESTS": false,
         "MAICORD_BUILD_BENCHMARKS": false,
-        "MAICORD_BUILD_INTEGRATION_TESTS": false
+        "MAICORD_BUILD_INTEGRATION_TESTS": false,
+        "MAICORD_UNWIND_TABLES": false
       }
     }
   ],

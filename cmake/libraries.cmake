@@ -63,10 +63,10 @@ set(MAIOPUS_ARCH /arch:AVX)
 set(MAIOPUS_SSE4_1 ON)
 add_subdirectory(third_party/opus)
 # maiopus, like every MaiCord unit, sees only MaiCord's C library and intrinsic
-# headers (see cmake/build_contract.cmake).
+# headers and follows the unwind-table policy (see cmake/build_contract.cmake).
 foreach(maiopus_target IN ITEMS maicord_opus_decoder maicord_opus_encoder)
     target_include_directories(${maiopus_target} PRIVATE include include/maicord/sys/libc)
-    target_compile_options(${maiopus_target} PRIVATE /clang:-nostdinc)
+    target_compile_options(${maiopus_target} PRIVATE /clang:-nostdinc ${MAICORD_UNWIND_OPTIONS})
 endforeach()
 
 maicord_library(maicord_media_codec

@@ -141,7 +141,8 @@ Push-Location $repository
 try {
     try { $locked = $mutex.WaitOne([TimeSpan]::FromMinutes(45)) } catch [Threading.AbandonedMutexException] { $locked = $true }
     if (-not $locked) { throw 'The MaiCord Release build mutex was not acquired.' }
-    cmake --preset x64-release -DMAICORD_BUILD_BENCHMARKS=ON | Out-Null
+    # The profiler walks the producer's stack through unwind tables.
+    cmake --preset x64-release -DMAICORD_BUILD_BENCHMARKS=ON "-DMAICORD_UNWIND_TABLES=$(if ($Profile) { 'ON' } else { 'OFF' })" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Benchmark configuration failed.' }
     cmake --build $cacheRoot --target MaiCordGatewayPipelineBenchmark
     if ($LASTEXITCODE -ne 0) { throw 'Gateway pipeline benchmark build failed.' }

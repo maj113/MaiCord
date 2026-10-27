@@ -39,6 +39,8 @@ has the same rules in more detail.
 - Freestanding C++23: no STL, CRT, exceptions or RTTI. Use
   `include/maicord/core`. Every build runs the PE audits in
   `tools/audit_pe.ps1` (imports, debug data, initialized-data budget).
+- Code compiles without unwind tables: no SEH, unhandled-exception filters or
+  stack walks through MaiCord frames (see CONTRIBUTING.md).
 - Targets compile with `-nostdinc`: Windows SDK, C library and compiler
   declarations (intrinsics included) come from `include/maicord/sys` and
   `include/maicord/core/win32_*.hpp`, declared exactly as the SDK and compiler

@@ -35,7 +35,9 @@ The build time is separate from the timeout for each launch.
 - **MaiCordPerfProbe** is the shipping client source set built with
   `MAICORD_PERF_PROBE` and shipping code generation (`/GL`, LTCG). The define swaps
   the account module file name and skips desktop integration, notifications,
-  updates and instance forwarding (`MAICORD_ISOLATED_MAIN`).
+  updates and instance forwarding (`MAICORD_ISOLATED_MAIN`). Unlike the client,
+  the probe configuration keeps unwind tables (`MAICORD_UNWIND_TABLES`): the
+  sampler and the allocation call stacks walk them.
 - **MaiCordPerfAccount.dll** implements the account module ABI offline: a
   deterministic READY (100 guilds, ~2,600 channels, 2,000 users, 300 friends,
   180 DMs) projected by the production Gateway routes, generated message history

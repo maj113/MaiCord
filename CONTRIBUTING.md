@@ -125,6 +125,13 @@ files instead of re-sorting the lists.
   conformance unit generated from the declarations fails the build on any
   difference. Only the reference oracles and opt-in benchmarks use the SDK
   headers (`MAICORD_SDK_INCLUDES`).
+- **No unwind tables.** Every unit (maiopus included) compiles without
+  `.pdata`/`.xdata`, so nothing may rely on unwinding MaiCord frames:
+  no SEH, no unhandled-exception filters (frame-based dispatch stops at the
+  first MaiCord frame; the tests report crashes from a vectored handler), and
+  crash-dump stacks through MaiCord code are heuristic. Only the perf probe and
+  `benchmark_gateway_pipeline.ps1 -Profile`, which walk stacks in-process,
+  configure with `MAICORD_UNWIND_TABLES`.
 - Format with the repository `.clang-format` and match the file you are editing.
 - Mention any EXE/DLL size change in the PR description, and back performance
   changes with before/after numbers from [`tools/perf`](tools/perf/README.md).

@@ -134,7 +134,9 @@ try {
         [IO.File]::WriteAllText("$testProfile\.maicord-test-profile", $repository)
     }
     $on = { param($value) if ($value) { 'ON' } else { 'OFF' } }
+    # The perf probe's sampler and allocation sites walk stacks through unwind tables.
     Invoke-Configure @("-DMAICORD_BUILD_TESTS=$(& $on $Test)", "-DMAICORD_BUILD_PERF_PROBE=$(& $on $PerfProbe)",
+        "-DMAICORD_UNWIND_TABLES=$(& $on $PerfProbe)",
         "-DMAICORD_SIZE_REPORT=$(& $on $SizeReport)",
         "-DMAICORD_STARTUP_PROBE=$(& $on $StartupProbe)", "-DMAICORD_TEST_AUDIO_PLAYBACK=$(& $on $AudioPlaybackProbe)",
         "-DMAICORD_TEST_PREBUILT_CLIENT=$(& $on $SkipClient)", "-DMAICORD_TEST_TIMEOUT_SCALE=$TestTimeoutScale",

@@ -353,8 +353,13 @@ void write_hex(u64 value) noexcept {
 }
 
 // Names the crashing module offset and the last check reached; CTest shows it.
+// A vectored handler: MaiCord code has no unwind tables, so frame-based
+// dispatch never reaches an unhandled-exception filter. It also sees exceptions
+// that system DLLs raise and handle themselves, so it names only error-status
+// codes (access violation, stack overflow, illegal instruction and the like).
 LONG WINAPI report_crash(EXCEPTION_POINTERS* info) noexcept {
     const EXCEPTION_RECORD& record = *info->ExceptionRecord;
+    if ((record.ExceptionCode & 0xF0000000u) != 0xC0000000u) return EXCEPTION_CONTINUE_SEARCH;
     const auto address = reinterpret_cast<u64>(record.ExceptionAddress);
     HMODULE module = nullptr;
     wchar_t path[260]{};
@@ -26350,7 +26355,7 @@ void test_runtime_memory() noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_tests_entry() noexcept {
-    SetUnhandledExceptionFilter(maicord::report_crash);
+    AddVectoredExceptionHandler(1, maicord::report_crash);
 #define CORE_LOCAL_TEST(name) maicord::name();
 #define CORE_EXTERNAL_TEST(name) maicord::name(maicord::expect);
 #include "core_test_cases.inc"
