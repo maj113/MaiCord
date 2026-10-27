@@ -1,8 +1,9 @@
 #include "maicord/ui/emoji_presentation.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/emoji_font_ranges.hpp"
+#include "maicord/text/unicode.hpp"
 #include "maicord/core/utf.hpp"
 namespace maicord {namespace {
+inline bool text_emoji_scalar(u32 cp) noexcept {return unicode_properties(cp)->has(UnicodeFlag::emoji);}
 inline bool keycap_base(u32 cp) noexcept {return cp=='#'||cp=='*'||(cp>='0'&&cp<='9');}
 inline bool atom(Utf8View text,TextEmojiCursor& cursor,bool* selected) noexcept {
     const u8 lead=static_cast<u8>(text.data[cursor.byte]);

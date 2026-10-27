@@ -201,8 +201,8 @@ bool arrow(const UiTooltipScene& scene, const Theme& theme, PaintStream* paint) 
 } // namespace
 
 bool ui_tooltip_key_equal(const UiTooltipKey& a, const UiTooltipKey& b) noexcept {
-    return a.owner.manager == b.owner.manager && a.owner.handle.slot == b.owner.handle.slot &&
-           a.owner.handle.generation == b.owner.handle.generation && a.scope == b.scope &&
+    return a.owner.manager == b.owner.manager && ui_widget_handle_equal(a.owner.handle, b.owner.handle) &&
+           a.scope == b.scope &&
            a.identity == b.identity && a.source_revision == b.source_revision && a.action == b.action;
 }
 bool ui_tooltip_clear(UiTooltipScene* scene) noexcept {

@@ -76,15 +76,19 @@ Utf8View semantic_name(UiSemantic semantic) noexcept {
     return Utf8View{};
 }
 
+bool semantic_button(UiSemantic semantic) noexcept {
+    return semantic == UiSemantic::member_toggle || semantic == UiSemantic::pins_toggle ||
+           semantic == UiSemantic::threads_toggle || semantic == UiSemantic::home_button ||
+           semantic == UiSemantic::channel_footer || semantic == UiSemantic::settings ||
+           semantic == UiSemantic::friends_button || semantic == UiSemantic::thread_primary ||
+           semantic == UiSemantic::thread_overflow || semantic == UiSemantic::thread_cancel ||
+           semantic == UiSemantic::private_create || semantic == UiSemantic::private_add ||
+           semantic == UiSemantic::private_call || semantic == UiSemantic::inbox_toggle ||
+           semantic == UiSemantic::guild_menu;
+}
+
 UiWidgetKind semantic_kind(UiSemantic semantic) noexcept {
-    if (semantic == UiSemantic::member_toggle || semantic == UiSemantic::pins_toggle ||
-        semantic == UiSemantic::threads_toggle || semantic == UiSemantic::home_button ||
-        semantic == UiSemantic::channel_footer || semantic == UiSemantic::settings ||
-        semantic == UiSemantic::friends_button || semantic == UiSemantic::thread_primary ||
-        semantic == UiSemantic::thread_overflow || semantic == UiSemantic::thread_cancel ||
-        semantic == UiSemantic::private_create || semantic == UiSemantic::private_add ||
-        semantic == UiSemantic::private_call || semantic == UiSemantic::inbox_toggle ||
-        semantic == UiSemantic::guild_menu) {
+    if (semantic_button(semantic)) {
         return UiWidgetKind::button;
     }
     return semantic == UiSemantic::channel_navigation || semantic == UiSemantic::message_view ||
@@ -94,17 +98,9 @@ UiWidgetKind semantic_kind(UiSemantic semantic) noexcept {
 }
 
 bool add_node(UiScene* scene, UiSemantic semantic, UiWidgetHandle parent, const UiLayoutStyle& style) noexcept {
-    const u16 flags =
-        semantic == UiSemantic::member_toggle || semantic == UiSemantic::pins_toggle ||
-                semantic == UiSemantic::threads_toggle || semantic == UiSemantic::home_button ||
-                semantic == UiSemantic::channel_footer || semantic == UiSemantic::settings ||
-                semantic == UiSemantic::friends_button || semantic == UiSemantic::thread_primary ||
-                semantic == UiSemantic::thread_overflow || semantic == UiSemantic::thread_cancel ||
-                semantic == UiSemantic::private_create || semantic == UiSemantic::private_add ||
-                semantic == UiSemantic::private_call || semantic == UiSemantic::inbox_toggle ||
-                semantic == UiSemantic::guild_menu
-            ? static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable)
-            : ui_widget_enabled;
+    const u16 flags = semantic_button(semantic)
+                          ? static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable)
+                          : ui_widget_enabled;
     // Thread header controls are driven by the thread header owner.
     const u16 admitted_flags =
         semantic >= UiSemantic::thread_header && semantic <= UiSemantic::thread_cancel ? ui_widget_none : flags;
@@ -255,32 +251,19 @@ void update_header_controls(UiScene* scene, const UiShellLayoutMetrics& metrics,
             maximum(0.f, width - left - metrics.title_bar_padding.left - metrics.title_bar_padding.right),
             controls_width + trailing) +
         trailing;
-    if (auto* node =
-            ui_layout_engine_resolve(&scene->widgets.layout, scene->widgets.storage[label.slot].layout)) {
-        // Reserve search plus the original icon button and its eight-DIP gaps.
-        node->spec.style.margin.right = search_width + controls_width;
-    }
-    if (toggle.generation)
-        if (auto* node = ui_layout_engine_resolve(&scene->widgets.layout,
-                                                  scene->widgets.storage[toggle.slot].layout))
-            node->spec.style.margin.right = search_width + 8.f;
-    if (pins.generation)
-        if (auto* node =
-                ui_layout_engine_resolve(&scene->widgets.layout, scene->widgets.storage[pins.slot].layout))
-            node->spec.style.margin.right = search_width + (toggle.generation ? 52.f : 8.f);
-    if (threads.generation)
-        if (auto* node = ui_layout_engine_resolve(&scene->widgets.layout,
-                                                  scene->widgets.storage[threads.slot].layout))
-            node->spec.style.margin.right =
-                search_width + (toggle.generation ? 52.f : 8.f) + (pins.generation ? 44.f : 0.f);
-    if (add.generation)
-        if (auto* node =
-                ui_layout_engine_resolve(&scene->widgets.layout, scene->widgets.storage[add.slot].layout))
-            node->spec.style.margin.right = search_width + existing_width;
-    if (call.generation)
-        if (auto* node =
-                ui_layout_engine_resolve(&scene->widgets.layout, scene->widgets.storage[call.slot].layout))
-            node->spec.style.margin.right = search_width + existing_width + (add.generation ? 44.f : 0.f);
+    const auto set_margin = [&](UiWidgetHandle handle, float right) noexcept {
+        if (handle.generation)
+            if (auto* node = ui_layout_engine_resolve(&scene->widgets.layout,
+                                                      scene->widgets.storage[handle.slot].layout))
+                node->spec.style.margin.right = right;
+    };
+    // Reserve search plus the original icon button and its eight-DIP gaps.
+    set_margin(label, search_width + controls_width);
+    set_margin(toggle, search_width + 8.f);
+    set_margin(pins, search_width + (toggle.generation ? 52.f : 8.f));
+    set_margin(threads, search_width + (toggle.generation ? 52.f : 8.f) + (pins.generation ? 44.f : 0.f));
+    set_margin(add, search_width + existing_width);
+    set_margin(call, search_width + existing_width + (add.generation ? 44.f : 0.f));
 }
 
 bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics, u8 variant,

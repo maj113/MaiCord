@@ -8,16 +8,12 @@ constexpr double kEaseInOutX1 = 0.42;
 constexpr double kEaseInOutX2 = 0.58;
 constexpr double kMinimumRetargetDurationUs = 10'000.0;
 
-constexpr double absolute(double value) noexcept {
-    return value < 0.0 ? -value : value;
-}
-
 bool finite_delta(double value) noexcept {
     return value == value && value > -1.0e15 && value < 1.0e15;
 }
 
 u32 segment_duration_us(double distance, double units_per_pixel) noexcept {
-    const double pixels = absolute(distance) / units_per_pixel;
+    const double pixels = absolute_value(distance) / units_per_pixel;
     if (pixels <= 120.0) {
         return 200'000;
     }
@@ -106,7 +102,7 @@ bool ui_smooth_scroll_queue(UiSmoothScroll* scroll, double delta, u64 now_us,
     if (!finite_delta(queued)) {
         return false;
     }
-    if (absolute(queued) < 0.0001) {
+    if (absolute_value(queued) < 0.0001) {
         reset_value<UiSmoothScroll>(scroll);
         return true;
     }
@@ -153,7 +149,7 @@ bool ui_smooth_scroll_step(UiSmoothScroll* scroll, u64 now_us, double* delta) no
     double step = emitted - scroll->segment_emitted;
     scroll->segment_emitted = emitted;
     scroll->remaining -= step;
-    if (progress >= 1.0 || absolute(scroll->remaining) < 0.0001) {
+    if (progress >= 1.0 || absolute_value(scroll->remaining) < 0.0001) {
         step += scroll->remaining;
         scroll->remaining = 0.0;
         scroll->segment_distance = 0.0;

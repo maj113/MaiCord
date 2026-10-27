@@ -135,13 +135,12 @@ UiLayoutStyle body_style() noexcept {
     return style;
 }
 
-UiLayoutStyle region_style(float height, bool text) noexcept {
+UiLayoutStyle region_style(float height) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fill();
     style.height = ui_layout_fixed(height);
     style.horizontal_alignment = UiLayoutAlignment::stretch;
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size |
-                                   (text ? ui_layout_node_text_content : 0));
+    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size | ui_layout_node_text_content);
     return style;
 }
 
@@ -1004,16 +1003,11 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
     return true;
 }
 
-UiWidgetResult add_region_named(MessageScene* scene, UiWidgetHandle parent, u32 id, const char* name, u32 bytes,
-                                float height, bool text) noexcept {
-    return ui_widget_manager_add_keyed(&scene->widgets, parent, id,
-                                       text ? UiWidgetKind::text : UiWidgetKind::container, ui_widget_enabled, name,
-                                       bytes, region_style(height, text));
-}
 template <usize Count>
 __forceinline UiWidgetResult add_region(MessageScene* scene, UiWidgetHandle parent, u32 id,
-                                        const char (&name)[Count], float height, bool text) noexcept {
-    return add_region_named(scene, parent, id, name, Count - 1, height, text);
+                                        const char (&name)[Count], float height) noexcept {
+    return ui_widget_manager_add_keyed(&scene->widgets, parent, id, UiWidgetKind::text, ui_widget_enabled, name,
+                                       Count - 1, region_style(height));
 }
 
 void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
@@ -1096,11 +1090,10 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     if (!root.ok() || !avatar.ok() || !body.ok()) {
         return false;
     }
-    const UiWidgetResult reply = add_region(scene, body.handle, id + 3u, "Reply", 0.0f, true);
+    const UiWidgetResult reply = add_region(scene, body.handle, id + 3u, "Reply", 0.0f);
     const UiWidgetResult author =
-        add_region(scene, body.handle, id + 4u, "Author", row_author_height(scene, row.grouped), true);
-    const UiWidgetResult content =
-        add_region(scene, body.handle, id + 5u, "Content", content_height(scene), true);
+        add_region(scene, body.handle, id + 4u, "Author", row_author_height(scene, row.grouped));
+    const UiWidgetResult content = add_region(scene, body.handle, id + 5u, "Content", content_height(scene));
     if (!reply.ok() || !author.ok() || !content.ok()) {
         return false;
     }
@@ -1166,10 +1159,9 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
             return false;
         child.widget = child.body = frame.handle;
         child.avatar = child.author = ui_widget_invalid_handle();
-        const auto header =
-            add_region(scene, frame.handle, child_id + 3u, "Forwarded", snapshot_header(scene), true);
+        const auto header = add_region(scene, frame.handle, child_id + 3u, "Forwarded", snapshot_header(scene));
         const auto child_content = add_region(scene, frame.handle, child_id + 5u, "ForwardedContent",
-                                              desired_content_height(scene, child), true);
+                                              desired_content_height(scene, child));
         if (!header.ok() || !child_content.ok())
             return false;
         child.reply = header.handle;
@@ -1313,7 +1305,6 @@ bool message_scene_set_interaction(MessageScene* scene, const MessageSceneIntera
     const bool notice_changed = current.failed != interaction.failed ||
                                 (interaction.failed && current.message_id != interaction.message_id);
     scene->interaction = interaction;
-    ++scene->interaction_revision;
     if (notice_changed)
         invalidate_geometry(scene);
     else
@@ -1514,10 +1505,7 @@ bool message_scene_set_unread_cursor(MessageScene* scene, u64 channel_id, u64 la
     return true;
 }
 
-bool message_scene_set_result_card_style(MessageScene* scene, const MessageResultCardStyle* style,
-                                         bool* changed) noexcept {
-    if (changed)
-        *changed = false;
+bool message_scene_set_result_card_style(MessageScene* scene, const MessageResultCardStyle* style) noexcept {
     if (!scene || !scene->timeline || !scene->owns_rows ||
         (style && !message_result_card_style_valid(*style)))
         return false;
@@ -1532,8 +1520,6 @@ bool message_scene_set_result_card_style(MessageScene* scene, const MessageResul
     scene->result_cards = style != nullptr;
     saturating_increment(scene->result_card_revision);
     scene->dirty = true;
-    if (changed)
-        *changed = true;
     return true;
 }
 
@@ -1587,10 +1573,6 @@ float intro_icon_extent(MessageSceneIntroKind kind) noexcept {
 float intro_icon_margin(MessageSceneIntroKind kind) noexcept {
     return kind == MessageSceneIntroKind::channel || kind == MessageSceneIntroKind::thread ? 16.0f : 0.0f;
 }
-float intro_text_width(const MessageScene& scene, float viewport_width) noexcept {
-    (void)scene;
-    return maximum(1.0f, viewport_width - 2.0f * kMessageSceneIntroMargin);
-}
 float intro_measure_text(MessageScene* scene, u16 item, Utf8View text, ConstSlice<TextStyleSpan> styles,
                          float width, float line, float em) noexcept {
     if (!text.bytes)
@@ -1625,7 +1607,7 @@ void refresh_intro_measurement(MessageScene* scene, float viewport_width) noexce
         scene->intro_header_height = scene->intro_subtitle_height = scene->intro_description_height = 0.0f;
         return;
     }
-    const float width = intro_text_width(*scene, viewport_width);
+    const float width = maximum(1.0f, viewport_width - 2.0f * kMessageSceneIntroMargin);
     if (scene->intro_measured_width == width)
         return;
     const Utf8View header = message_scene_intro_header(intro);

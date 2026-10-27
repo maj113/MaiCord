@@ -965,25 +965,9 @@ enum TextClass : u8 {
 };
 
 u32 decode_scalar(Utf8View text, u32 index, u32* width) noexcept {
-    const u8 lead = static_cast<u8>(text.data[index]);
-    u32 count = lead < 0x80u                ? 1u
-                : (lead & 0xE0u) == 0xC0u ? 2u
-                : (lead & 0xF0u) == 0xE0u ? 3u
-                : (lead & 0xF8u) == 0xF0u ? 4u
-                                          : 1u;
-    if (index + count > text.bytes)
-        count = 1;
-    u32 scalar = count == 1 ? lead : count == 2 ? (lead & 0x1Fu) : count == 3 ? (lead & 0x0Fu) : (lead & 0x07u);
-    for (u32 i = 1; i < count; ++i) {
-        const u8 next = static_cast<u8>(text.data[index + i]);
-        if ((next & 0xC0u) != 0x80u) {
-            *width = 1;
-            return lead;
-        }
-        scalar = (scalar << 6) | (next & 0x3Fu);
-    }
-    *width = count;
-    return scalar;
+    const Utf8DecodeResult decoded = utf8_decode_one(text.data + index, text.bytes - index);
+    *width = decoded.valid ? decoded.width : 1u;
+    return decoded.valid ? decoded.codepoint : static_cast<u8>(text.data[index]);
 }
 
 bool extends_cluster(u32 scalar) noexcept {

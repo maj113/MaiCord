@@ -137,12 +137,10 @@ bool surface(PaintStream* out, const UiRect& r, const Theme& theme, const Color&
         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high);
 }
 bool focused(const UiPinnedMessagesScene& s, UiWidgetHandle handle) noexcept {
-    return handle.generation && s.widgets.focused.generation == handle.generation &&
-           s.widgets.focused.slot == handle.slot;
+    return ui_widget_handle_matches(handle, s.widgets.focused);
 }
 bool hovered(const UiPinnedMessagesScene& s, UiWidgetHandle handle) noexcept {
-    return handle.generation && s.widgets.hovered.generation == handle.generation &&
-           s.widgets.hovered.slot == handle.slot;
+    return ui_widget_handle_matches(handle, s.widgets.hovered);
 }
 } // namespace
 
@@ -230,7 +228,7 @@ UiPinnedMessagesTarget ui_pinned_messages_scene_target(const UiPinnedMessagesSce
     const auto target = s.targets[handle.slot];
     if (target.action == UiPinnedMessagesAction::unpin)
         for (u32 i = 0; i < s.count; ++i)
-            if (s.unpin[i].generation == handle.generation && s.unpin[i].slot == handle.slot && s.visible[i].unpin_pending)
+            if (ui_widget_handle_equal(s.unpin[i], handle) && s.visible[i].unpin_pending)
                 return {};
     return target;
 }

@@ -108,10 +108,6 @@ struct UiWidgetReference {
     UiWidgetHandle handle;
 };
 
-constexpr UiWidgetReference ui_widget_invalid_reference() noexcept {
-    return UiWidgetReference{nullptr, ui_widget_invalid_handle()};
-}
-
 bool ui_widget_manager_initialize(UiWidgetManager* manager, const Slice<UiWidget>& widget_storage,
                                   const Slice<UiLayoutNode>& layout_storage) noexcept;
 void ui_widget_manager_reset(UiWidgetManager* manager) noexcept;
@@ -180,7 +176,5 @@ UiWidgetHandle ui_widget_manager_next_focus(const UiWidgetManager& manager, UiWi
                                             bool reverse, bool wrap) noexcept;
 const UiLayoutNode* ui_widget_manager_layout_node(const UiWidgetManager& manager,
                                                   UiWidgetHandle handle) noexcept;
-u32 ui_widget_manager_format_path(const UiWidgetManager& manager, UiWidgetHandle handle,
-                                  Slice<char> output) noexcept;
 
 } // namespace maicord

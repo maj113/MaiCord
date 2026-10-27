@@ -675,8 +675,7 @@ bool ui_poll_scene_project(UiPollScene* scene, const UiPollState& state, UiRect 
         return false;
     }
     const bool same = scene->active && scene->owner.manager == owner.manager &&
-                      scene->owner.handle.slot == owner.handle.slot &&
-                      scene->owner.handle.generation == owner.handle.generation &&
+                      ui_widget_handle_equal(scene->owner.handle, owner.handle) &&
                       scene->surface == surface && scene->projection.state.owner == state.owner &&
                       scene->projection.state.generation == state.generation;
     // A count-only update (a vote on a busy poll) keeps a press in progress while

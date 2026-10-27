@@ -946,12 +946,10 @@ bool add_items(UiSearchScene& s) noexcept {
     return true;
 }
 bool hovered_widget(const UiSearchScene& s, UiWidgetHandle handle) noexcept {
-    return handle.generation && s.widgets.hovered.generation == handle.generation &&
-           s.widgets.hovered.slot == handle.slot;
+    return ui_widget_handle_matches(handle, s.widgets.hovered);
 }
 bool focused_widget(const UiSearchScene& s, UiWidgetHandle handle) noexcept {
-    return handle.generation && s.widgets.focused.generation == handle.generation &&
-           s.widgets.focused.slot == handle.slot;
+    return ui_widget_handle_matches(handle, s.widgets.focused);
 }
 bool paint_items(const UiSearchScene& s, const Theme& theme, PaintStream* out,
                  MessageMediaCommandStream* media) noexcept {
@@ -1495,7 +1493,7 @@ UiSearchTarget ui_search_scene_rich_widget_target(const UiSearchScene& s, UiWidg
     const auto* record = outer ? message_store_resolve(*scene->timeline->store, outer->message) : nullptr;
     if (!record || outer->redacted)
         return {};
-    if (outer->poll.slot == handle.slot && outer->poll.generation == handle.generation) {
+    if (ui_widget_handle_equal(outer->poll, handle)) {
         const auto target = rich_target(s, record->channel_id, record->id, outer->source_index,
                                         MessageSceneRichItemKind::poll, 0, false);
         return ui_search_scene_target_current(s, target) ? target : UiSearchTarget{};

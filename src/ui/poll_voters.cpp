@@ -248,8 +248,7 @@ bool ui_poll_voters_scene_project(UiPollVotersScene* scene, const UiPollVotersSt
         projected.page_text[projected.page_bytes++] = digits[i];
     publish_scroll(projected, requested_scroll);
     const bool same_owner = current(*scene) && scene->owner.manager == owner.manager &&
-                            scene->owner.handle.slot == owner.handle.slot &&
-                            scene->owner.handle.generation == owner.handle.generation &&
+                            ui_widget_handle_equal(scene->owner.handle, owner.handle) &&
                             scene->state.owner == state.owner &&
                             scene->state.generation == state.generation;
     if (same_owner && ui_poll_voters_target_enabled(projected, scene->focus)) {

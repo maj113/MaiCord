@@ -91,6 +91,8 @@ struct UiVideoAction {
 float ui_video_controls_height(const UiVideoControlsStyle&, float width, bool collection = false) noexcept;
 bool ui_video_controls_project(const UiVideoPlaybackState&, UiRect,
     const UiVideoControlsStyle&, const Theme&, UiVideoControlsProjection*, bool volume_expanded = false) noexcept;
+// Appends m:ss (h:mm:ss when `hours_field` or the time needs hours) at `cursor`.
+void ui_video_append_clock(char* text, u32& cursor, u64 milliseconds, bool hours_field) noexcept;
 // "m:ss / m:ss", hours when the duration needs them and "-:--" before metadata.
 u32 ui_video_format_time(const UiVideoPlaybackState&, char* text, u32 capacity) noexcept;
 Utf8View ui_video_controls_label(const UiVideoControlsProjection&, UiVideoControl) noexcept;

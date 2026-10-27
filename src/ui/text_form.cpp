@@ -283,6 +283,22 @@ Color button_fill(const TextFormScene& scene, TextFormElement element, const The
 bool fill(PaintStream* stream, UiRect rectangle, Color color) noexcept {
     return !ui_rect_has_area(rectangle) || paint_stream_push(stream, rectangle, color);
 }
+// The check/radio marker centred on the first label line (20 DIP for one line of body text).
+UiRect marker_box(const UiLayoutNode* node) noexcept {
+    if (!node)
+        return {};
+    const float line = minimum(ui_rect_height(node->rectangle), 20.0f);
+    const float top = node->rectangle.top + (line - kOptionBox) * .5f;
+    return {node->rectangle.left, top, node->rectangle.left + kOptionBox, top + kOptionBox};
+}
+bool group_index(TextFormElement element, u32 first, u32 count, u32* at) noexcept {
+    const u32 value = index(element);
+    if (value < first || value >= first + count)
+        return false;
+    if (at)
+        *at = value - first;
+    return true;
+}
 } // namespace
 
 const UiLayoutNode* text_form_node(const TextFormScene& scene, TextFormElement element) noexcept {
@@ -292,41 +308,20 @@ const UiLayoutNode* text_form_node(const TextFormScene& scene, TextFormElement e
 }
 
 bool text_form_choice_index(TextFormElement element, u32* at) noexcept {
-    const u32 value = index(element);
-    if (value < kChoiceFirst || value >= kChoiceFirst + kTextFormChoices)
-        return false;
-    if (at)
-        *at = value - kChoiceFirst;
-    return true;
+    return group_index(element, kChoiceFirst, kTextFormChoices, at);
 }
 
 bool text_form_select_index(TextFormElement element, u32* at) noexcept {
-    const u32 value = index(element);
-    if (value < kSelectFirst || value >= kSelectFirst + kTextFormSelectOptions)
-        return false;
-    if (at)
-        *at = value - kSelectFirst;
-    return true;
+    return group_index(element, kSelectFirst, kTextFormSelectOptions, at);
 }
 
 UiRect text_form_choice_marker(const TextFormScene& scene, TextFormElement element) noexcept {
-    const auto* node = radio(element) && (scene.built & (1u << index(element))) ? text_form_node(scene, element)
-                                                                                 : nullptr;
-    if (!node)
-        return {};
-    const float line = minimum(ui_rect_height(node->rectangle), 20.0f);
-    const float top = node->rectangle.top + (line - kOptionBox) * .5f;
-    return {node->rectangle.left, top, node->rectangle.left + kOptionBox, top + kOptionBox};
+    return marker_box(radio(element) && (scene.built & (1u << index(element))) ? text_form_node(scene, element)
+                                                                                : nullptr);
 }
 
 UiRect text_form_option_box(const TextFormScene& scene) noexcept {
-    const auto* node = scene.content.option.bytes ? text_form_node(scene, TextFormElement::option) : nullptr;
-    if (!node)
-        return {};
-    // Centred on the first label line (20 DIP for one line of body text).
-    const float line = minimum(ui_rect_height(node->rectangle), 20.0f);
-    const float top = node->rectangle.top + (line - kOptionBox) * .5f;
-    return {node->rectangle.left, top, node->rectangle.left + kOptionBox, top + kOptionBox};
+    return marker_box(scene.content.option.bytes ? text_form_node(scene, TextFormElement::option) : nullptr);
 }
 
 bool text_form_bind_measure_revision(TextFormScene* scene, u16 revision) noexcept {
@@ -544,8 +539,7 @@ TextFormElement text_form_hit_test(const TextFormScene& scene, float x, float y)
         return TextFormElement::count;
     const auto target = ui_widget_manager_hit_test(scene.widgets, x, y);
     for (u32 i = 0; i < kTextFormElements; ++i)
-        if (target.generation && target.slot == scene.elements[i].slot &&
-            target.generation == scene.elements[i].generation)
+        if (ui_widget_handle_matches(target, scene.elements[i]))
             return static_cast<TextFormElement>(i);
     return TextFormElement::count;
 }
@@ -553,8 +547,7 @@ TextFormElement text_form_focused(const TextFormScene& scene) noexcept {
     if (!scene.active)
         return TextFormElement::count;
     for (u32 i = 0; i < kTextFormElements; ++i)
-        if (scene.widgets.focused.generation && scene.widgets.focused.slot == scene.elements[i].slot &&
-            scene.widgets.focused.generation == scene.elements[i].generation)
+        if (ui_widget_handle_matches(scene.widgets.focused, scene.elements[i]))
             return static_cast<TextFormElement>(i);
     return TextFormElement::count;
 }

@@ -346,9 +346,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     channel && channel->type == 1 ? private_channel_peer(state, channel->id) : 0;
                 const auto* appearance =
                     users && peer ? user_appearance_find(users->appearance, peer) : nullptr;
-                const bool hovered =
-                    channel_scene.widgets.hovered.slot == row_widget.widget.slot &&
-                    channel_scene.widgets.hovered.generation == row_widget.widget.generation;
+                const bool hovered = ui_widget_handle_equal(channel_scene.widgets.hovered, row_widget.widget);
                 // Conversation rows centre the name, or stack it over a subtitle.
                 char subtitle_storage[192];
                 UiActivityGlyph subtitle_glyph = UiActivityGlyph::none;

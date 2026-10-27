@@ -929,9 +929,9 @@ float plugin_section(ProfileScene* s, UiWidgetHandle owner, float left, float to
         }
         auto* part = blank(s, owner, {left + x, top + y, left + x + chip, top + y + 26},
                            node.kind == ui_plugin_node_button ? ProfileAction::plugin_slot : ProfileAction::none);
-        if (!part || !ui_badge_attach(&part->badge, &s->widgets, part->widget, label, {}, true, false,
-                                      text_style_subtext))
+        if (!part)
             return -1;
+        part->badge = {part->widget, label, {}, text_style_subtext, true, false};
         part->target = i;
         part->media = ProfileMediaKind::plugin_slot;
         part->source = node.icon;
@@ -980,10 +980,9 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     float x = left + name_width + 4;
     if (tag) {
         auto* badge = blank(s, owner, {x, top + (line - 20) * .5f, x + tag - 4, top + (line + 20) * .5f});
-        if (!badge || !ui_badge_attach(&badge->badge, &s->widgets, badge->widget, utf8_literal("APP"), {}, false,
-                                       false, text_style_subtext | text_style_bold))
+        if (!badge)
             return -1;
-        badge->badge.accent = true;
+        badge->badge = {badge->widget, utf8_literal("APP"), {}, text_style_subtext | text_style_bold, false, true};
         x += tag;
     }
     if (note && !icon(s, owner, {x, top, x + 24, top + 24}, UiIcon::file_text, ProfileAction::open_note))
@@ -1032,9 +1031,9 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         // The chip opens the server tag popout (live cards only).
         const auto tag_action = interactive(*s) && a.primary_guild_id ? ProfileAction::guild_tag : ProfileAction::none;
         auto* tag_part = blank(s, owner, r, tag_action);
-        if (!tag_part || !ui_badge_attach(&tag_part->badge, &s->widgets, tag_part->widget, a.primary_tag.view(), {},
-                                          true, false, text_style_subtext))
+        if (!tag_part)
             return -1;
+        tag_part->badge = {tag_part->widget, a.primary_tag.view(), {}, text_style_subtext, true, false};
         tag_part->target = a.primary_guild_id;
         const auto layout = ui_badge_layout(s->measure, a.primary_tag.view(), r, true, text_style_subtext);
         auto* glyph = blank(s, owner, layout.icon, tag_action);
@@ -2458,7 +2457,7 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
             ok = p.media == ProfileMediaKind::plugin_slot
                      ? ui_plugin_slot_badge_paint({p.badge, p.source, static_cast<u8>(p.style), 0, 0}, s.widgets, local,
                                                   paint)
-                     : ui_badge_paint(p.badge, s.widgets, local, paint, false);
+                     : ui_badge_paint(p.badge, s.widgets, local, paint);
             continue;
         }
         if (!paint_stream_push_clip(paint, visible))

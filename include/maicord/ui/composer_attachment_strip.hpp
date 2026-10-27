@@ -89,8 +89,11 @@ struct UiComposerAttachmentStripStyle {
     float icon = 48;
 };
 
-constexpr float ui_composer_attachment_strip_height(const UiComposerAttachmentStripStyle& style = {}) noexcept {
-    return style.top + style.tile + style.bottom;
+inline constexpr UiComposerAttachmentStripStyle kUiComposerAttachmentStripStyle{};
+
+constexpr float ui_composer_attachment_strip_height() noexcept {
+    return kUiComposerAttachmentStripStyle.top + kUiComposerAttachmentStripStyle.tile +
+           kUiComposerAttachmentStripStyle.bottom;
 }
 
 inline constexpr u32 kUiComposerAttachmentButtons = 4;
@@ -111,15 +114,13 @@ struct UiComposerAttachmentTileGeometry {
     u32 button_count;
 };
 
-float ui_composer_attachment_strip_content_width(u32 count, const UiComposerAttachmentStripStyle& style = {}) noexcept;
-float ui_composer_attachment_strip_clamp_scroll(UiRect strip, u32 count, float scroll,
-                                                const UiComposerAttachmentStripStyle& style = {}) noexcept;
+float ui_composer_attachment_strip_content_width(u32 count) noexcept;
+float ui_composer_attachment_strip_clamp_scroll(UiRect strip, u32 count, float scroll) noexcept;
 // Smallest scroll change that shows the whole tile (and its action bar).
-float ui_composer_attachment_strip_reveal(UiRect strip, u32 count, u32 index, float scroll,
-                                          const UiComposerAttachmentStripStyle& style = {}) noexcept;
-UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(
-    UiRect strip, const UiComposerAttachmentTile& tile, u32 index, float scroll,
-    const UiComposerAttachmentStripStyle& style = {}) noexcept;
+float ui_composer_attachment_strip_reveal(UiRect strip, u32 count, u32 index, float scroll) noexcept;
+UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(UiRect strip,
+                                                                      const UiComposerAttachmentTile& tile,
+                                                                      u32 index, float scroll) noexcept;
 // Media rule: object-fit contain, centred, never upscaled past 2x.
 UiRect ui_composer_attachment_fit(UiRect media, u32 width, u32 height) noexcept;
 // Spoilered upload media blur with a 44 px deviation (CSS blur(44px)) and keep
@@ -132,8 +133,7 @@ float ui_composer_attachment_thumbnail_blur(const UiComposerAttachmentTile& tile
 // Bottom-left pills: duration or GIF, ALT, SPOILER. Text views point at
 // literals or duration_storage, which must outlive their use.
 u32 ui_composer_attachment_tile_tags(const UiComposerAttachmentTile& tile, UiRect media,
-                                     Slice<UiComposerAttachmentTag> output, Slice<char> duration_storage,
-                                     const UiComposerAttachmentStripStyle& style = {}) noexcept;
+                                     Slice<UiComposerAttachmentTag> output, Slice<char> duration_storage) noexcept;
 
 struct UiComposerAttachmentHit {
     u32 index;
@@ -141,8 +141,7 @@ struct UiComposerAttachmentHit {
 };
 inline constexpr u32 kUiComposerAttachmentNoTile = 0xffffffffu;
 UiComposerAttachmentHit ui_composer_attachment_strip_hit(UiRect strip, ConstSlice<UiComposerAttachmentTile> tiles,
-                                                         float scroll, float x, float y,
-                                                         const UiComposerAttachmentStripStyle& style = {}) noexcept;
+                                                         float scroll, float x, float y) noexcept;
 
 struct UiComposerAttachmentStripView {
     ConstSlice<UiComposerAttachmentTile> tiles;
@@ -156,20 +155,16 @@ struct UiComposerAttachmentStripView {
 };
 // Cards, media wells, file icons and spoiler veils: drawn below thumbnails.
 bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView& view, const Theme& theme,
-                                             PaintStream* paint,
-                                             const UiComposerAttachmentStripStyle& style = {}) noexcept;
+                                             PaintStream* paint) noexcept;
 // Tags, progress, failure outline, selection ring and the action bar: drawn
 // above thumbnails and below text.
 bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripView& view, const Theme& theme,
-                                                PaintStream* paint,
-                                                const UiComposerAttachmentStripStyle& style = {}) noexcept;
+                                                PaintStream* paint) noexcept;
 bool ui_composer_attachment_strip_text(const UiComposerAttachmentStripView& view, const Theme& theme,
-                                       UiTextOutput* output,
-                                       const UiComposerAttachmentStripStyle& style = {}) noexcept;
+                                       UiTextOutput* output) noexcept;
 // Visible media wells that should show a resident thumbnail; spoilered tiles
 // show theirs blurred (ui_composer_attachment_thumbnail_blur).
 bool ui_composer_attachment_thumbnail_visible(const UiComposerAttachmentStripView& view, u32 index,
-                                              UiRect* media, UiRect* clip,
-                                              const UiComposerAttachmentStripStyle& style = {}) noexcept;
+                                              UiRect* media, UiRect* clip) noexcept;
 
 } // namespace maicord

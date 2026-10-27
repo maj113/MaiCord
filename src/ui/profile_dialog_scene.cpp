@@ -87,6 +87,16 @@ UiProfileDialogPart* add(UiProfileDialogScene* s, UiWidgetHandle parent, const U
     part.role = role;
     return &part;
 }
+// The panel with its title and close button, shared by every dialog kind.
+bool add_frame(UiProfileDialogScene* s, UiWidgetHandle root, const UiRect& viewport, const UiRect& panel) noexcept {
+    s->rectangle = panel;
+    return add(s, root, viewport, panel, role_panel) &&
+           add(s, root, viewport, {panel.left + kSide, panel.top + kTop, panel.right - kSide - kClose, panel.top + kTop + kTitleLine},
+               role_title, UiProfileDialogAction::none, s->content.title, 0, text_style_heading_2 | text_style_bold) &&
+           add(s, root, viewport,
+               {panel.right - kTop - kClose, panel.top + kTop - 2, panel.right - kTop, panel.top + kTop - 2 + kClose},
+               role_close, UiProfileDialogAction::close);
+}
 const UiLayoutNode* node(const UiProfileDialogScene& s, const UiProfileDialogPart& part) noexcept {
     return ui_widget_manager_layout_node(s.widgets, part.widget);
 }
@@ -95,10 +105,10 @@ UiRect visible(const UiProfileDialogScene& s, const UiProfileDialogPart& part) n
     return n ? ui_rect_intersection(n->rectangle, n->clip_rectangle) : UiRect{};
 }
 bool hovered(const UiProfileDialogScene& s, const UiProfileDialogPart& part) noexcept {
-    return s.widgets.hovered.slot == part.widget.slot && s.widgets.hovered.generation == part.widget.generation;
+    return ui_widget_handle_equal(s.widgets.hovered, part.widget);
 }
 bool focused(const UiProfileDialogScene& s, const UiProfileDialogPart& part) noexcept {
-    return s.widgets.focused.slot == part.widget.slot && s.widgets.focused.generation == part.widget.generation;
+    return ui_widget_handle_equal(s.widgets.focused, part.widget);
 }
 bool enabled(const UiProfileDialogScene& s, const UiProfileDialogPart& part) noexcept {
     const auto& c = s.content;
@@ -122,16 +132,9 @@ u32 grid_columns(float width) noexcept {
 }
 bool build_crop(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) noexcept {
     const auto panel = panel_rect(UiProfileDialogKind::crop, viewport, crop_height(viewport));
-    s->rectangle = panel;
-    if (!add(s, root, viewport, panel, role_panel))
+    if (!add_frame(s, root, viewport, panel))
         return false;
     const float left = panel.left + kSide, right = panel.right - kSide;
-    if (!add(s, root, viewport, {left, panel.top + kTop, right - kClose, panel.top + kTop + kTitleLine}, role_title,
-             UiProfileDialogAction::none, s->content.title, 0, text_style_heading_2 | text_style_bold) ||
-        !add(s, root, viewport,
-             {panel.right - kTop - kClose, panel.top + kTop - 2, panel.right - kTop, panel.top + kTop - 2 + kClose},
-             role_close, UiProfileDialogAction::close))
-        return false;
     s->crop_viewport = ui_profile_dialog_crop_editor(viewport);
     const auto editor = s->crop_viewport;
     if (!add(s, root, viewport, editor, role_editor, UiProfileDialogAction::pan))
@@ -173,16 +176,9 @@ bool build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport)
     const float height = minimum(kTop + kTitleLine + 16 + kPickerHeight + kFooterButton + kFooterPad * 2,
                                  maximum(240.f, ui_rect_height(viewport) - 32));
     const auto panel = panel_rect(s->content.kind, viewport, height);
-    s->rectangle = panel;
-    if (!add(s, root, viewport, panel, role_panel))
+    if (!add_frame(s, root, viewport, panel))
         return false;
     const float left = panel.left + kSide, right = panel.right - kSide;
-    if (!add(s, root, viewport, {left, panel.top + kTop, right - kClose, panel.top + kTop + kTitleLine}, role_title,
-             UiProfileDialogAction::none, s->content.title, 0, text_style_heading_2 | text_style_bold) ||
-        !add(s, root, viewport,
-             {panel.right - kTop - kClose, panel.top + kTop - 2, panel.right - kTop, panel.top + kTop - 2 + kClose},
-             role_close, UiProfileDialogAction::close))
-        return false;
     const float body_top = panel.top + kTop + kTitleLine + 16;
     const float footer_top = panel.bottom - kFooterPad - kFooterButton;
     const bool side = ui_rect_width(panel) - kSide * 2 >= 3 * kTile + 2 * kTileGap + 16 + kPreviewPanel;
@@ -336,7 +332,7 @@ UiWidgetHandle ui_profile_dialog_hit_test(const UiProfileDialogScene& s, float x
         return ui_widget_invalid_handle();
     const auto target = ui_widget_manager_hit_test(s.widgets, x, y);
     for (u32 i = 0; i < s.part_count; ++i)
-        if (s.parts[i].widget.slot == target.slot && s.parts[i].widget.generation == target.generation)
+        if (ui_widget_handle_equal(s.parts[i].widget, target))
             return enabled(s, s.parts[i]) ? target : ui_widget_invalid_handle();
     return target;
 }

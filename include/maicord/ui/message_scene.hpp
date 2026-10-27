@@ -266,7 +266,6 @@ struct MessageScene {
     MessageMediaReveals media_reveals;
     MessageMediaPolicy media_policy;
     MessageSceneInteraction interaction;
-    u32 interaction_revision;
     // Borrowed invite resolutions; null hosts show no invite cards.
     const InviteCardCache* invite_cards;
     // Borrowed scheduled events for event link cards; may be null.
@@ -375,8 +374,7 @@ bool message_scene_reserve_measurements(MessageScene* scene) noexcept;
 void message_scene_release(MessageScene* scene) noexcept;
 // Only the retained owned-row mode supports result cards. Null restores normal
 // timeline presentation; body/snapshot measurements remain independently owned.
-bool message_scene_set_result_card_style(MessageScene*, const MessageResultCardStyle*,
-                                         bool* changed = nullptr) noexcept;
+bool message_scene_set_result_card_style(MessageScene*, const MessageResultCardStyle*) noexcept;
 // Immutable result order may differ from canonical MessageStore lookup order.
 // The host owns handles under revision; empty restores canonical timeline order.
 bool message_scene_set_source_order(MessageScene*, ConstSlice<MessageHandle>, u32 revision) noexcept;

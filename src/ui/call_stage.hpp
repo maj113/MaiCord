@@ -31,7 +31,6 @@ UiRect invite_button(const UiCallScene& s, u32 request) noexcept;
 UiCallHit hit(const UiCallScene& s, float x, float y) noexcept;
 u64 hash(const UiCallScene& s, u64 seed) noexcept;
 Utf8View label(const UiCallScene& s, UiCallControl control) noexcept;
-UiIcon bar_icon(const UiCallScene& s, UiCallControl control) noexcept;
 bool paint(const UiCallScene& s, const Theme& theme, PaintStream* paint) noexcept;
 bool paint_foreground(const UiCallScene& s, const Theme& theme, PaintStream* paint) noexcept;
 bool text(const UiCallScene& s, const Theme& theme, UiTextOutput* text) noexcept;

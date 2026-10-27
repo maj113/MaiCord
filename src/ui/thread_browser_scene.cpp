@@ -61,16 +61,15 @@ UiRect bounds(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
     return node ? node->rectangle : UiRect{};
 }
 bool selected(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
-    return handle.generation && handle.generation == s.widgets.focused.generation && handle.slot == s.widgets.focused.slot;
+    return ui_widget_handle_matches(handle, s.widgets.focused);
 }
 bool hovered(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
-    return handle.generation && handle.generation == s.widgets.hovered.generation && handle.slot == s.widgets.hovered.slot;
+    return ui_widget_handle_matches(handle, s.widgets.hovered);
 }
 UiWidgetHandle add(UiThreadBrowserScene& s, const UiRect& r, UiThreadBrowserAction action,
     const Utf8View& label, UiWidgetHandle parent, u64 id = 0) noexcept {
     if (!ui_rect_has_area(r)) return {};
-    const auto origin = s.body_owner.generation && parent.generation == s.body_owner.generation &&
-        parent.slot == s.body_owner.slot ? s.body : s.panel;
+    const auto origin = ui_widget_handle_matches(s.body_owner, parent) ? s.body : s.panel;
     const auto value = target(s, action, id);
     const bool enabled = eligible(s, value);
     const auto result = ui_widget_manager_add_placed(&s.widgets, parent,

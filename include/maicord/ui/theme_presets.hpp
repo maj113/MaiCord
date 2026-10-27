@@ -50,12 +50,6 @@ constexpr void ui_theme_amoled_surfaces(Theme& theme) noexcept {
     theme.surface_high = {.105f, .105f, .125f, 1};
 }
 
-constexpr Theme ui_theme_amoled_preset() noexcept {
-    Theme theme = ui_theme_default_preset();
-    ui_theme_amoled_surfaces(theme);
-    return ui_theme_resolve_defaults(theme);
-}
-
 constexpr Theme ui_theme_light_preset() noexcept {
     Theme theme = ui_theme_default_preset();
     theme.appearance = ThemeAppearance::light;

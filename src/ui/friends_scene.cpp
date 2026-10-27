@@ -240,8 +240,7 @@ bool valid_sections(const UiFriendsSections* sections, const UiFriendsSource* so
     u32 end = 0, total = 0;
     for (u32 i = 0; i < sections->count; ++i) {
         const auto& section = sections->sections[i];
-        if (section.kind > UiFriendsSectionKind::ignored ||
-            (i && section.kind <= sections->sections[i - 1].kind) || section.first != end ||
+        if ((i && section.kind <= sections->sections[i - 1].kind) || section.first != end ||
             section.count > 16384 - end || section.total_count < section.count ||
             section.total_count > 16384 - total || section.kind > UiFriendsSectionKind::outgoing)
             return false;
@@ -251,17 +250,7 @@ bool valid_sections(const UiFriendsSections* sections, const UiFriendsSource* so
     return end == (source ? source->count : 0);
 }
 Utf8View section_label(UiFriendsSectionKind kind) noexcept {
-    switch (kind) {
-    case UiFriendsSectionKind::incoming:
-        return utf8_literal("Received");
-    case UiFriendsSectionKind::outgoing:
-        return utf8_literal("Sent");
-    case UiFriendsSectionKind::spam:
-        return utf8_literal("Spam");
-    case UiFriendsSectionKind::ignored:
-        return utf8_literal("Ignored");
-    }
-    return {};
+    return kind == UiFriendsSectionKind::incoming ? utf8_literal("Received") : utf8_literal("Sent");
 }
 void section_heading(Entry& e, const UiFriendsSection& section) noexcept {
     u32 used = 0;

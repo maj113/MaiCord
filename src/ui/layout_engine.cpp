@@ -7,10 +7,6 @@ namespace {
 constexpr float kLayoutEpsilon = 0.01f;
 constexpr float kRenderedContentTolerance = 2.5f;
 
-float absolute(float value) noexcept {
-    return value < 0.0f ? -value : value;
-}
-
 bool has_flag(const UiLayoutStyle& style, UiLayoutNodeFlag flag) noexcept {
     return (style.flags & static_cast<u16>(flag)) != 0;
 }
@@ -54,8 +50,8 @@ float resolved_measure(UiLayoutLength length, float content, float minimum_value
 }
 
 bool extents_match(UiSize left, UiSize right) noexcept {
-    return absolute(left.width - right.width) <= kLayoutEpsilon &&
-           absolute(left.height - right.height) <= kLayoutEpsilon;
+    return absolute_value(left.width - right.width) <= kLayoutEpsilon &&
+           absolute_value(left.height - right.height) <= kLayoutEpsilon;
 }
 
 UiSize initial_measure_constraint(const UiLayoutNode& node, UiSize viewport) noexcept {
@@ -582,10 +578,10 @@ bool rectangles_intersect(const UiRect& left, const UiRect& right) noexcept {
 }
 
 bool rectangles_match(const UiRect& left, const UiRect& right) noexcept {
-    return absolute(left.left - right.left) <= kLayoutEpsilon &&
-           absolute(left.top - right.top) <= kLayoutEpsilon &&
-           absolute(left.right - right.right) <= kLayoutEpsilon &&
-           absolute(left.bottom - right.bottom) <= kLayoutEpsilon;
+    return absolute_value(left.left - right.left) <= kLayoutEpsilon &&
+           absolute_value(left.top - right.top) <= kLayoutEpsilon &&
+           absolute_value(left.right - right.right) <= kLayoutEpsilon &&
+           absolute_value(left.bottom - right.bottom) <= kLayoutEpsilon;
 }
 
 UiRect expected_wrap_rectangle(const UiLayoutEngine& engine, const UiLayoutNode& parent,
@@ -1009,7 +1005,7 @@ UiLayoutValidationResult ui_layout_engine_validate(const UiLayoutEngine& engine,
                      peer_slot = engine.storage[peer_slot].next_sibling) {
                     const UiLayoutNode& peer = engine.storage[peer_slot];
                     if (peer.visible && peer.spec.style.vertical_alignment == UiLayoutAlignment::baseline &&
-                        absolute(expected - (peer.rectangle.top + peer.measured_baseline)) >
+                        absolute_value(expected - (peer.rectangle.top + peer.measured_baseline)) >
                             kLayoutEpsilon) {
                         push_diagnostic(&result, output,
                                         UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_baseline,

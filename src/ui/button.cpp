@@ -44,8 +44,6 @@ UiButtonPointerResult ui_button_pointer_target(UiWidgetManager* owner, UiButtonP
 }
 Color ui_button_background(const UiWidgetManager& owner, UiWidgetHandle handle, const Theme& theme,
                            Color idle, UiButtonSurface surface) noexcept {
-    if (surface == UiButtonSurface::icon_only)
-        return {};
     if (!button(owner, handle) || !ui_widget_handle_equal(owner.hovered, handle))
         return idle;
     if (ui_background_active(theme)) {
@@ -79,11 +77,7 @@ bool ui_button_icon_paint(PaintStream* paint, const UiWidgetManager& owner, UiWi
     const auto r = node->rectangle;
     if (!paint_stream_push_clip(paint, node->clip_rectangle))
         return false;
-    Color background = ui_button_background(owner, handle, theme,
-                                            palette || selected                       ? theme.surface
-                                            : surface == UiButtonSurface::translucent ? theme.tokens.fill.translucent
-                                                                                      : Color{},
-                                            surface);
+    Color background = ui_button_background(owner, handle, theme, palette || selected ? theme.surface : Color{}, surface);
     if (palette)
         background.alpha = 1;
     bool ok = palette ? ui_background_paint_surface(

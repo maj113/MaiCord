@@ -16,22 +16,19 @@ inline constexpr u32 kPopupPanelId = 2;
 const UiThemeMetrics& menu_metrics(const UiResolvedThemeStyles* styles) noexcept {
     return styles && styles->ready ? styles->metrics : kUiThemeMetricsDefault;
 }
-// Any ordinary row with a leading icon gives icon-less rows the same label
-// column and full row height, so mixed menus keep one rhythm.
-bool menu_icon_column(ConstSlice<PopupItem> items) noexcept {
-    for (u32 index = 0; index < items.count; ++index) {
-        const auto presentation = popup_item_menu_presentation(items[index]);
-        if (popup_item_menu_row(items[index]) && presentation.icon_plus_one && !presentation.trailing_icon)
-            return true;
-    }
-    return false;
-}
-
 // Mention lists mix member avatars with @everyone, @here and role rows: those
 // leading-glyph rows then take the avatar row's height and label column.
 bool leading_icon_row(const PopupItem& item) noexcept {
     const auto presentation = popup_item_menu_presentation(item);
     return popup_item_menu_row(item) && presentation.icon_plus_one && !presentation.trailing_icon;
+}
+// Any ordinary row with a leading icon gives icon-less rows the same label
+// column and full row height, so mixed menus keep one rhythm.
+bool menu_icon_column(ConstSlice<PopupItem> items) noexcept {
+    for (u32 index = 0; index < items.count; ++index)
+        if (leading_icon_row(items[index]))
+            return true;
+    return false;
 }
 bool menu_avatar_column(ConstSlice<PopupItem> items) noexcept {
     for (u32 index = 0; index < items.count; ++index)
@@ -303,6 +300,32 @@ float menu_height(float content, UiRect anchor, UiRect viewport, float minimum_h
     return minimum(content, maximum(minimum_height, ui_rect_height(viewport) - 2.f * kPopupOuterMargin));
 }
 
+// Panel rectangle of a menu; false when an autocomplete has no room above its anchor.
+// *below is read and updated for non-autocomplete menus only.
+bool popup_rectangle(PopupKind kind, ConstSlice<PopupItem> items, const UiResolvedThemeStyles* styles, UiRect anchor,
+                     UiRect viewport, float preferred_width, bool prefer_above, float feedback_height, bool* below,
+                     UiRect* rectangle) noexcept {
+    const float padding = menu_metrics(styles).menu_padding;
+    if (kind == PopupKind::autocomplete) {
+        // Every composer suggestion uses the same surface bounds and gap.
+        // Constrain height to the space above it; generic menu placement can
+        // otherwise move a tall list down across the editor.
+        const float bottom = minimum(anchor.top - kUiAutocompleteGap, viewport.bottom);
+        const float available = maximum(0.f, bottom - viewport.top - kPopupOuterMargin);
+        const float left = maximum(anchor.left, viewport.left);
+        const float right = minimum(anchor.right, viewport.right);
+        if (available <= 2.f * padding || right - left <= 2.f * padding)
+            return false;
+        *rectangle = {left, bottom - minimum(popup_height(items, styles), available), right, bottom};
+        return true;
+    }
+    const float width = minimum(preferred_width, maximum(96.f, ui_rect_width(viewport) - 2.f * kPopupOuterMargin));
+    const float height = menu_height(popup_height(items, styles) + feedback_height, anchor, viewport,
+                                     menu_metrics(styles).menu_compact_height + 2.f * padding, below);
+    *rectangle = place_popup(anchor, viewport, width, height, prefer_above, *below);
+    return true;
+}
+
 bool reveal_selection(PopupScene* scene, bool* changed) noexcept {
     if (!scrollable_menu(scene->kind) || scene->selected_index >= scene->item_count)
         return true;
@@ -423,23 +446,10 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
     const float padding = menu_metrics(styles).menu_padding;
     const float feedback_height = scene->feedback_reserved ? scene->feedback.style.height : 0.f;
     UiRect rectangle{};
-    if (scene->kind == PopupKind::autocomplete) {
-        const float bottom = minimum(scene->anchor.top - kUiAutocompleteGap, scene->viewport.bottom);
-        const float available = maximum(0.f, bottom - scene->viewport.top - kPopupOuterMargin);
-        const float left = maximum(scene->anchor.left, scene->viewport.left);
-        const float right = minimum(scene->anchor.right, scene->viewport.right);
-        if (available <= 2.f * padding || right - left <= 2.f * padding)
-            return false;
-        rectangle = {left, bottom - minimum(popup_height(items, styles), available), right, bottom};
-    } else {
-        const float width = minimum(scene->preferred_width, maximum(96.f, ui_rect_width(scene->viewport) -
-                                                                              2.f * kPopupOuterMargin));
-        bool below = scene->anchored_below;
-        const float height = menu_height(popup_height(items, styles) + feedback_height, scene->anchor,
-                                         scene->viewport, menu_metrics(styles).menu_compact_height + 2.f * padding,
-                                         &below);
-        rectangle = place_popup(scene->anchor, scene->viewport, width, height, scene->prefer_above, below);
-    }
+    bool below = scene->anchored_below;
+    if (!popup_rectangle(scene->kind, items, styles, scene->anchor, scene->viewport, scene->preferred_width,
+                         scene->prefer_above, feedback_height, &below, &rectangle))
+        return false;
     panel->spec.style =
         panel_style(rectangle.left - scene->viewport.left, rectangle.top - scene->viewport.top,
                     ui_rect_width(rectangle), ui_rect_height(rectangle), command_selected,
@@ -570,29 +580,13 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         return failure(scene, PopupSceneError::capacity);
     }
     UiRect rectangle{};
-    bool anchored_below = false;
-    if (kind == PopupKind::autocomplete) {
-        // Every composer suggestion uses the same surface bounds and gap.
-        // Constrain height to the space above it; generic menu placement can
-        // otherwise move a tall list down across the editor.
-        const float bottom = minimum(anchor.top - kUiAutocompleteGap, viewport.bottom);
-        const float available = maximum(0.0f, bottom - viewport.top - kPopupOuterMargin);
-        const float left = maximum(anchor.left, viewport.left);
-        const float right = minimum(anchor.right, viewport.right);
-        if (available <= 2.0f * padding || right - left <= 2.0f * padding)
-            return {PopupSceneError::none, popup_scene_close(scene)};
-        rectangle = {left, bottom - minimum(popup_height(items, styles), available), right, bottom};
-    } else {
-        const float width =
-            minimum(preferred_width, maximum(96.0f, ui_rect_width(viewport) - 2.0f * kPopupOuterMargin));
-        // A follow-up menu replacing a header popout keeps its placement.
-        bool below = !commands && !quick_strip &&
-                     (below_request || (scene->anchored_below && ui_rect_equal(anchor, scene->anchor)));
-        const float height = menu_height(popup_height(items, styles) + feedback_height, anchor, viewport,
-                                         menu_metrics(styles).menu_compact_height + 2.0f * padding, &below);
-        anchored_below = below;
-        rectangle = place_popup(anchor, viewport, width, height, prefer_above, below);
-    }
+    // A follow-up menu replacing a header popout keeps its placement.
+    bool below = kind != PopupKind::autocomplete && !commands && !quick_strip &&
+                 (below_request || (scene->anchored_below && ui_rect_equal(anchor, scene->anchor)));
+    if (!popup_rectangle(kind, items, styles, anchor, viewport, preferred_width, prefer_above, feedback_height, &below,
+                         &rectangle))
+        return {PopupSceneError::none, popup_scene_close(scene)};
+    const bool anchored_below = below;
     // Reflowing live composer suggestions is a content update, not a new
     // popup lifetime. Keep the entrance clock stable while rows/size change.
     const bool continuing_suggestions = scene->active && scene->kind == PopupKind::autocomplete &&
@@ -1003,41 +997,36 @@ bool popup_scene_menu_row_geometry(const PopupScene& scene, u32 index,
     if (!popup_scene_resolve_item_layout(scene, index, &layout))
         return false;
     const PopupItem& item = scene.items[index];
+    const auto* styles = scene.themed_menu ? scene.theme_styles : nullptr;
+    const auto& metrics = menu_metrics(styles);
+    const ConstSlice<PopupItem> items{scene.items.data, minimum(scene.item_count, scene.items.count)};
     UiRect content = layout.label->content_rectangle;
     if (item.flags & (popup_item_avatar | popup_item_emoji_preview))
         content.left = minimum(content.right, layout.row->rectangle.left + 48);
     else if ((!popup_item_menu_presentation(item).icon_plus_one || popup_item_menu_presentation(item).trailing_icon) &&
-             !(item.flags & popup_item_guild_icon) &&
-             menu_icon_column({scene.items.data, minimum(scene.item_count, scene.items.count)})) {
+             !(item.flags & popup_item_guild_icon) && menu_icon_column(items)) {
         // Rows without a leading icon (a trailing submenu chevron included)
         // keep their label in the menu's icon column.
-        const auto& metrics = menu_metrics(scene.themed_menu ? scene.theme_styles : nullptr);
         content.left = minimum(content.right, content.left + metrics.menu_icon + metrics.menu_gap);
     }
     // A checked row owns a separate trailing mark. Reserve it before projecting
     // existing icons, shortcut text and detail slots so their ordering stays intact.
     if (item.flags & popup_item_checked) {
-        const float extent =
-            minimum(menu_metrics(scene.themed_menu ? scene.theme_styles : nullptr).menu_icon,
-                    ui_rect_width(content) * .5f);
-        content.right = maximum(
-            content.left, content.right - extent -
-                              menu_metrics(scene.themed_menu ? scene.theme_styles : nullptr).menu_gap);
+        const float extent = minimum(metrics.menu_icon, ui_rect_width(content) * .5f);
+        content.right = maximum(content.left, content.right - extent - metrics.menu_gap);
     }
     const auto presentation = popup_item_menu_presentation(item);
     const bool avatar_lane = presentation.icon_plus_one && !presentation.trailing_icon &&
                              !(item.flags & (popup_item_avatar | popup_item_emoji_preview | popup_item_guild_icon)) &&
-                             menu_avatar_column({scene.items.data, minimum(scene.item_count, scene.items.count)});
+                             menu_avatar_column(items);
     if (avatar_lane) {
         // Centre the glyph where member avatars sit; the label starts in their column.
         // popup_avatar_rectangle: a 24 DIP avatar 8 DIP into the row.
         const float avatar_center = layout.row->rectangle.left + 20;
-        const float extent = menu_metrics(scene.themed_menu ? scene.theme_styles : nullptr).menu_icon;
-        content.left = minimum(content.right, avatar_center - extent * .5f);
+        content.left = minimum(content.right, avatar_center - metrics.menu_icon * .5f);
     }
     if (!ui_menu_row_project(content, layout.clip_rectangle, presentation, item.detail.bytes != 0,
-                             item.shortcut > popup_shortcut_none && item.shortcut < popup_shortcut_count, geometry,
-                             scene.themed_menu ? scene.theme_styles : nullptr))
+                             item.shortcut > popup_shortcut_none && item.shortcut < popup_shortcut_count, geometry, styles))
         return false;
     if (avatar_lane) {
         const float label = minimum(content.right, layout.row->rectangle.left + 48);

@@ -37,7 +37,7 @@ UiCallGridLayout ui_call_grid_measure(float width, float height, u32 count, floa
 // Writes count tile rectangles: rows are centered, a partial last row too;
 // the block is centered vertically unless it scrolls (scroll offsets it).
 bool ui_call_grid_place(UiRect area, u32 count, float gap, float scroll, Slice<UiRect> tiles,
-                        UiCallGridLayout* layout = nullptr, float minimum_width = kUiCallMinimumTileWidth) noexcept;
+                        UiCallGridLayout* layout = nullptr) noexcept;
 // Focus: the stage tile fills the area above a filmstrip of 16:9 tiles.
 struct UiCallFocusLayout {
     UiRect stage, strip;

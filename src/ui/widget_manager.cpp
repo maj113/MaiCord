@@ -438,35 +438,4 @@ const UiLayoutNode* ui_widget_manager_layout_node(const UiWidgetManager& manager
     return widget ? ui_layout_engine_resolve(manager.layout, widget->layout) : nullptr;
 }
 
-u32 ui_widget_manager_format_path(const UiWidgetManager& manager, UiWidgetHandle handle,
-                                  Slice<char> output) noexcept {
-    if ((!output.data && output.count != 0) || output.count == 0) {
-        return 0;
-    }
-    UiWidgetHandle chain[kMaximumUiLayoutDepth]{};
-    u32 depth = 0;
-    const UiWidget* widget = ui_widget_manager_resolve(manager, handle);
-    while (widget && depth < kMaximumUiLayoutDepth) {
-        chain[depth++] = handle;
-        handle = widget->parent;
-        widget = ui_widget_manager_resolve(manager, handle);
-    }
-    u32 written = 0;
-    for (u32 reverse = depth; reverse != 0; --reverse) {
-        const UiWidget* path_widget = ui_widget_manager_resolve(manager, chain[reverse - 1]);
-        const UiLayoutNode* layout =
-            path_widget ? ui_layout_engine_resolve(manager.layout, path_widget->layout) : nullptr;
-        if (!layout) {
-            break;
-        }
-        if (written != 0 && written < output.count) {
-            output[written++] = '/';
-        }
-        for (u32 index = 0; index < layout->spec.debug_name.bytes && written < output.count; ++index) {
-            output[written++] = layout->spec.debug_name.data[index];
-        }
-    }
-    return written;
-}
-
 } // namespace maicord

@@ -352,12 +352,8 @@ const ShellNavigationRowWidget* shell_navigation_scene_resolve(const ShellNaviga
     }
     for (u32 index = 0; index < scene.count; ++index) {
         const ShellNavigationRowWidget& row = scene.rows[index];
-        const bool row_match = row.widget.slot == widget.slot && row.widget.generation == widget.generation;
-        const bool icon_match = row.icon.slot == widget.slot && row.icon.generation == widget.generation;
-        const bool label_match = row.label.slot == widget.slot && row.label.generation == widget.generation;
-        const bool badge_match =
-            row.mention_badge.slot == widget.slot && row.mention_badge.generation == widget.generation;
-        if (row_match || icon_match || label_match || badge_match) {
+        if (ui_widget_handle_equal(row.widget, widget) || ui_widget_handle_equal(row.icon, widget) ||
+            ui_widget_handle_equal(row.label, widget) || ui_widget_handle_equal(row.mention_badge, widget)) {
             return &row;
         }
     }

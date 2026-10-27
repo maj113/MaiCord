@@ -98,15 +98,11 @@ void set_function(u8 modules[kModuleCount], u8 functions[kModuleCount],
     functions[index] = 1;
 }
 
-i32 absolute(i32 value) noexcept {
-    return value < 0 ? -value : value;
-}
-
 void draw_finder(u8 modules[kModuleCount], u8 functions[kModuleCount],
                  i32 center_x, i32 center_y) noexcept {
     for (i32 y = -4; y <= 4; ++y) {
         for (i32 x = -4; x <= 4; ++x) {
-            const i32 distance = maximum(absolute(x), absolute(y));
+            const i32 distance = maximum(absolute_value(x), absolute_value(y));
             set_function(modules, functions, center_x + x, center_y + y,
                          distance != 2 && distance != 4);
         }
@@ -118,7 +114,7 @@ void draw_alignment(u8 modules[kModuleCount], u8 functions[kModuleCount],
     for (i32 y = -2; y <= 2; ++y) {
         for (i32 x = -2; x <= 2; ++x) {
             set_function(modules, functions, center_x + x, center_y + y,
-                         maximum(absolute(x), absolute(y)) != 1);
+                         maximum(absolute_value(x), absolute_value(y)) != 1);
         }
     }
 }

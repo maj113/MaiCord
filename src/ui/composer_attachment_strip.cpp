@@ -10,6 +10,7 @@
 
 namespace maicord {
 namespace {
+constexpr const UiComposerAttachmentStripStyle& style = kUiComposerAttachmentStripStyle;
 
 struct Extension {
     char name[7];
@@ -251,24 +252,22 @@ u32 ui_attachment_format_duration(u32 milliseconds, Slice<char> output) noexcept
     return append_unsigned(output, used, remainder, 2);
 }
 
-float ui_composer_attachment_strip_content_width(u32 count, const UiComposerAttachmentStripStyle& style) noexcept {
+float ui_composer_attachment_strip_content_width(u32 count) noexcept {
     if (!count)
         return 0;
     return style.leading + static_cast<float>(count) * style.tile + static_cast<float>(count - 1) * style.gap +
            style.trailing;
 }
 
-float ui_composer_attachment_strip_clamp_scroll(UiRect strip, u32 count, float scroll,
-                                                const UiComposerAttachmentStripStyle& style) noexcept {
+float ui_composer_attachment_strip_clamp_scroll(UiRect strip, u32 count, float scroll) noexcept {
     const float overflow =
-        maximum(0.f, ui_composer_attachment_strip_content_width(count, style) - ui_rect_width(strip));
+        maximum(0.f, ui_composer_attachment_strip_content_width(count) - ui_rect_width(strip));
     return scroll != scroll ? 0.f : minimum(overflow, maximum(0.f, scroll));
 }
 
-float ui_composer_attachment_strip_reveal(UiRect strip, u32 count, u32 index, float scroll,
-                                          const UiComposerAttachmentStripStyle& style) noexcept {
+float ui_composer_attachment_strip_reveal(UiRect strip, u32 count, u32 index, float scroll) noexcept {
     if (index >= count)
-        return ui_composer_attachment_strip_clamp_scroll(strip, count, scroll, style);
+        return ui_composer_attachment_strip_clamp_scroll(strip, count, scroll);
     const float left = style.leading + static_cast<float>(index) * (style.tile + style.gap);
     // The action bar overhangs the tile's end edge by a quarter of its width.
     const float right = left + style.tile + style.gap;
@@ -277,12 +276,11 @@ float ui_composer_attachment_strip_reveal(UiRect strip, u32 count, u32 index, fl
         scroll = left - style.leading;
     else if (right > scroll + width)
         scroll = right - width;
-    return ui_composer_attachment_strip_clamp_scroll(strip, count, scroll, style);
+    return ui_composer_attachment_strip_clamp_scroll(strip, count, scroll);
 }
 
-UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(
-    UiRect strip, const UiComposerAttachmentTile& tile, u32 index, float scroll,
-    const UiComposerAttachmentStripStyle& style) noexcept {
+UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(UiRect strip, const UiComposerAttachmentTile& tile,
+                                                                      u32 index, float scroll) noexcept {
     UiComposerAttachmentTileGeometry geometry{};
     const float left = strip.left + style.leading - scroll + static_cast<float>(index) * (style.tile + style.gap);
     const float top = strip.top + style.top;
@@ -337,8 +335,7 @@ float ui_composer_attachment_thumbnail_blur(const UiComposerAttachmentTile& tile
 }
 
 u32 ui_composer_attachment_tile_tags(const UiComposerAttachmentTile& tile, UiRect media,
-                                     Slice<UiComposerAttachmentTag> output, Slice<char> duration_storage,
-                                     const UiComposerAttachmentStripStyle& style) noexcept {
+                                     Slice<UiComposerAttachmentTag> output, Slice<char> duration_storage) noexcept {
     if (!output.data || tile.phase == UiComposerAttachmentPhase::preparing)
         return 0;
     Utf8View labels[kUiComposerAttachmentTags]{};
@@ -371,19 +368,18 @@ u32 ui_composer_attachment_tile_tags(const UiComposerAttachmentTile& tile, UiRec
 }
 
 UiComposerAttachmentHit ui_composer_attachment_strip_hit(UiRect strip, ConstSlice<UiComposerAttachmentTile> tiles,
-                                                         float scroll, float x, float y,
-                                                         const UiComposerAttachmentStripStyle& style) noexcept {
+                                                         float scroll, float x, float y) noexcept {
     if (!tiles.data || !ui_rect_contains(strip, x, y))
         return {kUiComposerAttachmentNoTile, UiComposerAttachmentPart::none};
     // Later action bars overlap earlier gaps; buttons take precedence over cards.
     for (u32 i = 0; i < tiles.count; ++i) {
-        const auto geometry = ui_composer_attachment_tile_geometry(strip, tiles[i], i, scroll, style);
+        const auto geometry = ui_composer_attachment_tile_geometry(strip, tiles[i], i, scroll);
         for (u32 b = 0; b < geometry.button_count; ++b)
             if (ui_rect_contains(geometry.buttons[b], x, y))
                 return {i, geometry.parts[b]};
     }
     for (u32 i = 0; i < tiles.count; ++i) {
-        const auto geometry = ui_composer_attachment_tile_geometry(strip, tiles[i], i, scroll, style);
+        const auto geometry = ui_composer_attachment_tile_geometry(strip, tiles[i], i, scroll);
         if (ui_rect_contains(geometry.card, x, y) || ui_rect_contains(geometry.actions, x, y))
             return {i, UiComposerAttachmentPart::tile};
     }
@@ -391,11 +387,10 @@ UiComposerAttachmentHit ui_composer_attachment_strip_hit(UiRect strip, ConstSlic
 }
 
 bool ui_composer_attachment_thumbnail_visible(const UiComposerAttachmentStripView& view, u32 index, UiRect* media,
-                                              UiRect* clip, const UiComposerAttachmentStripStyle& style) noexcept {
+                                              UiRect* clip) noexcept {
     if (index >= view.tiles.count || !shows_thumbnail(view.tiles[index]))
         return false;
-    const auto geometry =
-        ui_composer_attachment_tile_geometry(view.strip, view.tiles[index], index, view.scroll, style);
+    const auto geometry = ui_composer_attachment_tile_geometry(view.strip, view.tiles[index], index, view.scroll);
     const UiRect visible = ui_rect_intersection(geometry.media, view.strip);
     if (!ui_rect_has_area(visible))
         return false;
@@ -407,8 +402,7 @@ bool ui_composer_attachment_thumbnail_visible(const UiComposerAttachmentStripVie
 }
 
 bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView& view, const Theme& theme,
-                                             PaintStream* paint,
-                                             const UiComposerAttachmentStripStyle& style) noexcept {
+                                             PaintStream* paint) noexcept {
     if (!paint || (!view.tiles.data && view.tiles.count))
         return false;
     if (!view.tiles.count || !ui_rect_has_area(view.strip))
@@ -418,7 +412,7 @@ bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView
     bool ok = true;
     for (u32 i = 0; ok && i < view.tiles.count; ++i) {
         const auto& tile = view.tiles[i];
-        const auto geometry = ui_composer_attachment_tile_geometry(view.strip, tile, i, view.scroll, style);
+        const auto geometry = ui_composer_attachment_tile_geometry(view.strip, tile, i, view.scroll);
         if (!ui_rect_intersects(geometry.card, view.strip))
             continue;
         const bool hovered = view.hovered == i;
@@ -442,8 +436,7 @@ bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView
 }
 
 bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripView& view, const Theme& theme,
-                                                PaintStream* paint,
-                                                const UiComposerAttachmentStripStyle& style) noexcept {
+                                                PaintStream* paint) noexcept {
     if (!paint || (!view.tiles.data && view.tiles.count))
         return false;
     if (!view.tiles.count || !ui_rect_has_area(view.strip))
@@ -453,14 +446,14 @@ bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripV
     bool ok = true;
     for (u32 i = 0; ok && i < view.tiles.count; ++i) {
         const auto& tile = view.tiles[i];
-        const auto geometry = ui_composer_attachment_tile_geometry(view.strip, tile, i, view.scroll, style);
+        const auto geometry = ui_composer_attachment_tile_geometry(view.strip, tile, i, view.scroll);
         if (!ui_rect_intersects(geometry.card, view.strip) &&
             !ui_rect_intersects(geometry.actions, view.strip))
             continue;
         UiComposerAttachmentTag tags[kUiComposerAttachmentTags];
         char duration[16];
         const u32 tag_count =
-            ui_composer_attachment_tile_tags(tile, geometry.media, {tags, kUiComposerAttachmentTags}, {duration, 16}, style);
+            ui_composer_attachment_tile_tags(tile, geometry.media, {tags, kUiComposerAttachmentTags}, {duration, 16});
         for (u32 t = 0; ok && t < tag_count; ++t)
             ok = paint_stream_push_rounded(paint, tags[t].rectangle, theme.tokens.overlay.dense, theme.scale.radius_xs);
         if (ok && ui_rect_has_area(geometry.progress)) {
@@ -507,12 +500,12 @@ bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripV
 }
 
 bool ui_composer_attachment_strip_text(const UiComposerAttachmentStripView& view, const Theme& theme,
-                                       UiTextOutput* output, const UiComposerAttachmentStripStyle& style) noexcept {
+                                       UiTextOutput* output) noexcept {
     if (!output || (!view.tiles.data && view.tiles.count))
         return false;
     for (u32 i = 0; i < view.tiles.count; ++i) {
         const auto& tile = view.tiles[i];
-        const auto geometry = ui_composer_attachment_tile_geometry(view.strip, tile, i, view.scroll, style);
+        const auto geometry = ui_composer_attachment_tile_geometry(view.strip, tile, i, view.scroll);
         const UiRect visible = ui_rect_intersection(geometry.card, view.strip);
         if (!ui_rect_has_area(visible))
             continue;
@@ -539,7 +532,7 @@ bool ui_composer_attachment_strip_text(const UiComposerAttachmentStripView& view
         UiComposerAttachmentTag tags[kUiComposerAttachmentTags];
         char duration[16];
         const u32 tag_count =
-            ui_composer_attachment_tile_tags(tile, geometry.media, {tags, kUiComposerAttachmentTags}, {duration, 16}, style);
+            ui_composer_attachment_tile_tags(tile, geometry.media, {tags, kUiComposerAttachmentTags}, {duration, 16});
         for (u32 t = 0; t < tag_count; ++t) {
             const UiRect clip = ui_rect_intersection(tags[t].rectangle, view.strip);
             if (!ui_rect_has_area(clip))

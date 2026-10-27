@@ -1251,10 +1251,8 @@ UiControlState hover_option(const UiSettingsScene& scene, UiControlState state, 
 UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle, const UiSettingsTarget& target,
                             bool enabled) noexcept {
     const bool hovered = ui_widget_manager_input_enabled(scene.widgets, handle) &&
-                         scene.widgets.hovered.slot == handle.slot &&
-                         scene.widgets.hovered.generation == handle.generation;
-    const bool pressed = hovered && scene.widgets.captured.slot == handle.slot &&
-                         scene.widgets.captured.generation == handle.generation;
+                         ui_widget_handle_equal(scene.widgets.hovered, handle);
+    const bool pressed = hovered && ui_widget_handle_equal(scene.widgets.captured, handle);
     return {enabled, hovered, pressed, scene.focus_visible && ui_settings_target_equal(scene.focus, target)};
 }
 float toggle_motion(const UiSettingsScene& scene, const UiSettingsTarget& target, const UiSettingsLayoutTokens& t,
@@ -2359,8 +2357,7 @@ bool ui_settings_scene_aside(const UiSettingsScene& scene, UiRect* heading, UiRe
 bool ui_settings_scene_page_owner(const UiSettingsScene& scene, UiWidgetReference owner) noexcept {
     if (!current(scene) || owner.manager != &scene.widgets || !ui_widget_manager_resolve(scene.widgets, owner.handle))
         return false;
-    if ((owner.handle.slot == scene.title.slot && owner.handle.generation == scene.title.generation) ||
-        (owner.handle.slot == scene.description.slot && owner.handle.generation == scene.description.generation))
+    if (ui_widget_handle_equal(owner.handle, scene.title) || ui_widget_handle_equal(owner.handle, scene.description))
         return true;
     const auto& entry = entries(scene)[owner.handle.slot];
     return entry.role == EntryRole::row || entry.role == EntryRole::footer_status ||

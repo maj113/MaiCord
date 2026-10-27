@@ -84,12 +84,11 @@ inline bool ui_background_palette(const Theme& theme, Color* colors) noexcept {
         reset_value(&colors[i]);
     return true;
 }
-inline Color ui_background_canvas_color(const Theme& theme, Color plate,
-                                        UiBackgroundTier tier = UiBackgroundTier::chat) noexcept {
+inline Color ui_background_canvas_color(const Theme& theme, Color plate) noexcept {
     if (!ui_background_active(theme))
         return plate;
     const float mode = theme.appearance == ThemeAppearance::light ? 1.f : 0.f;
-    return {mode, mode, mode, plate.alpha * ui_background_tier_opacity(theme, tier)};
+    return {mode, mode, mode, plate.alpha * ui_background_tier_opacity(theme, UiBackgroundTier::chat)};
 }
 inline Color ui_background_surface_color(const Theme& theme, Color color, float opacity) noexcept {
     if (!ui_background_active(theme))

@@ -209,11 +209,11 @@ UiRect state_glyph(const UiCallTile& tile, bool with_text) noexcept {
     return centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f - (with_text && large ? 12.f : 0.f), extent,
                     extent);
 }
-UiRect status_line(const UiCallTile& tile, bool glyph) noexcept {
+UiRect status_line(const UiCallTile& tile) noexcept {
     const auto r = tile.display;
     if (ui_rect_height(r) < 72)
         return {};
-    const float top = glyph ? state_glyph(tile, true).bottom + 6 : (r.top + r.bottom) * .5f - 10;
+    const float top = state_glyph(tile, true).bottom + 6;
     return {r.left + 12, top, r.right - 12, top + 20};
 }
 // The glyph drawn with the state copy: pause for a paused stream, a muted
@@ -424,10 +424,10 @@ UiCallGridLayout ui_call_grid_measure(float width, float height, u32 count, floa
 }
 
 bool ui_call_grid_place(UiRect area, u32 count, float gap, float scroll, Slice<UiRect> tiles,
-                        UiCallGridLayout* output, float minimum_width) noexcept {
+                        UiCallGridLayout* output) noexcept {
     if (!count || tiles.count < count || !tiles.data || !ui_rect_has_area(area))
         return false;
-    const auto layout = ui_call_grid_measure(ui_rect_width(area), ui_rect_height(area), count, gap, minimum_width);
+    const auto layout = ui_call_grid_measure(ui_rect_width(area), ui_rect_height(area), count, gap);
     if (!layout.columns)
         return false;
     const float height = ui_rect_height(area);
@@ -1024,7 +1024,7 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
         if (ok && stream_scrim(*p) && p->stream != UiCallStream::ended)
             ok = paint_stream_push_rounded(paint, r, theme.tokens.overlay.scrim_light, kTileRadius);
         if (ok && stream_spinner(*p))
-            ok = ui_spinner_paint(paint, state_glyph(tile, ui_rect_has_area(status_line(tile, true)) &&
+            ok = ui_spinner_paint(paint, state_glyph(tile, ui_rect_has_area(status_line(tile)) &&
                                                                stream_status(*p).bytes),
                                   light, s.spinner_phase);
         UiIcon glyph{};
@@ -1032,7 +1032,7 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
             Color ink = light;
             if (p->stream == UiCallStream::ended)
                 ink.alpha *= .6f;
-            ok = ui_icon_paint(paint, glyph, state_glyph(tile, ui_rect_has_area(status_line(tile, true))), ink);
+            ok = ui_icon_paint(paint, glyph, state_glyph(tile, ui_rect_has_area(status_line(tile))), ink);
         }
         if (ok && p->speaking)
             ok = paint_stream_push_rounded_border(paint, r, {0, 0, 0, 0}, success, kTileRadius, 2);
@@ -1137,9 +1137,13 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
             icon = UiIcon::audio_lines;
             break;
         case UiCallControl::stage_hand:
+            icon = UiIcon::hand;
+            break;
         case UiCallControl::stage_become:
+            icon = UiIcon::mic;
+            break;
         case UiCallControl::stage_audience:
-            icon = call_stage::bar_icon(s, control);
+            icon = UiIcon::user_minus;
             break;
         default:
             break;
@@ -1278,7 +1282,7 @@ bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextO
                            text_style_subtext | text_style_bold);
         }
         const Utf8View state_text = stream_status(*p);
-        const auto line = state_text.bytes ? status_line(tile, true) : UiRect{};
+        const auto line = state_text.bytes ? status_line(tile) : UiRect{};
         if (ok && ui_rect_has_area(line))
             ok = push_text(text, s, state_text, line, ui_rect_intersection(clip, line), light, text_style_subtext,
                            UiTextAlignment::center);

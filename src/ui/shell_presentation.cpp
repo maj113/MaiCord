@@ -108,8 +108,7 @@ bool paint_add_server(PaintStream* stream, const GuildRailScene& scene, const Th
     if (!ui_rect_has_area(row))
         return true;
     const UiRect tile = guild_rail_icon_rectangle(row);
-    const bool hovered = scene.add_button.generation && scene.widgets.hovered.slot == scene.add_button.slot &&
-                         scene.widgets.hovered.generation == scene.add_button.generation;
+    const bool hovered = ui_widget_handle_matches(scene.add_button, scene.widgets.hovered);
     const bool background = ui_background_active(theme);
     Color fill = hovered ? theme.tokens.emphasis.fill : theme.surface_high;
     if (background && !hovered)
@@ -350,8 +349,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         return false;
     }
 
-    const bool home_hovered = scene.widgets.hovered.slot == home->widget.slot &&
-                              scene.widgets.hovered.generation == home->widget.generation;
+    const bool home_hovered = ui_widget_handle_equal(scene.widgets.hovered, home->widget);
     const bool home_selected = navigation && !navigation->selected_guild_id;
     if (!paint_guild_indicator(stream, guild->rectangle.left, home->rectangle,
                                guild_scene ? &guild_scene->home_indicator : nullptr, home_selected,
@@ -681,8 +679,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             return false;
     }
     if (const auto* create = ui_scene_resolve_semantic(scene, UiSemantic::private_create)) {
-        const bool hovered = scene.widgets.hovered.slot == create->widget.slot &&
-                             scene.widgets.hovered.generation == create->widget.generation;
+        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, create->widget);
         const UiRect r = create->rectangle;
         if (!ui_icon_paint(stream, UiIcon::plus, {r.left + 4, r.top + 4, r.right - 4, r.bottom - 4},
                            hovered ? theme.text_primary : theme.text_secondary) ||
@@ -695,8 +692,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     if (const auto* menu = ui_scene_resolve_semantic(scene, UiSemantic::guild_menu);
         menu && navigation && navigation->selected_guild_id &&
         !shell_presentation_guild_banner_visible(scene, channel_scene)) {
-        const bool hovered = scene.widgets.hovered.slot == menu->widget.slot &&
-                             scene.widgets.hovered.generation == menu->widget.generation;
+        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, menu->widget);
         const UiRect r = menu->rectangle;
         if ((hovered || scene.guild_menu_expanded) &&
             !paint_stream_push_rounded(stream, r, ui_background_hover_color(theme, theme.surface_high, scene.guild_menu_expanded ? .28f : .20f), kUiShellGuildMenuRadius))
@@ -740,8 +736,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         }
     }
     if (const auto* friends = ui_scene_resolve_semantic(scene, UiSemantic::friends_button)) {
-        const bool hovered = scene.widgets.hovered.slot == friends->widget.slot &&
-                             scene.widgets.hovered.generation == friends->widget.generation;
+        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, friends->widget);
         if (!paint_stream_push_rounded(stream, friends->rectangle, scene.view == UiShellView::friends
             ? ui_background_hover_color(theme, theme.interactive, .28f)
         : hovered ? ui_background_hover_color(theme, theme.surface_high, .20f)
@@ -1062,8 +1057,7 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
     const auto* menu = ui_scene_resolve_semantic(scene, UiSemantic::guild_menu);
     if (!menu || !navigation || !navigation->selected_guild_id)
         return true;
-    const bool hovered = scene.widgets.hovered.slot == menu->widget.slot &&
-                         scene.widgets.hovered.generation == menu->widget.generation;
+    const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, menu->widget);
     const UiRect r = menu->rectangle;
     if ((hovered || scene.guild_menu_expanded) &&
         !paint_stream_push_rounded(stream, r, scene.guild_menu_expanded ? theme.tokens.state.pressed : theme.tokens.state.hover, kUiShellGuildMenuRadius))

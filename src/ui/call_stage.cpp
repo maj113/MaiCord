@@ -279,22 +279,6 @@ Utf8View label(const UiCallScene& s, UiCallControl c) noexcept {
     }
 }
 
-UiIcon bar_icon(const UiCallScene&, UiCallControl c) noexcept {
-    switch (c) {
-    case UiCallControl::stage_hand:
-        return UiIcon::hand;
-    case UiCallControl::stage_become:
-        return UiIcon::mic;
-    case UiCallControl::stage_audience:
-    case UiCallControl::stage_move:
-        return UiIcon::user_minus;
-    case UiCallControl::stage_topic:
-        return UiIcon::edit;
-    default:
-        return UiIcon::podcast;
-    }
-}
-
 bool paint(const UiCallScene& s, const Theme& theme, PaintStream* p) noexcept {
     if (!s.stage_active)
         return true;

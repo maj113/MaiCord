@@ -69,6 +69,22 @@ UiScrollDispatch write_immediate(UiScrollEntry* entry, const UiScrollRange& rang
     entry->generation = reported.generation;
     return UiScrollDispatch::handled;
 }
+// `handled` with the range read and its entry acquired; otherwise the dispatch to return.
+UiScrollDispatch bind_entry(UiScrollHost* host, UiScrollBinding binding, UiScrollRange* range,
+                            UiScrollEntry** entry) noexcept {
+    if (!binding.read(binding.context, binding.key, range))
+        return UiScrollDispatch::unhandled;
+    if (!valid(*range))
+        return UiScrollDispatch::failed;
+    *entry = acquire_entry(host, binding, *range);
+    return *entry ? UiScrollDispatch::handled : UiScrollDispatch::failed;
+}
+UiScrollDispatch queue_scroll(UiScrollEntry* entry, const UiScrollRange& range, double distance, u64 now_us,
+                              double dips_per_pixel) noexcept {
+    return ui_smooth_scroll_queue(&entry->animation, distance, now_us, range.units_per_dip * dips_per_pixel)
+               ? UiScrollDispatch::handled
+               : UiScrollDispatch::failed;
+}
 UiWidgetHandle widget_handle(u64 key) noexcept {
     return UiWidgetHandle{static_cast<u16>(key), static_cast<u16>(key >> 16)};
 }
@@ -145,10 +161,7 @@ UiScrollDispatch ui_scroll_host_wheel(UiScrollHost* host, UiScrollBinding bindin
     UiScrollEntry* entry = acquire_entry(host, binding, range);
     if (!entry)
         return UiScrollDispatch::failed;
-    return ui_smooth_scroll_queue(&entry->animation, -static_cast<double>(wheel_delta) * distance / 120.0, now_us,
-                                  range.units_per_dip * dips_per_pixel)
-               ? UiScrollDispatch::handled
-               : UiScrollDispatch::failed;
+    return queue_scroll(entry, range, -static_cast<double>(wheel_delta) * distance / 120.0, now_us, dips_per_pixel);
 }
 
 UiScrollDispatch ui_scroll_host_reveal(UiScrollHost* host, UiScrollBinding binding, double first,
@@ -157,13 +170,9 @@ UiScrollDispatch ui_scroll_host_reveal(UiScrollHost* host, UiScrollBinding bindi
         last < first || !finite(dips_per_pixel) || dips_per_pixel <= 0)
         return UiScrollDispatch::failed;
     UiScrollRange range{};
-    if (!binding.read(binding.context, binding.key, &range))
-        return UiScrollDispatch::unhandled;
-    if (!valid(range))
-        return UiScrollDispatch::failed;
-    UiScrollEntry* entry = acquire_entry(host, binding, range);
-    if (!entry)
-        return UiScrollDispatch::failed;
+    UiScrollEntry* entry = nullptr;
+    if (const auto status = bind_entry(host, binding, &range, &entry); status != UiScrollDispatch::handled)
+        return status;
     const double pending = entry->position + (host->immediate ? 0.0 : entry->animation.remaining);
     double target = minimum(maximum(pending, 0.0), range.maximum);
     const double height = ui_rect_height(range.viewport) * range.units_per_dip;
@@ -175,10 +184,7 @@ UiScrollDispatch ui_scroll_host_reveal(UiScrollHost* host, UiScrollBinding bindi
     if (host->immediate) return write_immediate(entry, range, target);
     // Retarget the existing curve. Repeated reveals must not accumulate the
     // same distance, restart an unchanged curve, or allocate another timer.
-    return ui_smooth_scroll_queue(&entry->animation, target - pending, now_us,
-                                  range.units_per_dip * dips_per_pixel)
-               ? UiScrollDispatch::handled
-               : UiScrollDispatch::failed;
+    return queue_scroll(entry, range, target - pending, now_us, dips_per_pixel);
 }
 
 UiScrollDispatch ui_scroll_host_scroll_to(UiScrollHost* host, UiScrollBinding binding, double target,
@@ -187,20 +193,13 @@ UiScrollDispatch ui_scroll_host_scroll_to(UiScrollHost* host, UiScrollBinding bi
         dips_per_pixel <= 0)
         return UiScrollDispatch::failed;
     UiScrollRange range{};
-    if (!binding.read(binding.context, binding.key, &range))
-        return UiScrollDispatch::unhandled;
-    if (!valid(range))
-        return UiScrollDispatch::failed;
-    UiScrollEntry* entry = acquire_entry(host, binding, range);
-    if (!entry)
-        return UiScrollDispatch::failed;
+    UiScrollEntry* entry = nullptr;
+    if (const auto status = bind_entry(host, binding, &range, &entry); status != UiScrollDispatch::handled)
+        return status;
     target = minimum(maximum(target, 0.0), range.maximum);
     if (host->immediate) return write_immediate(entry, range, target);
     const double pending = entry->position + entry->animation.remaining;
-    return ui_smooth_scroll_queue(&entry->animation, target - pending, now_us,
-                                  range.units_per_dip * dips_per_pixel)
-               ? UiScrollDispatch::handled
-               : UiScrollDispatch::failed;
+    return queue_scroll(entry, range, target - pending, now_us, dips_per_pixel);
 }
 
 UiScrollDispatch ui_scroll_host_wheel_widgets(UiScrollHost* host, UiWidgetManager* widgets, UiPoint point,

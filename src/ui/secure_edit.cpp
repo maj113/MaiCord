@@ -131,36 +131,8 @@ u32 line_boundary(const SecureEdit& edit, u32 position, bool start) noexcept {
     return position;
 }
 
-u32 codepoint_position(const SecureEdit& edit, u32 byte_position) noexcept {
-    u32 offset = 0;
-    u32 codepoints = 0;
-    while (offset < byte_position) {
-        const Utf8DecodeResult decoded = utf8_decode_one(
-            reinterpret_cast<const char*>(edit.storage.data + offset), edit.storage.bytes - offset);
-        if (!decoded.valid || offset + decoded.width > byte_position) {
-            return ~0u;
-        }
-        offset += decoded.width;
-        ++codepoints;
-    }
-    return offset == byte_position ? codepoints : ~0u;
-}
-
-u32 byte_position(const SecureEdit& edit, u32 codepoint) noexcept {
-    u32 offset = 0;
-    while (codepoint != 0 && offset < edit.storage.bytes) {
-        const Utf8DecodeResult decoded = utf8_decode_one(
-            reinterpret_cast<const char*>(edit.storage.data + offset), edit.storage.bytes - offset);
-        if (!decoded.valid) {
-            return ~0u;
-        }
-        offset += decoded.width;
-        --codepoint;
-    }
-    return codepoint == 0 ? offset : ~0u;
-}
-
-u32 utf16_position(const SecureEdit& edit, u32 byte_position) noexcept {
+// Code points (or UTF-16 units) in the first `byte_position` bytes; ~0u unless that is a scalar boundary.
+u32 units_before(const SecureEdit& edit, u32 byte_position, bool utf16) noexcept {
     u32 offset = 0;
     u32 units = 0;
     while (offset < byte_position) {
@@ -169,13 +141,14 @@ u32 utf16_position(const SecureEdit& edit, u32 byte_position) noexcept {
         if (!decoded.valid || offset + decoded.width > byte_position) {
             return ~0u;
         }
-        units += decoded.codepoint > 0xFFFFu ? 2u : 1u;
+        units += utf16 && decoded.codepoint > 0xFFFFu ? 2u : 1u;
         offset += decoded.width;
     }
     return offset == byte_position ? units : ~0u;
 }
 
-u32 byte_position_for_utf16(const SecureEdit& edit, u32 target) noexcept {
+// Byte offset of unit `target` (code points or UTF-16 units); ~0u when out of range or inside a scalar.
+u32 byte_for_units(const SecureEdit& edit, u32 target, bool utf16) noexcept {
     u32 offset = 0;
     u32 units = 0;
     while (offset < edit.storage.bytes && units < target) {
@@ -184,7 +157,7 @@ u32 byte_position_for_utf16(const SecureEdit& edit, u32 target) noexcept {
         if (!decoded.valid) {
             return ~0u;
         }
-        const u32 width = decoded.codepoint > 0xFFFFu ? 2u : 1u;
+        const u32 width = utf16 && decoded.codepoint > 0xFFFFu ? 2u : 1u;
         if (units + width > target) {
             return ~0u;
         }
@@ -192,6 +165,22 @@ u32 byte_position_for_utf16(const SecureEdit& edit, u32 target) noexcept {
         offset += decoded.width;
     }
     return units == target ? offset : ~0u;
+}
+
+u32 codepoint_position(const SecureEdit& edit, u32 byte_position) noexcept {
+    return units_before(edit, byte_position, false);
+}
+
+u32 byte_position(const SecureEdit& edit, u32 codepoint) noexcept {
+    return byte_for_units(edit, codepoint, false);
+}
+
+u32 utf16_position(const SecureEdit& edit, u32 byte_position) noexcept {
+    return units_before(edit, byte_position, true);
+}
+
+u32 byte_position_for_utf16(const SecureEdit& edit, u32 target) noexcept {
+    return byte_for_units(edit, target, true);
 }
 
 bool decode_utf16_one(ConstSlice<u16> input, u32 offset, u32* codepoint, u32* width) noexcept {

@@ -24,27 +24,20 @@ NavigationViewResult view_error(NavigationView* view,
 }
 
 bool key_less(const ChannelSortKey& left, const ChannelSortKey& right) noexcept {
-    if (left.group_rank != right.group_rank) {
+    if (left.group_rank != right.group_rank)
         return left.group_rank < right.group_rank;
-    }
-    if (left.group_position != right.group_position) {
+    if (left.group_position != right.group_position)
         return left.group_position < right.group_position;
-    }
-    if (left.group_id != right.group_id) {
+    if (left.group_id != right.group_id)
         return left.group_id < right.group_id;
-    }
-    if (left.base_position != right.base_position) {
+    if (left.base_position != right.base_position)
         return left.base_position < right.base_position;
-    }
-    if (left.base_id != right.base_id) {
+    if (left.base_id != right.base_id)
         return left.base_id < right.base_id;
-    }
-    if (left.row_rank != right.row_rank) {
+    if (left.row_rank != right.row_rank)
         return left.row_rank < right.row_rank;
-    }
-    if (left.row_position != right.row_position) {
+    if (left.row_position != right.row_position)
         return left.row_position < right.row_position;
-    }
     return left.row_id < right.row_id;
 }
 
@@ -345,6 +338,12 @@ u32 build_guild_rows(NavigationView* view, const ChatStateStore& state, u32 firs
     return rows;
 }
 
+void sync_voice_revisions(NavigationView* view) noexcept {
+    view->source_voice_revision = view->voice_states ? view->voice_states->revision : 0;
+    view->source_stage_revision = view->stage_instances ? view->stage_instances->revision : 0;
+    view->source_extras_revision = view->voice_extras ? view->voice_extras->revision : 0;
+}
+
 bool initialize_view(NavigationView* view, Slice<GuildViewRow> guild_rows,
                                         Slice<ChannelViewRow> channel_rows,
                                         Slice<u16> channel_scratch, Slice<u8> channel_visibility_scratch,
@@ -639,9 +638,7 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     view->source_channel_mutations = state.channel_mutations;
     view->source_selection_revision = state.selection_revision;
     view->connected_voice_stale = false;
-    view->source_voice_revision = view->voice_states ? view->voice_states->revision : 0;
-    view->source_stage_revision = view->stage_instances ? view->stage_instances->revision : 0;
-    view->source_extras_revision = view->voice_extras ? view->voice_extras->revision : 0;
+    sync_voice_revisions(view);
     view->source_folder_revision = view->folder_revision;
     view->source_events_revision = view->events_revision;
     view->source_requests_revision = view->requests_revision;
@@ -673,9 +670,6 @@ const ChannelViewRow* navigation_view_find_channel(const NavigationView& view,
     return nullptr;
 }
 
-} // namespace maicord
-
-namespace maicord {
 bool navigation_view_refresh_voice(NavigationView* view) noexcept {
     if (!view || view->channel_count > view->channel_capacity || (view->channel_count && !view->channel_rows))
         return false;
@@ -693,9 +687,7 @@ bool navigation_view_refresh_voice(NavigationView* view) noexcept {
         row.voice_subtitle = subtitle;
         row.voice_invite = invite;
     }
-    view->source_voice_revision = view->voice_states ? view->voice_states->revision : 0;
-    view->source_stage_revision = view->stage_instances ? view->stage_instances->revision : 0;
-    view->source_extras_revision = view->voice_extras ? view->voice_extras->revision : 0;
+    sync_voice_revisions(view);
     saturating_increment_if(changed, view->channel_revision);
     saturating_increment_if(changed, view->revision);
     return changed;

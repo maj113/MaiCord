@@ -48,7 +48,7 @@ struct UiThreadBrowserTarget {
 };
 constexpr bool ui_thread_browser_target_equal(UiThreadBrowserTarget a, UiThreadBrowserTarget b) noexcept {
     return a.action == b.action && a.thread_id == b.thread_id && a.source_publication == b.source_publication &&
-        a.widget.slot == b.widget.slot && a.widget.generation == b.widget.generation;
+        ui_widget_handle_equal(a.widget, b.widget);
 }
 struct UiThreadBrowserStyle {
     float header_height, tabs_height, status_height, footer_height;

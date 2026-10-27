@@ -750,24 +750,21 @@ bool commit_last_command(MessageTextPresentation* presentation, UiTextFlowLayout
 }
 
 bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTextFlowLayout* flow,
-                      float left_inset, float right_inset, const Color& color, const UiWidgetReference& owner,
-                      const MessageRecord& record,
-                      u16 measurement_index = kInvalidMessageTextMeasurement,
-                      MessageTextMeasurementKind measurement_kind = MessageTextMeasurementKind::none,
-                      float gap_after = 3.0f) noexcept {
-    if (!flow || (!text.data && text.bytes != 0)) {
+                      const Color& color, const UiWidgetReference& owner, const MessageRecord& record,
+                      u16 measurement_index, MessageTextMeasurementKind measurement_kind) noexcept {
+    if (!text.data && text.bytes != 0) {
         return fail(presentation, MessageTextPresentationError::model);
     }
     if (text.bytes == 0) {
         return true;
     }
     UiRect rectangle{};
-    if (!begin_item(presentation, flow, left_inset, right_inset, &rectangle)) {
+    if (!begin_item(presentation, flow, 0.0f, 0.0f, &rectangle)) {
         return false;
     }
     if (!append_command(presentation, text, kNoStyles, kNoSemantics, owner, rectangle, flow->clip_rectangle,
                         color, &record, measurement_index,
-                        {.kind = measurement_kind, .minimum_height = 16.0f, .gap_after = gap_after})) {
+                        {.kind = measurement_kind, .minimum_height = 16.0f, .gap_after = 3.0f})) {
         return false;
     }
     return commit_last_command(presentation, flow);
@@ -3291,9 +3288,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 label = utf8_literal("Sticker");
             }
             if (!ui_text_flow_advance(&flow, kDefaultMessageStickerLayoutMetrics.caption_offset()) ||
-                !append_rich_line(presentation, label, &flow, 0.0f, 0.0f, theme.text_primary, owner,
-                                  *record, measurement_index,
-                                  MessageTextMeasurementKind::sticker) ||
+                !append_rich_line(presentation, label, &flow, theme.text_primary, owner, *record,
+                                  measurement_index, MessageTextMeasurementKind::sticker) ||
                 !ui_text_flow_ensure_extent(&flow, kDefaultMessageStickerLayoutMetrics.minimum_height())) {
                 return fail(presentation, MessageTextPresentationError::layout);
             }
@@ -3586,8 +3582,8 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             !initialize_flow(presentation, *item_layout, item_layout->content_rectangle.left,
                              ui_rect_width(item_layout->content_rectangle), row_clip, &flow) ||
             !ui_text_flow_advance(&flow, 4.0f) ||
-            !append_rich_line(presentation, utf8_literal("Some content can't be shown"), &flow, 0.0f,
-                              0.0f, ui_background_muted_text_color(theme),
+            !append_rich_line(presentation, utf8_literal("Some content can't be shown"), &flow,
+                              ui_background_muted_text_color(theme),
                               UiWidgetReference{&scene.widgets, item_widget}, *record,
                               measurement_index, MessageTextMeasurementKind::notice) ||
             !finish_flow(presentation, flow,

@@ -123,21 +123,6 @@ UiSliderGeometry volume_slider(const UiSettingsTokens& tokens, UiRect bounds, u3
     return ui_slider_geometry(tokens, {bounds.left, middle - half, bounds.right, middle + half}, kVolumeSteps,
                               value, false);
 }
-void append_clock(char* text, u32& cursor, u64 milliseconds, bool hours) noexcept {
-    const u64 seconds = milliseconds / 1000;
-    if (hours) {
-        cursor += decimal_write(text + cursor, seconds / 3600);
-        text[cursor++] = ':';
-    }
-    const u64 minutes = hours ? (seconds / 60) % 60 : seconds / 60;
-    if (hours && minutes < 10)
-        text[cursor++] = '0';
-    cursor += decimal_write(text + cursor, minutes);
-    text[cursor++] = ':';
-    if (seconds % 60 < 10)
-        text[cursor++] = '0';
-    cursor += decimal_write(text + cursor, seconds % 60);
-}
 // The bubble follows the hovered second rather than the raw pointer, so
 // its glyphs move only when the label changes.
 void update_hover_time(UiVideoScene& scene) noexcept {
@@ -168,7 +153,7 @@ void update_hover_time(UiVideoScene& scene) noexcept {
         return;
     const float ratio = maximum(0.0f, minimum(1.0f, (scene.hover_x - track.left) / ui_rect_width(track)));
     const u64 at = static_cast<u64>(static_cast<double>(duration) * ratio) / 1000 * 1000;
-    append_clock(scene.hover_time, scene.hover_time_bytes, at, duration >= 3'600'000);
+    ui_video_append_clock(scene.hover_time, scene.hover_time_bytes, at, duration >= 3'600'000);
     scene.hover_x = track.left + ui_rect_width(track) * static_cast<float>(static_cast<double>(at) / duration);
 }
 bool range_request(UiVideoScene& scene, UiVideoControl id, UiPoint point,

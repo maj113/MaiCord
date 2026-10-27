@@ -21,9 +21,6 @@ UiButtonPointerResult ui_button_pointer_target(UiWidgetManager* owner, UiButtonP
                                                UiWidgetHandle target) noexcept;
 enum class UiButtonSurface : u8 {
     opaque,
-    translucent,
-    transparent,
-    icon_only,
     palette
 };
 Color ui_button_background(const UiWidgetManager& owner, UiWidgetHandle button, const Theme& theme,

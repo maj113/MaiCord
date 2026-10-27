@@ -26,10 +26,8 @@ bool editor_primary(const UiThemeEditorScene& s, UiThemeEditorElement e) noexcep
 }
 UiControlState editor_button_state(const UiThemeEditorScene& s, UiWidgetHandle handle) noexcept {
     const bool enabled = ui_widget_manager_input_enabled(s.widgets, handle);
-    const bool hovered = enabled && s.widgets.hovered.slot == handle.slot &&
-                         s.widgets.hovered.generation == handle.generation;
-    const bool pressed = hovered && s.widgets.captured.slot == handle.slot &&
-                         s.widgets.captured.generation == handle.generation;
+    const bool hovered = enabled && ui_widget_handle_equal(s.widgets.hovered, handle);
+    const bool pressed = hovered && ui_widget_handle_equal(s.widgets.captured, handle);
     // The focus ring is painted once, last, outside each clipped button.
     return {enabled, hovered, pressed, false};
 }
@@ -186,44 +184,28 @@ bool tree(UiThemeEditorScene& s) noexcept {
     }
     return ui_widget_manager_layout_rectangle(&s.widgets, s.panel).ok();
 }
+void set_interactive(UiThemeEditorScene& s, UiThemeEditorElement e, bool on) noexcept {
+    if (auto* widget = ui_widget_manager_resolve(&s.widgets, s.elements[at(e)]))
+        widget->flags = static_cast<u16>(on ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
+                                            : ui_widget_none);
+}
 void enabled(UiThemeEditorScene& s) noexcept {
-    const auto direction = s.elements[at(UiThemeEditorElement::direction)];
-    if (auto* widget = ui_widget_manager_resolve(&s.widgets, direction)) {
-        widget->flags = static_cast<u16>(s.draft.color_count > 1
-                                             ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
-                                             : ui_widget_none);
-        if (s.draft.color_count == 1 && s.widgets.focused.slot == direction.slot &&
-            s.widgets.focused.generation == direction.generation)
-            ui_widget_manager_focus(&s.widgets, s.elements[at(UiThemeEditorElement::stop0)]);
-    }
+    set_interactive(s, UiThemeEditorElement::direction, s.draft.color_count > 1);
+    if (s.draft.color_count == 1 &&
+        ui_widget_handle_equal(s.widgets.focused, s.elements[at(UiThemeEditorElement::direction)]))
+        ui_widget_manager_focus(&s.widgets, s.elements[at(UiThemeEditorElement::stop0)]);
     if (auto* scrollbar =
             ui_widget_manager_resolve(&s.widgets, s.elements[at(UiThemeEditorElement::scrollbar)]))
         scrollbar->flags = ui_widget_enabled | ui_widget_hit_test;
-    static constexpr UiThemeEditorElement effects[]{UiThemeEditorElement::speed, UiThemeEditorElement::strength,
-                                             UiThemeEditorElement::density};
-    for (const auto e : effects) {
-        auto* w = ui_widget_manager_resolve(&s.widgets, s.elements[at(e)]);
-        if (w)
-            w->flags = static_cast<u16>(s.draft.effect != BackgroundEffect::none
-                                            ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
-                                            : ui_widget_none);
-    }
-    for (u32 i = 0; i < 5; ++i) {
-        auto* w = ui_widget_manager_resolve(&s.widgets, s.elements[at(UiThemeEditorElement::stop0) + i]);
-        if (w)
-            w->flags = static_cast<u16>(i < s.draft.color_count
-                                            ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
-                                            : ui_widget_none);
-    }
-    static constexpr UiThemeEditorElement actions[]{UiThemeEditorElement::add, UiThemeEditorElement::remove};
-    for (const auto e : actions) {
-        auto* w = ui_widget_manager_resolve(&s.widgets, s.elements[at(e)]);
-        if (w)
-            w->flags = static_cast<u16>(
-                (e == UiThemeEditorElement::add ? s.draft.color_count < 5 : s.draft.color_count > 1)
-                    ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
-                    : ui_widget_none);
-    }
+    const bool effect = s.draft.effect != BackgroundEffect::none;
+    set_interactive(s, UiThemeEditorElement::speed, effect);
+    set_interactive(s, UiThemeEditorElement::strength, effect);
+    set_interactive(s, UiThemeEditorElement::density, effect);
+    for (u32 i = 0; i < 5; ++i)
+        set_interactive(s, static_cast<UiThemeEditorElement>(at(UiThemeEditorElement::stop0) + i),
+                        i < s.draft.color_count);
+    set_interactive(s, UiThemeEditorElement::add, s.draft.color_count < 5);
+    set_interactive(s, UiThemeEditorElement::remove, s.draft.color_count > 1);
 }
 UiRect track(UiRect r) noexcept {
     return {r.left + 8, r.bottom - 18, r.right - 8, r.bottom - 10};
@@ -248,36 +230,9 @@ u32 ui_theme_editor_hsv_rgb(float h, float s, float v) noexcept {
     const float sector = (h == 1 ? 0 : h) * 6;
     const u32 i = static_cast<u32>(sector);
     const float f = sector - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
-    float r = v, g = t, b = p;
-    switch (i) {
-    case 1:
-        r = q;
-        g = v;
-        b = p;
-        break;
-    case 2:
-        r = p;
-        g = v;
-        b = t;
-        break;
-    case 3:
-        r = p;
-        g = q;
-        b = v;
-        break;
-    case 4:
-        r = t;
-        g = p;
-        b = v;
-        break;
-    case 5:
-        r = v;
-        g = p;
-        b = q;
-        break;
-    default:
-        break;
-    }
+    const float rgb[6][3]{{v, t, p}, {q, v, p}, {p, v, t}, {p, q, v}, {t, p, v}, {v, p, q}};
+    const float* const c = rgb[i < 6 ? i : 0];
+    const float r = c[0], g = c[1], b = c[2];
     return static_cast<u32>(r * 255 + .5f) << 16 | static_cast<u32>(g * 255 + .5f) << 8 |
            static_cast<u32>(b * 255 + .5f);
 }
@@ -359,7 +314,7 @@ UiThemeEditorElement ui_theme_editor_hit_test(const UiThemeEditorScene& s, UiPoi
         return UiThemeEditorElement::count;
     const auto h = ui_widget_manager_hit_test(s.widgets, p.x, p.y);
     for (u32 i = 0; i < kUiThemeEditorElements; ++i)
-        if (h.slot == s.elements[i].slot && h.generation == s.elements[i].generation)
+        if (ui_widget_handle_equal(h, s.elements[i]))
             return static_cast<UiThemeEditorElement>(i);
     return UiThemeEditorElement::count;
 }
@@ -725,10 +680,8 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
         ok = paint_stream_push_focus(paint, s.widgets, theme.tokens.border.focus);
     if (ok) {
         const auto handle = s.elements[at(UiThemeEditorElement::scrollbar)];
-        const bool hovered =
-            s.widgets.hovered.slot == handle.slot && s.widgets.hovered.generation == handle.generation;
-        const bool pressed =
-            s.widgets.captured.slot == handle.slot && s.widgets.captured.generation == handle.generation;
+        const bool hovered = ui_widget_handle_equal(s.widgets.hovered, handle);
+        const bool pressed = ui_widget_handle_equal(s.widgets.captured, handle);
         ok = ui_scrollbar_paint(paint, ui_theme_editor_scrollbar(s), theme,
                                 pressed   ? UiScrollbarVisualState::pressed
                                 : hovered ? UiScrollbarVisualState::hovered

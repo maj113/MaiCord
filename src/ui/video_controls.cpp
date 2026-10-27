@@ -48,16 +48,6 @@ void append_number(char* text, u32& cursor, u64 value, bool pad_two_digits = fal
         text[cursor++] = '0';
     cursor += decimal_write(text + cursor, value);
 }
-void append_clock_text(char* text, u32& cursor, u64 milliseconds, bool hours_field) noexcept {
-    const u64 seconds = milliseconds / 1000, hours = seconds / 3600;
-    if (hours || hours_field) {
-        append_number(text, cursor, hours);
-        text[cursor++] = ':';
-    }
-    append_number(text, cursor, (seconds / 60) % 60, hours || hours_field);
-    text[cursor++] = ':';
-    append_number(text, cursor, seconds % 60, true);
-}
 void append_unknown(char* text, u32& cursor) noexcept {
     static constexpr char unknown[] = "-:--";
     for (u32 i = 0; i < 4; ++i)
@@ -99,6 +89,16 @@ bool make_control_action(const UiVideoControlsProjection& projection, UiVideoCon
     return true;
 }
 } // namespace
+void ui_video_append_clock(char* text, u32& cursor, u64 milliseconds, bool hours_field) noexcept {
+    const u64 seconds = milliseconds / 1000, hours = seconds / 3600;
+    if (hours || hours_field) {
+        append_number(text, cursor, hours);
+        text[cursor++] = ':';
+    }
+    append_number(text, cursor, (seconds / 60) % 60, hours || hours_field);
+    text[cursor++] = ':';
+    append_number(text, cursor, seconds % 60, true);
+}
 float ui_video_controls_height(const UiVideoControlsStyle& style, float width, bool collection) noexcept {
     if (!style_valid(style) || !positive(width) || width < style.minimum_width)
         return 0;
@@ -114,12 +114,12 @@ u32 ui_video_format_time(const UiVideoPlaybackState& state, char* text, u32 capa
     if (!state.duration_ms && !state.elapsed_ms)
         append_unknown(text, cursor);
     else
-        append_clock_text(text, cursor, state.elapsed_ms, hours);
+        ui_video_append_clock(text, cursor, state.elapsed_ms, hours);
     text[cursor++] = ' ';
     text[cursor++] = '/';
     text[cursor++] = ' ';
     if (state.duration_ms)
-        append_clock_text(text, cursor, state.duration_ms, false);
+        ui_video_append_clock(text, cursor, state.duration_ms, false);
     else
         append_unknown(text, cursor);
     return cursor;
