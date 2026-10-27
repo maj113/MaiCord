@@ -3,6 +3,9 @@
 # keep it stable when adding files. Headers are found through the include
 # paths and are not listed.
 
+# The TLS stream's imports (Winsock, Schannel through sspicli, bcrypt, crypt32).
+set(maicord_tls_libs ws2_32 maicord_sspicli bcrypt crypt32)
+
 maicord_library(maicord_core
     src/core/arena.cpp src/core/byte_queue.cpp src/core/byte_order.cpp src/core/data_path.cpp
     src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp src/core/stable_storage.cpp
@@ -86,7 +89,7 @@ maicord_library(maicord_media_codec
 set_source_files_properties(src/media/yuv_convert_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
 # minimp3's static helpers (bit reader, IMDCT and synthesis stages) inline into
 # the frame decoder (/Ob2), with bit-identical PCM: at /Ob1 MP3 decode takes 25%
-# longer (13,495 vs 10,802 us), slower than the MSVC build, for about 4 KiB.
+# longer (13,495 vs 10,802 us) for about 4 KiB.
 set_property(SOURCE src/media/mp3_stream.cpp APPEND PROPERTY COMPILE_OPTIONS /Ob2)
 
 # Voice send encoder; linked only through the account module.
@@ -133,7 +136,7 @@ maicord_library(maicord_platform
     # Used by the application core and client preferences, which both link this
     # library: one compile for every image.
     src/app/file_persistence.cpp
-    LIBS maicord_core ws2_32 maicord_sspicli bcrypt crypt32 ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
+    LIBS maicord_core ${maicord_tls_libs} ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
 
 maicord_library(maicord_notification_pcm src/media/notification_pcm.cpp
     LIBS maicord_core maicord_compression maicord_media_codec)

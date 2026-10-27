@@ -26,8 +26,7 @@ if(MAICORD_BUILD_TESTS AND MAICORD_TEST_PROFILE_DIRECTORY)
     endif()
 endif()
 if(NOT MAICORD_BUILD_TESTS)
-    file(REMOVE "${CMAKE_BINARY_DIR}/maicord-test-targets.txt" "${CMAKE_BINARY_DIR}/maicord-tests.txt"
-                "${CMAKE_BINARY_DIR}/CTestTestfile.cmake")
+    file(REMOVE "${CMAKE_BINARY_DIR}/maicord-tests.txt" "${CMAKE_BINARY_DIR}/CTestTestfile.cmake")
     unset(MAICORD_TEST_PROFILE_DIRECTORY CACHE)
     unset(MAICORD_TEST_PROFILE_NAMES CACHE)
     return()
@@ -41,16 +40,14 @@ maicord_finish_test_bundles()
 maicord_copy_fonts(MaiCordUiProbe MaiCordMessageLinkUiProbe MaiCordComposerUiProbe MaiCordAccountLogoutUiProbe
     MaiCordScopedReadUiProbe MaiCordFontCatalogTests)
 
-# Every test target, the non-/GL library twins and shared objects are
-# temporary: tools/build.ps1 builds the ones the selected tests
-# need and maintain_build_outputs.ps1 removes their outputs by this manifest.
+# The non-/GL library twins and shared objects are temporary like the tests:
+# tools/build.ps1 builds the ones the selected tests need and
+# maintain_build_outputs.ps1 removes their outputs by maicord-build-outputs.txt.
 get_property(maicord_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 list(REMOVE_ITEM maicord_test_targets ${maicord_production_targets})
 maicord_add_test_codegen_twins(maicord_test_targets)
 maicord_share_test_objects(maicord_test_targets)
 set_property(TARGET ${maicord_test_targets} PROPERTY EXCLUDE_FROM_ALL TRUE)
-list(JOIN maicord_test_targets "\n" maicord_test_target_manifest)
-file(WRITE "${CMAKE_BINARY_DIR}/maicord-test-targets.txt" "${maicord_test_target_manifest}\n")
 
 # Per-test environment: no Python bytecode in the source tree and, for the
 # selected tests (all by default), the private profile directories.

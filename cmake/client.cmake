@@ -13,7 +13,7 @@ maicord_library(maicord_account_module
     LIBS maicord_core maicord_platform maicord_protocol
     maicord_app_core maicord_model maicord_account_media maicord_media_core
     maicord_media_codec maicord_cdn_media
-    kernel32 ws2_32 maicord_sspicli bcrypt crypt32 maicord_voice_encoder)
+    kernel32 ${maicord_tls_libs} maicord_voice_encoder)
 
 maicord_program(MaiCord WIN32 ENTRY maicord_entry
     SOURCES src/app/application_poll.cpp config/maicord.manifest config/maicord.rc
@@ -121,9 +121,7 @@ if(MAICORD_STARTUP_PROBE)
 endif()
 option(MAICORD_SIZE_REPORT "Report shipping linker-map code extents" OFF)
 if(MAICORD_SIZE_REPORT)
-    foreach(image IN ITEMS MaiCord)
-        target_link_options(${image} PRIVATE "/MAP:${CMAKE_CURRENT_BINARY_DIR}/${image}.map")
-    endforeach()
+    target_link_options(MaiCord PRIVATE "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCord.map")
 endif()
 # Startup: DLLs the device prestart does not need map on first use instead of
 # before the entry point, which the prestart waits for. The renderer maps
@@ -215,18 +213,20 @@ string(LENGTH "${maicord_update_commit}" maicord_update_commit_length)
 if(maicord_update_commit AND (NOT maicord_update_commit_length EQUAL 40 OR NOT maicord_update_commit MATCHES "^[0-9a-f]+$"))
     message(FATAL_ERROR "MAICORD_UPDATE_COMMIT must be empty or 40 lowercase hex digits.")
 endif()
+set(maicord_owner_repository_pattern "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9_.-]+$")
+# The publisher keys are uncompressed P-256 points: 130 hex digits starting 04.
+function(maicord_check_p256_point variable)
+    string(LENGTH "${${variable}}" length)
+    if(NOT length EQUAL 130 OR NOT ${variable} MATCHES "^04[0-9A-Fa-f]+$")
+        message(FATAL_ERROR "${variable} must be 130 hex digits: an uncompressed point (04...).")
+    endif()
+endfunction()
 if(MAICORD_UPDATE_REPOSITORY OR MAICORD_UPDATE_PUBLIC_KEY)
     # The owner is a GitHub login: it also names the Pages host <owner>.github.io.
-    if(NOT MAICORD_UPDATE_REPOSITORY MATCHES "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9_.-]+$")
+    if(NOT MAICORD_UPDATE_REPOSITORY MATCHES "${maicord_owner_repository_pattern}")
         message(FATAL_ERROR "MAICORD_UPDATE_REPOSITORY must be owner/repo.")
     endif()
-    if(NOT MAICORD_UPDATE_PUBLIC_KEY MATCHES "^04[0-9A-Fa-f]+$")
-        message(FATAL_ERROR "MAICORD_UPDATE_PUBLIC_KEY must be the 130-digit hex point printed by tools/release/generate_update_key.py.")
-    endif()
-    string(LENGTH "${MAICORD_UPDATE_PUBLIC_KEY}" maicord_update_key_length)
-    if(NOT maicord_update_key_length EQUAL 130)
-        message(FATAL_ERROR "MAICORD_UPDATE_PUBLIC_KEY must be 130 hex digits.")
-    endif()
+    maicord_check_p256_point(MAICORD_UPDATE_PUBLIC_KEY)
 endif()
 set_source_files_properties(src/app/application_update_entry.cpp PROPERTIES COMPILE_DEFINITIONS
     "MAICORD_UPDATE_REPOSITORY=\"${maicord_update_repository}\";MAICORD_UPDATE_PUBLIC_KEY=\"${maicord_update_public_key}\";MAICORD_UPDATE_DEV=${maicord_update_dev};MAICORD_UPDATE_COMMIT=\"${maicord_update_commit}\";MAICORD_VERSION_MAJOR=${maicord_update_major};MAICORD_VERSION_MINOR=${maicord_update_minor};MAICORD_VERSION_PATCH=${maicord_update_patch}")
@@ -251,19 +251,15 @@ set(MAICORD_PLUGIN_CATALOG_PUBLIC_KEY "${maicord_default_plugin_catalog_public_k
 set(MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY "${maicord_default_plugin_catalog_next_public_key}" CACHE STRING
     "The next plugin catalog key, accepted alongside the current one for rotation (130 hex digits or empty)")
 if(MAICORD_PLUGIN_CATALOG_PUBLIC_KEY OR MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY)
-    if(NOT MAICORD_PLUGIN_CATALOG_REPOSITORY MATCHES "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9_.-]+$")
+    if(NOT MAICORD_PLUGIN_CATALOG_REPOSITORY MATCHES "${maicord_owner_repository_pattern}")
         message(FATAL_ERROR "MAICORD_PLUGIN_CATALOG_REPOSITORY must be owner/repo.")
     endif()
     if(NOT MAICORD_PLUGIN_CATALOG_PUBLIC_KEY)
         message(FATAL_ERROR "MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY needs MAICORD_PLUGIN_CATALOG_PUBLIC_KEY.")
     endif()
     foreach(key MAICORD_PLUGIN_CATALOG_PUBLIC_KEY MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY)
-        if(${key} AND NOT ${key} MATCHES "^04[0-9A-Fa-f]+$")
-            message(FATAL_ERROR "${key} must be a 130-digit uncompressed point (04...).")
-        endif()
-        string(LENGTH "${${key}}" maicord_plugin_catalog_key_length)
-        if(${key} AND NOT maicord_plugin_catalog_key_length EQUAL 130)
-            message(FATAL_ERROR "${key} must be 130 hex digits.")
+        if(${key})
+            maicord_check_p256_point(${key})
         endif()
     endforeach()
 endif()

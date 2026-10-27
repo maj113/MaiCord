@@ -14,7 +14,7 @@ function Test-Toolchain([string]$Bin) {
     foreach ($tool in $required) { if (!(Test-Path -LiteralPath (Join-Path $Bin $tool) -PathType Leaf)) { return $false } }
     return $true
 }
-$explicit = if ($LlvmBin) { $LlvmBin } elseif ($env:MAICORD_LLVM_BIN) { $env:MAICORD_LLVM_BIN } else { '' }
+$explicit = if ($LlvmBin) { $LlvmBin } else { $env:MAICORD_LLVM_BIN }
 if ($explicit) {
     $bin = [IO.Path]::GetFullPath($explicit)
     if (!(Test-Toolchain $bin)) { throw "The build needs $($required -join ', ') in $bin (-LlvmBin or MAICORD_LLVM_BIN)." }

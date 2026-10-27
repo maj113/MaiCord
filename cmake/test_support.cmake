@@ -5,9 +5,10 @@
 # A test executable or fixture (see maicord_program) and the CTest cases that
 # run it. USES_CLIENT, the test properties and the TEST rows come last; they
 # are passed to maicord_test_uses_client() and maicord_add_tests(). BUNDLE
-# links the sources into the shared executable <bundle> instead (see
-# maicord_test_bundle_member); <target> then only names the test, unless
-# STANDALONE also builds it on its own for the tools that run it directly.
+# links the sources into the shared executable <bundle> instead (declared with
+# maicord_test_bundle, which also lists its libraries); <target> then only
+# names the test, unless STANDALONE also builds it on its own for the tools
+# that run it directly.
 function(maicord_test target)
     set(program)
     set(client)
@@ -99,10 +100,21 @@ function(maicord_add_tests target)
     endforeach()
 endfunction()
 
+# maicord_test_bundle(<bundle> [LIBS <library>...] [INCLUDES <dir>...])
+# Declares the shared executable <bundle> and what it links: the libraries and
+# include directories of all its members, in link order (a member's own LIBS
+# and INCLUDES are appended after these). maicord_finish_test_bundles() creates
+# it once the registry is complete.
+function(maicord_test_bundle bundle)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "" "LIBS;INCLUDES")
+    set_property(GLOBAL APPEND PROPERTY MAICORD_TEST_BUNDLES ${bundle})
+    set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_LIBS_${bundle} ${ARG_LIBS})
+    set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_INCLUDES_${bundle} ${ARG_INCLUDES})
+endfunction()
+
 # maicord_test_bundle_member(<bundle> <target> ENTRY <symbol> SOURCES <file>...
 #     [LIBS <library>...] [INCLUDES <dir>...])
-# Adds a test to the executable <bundle>, which maicord_finish_test_bundles()
-# creates once the registry is complete. The bundle runs the member whose
+# Adds a test to the executable <bundle>. The bundle runs the member whose
 # entry symbol MAICORD_TEST_ENTRY names, which maicord_add_tests(<target>)
 # sets for each case. Members must not define symbols the others or the
 # libraries define, and need no DEFINES, OPTIONS or DEPENDS of their own.
@@ -117,12 +129,8 @@ function(maicord_test_bundle_member bundle target)
     set_property(GLOBAL PROPERTY MAICORD_BUNDLE_ENTRY_${target} ${ARG_ENTRY})
     set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_ENTRIES_${bundle} ${ARG_ENTRY})
     set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_SOURCES_${bundle} ${ARG_SOURCES})
-    if(ARG_LIBS)
-        set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_LIBS_${bundle} ${ARG_LIBS})
-    endif()
-    if(ARG_INCLUDES)
-        set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_INCLUDES_${bundle} ${ARG_INCLUDES})
-    endif()
+    set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_LIBS_${bundle} ${ARG_LIBS})
+    set_property(GLOBAL APPEND PROPERTY MAICORD_BUNDLE_INCLUDES_${bundle} ${ARG_INCLUDES})
 endfunction()
 
 # maicord_finish_test_bundles(): creates every bundle executable with a
@@ -136,6 +144,9 @@ function(maicord_finish_test_bundles)
             get_property(${kind} GLOBAL PROPERTY MAICORD_BUNDLE_${kind}_${bundle})
             list(REMOVE_DUPLICATES ${kind})
         endforeach()
+        if(NOT ENTRIES)
+            continue()
+        endif()
         set(declarations)
         set(table)
         foreach(entry IN LISTS ENTRIES)
@@ -187,27 +198,22 @@ extern "C" __declspec(noreturn) void WINAPI maicord_test_bundle_entry() noexcept
     ExitProcess(2);
 }
 ]=] @ONLY)
-        set(arguments ENTRY maicord_test_bundle_entry SOURCES "${dispatcher}" ${SOURCES})
-        if(LIBS)
-            list(APPEND arguments LIBS ${LIBS})
-        endif()
-        if(INCLUDES)
-            list(APPEND arguments INCLUDES ${INCLUDES})
-        endif()
-        maicord_program(${bundle} ${arguments})
+        maicord_program(${bundle} ENTRY maicord_test_bundle_entry SOURCES "${dispatcher}" ${SOURCES}
+            LIBS ${LIBS} INCLUDES ${INCLUDES})
     endforeach()
 endfunction()
 
 # maicord_font_test(<target> <entry> <source> [UNICODE] [<maicord_test argument>...])
-# A tests/<source>.cpp executable linking maicord_core, maicord_font (then
-# maicord_unicode with UNICODE) and kernel32.
+# A tests/<source>.cpp member of MaiCordTextUnitTests linking maicord_core,
+# maicord_font (then maicord_unicode with UNICODE) and kernel32.
 function(maicord_font_test target entry source)
     set(libs maicord_core maicord_font)
     if(ARGC GREATER 3 AND ARGV3 STREQUAL "UNICODE")
         list(APPEND libs maicord_unicode)
         list(REMOVE_AT ARGN 0)
     endif()
-    maicord_test(${target} ENTRY ${entry} SOURCES tests/${source}.cpp LIBS ${libs} kernel32 ${ARGN})
+    maicord_test(${target} ENTRY ${entry} SOURCES tests/${source}.cpp LIBS ${libs} kernel32
+        BUNDLE MaiCordTextUnitTests ${ARGN})
 endfunction()
 
 # maicord_native_profile_tests(<timeout> <profile> <family>)
@@ -368,7 +374,6 @@ function(maicord_share_test_objects target_list_variable)
         PRECOMPILE_HEADERS CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS MSVC_RUNTIME_LIBRARY
         POSITION_INDEPENDENT_CODE CXX_VISIBILITY_PRESET VISIBILITY_INLINES_HIDDEN)
     set(signatures)
-    set(compilations 0)
     foreach(target IN LISTS ${target_list_variable})
         get_target_property(type ${target} TYPE)
         get_target_property(codegen ${target} MAICORD_TEST_CODEGEN)
@@ -425,7 +430,6 @@ function(maicord_share_test_objects target_list_variable)
             if(generated OR NOT EXISTS "${path}")
                 continue()
             endif()
-            math(EXPR compilations "${compilations} + 1")
             string(SHA1 key "${path}|${signature}")
             if(NOT DEFINED users_${key})
                 list(APPEND signatures ${key})
@@ -437,28 +441,12 @@ function(maicord_share_test_objects target_list_variable)
     set(shared)
     set(rewritten)
     set(index 0)
-    set(saved 0)
-    set(archive_saved 0)
     foreach(key IN LISTS signatures)
         list(LENGTH users_${key} count)
         if(count LESS 2)
             continue()
         endif()
         math(EXPR index "${index} + 1")
-        math(EXPR saved "${saved} + ${count} - 1")
-        set(archives 0)
-        foreach(target IN LISTS users_${key})
-            get_target_property(type ${target} TYPE)
-            if(type STREQUAL "STATIC_LIBRARY")
-                math(EXPR archives "${archives} + 1")
-            endif()
-        endforeach()
-        # Without archive sharing, executable users already compiled once and
-        # each archive separately. Count the additional compilations removed.
-        if(archives EQUAL count)
-            math(EXPR archives "${archives} - 1")
-        endif()
-        math(EXPR archive_saved "${archive_saved} + ${archives}")
         set(library maicord_test_shared_${index})
         list(GET users_${key} 0 first)
         add_library(${library} OBJECT "${path_${key}}")
@@ -508,8 +496,6 @@ function(maicord_share_test_objects target_list_variable)
         endforeach()
         set_property(TARGET ${target} PROPERTY SOURCES "${replaced}")
     endforeach()
-    math(EXPR remaining "${compilations} - ${saved}")
-    message(STATUS "Compatible test C++ compilations: ${compilations} -> ${remaining} (${saved} duplicates removed; ${archive_saved} from archive sharing)")
     set(${target_list_variable} ${${target_list_variable}} ${shared} PARENT_SCOPE)
 endfunction()
 # maicord_write_test_manifest(<path> <test>...): one line per test for

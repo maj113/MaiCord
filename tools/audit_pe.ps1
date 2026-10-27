@@ -17,41 +17,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $resolved = (Resolve-Path -LiteralPath $Executable).Path
-$dumpbinCommand = Get-Command dumpbin.exe -ErrorAction SilentlyContinue
-if ($dumpbinCommand) {
-    $dumpbin = $dumpbinCommand.Source
-} else {
+$dumpbin = (Get-Command dumpbin.exe -ErrorAction SilentlyContinue).Source
+if (!$dumpbin) {
+    # Outside a developer shell: the x64 tools of the newest Visual Studio.
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-    if (-not (Test-Path -LiteralPath $vswhere)) {
-        throw 'dumpbin.exe was not on PATH and vswhere.exe was unavailable.'
-    }
-    $installation = & $vswhere -latest -products '*' `
-        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-        -property installationPath
-    if (-not $installation) {
-        $visualStudioRoot = Join-Path $env:ProgramFiles 'Microsoft Visual Studio'
-        if (Test-Path -LiteralPath $visualStudioRoot) {
-            $installation = Get-ChildItem -LiteralPath $visualStudioRoot -Directory |
-                ForEach-Object {
-                    Get-ChildItem -LiteralPath $_.FullName -Directory
-                } |
-                Where-Object {
-                    Test-Path -LiteralPath (Join-Path $_.FullName `
-                        'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt')
-                } |
-                Sort-Object FullName -Descending |
-                Select-Object -First 1 -ExpandProperty FullName
-        }
-        if (-not $installation) {
-            throw 'No Visual Studio installation with x64 C++ tools was found.'
-        }
-    }
-    $versionFile = Join-Path $installation 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt'
-    $toolVersion = (Get-Content -LiteralPath $versionFile -Raw).Trim()
+    if (!(Test-Path -LiteralPath $vswhere)) { throw 'dumpbin.exe was not on PATH and vswhere.exe was unavailable.' }
+    $installation = & $vswhere -latest -prerelease -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if (!$installation) { throw 'No Visual Studio installation with x64 C++ tools was found.' }
+    $toolVersion = (Get-Content -LiteralPath (Join-Path $installation 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
     $dumpbin = Join-Path $installation "VC\Tools\MSVC\$toolVersion\bin\Hostx64\x64\dumpbin.exe"
-    if (-not (Test-Path -LiteralPath $dumpbin)) {
-        throw "Visual Studio's x64 dumpbin.exe was not found at $dumpbin"
-    }
+    if (!(Test-Path -LiteralPath $dumpbin)) { throw "Visual Studio's x64 dumpbin.exe was not found at $dumpbin" }
 }
 $imports = & $dumpbin /nologo /imports $resolved | Out-String
 if ($LASTEXITCODE -ne 0) { throw 'dumpbin import inspection failed.' }
@@ -90,15 +65,13 @@ $dllNames = {
 }
 $staticDlls = @(& $dllNames $importParts[0])
 $delayDlls = @(if ($importParts.Count -gt 1) { & $dllNames $importParts[1] })
-$expectedDelay = @($DelayLoad | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
+$expectedDelay = @($DelayLoad | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
 $actualDelay = @($delayDlls | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
 if (($expectedDelay -join ',') -ne ($actualDelay -join ',')) {
     throw "Delay-loaded DLLs are [$($actualDelay -join ', ')], expected [$($expectedDelay -join ', ')]."
 }
 foreach ($name in $expectedDelay) {
-    if (@($staticDlls | Where-Object { $_ -ieq $name }).Count) {
-        throw "$name is delay-loaded but still a static import (mapped before the entry point)."
-    }
+    if ($staticDlls -contains $name) { throw "$name is delay-loaded but still a static import (mapped before the entry point)." }
 }
 
 $forbiddenDlls = @('ucrtbase.dll', 'webauthn.dll', 'libcef.dll', 'chrome_elf.dll', 'WebView2Loader.dll', 'electron.dll')
@@ -113,45 +86,25 @@ if ($ForbidDirectWrite) {
 }
 
 foreach ($name in $forbiddenDlls) {
-    if (@($staticDlls + $delayDlls | Where-Object { $_ -ieq $name }).Count) {
-        throw "Forbidden runtime import found: $name"
-    }
+    if (($staticDlls + $delayDlls) -contains $name) { throw "Forbidden runtime import found: $name" }
 }
 foreach ($name in $forbiddenText) {
-    if ($imports -match [regex]::Escape($name)) {
-        throw "Forbidden runtime import found: $name"
-    }
+    if ($imports -match [regex]::Escape($name)) { throw "Forbidden runtime import found: $name" }
 }
 
-$required = @('KERNEL32.dll')
-if ($RequireD3D11Only) { $required += 'D3D11.dll' }
-foreach ($name in $required) {
-    if (!@($staticDlls | Where-Object { $_ -ieq $name }).Count) {
-        throw "Expected static platform import missing: $name"
-    }
+foreach ($name in @('KERNEL32.dll') + @(if ($RequireD3D11Only) { 'D3D11.dll' })) {
+    if ($staticDlls -notcontains $name) { throw "Expected static platform import missing: $name" }
 }
 
-if ($headers -notmatch '8664 machine \(x64\)') {
-    throw 'MaiCord is not an x64 PE image.'
-}
-if ($headers -notmatch '[1-9A-F][0-9A-F]* entry point') {
-    throw 'The PE has no direct executable entry point.'
-}
-foreach ($mitigation in @('High Entropy Virtual Addresses', 'Dynamic base', 'NX compatible', 'CET compatible')) {
-    if ($headers -notmatch [regex]::Escape($mitigation)) {
-        throw "Required PE mitigation missing: $mitigation"
-    }
+if ($headers -notmatch '8664 machine \(x64\)') { throw 'MaiCord is not an x64 PE image.' }
+if ($headers -notmatch '[1-9A-F][0-9A-F]* entry point') { throw 'The PE has no direct executable entry point.' }
+foreach ($mitigation in 'High Entropy Virtual Addresses', 'Dynamic base', 'NX compatible', 'CET compatible') {
+    if ($headers -notmatch [regex]::Escape($mitigation)) { throw "Required PE mitigation missing: $mitigation" }
 }
 
-$size = (Get-Item -LiteralPath $resolved).Length
 [pscustomobject]@{
     Executable = $resolved
-    Bytes = $size
-    KiB = [math]::Round($size / 1KB, 2)
+    Bytes = (Get-Item -LiteralPath $resolved).Length
     ImportedDlls = @($staticDlls | Sort-Object -Unique) -join ', '
     DelayLoadedDlls = @($delayDlls | Sort-Object -Unique) -join ', '
-    CrtFree = $true
-    DirectEntry = $true
-    Mitigations = 'ASLR, HighEntropyVA, NX, CET-compatible'
-    HasHardwareD3D11Import = if ($RequireD3D11Only) { $true } else { 'not required' }
 } | Format-List

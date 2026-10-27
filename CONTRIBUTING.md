@@ -86,10 +86,13 @@ to the tag and the `.sha256` value.
 A test is one `maicord_test()` call; more cases on the same executable use
 `maicord_add_tests()`. Tests link non-LTO copies of the shipping libraries
 automatically. Small tests share an executable with `BUNDLE <name>` on their
-`maicord_test()`; each case then runs its own entry symbol (`MAICORD_TEST_ENTRY`),
-so a bundled test must not define symbols another member or library defines.
-`STANDALONE` also builds the test's own executable, which the offline tools in
-`tools/` run directly (no CTest case uses it).
+`maicord_test()`, which needs no `LIBS`: the executable's libraries and include
+directories are declared once by `maicord_test_bundle()` at the top of
+`test_registry.cmake` (add what a new member needs there). Each case runs its own
+entry symbol (`MAICORD_TEST_ENTRY`), so a bundled test must not define symbols
+another member or library defines. `STANDALONE` also builds the test's own
+executable (with its own `LIBS`), which the offline tools in `tools/` run
+directly (no CTest case uses it).
 
 ```cmake
 maicord_test(MaiCordFooTests ENTRY maicord_foo_tests_entry

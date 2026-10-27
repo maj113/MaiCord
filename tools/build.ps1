@@ -61,11 +61,8 @@ if ($AudioPlaybackProbe -and $TestNames) { $TestNames += 'maicord_account_audio_
 $repository = Split-Path -Parent $PSScriptRoot
 $build = [IO.Path]::GetFullPath("$repository\..\MaiCord-build\Release")
 $client = Join-Path $build 'MaiCord.exe'
-$cleanup = Join-Path $PSScriptRoot 'maintain_build_outputs.ps1'
 $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
-$testProfile = $null
-$restoreClient = $false
 $llvm = & (Join-Path $PSScriptRoot 'resolve_llvm_toolchain.ps1') -LlvmBin $LlvmBin
 $toolchainOptions = @("-DCMAKE_C_COMPILER=$llvm\clang-cl.exe", "-DCMAKE_CXX_COMPILER=$llvm\clang-cl.exe",
     "-DCMAKE_LINKER=$llvm\lld-link.exe", "-DCMAKE_AR=$llvm\llvm-lib.exe")
@@ -223,7 +220,7 @@ try {
     foreach ($step in {
         if ($restoreClient) { Invoke-Configure @('-DMAICORD_STARTUP_PROBE=OFF'); Invoke-Build @('MaiCord') }
     }, {
-        if ($locked) { & $cleanup -Apply -RuntimeOnly:(Test-Path -LiteralPath "$build\maicord-build-outputs.txt") }
+        if ($locked) { & "$PSScriptRoot\maintain_build_outputs.ps1" -Apply -RuntimeOnly:(Test-Path -LiteralPath "$build\maicord-build-outputs.txt") }
     }, {
         if ($locked -and $Test) {
             Get-ChildItem -LiteralPath "$([Environment]::GetFolderPath('LocalApplicationData'))\CrashDumps" -Filter 'MaiCord?*.exe.*.dmp' -File -ErrorAction SilentlyContinue |

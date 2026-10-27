@@ -32,4 +32,3 @@ target_link_options(MaiCordPerfProbe PRIVATE /ENTRY:maicord_entry /SUBSYSTEM:WIN
     "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordPerfProbe.map" ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 set_target_properties(MaiCordPerfProbe PROPERTIES CXX_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")
 add_dependencies(MaiCordPerfProbe MaiCordPerfAccount)
-file(WRITE "${CMAKE_BINARY_DIR}/maicord-test-targets.txt" "MaiCordPerfProbe\nMaiCordPerfAccount\n")
