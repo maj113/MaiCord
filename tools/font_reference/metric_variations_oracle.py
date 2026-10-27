@@ -5,6 +5,7 @@ from fontTools.ttLib import TTFont,newTable
 from fontTools.ttLib.tables._f_v_a_r import Axis
 from fontTools.varLib.builder import buildVarRegionList,buildVarData,buildVarStore
 from gsub_execution_oracle import make_font,lookup,single,obj,ORDER
+from embed_fixture import write_embedded_array
 from feature_plan_oracle import identity
 
 def generate(folder):
@@ -53,7 +54,7 @@ def export(root,header):
         for c in f['cases']:part+=w(c['weight'],len(c['result']['advances']),*c['result']['font_metrics'][6:],*c['result']['advances'])
         parts.append(part)
     raw=b'MCVMET1\0'+w(len(parts))+b''.join(parts);(root/'corpus.bin').write_bytes(raw)
-    header.write_text('// First-party variable metric fonts and Windows design-unit expectations.\nconstexpr u8 metric_variations_fixture[]{\n'+'\n'.join('    '+','.join(f'0x{x:02x}' for x in raw[i:i+24])+',' for i in range(0,len(raw),24))+'\n};\n')
+    write_embedded_array(header,'// First-party variable metric fonts and Windows design-unit expectations.\n','constexpr u8 metric_variations_fixture[]',raw)
     print('exported',len(parts),'fonts',len(raw),'bytes')
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--exe',type=Path);p.add_argument('--header',type=Path);a=p.parse_args();a.root.mkdir(parents=True,exist_ok=True)

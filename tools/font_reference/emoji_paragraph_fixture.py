@@ -1,6 +1,7 @@
 """Observe itemized emoji/non-visual paragraphs and pack native geometry cases."""
 from pathlib import Path
 import argparse,hashlib,json,os,random,struct,subprocess
+from embed_fixture import write_embedded_array
 
 def identity(path):
     path=Path(path)
@@ -110,9 +111,7 @@ def pack(root):
     for name,data in [('emoji-paragraph-fixture',builtin),('full-paragraphs',selected)]:
         binary=encode(data);path=root/(name+'.bin');path.write_bytes(binary);records.append(dict(name=name,cases=len(data),identity=identity(path)))
         if name=='emoji-paragraph-fixture':
-            lines=['// Generated Windows itemized geometry for first-party synthetic fonts.','constexpr u8 emoji_paragraph_fixture[]{']
-            lines += [','.join(str(v) for v in binary[i:i+24])+',' for i in range(0,len(binary),24)];lines+=['};']
-            Path('D:/MaiCord/tests/generated/emoji_paragraph_fixture.inc').write_text('\n'.join(lines)+'\n')
+            write_embedded_array('D:/MaiCord/tests/generated/emoji_paragraph_fixture.inc','// Generated Windows itemized geometry for first-party synthetic fonts.\n','constexpr u8 emoji_paragraph_fixture[]',binary)
     (root/'paragraph-fixtures.json').write_text(json.dumps(dict(fixtures=records,fresh_selected=len(selected)-len(old[125:]),prior_visible=len(old[125:]),excluded=excluded),ensure_ascii=True,indent=2));print(json.dumps(records,indent=2),'Excluded',len(excluded),'requiring other layout policy')
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['capture','selectors','pack']);p.add_argument('root',type=Path);a=p.parse_args();dict(capture=capture,selectors=capture_extra,pack=pack)[a.action](a.root)

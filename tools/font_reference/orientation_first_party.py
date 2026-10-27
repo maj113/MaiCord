@@ -4,6 +4,7 @@ from pathlib import Path
 from fontTools.ttLib import TTFont
 from bold_geometry_oracle import make_font,identity,shapes
 from bold_orientation_oracle import run as capture
+from embed_fixture import write_embedded_array
 
 def make(root,exe):
     root.mkdir(parents=True,exist_ok=True);rect=shapes()['rectangle'][0]
@@ -34,7 +35,7 @@ def emit(source,output):
         for end,direction in zip(ends,row['directions']):payload+=struct.pack('<II',end,direction)
         for p,f in zip(points,flags):payload+=struct.pack('<hhI',*p,f&1)
         points_total+=len(points);contours_total+=len(ends)
-    output.write_text('// Generated from first-party shapes by orientation_first_party.py.\n// Reference observations SHA256 '+identity(source)['sha256']+'\nstatic constexpr u8 orientation_fixture[]={\n'+''.join(','.join(str(b) for b in payload[i:i+32])+',\n' for i in range(0,len(payload),32))+'};\n')
+    write_embedded_array(output,'// Generated from first-party shapes by orientation_first_party.py.\n// Reference observations SHA256 '+identity(source)['sha256']+'\n','static constexpr u8 orientation_fixture[]',payload)
     print(json.dumps(dict(cases=len(data['cases']),points=points_total,contours=contours_total,bytes=len(payload))))
 
 if __name__=='__main__':

@@ -23,12 +23,14 @@ add_custom_command(
     DEPENDS tools/generate_unicode_emoji_catalog.py src/ui/unicode_emoji_16.inc src/ui/emoji_shortcodes.inc
     VERBATIM)
 set(MAICORD_EMOJI_POOL_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_pack.inc")
+# Each generated include #embeds its byte arrays from .bin files written beside it.
+set(MAICORD_EMOJI_POOL_PACKED "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_packed.bin")
 add_custom_command(
-    OUTPUT "${MAICORD_EMOJI_POOL_INCLUDE}"
+    OUTPUT "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_EMOJI_POOL_PACKED}"
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_emoji_pools.py" "${MAICORD_EMOJI_POOL_INCLUDE}"
         "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/emoji_shortcodes.inc"
-    DEPENDS tools/pack_emoji_pools.py tools/generate_unicode_emoji_catalog.py
+    DEPENDS tools/pack_emoji_pools.py tools/generate_unicode_emoji_catalog.py tools/font_reference/embed_fixture.py
         "${MAICORD_EMOJI_CATALOG_INCLUDE}" src/ui/emoji_shortcodes.inc
     VERBATIM)
 add_custom_target(maicord_emoji_catalog_data
@@ -39,15 +41,18 @@ file(GLOB MAICORD_ICON_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons/*.svg"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original/*.svg")
 set(MAICORD_ICON_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack.inc")
+set(MAICORD_ICON_PACK_DATA "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack_data.bin")
+set(MAICORD_ICON_PACK_PACKED "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack_packed.bin")
 add_custom_command(
-    OUTPUT "${MAICORD_ICON_PACK_INCLUDE}"
+    OUTPUT "${MAICORD_ICON_PACK_INCLUDE}" "${MAICORD_ICON_PACK_DATA}" "${MAICORD_ICON_PACK_PACKED}"
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_icon_pack.py" build
         --manifest "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/icon_ids.inc"
         --lucide "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons"
         --original "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original"
         --output "${MAICORD_ICON_PACK_INCLUDE}"
-    DEPENDS tools/generate_icon_pack.py include/maicord/ui/icon_ids.inc ${MAICORD_ICON_SOURCES}
+    DEPENDS tools/generate_icon_pack.py tools/font_reference/embed_fixture.py include/maicord/ui/icon_ids.inc
+        ${MAICORD_ICON_SOURCES}
     VERBATIM)
 add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")
 
@@ -57,12 +62,14 @@ add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")
 file(GLOB MAICORD_REGIONAL_FLAG_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags/*.svg")
 set(MAICORD_REGIONAL_FLAG_BUNDLE "${MAICORD_GENERATED_DIRECTORY}/regional_flag_bundle.inc")
+set(MAICORD_REGIONAL_FLAG_PACKED "${MAICORD_GENERATED_DIRECTORY}/regional_flag_packed.bin")
 add_custom_command(
-    OUTPUT "${MAICORD_REGIONAL_FLAG_BUNDLE}"
+    OUTPUT "${MAICORD_REGIONAL_FLAG_BUNDLE}" "${MAICORD_REGIONAL_FLAG_PACKED}"
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_regional_flag_bundle.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags" "${MAICORD_REGIONAL_FLAG_BUNDLE}"
-    DEPENDS tools/generate_regional_flag_bundle.py ${MAICORD_REGIONAL_FLAG_SOURCES}
+    DEPENDS tools/generate_regional_flag_bundle.py tools/font_reference/embed_fixture.py
+        ${MAICORD_REGIONAL_FLAG_SOURCES}
     VERBATIM)
 add_custom_target(maicord_regional_flag_data DEPENDS "${MAICORD_REGIONAL_FLAG_BUNDLE}")
 
@@ -164,10 +171,11 @@ maicord_shader(MAICORD_FX_VERTEX_HEADER maicord_fx_vs.hpp vs_5_0 fx_vertex g_mai
 maicord_shader(MAICORD_FX_PIXEL_HEADER maicord_fx_ps.hpp ps_5_0 fx_builtin g_maicord_fx_pixel_shader
     ${maicord_shaders}/background_fx.hlsl PACK fx_builtin)
 set(MAICORD_SHADER_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.inc")
+set(MAICORD_SHADER_PACK_PACKED "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.bin")
 add_custom_command(
-    OUTPUT "${MAICORD_SHADER_PACK_INCLUDE}"
+    OUTPUT "${MAICORD_SHADER_PACK_INCLUDE}" "${MAICORD_SHADER_PACK_PACKED}"
     COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_shader_bytecode.py" "${MAICORD_SHADER_PACK_INCLUDE}"
         ${MAICORD_PACKED_SHADERS}
-    DEPENDS tools/pack_shader_bytecode.py ${MAICORD_PACKED_SHADER_HEADERS}
+    DEPENDS tools/pack_shader_bytecode.py tools/font_reference/embed_fixture.py ${MAICORD_PACKED_SHADER_HEADERS}
     VERBATIM)

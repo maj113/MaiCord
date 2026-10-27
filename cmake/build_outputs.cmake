@@ -45,8 +45,10 @@ maicord_collect_build_outputs("${CMAKE_BINARY_DIR}")
 # dependencies or INTERFACE links rather than compiled-target SOURCES.
 # Keep the finite ownership list tied to their defining CMake variables.
 foreach(output IN ITEMS "${MAICORD_APP_ICON}" "${MAICORD_EMOJI_CATALOG_INCLUDE}"
-        "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_ICON_PACK_INCLUDE}"
-        "${MAICORD_REGIONAL_FLAG_BUNDLE}" "${MAICORD_SHADER_PACK_INCLUDE}"
+        "${MAICORD_EMOJI_POOL_INCLUDE}" "${MAICORD_EMOJI_POOL_PACKED}"
+        "${MAICORD_ICON_PACK_INCLUDE}" "${MAICORD_ICON_PACK_DATA}" "${MAICORD_ICON_PACK_PACKED}"
+        "${MAICORD_REGIONAL_FLAG_BUNDLE}" "${MAICORD_REGIONAL_FLAG_PACKED}"
+        "${MAICORD_SHADER_PACK_INCLUDE}" "${MAICORD_SHADER_PACK_PACKED}"
         "${maicord_combase_import_library}" "${maicord_sspicli_import_library}" ${MAICORD_PACKED_SHADER_HEADERS})
     cmake_path(IS_PREFIX CMAKE_BINARY_DIR "${output}" NORMALIZE contained)
     if(NOT contained)

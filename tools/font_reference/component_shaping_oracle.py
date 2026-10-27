@@ -2,6 +2,7 @@
 import argparse,json,struct,hashlib
 from pathlib import Path
 from fontTools.ttLib import TTFont
+from embed_fixture import write_embedded_array
 from gpos_execution_oracle import identity
 
 def export(folder,observed,out,header):
@@ -32,7 +33,7 @@ def export(folder,observed,out,header):
     raw=b'MCCMP01\0'+word(len(blobs))+b''.join(blobs);out.parent.mkdir(parents=True,exist_ok=True);out.write_bytes(raw)
     out.with_suffix('.json').write_text(json.dumps(dict(scope='Native nominal mapping, default-grapheme boundaries, scheduled GSUB, component associations, class/cluster positioning flags and GPOS1-8; no independent script scheduling, general tailoring, complete glyph-property policy or app parity',observations=identity(observed),cases=selected,corpus_sha256=hashlib.sha256(raw).hexdigest()),indent=2)+'\n')
     if header:
-        header.parent.mkdir(parents=True,exist_ok=True);header.write_text('// First-party Windows glyph/cluster/placement expectations; no attachment seeds.\nconstexpr u8 component_fixture[]{\n'+'\n'.join('    '+','.join(f'0x{v:02x}' for v in raw[i:i+24])+',' for i in range(0,len(raw),24))+'\n};\n')
+        write_embedded_array(header,'// First-party Windows glyph/cluster/placement expectations; no attachment seeds.\n','constexpr u8 component_fixture[]',raw)
     print(f'Exported {len(blobs)} component-shaping fonts, {len(raw)} bytes')
 
 if __name__=='__main__':

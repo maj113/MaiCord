@@ -3,8 +3,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
-static_assert(sizeof(NativeFontSelection)==48);
-#include "generated/tt_outline_fixture.inc"
+#include "generated/tt_probe_font.inc"
 constexpr u32 session_capacity=1024;
 NativeFontSession* session=nullptr;NativeFontHandle faces[session_capacity],alias;NativeFontInstanceHandle instances[session_capacity],instructed;NativeFontRunHandle runs[session_capacity];
 wchar_t paths[session_capacity+1][MAX_PATH];u32 paths_created=0,checks=0;DWORD handles_before=0;
@@ -22,8 +21,7 @@ bool run() noexcept {
     CHECK(native_font_session_stats(session).metadata_committed==empty.metadata_committed);
     NativeFontSession* borrower=session;CHECK(native_font_session_retain(borrower)&&native_font_session_stats(session).references==2);
     CHECK(native_font_session_release(&borrower)&&!borrower&&native_font_session_stats(session).references==1);
-    wchar_t folder[MAX_PATH];CHECK(GetTempPathW(MAX_PATH,folder));const ConstSlice<u8> font{tt_outline_fixture+20,byte_load_le32(tt_outline_fixture+12)};
-    CHECK(font.count+20<sizeof(tt_outline_fixture));
+    wchar_t folder[MAX_PATH];CHECK(GetTempPathW(MAX_PATH,folder));const ConstSlice<u8> font{tt_probe_font,sizeof(tt_probe_font)};
     for(u32 i=0;i<session_capacity+1;++i){CHECK(GetTempFileNameW(folder,L"mfs",0,paths[i]));++paths_created;CHECK(write(paths[i],font));}
     CHECK(GetProcessHandleCount(GetCurrentProcess(),&handles_before));
     const NativeFontFileSlot* first_file=nullptr;const NativeFontFace* first_face=nullptr;const NativeFontInstance* first_instance=nullptr;

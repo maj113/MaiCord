@@ -20,6 +20,7 @@ from fontTools.ttLib import TTFont, newTable
 from fontTools.ttLib.tables import otTables as ot
 from fontTools.ttLib.tables._g_l_y_f import Glyph
 
+from embed_fixture import write_embedded_array
 BASE = list("ABCDEMNXYZL")
 ORDER = [".notdef"] + BASE + ["tag" + g for g in BASE]
 CMAP = {ord(c): c.upper() for c in "abcdexyzl"}
@@ -438,11 +439,8 @@ def export(folder, observations_path, output, header, clusters=False):
         meta["scope"] = "Native cluster updates seeded with Windows disabled-feature boundaries; not native initial grouping"
     output.with_suffix(".json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     if header:
-        header.parent.mkdir(parents=True, exist_ok=True)
-        header.write_text("// Generated offline QA fixtures. See gsub_execution_oracle.py export.\n" +
-                          ("constexpr u8 cluster_execution_fixture[]{\n" if clusters else "constexpr u8 gsub_execution_fixture[]{\n") +
-                          "\n".join("    " + ",".join(f"0x{x:02x}" for x in data[i:i+24]) + "," for i in range(0, len(data), 24)) +
-                          "\n};\n", encoding="utf-8")
+        write_embedded_array(header, "// Generated offline QA fixtures. See gsub_execution_oracle.py export.\n",
+                             "constexpr u8 cluster_execution_fixture[]" if clusters else "constexpr u8 gsub_execution_fixture[]", data)
     print(f"Exported {len(manifest['cases'])} measured execution cases, {len(data)} bytes")
 
 

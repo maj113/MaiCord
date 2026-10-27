@@ -227,7 +227,8 @@ PyThaiNLP 5.3.8 `words_th.txt` (CC0-1.0, `assets/licenses/PyThaiNLP-corpus.txt`)
 by URL and SHA-256 (the `SOURCES` table in the script), and rejects other input.
 It keeps every lexical ICU word and the PyThaiNLP words that are not compounds of
 shorter listed words, 2 to 20 scalars long, and writes
-`src/text/generated/thai_lexical_data.inc` as a suffix-shared word graph that it
+`src/text/generated/thai_lexical_data.inc` as a suffix-shared word graph (the raw
+bytes in `thai_word_graph.bin` beside it, read by `#embed`) that it
 decodes again and compares with the word list. `thai_syllable_data.py` holds an
 authored grammar of Thai vowel spellings and writes the minimized machine to
 `src/text/generated/thai_syllable_data.inc`; it reads no input. Both take

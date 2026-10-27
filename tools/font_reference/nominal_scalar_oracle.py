@@ -4,6 +4,7 @@ from pathlib import Path
 from fontTools.ttLib import TTFont,newTable
 from fontTools.ttLib.tables._c_m_a_p import CmapSubtable
 from gsub_execution_oracle import make_font,lookup,single,identity
+from embed_fixture import write_embedded_array
 
 def run(root,exe):
     root.mkdir(parents=True,exist_ok=True);observations=[]
@@ -24,7 +25,7 @@ def export(root,header,test_header=None):
     text+='constexpr u8 nominal_page_index[256]{\n'+'\n'.join('    '+','.join(str(x) for x in indices[i:i+32])+',' for i in range(0,256,32))+'\n};\n'
     text+='constexpr u64 nominal_page_words[]{\n'+'\n'.join('    '+','.join(f'0x{x:016x}ull' for x in words[i:i+4])+',' for i in range(0,len(words),4))+'\n};\n'
     header.write_text(text);print(f'Exported {256+len(words)*8} profile bytes')
-    if test_header:test_header.write_text('// Uncompressed Windows observation, independent of native page encoding.\nconstexpr u8 nominal_scalar_fixture[]{\n'+'\n'.join('    '+','.join(str(x) for x in raw[i:i+32])+',' for i in range(0,len(raw),32))+'\n};\n')
+    if test_header:write_embedded_array(test_header,'// Uncompressed Windows observation, independent of native page encoding.\n','constexpr u8 nominal_scalar_fixture[]',raw)
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--exe',type=Path);p.add_argument('--header',type=Path);p.add_argument('--test-header',type=Path);a=p.parse_args()
     if a.exe:run(a.root,a.exe)

@@ -38,6 +38,7 @@ SOURCES = {
         license='CC0-1.0; see assets/licenses/PyThaiNLP-corpus.txt'),
 }
 OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/generated/thai_lexical_data.inc'
+GRAPH_FILE = 'thai_word_graph.bin'  # raw bytes beside the include, read by #embed
 LONGEST = 20  # ICU's longest entry; longer PyThaiNLP compounds are phrases.
 REFERENCE_SLOTS = 96
 # Consonants, dependent vowels, leading vowels, LAKKHANGYAO and the marks.
@@ -310,10 +311,12 @@ def emit(graph, words, inputs):
                '// Apple Inc., and others. All Rights Reserved.',
                '// PyThaiNLP words_th.txt: created by the PyThaiNLP project, CC0-1.0.']
     text = '\n'.join(header) + '\n'
-    data = graph['data']
-    text += f'constexpr u32 thai_word_longest={LONGEST};\nconstexpr u8 thai_word_graph[]{{\n'
-    text += ''.join('    ' + ','.join(str(b) for b in data[i:i + 32]) + ',\n' for i in range(0, len(data), 32))
-    text += '};\nconstexpr u32 thai_word_initial[]{\n'
+    text += (f'constexpr u32 thai_word_longest={LONGEST};\n'
+             '#pragma clang diagnostic push\n'
+             '#pragma clang diagnostic ignored "-Wc++26-extensions"\n'
+             f'constexpr u8 thai_word_graph[]{{\n#embed "{GRAPH_FILE}"\n}};\n'
+             '#pragma clang diagnostic pop\n'
+             'constexpr u32 thai_word_initial[]{\n')
     text += ''.join('    ' + ','.join(f'{v}u' for v in graph['initial'][i:i + 8]) + ',\n' for i in range(0, len(graph['initial']), 8))
     references = graph['references']
     if any(v > 0xffff for v in references):
@@ -338,6 +341,7 @@ def main():
     verified = verify(graph, words)
     text = emit(graph, words, dict(icu=len(icu), pythainlp=len(pythainlp)))
     args.output.write_bytes(text.encode('utf-8'))
+    args.output.with_name(GRAPH_FILE).write_bytes(bytes(graph['data']))
     icu_words, pythainlp_words = set(icu) & set(words), set(pythainlp) & set(words)
     report = dict(words=len(words), verified_words=verified, from_icu=len(icu_words),
                   from_pythainlp=len(pythainlp_words), pythainlp_only=len(pythainlp_words - icu_words),
@@ -348,6 +352,7 @@ def main():
                   payload_bytes=len(graph['data']) + len(graph['references']) * 2 + len(graph['initial']) * 4 + 4 + 256,
                   sources={k: dict(url=v['url'], sha256=v['sha256']) for k, v in SOURCES.items()},
                   generator_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                  graph_sha256=hashlib.sha256(args.output.with_name(GRAPH_FILE).read_bytes()).hexdigest(),
                   output_sha256=hashlib.sha256(args.output.read_bytes()).hexdigest())
     if args.report:
         args.report.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')

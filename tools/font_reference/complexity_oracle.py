@@ -4,6 +4,7 @@ from pathlib import Path
 from fontTools.ttLib import TTFont,newTable
 from feature_plan_oracle import layout,language,script,identity
 from gsub_execution_oracle import make_font,obj,lookup,single,multiple,ligature,context,context_format,coverage,extension,ORDER
+from embed_fixture import write_embedded_array
 import gpos_execution_oracle as gp
 
 def cases():
@@ -84,7 +85,7 @@ def export(root,header):
             if not c['result']['text_simple']:bits|=1<<glyph
         parts.append(struct.pack('<IIIQ',p.stat().st_size,int(f['kind']=='GPOS'),len(ORDER),bits)+p.read_bytes())
     raw=b'MCNOM01\0'+struct.pack('<I',len(parts))+b''.join(parts);(root/'corpus.bin').write_bytes(raw)
-    header.write_text('// First-party fonts and Windows font-participation observations; glyph zero excluded.\nconstexpr u8 participation_fixture[]{\n'+'\n'.join('    '+','.join(f'0x{x:02x}' for x in raw[i:i+24])+',' for i in range(0,len(raw),24))+'\n};\n')
+    write_embedded_array(header,'// First-party fonts and Windows font-participation observations; glyph zero excluded.\n','constexpr u8 participation_fixture[]',raw)
     print(f'Exported {len(parts)} fonts, {len(raw)} bytes')
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--exe',type=Path);p.add_argument('--header',type=Path);a=p.parse_args()

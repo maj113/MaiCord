@@ -6,6 +6,7 @@ from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont,newTable
 from fontTools.ttLib.tables._f_v_a_r import Axis
 from fontTools.ttLib.tables.TupleVariation import TupleVariation
+from embed_fixture import write_embedded_array
 from feature_plan_oracle import identity
 
 def generate(folder):
@@ -70,7 +71,7 @@ def export(root,header,outlines=None):
             for record in records:part+=word(*record)
         parts.append(part)
     raw=b'MCGMET1\0'+word(len(parts))+b''.join(parts)
-    header.write_text('// First-party HVAR-free fonts and DirectWrite advance expectations.\nconstexpr u8 gvar_metrics_fixture[]{\n'+'\n'.join('    '+','.join(f'0x{x:02x}' for x in raw[i:i+24])+',' for i in range(0,len(raw),24))+'\n};\n',encoding='utf-8')
+    write_embedded_array(header,'// First-party HVAR-free fonts and DirectWrite advance expectations.\n','constexpr u8 gvar_metrics_fixture[]',raw)
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('root',type=Path);parser.add_argument('--exe',type=Path);parser.add_argument('--header',type=Path);parser.add_argument('--outlines',type=Path);a=parser.parse_args();a.root.mkdir(parents=True,exist_ok=True)

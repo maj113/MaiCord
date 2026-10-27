@@ -1,6 +1,7 @@
 """Embed captured first-party Windows probes for native-only CTest regression."""
 from pathlib import Path
 import argparse,hashlib,json
+from embed_fixture import write_embedded_arrays
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('oracle',type=Path);p.add_argument('output',type=Path);a=p.parse_args()
@@ -9,7 +10,7 @@ def main():
     def array(kind,name,values):
         lines.append(f'constexpr {kind} {name}[]{{')
         lines.extend('    '+','.join(str(v) for v in values[i:i+24])+',' for i in range(0,len(values),24));lines.append('};')
-    for i,font in enumerate(fonts):array('u8',f'latin_compat_font_{i}',list(Path(font).read_bytes()))
+    lines.append(write_embedded_arrays(a.output.with_suffix(''),[(f'constexpr u8 latin_compat_font_{i}[]',f'latin_compat_font_{i}',Path(font).read_bytes()) for i,font in enumerate(fonts)]).rstrip('\n'))
     lines.append('constexpr ConstSlice<u8> latin_compat_fonts[]{')
     lines.extend(f'    {{latin_compat_font_{i},sizeof(latin_compat_font_{i})}},' for i in range(len(fonts)));lines.append('};')
     for i,row in enumerate(data['rows']):

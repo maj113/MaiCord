@@ -3,6 +3,7 @@ import argparse,array,json,subprocess,struct
 from pathlib import Path
 from fontTools.ttLib import TTFont,newTable
 from fontTools.ttLib.tables.ttProgram import Program
+from embed_fixture import write_embedded_array
 from feature_plan_oracle import identity
 def program(assembly):
     p=Program();p.fromAssembly(assembly);return p
@@ -25,9 +26,7 @@ def emit_fixture(observations,output):
         for i in range(8):
             command=expected[8+i*7:15+i*7];assert command[6]==(0 if i==0 else 2)
             words(*command[:2])
-    output.parent.mkdir(parents=True,exist_ok=True)
-    output.write_text('// Generated from first-party font programs and Windows outline observations.\n'
-        'static constexpr u8 tt_interpreter_fixture[]{\n'+''.join('    '+','.join(str(v) for v in blob[i:i+24])+',\n' for i in range(0,len(blob),24))+'};\n')
+    write_embedded_array(output,'// Generated from first-party font programs and Windows outline observations.\n','static constexpr u8 tt_interpreter_fixture[]',blob)
     print('fixture_bytes',len(blob))
 
 def run(root,source,exe,context=False,fixture=None):

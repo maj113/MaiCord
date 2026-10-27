@@ -3,7 +3,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_file_info.hpp"
 namespace maicord {namespace {
-#include "generated/font_family_fixture.inc"
+#include "generated/font_catalog_probe_font.inc"
 u32 checks=0;bool cleanup_ok=true;
 void print(const char* p) noexcept {u32 n=0;while(p[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),p,n,&written,nullptr);}
 void number(u32 value) noexcept {char digits[16],out[16];u32 n=0;do{digits[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n;++i)out[i]=digits[n-i-1];out[n]=0;print(out);}
@@ -31,7 +31,7 @@ struct Owner {
 u8 collection[65536];
 bool run() noexcept {
     CHECK(!GetModuleHandleW(L"dwrite.dll")&&!GetModuleHandleW(L"DWriteCore.dll"));Temporary temp;CHECK(temp.open());Owner owner;
-    const ConstSlice<u8> font{font_family_fixture+24,byte_load_le32(font_family_fixture+12)};
+    const ConstSlice<u8> font{font_catalog_probe_font,sizeof(font_catalog_probe_font)};
     // Distinct TTC face indices share one fixture's table data.
     byte_store_be32(collection,sfnt_tag('t','t','c','f'));byte_store_be32(collection+4,0x10000);byte_store_be32(collection+8,collection_faces);
     const u32 offset=12+collection_faces*4,size=offset+font.count;CHECK(size<=sizeof(collection));

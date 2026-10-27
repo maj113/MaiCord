@@ -16,7 +16,10 @@ import pathlib
 import re
 import zlib
 
+from font_reference.embed_fixture import embed_arrays, write_if_changed
+
 GROUP_RAW_BUDGET = 20 * 1024
+PACKED_FILE = "regional_flag_packed.bin"  # beside the include, read by #embed
 SUBDIVISIONS = {"gbeng": 677, "gbsct": 678, "gbwls": 679}
 
 
@@ -343,12 +346,10 @@ def main():
     lines.append("constexpr FlagEntry kFlagEntries[]={")
     lines += [f"{{{s},{o},{n},{g}}}," for s, o, n, g in entries]
     lines.append("};")
-    lines.append("constexpr u8 kFlagPacked[]={")
-    for i in range(0, len(blob), 40):
-        lines.append(",".join(str(b) for b in blob[i:i + 40]) + ",")
-    lines.append("};")
+    lines.append(embed_arrays([("constexpr u8 kFlagPacked[]", PACKED_FILE)]).rstrip("\n"))
     text = "\n".join(lines) + "\n"
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    write_if_changed(args.output.with_name(PACKED_FILE), bytes(blob))
     if not args.output.exists() or args.output.read_text() != text:
         args.output.write_text(text, newline="\n")
 

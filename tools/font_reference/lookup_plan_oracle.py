@@ -2,6 +2,7 @@
 import argparse,json,struct,subprocess,sys
 from pathlib import Path
 from fontTools.ttLib import TTFont
+from embed_fixture import write_embedded_array
 from feature_plan_oracle import generate as generate_policy,identity
 def run(root,exe,header):
     folder=root/'fixtures';generate_policy(folder);manifest=json.loads((folder/'fixtures.json').read_text());entries=[];observations=[];blobs=[]
@@ -44,7 +45,7 @@ def run(root,exe,header):
     (root/'observations.json').write_text(json.dumps(dict(executable=identity(exe),dwrite=identity(Path(observations[0]['result']['dwrite_module'])),cases=observations),indent=2)+'\n')
     (root/'layout-differences.json').write_text(json.dumps(dict(scope='TextAnalyzer versus TextLayout observations; the native one-scalar gate now has separate comparisons, while whole-app eligibility remains open',cases=differences),indent=2)+'\n')
     (root/'corpus.json').write_text(json.dumps(dict(scope='MaiCord Latin/en-US/normal and independent-letter full-shaping plan checks against TextAnalyzer; TextLayout observations are separate and may differ; other script profiles are not implied',cases=entries,corpus=identity(root/'corpus.bin')),indent=2)+'\n')
-    header.write_text('// First-party full-shaping plan expectations and Windows TextAnalyzer output.\nconstexpr u8 plan_fixture[]{\n'+'\n'.join('    '+','.join(f'0x{x:02x}' for x in raw[i:i+24])+',' for i in range(0,len(raw),24))+'\n};\n')
+    write_embedded_array(header,'// First-party full-shaping plan expectations and Windows TextAnalyzer output.\n','constexpr u8 plan_fixture[]',raw)
     print(f'Exported {len(entries)} fonts, {len(observations)} full-shaping observations, {len(differences)} separate TextLayout differences, {len(raw)} bytes')
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--exe',type=Path,required=True);p.add_argument('--header',type=Path,required=True);a=p.parse_args();run(a.root,a.exe,a.header)

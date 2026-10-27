@@ -1,6 +1,7 @@
 """Embed first-party font probes for native-only Hebrew regression tests."""
 from pathlib import Path
 import argparse,hashlib,json
+from embed_fixture import write_embedded_arrays
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
@@ -17,7 +18,7 @@ def main():
     def array(kind,name,values):
         lines.append(f'constexpr {kind} {name}[]{{')
         lines.extend('    '+','.join(str(v) for v in values[i:i+24])+',' for i in range(0,len(values),24));lines.append('};')
-    for i,font in enumerate(fonts):array('u8',f'hebrew_compat_font_{i}',list(font.read_bytes()))
+    lines.append(write_embedded_arrays(a.output.with_suffix(''),[(f'constexpr u8 hebrew_compat_font_{i}[]',f'hebrew_compat_font_{i}',font.read_bytes()) for i,font in enumerate(fonts)]).rstrip('\n'))
     lines.append('constexpr ConstSlice<u8> hebrew_compat_fonts[]{')
     lines.extend(f'    {{hebrew_compat_font_{i},sizeof(hebrew_compat_font_{i})}},' for i in range(len(fonts)));lines.append('};')
     for i,(_,r) in enumerate(rows):

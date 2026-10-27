@@ -5,6 +5,7 @@ from fontTools.ttLib import TTFont,newTable
 from fontTools.ttLib.tables._f_v_a_r import Axis
 from feature_plan_oracle import layout,language,script,identity
 from gsub_execution_oracle import make_font,lookup,single,obj
+from embed_fixture import write_embedded_array
 from gpos_execution_oracle import adjust
 
 def generate(folder):
@@ -45,7 +46,7 @@ def export(root,header):
             blob+=w(c['weight'],int(c['mode']!='default'),n,0 if c['weight']==600 else 0xffffffff,v['text_simple'])
             blob+=w(*map(ord,c['text']),*v['glyphs'],*[x for row in v['placement_bits'] for x in row],*v['layout_glyphs'],*[x for row in v['layout_placement_bits'] for x in row])
         parts.append(blob)
-    raw=b'MCNVAR1\0'+w(len(parts))+b''.join(parts);(root/'corpus.bin').write_bytes(raw);header.write_text('// First-party variable fonts and Windows normal/semibold expectations.\nconstexpr u8 nominal_variations_fixture[]{\n'+'\n'.join('    '+','.join(f'0x{x:02x}' for x in raw[i:i+24])+',' for i in range(0,len(raw),24))+'\n};\n');print(f'Exported {len(parts)} fonts, {len(data["cases"])} cases, {len(raw)} bytes')
+    raw=b'MCNVAR1\0'+w(len(parts))+b''.join(parts);(root/'corpus.bin').write_bytes(raw);write_embedded_array(header,'// First-party variable fonts and Windows normal/semibold expectations.\n','constexpr u8 nominal_variations_fixture[]',raw);print(f'Exported {len(parts)} fonts, {len(data["cases"])} cases, {len(raw)} bytes')
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--exe',type=Path);p.add_argument('--header',type=Path);a=p.parse_args()
     if a.exe:run(a.root,a.exe)

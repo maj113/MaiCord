@@ -1,6 +1,7 @@
 """Capture and pack Windows emoji line geometry for native differential tests."""
 from pathlib import Path
 import argparse,hashlib,json,os,struct,subprocess
+from embed_fixture import write_embedded_array
 def identity(path):
     path=Path(path)
     with path.open('rb') as f:sha=hashlib.file_digest(f,'sha256').hexdigest()
@@ -68,9 +69,7 @@ def pack(root):
     for name,selected,embedded in [('emoji-line-fixture',fresh,True),('full-lines',rows,False)]:
         binary,count=encode(selected,embedded);path=root/(name+'.bin');path.write_bytes(binary);manifests.append(dict(name=name,cases=count,identity=identity(path)))
         if embedded:
-            target=Path('D:/MaiCord/tests/generated/emoji_line_fixture.inc')
-            lines=['// Generated Windows geometry observations for first-party synthetic fonts.','constexpr u8 emoji_line_fixture[]{']
-            lines += [','.join(str(v) for v in binary[i:i+24])+',' for i in range(0,len(binary),24)];lines+=['};'];target.write_text('\n'.join(lines)+'\n')
+            write_embedded_array('D:/MaiCord/tests/generated/emoji_line_fixture.inc','// Generated Windows geometry observations for first-party synthetic fonts.\n','constexpr u8 emoji_line_fixture[]',binary)
     (root/'line-fixtures.json').write_text(json.dumps(manifests,indent=2));print(json.dumps(manifests,indent=2))
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('action',choices=['observe','pack']);p.add_argument('root',type=Path);a=p.parse_args();(observe if a.action=='observe' else pack)(a.root)

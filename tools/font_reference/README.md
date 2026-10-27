@@ -27,6 +27,8 @@ the native test targets link first-party libraries and `kernel32` only.
   `--header` / `--fixture-header` write it as raw bytes (`tests/generated/<stem>.bin`)
   with a `#embed` wrapper (`<stem>.inc`, via `embed_fixture.py`) that the test
   includes, so a no-argument run checks it.
+  A fixture with several arrays (fonts, streams) keeps each array of 256 bytes or more in
+  `<stem>/<array>.bin` beside its include and embeds it from there; smaller arrays stay inline.
 - Oracles taking `<output>` write `<output>/observations.json` (Windows
   observations) and `<output>/corpus.bin`. For `complexity_oracle.py`,
   `nominal_scalar_oracle.py`, `nominal_variations_oracle.py`,

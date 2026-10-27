@@ -11,6 +11,10 @@ import re
 import sys
 import zlib
 
+from font_reference.embed_fixture import embed_arrays, write_if_changed
+
+PACKED_FILE = "maicord_shader_pack.bin"  # beside the include, read by #embed
+
 
 def read_bytecode(path):
     text = pathlib.Path(path).read_text()
@@ -95,11 +99,8 @@ def generate(entries):
         lines.append(f"constexpr u32 kShaderIndex_{name}={index};")
     # Keep the measured native image layout without another buffer or copy.
     # Recheck private image pages when the pack or surrounding data changes.
-    lines.append("alignas(128) constexpr u8 kShaderPacked[]={")
-    for i in range(0, len(blob), 40):
-        lines.append(",".join(str(b) for b in blob[i:i + 40]) + ",")
-    lines.append("};")
-    return "\n".join(lines) + "\n"
+    lines.append(embed_arrays([("alignas(128) constexpr u8 kShaderPacked[]", PACKED_FILE)]).rstrip("\n"))
+    return "\n".join(lines) + "\n", bytes(blob)
 
 
 def main():
@@ -108,8 +109,9 @@ def main():
     for argument in sys.argv[2:]:
         name, path = argument.split("=", 1)
         entries.append((name, read_bytecode(path)))
-    text = generate(entries)
+    text, packed = generate(entries)
     output.parent.mkdir(parents=True, exist_ok=True)
+    write_if_changed(output.with_name(PACKED_FILE), packed)
     if not output.exists() or output.read_text() != text:
         output.write_text(text, newline="\n")
 

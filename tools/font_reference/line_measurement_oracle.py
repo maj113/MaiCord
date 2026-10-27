@@ -2,6 +2,7 @@
 from pathlib import Path
 import argparse,json,struct,subprocess
 from fontTools.ttLib import TTFont
+from embed_fixture import write_embedded_array
 from gsub_execution_oracle import make_font,lookup,multiple,ligature
 
 def main():
@@ -33,8 +34,7 @@ def main():
         for c in clusters:
             hit=o['position_hits'][at*2];at+=c[0];data+=words(at,hit[6],c[1])
         for hit in o['position_hits']:data+=words(hit[2],hit[3],hit[4],hit[6],hit[8])
-    header=Path(__file__).resolve().parents[2]/'tests/generated/line_measurement_fixture.inc'
-    header.write_text('// Recorded first-party line widths, clusters and caret positions.\nconstexpr u8 line_measurement_fixture[]{\n'+'\n'.join('    '+','.join(f'0x{x:02x}' for x in data[i:i+24])+',' for i in range(0,len(data),24))+'\n};\n')
+    write_embedded_array(Path(__file__).resolve().parents[2]/'tests/generated/line_measurement_fixture.inc','// Recorded first-party line widths, clusters and caret positions.\n','constexpr u8 line_measurement_fixture[]',data)
     (a.root/'fixture.bin').write_bytes(data)
 
 if __name__=='__main__':main()

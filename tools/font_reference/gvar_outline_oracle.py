@@ -6,6 +6,7 @@ from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import TTFont,newTable
 from fontTools.ttLib.tables._f_v_a_r import Axis
 from fontTools.ttLib.tables.TupleVariation import TupleVariation
+from embed_fixture import write_embedded_array
 from feature_plan_oracle import identity
 
 POINTS=[(10,20),(31,20),(80,70),(80,120),(50,180),(-20,130),(-20,70),(-1,30)]
@@ -59,7 +60,7 @@ def export(root,header):
             for record in c['outlines']:part+=w(*record)
         parts.append(part)
     raw=b'MCGVAR1\0'+w(len(parts))+b''.join(parts);(root/'corpus.bin').write_bytes(raw)
-    header.write_text('// First-party gvar fonts and Windows outline bit expectations.\nconstexpr u8 gvar_outline_fixture[]{\n'+'\n'.join('    '+','.join(f'0x{x:02x}' for x in raw[i:i+24])+',' for i in range(0,len(raw),24))+'\n};\n')
+    write_embedded_array(header,'// First-party gvar fonts and Windows outline bit expectations.\n','constexpr u8 gvar_outline_fixture[]',raw)
     print('exported',len(parts),'fonts',len(raw),'bytes')
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--exe',type=Path);p.add_argument('--header',type=Path);a=p.parse_args();a.root.mkdir(parents=True,exist_ok=True)

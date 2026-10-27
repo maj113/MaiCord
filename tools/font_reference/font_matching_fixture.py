@@ -1,6 +1,7 @@
 """Export observed first matches, keeping candidate identity and simulations."""
 from pathlib import Path
 import argparse,json,struct,hashlib
+from embed_fixture import write_embedded_array
 def main():
     p=argparse.ArgumentParser();p.add_argument('root',type=Path);p.add_argument('--out',type=Path,required=True);a=p.parse_args()
     capture=json.loads((a.root/'capture.json').read_text());raw=[Path(g['raw']['path']) for g in capture['groups']]+sorted((a.root/'synthetic').glob('*.jsonl'))
@@ -16,6 +17,6 @@ def main():
             assert len(matches)==1,(family['name'],q,matches)
             data+=struct.pack('<HBBIIHBB',*q['request'],matches[0],expected['simulations'],*expected['properties']);total+=1
         groups.append(dict(name=family['name'],candidates=len(base),queries=len(queries),raw=str(path),sha256=hashlib.sha256(path.read_bytes()).hexdigest()))
-    a.out.parent.mkdir(exist_ok=True,parents=True);a.out.write_text('alignas(4) constexpr u8 font_matching_fixture[]{\n'+''.join(','.join(f'0x{x:02x}' for x in data[i:i+24])+',\n' for i in range(0,len(data),24))+'};\n')
+    write_embedded_array(a.out,'','alignas(4) constexpr u8 font_matching_fixture[]',data)
     (a.root/'fixture.bin').write_bytes(data);result=dict(groups=groups,cases=total,bytes=len(data),sha256=hashlib.sha256(data).hexdigest());(a.root/'fixture.json').write_text(json.dumps(result,indent=2));print(len(groups),'groups',total,'cases',len(data),'bytes')
 if __name__=='__main__':main()

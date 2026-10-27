@@ -12,10 +12,12 @@ import pathlib
 import re
 import sys
 import zlib
+from font_reference.embed_fixture import embed_arrays, write_if_changed
 from generate_unicode_emoji_catalog import pool_strings
 
 LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 SHORTCODE_NAME_BASE = 0
+PACKED_FILE = "emoji_pool_packed.bin"  # beside the include, read by #embed
 
 
 def read_pool(source, symbol, ascii_only):
@@ -93,21 +95,19 @@ def generate(catalog_source, shortcode_source):
              f"constexpr u32 kEmojiPoolShortcodeGlyphsOffset={len(names)};"]
     lines.append(f"constexpr u32 kEmojiPoolBytes={len(blob)};")
     packed = pack(bytes(blob))
-    lines.append("constexpr u8 kEmojiPoolPacked[]={")
-    for i in range(0, len(packed), 40):
-        lines.append(",".join(str(b) for b in packed[i:i + 40]) + ",")
-    lines.append("};")
+    lines.append(embed_arrays([("constexpr u8 kEmojiPoolPacked[]", PACKED_FILE)]).rstrip("\n"))
     lines.append("constexpr EmojiAliasEntry kEmojiSharedNameShortcodes[]={")
     lines.extend("    {%d, %d, %d, %d}," % row for row in aliases)
     lines.append("};")
-    return "\n".join(lines) + "\n"
+    return "\n".join(lines) + "\n", packed
 
 
 def main():
     output = pathlib.Path(sys.argv[1])
     sources = [pathlib.Path(path).read_text(encoding="utf-8") for path in sys.argv[2:4]]
-    text = generate(*sources)
+    text, packed = generate(*sources)
     output.parent.mkdir(parents=True, exist_ok=True)
+    write_if_changed(output.with_name(PACKED_FILE), packed)
     if not output.exists() or output.read_text() != text:
         output.write_text(text)
 

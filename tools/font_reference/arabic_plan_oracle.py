@@ -3,6 +3,7 @@ import argparse,itertools,json,struct,subprocess
 from pathlib import Path
 from fontTools.ttLib import TTFont,newTable
 from arabic_joining_oracle import make
+from embed_fixture import write_embedded_array
 from feature_plan_oracle import layout,language,script,TAGS
 from gsub_execution_oracle import obj,lookup,single,context,ligature,identity
 from gpos_execution_oracle import adjust
@@ -86,7 +87,7 @@ def fixture(roots,destination,binary=False,symbol='arabic_plan_fixture',rtl=None
     else:
         assert symbol.isidentifier()
         label='shaping' if directed else 'scheduling'
-        destination.write_text('// First-party Arabic '+label+'; captured Windows expectations.\nconstexpr u8 '+symbol+'[]{\n'+''.join(','.join(map(str,blob[i:i+32]))+',\n' for i in range(0,len(blob),32))+'};\n')
+        write_embedded_array(destination,'// First-party Arabic '+label+'; captured Windows expectations.\n','constexpr u8 '+symbol+'[]',blob)
     print(len(fonts),'fonts',len(cases),'native plan fixtures')
 
 if __name__=='__main__':

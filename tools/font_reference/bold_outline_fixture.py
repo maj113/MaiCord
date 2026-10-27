@@ -5,6 +5,7 @@ from fontTools.ttLib import TTFont,newTable
 from fontTools.ttLib.tables.ttProgram import Program
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from bold_geometry_oracle import make_font,identity
+from embed_fixture import write_embedded_array
 
 def run(root,exe,headers):
     root.mkdir(parents=True,exist_ok=True);records=[];blobs={1:bytearray(b'MCTTGL1\0'+struct.pack('<I',12)),3:bytearray(b'MCTTGL1\0'+struct.pack('<I',12))}
@@ -31,7 +32,7 @@ def run(root,exe,headers):
                 modes[str(mode)]=dict(log=identity(log),outlines=outlines)
             records.append(dict(font=identity(path),units=units,recovered=recovered,modes=modes))
     for mode,path in zip([1,3],headers):
-        data=blobs[mode];path.write_text('// First-party bold composite outlines; Windows expectations.\nstatic constexpr u8 tt_outline_fixture[]{\n'+''.join(','.join(str(v) for v in data[i:i+32])+',\n' for i in range(0,len(data),32))+'};\n')
+        write_embedded_array(path,'// First-party bold composite outlines; Windows expectations.\n','static constexpr u8 tt_outline_fixture[]',blobs[mode])
     result=dict(reference=identity(exe),cases=records,fixtures=[identity(p) for p in headers]);(root/'observations.json').write_text(json.dumps(result,indent=2));print(len(records),'fonts; 48 glyph outlines per simulation')
 
 if __name__=='__main__':

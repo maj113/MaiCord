@@ -8,7 +8,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_file_info.hpp"
 namespace maicord {namespace {
-#include "generated/font_family_fixture.inc"
+#include "generated/font_catalog_probe_font.inc"
 #include "font_catalog_fixture.inc"
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -27,7 +27,7 @@ struct Temporary {
 };
 bool write(const wchar_t* path,ConstSlice<u8> bytes) noexcept {HANDLE h=CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);if(h==INVALID_HANDLE_VALUE)return false;DWORD n=0;const bool ok=WriteFile(h,bytes.data,bytes.count,&n,nullptr)&&n==bytes.count;CloseHandle(h);return ok;}
 bool views() noexcept {
-    const ConstSlice<u8> font{font_family_fixture+24,byte_load_le32(font_family_fixture+12)};CHECK(font.count+24<sizeof(font_family_fixture));
+    const ConstSlice<u8> font{font_catalog_probe_font,sizeof(font_catalog_probe_font)};
     Temporary temp;CHECK(temp.open());CHECK(write(temp.paths[0],font));CatalogFixture fixture;u32 index=0;CHECK(fixture.add(temp.paths[0],&index));const auto& c=fixture.catalog;
     CHECK(equal(native_font_catalog_path(c,0),wide(temp.paths[0]))&&equal(native_font_catalog_name(c,0),wide(L"Probe"))&&c.candidates[0].properties.weight==700);
     CHECK(!native_font_catalog_settings(c,0).count&&!native_font_catalog_path(c,1).count&&!native_font_catalog_name(c,1).count&&!native_font_catalog_settings(c,1).count);
@@ -35,7 +35,7 @@ bool views() noexcept {
     return true;
 }
 bool entries() noexcept {
-    const ConstSlice<u8> font{font_family_fixture+24,byte_load_le32(font_family_fixture+12)};Temporary temp;CHECK(temp.open());
+    const ConstSlice<u8> font{font_catalog_probe_font,sizeof(font_catalog_probe_font)};Temporary temp;CHECK(temp.open());
     u8 collection[16384]{};byte_store_be32(collection,sfnt_tag('t','t','c','f'));byte_store_be32(collection+4,0x10000);byte_store_be32(collection+8,10);u32 size=52;
     for(u32 i=0;i<10;++i){const u32 offset=size;CHECK(offset+font.count+4<sizeof(collection));byte_store_be32(collection+12+i*4,offset);copy_bytes(collection+offset,font.data,font.count);
         for(u32 j=0;j<byte_load_be16(font.data+4);++j){auto* field=collection+offset+12+j*16+8;byte_store_be32(field,byte_load_be32(field)+offset);}size=(offset+font.count+3)&~3u;}

@@ -6,6 +6,7 @@ from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._f_v_a_r import Axis
 from fontTools.varLib.builder import buildVarRegionList,buildVarData,buildVarStore
+from embed_fixture import write_embedded_array
 from gsub_execution_oracle import obj
 
 def make(path,fields):
@@ -59,8 +60,7 @@ def main():
         for line in row['layouts']:
             bits=struct.unpack('<I',struct.pack('<f',line['size']))[0]
             data+=words(bits,*line['observed']['layout_lines'][0][3:])
-    header=Path(__file__).resolve().parents[2]/'tests/generated/font_metrics_fixture.inc'
-    header.write_text('// Recorded first-party font and default-line metric expectations.\nconstexpr u8 font_metrics_fixture[]{\n'+'\n'.join('    '+','.join(f'0x{x:02x}' for x in data[i:i+24])+',' for i in range(0,len(data),24))+'\n};\n')
+    write_embedded_array(Path(__file__).resolve().parents[2]/'tests/generated/font_metrics_fixture.inc','// Recorded first-party font and default-line metric expectations.\n','constexpr u8 font_metrics_fixture[]',data)
     (a.root/'fixture.bin').write_bytes(data)
 
 if __name__=='__main__':main()

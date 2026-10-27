@@ -1,6 +1,7 @@
 """Pack first-party Windows observations for native emoji frontend QA."""
 import argparse,collections,hashlib,json,struct
 from pathlib import Path
+from embed_fixture import write_embedded_array
 
 def pack(rows,embedded):
     groups=collections.OrderedDict()
@@ -34,10 +35,7 @@ def main():
             rows.append(row)
     data,fonts=pack(rows,True);args.binary.parent.mkdir(parents=True,exist_ok=True);args.binary.write_bytes(data)
     if args.header:
-        args.header.parent.mkdir(parents=True,exist_ok=True)
-        lines=['// First-party synthetic fonts and Windows observations; QA only.','constexpr u8 emoji_fixture[]{']
-        for at in range(0,len(data),24):lines.append('    '+','.join(str(v) for v in data[at:at+24])+',')
-        lines.append('};');args.header.write_text('\n'.join(lines)+'\n')
+        write_embedded_array(args.header,'// First-party synthetic fonts and Windows observations; QA only.\n','constexpr u8 emoji_fixture[]',data)
     args.binary.with_suffix('.json').write_text(json.dumps(dict(cases=len(rows),bytes=len(data),sha256=hashlib.sha256(data).hexdigest(),fonts=fonts),indent=2));print(len(rows),'cases',len(fonts),'fonts',len(data),'bytes')
 
 if __name__=='__main__':main()
