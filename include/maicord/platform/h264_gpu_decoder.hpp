@@ -41,10 +41,7 @@ static_assert(sizeof(H264GpuMovie) == 32);
 H264GpuMovie h264_gpu_decoder_movie(const H264GpuDecoder&) noexcept;
 struct H264GpuDiagnostic {
     u32 next_sample_index;
-    i64 next_sample_pts_us;
-    u64 next_sample_dts_us;
     u32 queued_pictures;
-    bool next_sample_valid;
 };
 // Numeric metadata only, worker-thread use; never exposes source pointers.
 H264GpuDiagnostic h264_gpu_decoder_diagnostic(const H264GpuDecoder&) noexcept;

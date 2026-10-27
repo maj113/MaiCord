@@ -36,7 +36,6 @@
 typedef LONGLONG REFERENCE_TIME;
 
 MAICORD_SYS_TYPES_BEGIN
-struct AudioClientProperties;
 struct IAudioCaptureClient;
 struct IAudioClient2;
 struct IAudioClient;
@@ -47,7 +46,6 @@ struct IMMDeviceCollection;
 struct IMMDeviceEnumerator;
 struct IMMNotificationClient;
 struct ISimpleAudioVolume;
-struct tWAVEFORMATEX;
 
 // <mmeapi.h>
 #pragma pack(push, 1)
@@ -67,14 +65,12 @@ enum __MIDL___MIDL_itf_mmdeviceapi_0000_0000_0001 {
     eRender = 0,
     eCapture = (eRender + 1),
     eAll = (eCapture + 1),
-    EDataFlow_enum_count = (eAll + 1)
 };
 typedef __MIDL___MIDL_itf_mmdeviceapi_0000_0000_0001 EDataFlow;
 enum __MIDL___MIDL_itf_mmdeviceapi_0000_0000_0002 {
     eConsole = 0,
     eMultimedia = (eConsole + 1),
     eCommunications = (eMultimedia + 1),
-    ERole_enum_count = (eCommunications + 1)
 };
 typedef __MIDL___MIDL_itf_mmdeviceapi_0000_0000_0002 ERole;
 struct __declspec(uuid("7991EEC9-7E89-4D85-8390-6C703CEC60C0")) __declspec(novtable) IMMNotificationClient : IUnknown {
@@ -107,38 +103,20 @@ class __declspec(uuid("BCDE0395-E52F-467C-8E3D-C4579291692E")) MMDeviceEnumerato
 // <AudioSessionTypes.h>
 enum _AUDCLNT_SHAREMODE {
     AUDCLNT_SHAREMODE_SHARED,
-    AUDCLNT_SHAREMODE_EXCLUSIVE
 };
 typedef _AUDCLNT_SHAREMODE AUDCLNT_SHAREMODE;
 enum _AUDIO_STREAM_CATEGORY {
     AudioCategory_Other = 0,
-    AudioCategory_ForegroundOnlyMedia = 1,
     AudioCategory_Communications = 3,
-    AudioCategory_Alerts = 4,
-    AudioCategory_SoundEffects = 5,
-    AudioCategory_GameEffects = 6,
-    AudioCategory_GameMedia = 7,
-    AudioCategory_GameChat = 8,
-    AudioCategory_Speech = 9,
-    AudioCategory_Movie = 10,
-    AudioCategory_Media = 11,
-    AudioCategory_FarFieldSpeech = 12,
-    AudioCategory_UniformSpeech = 13,
-    AudioCategory_VoiceTyping = 14
 };
 typedef _AUDIO_STREAM_CATEGORY AUDIO_STREAM_CATEGORY;
 // <audioclient.h>
 enum _AUDCLNT_BUFFERFLAGS {
-    AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY = 0x1,
     AUDCLNT_BUFFERFLAGS_SILENT = 0x2,
-    AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR = 0x4
 };
 enum AUDCLNT_STREAMOPTIONS {
     AUDCLNT_STREAMOPTIONS_NONE = 0,
     AUDCLNT_STREAMOPTIONS_RAW = 0x1,
-    AUDCLNT_STREAMOPTIONS_MATCH_FORMAT = 0x2,
-    AUDCLNT_STREAMOPTIONS_AMBISONICS = 0x4,
-    AUDCLNT_STREAMOPTIONS_POST_VOLUME_LOOPBACK = 0x8
 };
 struct AudioClientProperties {
     UINT32 cbSize;

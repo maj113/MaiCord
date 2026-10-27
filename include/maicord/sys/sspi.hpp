@@ -46,13 +46,6 @@ typedef void(__stdcall* SEC_GET_KEY_FN)(void* Arg, void* Principal, unsigned lon
     SECURITY_STATUS* Status);
 
 MAICORD_SYS_TYPES_BEGIN
-struct _SCHANNEL_CRED;
-struct _SecBuffer;
-struct _SecBufferDesc;
-struct _SecHandle;
-struct _SecPkgContext_StreamSizes;
-struct _SecPkgInfoW;
-
 // <sspi.h>
 struct _SecHandle {
     ULONG_PTR dwLower;

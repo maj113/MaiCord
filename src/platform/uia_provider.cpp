@@ -196,13 +196,12 @@ const UiaRuntime* load_runtime() noexcept {
               resolve(runtime.core, "SysFreeString", &runtime.free_string) &&
               resolve(runtime.core, "SafeArrayCreateVector", &runtime.create_vector) &&
               resolve(runtime.core, "SafeArrayPutElement", &runtime.put_element) &&
-              resolve(runtime.core, "SafeArrayDestroy", &runtime.destroy_array);
-    if (ok) {
-        // Optional (Windows 10 1709+ / Windows 8+).
+              resolve(runtime.core, "SafeArrayDestroy", &runtime.destroy_array) &&
+              resolve(runtime.automation, "UiaDisconnectProvider", &runtime.disconnect_provider) &&
+              resolve(runtime.automation, "UiaGetReservedNotSupportedValue", &runtime.reserved_not_supported);
+    // Optional: Windows 10 1709+.
+    if (ok)
         resolve(runtime.automation, "UiaRaiseNotificationEvent", &runtime.raise_notification_event);
-        resolve(runtime.automation, "UiaDisconnectProvider", &runtime.disconnect_provider);
-        resolve(runtime.automation, "UiaGetReservedNotSupportedValue", &runtime.reserved_not_supported);
-    }
     if (!ok) {
         // Libraries stay loaded on success for the process lifetime: UI
         // Automation keeps references to our objects until it disconnects.
@@ -1584,8 +1583,7 @@ HRESULT STDMETHODCALLTYPE range_attribute(void* self, int attribute, VARIANT* ou
     // Everything else is plain text without formatting: "not supported".
     void* reserved = nullptr;
     const auto* runtime = range->host->runtime;
-    if (runtime && runtime->reserved_not_supported && SUCCEEDED(runtime->reserved_not_supported(&reserved)) &&
-        reserved) {
+    if (SUCCEEDED(runtime->reserved_not_supported(&reserved)) && reserved) {
         V_VT(out) = VT_UNKNOWN;
         V_UNKNOWN(out) = static_cast<IUnknown*>(reserved);
     }
@@ -2094,7 +2092,7 @@ void uia_host_shutdown(UiaProviderHost* host) noexcept {
     if (host->runtime) {
         if (host->window)
             host->runtime->return_raw_element_provider(host->window, 0, 0, nullptr);
-        if (host->root && host->runtime->disconnect_provider)
+        if (host->root)
             host->runtime->disconnect_provider(host->root);
     }
     host->connected = false;

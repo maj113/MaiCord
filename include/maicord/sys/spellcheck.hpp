@@ -20,9 +20,6 @@ struct ISpellingError;
 // <spellcheck.h>
 enum CORRECTIVE_ACTION {
     CORRECTIVE_ACTION_NONE = 0,
-    CORRECTIVE_ACTION_GET_SUGGESTIONS = 1,
-    CORRECTIVE_ACTION_REPLACE = 2,
-    CORRECTIVE_ACTION_DELETE = 3
 };
 struct __declspec(uuid("B7C82D61-FBE8-4B47-9B27-6C0D2E0DE0A3")) __declspec(novtable) ISpellingError : IUnknown {
     MAICORD_COM_UNUSED(get_StartIndex);

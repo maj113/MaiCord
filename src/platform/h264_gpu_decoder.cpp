@@ -456,11 +456,7 @@ H264GpuDiagnostic h264_gpu_decoder_diagnostic(const H264GpuDecoder& decoder) noe
     const auto* s = static_cast<const State*>(decoder.state);
     if (!s)
         return {};
-    if (s->fragmented) return {s->demux.sample_index, 0, 0, s->output.count, false};
-    Mp4Demuxer cursor; copy_value(&cursor, s->demux);
-    const auto next = mp4_demux_next(&cursor);
-    return {s->demux.sample_index, next.presentation_time_us_signed, next.decode_time_us, s->output.count,
-            next.ok()};
+    return {s->demux.sample_index, s->output.count};
 }
 H264GpuMovie h264_gpu_decoder_movie(const H264GpuDecoder& decoder) noexcept {
     const auto* s = static_cast<const State*>(decoder.state);

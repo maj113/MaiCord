@@ -19,9 +19,6 @@ MAICORD_SYS_TYPES_BEGIN
 // <excpt.h>
 enum _EXCEPTION_DISPOSITION {
     ExceptionContinueExecution,
-    ExceptionContinueSearch,
-    ExceptionNestedException,
-    ExceptionCollidedUnwind
 };
 typedef _EXCEPTION_DISPOSITION EXCEPTION_DISPOSITION;
 typedef EXCEPTION_DISPOSITION __stdcall EXCEPTION_ROUTINE(struct _EXCEPTION_RECORD* ExceptionRecord,
@@ -187,7 +184,6 @@ struct _EXCEPTION_POINTERS {
     PCONTEXT ContextRecord;
 };
 typedef _EXCEPTION_POINTERS EXCEPTION_POINTERS;
-typedef EXCEPTION_POINTERS* PEXCEPTION_POINTERS;
 struct _EXCEPTION_REGISTRATION_RECORD {
     struct _EXCEPTION_REGISTRATION_RECORD* Next;
     PEXCEPTION_ROUTINE Handler;

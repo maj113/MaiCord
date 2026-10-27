@@ -18,9 +18,7 @@ struct HSTRING__;
 typedef HSTRING__* HSTRING;
 
 MAICORD_SYS_TYPES_BEGIN
-struct HSTRING_HEADER;
 struct INotificationActivationCallback;
-struct NOTIFICATION_USER_INPUT_DATA;
 
 // <NotificationActivationCallback.h>
 struct NOTIFICATION_USER_INPUT_DATA {
@@ -41,7 +39,6 @@ struct HSTRING_HEADER {
 // <roapi.h>
 enum RO_INIT_TYPE {
     RO_INIT_SINGLETHREADED = 0,
-    RO_INIT_MULTITHREADED = 1
 };
 MAICORD_SYS_TYPES_END
 

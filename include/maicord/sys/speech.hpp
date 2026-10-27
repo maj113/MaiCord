@@ -17,7 +17,6 @@ MAICORD_SYS_TYPES_BEGIN
 struct ISpEventSource;
 struct ISpNotifySource;
 struct ISpVoice;
-struct SPVOICESTATUS;
 
 // <sapi.h>
 struct __declspec(uuid("5EFF4AEF-8487-11D2-961C-00C04F8EE628")) __declspec(novtable) ISpNotifySource : IUnknown {
@@ -51,7 +50,6 @@ enum SPVISEMES {
     SP_VISEME_18 = (SP_VISEME_17 + 1),
     SP_VISEME_19 = (SP_VISEME_18 + 1),
     SP_VISEME_20 = (SP_VISEME_19 + 1),
-    SP_VISEME_21 = (SP_VISEME_20 + 1)
 };
 struct __declspec(uuid("BE7A9CCE-5F9E-11D2-960F-00C04F8EE628")) __declspec(novtable) ISpEventSource : ISpNotifySource {
     MAICORD_COM_UNUSED(SetInterest);
@@ -74,7 +72,6 @@ struct SPVOICESTATUS {
     DWORD dwReserved2;
 };
 enum SPEAKFLAGS {
-    SPF_DEFAULT = 0,
     SPF_ASYNC = (1L << 0),
     SPF_PURGEBEFORESPEAK = (1L << 1),
     SPF_IS_FILENAME = (1L << 2),
@@ -84,11 +81,9 @@ enum SPEAKFLAGS {
     SPF_NLP_SPEAK_PUNC = (1L << 6),
     SPF_PARSE_SAPI = (1L << 7),
     SPF_PARSE_SSML = (1L << 8),
-    SPF_PARSE_AUTODETECT = 0,
     SPF_NLP_MASK = SPF_NLP_SPEAK_PUNC,
     SPF_PARSE_MASK = (SPF_PARSE_SAPI | SPF_PARSE_SSML),
     SPF_VOICE_MASK = (((((((SPF_ASYNC | SPF_PURGEBEFORESPEAK) | SPF_IS_FILENAME) | SPF_IS_XML) | SPF_IS_NOT_XML) | SPF_NLP_MASK) | SPF_PERSIST_XML) | SPF_PARSE_MASK),
-    SPF_UNUSED_FLAGS = ~ SPF_VOICE_MASK
 };
 struct __declspec(uuid("6C44DF74-72B9-4992-A1EC-EF996E0422D4")) __declspec(novtable) ISpVoice : ISpEventSource {
     MAICORD_COM_UNUSED(SetOutput);

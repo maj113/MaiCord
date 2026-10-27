@@ -15,19 +15,14 @@ MAICORD_SYS_TYPES_BEGIN
 enum _FINDEX_INFO_LEVELS {
     FindExInfoStandard,
     FindExInfoBasic,
-    FindExInfoMaxInfoLevel
 };
 typedef _FINDEX_INFO_LEVELS FINDEX_INFO_LEVELS;
 enum _FINDEX_SEARCH_OPS {
     FindExSearchNameMatch,
-    FindExSearchLimitToDirectories,
-    FindExSearchLimitToDevices,
-    FindExSearchMaxSearchOp
 };
 typedef _FINDEX_SEARCH_OPS FINDEX_SEARCH_OPS;
 enum _GET_FILEEX_INFO_LEVELS {
     GetFileExInfoStandard,
-    GetFileExMaxInfoLevel
 };
 typedef _GET_FILEEX_INFO_LEVELS GET_FILEEX_INFO_LEVELS;
 // <fileapi.h>

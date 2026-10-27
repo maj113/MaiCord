@@ -15,27 +15,6 @@
 
 namespace maicord {
 namespace {
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-enum ProbePhase : u32 {
-    probe_guard,
-    probe_begin,
-    probe_get_picture,
-    probe_release_picture,
-    probe_get_matrix,
-    probe_release_matrix,
-    probe_get_bitstream,
-    probe_release_bitstream,
-    probe_get_slices,
-    probe_release_slices,
-    probe_submit,
-    probe_end,
-    probe_phase_count
-};
-struct ProbeTiming {
-    u64 total_ms{}, max_ms{};
-    u32 calls{}, first_slow_sample_plus_one{};
-};
-#endif
 struct State {
     HevcConfiguration config;
     HevcPicture picture;
@@ -52,98 +31,8 @@ struct State {
     VideoDisplayExtent display;
     u32 feedback;
     bool full_stream;
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-    ProbeTiming probe_timing[probe_phase_count];
-    u32 probe_busy_errors{}, probe_driver_errors{};
-    u32 probe_bitstream_capacity{}, probe_slice_capacity{}, probe_mapping_reuse{};
-    const void* probe_bitstream_mapping{};
-#endif
 };
 static_assert(sizeof(State) <= 16384);
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-struct ProbeClock {
-    State& state;
-    u32 phase;
-    u64 start{GetTickCount64()};
-    ~ProbeClock() noexcept {
-        auto& timing = state.probe_timing[phase];
-        const u64 elapsed = GetTickCount64() - start;
-        ++timing.calls;
-        timing.total_ms += elapsed;
-        timing.max_ms = maximum(timing.max_ms, elapsed);
-        if (elapsed > 50 && !timing.first_slow_sample_plus_one)
-            timing.first_slow_sample_plus_one = state.demux.sample_index + 1;
-    }
-};
-u32 probe_buffer_phase(D3D11_VIDEO_DECODER_BUFFER_TYPE type, bool release) noexcept {
-    const u32 get = type == D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS            ? probe_get_picture
-                    : type == D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX ? probe_get_matrix
-                    : type == D3D11_VIDEO_DECODER_BUFFER_BITSTREAM                   ? probe_get_bitstream
-                                                                                     : probe_get_slices;
-    return get + static_cast<u32>(release);
-}
-void probe_metric(const char* key, u64 value) noexcept {
-    char output[128]{};
-    u32 count{};
-    while (*key && count < 90)
-        output[count++] = *key++;
-    output[count++] = '=';
-    char digits[20]{};
-    u32 length{};
-    do {
-        digits[length++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value && length < 20);
-    while (length)
-        output[count++] = digits[--length];
-    output[count++] = '\n';
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
-void probe_phase_metric(const char* phase, const char* suffix, u64 value) noexcept {
-    char key[96]{};
-    u32 count{};
-    const char* parts[]{"hevc_", phase, suffix};
-    for (const char* part : parts)
-        while (*part && count < sizeof(key) - 1)
-            key[count++] = *part++;
-    probe_metric(key, value);
-}
-void probe_sample_metric(u32 sample, const char* field, u64 value) noexcept {
-    char key[96]{};
-    u32 count{};
-    const char* prefix = "hevc_sample";
-    while (*prefix)
-        key[count++] = *prefix++;
-    key[count++] = static_cast<char>('0' + sample / 10);
-    key[count++] = static_cast<char>('0' + sample % 10);
-    key[count++] = '_';
-    while (*field && count < sizeof(key) - 1)
-        key[count++] = *field++;
-    probe_metric(key, value);
-}
-void probe_sample_index_metric(u32 sample, const char* collection, u32 index, const char* field,
-                               u64 value) noexcept {
-    char key[64]{};
-    u32 count{};
-    while (*collection && count < 30)
-        key[count++] = *collection++;
-    if (index >= 10)
-        key[count++] = static_cast<char>('0' + index / 10);
-    key[count++] = static_cast<char>('0' + index % 10);
-    key[count++] = '_';
-    while (*field && count < sizeof(key) - 1)
-        key[count++] = *field++;
-    probe_sample_metric(sample, key, value);
-}
-#define MAICORD_HEVC_PROBE_TIME(owner, phase, operation)                                                   \
-    [&]() noexcept {                                                                                       \
-        ProbeClock clock{owner, phase};                                                                    \
-        return (operation);                                                                                \
-    }()
-#else
-#define MAICORD_HEVC_PROBE_TIME(owner, phase, operation) (operation)
-#endif
 H264Error mapped(HevcError error) noexcept {
     return static_cast<H264Error>(static_cast<u8>(error));
 }
@@ -151,23 +40,13 @@ HRESULT upload(State& s, D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data,
                D3D11_VIDEO_DECODER_BUFFER_DESC* out) noexcept {
     UINT capacity{};
     void* destination{};
-    HRESULT result =
-        MAICORD_HEVC_PROBE_TIME(s, probe_buffer_phase(type, false),
-                                s.context->GetDecoderBuffer(s.decoder, type, &capacity, &destination));
+    HRESULT result = s.context->GetDecoderBuffer(s.decoder, type, &capacity, &destination);
     if (FAILED(result))
         return result;
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-    if (type == D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL) {
-        s.probe_slice_capacity = capacity;
-        if (destination && destination == s.probe_bitstream_mapping)
-            ++s.probe_mapping_reuse;
-    }
-#endif
     const bool fits = destination && bytes <= capacity;
     if (fits)
         copy_bytes(destination, data, bytes);
-    result = MAICORD_HEVC_PROBE_TIME(s, probe_buffer_phase(type, true),
-                                     s.context->ReleaseDecoderBuffer(s.decoder, type));
+    result = s.context->ReleaseDecoderBuffer(s.decoder, type);
     if (!fits)
         return E_OUTOFMEMORY;
     reset_value(out);
@@ -183,60 +62,6 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
     if (!hevc_dxva_picture_parameters(a, s.config.pps, picture, picture.slice_type == 2, s.references, plan, surface,
                                       s.feedback, &p, &q))
         return E_INVALIDARG;
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-    if (s.demux.sample_index >= 50 && s.demux.sample_index <= 53) {
-        const u32 sample = s.demux.sample_index;
-        HevcGpuReferences references{};
-        hevc_gpu_reference_map(s.references, plan, surface, &references);
-        probe_sample_metric(sample, "nal_type", picture.nal_type);
-        probe_sample_metric(sample, "poc_lsb", picture.poc_lsb);
-        probe_sample_metric(sample, "plan_poc_signed_bits", static_cast<u64>(static_cast<i64>(plan.poc)));
-        probe_sample_metric(sample, "reference", picture.reference);
-        probe_sample_metric(sample, "surface", surface);
-        probe_sample_metric(sample, "no_reordering_hint", p.NoPicReorderingFlag);
-        probe_sample_metric(sample, "rps_negative", picture.short_term.negative);
-        probe_sample_metric(sample, "rps_positive", picture.short_term.positive);
-        probe_sample_metric(sample, "rps_used_mask", picture.short_term.used);
-        const u32 short_count = picture.short_term.negative + picture.short_term.positive;
-        for (u32 i = 0; i < short_count; ++i)
-            probe_sample_index_metric(sample, "rps_delta", i, "signed_bits",
-                                      static_cast<u64>(static_cast<i64>(picture.short_term.delta[i])));
-        probe_sample_metric(sample, "old_reference_count", s.references.count);
-        for (u32 i = 0; i < s.references.count; ++i) {
-            const auto& ref = s.references.pictures[i];
-            probe_sample_index_metric(sample, "old_ref", i, "poc_signed_bits",
-                                      static_cast<u64>(static_cast<i64>(ref.poc)));
-            probe_sample_index_metric(sample, "old_ref", i, "surface", ref.surface);
-            probe_sample_index_metric(sample, "old_ref", i, "long_term", ref.long_term);
-            probe_sample_index_metric(sample, "dxva_ref", i, "entry", p.RefPicList[i].bPicEntry);
-        }
-        probe_sample_metric(sample, "retained_reference_count", references.count);
-        for (u32 i = 0; i < references.count; ++i) {
-            const auto& ref = references.pictures[i];
-            probe_sample_index_metric(sample, "retained_ref", i, "poc_signed_bits",
-                                      static_cast<u64>(static_cast<i64>(ref.poc)));
-            probe_sample_index_metric(sample, "retained_ref", i, "surface", ref.surface);
-            probe_sample_index_metric(sample, "retained_ref", i, "long_term", ref.long_term);
-        }
-        probe_sample_metric(sample, "after_reference_count", plan.after.count);
-        for (u32 i = 0; i < plan.after.count; ++i) {
-            const auto& ref = plan.after.pictures[i];
-            probe_sample_index_metric(sample, "after_ref", i, "poc_signed_bits",
-                                      static_cast<u64>(static_cast<i64>(ref.poc)));
-            probe_sample_index_metric(sample, "after_ref", i, "surface", ref.surface);
-            probe_sample_index_metric(sample, "after_ref", i, "long_term", ref.long_term);
-        }
-        probe_sample_metric(sample, "before_count", plan.before_count);
-        probe_sample_metric(sample, "following_count", plan.following_count);
-        probe_sample_metric(sample, "long_count", plan.long_count);
-        for (u32 i = 0; i < plan.before_count; ++i)
-            probe_sample_index_metric(sample, "before", i, "dxva_index", p.RefPicSetStCurrBefore[i]);
-        for (u32 i = 0; i < plan.following_count; ++i)
-            probe_sample_index_metric(sample, "following", i, "dxva_index", p.RefPicSetStCurrAfter[i]);
-        for (u32 i = 0; i < plan.long_count; ++i)
-            probe_sample_index_metric(sample, "long", i, "dxva_index", p.RefPicSetLtCurr[i]);
-    }
-#endif
     D3D11_VIDEO_DECODER_BUFFER_DESC buffers[4]{};
     HRESULT result = upload(s, D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, &p, sizeof(p), &buffers[0]);
     u32 buffer_count = 1;
@@ -251,16 +76,9 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
     UINT bit_capacity{};
     void* bit_data{};
     DXVA_Slice_HEVC_Short slices[kHevcMaximumSlices]{};
-    result =
-        MAICORD_HEVC_PROBE_TIME(s, probe_get_bitstream,
-                                s.context->GetDecoderBuffer(s.decoder, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM,
-                                                            &bit_capacity, &bit_data));
+    result = s.context->GetDecoderBuffer(s.decoder, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM, &bit_capacity, &bit_data);
     if (FAILED(result))
         return result;
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-    s.probe_bitstream_capacity = bit_capacity;
-    s.probe_bitstream_mapping = bit_data;
-#endif
     const u64 aligned = hevc_gpu_bitstream_extent(picture.bitstream_bytes);
     const u64 slice_bytes = u64{picture.slice_count} * sizeof(DXVA_Slice_HEVC_Short);
     if (!bit_data || aligned > bit_capacity || !picture.slice_count ||
@@ -296,9 +114,7 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
     }
     // Release the compressed buffer before mapping the separate slice buffer.
     // Drivers may reuse upload memory between decoder buffer types.
-    const HRESULT released = MAICORD_HEVC_PROBE_TIME(
-        s, probe_release_bitstream,
-        s.context->ReleaseDecoderBuffer(s.decoder, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM));
+    const HRESULT released = s.context->ReleaseDecoderBuffer(s.decoder, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM);
     if (SUCCEEDED(result))
         result = released;
     if (SUCCEEDED(result)) {
@@ -307,8 +123,7 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
         ++buffer_count;
     }
     if (SUCCEEDED(result))
-        result = MAICORD_HEVC_PROBE_TIME(s, probe_submit,
-                                         s.context->SubmitDecoderBuffers(s.decoder, buffer_count, buffers));
+        result = s.context->SubmitDecoderBuffers(s.decoder, buffer_count, buffers);
     return result;
 }
 bool reset(H264GpuDecoder& handle) noexcept {
@@ -537,25 +352,16 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
             frame.error = Mp4DecodeError::stream;
             return frame;
         }
-        MAICORD_HEVC_PROBE_TIME(s, probe_guard, s.guard->Enter());
-        HRESULT result = MAICORD_HEVC_PROBE_TIME(
-            s, probe_begin, s.context->DecoderBeginFrame(s.decoder, s.surfaces.views[surface], 0, nullptr));
+        s.guard->Enter();
+        HRESULT result = s.context->DecoderBeginFrame(s.decoder, s.surfaces.views[surface], 0, nullptr);
         if (SUCCEEDED(result)) {
             result = submit(s, unit, picture, plan, surface);
-            const HRESULT end =
-                MAICORD_HEVC_PROBE_TIME(s, probe_end, s.context->DecoderEndFrame(s.decoder));
+            const HRESULT end = s.context->DecoderEndFrame(s.decoder);
             if (SUCCEEDED(result))
                 result = end;
         }
         s.guard->Leave();
         handle->status = result;
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-        if (FAILED(result)) {
-            ++s.probe_driver_errors;
-            if (h264_gpu_decoder_busy(*handle))
-                ++s.probe_busy_errors;
-        }
-#endif
         if (FAILED(result)) {
             frame.error = Mp4DecodeError::sample;
             return frame;
@@ -594,15 +400,6 @@ H264GpuMovie hevc_gpu_decoder_movie(const H264GpuDecoder& handle) noexcept {
     const auto first = mp4_demux_next(&cursor);
     return {s->demux.duration_us, s->demux.sample_count, s->demux.has_edit_list,
             first.presentation_time_us_signed, first.ok()};
-}
-H264GpuDiagnostic hevc_gpu_decoder_diagnostic(const H264GpuDecoder& handle) noexcept {
-    const auto* s = static_cast<const State*>(handle.state);
-    if (!s)
-        return {};
-    Mp4Demuxer cursor; copy_value(&cursor, s->demux);
-    const auto next = mp4_demux_next(&cursor);
-    return {s->demux.sample_index, next.presentation_time_us_signed, next.decode_time_us, s->output.count,
-            next.ok()};
 }
 Mp4DemuxError hevc_gpu_decoder_seek(H264GpuDecoder* handle, i64 target, Mp4SeekPoint* point) noexcept {
     if (!handle || !handle->state || !point)
@@ -671,41 +468,4 @@ bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32 timeout) noexcept {
         handle->status = result;
     return SUCCEEDED(result);
 }
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-void hevc_gpu_decoder_probe_report(const H264GpuDecoder& handle) noexcept {
-    const auto* state = static_cast<const State*>(handle.state);
-    if (!state)
-        return;
-    constexpr const char* phases[]{"guard",      "begin",          "get_picture",   "release_picture",
-                                   "get_matrix", "release_matrix", "get_bitstream", "release_bitstream",
-                                   "get_slices", "release_slices", "submit",        "end"};
-    static_assert(sizeof(phases) / sizeof(phases[0]) == probe_phase_count);
-    for (u32 i = 0; i < probe_phase_count; ++i) {
-        const auto& timing = state->probe_timing[i];
-        probe_phase_metric(phases[i], "_calls", timing.calls);
-        probe_phase_metric(phases[i], "_total_ms", timing.total_ms);
-        probe_phase_metric(phases[i], "_max_ms", timing.max_ms);
-        probe_phase_metric(phases[i], "_first_slow_sample_plus_one", timing.first_slow_sample_plus_one);
-    }
-    const auto& sps = state->config.sps;
-    const auto surface = hevc_gpu_surface_extent(sps.coded_width, sps.coded_height);
-    probe_metric("hevc_sps_coded_width", sps.coded_width);
-    probe_metric("hevc_sps_coded_height", sps.coded_height);
-    probe_metric("hevc_surface_width", surface.width);
-    probe_metric("hevc_surface_height", surface.height);
-    probe_metric("hevc_min_cb_size", u64{1} << (sps.log2_min_cb_minus3 + 3));
-    probe_metric("hevc_scaling_enabled", sps.scaling_enabled);
-    probe_metric("hevc_surface_count", state->surfaces.count);
-    probe_metric("hevc_max_reorder", sps.max_reorder);
-    probe_metric("hevc_max_buffering", sps.max_buffering);
-    probe_metric("hevc_profile", sps.profile);
-    probe_metric("hevc_profile_guid_data1", D3D11_DECODER_PROFILE_HEVC_VLD_MAIN.Data1);
-    probe_metric("hevc_busy_errors", state->probe_busy_errors);
-    probe_metric("hevc_driver_errors", state->probe_driver_errors);
-    probe_metric("hevc_bitstream_last_capacity", state->probe_bitstream_capacity);
-    probe_metric("hevc_slices_last_capacity", state->probe_slice_capacity);
-    probe_metric("hevc_mapping_address_reuse", state->probe_mapping_reuse);
-}
-#endif
-#undef MAICORD_HEVC_PROBE_TIME
 } // namespace maicord

@@ -12,14 +12,6 @@
 #endif
 
 MAICORD_SYS_TYPES_BEGIN
-struct D2D1_BEZIER_SEGMENT;
-struct D2D1_ELLIPSE;
-struct D2D1_FACTORY_OPTIONS;
-struct D2D1_ROUNDED_RECT;
-struct D2D1_STROKE_STYLE_PROPERTIES;
-struct D2D_MATRIX_3X2_F;
-struct D2D_POINT_2F;
-struct D2D_RECT_F;
 struct ID2D1EllipseGeometry;
 struct ID2D1Factory;
 struct ID2D1Geometry;

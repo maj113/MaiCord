@@ -24,7 +24,6 @@
 #define LOWORD(l) ((WORD)(((DWORD_PTR)(l)) & 0xffff))
 #define HIWORD(l) ((WORD)((((DWORD_PTR)(l)) >> 16) & 0xffff))
 #define LOBYTE(w) ((BYTE)(((DWORD_PTR)(w)) & 0xff))
-#define HIBYTE(w) ((BYTE)((((DWORD_PTR)(w)) >> 8) & 0xff))
 
 struct HKEY__;
 struct HINSTANCE__;
@@ -135,18 +134,6 @@ typedef UINT_PTR SOCKET;
 typedef LONG SECURITY_STATUS;
 
 MAICORD_SYS_TYPES_BEGIN
-struct _FILETIME;
-struct _FILE_ID_128;
-struct _FILE_ID_INFO;
-struct _POINTL;
-struct _RTL_SRWLOCK;
-struct tagCOPYDATASTRUCT;
-struct tagMINMAXINFO;
-struct tagMSG;
-struct tagPOINT;
-struct tagRECT;
-struct tagSIZE;
-
 // <winnt.h>
 struct _FILE_ID_128 {
     BYTE Identifier[16];

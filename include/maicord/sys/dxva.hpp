@@ -12,18 +12,6 @@
 #endif
 
 MAICORD_SYS_TYPES_BEGIN
-struct _DXVA_PicEntry_H264;
-struct _DXVA_PicEntry_HEVC;
-struct _DXVA_PicParams_H264;
-struct _DXVA_PicParams_HEVC;
-struct _DXVA_Qmatrix_H264;
-struct _DXVA_Qmatrix_HEVC;
-struct _DXVA_Slice_H264_Short;
-struct _DXVA_Slice_HEVC_Short;
-struct _DXVA_PicEntry_AV1;
-struct _DXVA_PicParams_AV1;
-struct _DXVA_Tile_AV1;
-
 // <dxva.h>
 #pragma pack(push, 1)
 struct _DXVA_PicEntry_H264 {

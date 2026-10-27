@@ -75,17 +75,6 @@ struct ITfReadOnlyProperty;
 struct ITfSource;
 struct ITfTextEditSink;
 struct ITfThreadMgr;
-struct TF_DA_COLOR;
-struct TF_DISPLAYATTRIBUTE;
-struct TF_HALTCOND;
-struct TF_SELECTION;
-struct TF_SELECTIONSTYLE;
-struct TS_ATTRVAL;
-struct TS_RUNINFO;
-struct TS_SELECTIONSTYLE;
-struct TS_SELECTION_ACP;
-struct TS_STATUS;
-struct TS_TEXTCHANGE;
 
 // <textstor.h>
 struct TS_STATUS {
@@ -98,7 +87,6 @@ struct TS_TEXTCHANGE {
     LONG acpNewEnd;
 };
 enum __MIDL___MIDL_itf_textstor_0000_0000_0001 {
-    TS_AE_NONE = 0,
     TS_AE_START = 1,
     TS_AE_END = 2
 };
@@ -119,15 +107,12 @@ struct TS_ATTRVAL {
     VARIANT varValue;
 };
 enum __MIDL___MIDL_itf_textstor_0000_0000_0002 {
-    TS_LC_CREATE = 0,
     TS_LC_CHANGE = 1,
-    TS_LC_DESTROY = 2
 };
 typedef __MIDL___MIDL_itf_textstor_0000_0000_0002 TsLayoutCode;
 enum __MIDL___MIDL_itf_textstor_0000_0000_0003 {
     TS_RT_PLAIN = 0,
     TS_RT_HIDDEN = (TS_RT_PLAIN + 1),
-    TS_RT_OPAQUE = (TS_RT_HIDDEN + 1)
 };
 typedef __MIDL___MIDL_itf_textstor_0000_0000_0003 TsRunType;
 struct TS_RUNINFO {
@@ -189,7 +174,6 @@ struct __declspec(uuid("22d44c94-a419-4542-a272-ae26093ececf")) __declspec(novta
 // <msctf.h>
 enum __MIDL___MIDL_itf_msctf_0000_0000_0001 {
     TF_ANCHOR_START = 0,
-    TF_ANCHOR_END = 1
 };
 typedef __MIDL___MIDL_itf_msctf_0000_0000_0001 TfAnchor;
 struct __declspec(uuid("aa80e801-2021-11d2-93e0-0060b067b86e")) __declspec(novtable) ITfThreadMgr : IUnknown {
@@ -225,8 +209,6 @@ struct __declspec(uuid("2433bf8e-0f9b-435c-ba2c-180611978c30")) __declspec(novta
 };
 enum __MIDL_ITfContext_0001 {
     TF_AE_NONE = 0,
-    TF_AE_START = 1,
-    TF_AE_END = 2
 };
 typedef __MIDL_ITfContext_0001 TfActiveSelEnd;
 struct TF_SELECTIONSTYLE {
@@ -268,12 +250,10 @@ struct __declspec(uuid("aa80e803-2021-11d2-93e0-0060b067b86e")) __declspec(novta
 };
 enum __MIDL_ITfRange_0001 {
     TF_GRAVITY_BACKWARD = 0,
-    TF_GRAVITY_FORWARD = 1
 };
 typedef __MIDL_ITfRange_0001 TfGravity;
 enum __MIDL_ITfRange_0002 {
     TF_SD_BACKWARD = 0,
-    TF_SD_FORWARD = 1
 };
 typedef __MIDL_ITfRange_0002 TfShiftDir;
 struct TF_HALTCOND {
@@ -331,7 +311,6 @@ struct __declspec(uuid("aa80e7f0-2021-11d2-93e0-0060b067b86e")) __declspec(novta
     virtual HRESULT __stdcall KeyUp(WPARAM wParam, LPARAM lParam, BOOL* pfEaten) = 0;
 };
 enum __MIDL___MIDL_itf_msctf_0000_0070_0001 {
-    TF_LS_NONE = 0,
     TF_LS_SOLID = 1,
     TF_LS_DOT = 2,
     TF_LS_DASH = 3,
@@ -339,7 +318,6 @@ enum __MIDL___MIDL_itf_msctf_0000_0070_0001 {
 };
 typedef __MIDL___MIDL_itf_msctf_0000_0070_0001 TF_DA_LINESTYLE;
 enum __MIDL___MIDL_itf_msctf_0000_0070_0002 {
-    TF_CT_NONE = 0,
     TF_CT_SYSCOLOR = 1,
     TF_CT_COLORREF = 2
 };

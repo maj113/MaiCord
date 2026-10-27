@@ -56,7 +56,6 @@
 #define THREAD_BASE_PRIORITY_LOWRT 15
 #define QUOTA_LIMITS_HARDWS_MIN_DISABLE 0x00000002
 #define QUOTA_LIMITS_HARDWS_MAX_ENABLE 0x00000004
-#define EVENT_MODIFY_STATE 0x0002
 #define TIMER_QUERY_STATE 0x0001
 #define TIMER_MODIFY_STATE 0x0002
 #define TIMER_ALL_ACCESS (STANDARD_RIGHTS_REQUIRED|SYNCHRONIZE| TIMER_QUERY_STATE|TIMER_MODIFY_STATE)
@@ -78,12 +77,9 @@
 #define MEM_PRIVATE 0x00020000
 #define MEM_MAPPED 0x00040000
 #define MEM_IMAGE 0x01000000
-#define FILE_READ_DATA ( 0x0001 )
 #define FILE_APPEND_DATA ( 0x0004 )
-#define FILE_READ_EA ( 0x0008 )
 #define FILE_READ_ATTRIBUTES ( 0x0080 )
 #define FILE_WRITE_ATTRIBUTES ( 0x0100 )
-#define FILE_GENERIC_READ (STANDARD_RIGHTS_READ | FILE_READ_DATA | FILE_READ_ATTRIBUTES | FILE_READ_EA | SYNCHRONIZE)
 #define FILE_SHARE_READ 0x00000001
 #define FILE_SHARE_WRITE 0x00000002
 #define FILE_SHARE_DELETE 0x00000004
@@ -176,7 +172,6 @@
 #define SEM_FAILCRITICALERRORS 0x0001
 #define SEM_NOGPFAULTERRORBOX 0x0002
 #define SEM_NOOPENFILEERRORBOX 0x8000
-#define HANDLE_FLAG_INHERIT 0x00000001
 #define HANDLE_FLAG_PROTECT_FROM_CLOSE 0x00000002
 #define MOVEFILE_REPLACE_EXISTING 0x00000001
 #define MOVEFILE_WRITE_THROUGH 0x00000008
@@ -194,17 +189,14 @@ typedef void(__stdcall* PTIMERAPCROUTINE)(LPVOID lpArgToCompletionRoutine, DWORD
     DWORD dwTimerHighValue);
 
 MAICORD_SYS_TYPES_BEGIN
-struct _BY_HANDLE_FILE_INFORMATION;
 struct _CONTEXT;
 struct _EXCEPTION_POINTERS;
 struct _EXCEPTION_RECORD;
 struct _EXCEPTION_REGISTRATION_RECORD;
 struct _FILE_ATTRIBUTE_TAG_INFO;
 struct _FILE_BASIC_INFO;
-struct _FILE_DISPOSITION_INFO;
 struct _FILE_RENAME_INFO;
 struct _FILE_STANDARD_INFO;
-struct _HEAP_SUMMARY;
 struct _IMAGE_DATA_DIRECTORY;
 struct _IMAGE_DELAYLOAD_DESCRIPTOR;
 struct _IMAGE_DOS_HEADER;
@@ -216,28 +208,16 @@ struct _IMAGE_OPTIONAL_HEADER64;
 struct _IMAGE_RUNTIME_FUNCTION_ENTRY;
 struct _IMAGE_THUNK_DATA64;
 struct _KNONVOLATILE_CONTEXT_POINTERS;
-struct _LUID;
 struct _M128A;
-struct _MEMORY_BASIC_INFORMATION;
 struct _NT_TIB;
-struct _OSVERSIONINFOW;
-struct _OVERLAPPED;
-struct _PROCESS_HEAP_ENTRY;
 struct _PROCESS_INFORMATION;
-struct _REASON_CONTEXT;
-struct _SECURITY_ATTRIBUTES;
-struct _STARTUPINFOEXW;
 struct _STARTUPINFOW;
 struct _SYSTEMTIME;
-struct _SYSTEM_INFO;
 struct _TIME_DYNAMIC_ZONE_INFORMATION;
 struct _TIME_ZONE_INFORMATION;
 struct _TP_CALLBACK_ENVIRON_V3;
 struct _WIN32_FILE_ATTRIBUTE_DATA;
-struct _WIN32_FIND_DATAW;
 struct _XSAVE_FORMAT;
-union _LARGE_INTEGER;
-union _ULARGE_INTEGER;
 
 // <excpt.h>
 #define EXCEPTION_CONTINUE_SEARCH 0
@@ -267,7 +247,6 @@ union _ULARGE_INTEGER {
     ULONGLONG QuadPart;
 };
 typedef _ULARGE_INTEGER ULARGE_INTEGER;
-typedef ULARGE_INTEGER* PULARGE_INTEGER;
 struct _LUID {
     DWORD LowPart;
     LONG HighPart;
@@ -354,9 +333,6 @@ enum _FILE_INFO_BY_HANDLE_CLASS {
     FileIdExtdDirectoryRestartInfo,
     FileDispositionInfoEx,
     FileRenameInfoEx,
-    FileCaseSensitiveInfo,
-    FileNormalizedNameInfo,
-    MaximumFileInfoByHandleClass
 };
 typedef _FILE_INFO_BY_HANDLE_CLASS FILE_INFO_BY_HANDLE_CLASS;
 struct _PROCESS_HEAP_ENTRY {
@@ -446,7 +422,6 @@ typedef _SYSTEM_INFO* LPSYSTEM_INFO;
 // <memoryapi.h>
 enum _MEMORY_RESOURCE_NOTIFICATION_TYPE {
     LowMemoryResourceNotification,
-    HighMemoryResourceNotification
 };
 typedef _MEMORY_RESOURCE_NOTIFICATION_TYPE MEMORY_RESOURCE_NOTIFICATION_TYPE;
 // <winbase.h>
@@ -474,11 +449,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI FindClose(HANDLE hFindFile);
 extern "C" __declspec(dllimport) HANDLE WINAPI FindFirstFileW(LPCWSTR lpFileName, LPWIN32_FIND_DATAW lpFindFileData);
 extern "C" __declspec(dllimport) BOOL WINAPI FindNextFileW(HANDLE hFindFile, LPWIN32_FIND_DATAW lpFindFileData);
 extern "C" __declspec(dllimport) BOOL WINAPI FlushFileBuffers(HANDLE hFile);
-extern "C" __declspec(dllimport) BOOL WINAPI GetDiskFreeSpaceW(LPCWSTR lpRootPathName, LPDWORD lpSectorsPerCluster,
-    LPDWORD lpBytesPerSector, LPDWORD lpNumberOfFreeClusters, LPDWORD lpTotalNumberOfClusters);
-extern "C" __declspec(dllimport) BOOL WINAPI GetDiskFreeSpaceExW(LPCWSTR lpDirectoryName,
-    PULARGE_INTEGER lpFreeBytesAvailableToCaller, PULARGE_INTEGER lpTotalNumberOfBytes,
-    PULARGE_INTEGER lpTotalNumberOfFreeBytes);
 extern "C" __declspec(dllimport) UINT WINAPI GetDriveTypeW(LPCWSTR lpRootPathName);
 extern "C" __declspec(dllimport) DWORD WINAPI GetFileAttributesW(LPCWSTR lpFileName);
 extern "C" __declspec(dllimport) BOOL WINAPI GetFileInformationByHandle(HANDLE hFile,
@@ -506,9 +476,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI SetFileTime(HANDLE hFile, const FIL
 extern "C" __declspec(dllimport) BOOL WINAPI WriteFile(HANDLE hFile, LPCVOID lpBuffer, DWORD nNumberOfBytesToWrite,
     LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped);
 extern "C" __declspec(dllimport) DWORD WINAPI GetTempPathW(DWORD nBufferLength, LPWSTR lpBuffer);
-
-// <debugapi.h>
-extern "C" __declspec(dllimport) void WINAPI DebugBreak();
 
 // <handleapi.h>
 extern "C" __declspec(dllimport) BOOL WINAPI CloseHandle(HANDLE hObject);
@@ -568,7 +535,6 @@ extern "C" __declspec(dllimport) HANDLE WINAPI CreateMutexW(LPSECURITY_ATTRIBUTE
     BOOL bInitialOwner, LPCWSTR lpName);
 extern "C" __declspec(dllimport) HANDLE WINAPI CreateEventW(LPSECURITY_ATTRIBUTES lpEventAttributes, BOOL bManualReset,
     BOOL bInitialState, LPCWSTR lpName);
-extern "C" __declspec(dllimport) HANDLE WINAPI OpenEventW(DWORD dwDesiredAccess, BOOL bInheritHandle, LPCWSTR lpName);
 extern "C" BOOL WINAPI SetWaitableTimerEx(HANDLE hTimer, const LARGE_INTEGER* lpDueTime, LONG lPeriod,
     PTIMERAPCROUTINE pfnCompletionRoutine, LPVOID lpArgToCompletionRoutine, PREASON_CONTEXT WakeContext,
     ULONG TolerableDelay);
@@ -580,8 +546,6 @@ extern "C" __declspec(dllimport) HANDLE WINAPI CreateWaitableTimerExW(LPSECURITY
 extern "C" __declspec(dllimport) void WINAPI Sleep(DWORD dwMilliseconds);
 extern "C" __declspec(dllimport) DWORD WINAPI WaitForMultipleObjects(DWORD nCount, const HANDLE* lpHandles,
     BOOL bWaitAll, DWORD dwMilliseconds);
-extern "C" __declspec(dllimport) HANDLE WINAPI CreateWaitableTimerW(LPSECURITY_ATTRIBUTES lpTimerAttributes,
-    BOOL bManualReset, LPCWSTR lpTimerName);
 
 // <processthreadsapi.h>
 extern "C" __declspec(dllimport) BOOL WINAPI GetProcessTimes(HANDLE hProcess, LPFILETIME lpCreationTime,
@@ -589,8 +553,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI GetProcessTimes(HANDLE hProcess, LP
 extern "C" __declspec(dllimport) HANDLE WINAPI GetCurrentProcess();
 extern "C" __declspec(dllimport) DWORD WINAPI GetCurrentProcessId();
 extern "C" __declspec(dllimport) __declspec(noreturn) void WINAPI ExitProcess(UINT uExitCode);
-extern "C" __declspec(dllimport) BOOL WINAPI TerminateProcess(HANDLE hProcess, UINT uExitCode);
-extern "C" __declspec(dllimport) BOOL WINAPI GetExitCodeProcess(HANDLE hProcess, LPDWORD lpExitCode);
 extern "C" __declspec(dllimport) BOOL WINAPI SwitchToThread();
 extern "C" __declspec(dllimport) HANDLE WINAPI CreateThread(LPSECURITY_ATTRIBUTES lpThreadAttributes,
     SIZE_T dwStackSize, LPTHREAD_START_ROUTINE lpStartAddress, LPVOID lpParameter, DWORD dwCreationFlags,
@@ -603,7 +565,6 @@ extern "C" __declspec(dllimport) BOOL WINAPI GetExitCodeThread(HANDLE hThread, L
 extern "C" __declspec(dllimport) DWORD WINAPI SuspendThread(HANDLE hThread);
 extern "C" __declspec(dllimport) DWORD WINAPI ResumeThread(HANDLE hThread);
 extern "C" __declspec(dllimport) DWORD WINAPI GetPriorityClass(HANDLE hProcess);
-extern "C" __declspec(dllimport) DWORD WINAPI GetProcessId(HANDLE Process);
 extern "C" __declspec(dllimport) BOOL WINAPI GetThreadTimes(HANDLE hThread, LPFILETIME lpCreationTime,
     LPFILETIME lpExitTime, LPFILETIME lpKernelTime, LPFILETIME lpUserTime);
 extern "C" __declspec(dllimport) BOOL WINAPI IsProcessorFeaturePresent(DWORD ProcessorFeature);
@@ -634,7 +595,6 @@ extern "C" __declspec(dllimport) HANDLE WINAPI OpenFileMappingW(DWORD dwDesiredA
     LPCWSTR lpName);
 extern "C" __declspec(dllimport) LPVOID WINAPI MapViewOfFile(HANDLE hFileMappingObject, DWORD dwDesiredAccess,
     DWORD dwFileOffsetHigh, DWORD dwFileOffsetLow, SIZE_T dwNumberOfBytesToMap);
-extern "C" __declspec(dllimport) BOOL WINAPI FlushViewOfFile(LPCVOID lpBaseAddress, SIZE_T dwNumberOfBytesToFlush);
 extern "C" __declspec(dllimport) BOOL WINAPI UnmapViewOfFile(LPCVOID lpBaseAddress);
 extern "C" __declspec(dllimport) BOOL WINAPI GetProcessWorkingSetSizeEx(HANDLE hProcess,
     PSIZE_T lpMinimumWorkingSetSize, PSIZE_T lpMaximumWorkingSetSize, PDWORD Flags);

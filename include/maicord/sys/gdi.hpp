@@ -28,12 +28,6 @@
 typedef long FXPT2DOT30;
 
 MAICORD_SYS_TYPES_BEGIN
-struct tagBITMAPFILEHEADER;
-struct tagBITMAPINFOHEADER;
-struct tagCIEXYZ;
-struct tagICEXYZTRIPLE;
-struct tagLOGFONTW;
-
 // <wingdi.h>
 struct tagCIEXYZ {
     FXPT2DOT30 ciexyzX;

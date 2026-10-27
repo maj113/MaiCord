@@ -70,10 +70,6 @@ NetworkResult network_loop_initialize(NetworkLoop* loop) noexcept {
         return failure(NetworkError::winsock_startup, startup_error);
     }
     loop->winsock_started = true;
-    if (LOBYTE(data.wVersion) != 2 || HIBYTE(data.wVersion) != 2) {
-        network_loop_release(loop);
-        return failure(NetworkError::winsock_startup, WSAVERNOTSUPPORTED);
-    }
     // A cancelled GetAddrInfoExW lookup keeps running on a Winsock pool thread
     // after its WSA_E_CANCELLED completion, and the last WSACleanup frees the
     // namespace catalog under it. Pin one reference for the process lifetime.

@@ -54,21 +54,6 @@ typedef unsigned int ALG_ID;
 typedef void* HCERTSTORE;
 
 MAICORD_SYS_TYPES_BEGIN
-struct _BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO;
-struct _BCRYPT_ECCKEY_BLOB;
-struct _BCRYPT_OAEP_PADDING_INFO;
-struct _BCRYPT_RSAKEY_BLOB;
-struct _BCryptBuffer;
-struct _BCryptBufferDesc;
-struct _CERT_CONTEXT;
-struct _CERT_EXTENSION;
-struct _CERT_INFO;
-struct _CERT_PUBLIC_KEY_INFO;
-struct _CRYPTOAPI_BLOB;
-struct _CRYPTPROTECT_PROMPTSTRUCT;
-struct _CRYPT_ALGORITHM_IDENTIFIER;
-struct _CRYPT_BIT_BLOB;
-
 // <bcrypt.h>
 struct _BCRYPT_OAEP_PADDING_INFO {
     LPCWSTR pszAlgId;

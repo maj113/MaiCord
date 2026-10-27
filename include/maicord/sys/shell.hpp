@@ -46,7 +46,6 @@ typedef DWORD SICHINTF;
 typedef DWORD FILEOPENDIALOGOPTIONS;
 
 MAICORD_SYS_TYPES_BEGIN
-struct _AppBarData;
 struct IFileDialog;
 struct IFileDialogEvents;
 struct IFileOpenDialog;
@@ -56,12 +55,6 @@ struct IShellItemArray;
 struct ITaskbarList2;
 struct ITaskbarList3;
 struct ITaskbarList;
-struct _DROPFILES;
-struct _FILEDESCRIPTORW;
-struct _FILEGROUPDESCRIPTORW;
-struct _ITEMIDLIST;
-struct _NOTIFYICONDATAW;
-struct _SHITEMID;
 
 // <shellapi.h>
 struct _AppBarData {
@@ -168,13 +161,10 @@ struct __declspec(uuid("b4db1657-70d7-485e-8e3e-6fcb5a5c1802")) __declspec(novta
 };
 enum FDE_OVERWRITE_RESPONSE {
     FDEOR_DEFAULT = 0,
-    FDEOR_ACCEPT = 1,
     FDEOR_REFUSE = 2
 };
 enum FDE_SHAREVIOLATION_RESPONSE {
     FDESVR_DEFAULT = 0,
-    FDESVR_ACCEPT = 1,
-    FDESVR_REFUSE = 2
 };
 struct __declspec(uuid("973510db-7d7f-452b-8975-74a85828d354")) __declspec(novtable) IFileDialogEvents : IUnknown {
     virtual HRESULT __stdcall OnFileOk(IFileDialog* pfd) = 0;

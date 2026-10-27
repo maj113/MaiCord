@@ -28,7 +28,6 @@ struct LogState {
     PTP_TIMER flush_timer;
     u64 stamp_second;
     u32 buffered;
-    bool saturated;
     bool flush_armed;
     char stamp[kStampCharacters];
     char buffer[kBufferBytes];
@@ -199,8 +198,6 @@ void commit_line(char* line, u32* length, LogLevel level, u64 second) noexcept {
                     flush_locked();
                 }
             }
-        } else {
-            g_log.saturated = true;
         }
     }
     ReleaseSRWLockExclusive(&g_log.lock);
@@ -212,7 +209,6 @@ bool log_open() noexcept {
     g_log.file = INVALID_HANDLE_VALUE;
     g_log.file_bytes = 0;
     g_log.buffered = 0;
-    g_log.saturated = false;
 
     wchar_t path[kPathCapacity]{};
     const DataPathResult built = data_path(path, kPathCapacity, L"logs\\maicord.log", true);
@@ -256,10 +252,8 @@ bool log_open() noexcept {
             CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                         nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     }
-    if (g_log.file != INVALID_HANDLE_VALUE && GetFileSizeEx(g_log.file, &size) && size.QuadPart > 0) {
+    if (g_log.file != INVALID_HANDLE_VALUE && GetFileSizeEx(g_log.file, &size) && size.QuadPart > 0)
         g_log.file_bytes = static_cast<u64>(size.QuadPart);
-        g_log.saturated = g_log.file_bytes >= kLogFileMaximumBytes;
-    }
     return g_log.file != INVALID_HANDLE_VALUE;
 }
 
@@ -272,7 +266,6 @@ void log_close() noexcept {
     }
     g_log.file = INVALID_HANDLE_VALUE;
     g_log.file_bytes = 0;
-    g_log.saturated = false;
     PTP_TIMER timer = g_log.flush_timer;
     g_log.flush_timer = nullptr;
     g_log.flush_armed = false;
