@@ -9,7 +9,7 @@ set(maicord_tls_libs ws2_32 maicord_sspicli bcrypt crypt32)
 maicord_library(maicord_core
     src/core/arena.cpp src/core/byte_queue.cpp src/core/byte_order.cpp src/core/data_path.cpp
     src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp src/core/stable_storage.cpp
-    src/core/utf.cpp src/core/byte_range.cpp)
+    src/core/utf.cpp src/core/byte_range.cpp src/core/delay_load.cpp)
 # Checks MaiCord's SDK-free headers against the Windows SDK and compiler
 # headers on every client build (a MaiCord dependency): one generated unit
 # (tools/generate_sys_conformance.py), so the SDK headers are parsed once. It

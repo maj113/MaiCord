@@ -79,6 +79,30 @@ u32 delayed_descriptors(const Image& image) noexcept {
             ++count;
     return count;
 }
+// Whether a static import descriptor of dll imports procedure by name.
+bool imports_name(const Image& image, const char* dll, u32 dll_length, const char* procedure) noexcept {
+    const auto& directory = image.directory(IMAGE_DIRECTORY_ENTRY_IMPORT);
+    if (!directory.VirtualAddress)
+        return false;
+    for (auto* entry = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(image.base + directory.VirtualAddress);
+         entry->Name; ++entry) {
+        if (!same_name(reinterpret_cast<const char*>(image.base + entry->Name), dll, dll_length))
+            continue;
+        const DWORD names = entry->OriginalFirstThunk ? entry->OriginalFirstThunk : entry->FirstThunk;
+        for (auto* thunk = reinterpret_cast<const IMAGE_THUNK_DATA64*>(image.base + names); thunk->u1.AddressOfData;
+             ++thunk) {
+            if (IMAGE_SNAP_BY_ORDINAL64(thunk->u1.Ordinal))
+                continue;
+            const char* name = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(image.base + thunk->u1.AddressOfData)->Name;
+            u32 i = 0;
+            while (name[i] && name[i] == procedure[i])
+                ++i;
+            if (name[i] == procedure[i])
+                return true;
+        }
+    }
+    return false;
+}
 
 void test_imports() noexcept {
     const HANDLE file = CreateFileW(MAICORD_CLIENT_IMPORTS_EXECUTABLE, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE,
@@ -117,6 +141,10 @@ void test_imports() noexcept {
               "the static imports are exactly kernel32, user32, d3d11, gdi32 and ntdll");
         check(count_delayed(image, "d3d11.dll", 9) == 0 && count_delayed(image, "user32.dll", 10) == 0,
               "the device and window paths are not delay-loaded");
+        // MaiCord's delay-load helper fails fast; kernel32's default failure
+        // hook would hand back error stubs for a missing DLL or export.
+        check(!imports_name(image, "kernel32.dll", 12, "DelayLoadFailureHook"),
+              "delay-load failures do not reach kernel32's default failure hook");
         UnmapViewOfFile(base);
     }
     if (mapping)

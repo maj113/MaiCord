@@ -232,6 +232,13 @@ maicord_test(MaiCordClientStartupImportsTests ENTRY maicord_client_startup_impor
         "MAICORD_CLIENT_DELAY_LOADS=\"${maicord_client_delay_load_list}\""
     USES_CLIENT MaiCord
     TIMEOUT 5 TEST maicord_client_imports)
+# The delay-load helper (src/core/delay_load.cpp): imports by ordinal and by
+# name, a forwarded API-set export, and racing first calls.
+maicord_test(MaiCordDelayLoadHelperTests ENTRY maicord_delay_load_helper_entry
+    SOURCES tests/delay_load_helper.cpp
+    LIBS maicord_core kernel32 ws2_32 ole32
+    LINK_OPTIONS /DELAYLOAD:ws2_32.dll /DELAYLOAD:ole32.dll
+    TIMEOUT 5 TEST maicord_delay_load_helper)
 # Plugin catalog: the index verifier against the vectors shared with
 # tools/release/test_plugin_index_tools.py (tests/fixtures/plugin_index), the
 # catalog policy, the floor, providers, state and journal records, provider

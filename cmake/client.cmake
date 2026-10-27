@@ -127,13 +127,13 @@ endif()
 # before the entry point, which the prestart waits for. The renderer maps
 # dcomp, shell32, ole32 and advapi32 (which GPU drivers import) on the main
 # thread while the worker creates the device; the rest load when first used.
-# dloadhelper resolves through kernel32's ResolveDelayLoadedAPI (no CRT).
+# maicord_core's __delayLoadHelper2 (src/core/delay_load.cpp) resolves them
+# through kernel32's ResolveDelayLoadedAPI and fails fast when one is missing.
 # tools/audit_pe.ps1 (-DelayLoad) and maicord_client_imports check the list.
 set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll sspicli.dll ole32.dll advapi32.dll
     combase.dll d2d1.dll bcrypt.dll crypt32.dll)
 list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
 target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
-target_link_libraries(MaiCord PRIVATE dloadhelper)
 add_dependencies(MaiCord maicord_app_icon maicord_sys_conformance)
 
 # Self-updater publisher. Environment variables override the official defaults,

@@ -91,6 +91,7 @@
 #define FILE_ATTRIBUTE_REPARSE_POINT 0x00000400
 #define IO_REPARSE_TAG_MOUNT_POINT (0xA0000003L)
 #define DUPLICATE_SAME_ACCESS 0x00000002
+#define FAST_FAIL_FATAL_APP_EXIT 7
 #define FAST_FAIL_INVALID_ARG 5
 #define HEAP_ZERO_MEMORY 0x00000008
 #define RtlCopyMemory(Destination,Source,Length) memcpy((Destination),(Source),(Length))
