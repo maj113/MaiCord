@@ -6,18 +6,15 @@ param(
 
 # Builds MaiCordUiProbe inside the single Release cache under the shared build
 # mutex, runs its opt-in 200-message scroll benchmark in a temporary profile,
-# then removes the probe, its objects and the profile and restores the
-# shipping-only configuration.
+# then removes the probe, its objects and the profile.
 $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
 $cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
 $binary = Join-Path $cacheRoot 'MaiCordUiProbe.exe'
 . (Join-Path $PSScriptRoot 'enter_build_environment.ps1')
-function Get-BuildFiles { Get-ChildItem -LiteralPath $cacheRoot -File -Recurse -Force | ForEach-Object FullName }
 
 $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
-$configured = $false
 $profile = Join-Path $cacheRoot ('test-profile-' + [guid]::NewGuid().ToString('N'))
 $previous = @{}
 foreach ($name in @('LOCALAPPDATA', 'MAICORD_UI_PROBE_ONCE', 'MAICORD_SCROLL_BENCHMARK', 'MAICORD_GPU_METRICS')) {
@@ -27,14 +24,11 @@ Push-Location $repository
 try {
     try { $locked = $mutex.WaitOne([TimeSpan]::FromMinutes(45)) } catch [Threading.AbandonedMutexException] { $locked = $true }
     if (-not $locked) { throw 'The MaiCord Release build mutex was not acquired.' }
-    $before = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    foreach ($path in Get-BuildFiles) { [void]$before.Add($path) }
     [void](New-Item -ItemType Directory -Path $profile)
     [IO.File]::WriteAllText((Join-Path $profile '.maicord-test-profile'), $repository)
     cmake --preset x64-release -DMAICORD_BUILD_TESTS=ON "-DMAICORD_TEST_PROFILE_DIRECTORY=$profile" `
         -DMAICORD_TEST_PROFILE_NAMES=maicord_ui_probe | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Probe configuration failed.' }
-    $configured = $true
     cmake --build $cacheRoot --target MaiCordUiProbe
     if ($LASTEXITCODE -ne 0) { throw 'MaiCordUiProbe build failed.' }
 
@@ -66,15 +60,9 @@ try {
     foreach ($name in $previous.Keys) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
     if ($locked) {
         try {
-            if ($configured) {
-                $newFiles = @(Get-BuildFiles | Where-Object { !$before.Contains($_) })
-                & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -NewFiles $newFiles -TestProfile $profile
-            }
-        } finally {
             if (Test-Path -LiteralPath $profile) { Remove-Item -LiteralPath $profile -Recurse -Force }
-            cmake --preset x64-release -DMAICORD_BUILD_TESTS=OFF -DMAICORD_TEST_AUDIO_PLAYBACK=OFF `
-                -DMAICORD_TEST_PROFILE_DIRECTORY= -DMAICORD_TEST_PROFILE_NAMES= | Out-Null
-            & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -ConfigureScratch
+            & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -RuntimeOnly:(Test-Path -LiteralPath "$cacheRoot\maicord-build-outputs.txt")
+        } finally {
             $mutex.ReleaseMutex()
         }
     }

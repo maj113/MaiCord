@@ -121,22 +121,6 @@ maicord_program(MaiCordOpusConformance ENTRY maicord_opus_conformance_entry SOUR
 maicord_program(MaiCordMediaDecodeBenchmark ENTRY maicord_media_decode_benchmark_entry
     SOURCES benchmarks/media_decode_benchmark.cpp
     LIBS maicord_core maicord_media_codec kernel32)
-maicord_program(MaiCordMp4Benchmark ENTRY maicord_mp4_benchmark_entry
-    SOURCES benchmarks/mp4_benchmark.cpp benchmarks/mp4_gpu_benchmark.cpp benchmarks/mp4_mf_gpu_reference.cpp
-        benchmarks/mp4_ffmpeg_gpu_reference.cpp benchmarks/mp4_transform_probe.cpp benchmarks/mp4_mft_decoder.cpp
-        benchmarks/mp4_source_reader_reference.cpp benchmarks/h264_state_probe.cpp
-    LIBS maicord_core maicord_media_codec maicord_account_media maicord_atlas_gpu kernel32 psapi d3d11 dxguid ole32
-        mfplat mfreadwrite mfuuid shlwapi wmcodecdspuuid)
-# Optional external comparator, never a shipping dependency or import.
-set(MAICORD_FFMPEG_ROOT "" CACHE PATH "Benchmark-only FFmpeg 9 shared development package")
-if(MAICORD_FFMPEG_ROOT)
-    if(NOT EXISTS "${MAICORD_FFMPEG_ROOT}/include/libavcodec/avcodec.h" OR
-       NOT EXISTS "${MAICORD_FFMPEG_ROOT}/bin/avcodec-63.dll")
-        message(FATAL_ERROR "MAICORD_FFMPEG_ROOT requires FFmpeg 9 shared headers and DLLs")
-    endif()
-    target_include_directories(MaiCordMp4Benchmark SYSTEM PRIVATE "${MAICORD_FFMPEG_ROOT}/include")
-    target_compile_definitions(MaiCordMp4Benchmark PRIVATE MAICORD_FFMPEG_ROOT=L"${MAICORD_FFMPEG_ROOT}")
-endif()
 maicord_program(MaiCordUiBenchmark ENTRY maicord_ui_benchmark_entry
     SOURCES benchmarks/text_form.cpp benchmarks/text_entry.cpp benchmarks/widget_scroll.cpp benchmarks/input_router.cpp
         benchmarks/navigation_shortcuts.cpp benchmarks/private_channels.cpp benchmarks/private_order.cpp

@@ -1,5 +1,6 @@
 #include "maicord/core/spsc_mailbox.hpp"
 #include "maicord/core/time.hpp"
+#include "benchmark_output.hpp"
 
 #include <Windows.h>
 
@@ -16,43 +17,6 @@ SpscMailbox<u32, 256, 128 * 1024> g_mailbox{};
 HANDLE g_start_event = nullptr;
 volatile LONG g_producer_failed = 0;
 volatile u64 g_mailbox_checksum = 0;
-
-u32 text_length(const char* value) noexcept {
-    u32 length = 0;
-    while (value[length]) {
-        ++length;
-    }
-    return length;
-}
-
-void write_text(const char* value) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, text_length(value), &written, nullptr);
-}
-
-void write_u64(u64 value) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index) {
-        output[index] = digits[count - index - 1];
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
-
-void write_metric(const char* name, u64 value, const char* unit) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" ");
-    write_text(unit);
-    write_text("\r\n");
-}
 
 void reset_mailbox() noexcept {
     InterlockedExchange(&g_mailbox.read_sequence, 0);

@@ -74,7 +74,6 @@ maicord_library(maicord_media_codec
     src/media/mp4_demux.cpp src/media/mp4_audio_demux.cpp src/media/progressive_source.cpp src/media/png.cpp
     src/media/png_stream.cpp src/media/png_encode.cpp src/media/png_common.cpp src/media/vp8.cpp
     src/media/webp.cpp src/media/webp_thumbnail.cpp src/media/webp_alpha.cpp src/media/animated_webp.cpp
-    src/media/yuv_convert.cpp src/media/yuv_convert_avx2.cpp
     src/media/rtp_h264.cpp src/media/rtp_h265.cpp src/media/hevc_stream.cpp
     src/media/rtp_av1.cpp src/media/av1.cpp src/media/mp4_fragment.cpp src/media/mp4_fragment_track.cpp
     src/media/mp4_fragment_source.cpp
@@ -86,7 +85,6 @@ maicord_library(maicord_media_codec
     src/media/mpeg_ts_segment_store.cpp
     LIBS maicord_core maicord_compression maicord_opus_decoder ntdll
     INCLUDES third_party/minimp3)
-set_source_files_properties(src/media/yuv_convert_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
 # minimp3's static helpers (bit reader, IMDCT and synthesis stages) inline into
 # the frame decoder (/Ob2), with bit-identical PCM: at /Ob1 MP3 decode takes 25%
 # longer (13,495 vs 10,802 us) for about 4 KiB.

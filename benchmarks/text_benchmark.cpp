@@ -2,6 +2,7 @@
 #include "maicord/render/message_hit_test.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/text.hpp"
+#include "benchmark_output.hpp"
 
 #include <Windows.h>
 
@@ -23,34 +24,6 @@ u16 g_clusters[512];
 TextDecoration g_decorations[128];
 TextHitRegion g_hit_regions[128];
 volatile u64 g_text_checksum = 0;
-
-u32 text_length(const char* value) noexcept {
-    u32 length = 0;
-    while (value[length]) {
-        ++length;
-    }
-    return length;
-}
-
-void write_text(const char* value) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, text_length(value), &written, nullptr);
-}
-
-void write_u64(u64 value) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index) {
-        output[index] = digits[count - index - 1];
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
 
 void write_metric(const char* name, u64 value) noexcept {
     write_text(name);

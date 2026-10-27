@@ -1,5 +1,6 @@
 #include "maicord/app/message_history_sync.hpp"
 #include "maicord/core/time.hpp"
+#include "benchmark_output.hpp"
 
 #include <Windows.h>
 
@@ -28,35 +29,6 @@ u8 g_text[4 * 1024];
 u32 g_heights[kResidentMessages];
 u64 g_fenwick[kResidentMessages];
 volatile u64 g_history_checksum = 0;
-
-u32 text_length(const char* value) noexcept {
-    u32 length = 0;
-    while (value[length]) {
-        ++length;
-    }
-    return length;
-}
-
-void write_text(const char* value) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, text_length(value), &written,
-              nullptr);
-}
-
-void write_u64(u64 value) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index) {
-        output[index] = digits[count - index - 1];
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
 
 void write_metric(const char* name, u64 value) noexcept {
     write_text(name);

@@ -1,4 +1,5 @@
 #include "maicord/core/base.hpp"
+#include "benchmark_output.hpp"
 
 #include <Windows.h>
 
@@ -24,35 +25,6 @@ alignas(64) u8 g_expected[4096];
 alignas(64) u8 g_candidate[4096];
 alignas(64) u8 g_temporary[2048];
 volatile u64 g_sink = 0;
-
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length]) {
-        ++length;
-    }
-    return length;
-}
-
-void write_text(const char* text) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, text_length(text), &written,
-              nullptr);
-}
-
-void write_u64(u64 value) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index) {
-        output[index] = digits[count - index - 1];
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
 
 void write_metric(const char* operation, u32 bytes, u64 value,
                   const char* unit) noexcept {

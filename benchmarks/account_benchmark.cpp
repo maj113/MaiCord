@@ -16,6 +16,7 @@
 #include "maicord/protocol/gateway_endpoint.hpp"
 #include "maicord/protocol/gateway_session.hpp"
 #include "maicord/protocol/user_auth.hpp"
+#include "benchmark_output.hpp"
 
 #include <Windows.h>
 
@@ -30,34 +31,6 @@ inline constexpr u32 kPathIterations = 1'000'000;
 inline constexpr u32 kProfilePromotionIterations = 32;
 inline constexpr u32 kMfaCodeIterations = 2'000'000;
 volatile u64 g_checksum = 0;
-
-u32 text_length(const char* text) noexcept {
-    u32 bytes = 0;
-    while (text[bytes] != 0) {
-        ++bytes;
-    }
-    return bytes;
-}
-
-void write_text(const char* text) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, text_length(text), &written, nullptr);
-}
-
-void write_u64(u64 value) noexcept {
-    char reverse[24]{};
-    u32 count = 0;
-    do {
-        reverse[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index) {
-        output[index] = reverse[count - index - 1];
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
 
 void write_metric(const char* name, u64 iterations, u64 elapsed_us) noexcept {
     write_text(name);

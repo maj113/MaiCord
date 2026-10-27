@@ -1,4 +1,5 @@
 #include "maicord/core/time.hpp"
+#include "benchmark_output.hpp"
 #include "maicord/render/glyph_atlas.hpp"
 #include "maicord/render/glyph_atlas_gpu.hpp"
 #include "maicord/render/gpu_timing.hpp"
@@ -28,34 +29,6 @@ inline constexpr u32 kChurnIterations = 100'000;
 GlyphAtlasEntry g_full_entries[kFullEntries];
 GlyphAtlasRow g_full_rows[128];
 u16 g_full_index[kFullEntries * 2];
-
-u32 text_length(const char* value) noexcept {
-    u32 length = 0;
-    while (value[length]) {
-        ++length;
-    }
-    return length;
-}
-
-void write_text(const char* value) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, text_length(value), &written, nullptr);
-}
-
-void write_u64(u64 value) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index) {
-        output[index] = digits[count - index - 1];
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
 
 void write_metric(const char* name, u64 value) noexcept {
     write_text(name);

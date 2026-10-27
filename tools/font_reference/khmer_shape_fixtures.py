@@ -30,23 +30,6 @@ def generate(folder):
     for vowel in (0x17c1,0x17c2,0x17c3):
         for middle in ([0x17c6],[0x17d2,0x179a],[0x17d2,0x1780]):cases.append([0x1780,vowel]+middle+[0x17c4])
     (folder/'feature-cases.json').write_text(json.dumps(cases))
-def generate_extra(base,folder):
-    from gsub_execution_oracle import obj
-    from gpos_execution_oracle import adjust
-    folder.mkdir(parents=True,exist_ok=True)
-    with TTFont(base,recalcTimestamp=False) as f:
-        f['GSUB'].table=layout('GSUB',[('ccmp',[0])],
-            [lookup(1,single({'u1780':'u200d','u200d':'u1780','u1781':'.notdef','.notdef':'u1780'}))],{'khmr':script(language([0]))})
-        f.save(folder/'control-exchange.ttf')
-    with TTFont(base,recalcTimestamp=False) as f:
-        f['GDEF'].table.GlyphClassDef=obj('ClassDef',classDefs={'u17b7':3})
-        f['GPOS'].table=layout('GPOS',[('dist',[0,1])],
-            [adjust('u17b7',11,17,31),adjust('u0020',13,19,37)],{'khmr':script(language([0]))})
-        f.save(folder/'position-zero.ttf')
-    cases=[[0x1780],[0x1781],[0x1780,0x200d],[0x1780,0x200c],[0x1780,0x17b7],
-        [0x1780,0x17b7,0x200d],[0x17b7],[0x17d2,0x200d],[0x34f],[0xfe00],[0x2060],[0x1f600]]
-    (folder/'cases.json').write_text(json.dumps(cases))
-
 def write_unit_fixtures(destination):
     from gsub_execution_oracle import obj,ligature,multiple
     from gpos_execution_oracle import adjust
@@ -62,33 +45,6 @@ def write_unit_fixtures(destination):
         data=font[tag].compile(font);lines.append('constexpr u8 khmer_shape_'+tag.lower()+'[]{')
         lines.extend('    '+','.join(str(v) for v in data[i:i+32])+',' for i in range(0,len(data),32));lines.append('};')
     destination.write_text('\n'.join(lines)+'\n')
-
-def generate_run(base,folder):
-    from gsub_execution_oracle import ligature,multiple,context
-    folder.mkdir(parents=True,exist_ok=True)
-    with TTFont(base,recalcTimestamp=False) as f:
-        for name,features,lookups in (
-            ('ligature',[('ccmp',[0])],[ligature(['u1780','u1780'],'u179a')]),
-            ('decompose',[('ccmp',[0]),('pres',[1])],[ligature(['u1780','u1780'],'u179a'),multiple({'u179a':['u1780','u1780']})]),
-            ('context',[('ccmp',[0])],[context(['u1780','u1780'],[(1,1)]),lookup(1,single({'u1780':'u1781'}))]),
-            ('cfar-cross',[('cfar',[0])],[ligature(['u1780','u17d2','u179a','u1780'],'u1781')])):
-            f['GSUB'].table=layout('GSUB',features,lookups,{'khmr':script(language(list(range(len(features)))))})
-            f.save(folder/(name+'.ttf'))
-    cases=[[0x1780,0x1780],[0x1780,0x1780,0x1780],[0x1780,0x17d2,0x179a,0x17d2,0x1780,0x1780],
-        [0x1780,0x17d2,0x179a,0x17d2,0x1780]*2,[0x1780,0x17d2,0x179a,0x17d2,0x1780,0x1780,0x17be],
-        [0x1780,0x17be,0x1780],[0x1780,0x1780,0x17be],[0x1780,0x1780,0xfe00],
-        [0x1780,0x1780,0xe0100],[0x1780,0x17d2,0x179a,0x17d2,0x1780,0x1780,0x1780,0x17be]]
-    (folder/'cases.json').write_text(json.dumps(cases))
-
-def generate_stage_scope(base,folder):
-    from gsub_execution_oracle import ligature
-    folder.mkdir(parents=True,exist_ok=True)
-    for feature in ('locl','ccmp','pref','blwf','abvf','pstf','cfar','pres','blws','abvs','psts','clig','rclt'):
-        with TTFont(base,recalcTimestamp=False) as f:
-            f['GSUB'].table=layout('GSUB',[(feature,[0])],[ligature(['u1780','u1780'],'u1781')],{'khmr':script(language([0]))})
-            f.save(folder/(feature+'.ttf'))
-    cases=[[0x1780,0x1780],[0x1780,0x17d2,0x179a,0x17d2,0x1780,0x1780]]
-    (folder/'stage-cases.json').write_text(json.dumps(cases))
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('folder',type=Path);generate(p.parse_args().folder)

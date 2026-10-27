@@ -1370,8 +1370,6 @@ maicord_test(MaiCordColrProgramTests ENTRY maicord_colr_program_tests_entry
     SOURCES tests/colr_program_test.cpp tests/colr_source_test.cpp
     LIBS maicord_core maicord_font maicord_paint_program kernel32
     BUNDLE MaiCordTextUnitTests STANDALONE TEST maicord_colr_program)
-maicord_test(MaiCordYuvTests ENTRY maicord_yuv_tests_entry SOURCES tests/yuv_convert_test.cpp
-    BUNDLE MaiCordCodecUnitTests TEST maicord_yuv_conversion)
 maicord_shader(maicord_vp8_reference_reconstruct_header vp8_reference_reconstruct.hpp cs_5_0 vp8_reconstruct
         g_vp8_reference_reconstruct tests/fixtures/vp8_reconstruct_reference.hlsl)
 maicord_shader(maicord_vp8_reference_idct_header vp8_reference_idct.hpp cs_5_0 vp8_inverse_dct

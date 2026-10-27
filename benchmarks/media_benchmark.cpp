@@ -1,5 +1,6 @@
 #include "maicord/app/cdn_media_pipeline.hpp"
 #include "maicord/core/time.hpp"
+#include "benchmark_output.hpp"
 #include "maicord/media/animation_timeline.hpp"
 #include "maicord/media/animated_webp.hpp"
 #include "maicord/media/encoded_cache.hpp"
@@ -181,34 +182,6 @@ inline constexpr u8 kVp8ExpectedRgba[] = {
     42, 126, 57, 255, 97,  154, 98,  255, 166, 168, 140, 255, 221, 196, 181, 255,
     69, 182, 89, 255, 124, 209, 130, 255, 194, 225, 173, 255, 248, 252, 215, 255,
 };
-
-u32 text_length(const char* value) noexcept {
-    u32 length = 0;
-    while (value[length]) {
-        ++length;
-    }
-    return length;
-}
-
-void write_text(const char* value) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, text_length(value), &written, nullptr);
-}
-
-void write_u64(u64 value) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index) {
-        output[index] = digits[count - index - 1];
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
 
 void write_metric(const char* name, u64 value) noexcept {
     write_text(name);

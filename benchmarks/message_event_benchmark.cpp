@@ -1,5 +1,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
+#include "benchmark_output.hpp"
 
 #include <Windows.h>
 
@@ -16,43 +17,6 @@ inline constexpr Utf8View kRichPayload = utf8_literal(
     R"({"op":0,"d":{"id":"1270000000000000001","channel_id":"1260000000000000001","author":{"id":"1250000000000000001","username":"benchmark"},"content":"bounded rich message","timestamp":"2024-08-30T12:34:56Z","message_reference":{"message_id":"1270000000000000000","channel_id":"1260000000000000001"},"referenced_message":{"id":"1270000000000000000","channel_id":"1260000000000000001","author":{"id":"1250000000000000002","username":"source"},"content":"referenced text"},"reactions":[{"count":4,"count_details":{"normal":3,"burst":1},"me":true,"emoji":{"id":"44","name":"party","animated":true}}],"attachments":[{"id":"70","filename":"clip.mp4","content_type":"video/mp4","size":12345,"url":"https://cdn.discordapp.com/attachments/7/70/clip.mp4","width":1280,"height":720}],"embeds":[{"title":"Build","type":"rich","description":"green","author":{"name":"CI"},"footer":{"text":"done"},"fields":[{"name":"Target","value":"Release","inline":true}]}],"sticker_items":[{"id":"88","name":"Wave","format_type":2}],"components":[{"type":17,"id":1,"components":[{"type":10,"id":2,"content":"Component markdown"},{"type":2,"id":3,"style":1,"label":"Native button","custom_id":"benchmark"}]}]},"s":11,"t":"MESSAGE_CREATE"})");
 
 volatile u64 g_message_event_checksum = 0;
-
-u32 text_length(const char* value) noexcept {
-    u32 length = 0;
-    while (value[length]) {
-        ++length;
-    }
-    return length;
-}
-
-void write_text(const char* value) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, text_length(value), &written, nullptr);
-}
-
-void write_u64(u64 value) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index) {
-        output[index] = digits[count - index - 1];
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
-
-void write_metric(const char* name, u64 value, const char* unit) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" ");
-    write_text(unit);
-    write_text("\r\n");
-}
 
 bool decode_message(Utf8View payload, bool create, GatewayMessageEvent* message,
                      u32* structural_scratch, char* content_scratch,
