@@ -172,18 +172,9 @@ bool reserve_font_record(D3D11GlyphTextOwner* owner) noexcept {
     return true;
 }
 
-enum class ColorGlyphAppendResult : u8 {
-    not_color,
-    appended,
-    failed,
-};
-
 D3D11GlyphTextInitializeResult initialize_result(D3D11GlyphTextInitializeError error,
-                                                 HRESULT native_error = S_OK,
-                                                 TextShapeError text_error = TextShapeError::none,
-                                                 GlyphAtlasGpuError gpu_error = GlyphAtlasGpuError::none,
-                                                 bool color_glyphs = false) noexcept {
-    return D3D11GlyphTextInitializeResult{native_error, text_error, gpu_error, error, color_glyphs};
+                                                 HRESULT native_error = S_OK) noexcept {
+    return D3D11GlyphTextInitializeResult{native_error, error};
 }
 
 // Renderer font IDs are stable and retain one native run reference each.
@@ -353,21 +344,21 @@ bool role_color_for_decoration(const D3D11GlyphTextAppendRequest& request, const
     return false;
 }
 
-ColorGlyphAppendResult append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
-                                              const D3D11GlyphTextAppendRequest& request,
-                                              const TextRun& run, const Color& foreground) noexcept {
+bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
+                            const D3D11GlyphTextAppendRequest& request, const TextRun& run,
+                            const Color& foreground) noexcept {
     if (!owner->color) {
         owner->color = static_cast<D3D11ColorGlyphOwner*>(
             VirtualAlloc(nullptr, sizeof(D3D11ColorGlyphOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
         if (!owner->color)
-            return ColorGlyphAppendResult::failed;
+            return false;
     }
     auto& color = *owner->color;
     // UI opacity is applied once by the draw shader, including palette colors.
     const ColrColor text_color{foreground.red, foreground.green, foreground.blue, 1};
     const u16 face_id = retain_run_font(owner, *request.text, run);
     if (!face_id)
-        return ColorGlyphAppendResult::failed;
+        return false;
     const float pixel_scale = request.dpi / 96.f, pixels_per_em = run.em_size * pixel_scale;
     const u32 em_fixed = static_cast<u32>(run.em_size * 64.f + .5f);
     float advance = 0;
@@ -389,7 +380,7 @@ ColorGlyphAppendResult append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11
                 if (!native_color_glyph_build(
                         &owner->native_outlines, face_id, glyph.index, text_color, pixels_per_em,
                         &color.program, &uses_foreground, owner->system.native_fonts, run.native_face))
-                    return ColorGlyphAppendResult::failed;
+                    return false;
                 hint = identity | (uses_foreground ? 0x80000000u : 0);
                 if (uses_foreground) {
                     key = hash64_bytes(base_key, &text_color, sizeof(text_color)) | (1ull << 63);
@@ -414,26 +405,26 @@ ColorGlyphAppendResult append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11
             const auto& extent = color.program.bounds;
             if (!glyph_raster_bounds(extent.minimum_x, extent.minimum_y, extent.maximum_x, extent.maximum_y,
                                      pixels_per_em, 1, &bounds))
-                return ColorGlyphAppendResult::failed;
+                return false;
             allocation =
                 glyph_atlas_allocate_indexed(&owner->allocator, atlas_index(owner), key, bounds.width, bounds.height);
             if (!allocation.ok())
-                return ColorGlyphAppendResult::failed;
+                return false;
             if (!colr_paint_rasterize(&color.gpu, context, color.program, bounds, allocation, pixels_per_em,
                                       owner->gpu.width, owner->allocator.padding, owner->color_batch)) {
                 log_u64(LogLevel::error, "render", "colrv1_raster_failed", glyph.index);
                 glyph_atlas_reset(&owner->allocator);
-                return ColorGlyphAppendResult::failed;
+                return false;
             }
             owner->atlas_origins[allocation.handle.slot] = {bounds.left, bounds.top};
             ++owner->cache_builds;
             if (allocation.evicted_entries || allocation.atlas_reset) {
                 *request.atlas_invalidated = true;
-                return ColorGlyphAppendResult::failed;
+                return false;
             }
         }
         if (*request.count >= request.capacity)
-            return ColorGlyphAppendResult::failed;
+            return false;
         // Odd bidi levels carry a right-edge origin. Cached outlines/paint
         // programs use the ordinary left glyph origin, so consume this glyph's
         // advance before applying its directional offset.
@@ -454,7 +445,7 @@ ColorGlyphAppendResult append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11
              {1, 1, 1, foreground.alpha}};
         advance += glyph.advance;
     }
-    return ColorGlyphAppendResult::appended;
+    return true;
 }
 
 // Empty hit-test rectangles are valid after trimming. Keep their validation off
@@ -588,14 +579,9 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
         if (retained_font_face_is_color(owner, face_id)) {
             if (!raster.finish())
                 return false;
-            const ColorGlyphAppendResult colored =
-                append_color_glyph_run(owner, context, request, run, foreground);
-            if (colored == ColorGlyphAppendResult::failed) {
+            if (!append_color_glyph_run(owner, context, request, run, foreground))
                 return false;
-            }
-            if (colored == ColorGlyphAppendResult::appended) {
-                continue;
-            }
+            continue;
         }
         const float pixels_per_em = run.em_size * pixel_scale;
         float advance = 0.0f;
@@ -811,8 +797,7 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
     const TextShapeResult system = text_system_initialize(&owner->system, L"Segoe UI", 16.0f, L"en-us");
     if (!system.ok()) {
         d3d11_glyph_text_release(owner);
-        return initialize_result(D3D11GlyphTextInitializeError::text_system, system.native_error,
-                                 system.error);
+        return initialize_result(D3D11GlyphTextInitializeError::text_system, system.native_error);
     }
     if (!shaped_text_initialize(&owner->title, Slice<TextGlyph>{owner->glyphs, kRendererGlyphCapacity},
                                 Slice<TextRun>{owner->runs, kRendererTextRunCapacity},
@@ -843,13 +828,11 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
     }
     if (!gpu.ok()) {
         d3d11_glyph_text_release(owner);
-        return initialize_result(D3D11GlyphTextInitializeError::atlas_gpu, gpu.native_error,
-                                 TextShapeError::none, gpu.error);
+        return initialize_result(D3D11GlyphTextInitializeError::atlas_gpu, gpu.native_error);
     }
     owner->color_glyphs = true;
     owner->ready = true;
-    return initialize_result(D3D11GlyphTextInitializeError::none, S_OK, TextShapeError::none,
-                             GlyphAtlasGpuError::none, owner->color_glyphs);
+    return initialize_result(D3D11GlyphTextInitializeError::none);
 }
 
 void d3d11_glyph_text_reset_atlas(D3D11GlyphTextOwner* owner) noexcept {

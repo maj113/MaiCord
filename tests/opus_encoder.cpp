@@ -48,7 +48,7 @@ void fill(const Scenario& s) noexcept {
 bool configure(OpusEncoder* encoder, const Scenario& s) noexcept {
     return opus_encoder_bitrate(encoder, s.bitrate).ok() && opus_encoder_complexity(encoder, s.complexity).ok() &&
            opus_encoder_inband_fec(encoder, s.fec != 0).ok() && opus_encoder_packet_loss(encoder, s.loss).ok() &&
-           opus_encoder_dtx(encoder, s.dtx != 0).ok();
+           ::opus_encoder_ctl(reinterpret_cast<::OpusEncoder*>(encoder_storage), OPUS_SET_DTX(s.dtx != 0)) == OPUS_OK;
 }
 // FNV-1a over little-endian 16-bit lengths and packet bytes.
 bool encode_all(OpusEncoder* encoder, const Scenario& s, u64* digest) noexcept {
@@ -137,10 +137,8 @@ void test_opus_encoder(Check check) noexcept {
           "Opus encoder storage: native mono/stereo sizes fit caller storage; other channel counts refused");
     OpusEncoder absent{};
     check(opus_encoder_encode(&absent, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_state &&
-              opus_encoder_reset(&absent).error == OpusEncodeError::invalid_state &&
               opus_encoder_bitrate(&absent, 64000).error == OpusEncodeError::invalid_state &&
               opus_encoder_bitrate(nullptr, 1).error == OpusEncodeError::invalid_state &&
-              opus_encoder_dtx(&absent, true).error == OpusEncodeError::invalid_state &&
               opus_encoder_initialize(nullptr, {encoder_storage, sizeof(encoder_storage)}, 1).error == OpusEncodeError::invalid_input,
           "Opus encoder lifecycle: inactive and null callers never reach the native encoder");
     OpusEncoder encoder{};
@@ -286,28 +284,13 @@ void test_opus_encoder(Check check) noexcept {
         opus_encoder_release(&encoder);
     }
 
-    // Reset restores the initial stream while keeping settings; equal to a fresh configured encoder.
     {
-        const Scenario s{2, 48000, 4, 1, 15, 1, 0, 10, 0, 0, 0};
-        fill(s);
-        u64 before = 0, after = 0, fresh = 0;
         encoder = {};
-        bool ok = opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 2).ok() &&
-                  configure(&encoder, s) && encode_all(&encoder, s, &before) && opus_encoder_reset(&encoder).ok();
-        native = reinterpret_cast<::OpusEncoder*>(encoder_storage);
-        ok = ok && ::opus_encoder_ctl(native, OPUS_GET_BITRATE(&bitrate)) == OPUS_OK && bitrate == 48000 &&
-             ::opus_encoder_ctl(native, OPUS_GET_COMPLEXITY(&complexity)) == OPUS_OK && complexity == 4 &&
-             ::opus_encoder_ctl(native, OPUS_GET_PACKET_LOSS_PERC(&loss)) == OPUS_OK && loss == 15 &&
-             ::opus_encoder_ctl(native, OPUS_GET_DTX(&dtx)) == OPUS_OK && dtx == 1 && encode_all(&encoder, s, &after);
-        opus_encoder_release(&encoder);
-        ok = ok && opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 2).ok() &&
-             configure(&encoder, s) && encode_all(&encoder, s, &fresh);
-        check(ok && before == after && after == fresh,
-              "Opus encoder reset: settings survive and the stream restarts bit-identically to a fresh encoder");
+        const bool ok = opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 2).ok();
         copy_bytes(saved, encoder_storage, encoder.state_bytes);
         const u32 bytes = encoder.state_bytes;
         opus_encoder_release(&encoder);
-        check(!encoder.state && !encoder.initialized && bytes_equal(saved, encoder_storage, bytes) &&
+        check(ok && !encoder.state && !encoder.initialized && bytes_equal(saved, encoder_storage, bytes) &&
                   opus_encoder_encode(&encoder, {input, kFrame * 2}, {packets[0], kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_state,
               "Opus encoder release: detach clears only wrapper metadata");
     }

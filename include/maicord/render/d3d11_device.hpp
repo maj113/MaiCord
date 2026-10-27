@@ -64,12 +64,12 @@ static_assert(sizeof(D3D11DeviceOwner) == 96);
 
 // Runs on the prestart worker with its new device; it may create device
 // objects but must not use the immediate context.
-using D3D11DevicePrestartContinuation = void (*)(ID3D11Device* device, void* context) noexcept;
+using D3D11DevicePrestartContinuation = void (*)(ID3D11Device* device) noexcept;
 // Starts hardware device creation on a worker thread so user-mode driver
 // initialization overlaps the rest of startup. The next owner initialization
 // adopts that device as soon as it exists, or creates one itself when none
 // was started or the worker failed. Main thread only.
-void d3d11_device_prestart(D3D11DevicePrestartContinuation continuation, void* context) noexcept;
+void d3d11_device_prestart(D3D11DevicePrestartContinuation continuation) noexcept;
 // Waits for the worker and its continuation; releases a device no owner adopted.
 void d3d11_device_prestart_finish() noexcept;
 D3D11DeviceOwnerResult d3d11_device_owner_initialize(

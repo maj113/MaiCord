@@ -286,7 +286,6 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, ID3D11DeviceContext
         context->Draw(4, 0);
     }
     ++owner->draws_last_frame;
-    ++owner->draws_total;
     return true;
 }
 

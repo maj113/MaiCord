@@ -37,15 +37,13 @@ struct OpusEncoder {
 // Same ownership contract as OpusDecoder: caller storage, one serial worker,
 // no allocation or destruction by the wrapper. Initialization applies the
 // defaults above with in-band FEC on and DTX off. Setters validate before the
-// native call and leave state untouched on rejection; reset keeps settings.
+// native call and leave state untouched on rejection.
 u32 opus_encoder_storage_bytes(u32 channels) noexcept;
 OpusEncodeResult opus_encoder_initialize(OpusEncoder*, Slice<u8> storage, u32 channels) noexcept;
-OpusEncodeResult opus_encoder_reset(OpusEncoder*) noexcept;
 OpusEncodeResult opus_encoder_bitrate(OpusEncoder*, u32 bits_per_second) noexcept;
 OpusEncodeResult opus_encoder_complexity(OpusEncoder*, u32 complexity) noexcept;
 OpusEncodeResult opus_encoder_inband_fec(OpusEncoder*, bool enabled) noexcept;
 OpusEncodeResult opus_encoder_packet_loss(OpusEncoder*, u32 percent) noexcept;
-OpusEncodeResult opus_encoder_dtx(OpusEncoder*, bool enabled) noexcept;
 // Constrained VBR keeps every packet near the bitrate's average size (the
 // profile always encodes VBR; CBR padding is not compiled in).
 OpusEncodeResult opus_encoder_vbr_constraint(OpusEncoder*, bool enabled) noexcept;

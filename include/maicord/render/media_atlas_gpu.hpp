@@ -161,32 +161,21 @@ MediaAtlasGpuResult media_atlas_gpu_upload_rgba8(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11DeviceContext1* context,
     MediaAssetKey key, u16 width, u16 height, u32 row_pitch,
     ConstSlice<u8> premultiplied_rgba8) noexcept;
+// The straight RGBA8, PNG, JPEG and VP8 keyframe uploads target the primary
+// surface, or the preview surface (large-preview keys only) when `preview` is set.
 MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
     ID3D11DeviceContext1* context, MediaAssetKey key, u16 width,
-    u16 height, u32 row_pitch, ConstSlice<u8> straight_rgba8) noexcept;
-MediaAtlasGpuResult media_atlas_gpu_upload_preview_straight_rgba8(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key, u16 width,
-    u16 height, u32 row_pitch, ConstSlice<u8> straight_rgba8) noexcept;
+    u16 height, u32 row_pitch, ConstSlice<u8> straight_rgba8, bool preview = false) noexcept;
 MediaAtlasGpuResult media_atlas_gpu_upload_png(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
     ID3D11DeviceContext1* context, MediaAssetKey key,
-    const PngImage& image, ConstSlice<u8> reconstructed_scanlines) noexcept;
-MediaAtlasGpuResult media_atlas_gpu_upload_preview_png(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key,
-    const PngImage& image, ConstSlice<u8> reconstructed_scanlines) noexcept;
+    const PngImage& image, ConstSlice<u8> reconstructed_scanlines, bool preview = false) noexcept;
 MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
     ID3D11DeviceContext1* context, MediaAssetKey key,
     const JpegImage& image,
-    const JpegCoefficientWorkspace& coefficients) noexcept;
-MediaAtlasGpuResult media_atlas_gpu_upload_preview_jpeg(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key,
-    const JpegImage& image,
-    const JpegCoefficientWorkspace& coefficients) noexcept;
+    const JpegCoefficientWorkspace& coefficients, bool preview = false) noexcept;
 MediaAtlasGpuResult media_atlas_gpu_begin_apng(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
     ID3D11DeviceContext1* context, MediaAssetKey key, u16 canvas_width,
@@ -248,11 +237,7 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
 MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
     ID3D11DeviceContext1* context, MediaAssetKey key,
-    const Vp8Keyframe& frame, ConstSlice<u8> alpha) noexcept;
-MediaAtlasGpuResult media_atlas_gpu_upload_preview_vp8_keyframe(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key,
-    const Vp8Keyframe& frame, ConstSlice<u8> alpha) noexcept;
+    const Vp8Keyframe& frame, ConstSlice<u8> alpha, bool preview = false) noexcept;
 void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept;
 // Recreates the primary or preview surface at `height` (its atlas changed
 // height): rows [0, min(old, new)) are copied, then each trim move from the old

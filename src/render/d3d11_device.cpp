@@ -21,7 +21,6 @@ struct DevicePrestart {
     D3D_FEATURE_LEVEL feature_level;
     HRESULT result;
     D3D11DevicePrestartContinuation continuation;
-    void* continuation_context;
 };
 DevicePrestart g_prestart{};
 
@@ -57,7 +56,7 @@ DWORD WINAPI prestart_device(void*) noexcept {
     }
     SetEvent(prestart.ready);
     if (device) {
-        prestart.continuation(device, prestart.continuation_context);
+        prestart.continuation(device);
         device->Release();
     }
     return 0;
@@ -314,8 +313,7 @@ HRESULT d3d11_device_owner_present(D3D11DeviceOwner* owner,
     return owner->swap_chain->Present1(sync_interval, 0, &parameters);
 }
 
-void d3d11_device_prestart(D3D11DevicePrestartContinuation continuation,
-                           void* context) noexcept {
+void d3d11_device_prestart(D3D11DevicePrestartContinuation continuation) noexcept {
     if (g_prestart.thread) {
         return;
     }
@@ -324,7 +322,6 @@ void d3d11_device_prestart(D3D11DevicePrestartContinuation continuation,
         return;
     }
     g_prestart.continuation = continuation;
-    g_prestart.continuation_context = context;
     // Driver initialization may use more stack than the small worker default.
     g_prestart.thread = CreateThread(nullptr, 1024u * 1024u, prestart_device, nullptr,
                                      STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);

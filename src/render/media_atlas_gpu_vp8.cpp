@@ -236,12 +236,13 @@ MediaAtlasGpuResult media_atlas_gpu_filter_vp8_keyframe(
     return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
 }
 
-static MediaAtlasGpuResult upload_vp8_keyframe_surface(
+MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
     ID3D11DeviceContext1* context, MediaAssetKey key, const Vp8Keyframe& frame,
-    ConstSlice<u8> alpha, ID3D11RenderTargetView* target,
-    ID3D11UnorderedAccessView* texture_uav, u16 surface_width, u16 surface_height) noexcept {
-    if (!gpu || !atlas || !device || !context || !target || !texture_uav ||
+    ConstSlice<u8> alpha, bool preview) noexcept {
+    const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
+    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context || !target ||
+        !texture_uav ||
         !vp8_atlas_frame_ready(gpu, frame, alpha) ||
         surface_width != atlas->allocations.width || surface_height != atlas->allocations.height ||
         static_cast<u32>(frame.width) + atlas->allocations.padding * 2u > atlas->allocations.width ||
@@ -261,28 +262,6 @@ static MediaAtlasGpuResult upload_vp8_keyframe_surface(
     }
     dispatch_vp8_atlas(gpu, context, frame, alpha, allocation.x, allocation.y, false, texture_uav);
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
-}
-
-MediaAtlasGpuResult media_atlas_gpu_upload_vp8_keyframe(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key, const Vp8Keyframe& frame,
-    ConstSlice<u8> alpha) noexcept {
-    return upload_vp8_keyframe_surface(
-        gpu, atlas, device, context, key, frame, alpha, gpu ? gpu->target : nullptr,
-        gpu ? gpu->texture_uav : nullptr, gpu ? gpu->width : 0, gpu ? gpu->height : 0);
-}
-
-MediaAtlasGpuResult media_atlas_gpu_upload_preview_vp8_keyframe(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key, const Vp8Keyframe& frame,
-    ConstSlice<u8> alpha) noexcept {
-    if (!media_asset_large_preview(key)) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
-    }
-    return upload_vp8_keyframe_surface(
-        gpu, atlas, device, context, key, frame, alpha, gpu ? gpu->preview_target : nullptr,
-        gpu ? gpu->preview_texture_uav : nullptr, gpu ? gpu->preview_width : 0,
-        gpu ? gpu->preview_height : 0);
 }
 
 MediaAtlasGpuResult media_atlas_gpu_begin_animated_webp_vp8(

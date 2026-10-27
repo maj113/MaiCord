@@ -13,10 +13,7 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
         !frame.texture || !gpu_video_frame_visible_valid(frame.width, frame.height)) {
         return failure(MediaAtlasGpuError::invalid_input);
     }
-    ID3D11UnorderedAccessView* uav = preview ? gpu->preview_texture_uav : gpu->texture_uav;
-    ID3D11RenderTargetView* target = preview ? gpu->preview_target : gpu->target;
-    const u16 width = preview ? gpu->preview_width : gpu->width;
-    const u16 height = preview ? gpu->preview_height : gpu->height;
+    const auto [target, uav, width, height] = upload_surface(gpu, preview);
     if (!uav || !target || width != atlas->allocations.width || height != atlas->allocations.height) {
         return failure(MediaAtlasGpuError::invalid_input);
     }
@@ -113,14 +110,15 @@ MediaAtlasGpuResult media_atlas_gpu_upload_rgba8(MediaAtlasGpu* gpu, MediaAtlas*
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
-static MediaAtlasGpuResult upload_straight_rgba8_surface(
+MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
     ID3D11DeviceContext1* context, MediaAssetKey key, u16 width, u16 height,
-    u32 row_pitch, ConstSlice<u8> straight_rgba8, ID3D11RenderTargetView* target,
-    ID3D11UnorderedAccessView* texture_uav, u16 surface_width, u16 surface_height) noexcept {
+    u32 row_pitch, ConstSlice<u8> straight_rgba8, bool preview) noexcept {
+    const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
     const u64 minimum_pitch = static_cast<u64>(width) * 4;
     const u64 required = height == 0 ? 0 : static_cast<u64>(height - 1) * row_pitch + minimum_pitch;
-    if (!gpu || !atlas || !device || !context || !target || !texture_uav ||
+    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context || !target ||
+        !texture_uav ||
         !media_asset_key_valid(key) || width == 0 || height == 0 ||
         width > kPngDimensionMaximum || height > kPngDimensionMaximum || row_pitch < minimum_pitch ||
         required > straight_rgba8.count || (!straight_rgba8.data && straight_rgba8.count != 0) ||
@@ -152,36 +150,13 @@ static MediaAtlasGpuResult upload_straight_rgba8_surface(
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
-MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key, u16 width, u16 height,
-    u32 row_pitch, ConstSlice<u8> straight_rgba8) noexcept {
-    return upload_straight_rgba8_surface(
-        gpu, atlas, device, context, key, width, height, row_pitch, straight_rgba8,
-        gpu ? gpu->target : nullptr, gpu ? gpu->texture_uav : nullptr,
-        gpu ? gpu->width : 0, gpu ? gpu->height : 0);
-}
-
-MediaAtlasGpuResult media_atlas_gpu_upload_preview_straight_rgba8(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-    ID3D11DeviceContext1* context, MediaAssetKey key, u16 width, u16 height,
-    u32 row_pitch, ConstSlice<u8> straight_rgba8) noexcept {
-    if (!media_asset_large_preview(key)) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
-    }
-    return upload_straight_rgba8_surface(
-        gpu, atlas, device, context, key, width, height, row_pitch, straight_rgba8,
-        gpu ? gpu->preview_target : nullptr, gpu ? gpu->preview_texture_uav : nullptr,
-        gpu ? gpu->preview_width : 0, gpu ? gpu->preview_height : 0);
-}
-
-static MediaAtlasGpuResult upload_png_surface(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-                                              ID3D11DeviceContext1* context, MediaAssetKey key,
-                                              const PngImage& image, ConstSlice<u8> reconstructed_scanlines,
-                                              ID3D11RenderTargetView* target,
-                                              ID3D11UnorderedAccessView* texture_uav, u16 surface_width,
-                                              u16 surface_height) noexcept {
-    if (!gpu || !atlas || !device || !context || !target || !texture_uav || !media_asset_key_valid(key) ||
+MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
+                                               ID3D11DeviceContext1* context, MediaAssetKey key,
+                                               const PngImage& image, ConstSlice<u8> reconstructed_scanlines,
+                                               bool preview) noexcept {
+    const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
+    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context || !target ||
+        !texture_uav || !media_asset_key_valid(key) ||
         !png_format_valid(image) || !png_scanlines_reconstructed(image, reconstructed_scanlines) ||
         surface_width != atlas->allocations.width || surface_height != atlas->allocations.height ||
         image.width + atlas->allocations.padding * 2u > atlas->allocations.width ||
@@ -223,35 +198,14 @@ static MediaAtlasGpuResult upload_png_surface(MediaAtlasGpu* gpu, MediaAtlas* at
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
-MediaAtlasGpuResult media_atlas_gpu_upload_png(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-                                               ID3D11DeviceContext1* context, MediaAssetKey key,
-                                               const PngImage& image,
-                                               ConstSlice<u8> reconstructed_scanlines) noexcept {
-    return upload_png_surface(gpu, atlas, device, context, key, image, reconstructed_scanlines,
-                              gpu ? gpu->target : nullptr, gpu ? gpu->texture_uav : nullptr,
-                              gpu ? gpu->width : 0, gpu ? gpu->height : 0);
-}
-
-MediaAtlasGpuResult media_atlas_gpu_upload_preview_png(MediaAtlasGpu* gpu, MediaAtlas* atlas,
-                                                       ID3D11Device* device, ID3D11DeviceContext1* context,
-                                                       MediaAssetKey key, const PngImage& image,
-                                                       ConstSlice<u8> reconstructed_scanlines) noexcept {
-    if (!media_asset_large_preview(key)) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
-    }
-    return upload_png_surface(gpu, atlas, device, context, key, image, reconstructed_scanlines,
-                              gpu ? gpu->preview_target : nullptr, gpu ? gpu->preview_texture_uav : nullptr,
-                              gpu ? gpu->preview_width : 0, gpu ? gpu->preview_height : 0);
-}
-
-static MediaAtlasGpuResult upload_jpeg_surface(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-                                               ID3D11DeviceContext1* context, MediaAssetKey key,
-                                               const JpegImage& image,
-                                               const JpegCoefficientWorkspace& coefficients,
-                                               ID3D11RenderTargetView* target,
-                                               ID3D11UnorderedAccessView* texture_uav, u16 surface_width,
-                                               u16 surface_height) noexcept {
-    if (!gpu || !atlas || !device || !context || !target || !texture_uav || !media_asset_key_valid(key) ||
+MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
+                                                ID3D11DeviceContext1* context, MediaAssetKey key,
+                                                const JpegImage& image,
+                                                const JpegCoefficientWorkspace& coefficients,
+                                                bool preview) noexcept {
+    const auto [target, texture_uav, surface_width, surface_height] = upload_surface(gpu, preview);
+    if ((preview && !media_asset_large_preview(key)) || !gpu || !atlas || !device || !context || !target ||
+        !texture_uav || !media_asset_key_valid(key) ||
         !jpeg_image_valid(image) || surface_width != atlas->allocations.width ||
         surface_height != atlas->allocations.height ||
         static_cast<u32>(jpeg_display_width(image)) + atlas->allocations.padding * 2u >
@@ -429,27 +383,6 @@ static MediaAtlasGpuResult upload_jpeg_surface(MediaAtlasGpu* gpu, MediaAtlas* a
     saturating_accumulate(gpu->jpeg_uploaded_bytes, uploaded);
     saturating_accumulate(gpu->jpeg_reconstructed_pixels, sample_count);
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
-}
-
-MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device,
-                                                ID3D11DeviceContext1* context, MediaAssetKey key,
-                                                const JpegImage& image,
-                                                const JpegCoefficientWorkspace& coefficients) noexcept {
-    return upload_jpeg_surface(gpu, atlas, device, context, key, image, coefficients,
-                               gpu ? gpu->target : nullptr, gpu ? gpu->texture_uav : nullptr,
-                               gpu ? gpu->width : 0, gpu ? gpu->height : 0);
-}
-
-MediaAtlasGpuResult media_atlas_gpu_upload_preview_jpeg(
-    MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device, ID3D11DeviceContext1* context,
-    MediaAssetKey key, const JpegImage& image, const JpegCoefficientWorkspace& coefficients) noexcept {
-    if (!media_asset_large_preview(key)) {
-        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
-    }
-    return upload_jpeg_surface(gpu, atlas, device, context, key, image, coefficients,
-                               gpu ? gpu->preview_target : nullptr,
-                               gpu ? gpu->preview_texture_uav : nullptr, gpu ? gpu->preview_width : 0,
-                               gpu ? gpu->preview_height : 0);
 }
 
 namespace {

@@ -51,9 +51,6 @@ bool create_gpu_text_resources(D3D11Renderer* renderer, GlyphAtlasGpu* prestarte
                 static_cast<u32>(initialized.native_error));
         return false;
     }
-    if (!initialized.color_glyphs) {
-        log_write(LogLevel::warning, "render", "color_glyphs_unavailable");
-    }
     return true;
 }
 
@@ -73,7 +70,7 @@ ID3D11Device* g_prestarted_pipeline_device = nullptr;
 GlyphAtlasGpu g_prestarted_glyph_atlas{};
 ID3D11Device* g_prestarted_glyph_atlas_device = nullptr;
 
-void prestart_pipeline(ID3D11Device* device, void*) noexcept {
+void prestart_pipeline(ID3D11Device* device) noexcept {
     if (glyph_atlas_gpu_initialize(&g_prestarted_glyph_atlas, device, kRendererGlyphAtlasExtent,
                                    kRendererGlyphAtlasExtent, kRendererPathCapacity)
             .ok())
@@ -205,7 +202,7 @@ void warm_draw_pipelines(D3D11Renderer* renderer) noexcept {
 } // namespace
 
 void renderer_prestart() noexcept {
-    d3d11_device_prestart(prestart_pipeline, nullptr);
+    d3d11_device_prestart(prestart_pipeline);
 }
 
 void renderer_prestart_cancel() noexcept {

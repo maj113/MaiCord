@@ -79,10 +79,7 @@ enum class D3D11GlyphTextInitializeError : u8 {
 
 struct D3D11GlyphTextInitializeResult {
     HRESULT native_error;
-    TextShapeError text_error;
-    GlyphAtlasGpuError gpu_error;
     D3D11GlyphTextInitializeError error;
-    bool color_glyphs;
 
     constexpr bool ok() const noexcept {
         return error == D3D11GlyphTextInitializeError::none;

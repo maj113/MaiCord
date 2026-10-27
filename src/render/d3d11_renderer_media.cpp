@@ -487,12 +487,9 @@ MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer
     }
     return upload_to_atlas(renderer, key, preview, atlas, width, height, "straight_rgba8_atlas_upload_failed",
         [&]() noexcept {
-            return preview ? media_atlas_gpu_upload_preview_straight_rgba8(
-                                 &renderer->media_gpu, atlas, renderer->graphics.device,
-                                 renderer->graphics.context1, key, width, height, row_pitch, straight_rgba8)
-                           : media_atlas_gpu_upload_straight_rgba8(
-                                 &renderer->media_gpu, atlas, renderer->graphics.device,
-                                 renderer->graphics.context1, key, width, height, row_pitch, straight_rgba8);
+            return media_atlas_gpu_upload_straight_rgba8(
+                &renderer->media_gpu, atlas, renderer->graphics.device, renderer->graphics.context1, key, width,
+                height, row_pitch, straight_rgba8, preview);
         });
 }
 
@@ -507,13 +504,9 @@ MediaAtlasGpuResult renderer_upload_png_scanlines(D3D11Renderer* renderer, Media
     }
     return upload_to_atlas(renderer, key, preview, atlas, image.width, image.height, "png_atlas_upload_failed",
         [&]() noexcept {
-            return preview ? media_atlas_gpu_upload_preview_png(&renderer->media_gpu, atlas,
-                                                                renderer->graphics.device,
-                                                                renderer->graphics.context1, key, image,
-                                                                reconstructed_scanlines)
-                           : media_atlas_gpu_upload_png(&renderer->media_gpu, atlas, renderer->graphics.device,
-                                                        renderer->graphics.context1, key, image,
-                                                        reconstructed_scanlines);
+            return media_atlas_gpu_upload_png(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                              renderer->graphics.context1, key, image, reconstructed_scanlines,
+                                              preview);
         });
 }
 
@@ -527,12 +520,8 @@ MediaAtlasGpuResult renderer_upload_jpeg(D3D11Renderer* renderer, MediaAssetKey 
     }
     return upload_to_atlas(renderer, key, preview, atlas, jpeg_display_width(image), jpeg_display_height(image),
         "jpeg_atlas_upload_failed", [&]() noexcept {
-            return preview ? media_atlas_gpu_upload_preview_jpeg(&renderer->media_gpu, atlas,
-                                                                 renderer->graphics.device,
-                                                                 renderer->graphics.context1, key, image,
-                                                                 coefficients)
-                           : media_atlas_gpu_upload_jpeg(&renderer->media_gpu, atlas, renderer->graphics.device,
-                                                         renderer->graphics.context1, key, image, coefficients);
+            return media_atlas_gpu_upload_jpeg(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                               renderer->graphics.context1, key, image, coefficients, preview);
         });
 }
 
@@ -683,12 +672,8 @@ MediaAtlasGpuResult renderer_upload_vp8_keyframe(D3D11Renderer* renderer, MediaA
     }
     return upload_to_atlas(renderer, key, preview, atlas, frame.width, frame.height, "vp8_atlas_upload_failed",
         [&]() noexcept {
-            return preview ? media_atlas_gpu_upload_preview_vp8_keyframe(
-                                 &renderer->media_gpu, atlas, renderer->graphics.device,
-                                 renderer->graphics.context1, key, frame, alpha)
-                           : media_atlas_gpu_upload_vp8_keyframe(
-                                 &renderer->media_gpu, atlas, renderer->graphics.device,
-                                 renderer->graphics.context1, key, frame, alpha);
+            return media_atlas_gpu_upload_vp8_keyframe(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                                       renderer->graphics.context1, key, frame, alpha, preview);
         });
 }
 

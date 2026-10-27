@@ -208,6 +208,21 @@ bool vp8_filter_header_valid(const Vp8ControlHeader& header) noexcept;
 
 i32 vp8_macroblock_filter_level(const Vp8ControlHeader& header, const Vp8MacroblockMode& mode) noexcept;
 
+struct UploadSurface {
+    ID3D11RenderTargetView* target;
+    ID3D11UnorderedAccessView* texture_uav;
+    u16 width, height;
+};
+
+// The primary or preview surface; empty for a null owner (callers then reject).
+inline UploadSurface upload_surface(const MediaAtlasGpu* gpu, bool preview) noexcept {
+    if (!gpu)
+        return {};
+    return preview ? UploadSurface{gpu->preview_target, gpu->preview_texture_uav, gpu->preview_width,
+                                   gpu->preview_height}
+                   : UploadSurface{gpu->target, gpu->texture_uav, gpu->width, gpu->height};
+}
+
 MediaAtlasResult allocate_and_clear_surface(MediaAtlasGpu* gpu, MediaAtlas* atlas,
                                             ID3D11DeviceContext1* context, ID3D11RenderTargetView* target,
                                             u16 surface_width, u16 surface_height, MediaAssetKey key,

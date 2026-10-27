@@ -87,12 +87,12 @@ void fill(i16* pcm, u32 frames, u32 channels, u32 signal, u32 seed) noexcept {
 }
 
 struct Settings {
-    u32 channels, bitrate, complexity, fec, loss, dtx, constrained;
+    u32 channels, bitrate, complexity, fec, loss, constrained;
 };
 bool configure(OpusEncoder* encoder, const Settings& s) noexcept {
     return opus_encoder_bitrate(encoder, s.bitrate).ok() && opus_encoder_complexity(encoder, s.complexity).ok() &&
            opus_encoder_inband_fec(encoder, s.fec != 0).ok() && opus_encoder_packet_loss(encoder, s.loss).ok() &&
-           opus_encoder_dtx(encoder, s.dtx != 0).ok() && opus_encoder_vbr_constraint(encoder, s.constrained != 0).ok();
+           opus_encoder_vbr_constraint(encoder, s.constrained != 0).ok();
 }
 
 struct Worker {
@@ -158,7 +158,7 @@ void run_row(Worker* w, Row* row) noexcept {
 }
 
 // Streams whose settings change every few frames: bitrate (mode and bandwidth
-// switches with redundancy frames), complexity, FEC, DTX and VBR constraint.
+// switches with redundancy frames), complexity, FEC and VBR constraint.
 void run_switching(Worker* w, Row* row, u32 seed) noexcept {
     const Settings& base = row->settings;
     fill(w->input, row->frames, base.channels, row->signal, seed);
@@ -172,9 +172,8 @@ void run_switching(Worker* w, Row* row, u32 seed) noexcept {
         if (f % 6 == 5) {
             random = random * 1664525u + 1013904223u;
             const u32 r = random >> 8;
-            Settings s{base.channels, rates[r % 12], (r >> 4) % 11, (r >> 8) & 1, (r >> 9) % 40, (r >> 15) & 1, (r >> 16) & 1};
+            Settings s{base.channels, rates[r % 12], (r >> 4) % 11, (r >> 8) & 1, (r >> 9) % 40, (r >> 16) & 1};
             row->ok = configure(&encoder, s);
-            if (((r >> 17) & 7) == 0) row->ok = row->ok && opus_encoder_reset(&encoder).ok();
         }
         const auto r = opus_encoder_encode(&encoder, {w->input + f * kFrame * base.channels, kFrame * base.channels},
                                            {w->packets[f], kMaximumPacket});
@@ -193,8 +192,8 @@ constexpr u32 kRates[]{6000, 9000, 12000, 16000, 20000, 24000, 32000, 40000, 480
                        64000, 80000, 96000, 128000, 192000, 256000, 384000, 510000};
 constexpr u32 kComplexities[]{0, 2, 4, 6, 7, 8, 10};
 constexpr u32 kFecLoss[][2]{{0, 0}, {1, 5}, {1, 25}};
-constexpr u32 kDtxConstraint[][2]{{0, 1}, {1, 1}, {0, 0}};
-constexpr u32 kMatrixRows = 2 * 17 * 7 * 3 * 3, kSwitchingRows = 48, kMatrixFrames = 40, kSwitchingFrames = 300;
+constexpr u32 kConstraint[]{1, 0};
+constexpr u32 kMatrixRows = 2 * 17 * 7 * 3 * 2, kSwitchingRows = 48, kMatrixFrames = 40, kSwitchingFrames = 300;
 Row rows[kMatrixRows + kSwitchingRows];
 Worker* workers[16];
 volatile LONG next_row = 0;
@@ -215,15 +214,15 @@ bool digests() noexcept {
         for (u32 rate : kRates)
             for (u32 complexity : kComplexities)
                 for (const auto& fec : kFecLoss)
-                    for (const auto& dc : kDtxConstraint) {
+                    for (u32 constrained : kConstraint) {
                         Row& row = rows[index];
-                        row.settings = {channels, rate, complexity, fec[0], fec[1], dc[0], dc[1]};
+                        row.settings = {channels, rate, complexity, fec[0], fec[1], constrained};
                         row.signal = index % 6, row.frames = kMatrixFrames;
                         ++index;
                     }
     for (u32 i = 0; i < kSwitchingRows; ++i) {
         Row& row = rows[index++];
-        row.settings = {1 + (i & 1), 32000, 7, 1, 10, 0, 1};
+        row.settings = {1 + (i & 1), 32000, 7, 1, 10, 1};
         row.signal = (i >> 1) % 6, row.frames = kSwitchingFrames;
     }
     SYSTEM_INFO info;
@@ -237,22 +236,22 @@ bool digests() noexcept {
         if (!threads[t]) return false;
     }
     WaitForMultipleObjects(count, threads, TRUE, INFINITE);
-    // One line per channel count and bitrate (all complexities, FEC and DTX
-    // settings), then the switching streams and an overall digest.
+    // One line per channel count and bitrate (all complexities, FEC and VBR
+    // constraint settings), then the switching streams and an overall digest.
     u64 total = kFnvBasis;
     bool ok = true;
     Line line;
     for (u32 group = 0; group < 2 * 17; ++group) {
         u64 packets = kFnvBasis, pcm = kFnvBasis;
-        for (u32 r = group * 63; r < group * 63 + 63; ++r) {
+        for (u32 r = group * 42; r < group * 42 + 42; ++r) {
             ok = ok && rows[r].ok;
             packets = fnv(packets, &rows[r].packets, 8);
             pcm = fnv(fnv(fnv(pcm, &rows[r].pcm, 8), &rows[r].lossy, 8), &rows[r].crossed, 8);
         }
         total = fnv(fnv(total, &packets, 8), &pcm, 8);
         line.put("opus_digest kind=matrix");
-        line.field("channels", rows[group * 63].settings.channels);
-        line.field("bitrate", rows[group * 63].settings.bitrate);
+        line.field("channels", rows[group * 42].settings.channels);
+        line.field("bitrate", rows[group * 42].settings.bitrate);
         line.digest("packets", packets), line.digest("pcm", pcm);
         line.emit();
     }
@@ -306,15 +305,15 @@ struct Case {
 // FEC with a loss hint keeps the encoder in SILK or hybrid mode, so the CELT
 // cases turn it off.
 constexpr Case kCases[]{
-    {"silk_mono_12k", {1, 12000, 7, 1, 10, 0, 1}, speech, 0},
-    {"hybrid_mono_32k", {1, 32000, 7, 1, 10, 0, 1}, speech, 0},
-    {"default_mono_64k", {1, 64000, 7, 1, 10, 0, 1}, speech, 0},
-    {"hybrid_stereo_64k", {2, 64000, 7, 1, 10, 0, 1}, speech, 0},
-    {"celt_mono_96k", {1, 96000, 7, 0, 0, 0, 1}, speech, 0},
-    {"celt_stereo_128k", {2, 128000, 7, 0, 0, 0, 1}, chord, 0},
-    {"silk_mono_12k_c10", {1, 12000, 10, 1, 10, 0, 1}, speech, 0},
-    {"silk_plc_12k", {1, 12000, 7, 1, 10, 0, 1}, speech, 5},
-    {"celt_plc_96k", {1, 96000, 7, 0, 0, 0, 1}, speech, 5},
+    {"silk_mono_12k", {1, 12000, 7, 1, 10, 1}, speech, 0},
+    {"hybrid_mono_32k", {1, 32000, 7, 1, 10, 1}, speech, 0},
+    {"default_mono_64k", {1, 64000, 7, 1, 10, 1}, speech, 0},
+    {"hybrid_stereo_64k", {2, 64000, 7, 1, 10, 1}, speech, 0},
+    {"celt_mono_96k", {1, 96000, 7, 0, 0, 1}, speech, 0},
+    {"celt_stereo_128k", {2, 128000, 7, 0, 0, 1}, chord, 0},
+    {"silk_mono_12k_c10", {1, 12000, 10, 1, 10, 1}, speech, 0},
+    {"silk_plc_12k", {1, 12000, 7, 1, 10, 1}, speech, 5},
+    {"celt_plc_96k", {1, 96000, 7, 0, 0, 1}, speech, 5},
 };
 constexpr u32 kPasses = 7;
 

@@ -58,7 +58,6 @@ struct D3D11BackgroundFxOwner {
     u32 drawn[kD3D11BackgroundFxCanvases];
     u32 drawn_count;
     u32 draws_last_frame;
-    u64 draws_total;
 };
 
 inline bool d3d11_background_fx_plugin_active(const D3D11BackgroundFxOwner& owner) noexcept {

@@ -155,8 +155,8 @@ bool png_preview_probe(D3D11Renderer& r) noexcept {
     const auto key =
         media_asset_attachment(987654, MediaAttachmentFormat::png, MediaResolutionTier::px2048);
     if (ok)
-        ok = media_atlas_gpu_upload_preview_png(&gpu, &atlas, r.graphics.device, r.graphics.context1, key,
-                                                image, {scanlines, image.inflated_bytes})
+        ok = media_atlas_gpu_upload_png(&gpu, &atlas, r.graphics.device, r.graphics.context1, key,
+                                        image, {scanlines, image.inflated_bytes}, true)
                  .ok();
     const auto item = media_atlas_find(&atlas, key);
     ID3D11Texture2D* readback = nullptr;

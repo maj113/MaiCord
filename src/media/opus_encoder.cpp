@@ -61,12 +61,6 @@ OpusEncodeResult opus_encoder_initialize(OpusEncoder* encoder, Slice<u8> storage
     *encoder = {storage.data, bytes, channels, true};
     return result(OpusEncodeError::none);
 }
-OpusEncodeResult opus_encoder_reset(OpusEncoder* encoder) noexcept {
-    if (!current(encoder))
-        return result(OpusEncodeError::invalid_state, OPUS_INVALID_STATE);
-    const int status = ::opus_encoder_ctl(native_state(encoder), OPUS_RESET_STATE);
-    return result(status == OPUS_OK ? OpusEncodeError::none : OpusEncodeError::encoder, status);
-}
 OpusEncodeResult opus_encoder_bitrate(OpusEncoder* encoder, u32 bits_per_second) noexcept {
     return control(encoder, OPUS_SET_BITRATE_REQUEST, bits_per_second, kOpusEncoderMinimumBitrate,
                    kOpusEncoderMaximumBitrate);
@@ -79,9 +73,6 @@ OpusEncodeResult opus_encoder_inband_fec(OpusEncoder* encoder, bool enabled) noe
 }
 OpusEncodeResult opus_encoder_packet_loss(OpusEncoder* encoder, u32 percent) noexcept {
     return control(encoder, OPUS_SET_PACKET_LOSS_PERC_REQUEST, percent, 0, 100);
-}
-OpusEncodeResult opus_encoder_dtx(OpusEncoder* encoder, bool enabled) noexcept {
-    return control(encoder, OPUS_SET_DTX_REQUEST, enabled, 0, 1);
 }
 OpusEncodeResult opus_encoder_vbr_constraint(OpusEncoder* encoder, bool enabled) noexcept {
     return control(encoder, OPUS_SET_VBR_CONSTRAINT_REQUEST, enabled, 0, 1);
