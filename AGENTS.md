@@ -39,11 +39,12 @@ has the same rules in more detail.
 - Freestanding C++23: no STL, CRT, exceptions or RTTI. Use
   `include/maicord/core`. Every build runs the PE audits in
   `tools/audit_pe.ps1` (imports, debug data, initialized-data budget).
-- Targets compile with `/X`: Windows SDK and compiler declarations come from
-  `include/maicord/sys` and `include/maicord/core/win32_*.hpp`, declared
-  exactly as the SDK declares them. Add what you use there; the generated
-  conformance units (`tools/generate_sys_conformance.py`) check it against
-  the SDK on every build.
+- Targets compile with `-nostdinc`: Windows SDK, C library and compiler
+  declarations (intrinsics included) come from `include/maicord/sys` and
+  `include/maicord/core/win32_*.hpp`, declared exactly as the SDK and compiler
+  declare them. Add what you use there; the generated conformance unit
+  (`tools/generate_sys_conformance.py`) checks it against the SDK on every
+  build.
 - UI colors, radii and spacing come from theme tokens and scales
   (`include/maicord/ui/theme_tokens.inc`); `tools/check_theme_literals.py`
   fails on new literals.

@@ -1,7 +1,7 @@
 #pragma once
 
 // The CRT functions the compiler expands inline, declared as the SDK declares them; see
-// maicord/sys/sdk.hpp.
+// maicord/sys/sdk.hpp. C as well as C++: maiopus includes it through sys/libc.
 
 #include "maicord/sys/sdk.hpp"
 
@@ -14,21 +14,32 @@
 #endif
 
 // <vcruntime.h>
+#if defined(__cplusplus)
 #define NULL 0
+#else
+#define NULL ((void*)0)
+#endif
 
 typedef unsigned __int64 size_t;
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
 // <vcruntime_string.h>
-extern "C" [[nodiscard]] int __cdecl memcmp(void const* _Buf1, void const* _Buf2, size_t _Size);
-extern "C" void* __cdecl memcpy(void* _Dst, void const* _Src, size_t _Size);
-extern "C" void* __cdecl memmove(void* _Dst, void const* _Src, size_t _Size);
-extern "C" void* __cdecl memset(void* _Dst, int _Val, size_t _Size);
+[[nodiscard]] int __cdecl memcmp(void const* _Buf1, void const* _Buf2, size_t _Size);
+void* __cdecl memcpy(void* _Dst, void const* _Src, size_t _Size);
+void* __cdecl memmove(void* _Dst, void const* _Src, size_t _Size);
+void* __cdecl memset(void* _Dst, int _Val, size_t _Size);
+
+// <stdlib.h>
+[[nodiscard]] int __cdecl abs(int _Number);
 
 // <malloc.h>
-extern "C" void* __cdecl _alloca(size_t _Size);
-// clang-cl's <mm_malloc.h> keeps these instead of defining its own.
-#define _mm_free(a)      _aligned_free(a)
-#define _mm_malloc(a, b) _aligned_malloc(a, b)
+void* __cdecl _alloca(size_t _Size);
+
+#if defined(__cplusplus)
+}
 
 // <vcruntime_new.h>: placement new.
 #ifndef __PLACEMENT_NEW_INLINE
@@ -37,4 +48,5 @@ extern "C" void* __cdecl _alloca(size_t _Size);
     (void)_Size;
     return _Where;
 }
+#endif
 #endif

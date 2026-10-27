@@ -117,12 +117,14 @@ files instead of re-sorting the lists.
 - **Freestanding C++23.** Don't use the STL, the CRT, exceptions or RTTI. Use
   the types in `include/maicord/core`. New Win32 imports need a reason. Every
   build runs the PE audits in `tools/audit_pe.ps1`.
-- **No SDK headers.** Targets compile with `/X`, so `<Windows.h>` and the
-  compiler's headers are not found. Declare the SDK functions, types and
-  constants you use in `include/maicord/sys` (or `core/win32_*.hpp`) exactly
-  as the SDK does; the conformance units generated from them fail the build
-  on any difference. Only the reference oracles and opt-in benchmarks use the
-  SDK headers (`MAICORD_SDK_INCLUDES`).
+- **No SDK or compiler headers.** Targets (maiopus included) compile with
+  `-nostdinc`, so `<Windows.h>`, the C library and the compiler's intrinsic
+  headers are not found. Declare the SDK functions, types and constants you use
+  in `include/maicord/sys` (or `core/win32_*.hpp`) exactly as the SDK does, and
+  intrinsics in `include/maicord/sys/simd.hpp` as clang defines them; the
+  conformance unit generated from the declarations fails the build on any
+  difference. Only the reference oracles and opt-in benchmarks use the SDK
+  headers (`MAICORD_SDK_INCLUDES`).
 - Format with the repository `.clang-format` and match the file you are editing.
 - Mention any EXE/DLL size change in the PR description, and back performance
   changes with before/after numbers from [`tools/perf`](tools/perf/README.md).

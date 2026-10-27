@@ -1,5 +1,5 @@
 #pragma once
 
-// <intrin.h> for /X builds: the declarations MaiCord and minimp3 use; see
-// maicord/sys/sdk.hpp.
+// <intrin.h> for -nostdinc builds: the declarations MaiCord, minimp3 and maiopus
+// use; see maicord/sys/sdk.hpp.
 #include "maicord/sys/intrin.hpp"

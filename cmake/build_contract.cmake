@@ -57,16 +57,17 @@ target_link_options(maicord_link_contract INTERFACE
 add_library(maicord_compile_contract INTERFACE)
 target_link_libraries(maicord_compile_contract INTERFACE maicord_link_contract)
 target_include_directories(maicord_compile_contract INTERFACE include)
-# /X: no INCLUDE environment or standard include paths. The Windows SDK and
-# compiler declarations MaiCord uses are its own (include/maicord/sys, with
+# -nostdinc: no include path but MaiCord's own, neither the SDK's, the INCLUDE
+# environment's nor the compiler's resource headers. The Windows SDK, C library
+# and compiler declarations MaiCord uses are its own (include/maicord/sys, with
 # C library names in sys/libc). A target with MAICORD_SDK_INCLUDES (the SDK
-# conformance units, the reference oracles) compiles against the SDK instead.
+# conformance unit, the reference oracles) compiles against the SDK instead.
 set(maicord_sdk_includes "$<BOOL:$<TARGET_PROPERTY:MAICORD_SDK_INCLUDES>>")
 target_include_directories(maicord_compile_contract INTERFACE
     "$<$<NOT:${maicord_sdk_includes}>:${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/sys/libc>")
 target_compile_definitions(maicord_compile_contract INTERFACE "$<${maicord_sdk_includes}:MAICORD_SDK_INCLUDES>")
 target_compile_options(maicord_compile_contract INTERFACE
-    "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:${maicord_sdk_includes}>>:/X>")
+    "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:${maicord_sdk_includes}>>:/clang:-nostdinc>")
 target_compile_features(maicord_compile_contract INTERFACE cxx_std_23)
 target_compile_definitions(maicord_compile_contract INTERFACE
     UNICODE

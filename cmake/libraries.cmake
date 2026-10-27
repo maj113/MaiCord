@@ -11,9 +11,9 @@ maicord_library(maicord_core
     src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp src/core/stable_storage.cpp
     src/core/utf.cpp src/core/byte_range.cpp)
 # Checks MaiCord's SDK-free headers against the Windows SDK and compiler
-# headers on every client build (a MaiCord dependency): one generated unit per
-# header (tools/generate_sys_conformance.py). It defines nothing, so no image
-# links it.
+# headers on every client build (a MaiCord dependency): one generated unit
+# (tools/generate_sys_conformance.py), so the SDK headers are parsed once. It
+# defines nothing, so no image links it.
 set(maicord_sys_headers
     include/maicord/core/win32_types.hpp include/maicord/core/win32_error.hpp
     include/maicord/core/win32_kernel.hpp include/maicord/core/win32_exception.hpp
@@ -29,23 +29,22 @@ set(maicord_sys_headers
     include/maicord/sys/wasapi.hpp include/maicord/sys/media_foundation.hpp include/maicord/sys/tsf.hpp
     include/maicord/sys/uia.hpp include/maicord/sys/speech.hpp include/maicord/sys/spellcheck.hpp
     include/maicord/sys/webauthn.hpp include/maicord/sys/process_info.hpp include/maicord/sys/ioctl.hpp
-    include/maicord/sys/libc/stddef.h include/maicord/sys/libc/stdint.h include/maicord/sys/libc/limits.h)
-set(maicord_sys_conformance_sources src/core/win32_sdk_conformance.cpp)
-foreach(header IN LISTS maicord_sys_headers)
-    get_filename_component(name "${header}" NAME_WE)
-    set(unit "${MAICORD_GENERATED_DIRECTORY}/sys_conformance/${name}.cpp")
-    add_custom_command(OUTPUT "${unit}"
-        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_sys_conformance.py"
-            --root "${CMAKE_CURRENT_SOURCE_DIR}" --header "${header}" --output "${unit}"
-        DEPENDS "${header}" tools/generate_sys_conformance.py
-        VERBATIM)
-    list(APPEND maicord_sys_conformance_sources "${unit}")
-endforeach()
-add_library(maicord_sys_conformance OBJECT ${maicord_sys_conformance_sources})
+    include/maicord/sys/libc/stddef.h include/maicord/sys/libc/stdint.h include/maicord/sys/libc/limits.h
+    include/maicord/sys/libc/stdarg.h include/maicord/sys/libc/crtdbg.h)
+set(maicord_sys_conformance_unit "${MAICORD_GENERATED_DIRECTORY}/sys_conformance.cpp")
+add_custom_command(OUTPUT "${maicord_sys_conformance_unit}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_sys_conformance.py"
+        --root "${CMAKE_CURRENT_SOURCE_DIR}" --headers ${maicord_sys_headers} --output "${maicord_sys_conformance_unit}"
+    DEPENDS ${maicord_sys_headers} tools/generate_sys_conformance.py
+    VERBATIM)
+add_library(maicord_sys_conformance OBJECT src/core/win32_sdk_conformance.cpp "${maicord_sys_conformance_unit}")
 target_link_libraries(maicord_sys_conformance PRIVATE maicord_compile_contract)
 target_include_directories(maicord_sys_conformance PRIVATE src/sys)
-# The checks name every vtable slot, including members the SDK deprecates.
-target_compile_options(maicord_sys_conformance PRIVATE -Wno-deprecated-declarations)
+# The checks name every vtable slot, including members the SDK deprecates. The
+# bytecode constant interpreter evaluates their thousands of static_asserts in
+# a tenth of the time.
+target_compile_options(maicord_sys_conformance PRIVATE
+    -Wno-deprecated-declarations /clang:-fexperimental-new-constant-interpreter)
 set_target_properties(maicord_sys_conformance PROPERTIES MAICORD_SDK_INCLUDES ON)
 
 maicord_library(maicord_compression src/media/deflate.cpp src/media/zstd.cpp LIBS maicord_core)
@@ -63,6 +62,12 @@ set(MAIOPUS_LTCG_OPTION ${MAICORD_WHOLE_PROGRAM_OPTION})
 set(MAIOPUS_ARCH /arch:AVX)
 set(MAIOPUS_SSE4_1 ON)
 add_subdirectory(third_party/opus)
+# maiopus, like every MaiCord unit, sees only MaiCord's C library and intrinsic
+# headers (see cmake/build_contract.cmake).
+foreach(maiopus_target IN ITEMS maicord_opus_decoder maicord_opus_encoder)
+    target_include_directories(${maiopus_target} PRIVATE include include/maicord/sys/libc)
+    target_compile_options(${maiopus_target} PRIVATE /clang:-nostdinc)
+endforeach()
 
 maicord_library(maicord_media_codec
     src/media/opus_decoder.cpp src/media/ogg_opus.cpp src/media/ogg_opus_writer.cpp src/media/wave_pcm.cpp

@@ -1,6 +1,6 @@
 #pragma once
 
-// Compile-time comparisons for the generated SDK conformance units. Type names
+// Compile-time comparisons for the generated SDK conformance unit. Type names
 // come from __FUNCSIG__, which spells the canonical template argument in full
 // (scopes, cv, pointers). Member names come from __FUNCDNAME__: the Microsoft
 // mangling of a pointer to a virtual member is its vcall thunk, which encodes

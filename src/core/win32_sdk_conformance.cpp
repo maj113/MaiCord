@@ -1,6 +1,6 @@
 // MaiCord's own records that stand for SDK records (Win32Rect for RECT and
 // others; see maicord/core/win32_records.hpp): the SDK's layout and member
-// names. The SDK-free headers themselves are checked by the units
+// names. The SDK-free headers themselves are checked by the unit
 // tools/generate_sys_conformance.py generates.
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"

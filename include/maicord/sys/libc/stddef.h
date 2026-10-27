@@ -1,6 +1,6 @@
 #pragma once
 
-/* <stddef.h> for /X builds, as the compiler declares it (x64); see maicord/sys/sdk.hpp. */
+/* <stddef.h> for -nostdinc builds, as the compiler declares it (x64); see maicord/sys/sdk.hpp. */
 
 #include "maicord/sys/sdk.hpp"
 
