@@ -30,8 +30,4 @@ RestClientSubmitResult account_user_social_submit(RestClient* rest, const UserSo
     secure_clear_bytes(body, written.bytes);
     return result;
 }
-
-RestClientSubmitResult account_user_social_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
 } // namespace maicord

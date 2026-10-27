@@ -26,9 +26,6 @@ struct FavoriteAction {
     GifFavoriteFormat format;
     bool desired;
 };
-bool equal(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
 bool usable_text(Utf8View text) noexcept {
     return text.data && text.bytes && text.bytes <= kUrlBytes && utf8_validate(text).valid;
 }
@@ -359,12 +356,12 @@ ApplicationGifFavoriteState application_gif_favorites_state(Utf8View key) noexce
         return {false, false, false, online()};
     bool pending = false;
     for (u32 i = 0; i < p->queue_count; ++i)
-        if (equal(url(p->queue[i]), key)) {
+        if (utf8_equal(url(p->queue[i]), key)) {
             pending = true;
             break;
         }
     return {favorite(*p, key), pending,
-            equal({p->failed_url, p->failed_url_bytes}, key) && p->failed_url_bytes, online() && !pending};
+            utf8_equal({p->failed_url, p->failed_url_bytes}, key) && p->failed_url_bytes, online() && !pending};
 }
 bool application_gif_favorites_toggle(Utf8View key, Utf8View src, u32 width, u32 height,
                                       GifFavoriteFormat format) noexcept {
@@ -387,7 +384,7 @@ bool application_gif_favorites_toggle(Utf8View key, Utf8View src, u32 width, u32
         (!usable_text(src) || (format != GifFavoriteFormat::image && format != GifFavoriteFormat::video)))
         return false;
     for (u32 i = 0; i < p.queue_count; ++i)
-        if (equal(url(p.queue[i]), key))
+        if (utf8_equal(url(p.queue[i]), key))
             return false;
     if (p.queue_count == kQueueCapacity) {
         mark_failure(p, utf8_literal("Too many changes at once. Try again in a moment."));
@@ -413,7 +410,7 @@ bool application_gif_favorites_toggle(Utf8View key, Utf8View src, u32 width, u32
     action.desired = desired;
     p.failed = false;
     reset_value(&p.status);
-    if (equal({p.failed_url, p.failed_url_bytes}, key))
+    if (utf8_equal({p.failed_url, p.failed_url_bytes}, key))
         p.failed_url_bytes = 0;
     if (!p.request_id && p.queue_count == 1)
         p.attempts = 0;
@@ -552,7 +549,7 @@ bool application_gif_favorites_response(const RestClientResponse& response, Utf8
                     true);
             else {
                 if (operation == AccountGifFavoritesOperation::update) {
-                    if (p.queue_count && equal({p.failed_url, p.failed_url_bytes}, url(p.queue[0])))
+                    if (p.queue_count && utf8_equal({p.failed_url, p.failed_url_bytes}, url(p.queue[0])))
                         p.failed_url_bytes = 0;
                     drop_action(p);
                 }

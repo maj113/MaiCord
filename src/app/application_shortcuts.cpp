@@ -58,19 +58,6 @@ bool focused_message(u64* id) noexcept {
         *id = message;
     return true;
 }
-NavigationShortcut navigation_of(ShortcutAction action) noexcept {
-    switch (action) {
-    case ShortcutAction::server_previous: return {NavigationMode::guild, true};
-    case ShortcutAction::server_next: return {NavigationMode::guild, false};
-    case ShortcutAction::channel_previous: return {NavigationMode::channel, true};
-    case ShortcutAction::channel_next: return {NavigationMode::channel, false};
-    case ShortcutAction::unread_previous: return {NavigationMode::unread, true};
-    case ShortcutAction::unread_next: return {NavigationMode::unread, false};
-    case ShortcutAction::mention_previous: return {NavigationMode::mention, true};
-    case ShortcutAction::mention_next: return {NavigationMode::mention, false};
-    default: return {};
-    }
-}
 bool in_call() noexcept {
     if (!g_app.account_ui)
         return false;
@@ -175,7 +162,7 @@ ShortcutAction application_shortcut_action(u32 key) noexcept {
 
 static bool run_shortcut(ShortcutAction action, bool repeated) noexcept {
     using A = ShortcutAction;
-    const auto navigation = navigation_of(action);
+    const auto navigation = navigation_shortcut(action);
     if (navigation.mode != NavigationMode::none)
         return handle_navigation_shortcut(navigation);
     // Owners that see keys before the content route match their chords through

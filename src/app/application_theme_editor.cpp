@@ -256,9 +256,6 @@ bool application_theme_editor_active() noexcept {
 const UiThemeEditorScene* application_theme_editor_scene() noexcept {
     return application_theme_editor_active() ? &g_app.theme_editor->scene : nullptr;
 }
-u32 application_theme_editor_owner_bytes() noexcept {
-    return sizeof(ApplicationThemeEditor);
-}
 bool application_theme_editor_open() noexcept {
     if (g_app.theme_editor)
         return application_theme_editor_active();

@@ -46,7 +46,7 @@ struct VoiceAudioStatus {
     VoiceCaptureState capture;
     u8 level;      // Latest 20 ms input level after gain.
     u8 threshold;  // Voice activity threshold in use (follows the noise floor when automatic).
-    bool transmitting, push_to_talk_down;
+    bool transmitting;
     u8 reserved;
     u16 round_trip_ms; // Voice gateway heartbeat round trip; zero until measured.
     u32 native_error;

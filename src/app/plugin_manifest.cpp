@@ -122,6 +122,11 @@ bool visit(void* context, JsonString key, JsonValue value) noexcept {
     }
 }
 } // namespace
+bool native_plugin_manifest_same_dll(const NativePluginManifest& a, const NativePluginManifest& b) noexcept {
+    if (a.dll_bytes != b.dll_bytes) return false;
+    for (u32 i = 0; i < a.dll_bytes; ++i) if (ascii_lower(a.dll[i]) != ascii_lower(b.dll[i])) return false;
+    return true;
+}
 bool native_plugin_dll_name_valid(Utf8View name) noexcept {
     if (name.bytes < 5 || name.bytes >= kNativePluginDllNameCapacity || name.data[0] == '.' ||
         name.data[name.bytes - 4] != '.' || ascii_lower(name.data[name.bytes - 3]) != 'd' ||

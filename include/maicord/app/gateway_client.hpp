@@ -1227,22 +1227,19 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
                                               const GatewayUserClientConfiguration* configuration,
                                               const GatewayEndpoint* gateway_endpoint,
                                               const GatewayUserSessionSnapshot* session) noexcept;
-GatewayClientResult gateway_client_stop(GatewayClient* client, u32 timeout_milliseconds) noexcept;
-// User-only counterpart. After the worker finishes, the profile metadata
-// and locked credential are returned together. A client that is not a user
-// one is rejected without stopping and the empty output remains unchanged.
+// After the worker finishes, the profile metadata and locked credential are
+// returned together. A client that is not a user one is rejected without
+// stopping and the empty output remains unchanged.
 GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* client, u32 timeout_milliseconds,
                                                             AccountProfile* profile) noexcept;
 GatewayClientResult gateway_client_status(const GatewayClient* client) noexcept;
 // Observer APIs are UI-thread operations. They must not race
-// gateway_client_stop(), which destroys the worker-owned runtime after joining.
-bool gateway_client_pop_event(GatewayClient* client, GatewayClientEvent* event) noexcept;
+// gateway_client_stop_return_user_profile(), which destroys the worker-owned runtime after joining.
 // A pop never signals the notification handle: the worker signals once after each batch it publishes. A
 // consumer must therefore drain until empty (or at least the mailbox capacity), as the account pump does.
 GatewayClientPopResult gateway_client_pop_event_payload(GatewayClient* client, GatewayClientEvent* event,
                                                         Slice<u8> payload_output) noexcept;
 HANDLE gateway_client_notification_handle(const GatewayClient* client) noexcept;
-u32 gateway_client_dropped_events(const GatewayClient* client) noexcept;
 bool gateway_client_snapshot_user_session(const GatewayClient* client,
                                           GatewayUserSessionSnapshot* session) noexcept;
 // Replaces the desired visible guild/channel subscription. The worker keeps
@@ -1357,7 +1354,6 @@ bool gateway_client_stream_watch(GatewayClient* client, const GatewayStreamKey& 
 bool gateway_client_stream_snapshot(const GatewayClient* client, GatewayClientStreamSnapshot* output) noexcept;
 // Stream audio bus volume (0-200 %, default 100), on top of the output volume.
 bool gateway_client_stream_volume(GatewayClient* client, u32 percent) noexcept;
-u32 gateway_client_runtime_bytes() noexcept;
 // UI-thread request; transport teardown and fresh identify run on the worker.
 GatewayStateRecoveryResult gateway_client_request_fresh_state(GatewayClient* client) noexcept;
 u32 gateway_client_user_runtime_bytes() noexcept;

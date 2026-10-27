@@ -31,9 +31,33 @@ bool file_persistence_read_complete(HANDLE file, Slice<u8> bytes, u32* native_er
     return transfer_complete(file, bytes.data, bytes.count, false, native_error);
 }
 
+FileReadResult file_persistence_read_file(const wchar_t* path, Slice<u8> buffer, u32 minimum_bytes) noexcept {
+    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        const u32 error = thread_last_error();
+        return {0, error,
+                error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND ? FileReadError::missing
+                                                                               : FileReadError::open};
+    }
+    Win32LargeInteger size{};
+    FileReadResult result{};
+    if (!GetFileSizeEx(file, size.native()))
+        result = {0, thread_last_error(), FileReadError::size};
+    else if (size.QuadPart < minimum_bytes || size.QuadPart > buffer.count)
+        result = {0, 0, FileReadError::size};
+    else {
+        result.bytes = static_cast<u32>(size.QuadPart);
+        if (!transfer_complete(file, buffer.data, result.bytes, false, &result.native_error))
+            result = {0, result.native_error, FileReadError::read};
+    }
+    CloseHandle(file);
+    return result;
+}
+
 __declspec(noinline) FilePersistenceWriteResult
-file_persistence_write_atomic(const wchar_t* path, u32 path_characters,
-                              ConstSlice<u8> bytes) noexcept {
+file_persistence_write_atomic(const wchar_t* path, u32 path_characters, ConstSlice<u8> bytes,
+                              bool durable) noexcept {
     if (!path || path_characters == 0 ||
         path_characters + 4 >= kAccountProfileMaximumPathCharacters || !bytes.data || bytes.count == 0) {
         return {ERROR_INVALID_PARAMETER, FilePersistenceWriteError::open};
@@ -57,7 +81,7 @@ file_persistence_write_atomic(const wchar_t* path, u32 path_characters,
     u32 native_error = 0;
     const bool written =
         transfer_complete(file, const_cast<u8*>(bytes.data), bytes.count, true, &native_error);
-    const bool flushed = written && FlushFileBuffers(file);
+    const bool flushed = written && (!durable || FlushFileBuffers(file));
     if (written && !flushed) {
         native_error = thread_last_error();
     }
@@ -67,7 +91,7 @@ file_persistence_write_atomic(const wchar_t* path, u32 path_characters,
         return {native_error,
                 written ? FilePersistenceWriteError::flush : FilePersistenceWriteError::write};
     }
-    if (!MoveFileExW(temporary, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    if (!MoveFileExW(temporary, path, MOVEFILE_REPLACE_EXISTING | (durable ? MOVEFILE_WRITE_THROUGH : 0))) {
         native_error = thread_last_error();
         DeleteFileW(temporary);
         return {native_error, FilePersistenceWriteError::commit};

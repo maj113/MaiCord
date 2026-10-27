@@ -115,10 +115,6 @@ RestClientSubmitResult account_soundboard_submit(RestClient* rest, const Soundbo
     return result;
 }
 
-RestClientSubmitResult account_soundboard_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
-
 namespace {
 void render_preview(void* context, Slice<i16> pcm, u64 now_us) noexcept {
     auto* engine = static_cast<AccountSoundboard*>(context);
@@ -225,10 +221,8 @@ void fill_status(AccountSoundboard* s, SoundboardAudioStatus* status) noexcept {
     status->failed_sound_id = s->failed_sound_id;
     status->active_voices = soundboard_mixer_active(&s->mixer);
     status->cached_clips = s->cache.count;
-    status->cached_bytes = static_cast<u32>(s->cache.bytes);
     status->pending = s->pending_count;
     status->last_error = s->last_error;
-    status->preview_output = voice_audio_output_running(s->preview);
     status->call_audio = s->call_audio;
 }
 } // namespace

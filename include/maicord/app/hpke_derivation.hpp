@@ -37,27 +37,19 @@ HpkeDerivationResult hpke_decap(KdfSha256Workspace& workspace, const P256Key& re
 // Keep these values in caller-owned locked storage; clear them when done.
 // This is not an AEAD context and does not manage nonce sequencing or roles.
 struct HpkeBaseSecrets {
-    u8 key[16], base_nonce[12], exporter_secret[32];
+    u8 key[16], base_nonce[12];
 };
 void hpke_base_secrets_clear(HpkeBaseSecrets* secrets) noexcept;
 // HPKE LabeledExtract("", "info_hash", info), NOT raw SHA-256(info).
 // Segments avoid copying arbitrary protocol framing/labels/context.
 KdfResult hpke_info_hash(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> info,
                          Slice<u8> output) noexcept;
-// Trusted prehashed input from hpke_info_hash (exactly 32 bytes). Candidate
-// output follows the same atomic/alias contract as the un-hashed schedule.
+// Trusted prehashed input from hpke_info_hash (exactly 32 bytes). The output
+// is written atomically and must not overlap the inputs or the workspace.
 HpkeDerivationResult hpke_base_key_schedule_hashed_info(KdfSha256Workspace& workspace,
                                                         ConstSlice<u8> shared_secret,
                                                         ConstSlice<u8> info_hash,
                                                         HpkeBaseSecrets* output) noexcept;
-HpkeDerivationResult hpke_base_key_schedule(KdfSha256Workspace& workspace, ConstSlice<u8> shared_secret,
-                                            ConstSlice<u8> info_a, ConstSlice<u8> info_b,
-                                            HpkeBaseSecrets* output) noexcept;
-// The HPKE exporter is distinct from MLS's exporter. Output.count is the
-// requested length (0..8160). Invalid input preserves output; native KDF
-// failure erases the requested output. Empty output avoids cryptographic work.
-KdfResult hpke_export_secret(KdfSha256Workspace& workspace, ConstSlice<u8> exporter_secret,
-                             ConstSlice<u8> context, Slice<u8> output) noexcept;
 // Derive/encap/decap/schedule stage results; ALL failures preserve output.
 // Success writes only required prefixes (65/32). Schedule may replace input
 // storage; other outputs must not overlap inputs or each other. All external

@@ -96,7 +96,7 @@ MlsStatus mls_proposal_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, cons
         group_id.count != kMlsGroupIdBytes || sender_type != kSenderExternal || sender_index != 0 ||
         authenticated_data.count || content_type != kContentProposal)
         return MlsStatus::malformed;
-    candidate.group_id = mls_load_be64(group_id.data);
+    candidate.group_id = byte_load_be64(group_id.data);
     if (candidate.type == kMlsProposalAdd) {
         u32 package_bytes = 0;
         if (const auto status =

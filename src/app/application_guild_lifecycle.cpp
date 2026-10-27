@@ -697,17 +697,10 @@ bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEd
     *multiline = false;
     return true;
 }
-void close_hook(SettingsLayer*) noexcept {
-    application_guild_lifecycle_close();
-}
-bool repaint_hook(SettingsLayer*) noexcept {
-    return repaint();
-}
-bool editable_hook(SettingsLayer*) noexcept {
-    return editable();
-}
-constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose, close_hook, repaint_hook, nullptr,
-                                    editable_hook};
+constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose,
+                                    [](SettingsLayer*) noexcept { application_guild_lifecycle_close(); },
+                                    [](SettingsLayer*) noexcept { return repaint(); }, nullptr,
+                                    [](SettingsLayer*) noexcept { return editable(); }};
 
 bool ensure_owner() noexcept {
     if (owner)

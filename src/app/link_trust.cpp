@@ -302,21 +302,12 @@ bool link_trust_load_file(const wchar_t* path, LinkTrustStore* store) noexcept {
     const u32 revision = store->revision;
     reset_value(store);
     store->revision = revision + 1;
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        const u32 error = thread_last_error();
-        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
-    }
-    Win32LargeInteger size{};
     ScratchPages<u8[kLinkTrustFileBytes]> record;
-    u32 native_error = 0;
-    const bool read =
-        record.data && GetFileSizeEx(file, size.native()) && size.QuadPart > 0 &&
-        size.QuadPart <= kLinkTrustFileBytes &&
-        file_persistence_read_complete(file, {*record.data, static_cast<u32>(size.QuadPart)}, &native_error);
-    CloseHandle(file);
-    return read && link_trust_decode({*record.data, static_cast<u32>(size.QuadPart)}, store);
+    if (!record.data)
+        return false;
+    const FileReadResult read = file_persistence_read_file(path, {*record.data, kLinkTrustFileBytes});
+    return read.error == FileReadError::missing ||
+           (read.ok() && link_trust_decode({*record.data, read.bytes}, store));
 }
 
 bool link_trust_save_file(const wchar_t* path, const LinkTrustStore& store) noexcept {

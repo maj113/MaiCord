@@ -73,21 +73,6 @@ u64 checksum(const u8* bytes, u32 count) noexcept {
     return hash64_bytes(kHash64Seed, bytes, count);
 }
 
-bool transfer(HANDLE file, u8* bytes, u32 count, bool write, u32* native_error) noexcept {
-    u32 offset = 0;
-    while (offset < count) {
-        DWORD transferred = 0;
-        const BOOL ok = write ? WriteFile(file, bytes + offset, count - offset, &transferred, nullptr)
-                              : ReadFile(file, bytes + offset, count - offset, &transferred, nullptr);
-        if (!ok || transferred == 0) {
-            *native_error = ok ? ERROR_HANDLE_EOF : thread_last_error();
-            return false;
-        }
-        offset += transferred;
-    }
-    return true;
-}
-
 // Erases and releases the buffer on every exit of a load.
 struct ErasedBuffer {
     u8* bytes;
@@ -208,43 +193,17 @@ MessageDraftPersistenceResult message_drafts_commit(const wchar_t* path, Message
     const u32 total = image->count;
     const u32 records = image->records;
     reset_value<MessageDraftImage>(image);
-    wchar_t temporary[kAccountProfileMaximumPathCharacters]{};
-    for (u32 index = 0; index < characters; ++index) {
-        temporary[index] = path[index];
-    }
-    temporary[characters] = L'.';
-    temporary[characters + 1] = L'n';
-    temporary[characters + 2] = L'e';
-    temporary[characters + 3] = L'w';
-    HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                              FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_TEMPORARY |
-                                  (write_through ? FILE_FLAG_WRITE_THROUGH : 0),
-                              nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        const u32 native_error = thread_last_error();
-        file_persistence_secure_release(file_bytes, total);
-        return failure(MessageDraftPersistenceError::open, native_error);
-    }
-    u32 native_error = 0;
-    const bool written = transfer(file, file_bytes, total, true, &native_error);
-    const bool flushed = written && (!write_through || FlushFileBuffers(file));
-    if (written && !flushed) {
-        native_error = thread_last_error();
-    }
-    CloseHandle(file);
+    const FilePersistenceWriteResult stored =
+        file_persistence_write_atomic(path, characters, {file_bytes, total}, write_through);
     file_persistence_secure_release(file_bytes, total);
-    if (!written || !flushed) {
-        DeleteFileW(temporary);
-        return failure(written ? MessageDraftPersistenceError::flush : MessageDraftPersistenceError::write,
-                       native_error);
+    if (stored.ok()) {
+        return success(total, records);
     }
-    if (!MoveFileExW(temporary, path,
-                     MOVEFILE_REPLACE_EXISTING | (write_through ? MOVEFILE_WRITE_THROUGH : 0))) {
-        native_error = thread_last_error();
-        DeleteFileW(temporary);
-        return failure(MessageDraftPersistenceError::commit, native_error);
-    }
-    return success(total, records);
+    return failure(stored.error == FilePersistenceWriteError::open    ? MessageDraftPersistenceError::open
+                   : stored.error == FilePersistenceWriteError::write ? MessageDraftPersistenceError::write
+                   : stored.error == FilePersistenceWriteError::flush ? MessageDraftPersistenceError::flush
+                                                                      : MessageDraftPersistenceError::commit,
+                   stored.native_error);
 }
 
 MessageDraftPersistenceResult message_drafts_save_file(const wchar_t* path, u64 profile_id,
@@ -265,33 +224,22 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
         !store || !store_valid(*store)) {
         return failure(MessageDraftPersistenceError::invalid_input);
     }
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return failure(MessageDraftPersistenceError::open, thread_last_error());
-    }
-    Win32LargeInteger size{};
-    if (!GetFileSizeEx(file, size.native()) || size.QuadPart < kHeaderBytes ||
-        size.QuadPart > kMessageDraftPersistenceMaximumFileBytes) {
-        const u32 native_error = thread_last_error();
-        CloseHandle(file);
-        return failure(MessageDraftPersistenceError::size, native_error);
-    }
-    const u32 file_size = static_cast<u32>(size.QuadPart);
-    auto* file_bytes =
-        static_cast<u8*>(VirtualAlloc(nullptr, file_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* file_bytes = static_cast<u8*>(VirtualAlloc(nullptr, kMessageDraftPersistenceMaximumFileBytes,
+                                                     MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!file_bytes) {
-        const u32 native_error = thread_last_error();
-        CloseHandle(file);
-        return failure(MessageDraftPersistenceError::memory, native_error);
+        return failure(MessageDraftPersistenceError::memory, thread_last_error());
     }
-    const ErasedBuffer file_guard{file_bytes, file_size};
-    u32 native_error = 0;
-    const bool read = transfer(file, file_bytes, file_size, false, &native_error);
-    CloseHandle(file);
-    if (!read) {
-        return failure(MessageDraftPersistenceError::read, native_error);
+    ErasedBuffer file_guard{file_bytes, kMessageDraftPersistenceMaximumFileBytes};
+    const FileReadResult read =
+        file_persistence_read_file(path, {file_bytes, kMessageDraftPersistenceMaximumFileBytes}, kHeaderBytes);
+    if (!read.ok()) {
+        return failure(read.error == FileReadError::size   ? MessageDraftPersistenceError::size
+                       : read.error == FileReadError::read ? MessageDraftPersistenceError::read
+                                                           : MessageDraftPersistenceError::open,
+                       read.native_error);
     }
+    const u32 file_size = read.bytes;
+    file_guard.count = file_size;
     bool magic = true;
     for (u32 index = 0; index < sizeof(kMagic); ++index) {
         magic = magic && file_bytes[index] == kMagic[index];

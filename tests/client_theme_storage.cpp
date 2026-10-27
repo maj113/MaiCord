@@ -221,7 +221,7 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
           "theme failed atomic replacement retains the previous complete selector and document snapshot");
     wchar_t copied_path[MAX_PATH]{};
     copy_bytes(copied_path, path, sizeof(path));
-    check(client_theme_io_create(&io, copied_path) && io && client_theme_io_owner_bytes(io) > 0,
+    check(client_theme_io_create(&io, copied_path) && io,
           "theme IO owner starts lazily with a copied destination path");
     if (!io)
         return;
@@ -291,14 +291,12 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
               client_theme_storage_load_file(path, &fixture.output).ok() && equal(latest, fixture.output),
           "theme bounded64-save coalescing retains and persists newest complete snapshot without growing "
           "queue");
-    const u32 owner_bytes = client_theme_io_owner_bytes(io);
     bool stable = true;
     for (u32 i = 0; i < 64; ++i) {
         ready = true;
-        stable &= client_theme_io_poll(io, &completion, &ready) && !ready &&
-                  client_theme_io_owner_bytes(io) == owner_bytes;
+        stable &= client_theme_io_poll(io, &completion, &ready) && !ready;
     }
-    check(stable, "theme64 idle polls preserve owner size and publish no work or stale completion");
+    check(stable, "theme64 idle polls publish no work or stale completion");
     check(client_theme_io_stop(&io, 1500) && !io && client_theme_io_stop(&io, 0),
           "theme IO joins before freeing worker storage and null stop remains idempotent");
     DeleteFileW(path);

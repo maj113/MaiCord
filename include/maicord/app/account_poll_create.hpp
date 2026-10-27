@@ -7,6 +7,4 @@ namespace maicord {
 // body synchronously. Same route bucket as ordinary message sends.
 RestClientSubmitResult account_poll_create_submit(RestClient*, u64 channel_id, u64 nonce, const PollCreate*,
                                                   u64 request_id) noexcept;
-// Exact ID only; an already published response remains available to rest_take.
-RestClientSubmitResult account_poll_create_cancel(RestClient*, u64 request_id) noexcept;
 } // namespace maicord

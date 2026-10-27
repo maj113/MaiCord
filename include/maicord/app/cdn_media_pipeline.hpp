@@ -303,49 +303,6 @@ CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipelin
                                                        ConstSlice<u8> decoded_body,
                                                        ConstSlice<u8> conditional_etag = {}) noexcept;
 
-CdnStaticWebpResult cdn_media_pipeline_lookup_static_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                          u64 now_seconds) noexcept;
-CdnStaticWebpResult cdn_media_pipeline_admit_static_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                         const CdnResponseResult& response,
-                                                         ConstSlice<u8> decoded_body,
-                                                         ConstSlice<u8> conditional_etag = {}) noexcept;
-
-CdnStaticJpegResult cdn_media_pipeline_lookup_static_jpeg(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                          u64 now_seconds) noexcept;
-CdnStaticJpegResult cdn_media_pipeline_admit_static_jpeg(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                         const CdnResponseResult& response,
-                                                         ConstSlice<u8> decoded_body,
-                                                         ConstSlice<u8> conditional_etag = {}) noexcept;
-
-CdnApngResult cdn_media_pipeline_lookup_apng(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                             u64 now_seconds) noexcept;
-CdnApngResult cdn_media_pipeline_admit_apng(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                            const CdnResponseResult& response, ConstSlice<u8> decoded_body,
-                                            ConstSlice<u8> conditional_etag = {}) noexcept;
-CdnApngResult cdn_media_pipeline_decode_apng_frame(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                   u16 cache_generation, u32 frame_index,
-                                                   u64 now_seconds) noexcept;
-
-CdnGifResult cdn_media_pipeline_lookup_gif(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                           u64 now_seconds) noexcept;
-CdnGifResult cdn_media_pipeline_admit_gif(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                          const CdnResponseResult& response, ConstSlice<u8> decoded_body,
-                                          ConstSlice<u8> conditional_etag = {}) noexcept;
-CdnGifResult cdn_media_pipeline_decode_gif_frame(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                 u16 cache_generation, u32 frame_index,
-                                                 u64 now_seconds) noexcept;
-
-CdnAnimatedWebpResult cdn_media_pipeline_lookup_animated_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                              u64 now_seconds) noexcept;
-CdnAnimatedWebpResult cdn_media_pipeline_admit_animated_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                             const CdnResponseResult& response,
-                                                             ConstSlice<u8> decoded_body,
-                                                             ConstSlice<u8> conditional_etag = {}) noexcept;
-CdnAnimatedWebpResult cdn_media_pipeline_decode_animated_webp_frame(CdnMediaPipeline* pipeline,
-                                                                    const MediaAssetKey& key, u16 cache_generation,
-                                                                    u32 frame_index,
-                                                                    u64 now_seconds) noexcept;
-
 // The same operations filling a caller-owned result in place: MSVC copies a
 // returned result into the caller at every call.
 void cdn_media_pipeline_lookup_audio(CdnEncodedAudioResult* out, CdnMediaPipeline*, const MediaAssetKey&,

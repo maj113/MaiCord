@@ -59,7 +59,7 @@ struct AccountHost {
     bool stop_failed;
 };
 
-static_assert(sizeof(AccountHost) == 1256);
+static_assert(sizeof(AccountHost) == 1240);
 
 bool account_host_api_valid(const AccountModuleApi& api) noexcept;
 // Admits module's API into an empty host; a loaded host keeps its API. A
@@ -96,6 +96,5 @@ AccountHostStopResult account_host_stop(AccountHost* host, u32 timeout_ms, u64 m
 u32 account_host_notification_handles(const AccountHost* host, HANDLE* output, u32 capacity) noexcept;
 u32 account_host_wait_timeout(const AccountHost* host, u64 now_ms) noexcept;
 bool account_host_wake_due(const AccountHost* host, u64 now_ms) noexcept;
-u32 account_host_runtime_bytes() noexcept;
 
 } // namespace maicord

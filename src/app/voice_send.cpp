@@ -227,7 +227,6 @@ VoiceAudioStatus voice_send_status(VoiceSend* send) noexcept {
     if (status.capture == VoiceCaptureState::capturing) {
         status.level = static_cast<u8>(read_acquire(&send->cells.level));
         status.transmitting = read_acquire(&send->cells.transmitting) != 0;
-        status.push_to_talk_down = read_acquire(&send->cells.key_down) != 0;
     }
     status.threshold = static_cast<u8>(read_acquire(&send->cells.threshold));
     status.sent_packets = static_cast<u64>(read_acquire(&send->sent_packets));

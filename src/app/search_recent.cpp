@@ -143,20 +143,9 @@ bool search_recent_load_file(const wchar_t* path, SearchRecentList* list) noexce
     const u32 revision = list->revision;
     search_recent_clear(list);
     list->revision = revision + 1;
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
-                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        const u32 error = thread_last_error();
-        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
-    }
-    Win32LargeInteger size{};
     u8 record[kSearchRecentFileBytes];
-    u32 native_error = 0;
-    const bool read =
-        GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= kSearchRecentFileBytes &&
-        file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native_error);
-    CloseHandle(file);
-    return read && search_recent_decode({record, static_cast<u32>(size.QuadPart)}, list);
+    const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
+    return read.error == FileReadError::missing || (read.ok() && search_recent_decode({record, read.bytes}, list));
 }
 
 bool search_recent_save_file(const wchar_t* path, const SearchRecentList& list) noexcept {

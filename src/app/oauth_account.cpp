@@ -43,17 +43,11 @@ bool oauth_account_load(Utf8View client, SecureBuffer* output, OAuthProvider pro
     if (!empty(output) || !oauth_client_valid(provider, client)) return false;
     wchar_t path[1024];
     if (!data_path(path, 1024, filename(provider)).ok()) return false;
-    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    Record record; Win32LargeInteger size{}; u32 native{};
-    const bool read = GetFileSizeEx(file, size.native()) && size.QuadPart > 0 &&
-        size.QuadPart <= static_cast<i64>(sizeof(record.encrypted)) &&
-        file_persistence_read_complete(file, {record.encrypted, static_cast<u32>(size.QuadPart)}, &native);
-    CloseHandle(file);
+    Record record;
+    const auto read = file_persistence_read_file(path, {record.encrypted, sizeof(record.encrypted)});
     Locked plaintext;
-    return read && secure_buffer_initialize(&plaintext.value, kOAuthTokenBytes).ok() &&
-        secure_buffer_unprotect_user_bound({record.encrypted, static_cast<u32>(size.QuadPart)}, bind(record, client, provider), &plaintext.value).ok() &&
+    return read.ok() && secure_buffer_initialize(&plaintext.value, kOAuthTokenBytes).ok() &&
+        secure_buffer_unprotect_user_bound({record.encrypted, read.bytes}, bind(record, client, provider), &plaintext.value).ok() &&
         oauth_token_valid({reinterpret_cast<char*>(plaintext.value.data), plaintext.value.bytes}) &&
         secure_buffer_transfer(output, &plaintext.value);
 }
@@ -80,14 +74,9 @@ u32 oauth_account_client(OAuthProvider provider, Slice<char> output) noexcept {
     if (provider != OAuthProvider::spotify || output.count < 32) return 0;
     wchar_t path[1024];
     if (!data_path(path, 1024, L"spotify-client.txt").ok()) return 0;
-    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return 0;
-    char client[32]; Win32LargeInteger size{}; u32 native{};
-    const bool read = GetFileSizeEx(file, size.native()) && size.QuadPart == sizeof(client) &&
-        file_persistence_read_complete(file, {reinterpret_cast<u8*>(client), sizeof(client)}, &native);
-    CloseHandle(file);
-    if (!read || !oauth_client_valid(provider, {client, sizeof(client)})) return 0;
+    char client[32];
+    const auto read = file_persistence_read_file(path, {reinterpret_cast<u8*>(client), sizeof(client)}, sizeof(client));
+    if (!read.ok() || !oauth_client_valid(provider, {client, sizeof(client)})) return 0;
     copy_bytes(output.data, client, sizeof(client));
     return sizeof(client);
 }

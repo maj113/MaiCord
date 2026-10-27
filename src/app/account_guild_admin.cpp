@@ -118,8 +118,4 @@ RestClientSubmitResult account_guild_admin_submit(RestClient* rest, const GuildA
     SecureZeroMemory(reason, encoded.bytes);
     return result;
 }
-
-RestClientSubmitResult account_guild_admin_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
 } // namespace maicord

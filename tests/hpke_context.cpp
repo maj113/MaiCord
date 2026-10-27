@@ -10,6 +10,16 @@ using Check = void (*)(bool, const char*) noexcept;
 bool filled(const void* ptr, u32 n, u8 value = 0xa5) noexcept {
     return test_filled(static_cast<const u8*>(ptr), n, value);
 }
+HpkeResult setup_sender(HpkeContext* context, KdfSha256Workspace& workspace, ConstSlice<u8> recipient,
+                        ConstSlice<u8> info, Slice<u8> encapsulated) noexcept {
+    const ConstSlice<u8> parts[]{info};
+    return hpke_setup_sender_parts(context, workspace, recipient, {parts, 1}, encapsulated);
+}
+HpkeResult setup_recipient(HpkeContext* context, KdfSha256Workspace& workspace, const P256Key& recipient,
+                           ConstSlice<u8> encapsulated, ConstSlice<u8> info) noexcept {
+    const ConstSlice<u8> parts[]{info};
+    return hpke_setup_recipient_parts(context, workspace, recipient, encapsulated, {parts, 1});
+}
 void record(Check check, HANDLE file, ConstSlice<u8> enc, ConstSlice<u8> seq, ConstSlice<u8> info,
             ConstSlice<u8> aad, ConstSlice<u8> pt, ConstSlice<u8> ct) noexcept {
     if (file == INVALID_HANDLE_VALUE)
@@ -36,18 +46,9 @@ void published(Check check, KdfSha256Workspace& workspace) noexcept {
     P256Key recipient{};
     HpkeContext context{};
     check(p256_import_private(&recipient, P256Kind::ecdh, {scalar, 32}).ok(), "HPKE RFC recipient key");
-    check(hpke_setup_recipient(&context, workspace, recipient, {enc, 65}, {info, ni / 2},
-                               {info + ni / 2, ni - ni / 2})
-              .ok(),
+    const ConstSlice<u8> info_parts[]{{info, ni / 2}, {info + ni / 2, ni - ni / 2}};
+    check(hpke_setup_recipient_parts(&context, workspace, recipient, {enc, 65}, {info_parts, 2}).ok(),
           "HPKE RFC recipient setup");
-    const auto auxiliary = aes_gcm_auxiliary(context.cipher);
-    u8 material[60];
-    test_unhex(hpke_base_material, material);
-    check(auxiliary.count == 32 && context.cipher.object.locked &&
-              auxiliary.data == context.cipher.object.data + context.cipher.object.bytes &&
-              bytes_equal(auxiliary.data, material + 28, 32) &&
-              bytes_equal(context.base_nonce, material + 16, 12),
-          "HPKE exporter shares locked provider allocation");
     u32 seq = 0;
     for (const auto& v : hpke_encryptions) {
         u8 aad[128], ct[144], pt[128], output[160];
@@ -73,21 +74,11 @@ void published(Check check, KdfSha256Workspace& workspace) noexcept {
                   HpkeError::authentication_failed,
               "HPKE immediate replay rejected");
     }
-    for (const auto& v : hpke_exports) {
-        u8 label[64], expected[32], out[40];
-        const u32 n = test_unhex(v.context, label);
-        test_unhex(v.output, expected);
-        memset(out, 0xa5, 40);
-        check(hpke_export(context, workspace, {label, n}, {out, 32}).ok() &&
-                  bytes_equal(out, expected, 32) && filled(out + 32, 8),
-              "HPKE retained exporter matches RFC after receive traffic");
-    }
     hpke_release(&context);
     hpke_release(&context);
     p256_release(&recipient);
     check(filled(&context, sizeof(context), 0), "HPKE release clears complete owner");
     SecureZeroMemory(scalar, 32);
-    SecureZeroMemory(material, 60);
 }
 void sender(Check check, KdfSha256Workspace& workspace, HANDLE file, u8* buffer) noexcept {
     auto* plain = buffer;
@@ -105,18 +96,11 @@ void sender(Check check, KdfSha256Workspace& workspace, HANDLE file, u8* buffer)
     HpkeContext send{}, receive{};
     check(p256_import_private(&key, P256Kind::ecdh, {scalar, 32}).ok(), "HPKE roundtrip key");
     memset(enc, 0xa5, 80);
-    check(hpke_setup_sender(&send, workspace, {point, 65}, {info, ni}, {}, {enc, 80}).ok() &&
+    check(setup_sender(&send, workspace, {point, 65}, {info, ni}, {enc, 80}).ok() &&
               filled(enc + 65, 15),
           "HPKE normal sender generates fresh ephemeral and preserves output tail");
-    check(hpke_setup_recipient(&receive, workspace, key, {enc, 65}, {info, ni}, {}).ok(),
+    check(setup_recipient(&receive, workspace, key, {enc, 65}, {info, ni}).ok(),
           "HPKE normal generated encapsulation receiver");
-    check(send.cipher.object.capacity == send.cipher.object.bytes + 32,
-          "HPKE retains just 32 auxiliary secret bytes");
-    u8 sender_export[32], receiver_export[32];
-    check(hpke_export(send, workspace, {aad, 17}, {sender_export, 32}).ok() &&
-              hpke_export(receive, workspace, {aad, 17}, {receiver_export, 32}).ok() &&
-              bytes_equal(sender_export, receiver_export, 32),
-          "HPKE setup sender/recipient exporter agreement");
     constexpr u32 lengths[]{0, 1, 15, 16, 17, 31, 32, 33, 1024, 8192, 65536};
     for (auto n : lengths) {
         u8 seq[12];
@@ -173,47 +157,37 @@ void sender(Check check, KdfSha256Workspace& workspace, HANDLE file, u8* buffer)
     check(hpke_open(receive, {}, {cipher, 49}, {output, 65552}).error == HpkeError::sequence_exhausted &&
               filled(output, 65552),
           "HPKE terminal receiver fails before authentication");
-    check(hpke_export(send, workspace, {aad, 17}, {sender_export, 32}).ok() &&
-              bytes_equal(sender_export, receiver_export, 32),
-          "HPKE export remains stable after sequence exhaustion");
-    // Failed replacement must preserve not merely an empty context, but its
-    // live keys, sequence, role and exporter allocation.
+    // Failed replacement must preserve a live context's keys, sequence and role.
     u8 previous[sizeof(HpkeContext)];
     copy_bytes(previous, &send, sizeof(send));
     u8 invalid[65]{};
     invalid[0] = 4;
     memset(output, 0xa5, 80);
-    check(!hpke_setup_sender(&send, workspace, {invalid, 65}, {}, {}, {output, 80}).ok() &&
+    check(!setup_sender(&send, workspace, {invalid, 65}, {}, {output, 80}).ok() &&
               bytes_equal(previous, &send, sizeof(send)) && filled(output, 80),
           "HPKE invalid replacement preserves live exhausted context");
     const u32 capacity = workspace.storage.capacity;
     workspace.storage.capacity = 1;
-    check(hpke_setup_sender(&send, workspace, {point, 65}, {info, ni}, {}, {output, 80}).error ==
+    check(setup_sender(&send, workspace, {point, 65}, {info, ni}, {output, 80}).error ==
                   HpkeError::derivation_failure &&
               bytes_equal(previous, &send, sizeof(send)) && filled(output, 80),
           "HPKE provider failure preserves live sender and encapsulation");
     u8 prior_receive[sizeof(HpkeContext)];
     copy_bytes(prior_receive, &receive, sizeof(receive));
-    check(hpke_setup_recipient(&receive, workspace, key, {enc, 65}, {info, ni}, {}).error ==
+    check(setup_recipient(&receive, workspace, key, {enc, 65}, {info, ni}).error ==
                   HpkeError::derivation_failure &&
               bytes_equal(prior_receive, &receive, sizeof(receive)),
           "HPKE failed replacement preserves recipient owner");
     workspace.storage.capacity = capacity;
-    check(!hpke_setup_sender(&send, workspace, {point, 65}, {}, {}, {send.base_nonce, 65}).ok() &&
+    check(!setup_sender(&send, workspace, {point, 65}, {}, {send.base_nonce, 65}).ok() &&
               bytes_equal(previous, &send, sizeof(send)),
           "HPKE setup cannot overwrite context owner");
-    const auto auxiliary = aes_gcm_auxiliary(send.cipher);
-    check(!hpke_setup_sender(&send, workspace, {point, 65}, {auxiliary.data, 32}, {}, {output, 80}).ok() &&
-              bytes_equal(previous, &send, sizeof(send)),
-          "HPKE setup cannot borrow old protected exporter");
-    check(!hpke_export(send, workspace, {}, {auxiliary.data, 32}).ok(),
-          "HPKE export cannot overwrite retained secret");
     u8 old_enc[65];
     copy_bytes(old_enc, enc, 65);
-    check(hpke_setup_sender(&send, workspace, {point, 65}, {info, ni}, {}, {enc, 80}).ok() &&
+    check(setup_sender(&send, workspace, {point, 65}, {info, ni}, {enc, 80}).ok() &&
               !bytes_equal(old_enc, enc, 65) && filled(send.sequence, 12, 0),
           "HPKE fresh replacement resets state with new ephemeral");
-    check(hpke_setup_recipient(&receive, workspace, key, {enc, 65}, {info, ni}, {}).ok(),
+    check(setup_recipient(&receive, workspace, key, {enc, 65}, {info, ni}).ok(),
           "HPKE recipient successful replacement");
     // Use a valid CNG hash handle of the wrong object type to exercise a real
     // provider error, then restore ownership before teardown/replacement.
@@ -232,7 +206,7 @@ void sender(Check check, KdfSha256Workspace& workspace, HANDLE file, u8* buffer)
         check(hpke_seal(send, {}, {plain, 17}, {output, 80}).error == HpkeError::poisoned,
               "HPKE poisoned sender cannot reuse nonce");
         BCryptDestroyHash(hash);
-        check(hpke_setup_sender(&send, workspace, {point, 65}, {info, ni}, {}, {enc, 80}).ok() &&
+        check(setup_sender(&send, workspace, {point, 65}, {info, ni}, {enc, 80}).ok() &&
                   !send.poisoned,
               "HPKE fresh setup recovers poisoned context");
     }
@@ -240,35 +214,6 @@ void sender(Check check, KdfSha256Workspace& workspace, HANDLE file, u8* buffer)
     hpke_release(&receive);
     p256_release(&key);
     SecureZeroMemory(scalar, 32);
-    SecureZeroMemory(sender_export, 32);
-    SecureZeroMemory(receiver_export, 32);
-}
-void auxiliary(Check check) noexcept {
-    AesGcmKey key{};
-    u8 secret[16]{}, nonce[12]{}, plain[33]{}, out[64], tag[16];
-    check(aes_gcm_initialize_with_auxiliary(&key, {secret, 16}, ~u32{0}).error ==
-                  AeadError::invalid_input &&
-              !key.handle && !key.object.data,
-          "AES auxiliary allocation overflow rejected");
-    check(aes_gcm_initialize_with_auxiliary(&key, {secret, 16}, 32).ok(), "AES auxiliary key init");
-    auto aux = aes_gcm_auxiliary(key);
-    check(aux.count == 32 && filled(aux.data, 32, 0), "AES auxiliary starts zeroed");
-    if (aux.count == 32) {
-        memset(aux.data, 0x37, 32);
-        check(aes_gcm_encrypt(key, {nonce, 12}, {}, {plain, 33}, {out, 64}, {tag, 16}).ok() &&
-                  filled(aux.data, 32, 0x37),
-              "CNG encryption preserves auxiliary bytes");
-        check(aes_gcm_decrypt(key, {nonce, 12}, {}, {out, 33}, {tag, 16}, {out, 64}).ok() &&
-                  filled(aux.data, 32, 0x37),
-              "CNG decryption preserves auxiliary bytes");
-        check(!aes_gcm_encrypt(key, {nonce, 12}, {aux.data, 32}, {}, {out, 64}, {tag, 16}).ok(),
-              "AES rejects auxiliary input alias");
-        check(!aes_gcm_encrypt(key, {nonce, 12}, {}, {plain, 17}, {aux.data, 32}, {tag, 16}).ok() &&
-                  filled(aux.data, 32, 0x37),
-              "AES rejects auxiliary output alias");
-    }
-    aes_gcm_release(&key);
-    check(!aes_gcm_auxiliary(key).count, "Released AES exposes no auxiliary storage");
 }
 void guards(Check check, KdfSha256Workspace& workspace) noexcept {
     SYSTEM_INFO info{};
@@ -292,10 +237,10 @@ void guards(Check check, KdfSha256Workspace& workspace) noexcept {
               VirtualProtect(allocation + page, page, PAGE_NOACCESS, &old) &&
               VirtualProtect(end, page, PAGE_NOACCESS, &old),
           "HPKE context immutable inputs and output guard");
-    check(hpke_setup_sender(&sender, workspace, {input, 65}, {}, {}, {end - 65, 65}).ok(),
+    check(setup_sender(&sender, workspace, {input, 65}, {}, {end - 65, 65}).ok(),
           "HPKE sender exact encapsulation boundary");
     copy_bytes(enc, end - 65, 65);
-    check(hpke_setup_recipient(&receiver, workspace, key, {enc, 65}, {}, {}).ok(),
+    check(setup_recipient(&receiver, workspace, key, {enc, 65}, {}).ok(),
           "HPKE guard receiver setup");
     copy_bytes(plaintext, input + 32, 33);
     memset(output, 0xa5, 80);
@@ -315,12 +260,6 @@ void guards(Check check, KdfSha256Workspace& workspace) noexcept {
     check(hpke_open(receiver, {}, {allocation + page - 49, 49}, {end - 33, 33}).ok() &&
               bytes_equal(end - 33, plaintext, 33),
           "HPKE exact open plaintext/ciphertext guard boundaries");
-    const auto protected_secret = aes_gcm_auxiliary(sender.cipher);
-    memset(output, 0xa5, 80);
-    check(hpke_seal(sender, {protected_secret.data, 32}, {}, {output, 80}).error ==
-                  HpkeError::invalid_input &&
-              filled(output, 80),
-          "HPKE AEAD cannot borrow exporter as AAD");
     check(hpke_seal(sender, {}, {plaintext, 1}, {sender.base_nonce, 17}).error == HpkeError::invalid_input,
           "HPKE ciphertext cannot overwrite sequence/nonce owner");
     // Empty in-place payloads still authenticate the tag and advance once.
@@ -342,7 +281,6 @@ void guards(Check check, KdfSha256Workspace& workspace) noexcept {
 }
 } // namespace
 void test_hpke_context(Check check) noexcept {
-    auxiliary(check);
     KdfSha256Workspace workspace{};
     check(kdf_sha256_initialize(&workspace).ok(), "HPKE context workspace init");
     if (!workspace.storage.data)

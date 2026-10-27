@@ -3171,16 +3171,15 @@ bool gateway_client_ready_matches_identity(GatewayClientIdentity identity,
     return identity == GatewayClientIdentity::normal_user && ready.api_version == 9;
 }
 
-GatewayClientResult stop_client(GatewayClient* client, u32 timeout_milliseconds,
-                                AccountProfile* returned_profile) noexcept {
+GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* client, u32 timeout_milliseconds,
+                                                            AccountProfile* returned_profile) noexcept {
     const auto* initial_runtime =
         client && client->runtime ? static_cast<const GatewayClientRuntime*>(client->runtime) : nullptr;
-    if (!client || !client->worker.thread || !initial_runtime ||
-        (returned_profile &&
-         (returned_profile->credential.data || returned_profile->credential.locked ||
-          returned_profile->credential.bytes != 0 || returned_profile->credential.capacity != 0 ||
-          returned_profile->metadata.profile_id != 0 ||
-          initial_runtime->identity != GatewayClientIdentity::normal_user || !initial_runtime->user))) {
+    if (!client || !client->worker.thread || !initial_runtime || !returned_profile ||
+        returned_profile->credential.data || returned_profile->credential.locked ||
+        returned_profile->credential.bytes != 0 || returned_profile->credential.capacity != 0 ||
+        returned_profile->metadata.profile_id != 0 ||
+        initial_runtime->identity != GatewayClientIdentity::normal_user || !initial_runtime->user) {
         return invalid_input_result();
     }
     if (WaitForSingleObject(client->worker.thread, 0) == WAIT_TIMEOUT) {
@@ -3200,42 +3199,27 @@ GatewayClientResult stop_client(GatewayClient* client, u32 timeout_milliseconds,
     if (client->notification_event) {
         CloseHandle(client->notification_event);
     }
-    if (client->runtime) {
-        auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-        CloseHandle(runtime->mailbox_space);
-        CloseHandle(runtime->mailbox_cancel);
-        voice_receive_stop(&runtime->voice_receive);
-        // Decode threads must stop asking a freed receive path for keyframes.
-        if (runtime->video_frames.bind_keyframes)
-            runtime->video_frames.bind_keyframes(runtime->video_frames.context, {});
-        gateway_voice_release(&runtime->voice);
-        gateway_stream_session_release(&runtime->stream);
-        if (returned_profile) {
-            if (runtime->credential.data &&
-                secure_buffer_transfer(&returned_profile->credential, &runtime->credential)) {
-                returned_profile->metadata = runtime->user->metadata;
-            } else {
-                secure_buffer_release(&runtime->credential);
-                value.error = GatewayClientError::invalid_input;
-            }
-        } else {
-            secure_buffer_release(&runtime->credential);
-        }
-        release_runtime_allocation(client);
+    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
+    CloseHandle(runtime->mailbox_space);
+    CloseHandle(runtime->mailbox_cancel);
+    voice_receive_stop(&runtime->voice_receive);
+    // Decode threads must stop asking a freed receive path for keyframes.
+    if (runtime->video_frames.bind_keyframes)
+        runtime->video_frames.bind_keyframes(runtime->video_frames.context, {});
+    gateway_voice_release(&runtime->voice);
+    gateway_stream_session_release(&runtime->stream);
+    if (runtime->credential.data &&
+        secure_buffer_transfer(&returned_profile->credential, &runtime->credential)) {
+        returned_profile->metadata = runtime->user->metadata;
+    } else {
+        secure_buffer_release(&runtime->credential);
+        value.error = GatewayClientError::invalid_input;
     }
+    release_runtime_allocation(client);
     reset_value<GatewayClient>(client);
     value.phase =
         value.error == GatewayClientError::none ? GatewayClientPhase::stopped : GatewayClientPhase::failed;
     return value;
-}
-
-GatewayClientResult gateway_client_stop(GatewayClient* client, u32 timeout_milliseconds) noexcept {
-    return stop_client(client, timeout_milliseconds, nullptr);
-}
-
-GatewayClientResult gateway_client_stop_return_user_profile(GatewayClient* client, u32 timeout_milliseconds,
-                                                            AccountProfile* profile) noexcept {
-    return profile ? stop_client(client, timeout_milliseconds, profile) : invalid_input_result();
 }
 
 AccountRequirement gateway_client_required_action(const GatewayClient* client) noexcept {
@@ -3246,23 +3230,6 @@ AccountRequirement gateway_client_required_action(const GatewayClient* client) n
 
 GatewayClientResult gateway_client_status(const GatewayClient* client) noexcept {
     return result(client);
-}
-
-bool gateway_client_pop_event(GatewayClient* client, GatewayClientEvent* event) noexcept {
-    if (!client || !client->runtime || !event) {
-        return false;
-    }
-    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
-    const SpscMailboxResult discarded = spsc_mailbox_discard(&runtime->events, event);
-    if (!discarded.ok()) {
-        return false;
-    }
-    if (discarded.external)
-        release_large_record(runtime);
-    // The consumer is draining: only a producer blocked on a full mailbox needs a signal. Records the
-    // worker publishes after this pop carry their own notification.
-    gateway_mailbox_signal_space(&runtime->events, runtime->mailbox_space);
-    return true;
 }
 
 GatewayClientPopResult gateway_client_pop_event_payload(GatewayClient* client, GatewayClientEvent* event,
@@ -3305,14 +3272,6 @@ GatewayClientPopResult gateway_client_pop_event_payload(GatewayClient* client, G
 
 HANDLE gateway_client_notification_handle(const GatewayClient* client) noexcept {
     return client ? client->notification_event : nullptr;
-}
-
-u32 gateway_client_dropped_events(const GatewayClient* client) noexcept {
-    if (!client || !client->runtime) {
-        return 0;
-    }
-    const auto* runtime = static_cast<const GatewayClientRuntime*>(client->runtime);
-    return spsc_mailbox_dropped(runtime->events);
 }
 
 bool gateway_client_snapshot_user_session(const GatewayClient* client,
@@ -3945,11 +3904,6 @@ bool gateway_client_attach_soundboard(GatewayClient* client, SoundboardMixer* mi
     ReleaseSRWLockShared(playback.lock.native());
     return live;
 }
-
-u32 gateway_client_runtime_bytes() noexcept {
-    return static_cast<u32>(sizeof(GatewayClientRuntime));
-}
-
 u32 gateway_client_user_runtime_bytes() noexcept {
     return kGatewayUserClientRuntimeBytes;
 }

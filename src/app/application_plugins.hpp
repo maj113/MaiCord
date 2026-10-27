@@ -124,7 +124,6 @@ bool application_plugins_reload_trust() noexcept;
 bool application_plugins_enable_owner(u64 owner) noexcept;
 u64 application_plugins_catalog_revision() noexcept;
 const NativePluginCatalog* application_plugins_catalog_current() noexcept;
-u32 application_plugins_catalog_owner_bytes() noexcept;
 // Drop native Settings/choice borrowing before inventory/text is overwritten or freed.
 void application_settings_plugin_catalog_unbind() noexcept;
 bool application_settings_plugin_catalog_reopen() noexcept;
@@ -244,8 +243,8 @@ Utf8View application_plugins_status() noexcept;
 namespace application_plugin_catalog_detail {
 inline bool identity_matches(const NativePluginPreference& identity, const NativePluginManifest& manifest) noexcept {
     if (identity.owner_id != manifest.owner_id || identity.abi_version != manifest.abi_version ||
-        identity.dll_bytes != manifest.dll_bytes || identity.dll_bytes > kNativePluginDllNameCapacity) return false;
-    for (u32 i = 0; i < 32; ++i) if (identity.sha256[i] != manifest.sha256[i]) return false;
+        identity.dll_bytes != manifest.dll_bytes || identity.dll_bytes > kNativePluginDllNameCapacity ||
+        !bytes_equal(identity.sha256, manifest.sha256, 32)) return false;
     for (u32 i = 0; i < identity.dll_bytes; ++i) if (identity.dll[i] != ascii_lower(manifest.dll[i])) return false;
     return true;
 }

@@ -126,20 +126,9 @@ bool channel_memory_load_file(const wchar_t* path, ChannelMemory* memory) noexce
     const u32 revision = memory->revision + 1;
     clear_bytes(memory, sizeof(*memory));
     memory->revision = revision;
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        const u32 error = thread_last_error();
-        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
-    }
-    Win32LargeInteger size{};
     u8 record[kChannelMemoryFileBytes];
-    u32 native_error = 0;
-    const bool read =
-        GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && size.QuadPart <= kChannelMemoryFileBytes &&
-        file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native_error);
-    CloseHandle(file);
-    return read && channel_memory_decode({record, static_cast<u32>(size.QuadPart)}, memory);
+    const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
+    return read.error == FileReadError::missing || (read.ok() && channel_memory_decode({record, read.bytes}, memory));
 }
 
 bool channel_memory_save_file(const wchar_t* path, const ChannelMemory& memory) noexcept {

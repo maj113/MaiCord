@@ -8,5 +8,4 @@ namespace maicord {
 // Submitting a mutation only queues it; rest_take returns the response.
 RestClientSubmitResult account_message_poll_submit(RestClient*,
     const PollRequest*, u64 request_id) noexcept;
-RestClientSubmitResult account_message_poll_cancel(RestClient*, u64 request_id) noexcept;
 } // namespace maicord

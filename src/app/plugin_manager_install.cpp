@@ -126,7 +126,6 @@ AcceptanceRecordResult save_journal(const PluginManagerPaths& paths, const Plugi
 }
 PluginManagerResult trust_failure(NativePluginPreferencesResult result) noexcept {
     PluginManagerResult r = failure(ME::trust);
-    r.trust_error = result.error;
     r.native_error = result.win32_error;
     return r;
 }

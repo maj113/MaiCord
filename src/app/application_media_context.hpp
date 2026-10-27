@@ -38,7 +38,7 @@ inline ApplicationMediaContext application_media_context_resolve(
     MessageMediaContext context = MessageMediaContext::other_dm;
     if (channel && channel->guild_id) {
         context = MessageMediaContext::guild;
-    } else if (channel && (channel->type == 1 || channel->type == 3) && author_id && relationships) {
+    } else if (channel && channel_is_private(channel->type) && author_id && relationships) {
         const auto* relationship = relationship_store_find(*relationships, author_id);
         if (relationship && relationship->type == RelationshipType::friend_)
             context = MessageMediaContext::friend_dm;

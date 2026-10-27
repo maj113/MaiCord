@@ -72,7 +72,6 @@ void plugin_catalog_keys_release(PluginCatalogKeys* keys) noexcept {
     if (!keys) return;
     for (auto& key : keys->official) p256_release(&key);
     for (auto& key : keys->custom) p256_release(&key);
-    keys->official_count = 0;
 }
 
 void plugin_catalog_sources_build(Utf8View repository, ConstSlice<const u8*> official_keys, const PluginProviders& providers,
@@ -85,7 +84,6 @@ void plugin_catalog_sources_build(Utf8View repository, ConstSlice<const u8*> off
         for (u32 i = 0; i < official_keys.count && i < 2; ++i)
             if (official_keys[i] && p256_import_public(&keys->official[count], P256Kind::ecdsa, {official_keys[i], 65}).ok())
                 imported[count] = &keys->official[count], ++count;
-        keys->official_count = count;
         if (count && plugin_catalog_source_official(repository, {imported, count}, &output->sources[0])) {
             output->official = true;
             output->count = 1;
@@ -176,11 +174,7 @@ PluginManagerResult plugin_manager_evaluate(const PluginManagerPaths& paths, con
     const auto states = load_state(paths, &work->state);
     if (!states.ok()) return record_failure(states);
     const auto trusted = load_trust(paths, &work->trust);
-    if (!trusted.ok()) {
-        auto r = failure(ME::trust);
-        r.trust_error = trusted.error;
-        return r;
-    }
+    if (!trusted.ok()) return failure(ME::trust);
     PluginJournal journal{};
     const auto journaled = plugin_journal_load({paths.journal, paths.journal_count}, &journal);
     const bool settled = journaled.error == AcceptanceRecordError::missing || (journaled.ok() && journal.operation == Op::none);
@@ -254,10 +248,8 @@ PluginManagerResult plugin_manager_evaluate(const PluginManagerPaths& paths, con
             if (version != kPluginIndexNoVersion) {
                 const PluginIndexVersion& listed = pass.index->versions[pass.index->plugins[plugin].first_version + version];
                 if (e.max_host_abi != listed.max_host_abi) { e.max_host_abi = listed.max_host_abi; state_changed = true; }
-                if (plugin_index_compatibility(listed, host) != PluginCompatibility::compatible) {
+                if (plugin_index_compatibility(listed, host) != PluginCompatibility::compatible)
                     flags |= kPluginStateIncompatibleHost;
-                    ++ev->incompatible;
-                }
             }
             if (pass.installable && !(flags & kPluginStateRevokedMalicious)) {
                 const NativePluginPreference* trust = manifest ? native_plugin_preferences_find(work->trust, *manifest) : nullptr;
@@ -321,7 +313,7 @@ PluginManagerResult plugin_manager_evaluate(const PluginManagerPaths& paths, con
     }
     if (trust_changed) {
         const auto saved = save_trust(paths, work->trust);
-        if (!saved.ok() && r.ok()) { r = failure(ME::trust); r.trust_error = saved.error; r.native_error = saved.win32_error; }
+        if (!saved.ok() && r.ok()) { r = failure(ME::trust); r.native_error = saved.win32_error; }
         else if (saved.ok()) ev->trust_written = true;
     }
     UpdateLog("plugins", "evaluated").field("kind", static_cast<u8>(pass.kind)).field("index", pass.index != nullptr)

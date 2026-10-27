@@ -11,17 +11,6 @@ namespace {
 using CE = PluginIndexCheckError;
 constexpr Utf8View kPagesSuffix = utf8_literal(".github.io");
 
-struct Writer {
-    char* out;
-    u32 capacity, used;
-    bool ok;
-    void add(const char* text, u32 bytes) noexcept {
-        if (!ok || bytes > capacity - used) { ok = false; return; }
-        copy_bytes(out + used, text, bytes);
-        used += bytes;
-    }
-    void add(Utf8View text) noexcept { add(text.data, text.bytes); }
-};
 Utf8View source_host(const PluginCatalogSource& source, char (&pages)[kUpdateHostNameCapacity]) noexcept {
     if (source.kind != PluginProviderKind::official) return {source.host, source.host_bytes};
     u32 slash = 0;
@@ -216,7 +205,7 @@ bool plugin_catalog_index_location(const PluginCatalogSource& source, bool signa
     u32 slash = 0;
     while (source.repository[slash] != '/') ++slash;
     UpdateLocation l{};
-    Writer w{l.target, kUpdateTargetCapacity, 0, true};
+    UpdateTextWriter w{{l.target, kUpdateTargetCapacity}, 0, true};
     w.add("/", 1);
     w.add(source.repository + slash + 1, source.repository_bytes - slash - 1);
     w.add(signature ? utf8_literal("/v1/index.json.sig") : utf8_literal("/v1/index.json"));
@@ -239,7 +228,7 @@ bool plugin_catalog_file_location(const PluginCatalogSource& source, const Plugi
     if (!file) return false;
     const Utf8View arch_text = arch == PluginIndexArch::x64 ? utf8_literal("x64") : utf8_literal("arm64");
     UpdateLocation l{};
-    Writer w{l.target, kUpdateTargetCapacity, 0, true};
+    UpdateTextWriter w{{l.target, kUpdateTargetCapacity}, 0, true};
     char text[kPluginIndexAssetMaximumBytes + 1];
     const auto decoded = [&](PluginIndexText field) noexcept {
         const auto result = plugin_index_text_decode(document, field, {text, sizeof(text)});

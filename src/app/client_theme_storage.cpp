@@ -102,36 +102,47 @@ ClientThemeStorageResult read_bytes(HANDLE file, Slice<u8> buffer, const FileSna
     *bytes = static_cast<u32>(before.bytes);
     return {};
 }
-ClientThemeStorageResult import_file(const wchar_t* path, const FileSnapshot& expected,
-                                     const ClientThemeStorageSnapshot& baseline,
-                                     ClientThemeStorageSnapshot* output) noexcept {
+// Opens path and reads it into a new workspace, which the caller frees; none is left on failure.
+ClientThemeStorageResult read_workspace(const wchar_t* path, u32 maximum, const FileSnapshot* expected,
+                                        Workspace** output, u32* bytes) noexcept {
     ClientThemeStorageResult result{};
     const HANDLE file = open_read(path, &result);
     if (file == INVALID_HANDLE_VALUE)
         return result;
     auto* workspace = static_cast<Workspace*>(
         VirtualAlloc(nullptr, sizeof(Workspace), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!workspace) {
-        CloseHandle(file);
-        return failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
-    }
-    u32 bytes = 0;
-    result = read_bytes(file, {workspace->record, kClientThemeImportMaximumBytes}, &expected, &bytes);
+    if (workspace)
+        result = read_bytes(file, {workspace->record, maximum}, expected, bytes);
+    else
+        result = failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
     CloseHandle(file);
-    if (result.ok()) {
-        auto candidate = baseline;
-        const auto defaults = client_theme_document_defaults();
-        const auto parsed = client_theme_document_parse(
-            {reinterpret_cast<const char*>(workspace->record), bytes}, defaults,
-            {workspace->structurals, kClientThemeImportMaximumBytes}, &candidate.custom);
-        if (parsed.ok()) {
-            candidate.custom_present = true;
-            candidate.custom_active = false;
-            *output = candidate;
-            result.unsupported_fields = parsed.unsupported_fields;
-        } else
-            result = document_failure(parsed);
+    if (workspace && !result.ok()) {
+        VirtualFree(workspace, 0, MEM_RELEASE);
+        workspace = nullptr;
     }
+    *output = workspace;
+    return result;
+}
+ClientThemeStorageResult import_file(const wchar_t* path, const FileSnapshot& expected,
+                                     const ClientThemeStorageSnapshot& baseline,
+                                     ClientThemeStorageSnapshot* output) noexcept {
+    Workspace* workspace{};
+    u32 bytes = 0;
+    auto result = read_workspace(path, kClientThemeImportMaximumBytes, &expected, &workspace, &bytes);
+    if (!result.ok())
+        return result;
+    auto candidate = baseline;
+    const auto defaults = client_theme_document_defaults();
+    const auto parsed = client_theme_document_parse({reinterpret_cast<const char*>(workspace->record), bytes},
+                                                    defaults, {workspace->structurals, kClientThemeImportMaximumBytes},
+                                                    &candidate.custom);
+    if (parsed.ok()) {
+        candidate.custom_present = true;
+        candidate.custom_active = false;
+        *output = candidate;
+        result.unsupported_fields = parsed.unsupported_fields;
+    } else
+        result = document_failure(parsed);
     VirtualFree(workspace, 0, MEM_RELEASE);
     return result;
 }
@@ -261,22 +272,13 @@ ClientThemeStorageResult client_theme_storage_load_file(const wchar_t* path,
     u32 length = 0;
     if (!output || !path_length(path, &length))
         return failure(ClientThemeStorageError::invalid_input);
-    ClientThemeStorageResult result{};
-    const HANDLE file = open_read(path, &result);
-    if (file == INVALID_HANDLE_VALUE)
-        return result;
-    auto* workspace = static_cast<Workspace*>(
-        VirtualAlloc(nullptr, sizeof(Workspace), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!workspace) {
-        CloseHandle(file);
-        return failure(ClientThemeStorageError::memory, ERROR_NOT_ENOUGH_MEMORY);
-    }
+    Workspace* workspace{};
     u32 bytes = 0;
-    result = read_bytes(file, {workspace->record, kClientThemeStorageMaximumBytes}, nullptr, &bytes);
-    CloseHandle(file);
-    if (result.ok())
-        result = client_theme_storage_decode(
-            {workspace->record, bytes}, {workspace->structurals, kClientThemeImportMaximumBytes}, output);
+    auto result = read_workspace(path, kClientThemeStorageMaximumBytes, nullptr, &workspace, &bytes);
+    if (!result.ok())
+        return result;
+    result = client_theme_storage_decode({workspace->record, bytes},
+                                         {workspace->structurals, kClientThemeImportMaximumBytes}, output);
     VirtualFree(workspace, 0, MEM_RELEASE);
     return result;
 }
@@ -674,8 +676,5 @@ bool client_theme_io_stop(ClientThemeIo** output, u32 timeout) noexcept {
     release_io(io);
     *output = nullptr;
     return true;
-}
-u32 client_theme_io_owner_bytes(const ClientThemeIo* io) noexcept {
-    return io ? sizeof(ClientThemeIo) : 0;
 }
 } // namespace maicord

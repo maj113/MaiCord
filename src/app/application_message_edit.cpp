@@ -25,9 +25,7 @@ MessageMutationSource edit_source;
 const MessageRecord* editable_record(u64 message_id) noexcept {
     if (!g_app.account_ui || !message_id)
         return nullptr;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = application_message_record(message_id);
     // Voice messages cannot be edited; Components V2 use a separate component
     // editor and cannot carry a text caption. System messages are not text edits.
     constexpr u32 unsupported_flags = (1u << 13) | (1u << 15);
@@ -56,9 +54,6 @@ bool submitted_content_equal(const MessageEditRuntime& edit, Utf8View content) n
 }
 
 bool apply_response(u32 body_bytes) noexcept {
-    if (!g_app.account_ui || g_app.message_edit.message_id == 0) {
-        return false;
-    }
     MessageEditRuntime& edit = g_app.message_edit;
     GatewayMessageEvent message{};
     bool decoded_response = false;
@@ -94,9 +89,7 @@ bool apply_response(u32 body_bytes) noexcept {
         // metadata when the PATCH response body is absent or malformed.
         return true;
     }
-    const MessageStoreResult found = message_store_find(g_app.message_view.store, edit.message_id);
-    const MessageRecord* existing =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const MessageRecord* existing = application_message_record(edit.message_id);
     if (!existing || existing->channel_id != edit.channel_id)
         return true;
     if (message.edited_timestamp_ms != 0 &&
@@ -122,6 +115,21 @@ bool apply_response(u32 body_bytes) noexcept {
             g_app.message_pump.resync_required = true;
     }
     return true;
+}
+
+// Queues content for the edit of record; the caller reserved its storage.
+void submit_edit(const MessageRecord& record, Utf8View content) noexcept {
+    MessageEditRuntime& edit = g_app.message_edit;
+    copy_bytes(edit.content, content.data, content.bytes);
+    edit.content_bytes = content.bytes;
+    edit.channel_id = record.channel_id;
+    edit.message_id = record.id;
+    edit.retry_at_ms = 0;
+    edit.phase = MessageEditRequestPhase::queued;
+    edit_source = message_mutation_source_capture(message_store_find(g_app.message_view.store, record.id).handle, record);
+    application_message_mutation_notice_begin(ApplicationMessageMutationKind::edit, edit.channel_id, edit.message_id);
+    if (g_app.window)
+        PostMessageW(g_app.window, WM_NULL, 0, 0);
 }
 
 } // namespace
@@ -256,17 +264,7 @@ bool queue_message_edit() noexcept {
         !message_edit_runtime_reserve(&edit, content.bytes, edit.saved_draft_bytes)) {
         return true;
     }
-    copy_bytes(edit.content, content.data, content.bytes);
-    edit.content_bytes = content.bytes;
-    edit.retry_at_ms = 0;
-    edit.phase = MessageEditRequestPhase::queued;
-    edit_source = message_mutation_source_capture(message_store_find(g_app.message_view.store, record->id).handle,
-                                                  *record);
-    application_message_mutation_notice_begin(ApplicationMessageMutationKind::edit, edit.channel_id,
-                                              edit.message_id);
-    if (g_app.window) {
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
-    }
+    submit_edit(*record, content);
     return refresh_message_composer_ui();
 }
 
@@ -279,18 +277,7 @@ bool queue_message_edit_content(u64 message_id, Utf8View content) noexcept {
     const auto* record = editable_record(message_id);
     if (!record || !message_edit_runtime_reserve(&edit, content.bytes, 0))
         return false;
-    copy_bytes(edit.content, content.data, content.bytes);
-    edit.content_bytes = content.bytes;
-    edit.channel_id = record->channel_id;
-    edit.message_id = record->id;
-    edit.retry_at_ms = 0;
-    edit.phase = MessageEditRequestPhase::queued;
-    edit_source = message_mutation_source_capture(message_store_find(g_app.message_view.store, record->id).handle,
-                                                  *record);
-    application_message_mutation_notice_begin(ApplicationMessageMutationKind::edit, edit.channel_id,
-                                              edit.message_id);
-    if (g_app.window)
-        PostMessageW(g_app.window, WM_NULL, 0, 0);
+    submit_edit(*record, content);
     return true;
 }
 

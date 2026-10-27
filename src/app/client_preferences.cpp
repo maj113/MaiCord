@@ -166,32 +166,21 @@ ClientPreferencesResult client_preferences_load_file(const wchar_t* path,
     u32 length = 0;
     if (!preferences || !valid_path(path, &length))
         return failure(ClientPreferencesError::invalid_input);
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
-                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        const u32 native_error = thread_last_error();
-        return failure(native_error == ERROR_FILE_NOT_FOUND || native_error == ERROR_PATH_NOT_FOUND
-                           ? ClientPreferencesError::missing
-                           : ClientPreferencesError::open,
-                       native_error);
-    }
-    Win32LargeInteger size{};
-    if (!GetFileSizeEx(file, size.native())) {
-        const u32 native_error = thread_last_error();
-        CloseHandle(file);
-        return failure(ClientPreferencesError::size, native_error);
-    }
-    if (size.QuadPart < kHeaderBytes || size.QuadPart > kClientPreferencesRecordBytes) {
-        CloseHandle(file);
-        return failure(ClientPreferencesError::size);
-    }
     u8 record[kClientPreferencesRecordBytes]{};
-    u32 native_error = 0;
-    const u32 record_bytes = static_cast<u32>(size.QuadPart);
-    const bool read = file_persistence_read_complete(file, {record, record_bytes}, &native_error);
-    CloseHandle(file);
-    return read ? client_preferences_decode({record, record_bytes}, preferences)
-                : failure(ClientPreferencesError::read, native_error);
+    const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)}, kHeaderBytes);
+    switch (read.error) {
+    case FileReadError::none:
+        return client_preferences_decode({record, read.bytes}, preferences);
+    case FileReadError::missing:
+        return failure(ClientPreferencesError::missing, read.native_error);
+    case FileReadError::open:
+        return failure(ClientPreferencesError::open, read.native_error);
+    case FileReadError::size:
+        return failure(ClientPreferencesError::size, read.native_error);
+    case FileReadError::read:
+        break;
+    }
+    return failure(ClientPreferencesError::read, read.native_error);
 }
 
 ClientPreferencesResult client_preferences_save_file(const wchar_t* path,

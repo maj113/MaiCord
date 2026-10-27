@@ -31,8 +31,8 @@ struct HpkeResult {
 };
 // Zero initialize, worker exclusive, no copies. Internal fields are not caller
 // controls. A full 96-bit big-endian sequence avoids an artificial 64-bit limit.
-// The exporter secret lives in the cipher's locked auxiliary storage; only
-// non-secret nonce/counter and ownership metadata live in this object.
+// Only the sealing key, non-secret nonce/counter and ownership metadata live in
+// this object.
 struct HpkeContext {
     AesGcmKey cipher;
     u8 base_nonce[12], sequence[12];
@@ -45,13 +45,8 @@ bool hpke_aliases(const HpkeContext& context, ConstSlice<u8> span) noexcept;
 // ephemeral key. Both setups stage all ownership/material before replacing a
 // live context; ALL setup failures preserve it and the encapsulation output.
 // Inputs/output must avoid the old context, cipher allocation and KDF workspace.
-HpkeResult hpke_setup_sender(HpkeContext* context, KdfSha256Workspace& workspace, ConstSlice<u8> recipient,
-                             ConstSlice<u8> info_a, ConstSlice<u8> info_b, Slice<u8> encapsulated) noexcept;
-HpkeResult hpke_setup_recipient(HpkeContext* context, KdfSha256Workspace& workspace,
-                                const P256Key& recipient, ConstSlice<u8> encapsulated,
-                                ConstSlice<u8> info_a, ConstSlice<u8> info_b) noexcept;
-// Arbitrarily segmented setup info, with the same ownership/alias rules.
-// Descriptor storage is borrowed and validated before reading its elements.
+// The info is arbitrarily segmented; its descriptor storage is borrowed and
+// validated before reading its elements.
 HpkeResult hpke_setup_sender_parts(HpkeContext* context, KdfSha256Workspace& workspace,
                                    ConstSlice<u8> recipient, ConstSlice<ConstSlice<u8>> info,
                                    Slice<u8> encapsulated) noexcept;
@@ -68,10 +63,4 @@ HpkeResult hpke_seal(HpkeContext& context, ConstSlice<u8> aad, ConstSlice<u8> pl
                      Slice<u8> ciphertext) noexcept;
 HpkeResult hpke_open(HpkeContext& context, ConstSlice<u8> aad, ConstSlice<u8> ciphertext,
                      Slice<u8> plaintext) noexcept;
-// Export does not advance or depend on AEAD sequence state. Requested length
-// is output.count; native KDF failure wipes it. Callers must validate outer
-// protocol identity, ordering and replay policy; Base HPKE does not authenticate
-// the sender or authorize MLS membership.
-HpkeResult hpke_export(const HpkeContext& context, KdfSha256Workspace& workspace,
-                       ConstSlice<u8> exporter_context, Slice<u8> output) noexcept;
 } // namespace maicord

@@ -118,11 +118,6 @@ int filename_compare(const NativePluginCatalogEntry& a, const NativePluginCatalo
     for (u32 i = 0; i < count; ++i) if (a.filename[i] != b.filename[i]) return a.filename[i] < b.filename[i] ? -1 : 1;
     return 0;
 }
-bool same_dll(const NativePluginManifest& a, const NativePluginManifest& b) noexcept {
-    if (a.dll_bytes != b.dll_bytes) return false;
-    for (u32 i = 0; i < a.dll_bytes; ++i) if (ascii_lower(a.dll[i]) != ascii_lower(b.dll[i])) return false;
-    return true;
-}
 NativePluginCatalogResult read_manifest(const NativePluginCatalog& catalog, NativePluginCatalogEntry* entry,
     NativePluginVerifiedFile* scan_owner) noexcept {
     Guard guard;
@@ -283,7 +278,7 @@ NativePluginCatalogResult native_plugin_catalog_refresh(NativePluginCatalog* cat
         auto& a = catalog->entries[i]; auto& b = catalog->entries[j];
         if (!a.manifest.owner_id || !b.manifest.owner_id) continue;
         if (a.manifest.owner_id == b.manifest.owner_id) a.status = b.status = NativePluginCatalogError::duplicate_owner;
-        else if (same_dll(a.manifest, b.manifest)) {
+        else if (native_plugin_manifest_same_dll(a.manifest, b.manifest)) {
             if (a.status != NativePluginCatalogError::duplicate_owner) a.status = NativePluginCatalogError::duplicate_dll;
             if (b.status != NativePluginCatalogError::duplicate_owner) b.status = NativePluginCatalogError::duplicate_dll;
         }

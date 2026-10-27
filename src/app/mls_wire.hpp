@@ -36,12 +36,6 @@ __declspec(noinline) inline const u8* mls_read_point(MlsReader& reader) noexcept
     }
     return point.data;
 }
-inline u64 mls_load_be64(const u8* data) noexcept {
-    u64 value = 0;
-    for (u32 i = 0; i != 8; ++i)
-        value = (value << 8) | data[i];
-    return value;
-}
 inline void mls_store_be64(u64 value, u8* output) noexcept {
     for (u32 i = 0; i != 8; ++i)
         output[7 - i] = static_cast<u8>(value >> (8 * i));

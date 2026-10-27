@@ -11,6 +11,17 @@ using Check = void (*)(bool, const char*) noexcept;
 bool filled(const void* pointer, u32 n, u8 value = 0xa5) noexcept {
     return test_filled(static_cast<const u8*>(pointer), n, value);
 }
+// Base-mode key schedule over a two-segment info string.
+HpkeDerivationResult schedule_secrets(KdfSha256Workspace& workspace, ConstSlice<u8> shared, ConstSlice<u8> info_a,
+                                      ConstSlice<u8> info_b, HpkeBaseSecrets* output) noexcept {
+    u8 hash[32];
+    const ConstSlice<u8> info[]{info_a, info_b};
+    const auto hashed = hpke_info_hash(workspace, {info, 2}, {hash, 32});
+    const auto result = hashed.ok() ? hpke_base_key_schedule_hashed_info(workspace, shared, {hash, 32}, output)
+                                    : HpkeDerivationResult{0, hashed.native_status, HpkeDerivationError::kdf_failure};
+    SecureZeroMemory(hash, 32);
+    return result;
+}
 void pair(Check check, KdfSha256Workspace& workspace, ConstSlice<u8> ikm, const char* sk,
           const char* pk) noexcept {
     u8 scalar[48], point[80], expected_scalar[32], expected_point[65];
@@ -113,9 +124,9 @@ void schedule(Check check, KdfSha256Workspace& workspace, u8* data) noexcept {
     const u32 n = test_unhex(hpke_base_info, info);
     HpkeBaseSecrets actual{}, expected{};
     test_unhex(hpke_base_material, reinterpret_cast<u8*>(&expected));
-    check(hpke_base_key_schedule(workspace, {shared, 32}, {info, n}, {}, &actual).ok() &&
+    check(schedule_secrets(workspace, {shared, 32}, {info, n}, {}, &actual).ok() &&
               bytes_equal(&actual, &expected, sizeof(actual)),
-          "HPKE published Base key, nonce and exporter secret");
+          "HPKE published Base key and nonce");
     AesGcmKey cipher{};
     check(aes_gcm_initialize(&cipher, {actual.key, 16}).ok(), "HPKE derived AES key initialization");
     for (const auto& v : hpke_encryptions) {
@@ -134,64 +145,35 @@ void schedule(Check check, KdfSha256Workspace& workspace, u8* data) noexcept {
               "HPKE derived key decrypts published ciphertext");
     }
     aes_gcm_release(&cipher);
-    u8 context[64], expected_export[32], output[8168];
-    for (const auto& v : hpke_exports) {
-        const u32 count = test_unhex(v.context, context);
-        test_unhex(v.output, expected_export);
-        memset(output, 0xa5, sizeof(output));
-        check(hpke_export_secret(workspace, {actual.exporter_secret, 32}, {context, count}, {output, 32})
-                      .ok() &&
-                  bytes_equal(output, expected_export, 32) && filled(output + 32, sizeof(output) - 32),
-              "HPKE exporter published vector/tails");
-    }
-    void* hash = nullptr;
-    check(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) >= 0,
-          "HPKE export matrix digest init");
-    if (hash) {
-        for (auto nc : hpke_export_contexts)
-            for (auto no : hpke_export_lengths) {
-                memset(output, 0xa5, sizeof(output));
-                check(hpke_export_secret(workspace, {actual.exporter_secret, 32}, {data, nc}, {output, no})
-                              .ok() &&
-                          filled(output + no, sizeof(output) - no),
-                      "HPKE export context/length boundaries");
-                check(BCryptHashData(hash, output, no, 0) >= 0, "HPKE export matrix aggregation");
-            }
-        u8 answer[32], digest[32];
-        test_unhex(hpke_export_digest, answer);
-        check(BCryptFinishHash(hash, digest, 32, 0) >= 0 && bytes_equal(answer, digest, 32),
-              "HPKE exporter matrix independent oracle");
-        BCryptDestroyHash(hash);
-    }
     for (const auto& v : hpke_info_boundaries) {
         test_unhex(v.material, reinterpret_cast<u8*>(&expected));
         const u32 splits[]{0, v.length / 2, v.length};
         for (auto split : splits) {
             memset(&actual, 0xa5, sizeof(actual));
-            check(hpke_base_key_schedule(workspace, {shared, 32}, {data, split},
-                                         {data + split, v.length - split}, &actual)
+            check(schedule_secrets(workspace, {shared, 32}, {data, split},
+                                   {data + split, v.length - split}, &actual)
                           .ok() &&
                       bytes_equal(&actual, &expected, sizeof(actual)),
                   "HPKE arbitrary split info including beyond reference setup limit");
         }
         // Replace borrowed shared-secret storage only after all derivation succeeds.
-        copy_bytes(&actual, shared, 32);
-        check(hpke_base_key_schedule(workspace, {reinterpret_cast<const u8*>(&actual), 32},
-                                     {data, v.length}, {}, &actual)
-                      .ok() &&
-                  bytes_equal(&actual, &expected, sizeof(actual)),
+        u8 staged[32];
+        copy_bytes(staged, shared, 32);
+        auto* overlapped = reinterpret_cast<HpkeBaseSecrets*>(staged);
+        check(schedule_secrets(workspace, {staged, 32}, {data, v.length}, {}, overlapped).ok() &&
+                  bytes_equal(overlapped, &expected, sizeof(expected)),
               "HPKE schedule stages aliased input/output");
     }
     memset(&actual, 0xa5, sizeof(actual));
-    check(!hpke_base_key_schedule(workspace, {shared, 31}, {}, {}, &actual).ok() &&
+    check(!schedule_secrets(workspace, {shared, 31}, {}, {}, &actual).ok() &&
               filled(&actual, sizeof(actual)),
           "HPKE invalid shared-secret length is atomic");
-    check(!hpke_base_key_schedule(workspace, {shared, 32}, {workspace.storage.data, 1}, {}, &actual).ok() &&
+    check(!schedule_secrets(workspace, {shared, 32}, {workspace.storage.data, 1}, {}, &actual).ok() &&
               filled(&actual, sizeof(actual)),
           "HPKE schedule input cannot alias KDF storage");
     const u32 capacity = workspace.storage.capacity;
     workspace.storage.capacity = 1;
-    check(hpke_base_key_schedule(workspace, {shared, 32}, {info, n}, {}, &actual).error ==
+    check(schedule_secrets(workspace, {shared, 32}, {info, n}, {}, &actual).error ==
                   HpkeDerivationError::kdf_failure &&
               filled(&actual, sizeof(actual)),
           "HPKE schedule provider failure is atomic");
@@ -200,20 +182,13 @@ void schedule(Check check, KdfSha256Workspace& workspace, u8* data) noexcept {
                   HpkeDerivationError::kdf_failure &&
               !failed.handle,
           "HPKE key derivation failure keeps empty owner");
-    memset(output, 0xa5, sizeof(output));
-    check(hpke_export_secret(workspace, {shared, 32}, {}, {output, 33}).error ==
-                  KdfError::platform_failure &&
-              filled(output, 33, 0) && filled(output + 33, sizeof(output) - 33),
-          "HPKE exporter native failure erases only requested bytes");
-    check(hpke_export_secret(workspace, {shared, 32}, {}, {output, 0}).ok(),
-          "HPKE zero-length export skips failed provider");
     workspace.storage.capacity = capacity;
     check(!hpke_derive_key_pair(workspace, {reinterpret_cast<const u8*>(&failed), 1}, &failed).ok() &&
               !failed.handle,
           "HPKE derived owner cannot overlap IKM");
     check(!hpke_derive_key_pair(workspace, {workspace.storage.data, 1}, &failed).ok() && !failed.handle,
           "HPKE derived IKM cannot alias KDF storage");
-    check(hpke_base_key_schedule(workspace, {shared, 32}, {info, n}, {}, &actual).ok(),
+    check(schedule_secrets(workspace, {shared, 32}, {info, n}, {}, &actual).ok(),
           "HPKE schedule retry after failure");
     hpke_base_secrets_clear(&actual);
     hpke_base_secrets_clear(&expected);
@@ -221,7 +196,6 @@ void schedule(Check check, KdfSha256Workspace& workspace, u8* data) noexcept {
               filled(workspace.storage.data, workspace.storage.capacity, 0),
           "HPKE candidate and KDF retirement erasure");
     SecureZeroMemory(shared, 32);
-    SecureZeroMemory(output, sizeof(output));
 }
 void guards(Check check, KdfSha256Workspace& workspace) noexcept {
     SYSTEM_INFO system{};
@@ -257,8 +231,8 @@ void guards(Check check, KdfSha256Workspace& workspace) noexcept {
           "HPKE exact derived owner boundary");
     p256_release(key);
     auto* secrets = reinterpret_cast<HpkeBaseSecrets*>(end - sizeof(HpkeBaseSecrets));
-    check(hpke_base_key_schedule(workspace, {allocation + page - 32, 32}, {allocation + page - 31, 15},
-                                 {allocation + page - 16, 16}, secrets)
+    check(schedule_secrets(workspace, {allocation + page - 32, 32}, {allocation + page - 31, 15},
+                           {allocation + page - 16, 16}, secrets)
               .ok(),
           "HPKE exact schedule output and segmented input boundaries");
     hpke_base_secrets_clear(secrets);

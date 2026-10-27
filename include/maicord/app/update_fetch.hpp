@@ -1,6 +1,8 @@
 #pragma once
 
 #include "maicord/app/update_manifest.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 
@@ -38,6 +40,19 @@ u32 update_version_text(u64 version, Slice<char> output) noexcept;
 // An application build: "1.2.3", or "1.2.4-dev.5" for a master build,
 // followed by "+<commit>" when commit is not empty (at most 12 characters).
 u32 update_build_version_text(u64 version, Utf8View commit, Slice<char> output) noexcept;
+// Bounded appender for update and catalog locations: a write past the end
+// clears ok and leaves the output alone.
+struct UpdateTextWriter {
+    Slice<char> out;
+    u32 used;
+    bool ok;
+    void add(const char* text, u32 bytes) noexcept {
+        if (!ok || bytes > out.count - used) { ok = false; return; }
+        copy_bytes(out.data + used, text, bytes); used += bytes;
+    }
+    void add(Utf8View text) noexcept { add(text.data, text.bytes); }
+    void number(u64 value) noexcept { char digits[20]; add(digits, decimal_write(digits, value)); }
+};
 
 // GitHub "owner/repo". The owner is a GitHub login (1-39 ASCII letters,
 // digits and inner '-'), which is also the DNS label of its Pages host; the

@@ -65,6 +65,5 @@ bool application_media_picker_preview_request(u32 visible_cell,
                                               AccountMediaCatalogPreviewRequest* output) noexcept;
 bool application_media_picker_preview_visible(MediaAssetKey key) noexcept;
 bool application_media_picker_preview_rejected(MediaAssetKey key,u64 scope,u32 generation) noexcept;
-u32 application_media_picker_owner_bytes() noexcept;
 
 } // namespace maicord::app_detail

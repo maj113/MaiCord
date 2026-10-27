@@ -53,7 +53,4 @@ RestClientSubmitResult account_forum_post_submit(RestClient* rest,
                               request_id,
                               false);
 }
-RestClientSubmitResult account_forum_post_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
 } // namespace maicord

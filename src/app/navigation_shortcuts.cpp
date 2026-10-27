@@ -47,12 +47,8 @@ bool focus_eligible(void* opaque, u32 index) noexcept {
 
 } // namespace
 
-NavigationShortcut navigation_shortcut(u32 key, bool control, bool alt, bool shift) noexcept {
-    // The registry owns the chords; global scope applies in every focus.
-    const ShortcutChord chord{key <= 0xff ? static_cast<u8>(key) : u8{0},
-                              static_cast<u8>((control ? shortcut_ctrl : 0) | (alt ? shortcut_alt : 0) |
-                                              (shift ? shortcut_shift : 0))};
-    switch (shortcut_first({ShortcutFocus::text, false}, chord)) {
+NavigationShortcut navigation_shortcut(ShortcutAction action) noexcept {
+    switch (action) {
     case ShortcutAction::server_previous: return {NavigationMode::guild, true};
     case ShortcutAction::server_next: return {NavigationMode::guild, false};
     case ShortcutAction::channel_previous: return {NavigationMode::channel, true};
@@ -63,6 +59,14 @@ NavigationShortcut navigation_shortcut(u32 key, bool control, bool alt, bool shi
     case ShortcutAction::mention_next: return {NavigationMode::mention, false};
     default: return {};
     }
+}
+
+NavigationShortcut navigation_shortcut(u32 key, bool control, bool alt, bool shift) noexcept {
+    // The registry owns the chords; global scope applies in every focus.
+    const ShortcutChord chord{key <= 0xff ? static_cast<u8>(key) : u8{0},
+                              static_cast<u8>((control ? shortcut_ctrl : 0) | (alt ? shortcut_alt : 0) |
+                                              (shift ? shortcut_shift : 0))};
+    return navigation_shortcut(shortcut_first({ShortcutFocus::text, false}, chord));
 }
 
 NavigationTarget navigation_target(const NavigationView& view,

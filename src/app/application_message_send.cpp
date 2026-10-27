@@ -182,8 +182,7 @@ bool application_message_send_captcha_resume() noexcept {
         application_action_captcha_phase(ApplicationActionCaptchaKind::message_send, nonce) !=
             ApplicationActionCaptchaPhase::solved)
         return false;
-    const auto found = message_store_find(g_app.message_view.store, nonce);
-    const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = application_message_record(nonce);
     if (!record || record->delivery != MessageDeliveryState::failed ||
         !message_composer_controller_retry(&g_app.account_ui->message_composer_controller, nonce,
                                            clock_monotonic_milliseconds())

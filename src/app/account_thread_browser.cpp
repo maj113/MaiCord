@@ -17,9 +17,4 @@ RestClientSubmitResult account_thread_browser_submit(
          RestMajorParameter::channel},
         request_id, false);
 }
-
-RestClientSubmitResult account_thread_browser_cancel(
-    RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
 } // namespace maicord

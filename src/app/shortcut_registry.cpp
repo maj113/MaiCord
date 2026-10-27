@@ -530,17 +530,9 @@ bool custom_keybinds_decode(ConstSlice<u8> record, CustomKeybinds* keybinds) noe
 bool custom_keybinds_load_file(const wchar_t* path, CustomKeybinds* keybinds) noexcept {
     if (!path || !keybinds)
         return false;
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-        return false;
     u8 record[kCustomKeybindsMaximumBytes]{};
-    Win32LargeInteger size{};
-    u32 native = 0;
-    const bool read = GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && static_cast<u64>(size.QuadPart) <= sizeof(record) &&
-                      file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native);
-    CloseHandle(file);
-    return read && custom_keybinds_decode({record, static_cast<u32>(size.QuadPart)}, keybinds);
+    const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
+    return read.ok() && custom_keybinds_decode({record, read.bytes}, keybinds);
 }
 bool custom_keybinds_save_file(const wchar_t* path, const CustomKeybinds& keybinds) noexcept {
     u8 record[kCustomKeybindsMaximumBytes];

@@ -59,10 +59,6 @@ struct ClientPreferences {
 inline constexpr u8 kClientPreferencesGroupSpacingCount = 6;
 inline constexpr u16 kClientPreferencesPaneWidthMinimum = 120;
 inline constexpr u16 kClientPreferencesPaneWidthMaximum = 1024;
-// Trailing aggregate defaults keep existing callers valid. Large startup
-// structs start at zero; startup/migration apply the defaults below. Persistence
-// encodes fields, never this in-memory layout.
-
 inline constexpr u32 kClientPreferencesVersion = 9;
 inline constexpr u32 kClientPreferencesRecordBytes = 80;
 

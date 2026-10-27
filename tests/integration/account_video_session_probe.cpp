@@ -41,17 +41,15 @@ struct Probe {
     VideoFrameGpu conversion{};
     HANDLE lane{}, file{};
     u8* input{};
-    u32 input_bytes{}, stage{}, native{}, copied_frames{}, turns{};
+    u32 input_bytes{}, stage{}, native{}, copied_frames{};
     u32 rgba_frames{}, rgba_readbacks{};
     u64 deadline{}, serial{}, max_written{}, max_submitted{}, max_consumed{};
-    u64 service_ms{}, service_max_ms{}, copy_ms{}, copy_max_ms{}, wait_ms{};
     bool com{}, retained{}, joined{}, played{}, paused{}, sought{}, volume{}, muted{}, unmuted{}, ended{},
         replayed{}, stopped{}, generic{}, opus{}, audio{};
     u64 opus_total_frames{}, opus_end_written{}, opus_end_consumed{};
     u64 audio_total_frames{}, audio_end_written{}, audio_end_consumed{};
 };
 Probe g_probe{}; // Failed join retains every borrowed owner until process exit.
-void format_metric(const Probe&, const char*, u64) noexcept;
 void metric(const char* key, u64 value) noexcept {
     char out[128]{};
     u32 count{};
@@ -214,20 +212,9 @@ bool pump(Probe& p, Until until) noexcept {
     for (u32 turn = 0; turn < 65536; ++turn) {
         if (GetTickCount64() >= p.deadline)
             return fail(p, WAIT_TIMEOUT);
-        ++p.turns;
-        const u64 service_start = GetTickCount64();
         const auto service = account_video_session_service(&p.session);
-        const u64 service_elapsed = GetTickCount64() - service_start;
-        p.service_ms += service_elapsed;
-        p.service_max_ms = maximum(p.service_max_ms, service_elapsed);
-        if (service.frame_ready) {
-            const u64 copy_start = GetTickCount64();
-            if (!copy(p, service))
-                return false;
-            const u64 copy_elapsed = GetTickCount64() - copy_start;
-            p.copy_ms += copy_elapsed;
-            p.copy_max_ms = maximum(p.copy_max_ms, copy_elapsed);
-        }
+        if (service.frame_ready && !copy(p, service))
+            return false;
         // A visible renderer submits its immediate-context work with Present.
         // This owned headless test has no swapchain, so flush once per service
         // turn instead of leaving decoder/copy work in a driver command batch.
@@ -235,31 +222,10 @@ bool pump(Probe& p, Until until) noexcept {
             p.context->Flush();
         const auto s = account_video_session_status(&p.session);
         measure(p);
-        if (s.error != AccountVideoError::none) {
-            metric("session_error", static_cast<u32>(s.error));
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-            const auto d = account_video_session_timestamp_diagnostic(&p.session);
-            metric("timestamp_error_site", d.error_site);
-            metric("timestamp_source_frames", d.source_frames);
-            metric("timestamp_block_frames", d.block_frames);
-            metric("timestamp_native_bits", static_cast<u64>(d.native_timestamp));
-            metric("timestamp_expected_bits", static_cast<u64>(d.expected_timestamp));
-            metric("timestamp_present", d.stamped);
-            metric("timestamp_mapped", d.mapped);
-            metric("timestamp_packet_index", d.packet_index);
-            metric("timestamp_packet_count", d.packet_count);
-            metric("timestamp_window_first", d.window_first);
-            metric("timestamp_window_end", d.window_end);
-            metric("timestamp_outputs", d.outputs);
-#endif
+        if (s.error != AccountVideoError::none)
             return fail(p, s.native_error);
-        }
-        if (reached(p, until)) {
-            metric("observed_command", s.observed_command);
-            metric("playback_epoch", s.playback_epoch);
-            metric("position_100ns", static_cast<u64>(s.position_100ns));
+        if (reached(p, until))
             return true;
-        }
         // Copy acknowledgement changed the software frame lease/readiness.
         // The service result predates that transition; recompute its next frame
         // and deadline just as production does on the UI-ack lane wake.
@@ -272,9 +238,7 @@ bool pump(Probe& p, Until until) noexcept {
             return fail(p, WAIT_TIMEOUT);
         const DWORD timeout =
             static_cast<DWORD>(minimum(p.deadline - now, u64{service.next_service_delay_ms}));
-        const u64 wait_start = GetTickCount64();
         const DWORD waited = WaitForSingleObject(p.lane, timeout);
-        p.wait_ms += GetTickCount64() - wait_start;
         if (waited == WAIT_FAILED)
             return fail(p, GetLastError());
         if (waited != WAIT_OBJECT_0 && waited != WAIT_TIMEOUT)
@@ -286,10 +250,8 @@ bool command(Probe& p, AccountVideoCommand kind, i64 target = 0, float gain = 1,
              bool muted = false) noexcept {
     const auto value =
         account_video_session_control(&p.session, p.identity, ++p.serial, kind, target, gain, muted);
-    if (!value.admitted || !value.ok()) {
-        metric("command_error", static_cast<u32>(value.error));
+    if (!value.admitted || !value.ok())
         return fail(p, value.native_error);
-    }
     return true;
 }
 bool option(const wchar_t* wanted) noexcept {
@@ -471,37 +433,15 @@ bool run_audio(Probe& p, MediaAttachmentFormat format) noexcept {
         p.session.status.duration_100ns !=
             static_cast<i64>(encoded_audio_duration_units(p.audio_metadata, 10000000)))
         return fail(p, ERROR_INVALID_DATA);
-    metric("audio_kind", static_cast<u32>(expected_kind));
-    metric("audio_source_rate", rate);
-    metric("audio_total_frames", p.audio_total_frames);
-    metric("audio_duration_100ns", static_cast<u64>(p.session.status.duration_100ns));
-    metric("metadata_owned_bytes", account_video_session_owned_bytes(&p.session));
-    metric("input_bytes", p.input_bytes);
     p.stage = 31;
     if (!command(p, AccountVideoCommand::volume, 0, .1f) || !command(p, AccountVideoCommand::play) ||
         !pump(p, Until::playing))
         return false;
     p.played = true;
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
     const auto native = account_video_session_probe_snapshot(&p.session).audio;
-    metric("audio_native_worker_started", native.worker_started);
-    metric("audio_native_stream_open", native.stream_open);
-    metric("audio_native_clock_frequency", native.clock_frequency);
-    metric("audio_native_consumed_frames", native.consumed_frames);
-    format_metric(p, "native_worker_started", native.worker_started);
-    format_metric(p, "native_stream_open", native.stream_open);
-    format_metric(p, "native_clock_frequency", native.clock_frequency);
-    format_metric(p, "native_consumed_frames", native.consumed_frames);
-    if (p.opus) {
-        metric("opus_native_worker_started", native.worker_started);
-        metric("opus_native_stream_open", native.stream_open);
-        metric("opus_native_clock_frequency", native.clock_frequency);
-        metric("opus_native_consumed_frames", native.consumed_frames);
-    }
     if (!native.worker_started || !native.stream_open || !native.clock_valid || !native.clock_frequency ||
         !native.consumed_frames)
         return fail(p, ERROR_INVALID_DATA);
-#endif
     p.stage = 32;
     if (!command(p, AccountVideoCommand::pause) || !pump(p, Until::paused))
         return false;
@@ -823,89 +763,9 @@ void report(const Probe& p, bool okay) noexcept {
     metric("copied_frames", p.copied_frames);
     metric("rgba_frames", p.rgba_frames);
     metric("rgba_readbacks", p.rgba_readbacks);
-    metric("service_turns", p.turns);
-    metric("service_ms", p.service_ms);
-    metric("service_max_ms", p.service_max_ms);
-    metric("copy_ms", p.copy_ms);
-    metric("copy_max_ms", p.copy_max_ms);
-    metric("wait_ms", p.wait_ms);
-    metric("max_written_frames", p.max_written);
-    metric("max_submitted_frames", p.max_submitted);
-    metric("max_consumed_frames", p.max_consumed);
-}
-void snapshot(const Probe& p) noexcept {
-    if (p.decoder.hevc)
-        hevc_gpu_decoder_probe_report(p.decoder.native);
-    const auto codec = p.decoder.hevc ? hevc_gpu_decoder_diagnostic(p.decoder.native)
-                                      : h264_gpu_decoder_diagnostic(p.decoder.native);
-    metric("codec_is_hevc", p.decoder.hevc);
-    metric("generic_mode", p.generic);
-    metric("codec_parse_error", static_cast<u32>(p.decoder.native.parse_error));
-    metric("codec_demux_error", static_cast<u32>(p.decoder.native.demux_error));
-    metric("codec_native_hresult_bits", static_cast<u32>(p.decoder.native.status));
-    metric("codec_next_sample_index", codec.next_sample_index);
-    metric("codec_next_sample_pts_us_signed_bits", static_cast<u64>(codec.next_sample_pts_us));
-    metric("codec_next_sample_dts_us", codec.next_sample_dts_us);
-    metric("codec_next_sample_valid", codec.next_sample_valid);
-    metric("codec_queued_pictures", codec.queued_pictures);
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-    const auto d = account_video_session_probe_snapshot(&p.session);
-    const auto& a = d.audio;
-    const auto& s = d.session;
-    metric("final_desired_play", d.desired_play);
-    metric("final_video_eof", d.video_eof);
-    metric("final_held", d.held);
-    metric("final_published", d.published);
-    metric("final_seeking", d.seeking);
-    metric("final_audio_epoch_ready", d.audio_epoch_ready);
-    metric("final_decoded_end", d.decoded_end);
-    metric("final_sealed", d.sealed);
-    metric("final_reading", d.reading);
-    metric("final_draining", d.draining);
-    metric("final_requested_play", d.requested_play);
-    metric("final_source_frames", d.source_frames);
-    metric("final_queued_frames", d.queued_frames);
-    metric("final_wanted_frames", d.wanted_frames);
-    metric("final_pending_frames", d.pending_frames);
-    metric("final_session_playing", s.playing);
-    metric("final_session_paused", s.paused);
-    metric("final_session_buffering", s.buffering);
-    metric("final_session_ended", s.ended);
-    metric("final_session_clock_valid", s.clock_valid);
-    metric("final_session_position", static_cast<u64>(s.position_100ns));
-    metric("final_audio_playing", a.playing);
-    metric("final_audio_paused", a.paused);
-    metric("final_audio_buffering", a.buffering);
-    metric("final_audio_ended", a.ended);
-    metric("final_audio_clock_valid", a.clock_valid);
-    metric("final_audio_desired_epoch", a.desired_epoch);
-    metric("final_audio_observed_epoch", a.observed_epoch);
-    metric("final_audio_error", static_cast<u32>(a.error));
-    metric("final_audio_native_error", a.native_error);
-    metric("final_audio_wake_error", a.wake_error);
-    metric("final_audio_free_frames", a.free_frames);
-    metric("final_audio_written", a.written_frames);
-    metric("final_audio_submitted", a.submitted_frames);
-    metric("final_audio_consumed", a.consumed_frames);
-    metric("final_audio_position", static_cast<u64>(a.presentation_time_100ns));
-#else
-    (void)p;
-#endif
-}
-void format_metric(const Probe& p, const char* name, u64 value) noexcept {
-    const char* prefix = p.audio_metadata.format == MediaAttachmentFormat::ogg_opus ? "opus_"
-                         : p.audio_metadata.format == MediaAttachmentFormat::mp3    ? "mp3_"
-                                                                                    : "wav_";
-    char key[96]{};
-    u32 used = 0;
-    while (*prefix && used < 90)
-        key[used++] = *prefix++;
-    while (*name && used < 90)
-        key[used++] = *name++;
-    metric(key, value);
 }
 bool run_audio_suite(Probe& p) noexcept {
-    const u64 started = GetTickCount64(), deadline = started + 4500;
+    const u64 deadline = GetTickCount64() + 4500;
     constexpr MediaAttachmentFormat formats[]{MediaAttachmentFormat::ogg_opus, MediaAttachmentFormat::mp3,
                                               MediaAttachmentFormat::wav};
     u32 completed = 0;
@@ -913,10 +773,8 @@ bool run_audio_suite(Probe& p) noexcept {
         p = Probe{}; // Previous source/event/workspace has joined before reuse.
         p.deadline = deadline;
         p.audio_metadata.format = format;
-        metric("audio_case_format", static_cast<u32>(format));
         const bool ran = GetTickCount64() < deadline && run_audio(p, format);
         const u32 stage = p.stage, native = p.native;
-        snapshot(p);
         const bool released = release(p);
         if (released) {
             p.stage = stage;
@@ -926,33 +784,15 @@ bool run_audio_suite(Probe& p) noexcept {
                           p.unmuted && p.ended && p.replayed && p.stopped && p.joined && !p.retained &&
                           p.audio_end_written && p.audio_end_consumed == p.audio_end_written;
         report(p, okay);
-        format_metric(p, "pass", okay);
-        format_metric(p, "source_rate", encoded_audio_rate(p.audio_metadata));
-        format_metric(p, "total_frames", p.audio_total_frames);
-        format_metric(p, "end_written_frames", p.audio_end_written);
-        format_metric(p, "end_consumed_frames", p.audio_end_consumed);
-        format_metric(p, "played", p.played);
-        format_metric(p, "paused", p.paused);
-        format_metric(p, "sought", p.sought);
-        format_metric(p, "volume", p.volume);
-        format_metric(p, "muted", p.muted);
-        format_metric(p, "unmuted", p.unmuted);
-        format_metric(p, "ended", p.ended);
-        format_metric(p, "replayed", p.replayed);
-        format_metric(p, "stopped", p.stopped);
-        format_metric(p, "joined", p.joined);
         if (!okay) {
             metric("audio_cases_completed", completed);
             return false;
         }
         ++completed;
     }
-    const u64 elapsed = GetTickCount64() - started;
     metric("audio_cases_completed", completed);
-    metric("audio_suite_elapsed_ms", elapsed);
-    const bool okay = completed == 3 && elapsed < 4500;
-    metric("audio_suite_pass", okay);
-    return okay;
+    metric("audio_suite_pass", completed == 3);
+    return completed == 3;
 }
 } // namespace
 } // namespace maicord
@@ -962,7 +802,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_video_session_probe_
         ExitProcess(maicord::run_audio_suite(p) ? 0 : 1);
     const bool ran = maicord::run(p);
     const maicord::u32 stage = p.stage, native = p.native;
-    maicord::snapshot(p);
     const bool released = maicord::release(p);
     if (released) {
         p.stage = stage;

@@ -164,25 +164,6 @@ void hpke_base_secrets_clear(HpkeBaseSecrets* secrets) noexcept {
     if (secrets)
         secure_clear_bytes(secrets, sizeof(*secrets));
 }
-HpkeDerivationResult hpke_base_key_schedule(KdfSha256Workspace& workspace, ConstSlice<u8> shared_secret,
-                                            ConstSlice<u8> info_a, ConstSlice<u8> info_b,
-                                            HpkeBaseSecrets* output) noexcept {
-    if (!ready(workspace))
-        return {0, 0, HpkeDerivationError::not_initialized};
-    if (!output || shared_secret.count != 32)
-        return {0, 0, HpkeDerivationError::invalid_input};
-    const ConstSlice<u8> spans[]{shared_secret, info_a, info_b, object_bytes(*output)};
-    for (auto span : spans)
-        if (!external(workspace, span))
-            return {0, 0, HpkeDerivationError::invalid_input};
-    u8 hash[32];
-    const ConstSlice<u8> info[]{info_a, info_b};
-    auto result = from_kdf(hpke_info_hash(workspace, {info, 2}, {hash, 32}));
-    if (result.ok())
-        result = hpke_base_key_schedule_hashed_info(workspace, shared_secret, {hash, 32}, output);
-    secure_clear_bytes(hash, sizeof(hash));
-    return result;
-}
 KdfResult hpke_info_hash(KdfSha256Workspace& workspace, ConstSlice<ConstSlice<u8>> info,
                          Slice<u8> output) noexcept {
     static constexpr u8 prefix[]{'H', 'P', 'K', 'E', '-', 'v', '1', 'H', 'P', 'K', 'E', 0,   0x10,
@@ -218,9 +199,6 @@ HpkeDerivationResult hpke_base_key_schedule_hashed_info(KdfSha256Workspace& work
     if (result.ok())
         result = expand(workspace, {hpke_suite, sizeof(hpke_suite)}, {secret, 32}, text_bytes("base_nonce"),
                         {context, 65}, {}, {candidate.base_nonce, 12});
-    if (result.ok())
-        result = expand(workspace, {hpke_suite, sizeof(hpke_suite)}, {secret, 32}, text_bytes("exp"),
-                        {context, 65}, {}, {candidate.exporter_secret, 32});
     if (result.ok()) {
         *output = candidate;
         result.bytes = sizeof(candidate);
@@ -229,12 +207,5 @@ HpkeDerivationResult hpke_base_key_schedule_hashed_info(KdfSha256Workspace& work
     secure_clear_bytes(context, sizeof(context));
     secure_clear_bytes(secret, sizeof(secret));
     return from_kdf(result);
-}
-KdfResult hpke_export_secret(KdfSha256Workspace& workspace, ConstSlice<u8> exporter_secret,
-                             ConstSlice<u8> context, Slice<u8> output) noexcept {
-    if (exporter_secret.count != 32 || output.count > 8160)
-        return {0, 0, KdfError::invalid_input};
-    return expand(workspace, {hpke_suite, sizeof(hpke_suite)}, exporter_secret, text_bytes("sec"), context,
-                  {}, output);
 }
 } // namespace maicord

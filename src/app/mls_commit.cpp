@@ -268,7 +268,7 @@ MlsStatus mls_commit_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, const 
         group_id.count != kMlsGroupIdBytes || sender_type != kSenderMember ||
         content_type != kContentCommit || has_path > 1)
         return MlsStatus::malformed;
-    candidate.group_id = mls_load_be64(group_id.data);
+    candidate.group_id = byte_load_be64(group_id.data);
     if (candidate.group_id != context.group_id || candidate.epoch != context.epoch)
         return MlsStatus::malformed;
     for (u32 offset = 0;;) {

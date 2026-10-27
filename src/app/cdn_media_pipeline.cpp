@@ -156,33 +156,6 @@ bool gif_key_valid(const MediaAssetKey& key) noexcept {
                 (key.flags & media_asset_flag_animated) != 0);
 }
 
-void decode_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnStaticPngState success_state,
-                  CdnStaticPngResult* out) noexcept {
-    reset(out);
-    const auto parsed = png_parse(encoded, &out->image);
-    // Interlaced files and files with many IDAT chunks need room past the output.
-    const u32 required = parsed.ok() ? png_decode_buffer_bytes(out->image) : 0;
-    if (pipeline->grow_scanlines && parsed.ok() && required > pipeline->scanline_capacity) {
-        const auto grown = pipeline->grow_scanlines(pipeline->scanline_owner, required);
-        if (grown.data && grown.count >= required) {
-            pipeline->scanline_storage = grown.data;
-            pipeline->scanline_capacity = grown.count;
-        }
-    }
-    if (parsed.ok())
-        out->decode = png_decode_parsed_scanlines(
-            &out->image, &pipeline->workspace, {pipeline->scanline_storage, pipeline->scanline_capacity});
-    else
-        out->decode.error = parsed.error;
-    out->decode.parse = parsed;
-    if (!out->decode.ok()) {
-        out->state = CdnStaticPngState::decode_rejected;
-        return;
-    }
-    out->scanlines = ConstSlice<u8>{pipeline->scanline_storage, out->image.inflated_bytes};
-    out->state = success_state;
-}
-
 bool ensure_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept {
     if (required > 0xFFFFFFFFull)
         return false;
@@ -194,6 +167,27 @@ bool ensure_scanlines(CdnMediaPipeline* pipeline, u64 required) noexcept {
         }
     }
     return required <= pipeline->scanline_capacity;
+}
+
+void decode_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnStaticPngState success_state,
+                  CdnStaticPngResult* out) noexcept {
+    reset(out);
+    const auto parsed = png_parse(encoded, &out->image);
+    if (parsed.ok()) {
+        // Interlaced files and files with many IDAT chunks need room past the output.
+        ensure_scanlines(pipeline, png_decode_buffer_bytes(out->image));
+        out->decode = png_decode_parsed_scanlines(
+            &out->image, &pipeline->workspace, {pipeline->scanline_storage, pipeline->scanline_capacity});
+    } else {
+        out->decode.error = parsed.error;
+    }
+    out->decode.parse = parsed;
+    if (!out->decode.ok()) {
+        out->state = CdnStaticPngState::decode_rejected;
+        return;
+    }
+    out->scanlines = ConstSlice<u8>{pipeline->scanline_storage, out->image.inflated_bytes};
+    out->state = success_state;
 }
 
 // Rows box-filtered by an integer factor into straight RGBA8; colour is
@@ -418,14 +412,7 @@ void reduce_jpeg_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 t
         return;
     }
     const u32 rgba_bytes = static_cast<u32>(layout.rgba_bytes);
-    if (pipeline->grow_scanlines && rgba_bytes > pipeline->scanline_capacity) {
-        const auto grown = pipeline->grow_scanlines(pipeline->scanline_owner, rgba_bytes);
-        if (grown.data && grown.count >= rgba_bytes) {
-            pipeline->scanline_storage = grown.data;
-            pipeline->scanline_capacity = grown.count;
-        }
-    }
-    if (rgba_bytes > pipeline->scanline_capacity) {
+    if (!ensure_scanlines(pipeline, rgba_bytes)) {
         out->decode.error = JpegError::sink;
         return;
     }
@@ -840,6 +827,113 @@ __declspec(noinline) void finish_not_modified(CdnMediaPipeline* pipeline, const 
     }
 }
 
+bool usable(const CdnMediaPipeline* pipeline) noexcept {
+    return pipeline && pipeline->cache && pipeline->scanline_storage;
+}
+
+// A failed decode evicts the cache entry unless the result is the one state
+// (a codec workspace the caller can still bind) that says the entry is fine.
+template <typename State> inline constexpr State kEraseOnFailure = static_cast<State>(0xFF);
+
+// Decodes a fresh cached entry; a stale one answers with its ETag instead.
+template <typename Result, typename Decode>
+void lookup_cached(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key, u64 now_seconds, bool ready,
+                   decltype(Result::state) keep, Decode decode) noexcept {
+    using State = decltype(Result::state);
+    reset(out);
+    if (!ready)
+        return set_state(out, State::invalid);
+    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
+    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
+    if (cached.state != EncodedMediaCacheLookupState::fresh)
+        return unfresh_lookup(pipeline, cached, out);
+    decode(cached);
+    if (!out->decoded()) {
+        if (out->state != keep) {
+            cache_lease.release();
+            encoded_media_cache_erase(pipeline->cache, key);
+        }
+        return;
+    }
+    out->etag = copy_result_etag(pipeline, cached.etag);
+}
+
+// Decodes one frame of the cache entry whose generation the caller holds.
+template <typename Result, typename Decode>
+void decode_cached_frame(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key, u16 cache_generation,
+                         u64 now_seconds, bool ready, decltype(Result::state) keep, Decode decode) noexcept {
+    using State = decltype(Result::state);
+    reset(out);
+    if (!ready || cache_generation == 0)
+        return set_state(out, State::invalid);
+    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
+    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
+    if (!cached.found())
+        return set_state(out, State::cache_miss);
+    if (cached.generation != cache_generation)
+        return set_state(out, State::generation_mismatch);
+    decode(cached);
+    if (!out->decoded() && out->state != keep) {
+        cache_lease.release();
+        encoded_media_cache_erase(pipeline->cache, key);
+    }
+}
+
+// Admits a validated HTTP response: a 200 body is decoded before it is cached, a 304 must
+// correlate to a cached entry. decode(bytes, state, cached) fills *out (cached is null for a body);
+// forget_retained drops codec state tied to an entry a no-store 304 just retired.
+template <typename Result, typename Decode, typename ForgetRetained>
+void admit_response(Result* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
+                    const CdnResponseResult& response, ConstSlice<u8> body, ConstSlice<u8> conditional_etag,
+                    bool ready, decltype(Result::state) keep, Decode decode, ForgetRetained forget_retained) noexcept {
+    using State = decltype(Result::state);
+    reset(out);
+    if (!ready || !response.ok())
+        return set_state(out, response.ok() ? State::invalid : State::http_rejected);
+    if (response.disposition == CdnResponseDisposition::accept_body) {
+        if (!accepted_body_valid(response, body))
+            return set_state(out, State::invalid);
+        decode(body, response.store_allowed ? State::decoded_response : State::decoded_transient, nullptr);
+        if (!out->decoded())
+            return;
+        out->store = store_decoded_response(pipeline, key, body, response);
+        // Cache pressure never invalidates already decoded pixels.
+        const bool stored = out->store.stored();
+        if (!stored)
+            out->state = State::decoded_transient;
+        if constexpr (requires { out->cache_generation; }) {
+            out->cache_generation = 0;
+            if (stored)
+                out->cache_generation = out->store.generation;
+        }
+        return;
+    }
+    if (response.disposition == CdnResponseDisposition::not_modified) {
+        if (!not_modified_valid(response, body, conditional_etag))
+            return set_state(out, State::invalid);
+        CacheLeaseScope cache_lease(pipeline->cache, key, response.expires_at_seconds);
+        const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
+        if (!etag_correlated(cached, conditional_etag))
+            return set_state(out, State::uncorrelated_not_modified);
+        decode(cached.bytes, response.store_allowed ? State::decoded_cache_hit : State::decoded_transient, &cached);
+        if (!out->decoded()) {
+            if (out->state != keep) {
+                cache_lease.release();
+                encoded_media_cache_erase(pipeline->cache, key);
+            }
+            return;
+        }
+        if (!response.store_allowed) {
+            if constexpr (requires { out->cache_generation; })
+                out->cache_generation = 0;
+            forget_retained();
+        }
+        finish_not_modified(pipeline, key, &cache_lease, response);
+        return;
+    }
+    return set_state(out, State::http_rejected);
+}
+
 } // namespace
 
 bool cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
@@ -894,23 +988,11 @@ bool cdn_media_pipeline_bind_gif_workspace(CdnMediaPipeline* pipeline, GifWorksp
 
 void cdn_media_pipeline_lookup_static_png(CdnStaticPngResult* out, CdnMediaPipeline* pipeline,
                                           const MediaAssetKey& key, u64 now_seconds) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage ||
-        !static_image_key_valid(key, MediaAttachmentFormat::png)) {
-        return set_state(out, CdnStaticPngState::invalid);
-    }
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (cached.state != EncodedMediaCacheLookupState::fresh) {
-        return unfresh_lookup(pipeline, cached, out);
-    }
-    decode_bytes(pipeline, cached.bytes, CdnStaticPngState::decoded_cache_hit, out);
-    if (!out->decoded()) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-        return;
-    }
-    out->etag = copy_result_etag(pipeline, cached.etag);
+    lookup_cached(out, pipeline, key, now_seconds,
+                  usable(pipeline) && static_image_key_valid(key, MediaAttachmentFormat::png),
+                  kEraseOnFailure<CdnStaticPngState>, [&](const EncodedMediaCacheLookup& cached) {
+                      decode_bytes(pipeline, cached.bytes, CdnStaticPngState::decoded_cache_hit, out);
+                  });
 }
 
 CdnStaticPngResult cdn_media_pipeline_lookup_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
@@ -924,52 +1006,14 @@ void cdn_media_pipeline_admit_static_png(CdnStaticPngResult* out, CdnMediaPipeli
                                          const MediaAssetKey& key, const CdnResponseResult& response,
                                          ConstSlice<u8> decoded_body,
                                          ConstSlice<u8> conditional_etag) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage ||
-        !static_image_key_valid(key, MediaAttachmentFormat::png) || !response.ok()) {
-        return set_state(out,
-                         response.ok() ? CdnStaticPngState::invalid : CdnStaticPngState::http_rejected);
-    }
-    if (response.disposition == CdnResponseDisposition::accept_body) {
-        if (!accepted_body_valid(response, decoded_body)) {
-            return set_state(out, CdnStaticPngState::invalid);
-        }
-        decode_bytes(pipeline, decoded_body,
-                     response.store_allowed ? CdnStaticPngState::decoded_response
-                                            : CdnStaticPngState::decoded_transient,
-                     out);
-        if (!out->decoded()) {
-            return;
-        }
-        out->store = store_decoded_response(pipeline, key, decoded_body, response);
-        if (!out->store.stored()) {
-            // Cache pressure never invalidates already decoded scanlines.
-            out->state = CdnStaticPngState::decoded_transient;
-        }
-        return;
-    }
-    if (response.disposition == CdnResponseDisposition::not_modified) {
-        if (!not_modified_valid(response, decoded_body, conditional_etag)) {
-            return set_state(out, CdnStaticPngState::invalid);
-        }
-        CacheLeaseScope cache_lease(pipeline->cache, key, response.expires_at_seconds);
-        const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-        if (!etag_correlated(cached, conditional_etag)) {
-            return set_state(out, CdnStaticPngState::uncorrelated_not_modified);
-        }
-        decode_bytes(pipeline, cached.bytes,
-                     response.store_allowed ? CdnStaticPngState::decoded_cache_hit
-                                            : CdnStaticPngState::decoded_transient,
-                     out);
-        if (!out->decoded()) {
-            cache_lease.release();
-            encoded_media_cache_erase(pipeline->cache, key);
-            return;
-        }
-        finish_not_modified(pipeline, key, &cache_lease, response);
-        return;
-    }
-    return set_state(out, CdnStaticPngState::http_rejected);
+    admit_response(
+        out, pipeline, key, response, decoded_body, conditional_etag,
+        usable(pipeline) && static_image_key_valid(key, MediaAttachmentFormat::png),
+        kEraseOnFailure<CdnStaticPngState>,
+        [&](ConstSlice<u8> bytes, CdnStaticPngState state, const EncodedMediaCacheLookup*) {
+            decode_bytes(pipeline, bytes, state, out);
+        },
+        [] {});
 }
 
 CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
@@ -983,566 +1027,154 @@ CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipelin
 
 void cdn_media_pipeline_lookup_static_webp(CdnStaticWebpResult* out, CdnMediaPipeline* pipeline,
                                            const MediaAssetKey& key, u64 now_seconds) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->webp_workspace ||
-        !static_image_key_valid(key, MediaAttachmentFormat::webp)) {
-        return set_state(out, CdnStaticWebpState::invalid);
-    }
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (cached.state != EncodedMediaCacheLookupState::fresh) {
-        return unfresh_lookup(pipeline, cached, out);
-    }
-    decode_webp_bytes(pipeline, cached.bytes, CdnStaticWebpState::decoded_cache_hit, out);
-    if (!out->decoded() && out->state != CdnStaticWebpState::lossy_workspace_required) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-        return;
-    }
-    out->etag = copy_result_etag(pipeline, cached.etag);
-}
-
-CdnStaticWebpResult cdn_media_pipeline_lookup_static_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                          u64 now_seconds) noexcept {
-    CdnStaticWebpResult result;
-    cdn_media_pipeline_lookup_static_webp(&result, pipeline, key, now_seconds);
-    return result;
+    lookup_cached(
+        out, pipeline, key, now_seconds,
+        usable(pipeline) && pipeline->webp_workspace && static_image_key_valid(key, MediaAttachmentFormat::webp),
+        CdnStaticWebpState::lossy_workspace_required, [&](const EncodedMediaCacheLookup& cached) {
+            decode_webp_bytes(pipeline, cached.bytes, CdnStaticWebpState::decoded_cache_hit, out);
+        });
 }
 
 void cdn_media_pipeline_admit_static_webp(CdnStaticWebpResult* out, CdnMediaPipeline* pipeline,
                                           const MediaAssetKey& key, const CdnResponseResult& response,
                                           ConstSlice<u8> decoded_body,
                                           ConstSlice<u8> conditional_etag) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->webp_workspace ||
-        !static_image_key_valid(key, MediaAttachmentFormat::webp) || !response.ok()) {
-        return set_state(out,
-                         response.ok() ? CdnStaticWebpState::invalid : CdnStaticWebpState::http_rejected);
-    }
-    if (response.disposition == CdnResponseDisposition::accept_body) {
-        if (!accepted_body_valid(response, decoded_body)) {
-            return set_state(out, CdnStaticWebpState::invalid);
-        }
-        decode_webp_bytes(pipeline, decoded_body,
-                          response.store_allowed ? CdnStaticWebpState::decoded_response
-                                                 : CdnStaticWebpState::decoded_transient,
-                          out);
-        if (!out->decoded()) {
-            return;
-        }
-        out->store = store_decoded_response(pipeline, key, decoded_body, response);
-        if (!out->store.stored()) {
-            out->state = CdnStaticWebpState::decoded_transient;
-        }
-        return;
-    }
-    if (response.disposition == CdnResponseDisposition::not_modified) {
-        if (!not_modified_valid(response, decoded_body, conditional_etag)) {
-            return set_state(out, CdnStaticWebpState::invalid);
-        }
-        CacheLeaseScope cache_lease(pipeline->cache, key, response.expires_at_seconds);
-        const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-        if (!etag_correlated(cached, conditional_etag)) {
-            return set_state(out, CdnStaticWebpState::uncorrelated_not_modified);
-        }
-        decode_webp_bytes(pipeline, cached.bytes,
-                          response.store_allowed ? CdnStaticWebpState::decoded_cache_hit
-                                                 : CdnStaticWebpState::decoded_transient,
-                          out);
-        if (!out->decoded()) {
-            cache_lease.release();
-            encoded_media_cache_erase(pipeline->cache, key);
-            return;
-        }
-        finish_not_modified(pipeline, key, &cache_lease, response);
-        return;
-    }
-    return set_state(out, CdnStaticWebpState::http_rejected);
-}
-
-CdnStaticWebpResult cdn_media_pipeline_admit_static_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                         const CdnResponseResult& response,
-                                                         ConstSlice<u8> decoded_body,
-                                                         ConstSlice<u8> conditional_etag) noexcept {
-    CdnStaticWebpResult result;
-    cdn_media_pipeline_admit_static_webp(&result, pipeline, key, response, decoded_body, conditional_etag);
-    return result;
+    admit_response(
+        out, pipeline, key, response, decoded_body, conditional_etag,
+        usable(pipeline) && pipeline->webp_workspace && static_image_key_valid(key, MediaAttachmentFormat::webp),
+        kEraseOnFailure<CdnStaticWebpState>,
+        [&](ConstSlice<u8> bytes, CdnStaticWebpState state, const EncodedMediaCacheLookup*) {
+            decode_webp_bytes(pipeline, bytes, state, out);
+        },
+        [] {});
 }
 
 void cdn_media_pipeline_lookup_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipeline* pipeline,
                                            const MediaAssetKey& key, u64 now_seconds) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage ||
-        !static_image_key_valid(key, MediaAttachmentFormat::jpeg)) {
-        return set_state(out, CdnStaticJpegState::invalid);
-    }
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (cached.state != EncodedMediaCacheLookupState::fresh) {
-        return unfresh_lookup(pipeline, cached, out);
-    }
-    decode_jpeg_bytes(pipeline, key, cached.bytes, CdnStaticJpegState::decoded_cache_hit, out);
-    if (!out->decoded() && out->state != CdnStaticJpegState::jpeg_workspace_required) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-        return;
-    }
-    out->etag = copy_result_etag(pipeline, cached.etag);
-}
-
-CdnStaticJpegResult cdn_media_pipeline_lookup_static_jpeg(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                          u64 now_seconds) noexcept {
-    CdnStaticJpegResult result;
-    cdn_media_pipeline_lookup_static_jpeg(&result, pipeline, key, now_seconds);
-    return result;
+    lookup_cached(out, pipeline, key, now_seconds,
+                  usable(pipeline) && static_image_key_valid(key, MediaAttachmentFormat::jpeg),
+                  CdnStaticJpegState::jpeg_workspace_required, [&](const EncodedMediaCacheLookup& cached) {
+                      decode_jpeg_bytes(pipeline, key, cached.bytes, CdnStaticJpegState::decoded_cache_hit, out);
+                  });
 }
 
 void cdn_media_pipeline_admit_static_jpeg(CdnStaticJpegResult* out, CdnMediaPipeline* pipeline,
                                           const MediaAssetKey& key, const CdnResponseResult& response,
                                           ConstSlice<u8> decoded_body,
                                           ConstSlice<u8> conditional_etag) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage ||
-        !static_image_key_valid(key, MediaAttachmentFormat::jpeg) || !response.ok()) {
-        return set_state(out,
-                         response.ok() ? CdnStaticJpegState::invalid : CdnStaticJpegState::http_rejected);
-    }
-    if (response.disposition == CdnResponseDisposition::accept_body) {
-        if (!accepted_body_valid(response, decoded_body)) {
-            return set_state(out, CdnStaticJpegState::invalid);
-        }
-        decode_jpeg_bytes(pipeline, key, decoded_body,
-                          response.store_allowed ? CdnStaticJpegState::decoded_response
-                                                 : CdnStaticJpegState::decoded_transient,
-                          out);
-        if (!out->decoded()) {
-            return;
-        }
-        out->store = store_decoded_response(pipeline, key, decoded_body, response);
-        if (!out->store.stored()) {
-            out->state = CdnStaticJpegState::decoded_transient;
-        }
-        return;
-    }
-    if (response.disposition == CdnResponseDisposition::not_modified) {
-        if (!not_modified_valid(response, decoded_body, conditional_etag)) {
-            return set_state(out, CdnStaticJpegState::invalid);
-        }
-        CacheLeaseScope cache_lease(pipeline->cache, key, response.expires_at_seconds);
-        const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-        if (!etag_correlated(cached, conditional_etag)) {
-            return set_state(out, CdnStaticJpegState::uncorrelated_not_modified);
-        }
-        decode_jpeg_bytes(pipeline, key, cached.bytes,
-                          response.store_allowed ? CdnStaticJpegState::decoded_cache_hit
-                                                 : CdnStaticJpegState::decoded_transient,
-                          out);
-        if (!out->decoded()) {
-            if (out->state != CdnStaticJpegState::jpeg_workspace_required) {
-                cache_lease.release();
-                encoded_media_cache_erase(pipeline->cache, key);
-            }
-            return;
-        }
-        finish_not_modified(pipeline, key, &cache_lease, response);
-        return;
-    }
-    return set_state(out, CdnStaticJpegState::http_rejected);
-}
-
-CdnStaticJpegResult cdn_media_pipeline_admit_static_jpeg(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                         const CdnResponseResult& response,
-                                                         ConstSlice<u8> decoded_body,
-                                                         ConstSlice<u8> conditional_etag) noexcept {
-    CdnStaticJpegResult result;
-    cdn_media_pipeline_admit_static_jpeg(&result, pipeline, key, response, decoded_body, conditional_etag);
-    return result;
+    admit_response(
+        out, pipeline, key, response, decoded_body, conditional_etag,
+        usable(pipeline) && static_image_key_valid(key, MediaAttachmentFormat::jpeg),
+        CdnStaticJpegState::jpeg_workspace_required,
+        [&](ConstSlice<u8> bytes, CdnStaticJpegState state, const EncodedMediaCacheLookup*) {
+            decode_jpeg_bytes(pipeline, key, bytes, state, out);
+        },
+        [] {});
 }
 
 void cdn_media_pipeline_lookup_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                     u64 now_seconds) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->apng_workspace ||
-        !apng_key_valid(key)) {
-        return set_state(out, CdnApngState::invalid);
-    }
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (cached.state != EncodedMediaCacheLookupState::fresh) {
-        return unfresh_lookup(pipeline, cached, out);
-    }
-    decode_apng_bytes(pipeline, cached.bytes, 0, cached.generation, CdnApngState::decoded_cache_hit, false,
-                      cached.content_identity, out);
-    if (!out->decoded()) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-        return;
-    }
-    out->etag = copy_result_etag(pipeline, cached.etag);
-}
-
-CdnApngResult cdn_media_pipeline_lookup_apng(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                             u64 now_seconds) noexcept {
-    CdnApngResult result;
-    cdn_media_pipeline_lookup_apng(&result, pipeline, key, now_seconds);
-    return result;
+    lookup_cached(out, pipeline, key, now_seconds, usable(pipeline) && pipeline->apng_workspace && apng_key_valid(key),
+                  kEraseOnFailure<CdnApngState>, [&](const EncodedMediaCacheLookup& cached) {
+                      decode_apng_bytes(pipeline, cached.bytes, 0, cached.generation,
+                                        CdnApngState::decoded_cache_hit, false, cached.content_identity, out);
+                  });
 }
 
 void cdn_media_pipeline_admit_apng(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                    const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                    ConstSlice<u8> conditional_etag) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->apng_workspace ||
-        !apng_key_valid(key) || !response.ok()) {
-        return set_state(out, response.ok() ? CdnApngState::invalid : CdnApngState::http_rejected);
-    }
-    if (response.disposition == CdnResponseDisposition::accept_body) {
-        if (!accepted_body_valid(response, decoded_body)) {
-            return set_state(out, CdnApngState::invalid);
-        }
-        decode_apng_bytes(pipeline, decoded_body, 0, 0,
-                          response.store_allowed ? CdnApngState::decoded_response
-                                                 : CdnApngState::decoded_transient,
-                          true, 0, out);
-        if (!out->decoded()) {
-            return;
-        }
-        out->store = store_decoded_response(pipeline, key, decoded_body, response);
-        if (!out->store.stored()) {
-            out->state = CdnApngState::decoded_transient;
-            out->cache_generation = 0;
-        } else {
-            out->cache_generation = out->store.generation;
-        }
-        return;
-    }
-    if (response.disposition == CdnResponseDisposition::not_modified) {
-        if (!not_modified_valid(response, decoded_body, conditional_etag)) {
-            return set_state(out, CdnApngState::invalid);
-        }
-        CacheLeaseScope cache_lease(pipeline->cache, key, response.expires_at_seconds);
-        const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-        if (!etag_correlated(cached, conditional_etag)) {
-            return set_state(out, CdnApngState::uncorrelated_not_modified);
-        }
-        decode_apng_bytes(pipeline, cached.bytes, 0, cached.generation,
-                          response.store_allowed ? CdnApngState::decoded_cache_hit
-                                                 : CdnApngState::decoded_transient,
-                          false, cached.content_identity, out);
-        if (!out->decoded()) {
-            cache_lease.release();
-            encoded_media_cache_erase(pipeline->cache, key);
-            return;
-        }
-        if (!response.store_allowed) {
-            out->cache_generation = 0;
-            pipeline->apng_metadata_valid = false;
-        }
-        finish_not_modified(pipeline, key, &cache_lease, response);
-        return;
-    }
-    return set_state(out, CdnApngState::http_rejected);
-}
-
-CdnApngResult cdn_media_pipeline_admit_apng(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                            const CdnResponseResult& response, ConstSlice<u8> decoded_body,
-                                            ConstSlice<u8> conditional_etag) noexcept {
-    CdnApngResult result;
-    cdn_media_pipeline_admit_apng(&result, pipeline, key, response, decoded_body, conditional_etag);
-    return result;
+    admit_response(
+        out, pipeline, key, response, decoded_body, conditional_etag,
+        usable(pipeline) && pipeline->apng_workspace && apng_key_valid(key), kEraseOnFailure<CdnApngState>,
+        [&](ConstSlice<u8> bytes, CdnApngState state, const EncodedMediaCacheLookup* cached) {
+            decode_apng_bytes(pipeline, bytes, 0, cached ? cached->generation : u16{0}, state, !cached,
+                              cached ? cached->content_identity : 0, out);
+        },
+        [&] { pipeline->apng_metadata_valid = false; });
 }
 
 void cdn_media_pipeline_decode_apng_frame(CdnApngResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                           u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->apng_workspace ||
-        !apng_key_valid(key) || cache_generation == 0) {
-        return set_state(out, CdnApngState::invalid);
-    }
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (!cached.found()) {
-        return set_state(out, CdnApngState::cache_miss);
-    }
-    if (cached.generation != cache_generation) {
-        return set_state(out, CdnApngState::generation_mismatch);
-    }
-    decode_apng_bytes(pipeline, cached.bytes, frame_index, cached.generation,
-                      CdnApngState::decoded_cache_hit, false, cached.content_identity, out);
-    if (!out->decoded()) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-    }
-}
-
-CdnApngResult cdn_media_pipeline_decode_apng_frame(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                   u16 cache_generation, u32 frame_index,
-                                                   u64 now_seconds) noexcept {
-    CdnApngResult result;
-    cdn_media_pipeline_decode_apng_frame(&result, pipeline, key, cache_generation, frame_index,
-                                         now_seconds);
-    return result;
+    decode_cached_frame(out, pipeline, key, cache_generation, now_seconds,
+                        usable(pipeline) && pipeline->apng_workspace && apng_key_valid(key),
+                        kEraseOnFailure<CdnApngState>, [&](const EncodedMediaCacheLookup& cached) {
+                            decode_apng_bytes(pipeline, cached.bytes, frame_index, cached.generation,
+                                              CdnApngState::decoded_cache_hit, false, cached.content_identity, out);
+                        });
 }
 
 void cdn_media_pipeline_lookup_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                    u64 now_seconds) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->gif_workspace ||
-        !gif_key_valid(key)) {
-        return set_state(out, CdnGifState::invalid);
-    }
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (cached.state != EncodedMediaCacheLookupState::fresh) {
-        return unfresh_lookup(pipeline, cached, out);
-    }
-    decode_gif_bytes(pipeline, cached.bytes, 0, cached.generation, CdnGifState::decoded_cache_hit,
-                     cached.content_identity, out);
-    if (!out->decoded()) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-        return;
-    }
-    out->etag = copy_result_etag(pipeline, cached.etag);
-}
-
-CdnGifResult cdn_media_pipeline_lookup_gif(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                           u64 now_seconds) noexcept {
-    CdnGifResult result;
-    cdn_media_pipeline_lookup_gif(&result, pipeline, key, now_seconds);
-    return result;
+    lookup_cached(out, pipeline, key, now_seconds, usable(pipeline) && pipeline->gif_workspace && gif_key_valid(key),
+                  kEraseOnFailure<CdnGifState>, [&](const EncodedMediaCacheLookup& cached) {
+                      decode_gif_bytes(pipeline, cached.bytes, 0, cached.generation, CdnGifState::decoded_cache_hit,
+                                       cached.content_identity, out);
+                  });
 }
 
 void cdn_media_pipeline_admit_gif(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                   const CdnResponseResult& response, ConstSlice<u8> decoded_body,
                                   ConstSlice<u8> conditional_etag) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->gif_workspace ||
-        !gif_key_valid(key) || !response.ok()) {
-        return set_state(out, response.ok() ? CdnGifState::invalid : CdnGifState::http_rejected);
-    }
-    if (response.disposition == CdnResponseDisposition::accept_body) {
-        if (!accepted_body_valid(response, decoded_body)) {
-            return set_state(out, CdnGifState::invalid);
-        }
-        decode_gif_bytes(pipeline, decoded_body, 0, 0,
-                         response.store_allowed ? CdnGifState::decoded_response
-                                                : CdnGifState::decoded_transient,
-                         0, out);
-        if (!out->decoded()) {
-            return;
-        }
-        out->store = store_decoded_response(pipeline, key, decoded_body, response);
-        if (!out->store.stored()) {
-            out->state = CdnGifState::decoded_transient;
-            out->cache_generation = 0;
-        } else {
-            out->cache_generation = out->store.generation;
-        }
-        return;
-    }
-    if (response.disposition == CdnResponseDisposition::not_modified) {
-        if (!not_modified_valid(response, decoded_body, conditional_etag)) {
-            return set_state(out, CdnGifState::invalid);
-        }
-        CacheLeaseScope cache_lease(pipeline->cache, key, response.expires_at_seconds);
-        const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-        if (!etag_correlated(cached, conditional_etag)) {
-            return set_state(out, CdnGifState::uncorrelated_not_modified);
-        }
-        decode_gif_bytes(pipeline, cached.bytes, 0, cached.generation,
-                         response.store_allowed ? CdnGifState::decoded_cache_hit
-                                                : CdnGifState::decoded_transient,
-                         cached.content_identity, out);
-        if (!out->decoded()) {
-            cache_lease.release();
-            encoded_media_cache_erase(pipeline->cache, key);
-            return;
-        }
-        if (!response.store_allowed) {
-            out->cache_generation = 0;
-            pipeline->gif_content_identity = 0;
-        }
-        finish_not_modified(pipeline, key, &cache_lease, response);
-        return;
-    }
-    return set_state(out, CdnGifState::http_rejected);
-}
-
-CdnGifResult cdn_media_pipeline_admit_gif(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                          const CdnResponseResult& response, ConstSlice<u8> decoded_body,
-                                          ConstSlice<u8> conditional_etag) noexcept {
-    CdnGifResult result;
-    cdn_media_pipeline_admit_gif(&result, pipeline, key, response, decoded_body, conditional_etag);
-    return result;
+    admit_response(
+        out, pipeline, key, response, decoded_body, conditional_etag,
+        usable(pipeline) && pipeline->gif_workspace && gif_key_valid(key), kEraseOnFailure<CdnGifState>,
+        [&](ConstSlice<u8> bytes, CdnGifState state, const EncodedMediaCacheLookup* cached) {
+            decode_gif_bytes(pipeline, bytes, 0, cached ? cached->generation : u16{0}, state,
+                             cached ? cached->content_identity : 0, out);
+        },
+        [&] { pipeline->gif_content_identity = 0; });
 }
 
 void cdn_media_pipeline_decode_gif_frame(CdnGifResult* out, CdnMediaPipeline* pipeline, const MediaAssetKey& key,
                                          u16 cache_generation, u32 frame_index, u64 now_seconds) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->gif_workspace ||
-        !gif_key_valid(key) || cache_generation == 0) {
-        return set_state(out, CdnGifState::invalid);
-    }
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (!cached.found()) {
-        return set_state(out, CdnGifState::cache_miss);
-    }
-    if (cached.generation != cache_generation) {
-        return set_state(out, CdnGifState::generation_mismatch);
-    }
-    decode_gif_bytes(pipeline, cached.bytes, frame_index, cached.generation, CdnGifState::decoded_cache_hit,
-                     cached.content_identity, out);
-    if (!out->decoded()) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-    }
-}
-
-CdnGifResult cdn_media_pipeline_decode_gif_frame(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                 u16 cache_generation, u32 frame_index,
-                                                 u64 now_seconds) noexcept {
-    CdnGifResult result;
-    cdn_media_pipeline_decode_gif_frame(&result, pipeline, key, cache_generation, frame_index, now_seconds);
-    return result;
+    decode_cached_frame(out, pipeline, key, cache_generation, now_seconds,
+                        usable(pipeline) && pipeline->gif_workspace && gif_key_valid(key),
+                        kEraseOnFailure<CdnGifState>, [&](const EncodedMediaCacheLookup& cached) {
+                            decode_gif_bytes(pipeline, cached.bytes, frame_index, cached.generation,
+                                             CdnGifState::decoded_cache_hit, cached.content_identity, out);
+                        });
 }
 
 void cdn_media_pipeline_lookup_animated_webp(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
                                              const MediaAssetKey& key, u64 now_seconds) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->webp_workspace ||
-        !pipeline->animated_webp_workspace || !animated_webp_key_valid(key)) {
-        return set_state(out, CdnAnimatedWebpState::invalid);
-    }
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (cached.state != EncodedMediaCacheLookupState::fresh) {
-        return unfresh_lookup(pipeline, cached, out);
-    }
-    decode_animated_webp_bytes(pipeline, cached.bytes, 0, cached.generation,
-                               CdnAnimatedWebpState::decoded_cache_hit, cached.content_identity, out);
-    if (!out->decoded() && out->state != CdnAnimatedWebpState::lossy_workspace_required) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-        return;
-    }
-    if (!out->decoded()) {
-        return;
-    }
-    out->etag = copy_result_etag(pipeline, cached.etag);
-}
-
-CdnAnimatedWebpResult cdn_media_pipeline_lookup_animated_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                              u64 now_seconds) noexcept {
-    CdnAnimatedWebpResult result;
-    cdn_media_pipeline_lookup_animated_webp(&result, pipeline, key, now_seconds);
-    return result;
+    lookup_cached(
+        out, pipeline, key, now_seconds,
+        usable(pipeline) && pipeline->webp_workspace && pipeline->animated_webp_workspace &&
+            animated_webp_key_valid(key),
+        CdnAnimatedWebpState::lossy_workspace_required, [&](const EncodedMediaCacheLookup& cached) {
+            decode_animated_webp_bytes(pipeline, cached.bytes, 0, cached.generation,
+                                       CdnAnimatedWebpState::decoded_cache_hit, cached.content_identity, out);
+        });
 }
 
 void cdn_media_pipeline_admit_animated_webp(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
                                             const MediaAssetKey& key, const CdnResponseResult& response,
                                             ConstSlice<u8> decoded_body,
                                             ConstSlice<u8> conditional_etag) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->webp_workspace ||
-        !pipeline->animated_webp_workspace || !animated_webp_key_valid(key) || !response.ok()) {
-        return set_state(out, response.ok() ? CdnAnimatedWebpState::invalid
-                                            : CdnAnimatedWebpState::http_rejected);
-    }
-    if (response.disposition == CdnResponseDisposition::accept_body) {
-        if (!accepted_body_valid(response, decoded_body)) {
-            return set_state(out, CdnAnimatedWebpState::invalid);
-        }
-        decode_animated_webp_bytes(pipeline, decoded_body, 0, 0,
-                                   response.store_allowed ? CdnAnimatedWebpState::decoded_response
-                                                          : CdnAnimatedWebpState::decoded_transient,
-                                   0, out);
-        if (!out->decoded()) {
-            return;
-        }
-        out->store = store_decoded_response(pipeline, key, decoded_body, response);
-        if (!out->store.stored()) {
-            out->state = CdnAnimatedWebpState::decoded_transient;
-            out->cache_generation = 0;
-        } else {
-            out->cache_generation = out->store.generation;
-        }
-        return;
-    }
-    if (response.disposition == CdnResponseDisposition::not_modified) {
-        if (!not_modified_valid(response, decoded_body, conditional_etag)) {
-            return set_state(out, CdnAnimatedWebpState::invalid);
-        }
-        CacheLeaseScope cache_lease(pipeline->cache, key, response.expires_at_seconds);
-        const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-        if (!etag_correlated(cached, conditional_etag)) {
-            return set_state(out, CdnAnimatedWebpState::uncorrelated_not_modified);
-        }
-        decode_animated_webp_bytes(pipeline, cached.bytes, 0, cached.generation,
-                                   response.store_allowed ? CdnAnimatedWebpState::decoded_cache_hit
-                                                          : CdnAnimatedWebpState::decoded_transient,
-                                   cached.content_identity, out);
-        if (!out->decoded() && out->state != CdnAnimatedWebpState::lossy_workspace_required) {
-            cache_lease.release();
-            encoded_media_cache_erase(pipeline->cache, key);
-            return;
-        }
-        if (!out->decoded()) {
-            return;
-        }
-        if (!response.store_allowed) {
-            out->cache_generation = 0;
-            pipeline->animated_webp_workspace->retained.content_identity = 0;
-        }
-        finish_not_modified(pipeline, key, &cache_lease, response);
-        return;
-    }
-    return set_state(out, CdnAnimatedWebpState::http_rejected);
-}
-
-CdnAnimatedWebpResult cdn_media_pipeline_admit_animated_webp(CdnMediaPipeline* pipeline, const MediaAssetKey& key,
-                                                             const CdnResponseResult& response,
-                                                             ConstSlice<u8> decoded_body,
-                                                             ConstSlice<u8> conditional_etag) noexcept {
-    CdnAnimatedWebpResult result;
-    cdn_media_pipeline_admit_animated_webp(&result, pipeline, key, response, decoded_body,
-                                           conditional_etag);
-    return result;
+    admit_response(
+        out, pipeline, key, response, decoded_body, conditional_etag,
+        usable(pipeline) && pipeline->webp_workspace && pipeline->animated_webp_workspace &&
+            animated_webp_key_valid(key),
+        CdnAnimatedWebpState::lossy_workspace_required,
+        [&](ConstSlice<u8> bytes, CdnAnimatedWebpState state, const EncodedMediaCacheLookup* cached) {
+            decode_animated_webp_bytes(pipeline, bytes, 0, cached ? cached->generation : u16{0}, state,
+                                       cached ? cached->content_identity : 0, out);
+        },
+        [&] { pipeline->animated_webp_workspace->retained.content_identity = 0; });
 }
 
 void cdn_media_pipeline_decode_animated_webp_frame(CdnAnimatedWebpResult* out, CdnMediaPipeline* pipeline,
                                                    const MediaAssetKey& key, u16 cache_generation, u32 frame_index,
                                                    u64 now_seconds) noexcept {
-    reset(out);
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !pipeline->webp_workspace ||
-        !pipeline->animated_webp_workspace || !animated_webp_key_valid(key) || cache_generation == 0) {
-        return set_state(out, CdnAnimatedWebpState::invalid);
-    }
-    CacheLeaseScope cache_lease(pipeline->cache, key, now_seconds);
-    const EncodedMediaCacheLookup& cached = cache_lease.lease.lookup;
-    if (!cached.found()) {
-        return set_state(out, CdnAnimatedWebpState::cache_miss);
-    }
-    if (cached.generation != cache_generation) {
-        return set_state(out, CdnAnimatedWebpState::generation_mismatch);
-    }
-    decode_animated_webp_bytes(pipeline, cached.bytes, frame_index, cached.generation,
-                               CdnAnimatedWebpState::decoded_cache_hit, cached.content_identity, out);
-    if (!out->decoded() && out->state != CdnAnimatedWebpState::lossy_workspace_required) {
-        cache_lease.release();
-        encoded_media_cache_erase(pipeline->cache, key);
-    }
-}
-
-CdnAnimatedWebpResult cdn_media_pipeline_decode_animated_webp_frame(CdnMediaPipeline* pipeline,
-                                                                    const MediaAssetKey& key, u16 cache_generation,
-                                                                    u32 frame_index,
-                                                                    u64 now_seconds) noexcept {
-    CdnAnimatedWebpResult result;
-    cdn_media_pipeline_decode_animated_webp_frame(&result, pipeline, key, cache_generation, frame_index,
-                                                  now_seconds);
-    return result;
+    decode_cached_frame(
+        out, pipeline, key, cache_generation, now_seconds,
+        usable(pipeline) && pipeline->webp_workspace && pipeline->animated_webp_workspace &&
+            animated_webp_key_valid(key),
+        CdnAnimatedWebpState::lossy_workspace_required, [&](const EncodedMediaCacheLookup& cached) {
+            decode_animated_webp_bytes(pipeline, cached.bytes, frame_index, cached.generation,
+                                       CdnAnimatedWebpState::decoded_cache_hit, cached.content_identity, out);
+        });
 }
 
 namespace {

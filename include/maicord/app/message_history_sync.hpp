@@ -120,8 +120,6 @@ bool message_history_catchup_begin(MessageHistoryCatchup* catchup, MessageEventP
                                    u32 request_limit) noexcept;
 bool message_history_catchup_take_query(MessageHistoryCatchup* catchup,
                                         MessageHistoryQuery* query) noexcept;
-bool message_history_catchup_retry(MessageHistoryCatchup* catchup, MessageHistoryCatchupFailure failure,
-                                   u64 retry_at_ms) noexcept;
 bool message_history_catchup_tick(MessageHistoryCatchup* catchup, u64 now_ms) noexcept;
 bool message_history_catchup_fail(MessageHistoryCatchup* catchup,
                                   MessageHistoryCatchupFailure failure) noexcept;
@@ -188,8 +186,6 @@ bool message_history_older_demand(MessageHistoryOlder* older, const MessageTimel
                                   u64 channel_id, u32 request_limit) noexcept;
 bool message_history_older_take_query(MessageHistoryOlder* older,
                                       MessageHistoryQuery* query) noexcept;
-bool message_history_older_retry(MessageHistoryOlder* older, MessageHistoryCatchupFailure failure,
-                                 u64 retry_at_ms) noexcept;
 bool message_history_older_tick(MessageHistoryOlder* older, u64 now_ms) noexcept;
 bool message_history_older_fail(MessageHistoryOlder* older, MessageHistoryCatchupFailure failure) noexcept;
 MessageHistoryApplyResult message_history_older_apply_page(

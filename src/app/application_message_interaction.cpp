@@ -63,10 +63,6 @@
 namespace maicord::app_detail {
 
 namespace {
-const MessageRecord* resident_message(u64 message_id) noexcept {
-    const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);
-    return found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
-}
 UnreadContextTarget unread_popup;
 struct ThreadMenuScope {
     ApplicationThreadActionTicket ticket;
@@ -88,9 +84,7 @@ MessageThreadCreationMenuScope creation_menu_scope;
 bool creation_menu_current(const MessageThreadCreationMenuScope& source) noexcept {
     const auto* ui = g_app.account_ui;
     const auto* parent = ui ? chat_state_store_find_channel(ui->chat_state, source.parent) : nullptr;
-    const auto found = message_store_find(g_app.message_view.store, source.message);
-    const auto* message =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* message = application_message_record(source.message);
     return source.available && ui && source.account == g_app.plugin_account_scope_serial &&
            source.profile == g_app.account.status.profile_id &&
            source.self == ui->chat_state.self_user_id && source.parent == ui->active_channel_id &&
@@ -350,7 +344,7 @@ bool retry_failed_message(u64 nonce) noexcept {
     if (!g_app.account_ui || nonce == 0) {
         return false;
     }
-    const MessageRecord* record = resident_message(nonce);
+    const MessageRecord* record = application_message_record(nonce);
     if (!record || record->delivery != MessageDeliveryState::failed) {
         return false;
     }
@@ -404,7 +398,7 @@ bool open_message_media_context_popup(u64 message_id, UiRect anchor, ConstSlice<
     if (!g_app.account_ui || g_app.login.visible || message_id == 0) {
         return false;
     }
-    const MessageRecord* record = resident_message(message_id);
+    const MessageRecord* record = application_message_record(message_id);
     if (!record) {
         return false;
     }
@@ -520,7 +514,7 @@ bool activate_message_link_action(u32 action) noexcept {
 
 namespace {
 bool copy_message_link(u64 message_id) noexcept {
-    const MessageRecord* record = g_app.account_ui ? resident_message(message_id) : nullptr;
+    const MessageRecord* record = g_app.account_ui ? application_message_record(message_id) : nullptr;
     const ChannelRecord* channel =
         record ? chat_state_store_find_channel(g_app.account_ui->chat_state, record->channel_id) : nullptr;
     char link[kMessageContextMaximumLinkBytes]{};
@@ -533,7 +527,7 @@ bool copy_message_link(u64 message_id) noexcept {
 
 // Shift copies the "channel-message" form, as the official client does.
 bool copy_message_id(u64 message_id, bool with_channel) noexcept {
-    const MessageRecord* record = g_app.account_ui ? resident_message(message_id) : nullptr;
+    const MessageRecord* record = g_app.account_ui ? application_message_record(message_id) : nullptr;
     char id[41]{};
     u32 bytes = 0;
     if (record && with_channel) {
@@ -553,7 +547,7 @@ bool begin_reply_from_action(u64 message_id, bool without_mention) noexcept {
 } // namespace
 
 u16 application_message_action_bar_capabilities(u64 message_id) noexcept {
-    const MessageRecord* record = g_app.account_ui ? resident_message(message_id) : nullptr;
+    const MessageRecord* record = g_app.account_ui ? application_message_record(message_id) : nullptr;
     if (!record || record->delivery != MessageDeliveryState::authoritative)
         return 0;
     u16 capabilities = 0;
@@ -634,7 +628,7 @@ bool application_message_action_bar_activate(const MessageActionBarHit& hit, boo
         return !application_pinned_messages_can_pin(id) ||
                application_pinned_messages_action(id, hit.action == MessageActionBarAction::pin, !shift);
     case MessageActionBarAction::delete_message: {
-        const MessageRecord* record = g_app.account_ui ? resident_message(id) : nullptr;
+        const MessageRecord* record = g_app.account_ui ? application_message_record(id) : nullptr;
         if (record && record->delivery == MessageDeliveryState::failed)
             return discard_failed_message(id);
         return application_message_delete_request(id, shift) || refresh_retained_projection();
@@ -648,7 +642,7 @@ bool open_reaction_viewer(u64 message_id) noexcept {
     if (!g_app.account_ui || g_app.login.visible || message_id == 0) {
         return false;
     }
-    const MessageRecord* record = resident_message(message_id);
+    const MessageRecord* record = application_message_record(message_id);
     const MessageRichRecord* rich =
         record ? message_rich_store_find(g_app.account_ui->message_rich_store, message_id) : nullptr;
     const ChannelRecord* channel =
@@ -682,11 +676,6 @@ bool open_reaction_viewer(u64 message_id) noexcept {
 
 namespace {
 
-bool open_member_context_popup(u64 user_id, UiRect anchor, u64 guild_id = 0, bool focus_row = true) noexcept {
-    return application_user_menu_open(user_id, anchor, guild_id,
-                                      focus_row ? UserMenuSource::member_list : UserMenuSource::profile);
-}
-
 // The profile card offers the same user menu.
 bool open_profile_context_popup(UiRect anchor) noexcept {
     const auto& profile = *g_app.profile;
@@ -701,7 +690,7 @@ bool open_reaction_context_popup(const MessageSceneHit& hit, UiRect anchor) noex
     u32 index = 0;
     if (!g_app.account_ui || !message_scene_reaction_index(g_app.message_scene, hit, &index))
         return false;
-    const auto* record = resident_message(hit.message_id);
+    const auto* record = application_message_record(hit.message_id);
     const auto* rich = record ? message_rich_store_find(g_app.account_ui->message_rich_store, hit.message_id) : nullptr;
     if (!rich || rich->message_revision != record->revision || index >= rich->reaction_count)
         return false;
@@ -976,7 +965,8 @@ bool open_focused_context_popup() noexcept {
     }
     if (g_app.context_focus == &g_app.member_list_scene.widgets && g_app.member_list_scene.active) {
         const auto* row = member_list_scene_resolve(g_app.member_list_scene, focused);
-        return !row || !row->user_id || open_member_context_popup(row->user_id, anchor);
+        return !row || !row->user_id ||
+               application_user_menu_open(row->user_id, anchor, 0, UserMenuSource::member_list);
     }
     if (g_app.context_focus == &g_app.shell_navigation_scene.widgets &&
         g_app.shell_navigation_scene.active) {
@@ -1014,7 +1004,7 @@ bool open_context_popup(i32 client_x, i32 client_y) noexcept {
         return open_reaction_context_popup(message, anchor) || open_message_context_popup(message.message_id, anchor);
     const auto member = member_list_scene_hit_test(g_app.member_list_scene, x, y);
     if (member.user_id)
-        return open_member_context_popup(member.user_id, anchor);
+        return application_user_menu_open(member.user_id, anchor, 0, UserMenuSource::member_list);
     if (application_voice_context_at(x, y, anchor))
         return true;
     // The server header takes the server's context menu, as in the official client.
@@ -1211,7 +1201,7 @@ bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
         applied = discard_failed_message(owner_id);
     } else if (action == static_cast<u32>(MessageContextAction::message_author) &&
                g_app.popup_owner_kind == PopupOwnerKind::message) {
-        const auto* record = resident_message(owner_id);
+        const auto* record = application_message_record(owner_id);
         applied =
             record && queue_private_conversation(PrivateConversationOperation::open, record->author_id);
     } else if (action == popup_action_message_user && g_app.popup_owner_kind == PopupOwnerKind::member) {

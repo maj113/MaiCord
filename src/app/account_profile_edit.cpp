@@ -50,10 +50,6 @@ RestClientSubmitResult account_profile_edit_submit(RestClient* rest, const Profi
     return result;
 }
 
-RestClientSubmitResult account_profile_edit_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
-
 bool account_profile_image(ProfileImageRequest* request) noexcept {
     if (!request || !request->info || !request->source.data || !request->source.count)
         return false;

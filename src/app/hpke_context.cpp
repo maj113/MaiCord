@@ -7,8 +7,7 @@
 namespace maicord {
 namespace {
 bool initialized(const HpkeContext& context) noexcept {
-    return (context.role == HpkeRole::sender || context.role == HpkeRole::recipient) &&
-           aes_gcm_auxiliary(context.cipher).count == 32;
+    return (context.role == HpkeRole::sender || context.role == HpkeRole::recipient) && context.cipher.handle;
 }
 HpkeResult setup_preflight(const HpkeContext* context, const KdfSha256Workspace& workspace,
                            ConstSlice<u8> point, ConstSlice<ConstSlice<u8>> info, ConstSlice<u8> output,
@@ -51,14 +50,12 @@ HpkeResult install(HpkeContext* context, KdfSha256Workspace& workspace, ConstSli
     auto result =
         from_derivation(hpke_base_key_schedule_hashed_info(workspace, shared, info_hash, &material));
     if (result.ok()) {
-        const auto cipher = aes_gcm_initialize_with_auxiliary(&candidate.cipher, {material.key, 16}, 32);
+        const auto cipher = aes_gcm_initialize(&candidate.cipher, {material.key, 16});
         if (!cipher.ok())
             result = {0, cipher.native_status,
                       cipher.error == AeadError::storage ? HpkeError::storage_failure
                                                          : HpkeError::platform_failure};
         else {
-            const auto auxiliary = aes_gcm_auxiliary(candidate.cipher);
-            copy_bytes(auxiliary.data, material.exporter_secret, 32);
             copy_bytes(candidate.base_nonce, material.base_nonce, 12);
             candidate.role = role;
             // Explicit ownership transfer: no key handle survives in both owners.
@@ -132,12 +129,6 @@ bool hpke_aliases(const HpkeContext& context, ConstSlice<u8> span) noexcept {
     return byte_ranges_overlap(span, object_bytes(context)) ||
            byte_ranges_overlap(span, {context.cipher.object.data, context.cipher.object.capacity});
 }
-HpkeResult hpke_setup_sender(HpkeContext* context, KdfSha256Workspace& workspace, ConstSlice<u8> recipient,
-                             ConstSlice<u8> info_a, ConstSlice<u8> info_b,
-                             Slice<u8> encapsulated) noexcept {
-    const ConstSlice<u8> info[]{info_a, info_b};
-    return hpke_setup_sender_parts(context, workspace, recipient, {info, 2}, encapsulated);
-}
 HpkeResult hpke_setup_sender_parts(HpkeContext* context, KdfSha256Workspace& workspace,
                                    ConstSlice<u8> recipient, ConstSlice<ConstSlice<u8>> info,
                                    Slice<u8> encapsulated) noexcept {
@@ -167,12 +158,6 @@ HpkeResult hpke_setup_sender_parts(HpkeContext* context, KdfSha256Workspace& wor
     secure_clear_bytes(shared, 32);
     secure_clear_bytes(info_hash, 32);
     return result;
-}
-HpkeResult hpke_setup_recipient(HpkeContext* context, KdfSha256Workspace& workspace,
-                                const P256Key& recipient, ConstSlice<u8> encapsulated,
-                                ConstSlice<u8> info_a, ConstSlice<u8> info_b) noexcept {
-    const ConstSlice<u8> info[]{info_a, info_b};
-    return hpke_setup_recipient_parts(context, workspace, recipient, encapsulated, {info, 2});
 }
 HpkeResult hpke_setup_recipient_parts(HpkeContext* context, KdfSha256Workspace& workspace,
                                       const P256Key& recipient, ConstSlice<u8> encapsulated,
@@ -210,21 +195,5 @@ HpkeResult hpke_seal(HpkeContext& context, ConstSlice<u8> aad, ConstSlice<u8> pl
 HpkeResult hpke_open(HpkeContext& context, ConstSlice<u8> aad, ConstSlice<u8> ciphertext,
                      Slice<u8> plaintext) noexcept {
     return crypt(context, aad, ciphertext, plaintext, false);
-}
-HpkeResult hpke_export(const HpkeContext& context, KdfSha256Workspace& workspace,
-                       ConstSlice<u8> exporter_context, Slice<u8> output) noexcept {
-    if (!initialized(context))
-        return {0, 0, HpkeError::not_initialized};
-    if (hpke_aliases(context, exporter_context) || hpke_aliases(context, {output.data, output.count}) ||
-        hpke_aliases(context, object_bytes(workspace)) ||
-        hpke_aliases(context, {workspace.storage.data, workspace.storage.capacity}))
-        return {0, 0, HpkeError::invalid_input};
-    const auto auxiliary = aes_gcm_auxiliary(context.cipher);
-    const auto result = hpke_export_secret(workspace, {auxiliary.data, 32}, exporter_context, output);
-    return {result.bytes, result.native_status,
-            result.ok()                                 ? HpkeError::none
-            : result.error == KdfError::invalid_input   ? HpkeError::invalid_input
-            : result.error == KdfError::not_initialized ? HpkeError::not_initialized
-                                                        : HpkeError::derivation_failure};
 }
 } // namespace maicord

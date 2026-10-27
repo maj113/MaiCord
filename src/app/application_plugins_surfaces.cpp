@@ -148,8 +148,7 @@ bool application_plugins_hover_activate(u32 index, u64 message_id, UiRect anchor
     UiPluginSlotNode nodes[kUiPluginSlotHoverButtons]{};
     const u32 count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, {nodes, kUiPluginSlotHoverButtons});
     if (index >= count || !nodes[index].action_id || !g_app.account_ui || !message_id) return false;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = application_message_record(message_id);
     if (!record) return false;
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, record->channel_id);
     // The global surface's click context is the hovered message.

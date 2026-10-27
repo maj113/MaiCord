@@ -8,6 +8,4 @@ namespace maicord {
 // later through rest_take.
 RestClientSubmitResult account_guild_moderation_submit(RestClient*, const GuildModerationRequest*,
                                                        u64 request_id) noexcept;
-// Exact request ID only; a superseded search is cancelled this way.
-RestClientSubmitResult account_guild_moderation_cancel(RestClient*, u64 request_id) noexcept;
 } // namespace maicord

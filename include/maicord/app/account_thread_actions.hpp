@@ -8,7 +8,4 @@ namespace maicord {
 // synchronously; rest_take returns the request ID and status.
 RestClientSubmitResult account_thread_action_submit(
     RestClient*, const ThreadActionRequest*, u64 request_id) noexcept;
-// Cancels this ID only; a response already committed remains available to rest_take.
-RestClientSubmitResult account_thread_action_cancel(
-    RestClient*, u64 request_id) noexcept;
 } // namespace maicord

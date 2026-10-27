@@ -30,8 +30,4 @@ RestClientSubmitResult account_stage_submit(RestClient* rest, const StageRequest
     secure_clear_bytes(body, written.bytes);
     return result;
 }
-
-RestClientSubmitResult account_stage_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
 } // namespace maicord

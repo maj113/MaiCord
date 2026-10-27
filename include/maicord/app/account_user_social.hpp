@@ -8,6 +8,4 @@ namespace maicord {
 // taken later through rest_take.
 RestClientSubmitResult account_user_social_submit(RestClient*, const UserSocialRequest*,
                                                   u64 request_id) noexcept;
-// Exact request ID only; a published response remains available for rest_take.
-RestClientSubmitResult account_user_social_cancel(RestClient*, u64 request_id) noexcept;
 } // namespace maicord

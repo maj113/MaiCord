@@ -303,17 +303,6 @@ void oversized_record(void (*check)(bool, const char*) noexcept) noexcept {
               spsc_mailbox_size(runtime.events) == 0 &&
               VirtualQuery(runtime.large_record.base, &region, sizeof(region)) && region.State == MEM_RESERVE,
           "oversized guild: the consumer copies the whole record and decommits the worker storage");
-    // A discarded oversized record releases the storage the same way.
-    runtime.mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
-    event = {};
-    payload = {};
-    const bool discarded =
-        gateway_client_route_dispatch_large(envelope, index, 64, scratch, {}, 1, {acquire_large_record, &runtime},
-                                            &event, &payload)
-            .ok() &&
-        publish_event_payload(&client, &runtime, event, payload) && gateway_client_pop_event(&client, &popped_event);
-    check(discarded && !runtime.large_record_lease && !runtime.large_record.committed,
-          "oversized guild: discarding the record decommits the worker storage");
     // The ordinary scratch reports the overflow instead of dropping parts.
     GatewayClientEvent limited{};
     ConstSlice<u8> limited_payload{};

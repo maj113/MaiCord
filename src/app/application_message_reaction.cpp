@@ -97,7 +97,7 @@ bool readable(const ChannelRecord& channel) noexcept {
         !chat_state_store_channel_visible(g_app.account_ui->chat_state, channel))
         return false;
     if (!channel.guild_id)
-        return channel.type == 1 || channel.type == 3;
+        return channel_is_private(channel.type);
     const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, channel.guild_id);
     return guild && guild->occupied && !guild->unavailable && channel.permissions_resolved;
 }
@@ -492,9 +492,7 @@ ApplicationMessageReactionEnqueueResult application_queue_message_reaction_emoji
 ApplicationMessageReactionEnqueueResult application_queue_message_reaction(u64 message_id, u32 index) noexcept {
     if (!actor().instance)
         return ApplicationMessageReactionEnqueueResult::stale;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = application_message_record(message_id);
     const auto* rich = message_rich_store_find(g_app.account_ui->message_rich_store, message_id);
     if (!record || record->channel_id != g_app.account_ui->active_channel_id || !rich ||
         rich->message_revision != record->revision || index >= rich->reaction_count)

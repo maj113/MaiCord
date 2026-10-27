@@ -46,31 +46,29 @@ bool application_notifications_project(Application*, u64 guild_id, u64 channel_i
                                        const MessageNotificationSetting&) noexcept;
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
 struct ApplicationNotificationFixtureStorageMetrics {
-    u64 committed_bytes, reserved_bytes;
-    u32 stride_bytes, capacity_rows, reserved_rows;
+    u64 committed_bytes;
 };
 struct ApplicationNotificationFixtureMetrics {
     u32 guilds,overrides,threads; bool ready,live; u32 seen_count;
     // This compiled fixture owner includes the nonemitting popup/audio hooks.
     // VM commit is queried, while stable storage totals are its Arena backing
     // counters; neither measurement is working set or live row demand.
-    u32 owner_sizeof_bytes, owner_fixture_extension_bytes;
+    u32 owner_sizeof_bytes;
     u64 owner_vm_committed_bytes, storage_committed_bytes, storage_reserved_bytes;
     bool owner_vm_query_ok;
     u64 audio_epoch, audio_backend_epoch, audio_submitted, sound_deadline;
     u32 audio_output_percent;
     NotificationSoundpack audio_pack;
-    bool audio_backpressured, audio_failed, audio_worker_started;
-    u32 display_owner_sizeof_bytes, display_outstanding, display_bytes;
-    u64 display_vm_committed_bytes, display_admitted, display_submitted;
+    bool audio_failed, audio_worker_started;
+    u32 display_owner_sizeof_bytes, display_outstanding;
+    u64 display_vm_committed_bytes;
     // Retention owns two independently page-rounded VirtualAlloc banks. These
     // are metadata/VM counts, not process working set or visible OS banners.
     u64 retention_rows_committed_bytes, retention_index_committed_bytes,
         retention_logical_bytes, retention_capacity_bytes, retention_allocation_failures, retention_tickets;
     u32 retention_channels, retention_capacity_channels,
         retention_index_slots, retention_row_bytes;
-    ApplicationNotificationFixtureStorageMetrics guild_storage, override_storage,
-        thread_storage, staging_storage, guild_scope_storage, channel_scope_storage;
+    ApplicationNotificationFixtureStorageMetrics thread_storage;
 };
 bool application_notifications_fixture_sink(Application*,void(*)(void*,const ::maicord::DesktopNotificationPayload&) noexcept,void*) noexcept;
 // Explicit fake sink only: fixture builds never submit to a real audio worker.

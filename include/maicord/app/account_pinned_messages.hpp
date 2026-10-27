@@ -11,9 +11,5 @@ namespace maicord {
 // retry information; queuing a mutation does not mean it has completed.
 RestClientSubmitResult account_pinned_messages_submit(
     RestClient*, const MessagePinsRequest*, u64 request_id) noexcept;
-// Cancels only this request on the same account worker. A response that has
-// already been committed remains available to rest_take and cancel returns busy.
-RestClientSubmitResult account_pinned_messages_cancel(
-    RestClient*, u64 request_id) noexcept;
 
 } // namespace maicord

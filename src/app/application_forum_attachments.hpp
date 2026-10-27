@@ -59,6 +59,6 @@ void application_forum_attachments_refresh(const ApplicationForumPostTicket&) no
 bool application_forum_attachments_decode_media(Utf8View, const ForumPostRequest&, u64 self,
     Slice<u32>, ForumPostSnapshot*) noexcept;
 ConstSlice<GatewayMessageAttachment> application_forum_attachments_receipt() noexcept;
-struct ApplicationForumAttachmentMetrics { u32 owner_bytes, committed_bytes, draft_bytes, receipt_bytes; bool upload_active; };
+struct ApplicationForumAttachmentMetrics { u32 owner_bytes, committed_bytes, draft_bytes, receipt_bytes; };
 ApplicationForumAttachmentMetrics application_forum_attachments_metrics() noexcept;
 } // namespace maicord::app_detail

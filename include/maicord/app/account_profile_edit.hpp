@@ -10,7 +10,6 @@ namespace maicord {
 // the local preparation of a picked avatar or banner.
 RestClientSubmitResult account_profile_edit_submit(RestClient* rest, const ProfileEditRequest* request,
                                                    u64 request_id) noexcept;
-RestClientSubmitResult account_profile_edit_cancel(RestClient* rest, u64 request_id) noexcept;
 
 // A picked file: probe it (no crop) or crop and encode it into a data URI.
 // The caller owns data_uri; a crop that does not fit reports the bytes it

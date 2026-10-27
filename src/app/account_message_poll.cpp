@@ -17,7 +17,4 @@ RestClientSubmitResult account_message_poll_submit(RestClient* rest,
     secure_clear_bytes(body,sizeof(body));
     return submitted;
 }
-RestClientSubmitResult account_message_poll_cancel(RestClient* rest,u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
 } // namespace maicord

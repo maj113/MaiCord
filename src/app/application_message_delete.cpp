@@ -24,9 +24,7 @@ TextFormOwnerKey delete_confirmation;
 const MessageRecord* deletable_record(u64 message_id) noexcept {
     if (!g_app.account_ui || !message_id || g_app.message_delete.message_id != 0)
         return nullptr;
-    const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);
-    const MessageRecord* record =
-        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const MessageRecord* record = application_message_record(message_id);
     return record && record->channel_id == g_app.account_ui->active_channel_id && message_can_delete(*record)
                ? record
                : nullptr;

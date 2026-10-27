@@ -6,17 +6,6 @@
 
 namespace maicord {
 namespace {
-struct Writer {
-    Slice<char> out;
-    u32 used;
-    bool ok;
-    void add(const char* text, u32 bytes) noexcept {
-        if (!ok || bytes > out.count - used) { ok = false; return; }
-        copy_bytes(out.data + used, text, bytes); used += bytes;
-    }
-    void add(Utf8View text) noexcept { add(text.data, text.bytes); }
-    void number(u64 value) noexcept { char digits[20]; add(digits, decimal_write(digits, value)); }
-};
 Utf8View as_text(ConstSlice<u8> bytes) noexcept { return {reinterpret_cast<const char*>(bytes.data), bytes.count}; }
 bool equal_case(ConstSlice<u8> a, Utf8View b) noexcept { return ascii_equal_ignore_case(as_text(a), b); }
 bool decimal(ConstSlice<u8> text, u64* value) noexcept {
@@ -51,23 +40,25 @@ Utf8View location_host(ConstSlice<u8> location, Utf8View current) noexcept {
     while (end < text.bytes && text.data[end] != '/' && text.data[end] != '?' && text.data[end] != '#') ++end;
     return {text.data + at, end - at};
 }
+// "major.minor.patch", then tag and the sequence for a preview.
+UpdateTextWriter version_writer(u64 version, Slice<char> output, Utf8View preview_tag) noexcept {
+    UpdateTextWriter w{output, 0, true};
+    const u64 n = version % 1000, base = version / 1000;
+    w.number(base / 1000000); w.add(".", 1); w.number(base / 1000 % 1000); w.add(".", 1); w.number(base % 1000);
+    if (n != kUpdateStableSequence) { w.add(preview_tag); w.number(n); }
+    return w;
+}
 } // namespace
 
 u32 update_version_text(u64 version, Slice<char> output) noexcept {
     if (!output.data) return 0;
-    Writer w{output, 0, true};
-    const u64 n = version % 1000, base = version / 1000;
-    w.number(base / 1000000); w.add(".", 1); w.number(base / 1000 % 1000); w.add(".", 1); w.number(base % 1000);
-    if (n != kUpdateStableSequence) { w.add(utf8_literal("-preview.")); w.number(n); }
+    const UpdateTextWriter w = version_writer(version, output, utf8_literal("-preview."));
     return w.ok ? w.used : 0;
 }
 
 u32 update_build_version_text(u64 version, Utf8View commit, Slice<char> output) noexcept {
     if (!output.data || commit.bytes > 12) return 0;
-    Writer w{output, 0, true};
-    const u64 n = version % 1000, base = version / 1000;
-    w.number(base / 1000000); w.add(".", 1); w.number(base / 1000 % 1000); w.add(".", 1); w.number(base % 1000);
-    if (n != kUpdateStableSequence) { w.add(utf8_literal("-dev.")); w.number(n); }
+    UpdateTextWriter w = version_writer(version, output, utf8_literal("-dev."));
     if (commit.bytes) { w.add("+", 1); w.add(commit); }
     return w.ok ? w.used : 0;
 }
@@ -147,7 +138,7 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
         asset > UpdateAsset::changelog_signature) return false;
     u32 slash = 0;
     while (repository.data[slash] != '/') ++slash;
-    Writer w{{out->target, kUpdateTargetCapacity}, 0, true};
+    UpdateTextWriter w{{out->target, kUpdateTargetCapacity}, 0, true};
     out->origin_bytes = 0;
     const bool stable_package = update_version_channel(version) == UpdateChannel::stable;
     if (asset == UpdateAsset::package && (!(version % 1000) || version / 1000000000 >= 1000)) return false;

@@ -10,8 +10,6 @@ namespace maicord {
 // request->info, when set, receives the preparation outcome.
 RestClientSubmitResult account_guild_assets_submit(RestClient*, const GuildAssetRequest*,
                                                    u64 request_id) noexcept;
-// Exact request ID only; a published response remains available for rest_take.
-RestClientSubmitResult account_guild_assets_cancel(RestClient*, u64 request_id) noexcept;
 // image_probe: preparation only, no transport. False when the image is unusable.
 bool account_guild_assets_probe(const GuildAssetRequest*) noexcept;
 // Upload timeout for bodies on the large path.

@@ -89,9 +89,6 @@ const PageOps& ops() noexcept {
 }
 } // namespace
 
-bool available() noexcept {
-    return g_app.account_ui && !g_app.login.visible && g_app.account.status.running;
-}
 const ChatStateStore& state() noexcept {
     return g_app.account_ui->chat_state;
 }
@@ -110,7 +107,7 @@ u64 guild_features() noexcept {
     return record ? record->features : 0;
 }
 bool scope_current() noexcept {
-    if (!owner || !available())
+    if (!owner || !application_account_available())
         return false;
     const auto* guild = chat_state_store_find_guild(state(), owner->guild_id);
     return guild && !guild->unavailable && guild->generation == owner->guild_generation &&
@@ -1067,18 +1064,6 @@ bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEd
     *multiline = editor == editor_description;
     return true;
 }
-void close_hook(SettingsLayer*) noexcept {
-    request_close();
-}
-bool repaint_hook(SettingsLayer*) noexcept {
-    return repaint();
-}
-bool editable_hook(SettingsLayer*) noexcept {
-    return editable();
-}
-void drop(SettingsLayer*, u64 dragged, u64 target, bool after) noexcept {
-    roles_drop(dragged, target, after);
-}
 void context_hook(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
     if (editable() && ops().context)
         ops().context(activation);
@@ -1087,8 +1072,13 @@ void editor_enter_hook(SettingsLayer*, u64 control) noexcept {
     if (editable() && control == control_search)
         bans_editor_enter();
 }
-constexpr SettingsLayerHooks kHooks{editor_hook, edited,        activate,    choose,
-                                    close_hook,  repaint_hook,  drop,        editable_hook,
+constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose,
+                                    [](SettingsLayer*) noexcept { request_close(); },
+                                    [](SettingsLayer*) noexcept { return repaint(); },
+                                    [](SettingsLayer*, u64 dragged, u64 target, bool after) noexcept {
+                                        roles_drop(dragged, target, after);
+                                    },
+                                    [](SettingsLayer*) noexcept { return editable(); },
                                     context_hook, editor_enter_hook};
 
 // Store reconciliation: rebaseline clean drafts, flag dirty ones.
@@ -1219,7 +1209,7 @@ u32 application_guild_settings_page_items(u64 guild_id, u32 action_base, Slice<P
 }
 
 bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
-    if (!available() || !g_app.renderer_ready || g_app.text_form || application_guild_settings_active() ||
+    if (!application_account_available() || !g_app.renderer_ready || g_app.text_form || application_guild_settings_active() ||
         (owner && owner->request_id) || !application_guild_settings_available(guild_id))
         return false;
     application_settings_close(false);
@@ -1359,7 +1349,7 @@ void application_guild_settings_close(bool restore_focus) noexcept {
     ui_settings_scene_close(&owner->scene);
     owner->page = Page::none;
     owner->editing_role = 0;
-    if (restore_focus && available())
+    if (restore_focus && application_account_available())
         g_app.context_focus = &g_app.shell_scene.widgets;
     application_sync_attachment_drop_target();
     synchronize_member_subscription(clock_monotonic_milliseconds());
@@ -1460,7 +1450,7 @@ u64 application_guild_settings_next_wake() noexcept {
 }
 
 bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8 type) noexcept {
-    if (!available() || g_app.text_form || creation.queued || creation.request_id ||
+    if (!application_account_available() || g_app.text_form || creation.queued || creation.request_id ||
         (type != 0 && type != 2 && type != 4) || (type == 4 && category_id))
         return false;
     const auto& s = state();

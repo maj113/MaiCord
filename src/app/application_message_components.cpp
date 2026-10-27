@@ -128,8 +128,7 @@ struct Resolved {
 bool resolve_message(u64 message_id, Resolved* output) noexcept {
     if (!g_app.account_ui || !message_id)
         return false;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = application_message_record(message_id);
     const auto* rich = record ? message_rich_store_find(g_app.account_ui->message_rich_store, message_id) : nullptr;
     if (!record || !rich || rich->message_revision != record->revision ||
         record->channel_id != g_app.account_ui->active_channel_id)

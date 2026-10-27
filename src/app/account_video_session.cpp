@@ -23,9 +23,6 @@ struct Workspace {
     u64 source_frames{}, queued_frames{}, wanted_frames{}, silence_frames{};
     u32 pending_offset{}, pending_frames{}, input_retries{}, preceding_frames{};
     bool reading{}, draining{}, decoded_end{}, sealed{}, requested_play{}, seek_pending{};
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-    AccountVideoTimestampDiagnostic diagnostic{};
-#endif
 };
 static_assert(sizeof(Workspace) <= 84 * 1024);
 struct OpusWorkspace {
@@ -671,9 +668,6 @@ bool output(AccountVideoSession& s, Workspace& w) noexcept {
         w.decoded_end = true;
         w.reading = false;
         if (w.source_frames < w.window.end_source_frame) {
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-            w.diagnostic.error_site = 1;
-#endif
             terminal(s, AccountVideoError::timestamp);
         }
         return s.status.error == AccountVideoError::none;
@@ -694,25 +688,8 @@ bool output(AccountVideoSession& s, Workspace& w) noexcept {
                 account_video_audio_timestamp_matches(block.presentation_time_100ns, expected, preceding,
                                                       w.preceding_frames, w.timeline.sample_rate);
     }
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-    auto& d = w.diagnostic;
-    ++d.outputs;
-    d.source_frames = w.source_frames;
-    d.window_first = w.window.first_source_frame;
-    d.window_end = w.window.end_source_frame;
-    d.native_timestamp = block.presentation_time_100ns;
-    d.expected_timestamp = expected;
-    d.block_frames = block.frames;
-    d.packet_index = w.packet_index;
-    d.packet_count = w.packet_count;
-    d.stamped = block.timestamp_valid;
-    d.mapped = mapped;
-#endif
     if (!block.timestamp_valid || !mapped || !matches ||
         block.frames > u64{w.packet_count} * w.frames_per_packet - w.source_frames) {
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-        w.diagnostic.error_site = 2;
-#endif
         terminal(s, AccountVideoError::timestamp);
         return false;
     }
@@ -849,9 +826,6 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
         }
         if (s.audio_pending) set_pending(s, &s.audio_pending, false);
         if (error != Mp4DemuxError::none || !duration) {
-#if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-            w.diagnostic.error_site = 3;
-#endif
             terminal(s, AccountVideoError::timestamp); break;
         }
         const auto value = aac_decoder_submit(&w.decoder, bytes, start, duration);
@@ -1559,59 +1533,16 @@ u32 account_video_session_owned_bytes(const AccountVideoSession* s) noexcept {
                : sizeof(Workspace);
 }
 #if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
-AccountVideoTimestampDiagnostic account_video_session_timestamp_diagnostic(
-    const AccountVideoSession* s) noexcept {
-    if (!s || !thread(*s) || !s->workspace || standalone(*s))
-        return {};
-    return static_cast<const Workspace*>(s->workspace)->diagnostic;
-}
 AccountVideoProbeSnapshot account_video_session_probe_snapshot(const AccountVideoSession* s) noexcept {
-    if (!s || !thread(*s))
-        return {};
     AccountVideoProbeSnapshot out{};
-    out.session = s->status;
-    out.desired_play = s->desired_play;
-    out.video_eof = s->video_eof;
-    out.held = s->held;
-    out.published = s->published;
-    out.seeking = s->seeking;
-    out.audio_epoch_ready = s->audio_epoch_ready;
-    if (s->workspace && pcm_backed(*s)) {
-        const auto& w = pcm_owner(*s);
-        out.audio = media_audio_status(&w.audio);
-        out.source_frames = w.source_frames;
-        out.queued_frames = w.queued_frames;
-        out.wanted_frames = w.wanted_frames;
-        out.pending_frames = w.pending_frames;
-        out.decoded_end = w.decoded_end;
-        out.sealed = w.sealed;
-        out.requested_play = w.requested_play;
+    if (!s || !thread(*s) || !s->workspace)
         return out;
-    }
-    if (s->workspace && s->status.kind == AccountPlaybackKind::ogg_opus) {
-        const auto& w = *static_cast<const OpusWorkspace*>(s->workspace);
-        out.audio = media_audio_status(&w.audio);
-        out.source_frames = w.source_frames;
-        out.queued_frames = w.queued_frames;
-        out.wanted_frames = w.wanted_frames;
-        out.pending_frames = w.pending_frames;
-        out.decoded_end = w.decoded_end;
-        out.sealed = w.sealed;
-        out.requested_play = w.requested_play;
-        return out;
-    }
-    if (const auto* w = static_cast<const Workspace*>(s->workspace)) {
-        out.audio = media_audio_status(&w->audio);
-        out.source_frames = w->source_frames;
-        out.queued_frames = w->queued_frames;
-        out.wanted_frames = w->wanted_frames;
-        out.pending_frames = w->pending_frames;
-        out.reading = w->reading;
-        out.draining = w->draining;
-        out.decoded_end = w->decoded_end;
-        out.sealed = w->sealed;
-        out.requested_play = w->requested_play;
-    }
+    if (pcm_backed(*s))
+        out.audio = media_audio_status(&pcm_owner(*s).audio);
+    else if (s->status.kind == AccountPlaybackKind::ogg_opus)
+        out.audio = media_audio_status(&static_cast<const OpusWorkspace*>(s->workspace)->audio);
+    else
+        out.audio = media_audio_status(&static_cast<const Workspace*>(s->workspace)->audio);
     return out;
 }
 #endif

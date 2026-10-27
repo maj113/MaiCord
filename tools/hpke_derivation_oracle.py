@@ -51,7 +51,7 @@ def kem(sk, enc, recipient):
 def schedule(shared, info):
     context = b'\x00' + extract(SUITE, b'', b'psk_id_hash', b'') + extract(SUITE, b'', b'info_hash', info)
     secret = extract(SUITE, shared, b'secret', b'')
-    return b''.join(expand(SUITE, secret, label, context, n) for label, n in [(b'key',16),(b'base_nonce',12),(b'exp',32)])
+    return b''.join(expand(SUITE, secret, label, context, n) for label, n in [(b'key',16),(b'base_nonce',12)])
 
 
 def pattern(n):
@@ -113,7 +113,7 @@ def main():
     assert base
     shared=bytes.fromhex(base['shared_secret'])
     material=schedule(shared,bytes.fromhex(base['info']))
-    assert material.hex()==base['key']+base['base_nonce']+base['exporter_secret']
+    assert material.hex()==base['key']+base['base_nonce']
     lines += ['};', f'constexpr char hpke_base_shared[] = "{shared.hex()}";',
               f'constexpr char hpke_base_info[] = "{base["info"]}";', f'constexpr char hpke_base_material[] = "{material.hex()}";',
               'struct HpkeScheduleBoundary { u32 length; const char *material; };', 'constexpr HpkeScheduleBoundary hpke_info_boundaries[]{']
@@ -125,23 +125,8 @@ def main():
         assert nonce.hex()==enc['nonce']
         assert AESGCM(material[:16]).encrypt(nonce,bytes.fromhex(enc['pt']),bytes.fromhex(enc['aad'])).hex()==enc['ct']
         lines.append(row([enc[k] for k in ['aad','pt','ct','nonce']]))
-    lines += ['};', 'struct HpkeExportVector { const char *context, *output; };', 'constexpr HpkeExportVector hpke_exports[]{']
-    for exp in base['exports']:
-        context=bytes.fromhex(exp['exporter_context'])
-        value=expand(SUITE,material[28:],b'sec',context,exp['L'])
-        assert value.hex()==exp['exported_value']
-        lines.append(row([context,value]))
-    lens=[0,1,16,31,32,33,8160]
-    contexts=[0,1,55,56,512,513,16384]
-    digest=hashlib.sha256()
-    for n in contexts:
-        for length in lens:
-            digest.update(expand(SUITE,material[28:],b'sec',pattern(n),length))
-    lines += ['};', 'constexpr u32 hpke_export_lengths[]{'+','.join(map(str,lens))+'};',
-              'constexpr u32 hpke_export_contexts[]{'+','.join(map(str,contexts))+'};',
-              f'constexpr char hpke_export_digest[] = "{digest.hexdigest()}";']
-    Path('tests/data/hpke_derivation_vectors.hpp').write_text('\n'.join(lines)+'\n',encoding='utf8')
-    print(f'source_sha256={SOURCE_SHA} key_pairs={len(pairs)} ikm_boundaries=14 kem_cases={kem_count} info_boundaries=12 encryptions={len(base["encryptions"])} exports=3 export_matrix=49 export_sha256={digest.hexdigest()}')
+    Path('tests/data/hpke_derivation_vectors.hpp').write_text('\n'.join(lines + ['};'])+'\n',encoding='utf8')
+    print(f'source_sha256={SOURCE_SHA} key_pairs={len(pairs)} ikm_boundaries=14 kem_cases={kem_count} info_boundaries=12 encryptions={len(base["encryptions"])}')
 
 
 if __name__=='__main__':

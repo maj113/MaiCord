@@ -56,8 +56,7 @@ bool account_ready() noexcept {
            g_app.account.status.required_action == AccountRequirement::none;
 }
 const MessageRecord* cached_message(u64 channel_id, u64 message_id) noexcept {
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = application_message_record(message_id);
     return record && record->channel_id == channel_id ? record : nullptr;
 }
 

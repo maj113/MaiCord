@@ -297,49 +297,42 @@ AccountLoginStatus WINAPI module_login_submit_verification(void* instance,
     return login_status(runtime);
 }
 
-AccountLoginStatus WINAPI module_login_submit_phone_verify(void* instance,
-                                                           const SecureBuffer* code) noexcept {
-    auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !runtime->coordinator_started || !runtime->recovery_mode || runtime->remote_mode ||
-        runtime->reset_mode || runtime->profile_saved ||
-        account_profile_promotion_has_credential(runtime->promotion)) {
-        return login_invalid_input();
-    }
-    const auto submitted = user_auth_coordinator_submit_phone_verify(&runtime->coordinator, code);
-    runtime->error = submitted.ok() ? AccountLoginError::none : AccountLoginError::coordinator;
-    if (submitted.ok()) {
+bool phone_recovery_ready(const AccountLoginRuntime* runtime) noexcept {
+    return runtime && runtime->coordinator_started && runtime->recovery_mode && !runtime->remote_mode &&
+           !runtime->reset_mode && !runtime->profile_saved &&
+           !account_profile_promotion_has_credential(runtime->promotion);
+}
+
+AccountLoginStatus phone_submitted(AccountLoginRuntime* runtime, bool ok) noexcept {
+    runtime->error = ok ? AccountLoginError::none : AccountLoginError::coordinator;
+    if (ok) {
         runtime->last_event = UserAuthCoordinatorEventKind::none;
         runtime->error_code = 0;
     }
     return login_status(runtime);
 }
+
+AccountLoginStatus WINAPI module_login_submit_phone_verify(void* instance,
+                                                           const SecureBuffer* code) noexcept {
+    auto* runtime = static_cast<AccountLoginRuntime*>(instance);
+    if (!phone_recovery_ready(runtime))
+        return login_invalid_input();
+    return phone_submitted(runtime, user_auth_coordinator_submit_phone_verify(&runtime->coordinator, code).ok());
+}
 AccountLoginStatus WINAPI module_login_submit_phone_resend(void* instance) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !runtime->coordinator_started || !runtime->recovery_mode || runtime->remote_mode ||
-        runtime->reset_mode || runtime->profile_saved ||
-        account_profile_promotion_has_credential(runtime->promotion)) {
+    if (!phone_recovery_ready(runtime))
         return login_invalid_input();
-    }
-    const auto submitted = user_auth_coordinator_submit_phone_resend(&runtime->coordinator);
-    runtime->error = submitted.ok() ? AccountLoginError::none : AccountLoginError::coordinator;
-    if (submitted.ok()) {
-        runtime->last_event = UserAuthCoordinatorEventKind::none;
-        runtime->error_code = 0;
-    }
-    return login_status(runtime);
+    return phone_submitted(runtime, user_auth_coordinator_submit_phone_resend(&runtime->coordinator).ok());
 }
 SecureBufferResult WINAPI module_login_take_phone_reset_token(void* instance, u64 generation,
                                                               SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    if (!runtime || !runtime->coordinator_started || !runtime->recovery_mode || runtime->remote_mode ||
-        runtime->reset_mode || runtime->profile_saved ||
-        account_profile_promotion_has_credential(runtime->promotion) || !output ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(output), sizeof(*output)},
-                            {reinterpret_cast<const u8*>(runtime), sizeof(*runtime)}))
-        return {0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
-    if (!byte_range_valid({output->data, output->capacity}) ||
-        byte_ranges_overlap({output->data, output->capacity},
-                            {reinterpret_cast<const u8*>(runtime), sizeof(*runtime)}))
+    const ConstSlice<u8> owner{reinterpret_cast<const u8*>(runtime), sizeof(*runtime)};
+    if (!phone_recovery_ready(runtime) || !output ||
+        byte_ranges_overlap({reinterpret_cast<const u8*>(output), sizeof(*output)}, owner) ||
+        !byte_range_valid({output->data, output->capacity}) ||
+        byte_ranges_overlap({output->data, output->capacity}, owner))
         return {0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
     return user_auth_coordinator_take_phone_reset_token(&runtime->coordinator, generation, output);
 }
@@ -1336,7 +1329,7 @@ RestClientSubmitResult WINAPI module_pinned_messages(void* instance,
                                                      u64 request_id) noexcept {
     auto* rest = module_rest(instance, true);
     return request ? account_pinned_messages_submit(rest, request, request_id)
-                   : account_pinned_messages_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_channel_overview(void* instance,
                                                       ChannelOverviewOperation operation,
@@ -1360,7 +1353,7 @@ RestClientSubmitResult WINAPI module_thread_action(void* instance,
     }
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_thread_action_submit(rest, request, request_id)
-                   : account_thread_action_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_thread_browser(void* instance,
                                                     const ThreadBrowserRequest* request,
@@ -1370,7 +1363,7 @@ RestClientSubmitResult WINAPI module_thread_browser(void* instance,
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_thread_browser_submit(rest, request, request_id)
-                   : account_thread_browser_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_thread_creation(void* instance,
                                                      const ThreadCreationRequest* request,
@@ -1385,7 +1378,7 @@ RestClientSubmitResult WINAPI module_thread_creation(void* instance,
     }
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_thread_creation_submit(rest, request, request_id)
-                   : account_thread_creation_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_poll_create(void* instance, u64 channel_id, u64 nonce,
                                                  const PollCreate* poll, u64 request_id) noexcept {
@@ -1394,7 +1387,7 @@ RestClientSubmitResult WINAPI module_poll_create(void* instance, u64 channel_id,
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return poll ? account_poll_create_submit(rest, channel_id, nonce, poll, request_id)
-                : account_poll_create_cancel(rest, request_id);
+                : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_private_channel(void* instance, const PrivateChannelActionRequest* request,
                                                      u64 request_id) noexcept {
@@ -1403,7 +1396,7 @@ RestClientSubmitResult WINAPI module_private_channel(void* instance, const Priva
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_private_channel_submit(rest, request, request_id)
-                   : account_private_channel_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 bool WINAPI module_local_presence(void* instance, const GatewayLocalPresence* input,
                                   GatewayActivitySharing* output) noexcept {
@@ -1441,7 +1434,7 @@ RestClientSubmitResult WINAPI module_guild_settings(void* instance, const UserGu
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return patch ? account_guild_settings_submit(rest, patch, request_id)
-                 : account_notification_request_cancel(rest, request_id);
+                 : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_mentions(void* instance, const MentionsQuery* query,
                                               u64 request_id) noexcept {
@@ -1450,7 +1443,7 @@ RestClientSubmitResult WINAPI module_mentions(void* instance, const MentionsQuer
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return query ? account_mentions_submit(rest, query, request_id)
-                 : account_notification_request_cancel(rest, request_id);
+                 : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_forum_post(void* instance,
                                                 const ForumPostRequest* request,
@@ -1466,7 +1459,7 @@ RestClientSubmitResult WINAPI module_forum_post(void* instance,
     }
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_forum_post_submit(rest, request, request_id)
-                   : account_forum_post_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_poll(void* instance, const PollRequest* request,
                                           u64 request_id) noexcept {
@@ -1481,7 +1474,7 @@ RestClientSubmitResult WINAPI module_poll(void* instance, const PollRequest* req
     }
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_message_poll_submit(rest, request, request_id)
-                   : account_message_poll_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_guild_admin(void* instance, const GuildAdminRequest* request,
                                                  u64 request_id) noexcept {
@@ -1490,7 +1483,7 @@ RestClientSubmitResult WINAPI module_guild_admin(void* instance, const GuildAdmi
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_guild_admin_submit(rest, request, request_id)
-                   : account_guild_admin_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_guild_moderation(void* instance, const GuildModerationRequest* request,
                                                       u64 request_id) noexcept {
@@ -1499,7 +1492,7 @@ RestClientSubmitResult WINAPI module_guild_moderation(void* instance, const Guil
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_guild_moderation_submit(rest, request, request_id)
-                   : account_guild_moderation_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_guild_assets(void* instance, const GuildAssetRequest* request,
                                                   u64 request_id) noexcept {
@@ -1513,7 +1506,7 @@ RestClientSubmitResult WINAPI module_guild_assets(void* instance, const GuildAss
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_guild_assets_submit(rest, request, request_id)
-                   : account_guild_assets_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_profile_edit(void* instance, const ProfileEditRequest* request,
                                                   u64 request_id) noexcept {
@@ -1522,7 +1515,7 @@ RestClientSubmitResult WINAPI module_profile_edit(void* instance, const ProfileE
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? account_profile_edit_submit(rest, request, request_id)
-                   : account_profile_edit_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 bool WINAPI module_profile_image(void* instance, ProfileImageRequest* request) noexcept {
     return instance && account_profile_image(request);
@@ -1622,7 +1615,7 @@ RestClientSubmitResult WINAPI module_stage(void* instance, const StageRequest* r
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     if (!rest)
         return {RestClientSubmitError::invalid_input};
-    return request ? account_stage_submit(rest, request, request_id) : account_stage_cancel(rest, request_id);
+    return request ? account_stage_submit(rest, request, request_id) : rest_client_cancel_result(rest, request_id);
 }
 RestClientSubmitResult WINAPI module_guild_community(void* instance, const GuildCommunityRequest* request,
                                                      u64 request_id) noexcept {
@@ -1654,7 +1647,7 @@ RestClientSubmitResult WINAPI module_user_social(void* instance, const UserSocia
     if (!rest)
         return {RestClientSubmitError::invalid_input};
     return request ? account_user_social_submit(rest, request, request_id)
-                   : account_user_social_cancel(rest, request_id);
+                   : rest_client_cancel_result(rest, request_id);
 }
 bool WINAPI module_voice_user_audio(void* instance, u64 user_id, u32 gain_percent, bool muted) noexcept {
     auto* gateway = module_gateway(instance);
@@ -1682,7 +1675,7 @@ RestClientSubmitResult WINAPI module_soundboard(void* instance, const Soundboard
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     if (!rest)
         return {RestClientSubmitError::invalid_input};
-    return request ? account_soundboard_submit(rest, request, request_id) : account_soundboard_cancel(rest, request_id);
+    return request ? account_soundboard_submit(rest, request, request_id) : rest_client_cancel_result(rest, request_id);
 }
 bool WINAPI module_soundboard_audio(void* instance, const SoundboardAudioCommand* command,
                                     SoundboardAudioStatus* status) noexcept {

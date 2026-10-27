@@ -1,5 +1,6 @@
 #include "application_plugins.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "application_plugin_browser.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_plugin_settings_projection.hpp"
@@ -538,7 +539,6 @@ u64 application_plugins_catalog_revision() noexcept { return g_app.plugins ? g_a
 const NativePluginCatalog* application_plugins_catalog_current() noexcept {
     return g_app.plugins && g_app.plugins->catalog ? &g_app.plugins->catalog->catalog : nullptr;
 }
-u32 application_plugins_catalog_owner_bytes() noexcept { return sizeof(ApplicationPluginCatalogOwner); }
 
 bool application_plugins_discover() noexcept {
     if (application_plugins_busy() || !g_app.account_ui || g_app.login.visible || !application_settings_active()) return false;
@@ -603,39 +603,31 @@ bool request_approval(ApplicationPlugins& plugins, u32 index, u64 revision) noex
     auto* sdk = plugins.sdk;
     if (!sdk) return false;
     const auto& manifest = plugins.catalog->catalog.entries[index].manifest;
-    u32 at = 0;
-    const auto append = [&](Utf8View text) noexcept {
-        const u32 bytes = minimum(text.bytes, static_cast<u32>(sizeof(sdk->approval_text)) - at);
-        copy_bytes(sdk->approval_text + at, text.data, bytes);
-        at += bytes;
-    };
+    TextBank text{sdk->approval_text, sizeof(sdk->approval_text), 0};
     if (manifest.publisher_bytes) {
-        append(utf8_literal("Published by "));
-        append({manifest.publisher, manifest.publisher_bytes});
-        append(utf8_literal(".\n"));
+        text.add("Published by ");
+        text.add({manifest.publisher, manifest.publisher_bytes});
+        text.add(".\n");
     }
-    append(utf8_literal("This plugin will be able to:"));
+    text.add("This plugin will be able to:");
     for (u32 bit = 0; bit < kNativePluginPermissionCount; ++bit)
         if (manifest.permissions & (1ull << bit)) {
-            append(utf8_literal("\n\xE2\x80\xA2 "));
-            append(native_plugin_permission_label(bit));
+            text.add("\n\xE2\x80\xA2 ");
+            text.add(native_plugin_permission_label(bit));
         }
-    if (!manifest.permissions) append(utf8_literal("\nNothing beyond running its own code."));
-    append(utf8_literal("\nPlugins run with full access to your computer. Only enable plugins you trust."));
+    if (!manifest.permissions) text.add("\nNothing beyond running its own code.");
+    text.add("\nPlugins run with full access to your computer. Only enable plugins you trust.");
     sdk->approval_serial = g_app.plugin_account_scope_serial;
     sdk->approval_revision = revision;
     sdk->approval_index = index;
     char title[kNativePluginNameCapacity + 16];
-    u32 title_bytes = 0;
-    constexpr Utf8View prefix = utf8_literal("Enable ");
-    copy_bytes(title, prefix.data, prefix.bytes);
-    title_bytes = prefix.bytes;
-    copy_bytes(title + title_bytes, manifest.name, manifest.name_bytes);
-    title_bytes += manifest.name_bytes;
-    title[title_bytes++] = '?';
+    TextBank heading{title, sizeof(title), 0};
+    heading.add("Enable ");
+    heading.add({manifest.name, manifest.name_bytes});
+    heading.add("?");
     ApplicationTextFormRequest request{};
-    request.title = {title, title_bytes};
-    request.context = {sdk->approval_text, at};
+    request.title = heading.view();
+    request.context = text.view();
     request.accept = utf8_literal("Allow and enable");
     request.owner = {sdk->approval_serial, revision, index};
     request.valid = approval_valid;

@@ -261,8 +261,7 @@ bool application_pinned_messages_can_pin(u64 message_id) noexcept {
     if (value && current(*value) && (!value->controller.available || !value->controller.can_pin ||
         value->controller.permission_denied || value->controller.request_id ||
         pinned_message_controller_mutation_pending(value->controller))) return false;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* record = application_message_record(message_id);
     if (record) return record->channel_id == scope().channel_id &&
         record->delivery == MessageDeliveryState::authoritative && record->type != 6;
     if (value && current(*value) && value->controller.authoritative)
@@ -434,8 +433,7 @@ bool application_pinned_messages_response(const RestClientResponse& response, Ut
     // Pin pages are a separate view and never replace the timeline's content.
     if (completion.kind == PinnedMessageCompletionKind::success && current(*value)) {
         if (submitted.payload.operation != MessagePinsOperation::fetch && remote_current) {
-            const auto found = message_store_find(g_app.message_view.store, submitted.payload.message_id);
-            const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+            const auto* record = application_message_record(submitted.payload.message_id);
             if (record && record->channel_id == submitted.scope.channel_id) {
                 const u32 flags = submitted.payload.operation == MessagePinsOperation::pin
                     ? record->presentation_flags | message_presentation_pinned
@@ -444,8 +442,7 @@ bool application_pinned_messages_response(const RestClientResponse& response, Ut
             }
         } else if (value->controller.phase == PinnedMessagePhase::ready) {
             for (u32 index = 0; index < value->controller.page.count; ++index) {
-                const auto found = message_store_find(g_app.message_view.store, value->controller.rows[index].message_id);
-                const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+                const auto* record = application_message_record(value->controller.rows[index].message_id);
                 if (record && record->channel_id == submitted.scope.channel_id)
                     message_store_set_presentation_flags(&g_app.message_view.store, record->id,
                         record->presentation_flags | message_presentation_pinned);

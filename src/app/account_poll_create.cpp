@@ -25,7 +25,4 @@ RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_
     secure_clear_bytes(body, written.bytes);
     return submitted;
 }
-RestClientSubmitResult account_poll_create_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
 } // namespace maicord

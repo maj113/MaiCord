@@ -34,11 +34,6 @@ NativePluginSdkRuntime* runtime() noexcept {
 bool surfaces_available() noexcept {
     return g_app.account_ui && !g_app.login.visible && !application_settings_active() && !g_app.text_form;
 }
-const MessageRecord* message(u64 id) noexcept {
-    const auto found = message_store_find(g_app.message_view.store, id);
-    return found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
-}
-bool private_type(u8 type) noexcept { return type == 1 || type == 3; }
 // The other person of a 1:1 DM, or zero.
 u64 dm_recipient(u64 channel_id) noexcept {
     const auto& chat = g_app.account_ui->chat_state;
@@ -88,7 +83,7 @@ bool capture(ApplicationPluginMenu& menu, Surface surface, u64 id, u64 guild_id)
         return true;
     }
     case Surface::message: {
-        const auto* record = message(id);
+        const auto* record = application_message_record(id);
         if (application_friends_active() || !record || record->channel_id != chat.selected_channel_id) return false;
         const auto* channel = chat_state_store_find_channel(chat, record->channel_id);
         menu.user_id = record->author_id;
@@ -96,7 +91,7 @@ bool capture(ApplicationPluginMenu& menu, Surface surface, u64 id, u64 guild_id)
         menu.message_id = id;
         menu.guild_id = channel ? channel->guild_id : 0;
         if (record->author_id && record->author_id == self) menu.flags |= MC_MENU_OWN;
-        if (channel && private_type(channel->type)) menu.flags |= MC_MENU_PRIVATE;
+        if (channel && channel_is_private(channel->type)) menu.flags |= MC_MENU_PRIVATE;
         menu.popup_owner = static_cast<u8>(PopupOwnerKind::message);
         menu.popup_owner_id = id;
         menu.target_revision = record->revision;
@@ -109,7 +104,7 @@ bool capture(ApplicationPluginMenu& menu, Surface surface, u64 id, u64 guild_id)
         const auto* record = chat_state_store_find_channel(chat, id);
         menu.channel_id = id;
         menu.guild_id = record->guild_id;
-        if (private_type(record->type)) menu.flags |= MC_MENU_PRIVATE;
+        if (channel_is_private(record->type)) menu.flags |= MC_MENU_PRIVATE;
         if (record->type == 1) menu.recipient_id = menu.user_id = dm_recipient(id);
         menu.popup_owner = static_cast<u8>(channel_owner(id));
         menu.popup_owner_id = id;
@@ -152,7 +147,7 @@ bool target_current(const ApplicationPluginMenu& menu, bool popup_scope = true) 
                relation == menu.target_revision;
     }
     case Surface::message: {
-        const auto* record = message(menu.message_id);
+        const auto* record = application_message_record(menu.message_id);
         return !application_friends_active() && chat.selected_channel_id == menu.channel_id && record &&
                record->channel_id == menu.channel_id && record->author_id == menu.user_id &&
                record->revision == menu.target_revision && record->generation == menu.target_generation;

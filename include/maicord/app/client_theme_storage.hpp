@@ -37,8 +37,7 @@ enum class ClientThemeStorageError : u8 {
     memory,
     write,
     flush,
-    commit,
-    cancelled
+    commit
 };
 struct ClientThemeStorageResult {
     u32 native_error{}, document_offset{}, unsupported_fields{};
@@ -130,5 +129,4 @@ void client_theme_io_cancel(ClientThemeIo*, u64 generation) noexcept;
 // Stop drains accepted work then joins. Timeout/failure retains all resources
 // and rejects future submissions; retry stop later. Joined success frees owner.
 bool client_theme_io_stop(ClientThemeIo**, u32 timeout_ms) noexcept;
-u32 client_theme_io_owner_bytes(const ClientThemeIo*) noexcept;
 } // namespace maicord

@@ -179,17 +179,9 @@ bool voice_preferences_decode(ConstSlice<u8> record, VoicePreferences* preferenc
 bool voice_preferences_load_file(const wchar_t* path, VoicePreferences* preferences) noexcept {
     if (!path || !preferences)
         return false;
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-        return false;
     static u8 record[kVoicePreferencesMaximumBytes];
-    Win32LargeInteger size{};
-    u32 native = 0;
-    const bool read = GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && static_cast<u64>(size.QuadPart) <= sizeof(record) &&
-                      file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native);
-    CloseHandle(file);
-    return read && voice_preferences_decode({record, static_cast<u32>(size.QuadPart)}, preferences);
+    const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
+    return read.ok() && voice_preferences_decode({record, read.bytes}, preferences);
 }
 
 bool voice_preferences_save_file(const wchar_t* path, const VoicePreferences& preferences) noexcept {

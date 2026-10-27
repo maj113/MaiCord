@@ -336,8 +336,4 @@ bool account_host_wake_due(const AccountHost* host, u64 now_ms) noexcept {
            now_ms >= host->status.next_wake_at_ms;
 }
 
-u32 account_host_runtime_bytes() noexcept {
-    return sizeof(AccountHost);
-}
-
 } // namespace maicord

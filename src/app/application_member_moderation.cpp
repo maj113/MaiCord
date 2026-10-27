@@ -5,7 +5,7 @@
 #include "application_message_interaction.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
-#include "maicord/core/decimal.hpp"
+#include "maicord/core/text_bank.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild_settings_model.hpp"
 #include "maicord/core/time.hpp"
@@ -142,24 +142,10 @@ Utf8View target_name(u64 guild_id, u64 user_id) noexcept {
     return utf8_literal("this member");
 }
 
-struct Text {
-    char data[512];
-    u32 bytes;
-    __declspec(noinline) void append(const char* source, u32 count) noexcept {
-        const u32 room = sizeof(data) - bytes;
-        const u32 take = count < room ? count : room;
-        copy_bytes(data + bytes, source, take);
-        bytes += take;
-    }
-    void add(const Utf8View& value) noexcept {
-        append(value.data, value.bytes);
-    }
-    template <usize Count> __forceinline void add(const char (&text)[Count]) noexcept {
-        append(text, Count - 1);
-    }
-    Utf8View view() const noexcept {
-        return {data, bytes};
-    }
+// Short form text built in place; appends truncate at capacity.
+struct Text : TextBank {
+    char storage[512];
+    Text() noexcept : TextBank{storage, sizeof(storage), 0} {}
 };
 
 Utf8View duration_text(u32 seconds) noexcept {
@@ -275,8 +261,7 @@ bool open_ban_form() noexcept {
     Text title{};
     if (moderation.kind == Kind::bulk_ban) {
         title.add("Ban ");
-        char digits[12];
-        title.add({digits, decimal_write(digits, moderation.user_count)});
+        title.number(moderation.user_count);
         title.add(moderation.user_count == 1 ? utf8_literal(" member?") : utf8_literal(" members?"));
     } else {
         title.add("Ban @");

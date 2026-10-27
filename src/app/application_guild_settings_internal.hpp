@@ -479,7 +479,6 @@ extern const PageOps kProfilePage, kEngagementPage, kBoostPage, kExpressionPage,
     kInvitesPage, kSafetyPage, kAuditLogPage, kBansPage;
 
 // Identity and transport.
-bool available() noexcept;
 const ChatStateStore& state() noexcept;
 const GuildDetailStore& details() noexcept;
 const GuildDetailRecord* guild_details() noexcept;

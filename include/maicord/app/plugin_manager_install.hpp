@@ -30,7 +30,7 @@ enum class PluginManagerError : u8 {
     storage,       // plugin-manager directories or staging files (native_error)
     busy,          // another operation is journaled: recover first
     records,       // state.bin or journal.bin could not be read or written (record_error)
-    trust,         // plugins.bin could not be read or written (trust_error)
+    trust,         // plugins.bin could not be read or written
     inventory,     // the plugins directory could not be read, or holds a conflicting manifest for the owner
     cache,         // no admitted, unexpired cached index for the provider (index_error, record_error)
     not_listed,    // the owner or version is not in the index
@@ -56,7 +56,6 @@ struct PluginManagerResult {
     UpdateFetchError fetch_error;
     AcceptanceRecordError record_error;
     PluginIndexError index_error;
-    NativePluginPreferencesError trust_error;
     u32 native_error;
     PluginPermissionDiff permissions; // review: added, removed and kept against the approved mask
     constexpr bool ok() const noexcept { return error == PluginManagerError::none; }

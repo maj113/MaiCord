@@ -101,10 +101,6 @@ RestClientSubmitResult account_guild_assets_submit(RestClient* rest, const Guild
     return result;
 }
 
-RestClientSubmitResult account_guild_assets_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
-
 bool account_guild_assets_probe(const GuildAssetRequest* request) noexcept {
     if (!request || request->operation != GuildAssetOperation::image_probe || !guild_asset_request_valid(*request))
         return false;

@@ -315,11 +315,7 @@ struct AccountLoginStatus {
     u64 retry_at_ms;
 
     u64 browser_generation;
-    u64 browser_candidate_id;
     u64 browser_deadline_ms;
-    u32 browser_native_error;
-    u8 browser_phase;
-    u8 browser_error;
 
     constexpr bool ok() const noexcept {
         return error == AccountLoginError::none;
@@ -719,7 +715,7 @@ struct AccountModuleApi {
 // the module is stopped.
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
-static_assert(sizeof(AccountLoginStatus) == 136);
+static_assert(sizeof(AccountLoginStatus) == 120);
 static_assert(sizeof(AccountModuleApi) == 1008);
 static_assert(offsetof(AccountModuleApi, voice_video_notification) == 1000);
 static_assert(offsetof(AccountModuleApi, client_focus) == 992);

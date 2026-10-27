@@ -197,21 +197,8 @@ AccountVideoResult account_video_session_release(AccountVideoSession*, u32 timeo
 u32 account_video_session_owned_bytes(const AccountVideoSession*) noexcept;
 #if defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
 // Opt-in QA builds only; no cost in shipping builds.
-struct AccountVideoTimestampDiagnostic {
-    u64 source_frames{}, window_first{}, window_end{}, outputs{};
-    i64 native_timestamp{}, expected_timestamp{};
-    u32 block_frames{}, packet_index{}, packet_count{}, error_site{};
-    bool stamped{}, mapped{};
-};
-AccountVideoTimestampDiagnostic account_video_session_timestamp_diagnostic(
-    const AccountVideoSession*) noexcept;
 struct AccountVideoProbeSnapshot {
-    AccountVideoStatus session{};
     MediaAudioStatus audio{};
-    u64 source_frames{}, queued_frames{}, wanted_frames{};
-    u32 pending_frames{};
-    bool desired_play{}, video_eof{}, held{}, published{}, seeking{}, audio_epoch_ready{};
-    bool reading{}, draining{}, decoded_end{}, sealed{}, requested_play{};
 };
 AccountVideoProbeSnapshot account_video_session_probe_snapshot(const AccountVideoSession*) noexcept;
 #endif

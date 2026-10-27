@@ -14,8 +14,6 @@ struct GatewayClient;
 // request->info. probe checks only (no transport, any request ID).
 RestClientSubmitResult account_soundboard_submit(RestClient*, const SoundboardRequest*,
                                                  u64 request_id) noexcept;
-// Exact request ID only; a published response remains available for rest_take.
-RestClientSubmitResult account_soundboard_cancel(RestClient*, u64 request_id) noexcept;
 bool account_soundboard_probe(const SoundboardRequest*) noexcept;
 inline constexpr u32 kSoundboardLargeTimeoutMs = 60 * 1000;
 
@@ -44,14 +42,12 @@ struct SoundboardAudioStatus {
     u64 failed_sound_id;
     u32 active_voices;
     u32 cached_clips;
-    u32 cached_bytes;
     u32 pending;
     SoundboardAudioError last_error;
-    bool preview_output; // The module's own output plays (no call audio).
     bool call_audio;
-    u8 reserved[5];
+    u8 reserved[2];
 };
-static_assert(sizeof(SoundboardAudioStatus) == 40);
+static_assert(sizeof(SoundboardAudioStatus) == 32);
 
 inline constexpr u32 kSoundboardPendingPlays = 8;
 inline constexpr u64 kSoundboardPendingTimeoutMs = 8'000;

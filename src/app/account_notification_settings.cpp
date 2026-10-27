@@ -32,7 +32,4 @@ RestClientSubmitResult account_mentions_submit(RestClient* rest, const MentionsQ
                               request_id,
                               false);
 }
-RestClientSubmitResult account_notification_request_cancel(RestClient* rest, u64 request_id) noexcept {
-    return rest_client_cancel_result(rest, request_id);
-}
 } // namespace maicord

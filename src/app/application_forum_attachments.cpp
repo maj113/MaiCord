@@ -386,6 +386,6 @@ bool application_forum_attachments_defer_close() noexcept {
 ApplicationForumAttachmentMetrics application_forum_attachments_metrics() noexcept {
     if (!forum_attachments) return {};
     return {sizeof(ApplicationForumAttachments), (sizeof(ApplicationForumAttachments) + 4095u) & ~4095u,
-        forum_attachments->drafts.committed_bytes, forum_attachments->receipt_bytes, forum_attachments->active_id != 0};
+        forum_attachments->drafts.committed_bytes, forum_attachments->receipt_bytes};
 }
 } // namespace maicord::app_detail

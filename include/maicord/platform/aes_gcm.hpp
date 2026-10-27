@@ -18,13 +18,6 @@ struct AesGcmKey {
 
 // Accepts exactly 16 or 32 key bytes. A live destination is rejected unchanged.
 AeadResult aes_gcm_initialize(AesGcmKey* key, ConstSlice<u8> secret) noexcept;
-// Reserve protocol-owned auxiliary bytes after the provider object in the same
-// locked allocation. CNG receives only its queried object length. Auxiliary
-// bytes are initially zero, protected from AEAD input/output aliases, and wiped
-// with the key. Plain initialization is the zero-auxiliary case.
-AeadResult aes_gcm_initialize_with_auxiliary(AesGcmKey* key, ConstSlice<u8> secret,
-                                             u32 auxiliary_bytes) noexcept;
-Slice<u8> aes_gcm_auxiliary(const AesGcmKey& key) noexcept;
 void aes_gcm_release(AesGcmKey* key) noexcept;
 
 // Fixed 96-bit nonce and detached 128-bit tag. The caller must guarantee nonce

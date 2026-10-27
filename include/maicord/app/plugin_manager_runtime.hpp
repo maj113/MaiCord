@@ -16,7 +16,6 @@ namespace maicord {
 struct PluginCatalogKeys {
     P256Key official[2];
     P256Key custom[kPluginProviderMaximum];
-    u32 official_count;
 };
 void plugin_catalog_keys_release(PluginCatalogKeys*) noexcept;
 // Slot 0 is the official provider (present when repository and keys are
@@ -77,7 +76,7 @@ struct PluginAutomaticUpdate {
     u64 owner, provider, version_code, approved_permissions;
 };
 struct PluginEvaluation {
-    u32 adopted, pruned, offers, reviews, incompatible;
+    u32 adopted, pruned, offers, reviews;
     u32 revoked_count, update_count;
     bool state_written, trust_written;
     PluginRevokedPlugin revoked[kPluginManagerStateMaximumEntries];       // unload and distrust now

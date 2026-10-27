@@ -264,19 +264,9 @@ bool registered_games_load(RegisteredGames* games) noexcept {
     wchar_t path[kAccountProfileMaximumPathCharacters]{};
     if (!data_path(path, kAccountProfileMaximumPathCharacters, L"games.bin").ok())
         return false;
-    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        const DWORD error = GetLastError();
-        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
-    }
     u8 record[5 + kRegisteredGameMaximum * (2 + kRegisteredGameNameBytes + kRegisteredGameExecutableBytes)];
-    LARGE_INTEGER size{};
-    u32 native = 0;
-    const bool read = GetFileSizeEx(file, &size) && size.QuadPart > 0 && static_cast<u64>(size.QuadPart) <= sizeof(record) &&
-                      file_persistence_read_complete(file, {record, static_cast<u32>(size.QuadPart)}, &native);
-    CloseHandle(file);
-    return read && registered_games_decode({record, static_cast<u32>(size.QuadPart)}, games);
+    const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
+    return read.error == FileReadError::missing || (read.ok() && registered_games_decode({record, read.bytes}, games));
 }
 bool registered_games_save(const RegisteredGames& games) noexcept {
     wchar_t path[kAccountProfileMaximumPathCharacters]{};

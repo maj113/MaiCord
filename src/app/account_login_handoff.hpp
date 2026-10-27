@@ -215,11 +215,7 @@ AccountLoginStatus login_status(AccountLoginRuntime* runtime) noexcept {
     if (runtime->browser_mode) {
         const auto browser = browser_login_status(&runtime->browser);
         status.browser_generation = browser.generation;
-        status.browser_candidate_id = browser.candidate_id;
         status.browser_deadline_ms = browser.deadline_ms;
-        status.browser_native_error = browser.native_error;
-        status.browser_phase = static_cast<u8>(browser.phase);
-        status.browser_error = static_cast<u8>(browser.error);
         if (runtime->browser.authenticated) {
             status.phase = AccountLoginPhase::authenticated;
         } else {

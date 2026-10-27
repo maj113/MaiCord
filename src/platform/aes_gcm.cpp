@@ -21,10 +21,6 @@ AeadResult crypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
 } // namespace
 
 AeadResult aes_gcm_initialize(AesGcmKey* key, ConstSlice<u8> secret) noexcept {
-    return aes_gcm_initialize_with_auxiliary(key, secret, 0);
-}
-AeadResult aes_gcm_initialize_with_auxiliary(AesGcmKey* key, ConstSlice<u8> secret,
-                                             u32 auxiliary_bytes) noexcept {
     if (!key || key->handle || key->object.data || key->object.locked ||
         (secret.count != 16 && secret.count != 32) || !byte_range_valid(secret) ||
         byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}))
@@ -36,9 +32,7 @@ AeadResult aes_gcm_initialize_with_auxiliary(AesGcmKey* key, ConstSlice<u8> secr
                           reinterpret_cast<PUCHAR>(&object_bytes), sizeof(object_bytes), &returned, 0);
     if (status < 0 || returned != sizeof(object_bytes) || !object_bytes)
         return aead_result(AeadError::platform_failure, 0, status);
-    if (auxiliary_bytes > ~u32{0} - object_bytes)
-        return aead_result(AeadError::invalid_input);
-    const auto storage = secure_buffer_initialize(&key->object, object_bytes + auxiliary_bytes);
+    const auto storage = secure_buffer_initialize(&key->object, object_bytes);
     if (!storage.ok())
         return aead_result(AeadError::storage, 0, static_cast<i32>(storage.native_error));
     status = BCryptGenerateSymmetricKey(BCRYPT_AES_GCM_ALG_HANDLE, &key->handle, key->object.data,
@@ -47,14 +41,7 @@ AeadResult aes_gcm_initialize_with_auxiliary(AesGcmKey* key, ConstSlice<u8> secr
         aes_gcm_release(key);
         return aead_result(AeadError::platform_failure, 0, status);
     }
-    key->object.bytes = object_bytes;
     return aead_result(AeadError::none);
-}
-
-Slice<u8> aes_gcm_auxiliary(const AesGcmKey& key) noexcept {
-    if (!key.handle || !key.object.data || !key.object.locked || key.object.bytes > key.object.capacity)
-        return {};
-    return {key.object.data + key.object.bytes, key.object.capacity - key.object.bytes};
 }
 
 void aes_gcm_release(AesGcmKey* key) noexcept {

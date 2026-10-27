@@ -868,10 +868,9 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     metrics.threads=n.settings.thread_count; metrics.ready=n.ready; metrics.live=n.live;
     metrics.seen_count=n.seen_next;
     metrics.owner_sizeof_bytes=static_cast<u32>(sizeof(ApplicationNotifications));
-    metrics.owner_fixture_extension_bytes=static_cast<u32>(sizeof(ApplicationNotifications)-offsetof(ApplicationNotifications,fixture_sink));
     metrics.audio_epoch=n.audio_epoch; metrics.audio_backend_epoch=n.audio.epoch; metrics.audio_submitted=n.audio_submitted;
     notification_sound_throttle_deadline(n.sound_throttle,&metrics.sound_deadline);
-    metrics.audio_backpressured=n.audio_backpressured; metrics.audio_failed=n.audio_failed;
+    metrics.audio_failed=n.audio_failed;
     metrics.audio_worker_started=n.audio.runtime!=nullptr;
     metrics.audio_output_percent=static_cast<u32>(ReadAcquire(&n.sound_assets.output_percent));
     metrics.audio_pack=n.current_pack;
@@ -897,7 +896,6 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     if(n.display) {
         const auto queue=desktop_notification_queue_metrics(&n.display->queue);
         metrics.display_owner_sizeof_bytes=sizeof(Display); metrics.display_outstanding=queue.outstanding;
-        metrics.display_bytes=queue.bytes; metrics.display_admitted=queue.admitted; metrics.display_submitted=queue.submitted;
         MEMORY_BASIC_INFORMATION display_region{};
         if(VirtualQuery(n.display,&display_region,sizeof(display_region))==sizeof(display_region) &&
             display_region.AllocationBase==n.display && display_region.State==MEM_COMMIT)
@@ -907,21 +905,12 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     metrics.owner_vm_query_ok=VirtualQuery(&n,&region,sizeof(region))==sizeof(region) &&
         region.AllocationBase==&n && region.BaseAddress==&n && region.State==MEM_COMMIT;
     if(metrics.owner_vm_query_ok) metrics.owner_vm_committed_bytes=static_cast<u64>(region.RegionSize);
-    const auto storage=[](const StableStorage& owner) noexcept {
-        return ApplicationNotificationFixtureStorageMetrics{
-            static_cast<u64>(owner.arena.committed),static_cast<u64>(owner.arena.reserved),
-            owner.element_bytes,owner.capacity,owner.reserved_capacity};
-    };
-    metrics.guild_storage=storage(n.guilds); metrics.override_storage=storage(n.overrides);
-    metrics.thread_storage=storage(n.threads); metrics.staging_storage=storage(n.staging);
-    metrics.guild_scope_storage=storage(n.guild_scopes); metrics.channel_scope_storage=storage(n.channel_scopes);
-    const ApplicationNotificationFixtureStorageMetrics* owners[]{
-        &metrics.guild_storage,&metrics.override_storage,&metrics.thread_storage,
-        &metrics.staging_storage,&metrics.guild_scope_storage,&metrics.channel_scope_storage};
-    for(const auto* owner:owners) {
-        metrics.storage_committed_bytes+=owner->committed_bytes;
-        metrics.storage_reserved_bytes+=owner->reserved_bytes;
+    const StableStorage* const storages[]{&n.guilds,&n.overrides,&n.threads,&n.staging,&n.guild_scopes,&n.channel_scopes};
+    for(const StableStorage* storage:storages) {
+        metrics.storage_committed_bytes+=static_cast<u64>(storage->arena.committed);
+        metrics.storage_reserved_bytes+=static_cast<u64>(storage->arena.reserved);
     }
+    metrics.thread_storage.committed_bytes=static_cast<u64>(n.threads.arena.committed);
     return metrics;
 }
 #endif

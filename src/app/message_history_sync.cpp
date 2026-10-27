@@ -1037,11 +1037,6 @@ bool message_history_catchup_take_query(MessageHistoryCatchup* catchup,
     return true;
 }
 
-bool message_history_catchup_retry(MessageHistoryCatchup* catchup, MessageHistoryCatchupFailure failure,
-                                   u64 retry_at_ms) noexcept {
-    return page_retry<MessageHistoryCatchupState>(catchup, failure, retry_at_ms);
-}
-
 bool message_history_catchup_tick(MessageHistoryCatchup* catchup, u64 now_ms) noexcept {
     return page_tick<MessageHistoryCatchupState>(catchup, now_ms);
 }
@@ -1182,11 +1177,6 @@ bool message_history_older_take_query(MessageHistoryOlder* older,
     older->state = MessageHistoryOlderState::awaiting_page;
     ++older->requests;
     return true;
-}
-
-bool message_history_older_retry(MessageHistoryOlder* older, MessageHistoryCatchupFailure failure,
-                                 u64 retry_at_ms) noexcept {
-    return page_retry<MessageHistoryOlderState>(older, failure, retry_at_ms);
 }
 
 bool message_history_older_tick(MessageHistoryOlder* older, u64 now_ms) noexcept {

@@ -49,13 +49,8 @@ Phase phase(const NativePluginBundleInstall& owner) noexcept {
 }
 bool cancelled(const Runtime& r) noexcept {return read_acquire(&r.owner->cancelled)!=0;}
 Error fail(Runtime& r,Error error,NativePluginCatalogResult detail={}) noexcept {r.result.error=error;r.result.filesystem=detail;return error;}
-bool same_dll(const NativePluginManifest& a,const NativePluginManifest& b) noexcept {
-    if(a.dll_bytes!=b.dll_bytes)return false;
-    for(u32 i=0;i<a.dll_bytes;++i)if(ascii_lower(a.dll[i])!=ascii_lower(b.dll[i]))return false;
-    return true;
-}
 bool same_manifest(const NativePluginManifest& a,const NativePluginManifest& b) noexcept {
-    return a.owner_id==b.owner_id&&a.abi_version==b.abi_version&&same_dll(a,b)&&bytes_equal(a.sha256,b.sha256,32)&&
+    return a.owner_id==b.owner_id&&a.abi_version==b.abi_version&&native_plugin_manifest_same_dll(a,b)&&bytes_equal(a.sha256,b.sha256,32)&&
         a.name_bytes==b.name_bytes&&bytes_equal(a.name,b.name,a.name_bytes)&&
         a.version_bytes==b.version_bytes&&bytes_equal(a.version,b.version,a.version_bytes)&&
         a.description_bytes==b.description_bytes&&bytes_equal(a.description,b.description,a.description_bytes)&&
@@ -136,7 +131,7 @@ bool other_reference(const Runtime& r,const NativePluginManifest& manifest) noex
             for(u32 j=0;j<r.manifest_characters;++j)if(ascii_lower(entry.filename[j])!=ascii_lower(r.manifest_leaf[j]))same=false;
             if(same)continue;}
         // Unknown malformed metadata cannot establish a negative reference.
-        if(entry.status!=NativePluginCatalogError::none || same_dll(entry.manifest,manifest))return true;
+        if(entry.status!=NativePluginCatalogError::none || native_plugin_manifest_same_dll(entry.manifest,manifest))return true;
     }
     return false;
 }
@@ -220,7 +215,7 @@ Error stage(Runtime& r) noexcept {
             if(!checked.ok())return fail(r,Error::release,checked);
         }
         r.result.update=true;r.result.idempotent=same_manifest(r.old,r.installed);
-        r.retire_old=!r.retain_previous&&managed(r.old)&&!same_dll(r.old,r.installed);
+        r.retire_old=!r.retain_previous&&managed(r.old)&&!native_plugin_manifest_same_dll(r.old,r.installed);
         if(r.retire_old&&other_reference(r,r.old))return fail(r,Error::conflict);
     }else{
         if(r.catalog.count==kNativePluginCatalogMaximumEntries)return fail(r,Error::catalog,{NativePluginCatalogError::capacity});

@@ -1,6 +1,7 @@
 #include "maicord/app/update_service.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/update_log.hpp"
+#include "maicord/app/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -36,15 +37,6 @@ bool drive_path(ConstSlice<wchar_t> path) noexcept {
     return true;
 }
 bool exists(const wchar_t* path) noexcept { return GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES; }
-bool read_exact(HANDLE h, void* out, u32 bytes) noexcept {
-    u32 done = 0;
-    while (done < bytes) {
-        DWORD got = 0;
-        if (!ReadFile(h, static_cast<u8*>(out) + done, bytes - done, &got, nullptr) || !got || got > bytes - done) return false;
-        done += got;
-    }
-    return true;
-}
 bool write_exact(HANDLE h, const void* data, u32 bytes) noexcept {
     u32 done = 0;
     while (done < bytes) {
@@ -251,7 +243,7 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     if (!update_asset_location(repository, channel, UpdateAsset::signature, 0, &location)) return report(failed(SE::configuration), "location");
     fetched = update_fetch(transport, location, 64, 64, update_buffer_sink, &signature, now);
     if (!fetched.ok()) return report(fetch_failed(fetched), "signature");
-    s->document_bytes = document.used; s->signature_bytes = signature.used;
+    s->document_bytes = document.used;
     const Utf8View text{s->document, s->document_bytes};
     // 2. Publisher signature and schema first: an older or equal signed
     //    version is "up to date" and never reaches durable state.
@@ -410,8 +402,8 @@ UpdateSwapResult update_service_swap(UpdateService* s) noexcept {
 
 namespace {
 u8 load_choice(const wchar_t* path, u8 maximum, u8 fallback) noexcept {
-    HANDLE h = open_read(path); u64 bytes = 0; u8 value = 0xff;
-    const bool ok = regular_size(h, &bytes) && bytes == 1 && read_exact(h, &value, 1);
+    HANDLE h = open_read(path); u64 bytes = 0; u8 value = 0xff; u32 native = 0;
+    const bool ok = regular_size(h, &bytes) && bytes == 1 && file_persistence_read_complete(h, {&value, 1}, &native);
     close(&h);
     return ok && value <= maximum ? value : fallback;
 }

@@ -308,7 +308,6 @@ struct Reduce {
     Block memory;
     u8* band_row;
     u32 r;                  // source pixels per grid pixel (JPEG DCT scaling)
-    u32 grid_width, grid_height;
     u32 bx0, bx1, by0, by1; // band on the grid
     u32 fx, fy, fw, fh;     // decoded frame on the grid
     u32 next;               // next grid row
@@ -318,8 +317,6 @@ struct Reduce {
 bool reduce_begin(const Plan& plan, u32 r, u32 grid_width, u32 grid_height, u32 fx, u32 fy, u32 fw, u32 fh,
                   Reduce* d) noexcept {
     d->r = r;
-    d->grid_width = grid_width;
-    d->grid_height = grid_height;
     d->bx0 = plan.sx / r;
     d->by0 = plan.sy / r;
     d->bx1 = minimum(grid_width, static_cast<u32>((static_cast<u64>(plan.sx) + plan.sw + r - 1) / r));

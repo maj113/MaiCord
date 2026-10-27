@@ -30,7 +30,7 @@ MlsStatus context_from_view(const MlsGroupContextView& view, ConstSlice<u8> exte
                 view.tree_hash.data,
                 view.confirmed_transcript_hash.count ? view.confirmed_transcript_hash.data : nullptr,
                 view.serialized,
-                mls_load_be64(view.group_id.data),
+                byte_load_be64(view.group_id.data),
                 view.epoch};
     return MlsStatus::ok;
 }

@@ -49,7 +49,7 @@ struct CatalogBank {
     char* text;
     u8* preview_mask;
     u64 first_id;
-    u32 count, text_bytes, allocation_bytes, generation;
+    u32 count, text_bytes, generation;
     MediaCatalogOperation operation;
 };
 bool preview_admitted(const CatalogBank& bank, u32 index) noexcept {
@@ -171,7 +171,7 @@ struct ApplicationMediaPicker {
     CatalogBank saved, favorites_tile;
     MediaCatalogItem tile_item;
     u8* saved_preview_mask;
-    u32 saved_mask_bytes, tile_source_index, favorite_generation;
+    u32 tile_source_index, favorite_generation;
     u64 favorites_revision, favorites_data_revision;
     u8 tile_preview_mask;
     UiMediaPickerScene scene;
@@ -369,7 +369,6 @@ bool favorites_refresh(ApplicationMediaPicker& p) noexcept {
         if (p.saved_preview_mask)
             VirtualFree(p.saved_preview_mask, 0, MEM_RELEASE);
         p.saved_preview_mask = mask;
-        p.saved_mask_bytes = mask_bytes;
         reset_value(&p.saved);
         p.saved.count = view.records.count;
         p.saved.first_id = g_app.media_picker_item_serial + 1;
@@ -432,8 +431,7 @@ bool reaction_current(const ApplicationMediaPicker& p) noexcept {
     if (!ui || !scope.message_id || scope.message_id != p.reaction_message_id)
         return false;
     const auto* channel = chat_state_store_find_channel(ui->chat_state, scope.channel_id);
-    const auto found = message_store_find(g_app.message_view.store, scope.message_id);
-    const auto* message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* message = application_message_record(scope.message_id);
     return scope.account_serial == g_app.plugin_account_scope_serial &&
            scope.profile_id == g_app.account.status.profile_id &&
            scope.self_user_id == ui->chat_state.self_user_id && scope.channel_id == ui->active_channel_id &&
@@ -670,7 +668,6 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
             p.sticker_server_count = 0;
         } else {
             bank->text_bytes = text + items * 64 + servers * kNameBytes;
-            bank->allocation_bytes = bytes;
             bank->generation = p.generation;
             bank->operation = MediaCatalogOperation::guild_stickers;
             bank->first_id = g_app.media_picker_item_serial + 1;
@@ -1211,8 +1208,7 @@ bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexc
     auto* ui = g_app.account_ui;
     if (!message_id || !ui_rect_valid(anchor) || !account_ready() || !unobstructed())
         return false;
-    const auto found = message_store_find(g_app.message_view.store, message_id);
-    const auto* message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* message = application_message_record(message_id);
     const auto* channel = message ? chat_state_store_find_channel(ui->chat_state, message->channel_id) : nullptr;
     if (!message || !channel || channel->id != ui->active_channel_id ||
         message->delivery != MessageDeliveryState::authoritative)
@@ -1604,7 +1600,6 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
                             candidate = nullptr;
                         } else {
                             candidate->text_bytes = decoded.text_bytes + preview_bytes;
-                            candidate->allocation_bytes = bytes;
                             candidate->generation = p->generation;
                             candidate->operation = operation;
                             candidate->first_id = g_app.media_picker_item_serial + 1;
@@ -1764,19 +1759,6 @@ bool application_media_picker_preview_visible(MediaAssetKey key) noexcept {
             return true;
     }
     return false;
-}
-u32 application_media_picker_owner_bytes() noexcept {
-    const auto* p = g_app.media_picker;
-    if (!p)
-        return 0;
-    u32 bytes = sizeof(*p) + p->filtered_capacity * sizeof(u32);
-    bytes += static_cast<u32>(p->emoji.storage.offset);
-    CatalogBank* banks[]{p->gif, p->categories, p->guild, p->packs};
-    for (auto* bank : banks)
-        if (bank)
-            bytes += bank->allocation_bytes;
-    bytes += p->saved_mask_bytes;
-    return bytes;
 }
 
 bool application_media_picker_preview_owner_current(MediaAssetKey key, u64 scope, u32 generation) noexcept {

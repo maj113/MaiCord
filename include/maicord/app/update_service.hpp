@@ -94,7 +94,7 @@ struct UpdateService {
     UpdateChangelogDownload* changelog;
     UpdateOfferObserver observer;
     HANDLE download;
-    u32 document_bytes, signature_bytes;
+    u32 document_bytes;
     char document[kUpdateManifestMaximumBytes];
     u8 signature[64];
     u32 scratch[256];
