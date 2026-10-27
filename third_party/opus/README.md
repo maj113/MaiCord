@@ -11,8 +11,12 @@ the changes and added files use the same terms):
   and the VBR constraint are adjustable. For these settings the packets are
   bit-identical to upstream libopus.
 - **Fixed point, no heap, no C runtime.** States live in caller memory
-  (`opus_*_get_size()`/`opus_*_init()`); scratch uses per-call `alloca`;
-  invariant failures call `celt_fatal()` (`freestanding_support.c`).
+  (`opus_*_get_size()`/`opus_*_init()`); scratch uses per-call `alloca`.
+  Decoder checks on values derived from packet bits that bound a memory access
+  or the range decoder end the process with an inline `__fastfail(7)`
+  (`celt_packet_check` in `celt/arch.h`); the other upstream assertions
+  (encoder, caller and configuration input, decoder state validation, algorithm
+  invariants) compile to nothing.
 - **x86 SIMD by compile-time selection** (`MAIOPUS_SSE4_1`, `MAIOPUS_ARCH`), no
   runtime CPU dispatch. The fixed-point SSE4.1 kernels are bit-exact with the C
   code; the AVX2 kernel needs an AVX2 baseline and is not included.
@@ -28,7 +32,7 @@ SHA-256 and a status:
 - `unchanged`: byte-identical to the release;
 - `derived`: the output of `tools/derive.py` on the upstream file. It resolves
   preprocessor conditionals on configuration macros (fixed point, float API off,
-  no custom modes, QEXT, DRED, deep PLC, OSCE or RTCD) and
+  no custom modes, QEXT, DRED, deep PLC, OSCE, RTCD, assertions or hardening) and
   inlines the `ARG_QEXT`, `ARG_FIXED` and `QEXT_SCALE` argument macros.
   Conditions on compiler, platform or SIMD macros are kept;
 - `modified`: derived, then edited by hand; `changes` lists each divergence.

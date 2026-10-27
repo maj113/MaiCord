@@ -122,10 +122,10 @@ int ec_laplace_decode(ec_dec *dec, unsigned fs, int decay)
       else
          fl += fs;
    }
-   celt_assert(fl<32768);
-   celt_assert(fs>0);
-   celt_assert(fl<=fm);
-   celt_assert(fm<IMIN(fl+fs,32768));
+   celt_packet_check(fl<32768);
+   celt_packet_check(fs>0);
+   celt_packet_check(fl<=fm);
+   celt_packet_check(fm<IMIN(fl+fs,32768));
    ec_dec_update(dec, fl, IMIN(fl+fs,32768), 32768);
    return val;
 }

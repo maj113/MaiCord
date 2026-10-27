@@ -218,7 +218,7 @@ opus_uint32 ec_dec_uint(ec_dec *_this,opus_uint32 _ft){
   unsigned s;
   int      ftb;
   /*In order to optimize EC_ILOG(), it is undefined for the value 0.*/
-  celt_assert(_ft>1);
+  celt_packet_check(_ft>1);
   _ft--;
   ftb=EC_ILOG(_ft);
   if(ftb>EC_UINT_BITS){

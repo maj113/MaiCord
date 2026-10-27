@@ -419,8 +419,8 @@ static opus_val32 cwrsi(int _n,int _k,opus_uint32 _i,int *_y){
   int         k0;
   opus_int16  val;
   opus_val32  yy=0;
-  celt_assert(_k>0);
-  celt_assert(_n>1);
+  celt_packet_check(_k>0);
+  celt_packet_check(_n>1);
   while(_n>2){
     opus_uint32 q;
     /*Lots of pulses case:*/

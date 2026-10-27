@@ -187,7 +187,7 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
       }
    }
 
-   celt_assert(codedBands > start);
+   celt_packet_check(codedBands > start);
    /* Code the intensity and dual stereo parameters. */
    if (intensity_rsv > 0)
    {
@@ -238,7 +238,7 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
       int NClogN;
       opus_int32 excess, bit;
 
-      celt_assert(bits[j] >= 0);
+      celt_packet_check(bits[j] >= 0);
       N0 = m->eBands[j+1]-m->eBands[j];
       N=N0<<LM;
       bit = (opus_int32)bits[j]+balance;
@@ -309,8 +309,8 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
       }
       balance = excess;
 
-      celt_assert(bits[j] >= 0);
-      celt_assert(ebits[j] >= 0);
+      celt_packet_check(bits[j] >= 0);
+      celt_packet_check(ebits[j] >= 0);
    }
    /* Save any remaining bits over the cap for the rebalancing in
        quant_all_bands(). */
@@ -320,7 +320,7 @@ static OPUS_INLINE int interp_bits2pulses(const CELTMode *m, int start, int end,
    for (;j<end;j++)
    {
       ebits[j] = bits[j] >> stereo >> BITRES;
-      celt_assert(C*ebits[j]<<BITRES == bits[j]);
+      celt_packet_check(C*ebits[j]<<BITRES == bits[j]);
       bits[j] = 0;
       fine_priority[j] = ebits[j]<1;
    }

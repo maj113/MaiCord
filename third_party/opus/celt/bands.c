@@ -497,7 +497,7 @@ static void deinterleave_hadamard(celt_norm *X, int N0, int stride, int hadamard
    SAVE_STACK;
    N = N0*stride;
    ALLOC(tmp, N, celt_norm);
-   celt_assert(stride>0);
+   celt_packet_check(stride>0);
    if (hadamard)
    {
       const int *ordery = ordery_table+stride-2;
@@ -575,7 +575,7 @@ static int compute_qn(int N, int b, int offset, int pulse_cap, int stereo)
       qn = exp2_table8[qb&0x7]>>(14-(qb>>BITRES));
       qn = (qn+1)>>1<<1;
    }
-   celt_assert(qn <= 256);
+   celt_packet_check(qn <= 256);
    return qn;
 }
 
@@ -746,7 +746,7 @@ static void compute_theta(struct band_ctx *ctx, struct split_ctx *sctx,
             ec_dec_update(ec, fl, fl+fs, ft);
          }
       }
-      celt_assert(itheta>=0);
+      celt_packet_check(itheta>=0);
       itheta = celt_udiv((opus_int32)itheta*16384, qn);
       if (encode && stereo)
       {

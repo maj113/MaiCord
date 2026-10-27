@@ -36,6 +36,7 @@
 
 #include "opus_types.h"
 #include "opus_defines.h"
+#include <intrin.h>
 
 # if !defined(__GNUC_PREREQ)
 #  if defined(__GNUC__)&&defined(__GNUC_MINOR__)
@@ -56,17 +57,17 @@
 
 #define CELT_SIG_SCALE 32768.f
 
-#define CELT_FATAL(str) celt_fatal(str, __FILE__, __LINE__)
-
-#ifdef __GNUC__
-__attribute__((noreturn))
-#endif
-void celt_fatal(const char *str, const char *file, int line);
-
-
-#define celt_assert(cond) {if (!(cond)) {CELT_FATAL("assertion failed: " #cond);}}
-#define celt_assert2(cond, message) {if (!(cond)) {CELT_FATAL("assertion failed: " #cond "\n" message);}}
-#define MUST_SUCCEED(call) celt_assert((call) == OPUS_OK)
+/* Runtime checks. celt_packet_check() guards a decoder value derived from
+   packet bits that bounds a memory access or the range decoder's state; a
+   failure ends the process at once: __fastfail(FAST_FAIL_FATAL_APP_EXIT) is an
+   inline int 0x29 that no exception or crash handler can intercept, so a check
+   costs a compare and a never-taken branch, with no call. The other upstream
+   assertions (encoder, caller and configuration input, decoder state, algorithm
+   invariants) compile to nothing; MUST_SUCCEED still makes its call. */
+#define celt_packet_check(cond) {if (!(cond)) __fastfail(7);}
+#define celt_assert(cond) ((void)(cond))
+#define celt_assert2(cond, message) ((void)(cond))
+#define MUST_SUCCEED(call) ((void)(call))
 
 #define celt_sig_assert(cond) ((void)(cond))
 

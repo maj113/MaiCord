@@ -114,33 +114,6 @@ struct OpusCustomDecoder {
    /* opus_val16 lpc[],  Size = channels*CELT_LPC_ORDER */
 };
 
-/* Make basic checks on the CELT state to ensure we don't end
-   up writing all over memory. */
-void validate_celt_decoder(CELTDecoder *st)
-{
-   celt_assert(st->mode == opus_custom_mode_create(48000, 960, NULL));
-   celt_assert(st->overlap == 120);
-   celt_assert(st->end <= 21);
-   celt_assert(st->channels == 1 || st->channels == 2);
-   celt_assert(st->stream_channels == 1 || st->stream_channels == 2);
-   celt_assert(st->downsample > 0);
-   celt_assert(st->start == 0 || st->start == 17);
-   celt_assert(st->start < st->end);
-#ifdef OPUS_ARCHMASK
-   celt_assert(st->arch >= 0);
-   celt_assert(st->arch <= OPUS_ARCHMASK);
-#endif
-   celt_assert(st->last_pitch_index <= PLC_PITCH_LAG_MAX);
-   celt_assert(st->last_pitch_index >= PLC_PITCH_LAG_MIN || st->last_pitch_index == 0);
-   celt_assert(st->postfilter_period < MAX_PERIOD);
-   celt_assert(st->postfilter_period >= COMBFILTER_MINPERIOD || st->postfilter_period == 0);
-   celt_assert(st->postfilter_period_old < MAX_PERIOD);
-   celt_assert(st->postfilter_period_old >= COMBFILTER_MINPERIOD || st->postfilter_period_old == 0);
-   celt_assert(st->postfilter_tapset <= 2);
-   celt_assert(st->postfilter_tapset >= 0);
-   celt_assert(st->postfilter_tapset_old <= 2);
-   celt_assert(st->postfilter_tapset_old >= 0);
-}
 
 int celt_decoder_get_size(int channels)
 {

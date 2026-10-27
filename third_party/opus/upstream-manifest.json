@@ -21,15 +21,21 @@
     },
     {
       "path": "celt/arch.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "6cd5b41be6d13e9300bb5eae18bf1ab739882f4db31e3a3a3d54c415c5b9c797",
-      "sha256": "6499bfa9a0023769907b200fdd947ca5862bec8102d5f64082007dc71d0fc483"
+      "changes": [
+        "celt_packet_check() tests inline and ends the process with __fastfail(7) (declared by <intrin.h>); MUST_SUCCEED only makes its call; CELT_FATAL is removed."
+      ],
+      "sha256": "0a642b63d5ba622e13d0fdc22f5019b34da2a705c3fc11c2bde7bd64a7a85437"
     },
     {
       "path": "celt/bands.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "fc7ddcc7a46135c2cd89016025e4b96d30e9b514565610115467405d78d63ec6",
-      "sha256": "f8ad73f0c5f57a4591fb3ac891573f1005c777f632de2b18bab874c06bdced7a"
+      "changes": [
+        "The stride, compute_qn() and decoded itheta checks use celt_packet_check()."
+      ],
+      "sha256": "36c82f620f0225c38782a376193d48685c3248bb0c293ef836b2125bfbbf68d0"
     },
     {
       "path": "celt/bands.h",
@@ -51,7 +57,7 @@
         "Removed the analysis (AnalysisInfo), LFE, energy mask, signalling, tonality, input clipping and error query requests and the DRED decode entry point.",
         "celt_encoder_init() takes no sampling rate (48 kHz only); celt_preemphasis() is private to the encoder."
       ],
-      "sha256": "1c25b356cddd4ded969e970d494261f4b60d70e80e07837b2c6a54562b412168"
+      "sha256": "a78bdb2e3f1cddbcad6cec66dbfbb4b597179497cdd82449afbad7e2eda63f20"
     },
     {
       "path": "celt/celt_decoder.c",
@@ -61,7 +67,7 @@
         "No custom signalling, decoder complexity (deep PLC only) or error flag; the ctl keeps start/end band, channels, mode, final range and reset.",
         "celt_decode_with_ec_dred() is celt_decode_with_ec(); the QEXT payload remnant and the neural PLC frame types are removed."
       ],
-      "sha256": "600526e6b70a43bf11aee53c2659c7fa0edc5742845fb0af48a1a5314012a49a"
+      "sha256": "0f87a45d3c9841d39cf6db5671550ccf89b3174283ac2608a392cffdd41523a3"
     },
     {
       "path": "celt/celt_encoder.c",
@@ -93,9 +99,12 @@
     },
     {
       "path": "celt/cwrs.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "6579428627c7cbdc5de0e977bd81559f1e75cc7dd620bcb29ef7b4770ae13e44",
-      "sha256": "7ec10f1a570e0b3cbc0172bb3bba4ad61753f25d149b8b4b3034f78ef95e7062"
+      "changes": [
+        "cwrsi()'s pulse count and dimension checks use celt_packet_check()."
+      ],
+      "sha256": "3b43f230ef8ac788eca99e3e3c86f80f9061e956b4abd3ee5b089cec610bc35a"
     },
     {
       "path": "celt/cwrs.h",
@@ -123,9 +132,12 @@
     },
     {
       "path": "celt/entdec.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "f2d74695ceeb927210dcf76d653241ebdfd465a1c23128604640d218cdd93c38",
-      "sha256": "7333f707ffe8c418888533fa03f91216e14ba9baa02e279812ab00eabbb8fe0b"
+      "changes": [
+        "ec_dec_uint()'s range check uses celt_packet_check()."
+      ],
+      "sha256": "32ca89cf8df0b8a5ab9700d2d2320a7320e93e29804d2a07614b9a6da55162e4"
     },
     {
       "path": "celt/entdec.h",
@@ -178,9 +190,10 @@
       "status": "modified",
       "upstream_sha256": "6a33bdc5bf3a3350f51f92aafa281e4163fdffc88c9e7b0718f6eb770dc595e7",
       "changes": [
-        "ec_laplace_encode_p0() and ec_laplace_decode_p0() (DRED only) removed."
+        "ec_laplace_encode_p0() and ec_laplace_decode_p0() (DRED only) removed.",
+        "ec_laplace_decode()'s interval checks use celt_packet_check()."
       ],
-      "sha256": "9c4a641e75d8c7e94b69b22f9bd359c3228a924c16078e7c47b83e55f0a426a4"
+      "sha256": "d95af8de1453810b6abfc210637b82ac96265378d0f6b68258396e9b378415dc"
     },
     {
       "path": "celt/laplace.h",
@@ -276,9 +289,12 @@
     },
     {
       "path": "celt/rate.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "f288c8b88882e6500ee5fbb9036eef1ee572e0301d28cd686061c815747a7b9e",
-      "sha256": "f7c8ed68ea2c3c3ed285584e7ac36024034d173acaacaf6eb8498efadece91bd"
+      "changes": [
+        "interp_bits2pulses()'s coded band and bit count checks use celt_packet_check()."
+      ],
+      "sha256": "53c5c566a2fd03980219d72a2fd42093f77afcdc73ee08c0ae2a3f743316c64e"
     },
     {
       "path": "celt/rate.h",
@@ -299,9 +315,12 @@
     },
     {
       "path": "celt/vq.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "7f488e7ced4080d267e4ff44cb512861a47a49d45891277f4e898fe680dad0e5",
-      "sha256": "2bb478a7ceb56af73b54b269372172c0cfccb0a9aff9e58c930820958b251112"
+      "changes": [
+        "alg_unquant()'s pulse count and dimension checks use celt_packet_check()."
+      ],
+      "sha256": "111cbba4d5f208bda313ed9d0c2c049cdb8332c4f9d6080b16d448abcf6f9c86"
     },
     {
       "path": "celt/vq.h",
@@ -497,9 +516,12 @@
     },
     {
       "path": "silk/PLC.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "914eb9ce1f7bd3cf68cbe5f8e91f5411c872006a99a6665409e66f307af01427",
-      "sha256": "10ecc5534b11b8446d7792d0284070970b607aa42d5f2aed07e34977d90b254e"
+      "changes": [
+        "The LTP rewhitening index check uses celt_packet_check()."
+      ],
+      "sha256": "80a50c5c44c7198695b7d56cee3be127c9d535527d98888f88e87f8845347fc6"
     },
     {
       "path": "silk/PLC.h",
@@ -601,15 +623,19 @@
       "status": "modified",
       "upstream_sha256": "0f94c4c985851051d3cdf40a2ebf9b96c616ee1f49b8a2ad4477a6880ff01d1b",
       "changes": [
-        "No deep PLC flag and no previous pitch lag export."
+        "No deep PLC flag and no previous pitch lag export.",
+        "The internal channel count check uses celt_packet_check()."
       ],
-      "sha256": "eec1718c13414bf5979d1ed48ccf29e637b0935663998b283b317465714c76e6"
+      "sha256": "9fdfa6708f9d8a95b0e4d56ac92631dca2456711a38c55eb178ad3272d69b6b5"
     },
     {
       "path": "silk/decode_core.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "9bec65a48d32f0b4843eaaa02cd6b49b0e853186f47695ce3f3c178d4bd3452f",
-      "sha256": "e95618d58b580999c73f7c95ba570aa3b30b5b0a66e71be64976d0fbcb8b7ded"
+      "changes": [
+        "The LTP rewhitening index check uses celt_packet_check()."
+      ],
+      "sha256": "73d0ba2ab4aa90e29d2a1fa71a45a9d19bceb9442039a45db08f6ce8230941fc"
     },
     {
       "path": "silk/decode_frame.c",
@@ -643,9 +669,12 @@
     },
     {
       "path": "silk/decoder_set_fs.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "8cdd79180cf730d77c6e063b625b960c6199e9f75c98101ae5cd16be4dc1e008",
-      "sha256": "d2cadd57b96a9cc7e16b1c1920ebee82689a43210541ffe4b1b5a35ac486b92f"
+      "changes": [
+        "The sample rate, subframe count and frame length checks use celt_packet_check()."
+      ],
+      "sha256": "9c0d1da4f54a1df1f8b5d833041869c7bea9e9798c7a7cfd80f4781a3e7b017b"
     },
     {
       "path": "silk/define.h",
@@ -911,9 +940,12 @@
     },
     {
       "path": "silk/resampler.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "b75329b716a429b50e937bf7975aedd200543d8a7e4e1c77a4572b2975740ba3",
-      "sha256": "9dfe0f2beeff5266cc5dbdc3826b813967efd4135f9ab2126e16ef1a9b5c655d"
+      "changes": [
+        "silk_resampler()'s input length check uses celt_packet_check()."
+      ],
+      "sha256": "51f0e4083209e0d4d988d227823ad601a8d4fd0e2cd592b6c1cf7bcab0da7c13"
     },
     {
       "path": "silk/resampler_down2.c",
@@ -1156,9 +1188,10 @@
       "upstream_sha256": "ddc60846096a83669aa33992481ce088eca791d6478ecdbf1e445a59d678779a",
       "changes": [
         "Requests limited to reset, gain and final range; the complexity (deep PLC), bandwidth, sample rate, pitch, last packet duration, phase inversion and extension requests are removed.",
-        "No create/destroy, opus_decode24(), DRED or packet extension parsing; opus_decode_native() is private."
+        "No create/destroy, opus_decode24(), DRED or packet extension parsing; opus_decode_native() is private.",
+        "The decoded frame size checks use celt_packet_check(); the unreachable bandwidth fallback checks are removed (the TOC byte yields only NB/MB/WB for SILK-only and one of the five bandwidths otherwise)."
       ],
-      "sha256": "6af239e1bc7ba6f4a43212b2092acb8067f92859c8d8582ec2cf8b17064742bd"
+      "sha256": "6656bbb1310b02310a8511e790b6322ec39ca4a233cf5d7b1511b0598941206e"
     },
     {
       "path": "src/opus_encoder.c",

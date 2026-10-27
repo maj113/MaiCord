@@ -372,8 +372,8 @@ unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
    int yy_shift=0;
    SAVE_STACK;
 
-   celt_assert2(K>0, "alg_unquant() needs at least one pulse");
-   celt_assert2(N>1, "alg_unquant() needs at least two dimensions");
+   celt_packet_check(K>0); /* alg_unquant() needs at least one pulse */
+   celt_packet_check(N>1); /* alg_unquant() needs at least two dimensions */
    ALLOC(iy, N, int);
    Ryy = decode_pulses(iy, N, K, dec);
    normalise_residual(iy, X, N, Ryy, gain, yy_shift);

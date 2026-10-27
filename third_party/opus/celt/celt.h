@@ -132,8 +132,7 @@ static const unsigned char tapset_icdf[3]={2,1,0};
 
 extern const signed char tf_select_table[4][8];
 
-void validate_celt_decoder(CELTDecoder *st);
-#define VALIDATE_CELT_DECODER(st) validate_celt_decoder(st)
+#define VALIDATE_CELT_DECODER(st)
 
 int resampling_factor(opus_int32 rate);
 

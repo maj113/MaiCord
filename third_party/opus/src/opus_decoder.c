@@ -65,22 +65,7 @@ struct OpusDecoder {
    opus_uint32  rangeFinal;
 };
 
-static void validate_opus_decoder(OpusDecoder *st)
-{
-   celt_assert(st->channels == 1 || st->channels == 2);
-   celt_assert(st->Fs == 48000 || st->Fs == 24000 || st->Fs == 16000 || st->Fs == 12000 || st->Fs == 8000);
-   celt_assert(st->DecControl.API_sampleRate == st->Fs);
-   celt_assert(st->DecControl.internalSampleRate == 0 || st->DecControl.internalSampleRate == 16000 || st->DecControl.internalSampleRate == 12000 || st->DecControl.internalSampleRate == 8000);
-   celt_assert(st->DecControl.nChannelsAPI == st->channels);
-   celt_assert(st->DecControl.nChannelsInternal == 0 || st->DecControl.nChannelsInternal == 1 || st->DecControl.nChannelsInternal == 2);
-   celt_assert(st->DecControl.payloadSize_ms == 0 || st->DecControl.payloadSize_ms == 10 || st->DecControl.payloadSize_ms == 20 || st->DecControl.payloadSize_ms == 40 || st->DecControl.payloadSize_ms == 60);
-#ifdef OPUS_ARCHMASK
-   celt_assert(st->arch >= 0);
-   celt_assert(st->arch <= OPUS_ARCHMASK);
-#endif
-   celt_assert(st->stream_channels == 1 || st->stream_channels == 2);
-}
-#define VALIDATE_OPUS_DECODER(st) validate_opus_decoder(st)
+#define VALIDATE_OPUS_DECODER(st)
 
 int opus_decoder_get_size(int channels)
 {
@@ -332,11 +317,8 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
               st->DecControl.internalSampleRate = 8000;
            } else if( bandwidth == OPUS_BANDWIDTH_MEDIUMBAND ) {
               st->DecControl.internalSampleRate = 12000;
-           } else if( bandwidth == OPUS_BANDWIDTH_WIDEBAND ) {
-              st->DecControl.internalSampleRate = 16000;
            } else {
               st->DecControl.internalSampleRate = 16000;
-              celt_assert( 0 );
            }
         } else {
            /* Hybrid mode */
@@ -437,9 +419,6 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
          break;
       case OPUS_BANDWIDTH_FULLBAND:
          endband = 21;
-         break;
-      default:
-         celt_assert(0);
          break;
       }
       MUST_SUCCEED(celt_decoder_ctl(celt_dec, CELT_SET_END_BAND(endband)));
@@ -631,7 +610,7 @@ static int opus_decode_native(OpusDecoder *st, const unsigned char *data,
          ret = opus_decode_native(st, NULL, 0, pcm, frame_size-packet_frame_size, 0);
          if (ret<0)
             return ret;
-         celt_assert(ret==frame_size-packet_frame_size);
+         celt_packet_check(ret==frame_size-packet_frame_size);
       }
       /* Complete with FEC */
       st->mode = packet_mode;
@@ -665,7 +644,7 @@ static int opus_decode_native(OpusDecoder *st, const unsigned char *data,
       ret = opus_decode_frame(st, data, size[i], pcm+nb_samples*st->channels, frame_size-nb_samples, 0);
       if (ret<0)
          return ret;
-      celt_assert(ret==packet_frame_size);
+      celt_packet_check(ret==packet_frame_size);
       data += size[i];
       nb_samples += ret;
    }

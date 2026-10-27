@@ -140,7 +140,7 @@ void silk_decode_core(
             if( k == 0 || ( k == 2 && NLSF_interpolation_flag ) ) {
                 /* Rewhiten with new A coefs */
                 start_idx = psDec->ltp_mem_length - lag - psDec->LPC_order - LTP_ORDER / 2;
-                celt_assert( start_idx > 0 );
+                celt_packet_check( start_idx > 0 );
 
                 if( k == 2 ) {
                     silk_memcpy( &psDec->outBuf[ psDec->ltp_mem_length ], xq, 2 * psDec->subfr_length * sizeof( opus_int16 ) );

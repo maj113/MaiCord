@@ -181,7 +181,7 @@ opus_int silk_resampler(
     opus_int nSamples;
 
     /* Need at least 1 ms of input data */
-    celt_assert( inLen >= S->Fs_in_kHz );
+    celt_packet_check( inLen >= S->Fs_in_kHz );
     /* Delay can't exceed the 1 ms of buffering */
     celt_assert( S->inputDelay <= S->Fs_in_kHz );
 

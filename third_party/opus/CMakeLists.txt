@@ -16,8 +16,7 @@ if(NOT DEFINED MAIOPUS_ENCODER_TARGET)
 endif()
 
 set(maiopus_definitions
-    OPUS_BUILD FIXED_POINT DISABLE_FLOAT_API USE_ALLOCA CUSTOM_SUPPORT
-    ENABLE_HARDENING OVERRIDE_celt_fatal "PACKAGE_VERSION=\"1.6.1\"")
+    OPUS_BUILD FIXED_POINT DISABLE_FLOAT_API USE_ALLOCA CUSTOM_SUPPORT "PACKAGE_VERSION=\"1.6.1\"")
 # Upstream C keeps its own warning level. No CRT libraries, security cookie,
 # heap or float math path.
 set(maiopus_options /W3 /Zl /GS- /Gy /Gw /GF /Oi /utf-8 /Brepro)
@@ -108,7 +107,6 @@ add_library(${MAIOPUS_DECODER_TARGET} STATIC
     silk/tables_pulses_per_block.c
     src/opus.c
     src/opus_decoder.c
-    freestanding_support.c
     ${maiopus_decoder_simd})
 target_include_directories(${MAIOPUS_DECODER_TARGET} PUBLIC include PRIVATE . celt silk src)
 target_compile_features(${MAIOPUS_DECODER_TARGET} PRIVATE c_std_17)
