@@ -799,14 +799,6 @@ bool guild_settings_order_changed(const ChatStateStore& store, u64 guild_id, Con
     return seen != count;
 }
 
-bool guild_role_color_parse(Utf8View text, u32* color) noexcept {
-    u32 rgba = 0;
-    if (!color || !color_hex_parse(text, false, &rgba))
-        return false;
-    *color = rgba >> 8;
-    return true;
-}
-
 u32 guild_role_color_format(u32 color, Slice<char> output) noexcept {
     return color_hex_format(color << 8 | 0xFFu, false, output);
 }

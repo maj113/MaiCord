@@ -1178,7 +1178,7 @@ NativePluginError native_plugin_sdk_settings_submit(NativePluginSdkRuntime* runt
     value.page_id = key.page_id;
     value.control_id = control_id;
     if (edit.kind == MC_SETTING_COLOUR) {
-        if (!native_plugin_sdk_colour_parse(text, &value.colour)) return NativePluginError::invalid_argument;
+        if (!color_hex_parse_rgb24(text, &value.colour)) return NativePluginError::invalid_argument;
     } else if (edit.kind == MC_SETTING_KEYBIND) {
         char normal[64];
         u32 bytes = 0;
@@ -1295,13 +1295,6 @@ bool native_plugin_sdk_keybind_chord(Utf8View normal, NativePluginSdkChord* chor
     }
     if (!code) return false;
     *chord = {code, modifiers};
-    return true;
-}
-
-bool native_plugin_sdk_colour_parse(Utf8View text, u32* colour) noexcept {
-    u32 rgba = 0;
-    if (!colour || !color_hex_parse(text, false, &rgba)) return false;
-    *colour = rgba >> 8;
     return true;
 }
 

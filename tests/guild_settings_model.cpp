@@ -4,6 +4,7 @@
 #include "maicord/model/member_moderation.hpp"
 #include "maicord/model/permission_grid.hpp"
 #include "maicord/protocol/guild_assets.hpp"
+#include "maicord/core/color_hex.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild_detail_store.hpp"
@@ -388,9 +389,9 @@ void test_drafts() noexcept {
     const auto* mid = chat_state_store_find_role(model.state, kGuild, kRoleMid);
     auto role_base = guild_role_draft_from(model.state, *mid), role_draft = role_base;
     u32 color = 0;
-    check(guild_role_color_parse(utf8_literal("#3498db"), &color) && color == 0x3498db &&
-              !guild_role_color_parse(utf8_literal("#3498d"), &color) &&
-              !guild_role_color_parse(utf8_literal("zz98db"), &color),
+    check(color_hex_parse_rgb24(utf8_literal("#3498db"), &color) && color == 0x3498db &&
+              !color_hex_parse_rgb24(utf8_literal("#3498d"), &color) &&
+              !color_hex_parse_rgb24(utf8_literal("zz98db"), &color),
           "drafts: hex colours parse with or without '#' and reject malformed input");
     char hex[8];
     check(guild_role_color_format(0x0a0b0c, {hex, 8}) == 7 && bytes_equal(hex, "#0A0B0C", 7),

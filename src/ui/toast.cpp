@@ -250,9 +250,7 @@ bool ui_toast_paint(const UiToastScene& s, const Theme& theme, PaintStream* pain
         return false;
     const float radius = theme.scale.radius_md;
     const auto kind = s.entries[0].kind;
-    bool ok = paint_stream_record_content(paint, s.text_owner, r, UiLayoutContentKind::decoration,
-                                          ui_layout_content_bounds_allow_overlap) &&
-              ui_surface_shadow_paint(paint, r, theme, UiElevation::popover, radius);
+    bool ok = ui_surface_shadow_paint(paint, r, theme, UiElevation::popover, radius);
     if (kind == UiToastKind::message) {
         ok = ok && ui_surface_paint_plate(paint, r, theme, UiElevation::tooltip, radius);
     } else {

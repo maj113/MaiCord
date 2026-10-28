@@ -1838,10 +1838,10 @@ bool ui_search_scene_filter_choice_geometry(const UiSearchScene& scene, u32 sour
     return false;
 }
 bool ui_search_scene_filter_choice_avatar(const UiSearchScene& scene, u32 source_index, UiRect* rectangle,
-                                          UiRect* clip, UiWidgetHandle* owner) noexcept {
+                                          UiRect* clip) noexcept {
     UiRect row{}, row_clip{};
     UiMenuRowGeometry geometry{};
-    if (!rectangle || !clip || !owner || !ui_search_scene_filter_choice_geometry(scene, source_index, &row, &row_clip) ||
+    if (!rectangle || !clip || !ui_search_scene_filter_choice_geometry(scene, source_index, &row, &row_clip) ||
         !choice_person(*scene.choice_source, scene.choice_source->rows[source_index]) ||
         !choice_menu_geometry(scene, row, &geometry))
         return false;
@@ -1849,7 +1849,6 @@ bool ui_search_scene_filter_choice_avatar(const UiSearchScene& scene, u32 source
         const auto& target = scene.targets[slot];
         if (target.action == UiSearchAction::filter_value && target.source_index == source_index &&
             ui_search_scene_target_current(scene, target)) {
-            *owner = {static_cast<u16>(slot), scene.widgets.generation};
             *rectangle = choice_avatar_rectangle(geometry, row);
             *clip = ui_rect_intersection(*rectangle, row_clip);
             return ui_rect_has_area(*clip);

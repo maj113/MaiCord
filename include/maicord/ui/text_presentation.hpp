@@ -90,5 +90,13 @@ void ui_text_output_reset(UiTextOutput*) noexcept;
 void ui_text_output_reject(UiTextOutput*) noexcept;
 bool ui_text_output_push(UiTextOutput*, const UiTextCommand&) noexcept;
 bool ui_text_output_push_owned(UiTextOutput*, const UiTextCommand&) noexcept;
+// Signature of the text emit(scene, output) publishes now, validated without
+// rendering; 0 when it fails.
+template <typename Scene, bool (*Emit)(const Scene&, UiTextOutput*) noexcept>
+inline u64 ui_text_output_signature(const Scene& scene) noexcept {
+    UiTextEmitter emitter{};
+    UiTextOutput output{nullptr, &emitter};
+    return ui_text_emitter_initialize(&emitter) && Emit(scene, &output) ? emitter.signature : 0;
+}
 
 } // namespace maicord

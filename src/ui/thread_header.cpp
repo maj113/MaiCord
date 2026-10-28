@@ -116,9 +116,7 @@ bool paint_button(const UiThreadHeader& h, UiWidgetHandle w, UiRect r, const The
     const bool focus = ui_widget_handle_equal(h.manager->focused, w) && ui_widget_manager_input_enabled(*h.manager, w);
     const auto fill = button_fill(h, w, theme, accent);
     return ui_background_paint_surface(out, r, theme, fill, focus ? theme.tokens.border.focus : theme.surface_high,
-        kUiControlCornerRadius, focus ? 1.5f : .75f) &&
-        paint_stream_record_content(out, {h.manager, w}, r, UiLayoutContentKind::control,
-            ui_layout_content_bounds_allow_overlap);
+        kUiControlCornerRadius, focus ? 1.5f : .75f);
 }
 bool accent_action(UiThreadAction action) noexcept {
     return action == UiThreadAction::join || action == UiThreadAction::unarchive || action == UiThreadAction::retry;
@@ -307,9 +305,7 @@ bool ui_thread_header_paint(const UiThreadHeader& h, const Theme& theme, PaintSt
     // The overflow menu is an icon button like the channel header's toggles.
     if (ui_rect_has_area(g.overflow))
         ok = ok && ui_button_icon_paint(out, *h.manager, h.widgets.overflow, UiIcon::ellipsis_vertical, theme,
-            false, true, UiButtonSurface::palette) &&
-            paint_stream_record_content(out, {h.manager, h.widgets.overflow}, g.overflow,
-                UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap);
+            false, true, UiButtonSurface::palette);
     if (h.view.status.bytes) ok = ok && paint_stream_push(out, g.rectangle.left,
         g.rectangle.top + h.style.height, g.rectangle.right,
         g.rectangle.top + h.style.height + 1.f, theme.surface_high);

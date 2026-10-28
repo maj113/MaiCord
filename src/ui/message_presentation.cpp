@@ -12,6 +12,7 @@
 #include "maicord/ui/message_component_media.hpp"
 #include "maicord/ui/message_system_text.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
+#include "maicord/ui/unread_divider.hpp"
 #include "maicord/model/invite_card_cache.hpp"
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/model/scheduled_event_store.hpp"
@@ -455,14 +456,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                           bottom};
         const float card_radius = theme.scale.radius_sm;
         const MessageRichEmbed& embed = rich->embeds[index];
-        constexpr float rgb_scale = 1.0f / 255.0f;
         // Embed colors are RGB payload data, not a request for the theme accent.
         // Explicit black (color = 0) is distinct from an absent color.
-        const Color accent_color = embed.has_color
-                                       ? Color{static_cast<float>((embed.color >> 16u) & 0xFFu) * rgb_scale,
-                                               static_cast<float>((embed.color >> 8u) & 0xFFu) * rgb_scale,
-                                               static_cast<float>(embed.color & 0xFFu) * rgb_scale, 1.0f}
-                                       : theme.interactive;
+        const Color accent_color = embed.has_color ? color_from_rgb24(embed.color) : theme.interactive;
         const bool media_only = message_rich_embed_media_only(rich->embeds[index]);
         if (!media_only && (!push_card(paint, card, theme, card_radius, UiBackgroundTier::low) ||
                             !paint_stream_push_edge_strip(paint, card, kMessageEmbedAccentWidth, accent_color,
@@ -622,15 +618,10 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             constexpr float container_radius = 10.0f;
             if (!push_card(paint, control, theme, container_radius, UiBackgroundTier::low))
                 return false;
-            if (component.has_accent_color) {
-                constexpr float scale = 1.0f / 255.0f;
-                const u32 rgb = component.accent_color;
-                const Color color{static_cast<float>((rgb >> 16) & 255) * scale,
-                                  static_cast<float>((rgb >> 8) & 255) * scale,
-                                  static_cast<float>(rgb & 255) * scale, 1};
-                if (!paint_stream_push_edge_strip(paint, control, kMessageEmbedAccentWidth, color, container_radius))
-                    return false;
-            }
+            if (component.has_accent_color &&
+                !paint_stream_push_edge_strip(paint, control, kMessageEmbedAccentWidth,
+                                              color_from_rgb24(component.accent_color), container_radius))
+                return false;
             break;
         }
         case MessageComponentKind::button: {
@@ -859,19 +850,12 @@ bool message_presentation_build(const MessageScene& scene, const Theme& theme, P
     const u32 paint_batch_count = paint->batch_count;
     const u32 paint_clip_depth = paint->clip_depth;
     const u32 paint_rejected = paint->rejected;
-    UiPaintContentRecorder* const recorder = paint->content_recorder;
-    const u32 content_count = recorder ? recorder->count : 0;
-    const u32 content_dropped = recorder ? recorder->dropped : 0;
     const auto rollback = [&]() noexcept {
         paint->count = paint_count;
         paint->clip_count = paint_clip_count;
         paint->batch_count = paint_batch_count;
         paint->clip_depth = paint_clip_depth;
         saturating_increment_if(paint->rejected == paint_rejected, paint->rejected);
-        if (recorder) {
-            recorder->count = content_count;
-            saturating_increment_if(recorder->dropped == content_dropped, recorder->dropped);
-        }
         media->count = 0;
         reset_value<MessagePresentationResult>(result);
     };

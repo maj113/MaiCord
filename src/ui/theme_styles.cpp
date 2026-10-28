@@ -527,7 +527,7 @@ bool ui_theme_gradient_emphasis(const Theme& theme, UiThemeEmphasis* output) noe
     }
     if (!labelled) {
         value.fill = background_color_from_oklab({light ? .5 : .62, a, b});
-        const Color white = background_color_rgb24(0xffffff), black = background_color_rgb24(0);
+        const Color white = color_from_rgb24(0xffffff), black = color_from_rgb24(0);
         value.text = ui_theme_contrast_ratio(white, value.fill) >= ui_theme_contrast_ratio(black, value.fill)
                          ? white
                          : black;

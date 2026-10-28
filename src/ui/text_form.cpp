@@ -592,10 +592,7 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
         return false;
     bool valid =
         fill(paint, scene.viewport, theme.tokens.overlay.scrim) &&
-        ui_surface_paint(paint, panel->rectangle, theme, UiElevation::dialog, theme.scale.radius_lg) &&
-        paint_stream_record_content(paint, {&scene.widgets, scene.elements[index(TextFormElement::panel)]},
-                                    panel->rectangle, UiLayoutContentKind::control,
-                                    ui_layout_content_bounds_allow_overlap);
+        ui_surface_paint(paint, panel->rectangle, theme, UiElevation::dialog, theme.scale.radius_lg);
     for (u32 slot = 0; slot < kTextFormElements; ++slot) {
         const auto element = static_cast<TextFormElement>(slot);
         if (!control(element) || !(scene.built & (1u << slot)) ||
@@ -685,9 +682,6 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
                                       ui_theme_color_alpha(fill, 0), theme.tokens.border.focus,
                                       metrics.control_radius + ring, 2.0f));
         }
-        valid = valid && paint_stream_record_content(
-                             paint, {&scene.widgets, scene.elements[index(element)]}, node->rectangle,
-                             UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap);
         if (element == TextFormElement::edit) {
             const auto clip = ui_rect_overlap(node->content_rectangle, node->clip_rectangle);
             for (u32 i = 0; valid && i < edit.selections.count; ++i)

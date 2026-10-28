@@ -332,10 +332,7 @@ UiThreadBrowserTarget ui_thread_browser_scene_focused_target(const UiThreadBrows
     return ui_thread_browser_scene_target(s, s.widgets.focused);
 }
 bool ui_thread_browser_scene_set_hover(UiThreadBrowserScene* s, float x, float y, bool* changed) noexcept {
-    if (!s || !changed || !current(*s)) return false;
-    const auto handle = ui_widget_manager_hit_test(s->widgets, x, y);
-    *changed = handle.slot != s->widgets.hovered.slot || handle.generation != s->widgets.hovered.generation;
-    if (!ui_widget_manager_hover(&s->widgets, handle)) return false;
+    if (!s || !changed || !current(*s) || !ui_widget_manager_hover_at(&s->widgets, x, y, changed)) return false;
     if (*changed) ++s->revision;
     return true;
 }
@@ -344,10 +341,8 @@ float ui_thread_browser_scene_scroll_maximum(const UiThreadBrowserScene& s) noex
 }
 bool ui_thread_browser_scene_scroll(UiThreadBrowserScene* s, float offset) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(offset)) return false;
-    const float next = minimum(maximum(0.f, offset), ui_thread_browser_scene_scroll_maximum(*s));
-    if (next == s->scroll_dips) return true;
-    s->scroll_dips = next;
-    return rebuild(*s);
+    return !ui_scroll_offset_store(&s->scroll_dips, offset, ui_thread_browser_scene_scroll_maximum(*s)) ||
+           rebuild(*s);
 }
 bool ui_thread_browser_scene_focus(UiThreadBrowserScene* s, UiThreadBrowserTarget value) noexcept {
     if (!s || !eligible(*s, value) ||

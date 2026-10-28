@@ -274,7 +274,7 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
               translucent.tokens.mention.inline_background.alpha == original_mentions.inline_background.alpha,
           "mention tokens: gradient adaptation preserves translucent palette opacity for message highlights");
     // The hue follows the most chromatic stop (default ramp: violet 0x6935b8).
-    const auto stop = background_color_oklab(background_color_rgb24(0x6935b8));
+    const auto stop = background_color_oklab(color_from_rgb24(0x6935b8));
     const auto fill = background_color_oklab(gradient.tokens.emphasis.fill);
     check(stop.a * fill.a + stop.b * fill.b > 0 &&
               (stop.a * fill.b - stop.b * fill.a) * (stop.a * fill.b - stop.b * fill.a) <

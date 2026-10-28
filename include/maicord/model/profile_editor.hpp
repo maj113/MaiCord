@@ -86,8 +86,7 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
                             ProfileEditorGate gate, UserPatch* user, MemberEditPatch* member,
                             ProfilePatch* profile) noexcept;
 
-// "#5865F2" for 0x5865F2 and back (with or without '#', six hex digits).
+// "#5865F2" for 0x5865F2.
 u32 profile_editor_format_color(u32 color, Slice<char> output) noexcept;
-bool profile_editor_parse_color(const Utf8View& text, u32* color) noexcept;
 
 } // namespace maicord

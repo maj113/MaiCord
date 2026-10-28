@@ -383,12 +383,6 @@ bool ui_tooltip_paint(const UiTooltipScene& scene, const Theme& theme, PaintStre
         return true;
     if (!paint || !paint_stream_push_clip(paint, scene.viewport))
         return false;
-    const auto r = scene.rectangle;
-    if (!paint_stream_record_content(paint, scene.text_owner, r, UiLayoutContentKind::decoration,
-                                     ui_layout_content_bounds_allow_overlap)) {
-        paint_stream_pop_clip(paint);
-        return false;
-    }
     const bool painted = paint_box(scene, theme, paint);
     return paint_stream_pop_clip(paint) && painted;
 }

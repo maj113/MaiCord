@@ -28,6 +28,15 @@ bool ui_scrollbar_track_hit(const UiScrollbarGeometry& geometry, float x, float 
 bool ui_scrollbar_thumb_hit(const UiScrollbarGeometry& geometry, float x, float y) noexcept;
 float ui_scrollbar_scroll_from_pointer(const UiScrollbarGeometry& geometry, float pointer_y,
                                        float thumb_grab_offset) noexcept;
+// Stores offset clamped to [0, maximum_scroll] in *scroll_dips; false when it
+// already held that value.
+inline bool ui_scroll_offset_store(float* scroll_dips, float offset, float maximum_scroll) noexcept {
+    const float next = minimum(maximum(0.f, offset), maximum_scroll);
+    if (next == *scroll_dips)
+        return false;
+    *scroll_dips = next;
+    return true;
+}
 
 // The track is an input region only: the owning pane stays visible behind the
 // thumb, with no separate gutter background.

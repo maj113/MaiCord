@@ -15,21 +15,9 @@ constexpr float kNameHeight = 20, kChannelHeight = 18, kButtonHeight = 36, kLive
                 kSlide = 8;
 constexpr float kCardHeight = kUiStreamCardPadding + kThumbnailHeight + 10 + kNameHeight + 2 + kChannelHeight + 12 +
                               kButtonHeight + kUiStreamCardPadding;
-constexpr UiMotionStyle kEntranceStyle{kUiStreamCardEntranceMs, UiMotionCurve::spring};
-constexpr u64 kEntranceOwner = 0x5743'a8d0'0000'0001ull;
-
-UiMotionScope scope(const UiStreamCardScene& s) noexcept {
-    return {kEntranceOwner, s.entrance_generation};
-}
+constexpr UiHoverCardMotion kEntrance{{kUiStreamCardEntranceMs, UiMotionCurve::spring}, 0x5743'a8d0'0000'0001ull};
 u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
     return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
-}
-bool initialize(UiStreamCardScene& s) noexcept {
-    return s.owner.manager == &s.widgets ||
-           ui_widget_manager_initialize_fill_root(&s.widgets, {s.widget_storage, 1}, {s.layout_storage, 1},
-                                                  utf8_literal("Stream preview"),
-                                                  ui_layout_node_visible | ui_layout_node_allow_overlap,
-                                                  &s.owner);
 }
 UiRect offset(UiRect r, float dx) noexcept {
     return {r.left + dx, r.top, r.right + dx, r.bottom};
@@ -80,7 +68,8 @@ bool push_text(UiTextOutput* text, const UiStreamCardScene& s, Utf8View value, U
 
 bool ui_stream_card_show(UiStreamCardScene* s, u64 identity, const UiStreamCardContent& content, UiRect anchor,
                          UiRect viewport, u64 now_ms, bool reduced_motion) noexcept {
-    if (!s || !identity || !ui_rect_valid(viewport) || !ui_rect_has_area(anchor) || !initialize(*s)) {
+    if (!s || !identity || !ui_rect_valid(viewport) || !ui_rect_has_area(anchor) ||
+        !ui_hover_card_initialize(*s, utf8_literal("Stream preview"))) {
         if (s && s->active)
             ui_stream_card_close(s);
         return false;
@@ -95,12 +84,8 @@ bool ui_stream_card_show(UiStreamCardScene* s, u64 identity, const UiStreamCardC
     s->preview_state = content.preview_state;
     s->watching = content.watching;
     s->settled = place(anchor, viewport);
-    if (fresh) {
-        s->hovered = s->pressed = false;
-        ++s->entrance_generation;
-        ui_motion_transition_reset(&s->entrance, scope(*s), reduced_motion ? 1.f : 0.f);
-        ui_motion_transition_tick(&s->entrance, scope(*s), 1, now_ms, kEntranceStyle, reduced_motion, true);
-    }
+    if (fresh)
+        ui_hover_card_restart(s, kEntrance, now_ms, reduced_motion);
     s->progress = s->entrance.value;
     layout(*s);
     if (!ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok()) {
@@ -113,41 +98,28 @@ bool ui_stream_card_show(UiStreamCardScene* s, u64 identity, const UiStreamCardC
     hash = hash64_bytes(hash, &s->preview, sizeof(s->preview));
     hash = hash64_bytes(hash, &s->panel, sizeof(s->panel));
     hash = hash64_mix(hash, (u64{static_cast<u8>(s->preview_state)} << 8) | (s->watching ? 1u : 0u));
-    if (!s->active || hash != s->content_hash) {
-        s->content_hash = hash;
-        ++s->revision;
-    }
-    s->active = true;
+    ui_hover_card_publish(s, hash);
     return true;
 }
 
 void ui_stream_card_close(UiStreamCardScene* s) noexcept {
-    if (!s || !s->active)
-        return;
-    s->active = s->hovered = s->pressed = false;
-    s->identity = 0;
-    ++s->entrance_generation;
-    ++s->revision;
+    ui_hover_card_close(s);
 }
 
 bool ui_stream_card_tick(UiStreamCardScene* s, u64 now_ms, bool reduced_motion) noexcept {
-    if (!s || !s->active || (!s->entrance.active && s->entrance.value >= 1))
+    if (!ui_hover_card_advance(s, kEntrance, now_ms, reduced_motion))
         return false;
-    if (!ui_motion_transition_tick(&s->entrance, scope(*s), 1, now_ms, kEntranceStyle, reduced_motion, true))
-        return false;
-    s->progress = s->entrance.value;
     layout(*s);
     ++s->revision;
     return true;
 }
 
 u64 ui_stream_card_next_wake(const UiStreamCardScene& s, u64 now_ms, bool reduced_motion) noexcept {
-    return s.active ? ui_motion_transition_next_wake(s.entrance, scope(s), now_ms, reduced_motion, true) : 0;
+    return ui_hover_card_next_wake(s, kEntrance, now_ms, reduced_motion);
 }
 
 bool ui_stream_card_contains(const UiStreamCardScene& s, float x, float y) noexcept {
-    // The settled card, so a pointer moving onto it during the slide counts.
-    return s.active && (ui_rect_contains(s.settled, x, y) || ui_rect_contains(s.panel, x, y));
+    return ui_hover_card_contains(s, x, y);
 }
 
 UiStreamCardControl ui_stream_card_hit(const UiStreamCardScene& s, float x, float y) noexcept {
@@ -155,22 +127,11 @@ UiStreamCardControl ui_stream_card_hit(const UiStreamCardScene& s, float x, floa
 }
 
 bool ui_stream_card_set_hover(UiStreamCardScene* s, float x, float y) noexcept {
-    if (!s)
-        return false;
-    const bool hovered = ui_stream_card_hit(*s, x, y) == UiStreamCardControl::watch;
-    if (hovered == s->hovered)
-        return false;
-    s->hovered = hovered;
-    ++s->revision;
-    return true;
+    return s && ui_hover_card_set_hovered(s, ui_stream_card_hit(*s, x, y) == UiStreamCardControl::watch);
 }
 
 bool ui_stream_card_set_pressed(UiStreamCardScene* s, bool pressed) noexcept {
-    if (!s || s->pressed == pressed)
-        return false;
-    s->pressed = pressed;
-    ++s->revision;
-    return true;
+    return ui_hover_card_set_pressed(s, pressed);
 }
 
 bool ui_stream_card_spinner_visible(const UiStreamCardScene& s) noexcept {

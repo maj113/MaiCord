@@ -16,22 +16,11 @@ constexpr float kW = kUiGuildCardWidth, kP = kUiGuildCardPadding, kRadius = 16, 
 constexpr float kIconTop = kUiGuildCardBanner - 34, kRing = 3;
 constexpr float kNameHeight = 24, kLine = 18, kChip = 20, kTrait = 24, kButton = 32;
 constexpr u32 kDescriptionLines = 5;
-constexpr UiMotionStyle kEntranceStyle{kUiGuildCardEntranceMs, UiMotionCurve::spring};
-constexpr u64 kEntranceOwner = 0x4743'4152'4400'0001ull;
+constexpr UiHoverCardMotion kEntrance{{kUiGuildCardEntranceMs, UiMotionCurve::spring}, 0x4743'4152'4400'0001ull};
 constexpr u64 kMeasureSource = 0x4743415244ull; // "GCARD"
 
-UiMotionScope scope(const UiGuildCardScene& s) noexcept {
-    return {kEntranceOwner, s.entrance_generation};
-}
 u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
     return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
-}
-bool initialize(UiGuildCardScene& s) noexcept {
-    return s.owner.manager == &s.widgets ||
-           ui_widget_manager_initialize_fill_root(&s.widgets, {s.widget_storage, 1}, {s.layout_storage, 1},
-                                                  utf8_literal("Server profile"),
-                                                  ui_layout_node_visible | ui_layout_node_allow_overlap,
-                                                  &s.owner);
 }
 // Measured size of text in a box width wide (wrapping unless single).
 UiSize measure(UiTextMeasureCache* cache, Utf8View text, u32 style, float width, bool single, u16 item) noexcept {
@@ -243,7 +232,8 @@ u32 ui_guild_card_format_count(u32 value, char* output, u32 capacity) noexcept {
 
 bool ui_guild_card_show(UiGuildCardScene* s, u64 identity, const UiGuildCardContent& content, UiRect anchor,
                         UiRect viewport, u64 now_ms, bool reduced_motion, UiTextMeasureCache* cache) noexcept {
-    if (!s || !identity || !ui_rect_valid(viewport) || !ui_rect_has_area(viewport) || !initialize(*s)) {
+    if (!s || !identity || !ui_rect_valid(viewport) || !ui_rect_has_area(viewport) ||
+        !ui_hover_card_initialize(*s, utf8_literal("Server profile"))) {
         if (s && s->active)
             ui_guild_card_close(s);
         return false;
@@ -274,12 +264,8 @@ bool ui_guild_card_show(UiGuildCardScene* s, u64 identity, const UiGuildCardCont
     s->banner_key = content.phase == UiGuildCardPhase::ready ? content.banner : MediaAssetKey{};
     const float height = layout_relative(*s, cache);
     s->settled = place(s->anchor, viewport, height);
-    if (fresh) {
-        s->hovered = s->pressed = false;
-        ++s->entrance_generation;
-        ui_motion_transition_reset(&s->entrance, scope(*s), reduced_motion ? 1.f : 0.f);
-        ui_motion_transition_tick(&s->entrance, scope(*s), 1, now_ms, kEntranceStyle, reduced_motion, true);
-    }
+    if (fresh)
+        ui_hover_card_restart(s, kEntrance, now_ms, reduced_motion);
     s->progress = s->entrance.value;
     place_panel(*s);
     if (!ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok()) {
@@ -300,40 +286,28 @@ bool ui_guild_card_show(UiGuildCardScene* s, u64 identity, const UiGuildCardCont
     hash = hash64_bytes(hash, &s->panel, sizeof(s->panel));
     hash = hash64_mix(hash, (u64{s->brand_color} << 16) | (u64{static_cast<u8>(s->phase)} << 8) |
                                 (u64{static_cast<u8>(s->action)} << 1) | (s->has_brand_color ? 1u : 0u));
-    if (!s->active || hash != s->content_hash) {
-        s->content_hash = hash;
-        ++s->revision;
-    }
-    s->active = true;
+    ui_hover_card_publish(s, hash);
     return true;
 }
 
 void ui_guild_card_close(UiGuildCardScene* s) noexcept {
-    if (!s || !s->active)
-        return;
-    s->active = s->hovered = s->pressed = false;
-    s->identity = 0;
-    ++s->entrance_generation;
-    ++s->revision;
+    ui_hover_card_close(s);
 }
 
 bool ui_guild_card_tick(UiGuildCardScene* s, u64 now_ms, bool reduced_motion) noexcept {
-    if (!s || !s->active || (!s->entrance.active && s->entrance.value >= 1))
+    if (!ui_hover_card_advance(s, kEntrance, now_ms, reduced_motion))
         return false;
-    if (!ui_motion_transition_tick(&s->entrance, scope(*s), 1, now_ms, kEntranceStyle, reduced_motion, true))
-        return false;
-    s->progress = s->entrance.value;
     place_panel(*s);
     ++s->revision;
     return true;
 }
 
 u64 ui_guild_card_next_wake(const UiGuildCardScene& s, u64 now_ms, bool reduced_motion) noexcept {
-    return s.active ? ui_motion_transition_next_wake(s.entrance, scope(s), now_ms, reduced_motion, true) : 0;
+    return ui_hover_card_next_wake(s, kEntrance, now_ms, reduced_motion);
 }
 
 bool ui_guild_card_contains(const UiGuildCardScene& s, float x, float y) noexcept {
-    return s.active && (ui_rect_contains(s.settled, x, y) || ui_rect_contains(s.panel, x, y));
+    return ui_hover_card_contains(s, x, y);
 }
 
 UiGuildCardControl ui_guild_card_hit(const UiGuildCardScene& s, float x, float y) noexcept {
@@ -348,22 +322,11 @@ UiGuildCardControl ui_guild_card_hit(const UiGuildCardScene& s, float x, float y
 }
 
 bool ui_guild_card_set_hover(UiGuildCardScene* s, float x, float y) noexcept {
-    if (!s)
-        return false;
-    const bool hovered = ui_guild_card_hit(*s, x, y) == UiGuildCardControl::action;
-    if (hovered == s->hovered)
-        return false;
-    s->hovered = hovered;
-    ++s->revision;
-    return true;
+    return s && ui_hover_card_set_hovered(s, ui_guild_card_hit(*s, x, y) == UiGuildCardControl::action);
 }
 
 bool ui_guild_card_set_pressed(UiGuildCardScene* s, bool pressed) noexcept {
-    if (!s || s->pressed == pressed)
-        return false;
-    s->pressed = pressed;
-    ++s->revision;
-    return true;
+    return ui_hover_card_set_pressed(s, pressed);
 }
 
 bool ui_guild_card_spinner_visible(const UiGuildCardScene& s) noexcept {

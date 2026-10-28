@@ -1206,7 +1206,7 @@ bool color_check(TextFormOwnerKey key, Utf8View text, u32* rgba) noexcept {
 }
 bool color_save(TextFormOwnerKey key, Utf8View text) noexcept {
     u32 color = 0;
-    if (!color_valid(key) || !profile_editor_parse_color(text, &color))
+    if (!color_valid(key) || !color_hex_parse_rgb24(text, &color))
         return false;
     color_apply(key.collection, color);
     g_color_preview.applied = true;

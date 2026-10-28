@@ -240,9 +240,6 @@ bool ui_attachment_draft_list_paint(const UiAttachmentDraftList& list, const The
             return false;
         bool ok = ui_background_paint_surface(paint, n->rectangle, theme, theme.surface, theme.interactive,
                                               list.style.radius, 1);
-        ok = ok && paint_stream_record_content(paint, {list.manager, list.parts[r][card]}, n->rectangle,
-                                               UiLayoutContentKind::control,
-                                               ui_layout_content_bounds_allow_overlap);
         const auto picture = ui_attachment_draft_list_preview(list, r);
         ok = ok && ui_background_paint_surface(paint, picture, theme, theme.base_lowest, theme.interactive,
                                                list.style.radius, 1);
@@ -276,9 +273,6 @@ bool ui_attachment_draft_list_paint(const UiAttachmentDraftList& list, const The
                                              focused || (p == spoiler && view.spoiler) ? theme.tokens.border.focus
                                                                                        : theme.interactive,
                                              list.style.radius, focused ? 2.f : 1.f);
-            ok = ok && paint_stream_record_content(paint, {list.manager, list.parts[r][p]}, b->rectangle,
-                                                   UiLayoutContentKind::control,
-                                                   ui_layout_content_bounds_allow_overlap);
         }
         if (!paint_stream_pop_clip(paint) || !ok)
             return false;

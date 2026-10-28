@@ -4,6 +4,7 @@
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/audio_presentation.hpp"
 #include "maicord/ui/poll_presentation.hpp"
+#include "maicord/ui/unread_divider.hpp"
 
 #include "maicord/ui/timestamp_format.hpp"
 #include "maicord/ui/message_reaction_presentation.hpp"
@@ -133,13 +134,6 @@ u16 identify_rich_source(const BuildContext& context, Utf8View source) noexcept 
         }
     }
     return 0;
-}
-
-Color role_color(u32 packed) noexcept {
-    constexpr float scale = 1.0f / 255.0f;
-    return Color{static_cast<float>((packed >> 16u) & 0xFFu) * scale,
-                 static_cast<float>((packed >> 8u) & 0xFFu) * scale,
-                 static_cast<float>(packed & 0xFFu) * scale, 1.0f};
 }
 
 u64 command_content_signature(const MessageTextCommand& command) noexcept {
@@ -779,7 +773,7 @@ Color member_role_color(const MessageTextPresentation& presentation, const ChatS
         presentation.guild_members && channel && channel->guild_id != 0 && user_id != 0
             ? guild_member_store_find(*presentation.guild_members, channel->guild_id, user_id)
             : nullptr;
-    return member && member->role_color != 0 ? role_color(member->role_color) : fallback;
+    return member && member->role_color != 0 ? color_from_rgb24(member->role_color) : fallback;
 }
 
 struct RetainedAuthorHeader {

@@ -42,17 +42,6 @@ void paint_stream_release(PaintStream* stream) noexcept {
     stream->sealed_batches = 0;
     stream->clip_depth = 0;
     stream->rejected = 0;
-    stream->content_recorder = nullptr;
-}
-
-bool paint_stream_bind_content_recorder(PaintStream* stream, UiPaintContentRecorder* recorder,
-                                        Slice<UiPaintContentBounds> storage) noexcept {
-    if (!stream || !recorder || !storage.data || storage.count == 0) {
-        return false;
-    }
-    *recorder = UiPaintContentRecorder{storage, 0, 0};
-    stream->content_recorder = recorder;
-    return true;
 }
 
 bool paint_stream_reset(PaintStream* stream, float right, float bottom) noexcept {
@@ -65,10 +54,6 @@ bool paint_stream_reset(PaintStream* stream, float right, float bottom) noexcept
     stream->sealed_batches = 0;
     stream->clip_depth = 1;
     stream->rejected = 0;
-    if (stream->content_recorder) {
-        stream->content_recorder->count = 0;
-        stream->content_recorder->dropped = 0;
-    }
     const bool valid =
         paint_coordinate_valid(right) && paint_coordinate_valid(bottom) && right > 0.0f && bottom > 0.0f;
     stream->clips[0] = PaintClip{0.0f, 0.0f, valid ? right : 0.0f, valid ? bottom : 0.0f};
@@ -267,10 +252,7 @@ bool paint_stream_push_palette_gradient(PaintStream* stream, const UiRect& recta
                                         float radius) noexcept {
     if (!stream || !background_theme_valid(theme))
         return false;
-    const auto color = [](u32 rgb) noexcept -> Color {
-        return {((rgb >> 16) & 255) / 255.f, ((rgb >> 8) & 255) / 255.f, (rgb & 255) / 255.f, 1};
-    };
-    Color from = color(theme.colors[0]);
+    Color from = color_from_rgb24(theme.colors[0]);
     if (theme.color_count == 1)
         return paint_stream_push_rounded(stream, rectangle, from, radius);
     float direction_x{}, direction_y{};
@@ -279,7 +261,7 @@ bool paint_stream_push_palette_gradient(PaintStream* stream, const UiRect& recta
     const u32 before = stream->count, batches = stream->batch_count;
     const u32 tail_count = batches ? stream->batches[batches - 1].quad_count : 0;
     for (u32 i = 0; i + 1 < theme.color_count; ++i) {
-        const Color to = color(theme.colors[i + 1]);
+        const Color to = color_from_rgb24(theme.colors[i + 1]);
         const u32 next = stream->count;
         if (!paint_stream_push_rounded(stream, rectangle, from, radius)) {
             stream->count = before;

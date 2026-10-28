@@ -611,9 +611,6 @@ bool forum_post_paint(const ForumPostScene& s, const TextFormEditGeometry (&geom
                     : (selected || (e == ForumPostElement::accept && enabled) ? theme.tokens.emphasis.fill
                                                                               : theme.surface_high);
         ok = paint_stream_push_rounded_border(p, node->rectangle, background, has_focus && s.content.focus_visible ? theme.tokens.border.focus : theme.interactive, s.content.style.corner_radius, has_focus && s.content.focus_visible ? 2.f : 1.f);
-        ok = ok &&
-             paint_stream_record_content(p, {&s.widgets, h}, node->rectangle, UiLayoutContentKind::control,
-                                         ui_layout_content_bounds_allow_overlap);
         if (edit(e)) {
             const auto& g = geometry[field_index(e)];
             const auto clip = ui_rect_overlap(node->content_rectangle, node->clip_rectangle);

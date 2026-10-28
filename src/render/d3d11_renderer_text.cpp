@@ -58,13 +58,6 @@ struct TextRasterScope {
     }
 };
 
-Color packed_role_color(u32 packed) noexcept {
-    constexpr float scale = 1.0f / 255.0f;
-    return Color{static_cast<float>((packed >> 16u) & 0xFFu) * scale,
-                 static_cast<float>((packed >> 8u) & 0xFFu) * scale,
-                 static_cast<float>(packed & 0xFFu) * scale, 1.0f};
-}
-
 bool resolve_role_mention_color(const D3D11Renderer* renderer, u64 message_id, u64 role_id,
                                 Color* color) noexcept {
     // Message id zero is the composer: its projected role spans carry colours.
@@ -73,7 +66,7 @@ bool resolve_role_mention_color(const D3D11Renderer* renderer, u64 message_id, u
         for (u32 index = 0; composer.projection_spans && index < composer.projection_span_count; ++index) {
             const auto& span = composer.projection_spans[index];
             if (span.kind == MessageComposerProjectionKind::role && span.target == role_id && span.color) {
-                *color = packed_role_color(span.color);
+                *color = color_from_rgb24(span.color);
                 return true;
             }
         }
@@ -98,7 +91,7 @@ bool resolve_role_mention_color(const D3D11Renderer* renderer, u64 message_id, u
     if (!role || role->color == 0) {
         return false;
     }
-    *color = packed_role_color(role->color);
+    *color = color_from_rgb24(role->color);
     return true;
 }
 

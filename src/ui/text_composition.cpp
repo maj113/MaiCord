@@ -6,22 +6,15 @@ bool text_composition_paint_mark(PaintStream* stream, const TextCompositionMark&
     const auto rectangle = ui_rect_intersection(mark.rectangle, clip);
     if (!ui_rect_has_area(rectangle)) return true;
     const auto& span = mark.attributes;
-    if (span.color_flags & text_composition_color_background) {
-        constexpr float scale = 1.0f / 255;
-        const Color color{((span.background_rgb >> 16) & 255) * scale,
-            ((span.background_rgb >> 8) & 255) * scale, (span.background_rgb & 255) * scale, 1};
-        if (!paint_stream_push(stream, rectangle, color)) return false;
-    }
+    if ((span.color_flags & text_composition_color_background) &&
+        !paint_stream_push(stream, rectangle, color_from_rgb24(span.background_rgb)))
+        return false;
     return text_composition_paint_line(stream, rectangle, span, fallback);
 }
 bool text_composition_paint_line(PaintStream* stream, const UiRect& rectangle,
     const TextCompositionSpan& span, const Color& fallback) noexcept {
     if (span.line_style == TextCompositionLineStyle::none || !ui_rect_has_area(rectangle)) return true;
-    constexpr float inverse = 1.0f / 255;
-    const Color color = (span.color_flags & text_composition_color_line) ?
-        Color{static_cast<float>((span.line_rgb >> 16) & 255) * inverse,
-            static_cast<float>((span.line_rgb >> 8) & 255) * inverse,
-            static_cast<float>(span.line_rgb & 255) * inverse, 1} : fallback;
+    const Color color = (span.color_flags & text_composition_color_line) ? color_from_rgb24(span.line_rgb) : fallback;
     const float thickness = span.bold_line ? 2.0f : 1.0f;
     const float left = static_cast<float>(static_cast<i32>(rectangle.left));
     const float right = static_cast<float>(static_cast<i32>(rectangle.right + 0.999f));

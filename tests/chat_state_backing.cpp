@@ -74,9 +74,9 @@ bool seed(u32 channel_limit, u32 name_limit) noexcept {
     f.channel_limit = channel_limit;
     f.name_limit[0] = f.name_limit[1] = name_limit;
     f.emoji_limit = 8;
-    return chat_state_store_initialize_sparse(&f.state, {f.guilds, 2}, {f.guild_order, 2},
-                                              {f.channels, kSlots}, {f.channel_order, kSlots},
-                                              {f.names, kBank * 2}) &&
+    return chat_state_store_initialize(&f.state, {f.guilds, 2}, {f.guild_order, 2},
+                                       {f.channels, kSlots}, {f.channel_order, kSlots},
+                                       {f.names, kBank * 2}, true) &&
            chat_state_store_bind_backing(&f.state, commit, &f) &&
            chat_state_store_bind_emojis_sparse(&f.state, {f.emojis, 8}, {f.emoji_roles, 8}) &&
            chat_state_store_upsert_guild(&f.state, {7, utf8_literal("G"), GuildMutationKind::create, 99})

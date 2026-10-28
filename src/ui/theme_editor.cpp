@@ -614,19 +614,19 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
         } else if (e == UiThemeEditorElement::sv) {
             const float x = clamp(r.left + s.saturation * ui_rect_width(r), r.left + 6, r.right - 6);
             const float y = clamp(r.top + (1 - s.value) * ui_rect_height(r), r.top + 6, r.bottom - 6);
-            ok = paint_stream_push_sv_square(paint, r, background_color_rgb24(ui_theme_editor_hsv_rgb(s.hue, 1, 1)),
+            ok = paint_stream_push_sv_square(paint, r, color_from_rgb24(ui_theme_editor_hsv_rgb(s.hue, 1, 1)),
                                              s.style.control_radius) &&
-                 paint_stream_push_rounded_border(paint, x - 5, y - 5, x + 5, y + 5, Color{}, background_color_rgb24(0), 5,
+                 paint_stream_push_rounded_border(paint, x - 5, y - 5, x + 5, y + 5, Color{}, color_from_rgb24(0), 5,
                                                   2) &&
                  paint_stream_push_rounded_border(paint, x - 4, y - 4, x + 4, y + 4, Color{},
-                                                  background_color_rgb24(0xffffff), 4, 1.5f);
+                                                  color_from_rgb24(0xffffff), 4, 1.5f);
         } else if (e == UiThemeEditorElement::hue) {
             const float x = clamp(r.left + s.hue * ui_rect_width(r), r.left + 4, r.right - 4);
             ok = paint_stream_push_hue_strip(paint, r, 4) &&
                  paint_stream_push_rounded_border(paint, x - 3, r.top + 1, x + 3, r.bottom - 1, Color{},
-                                                  background_color_rgb24(0), 3, 2) &&
+                                                  color_from_rgb24(0), 3, 2) &&
                  paint_stream_push_rounded_border(paint, x - 2, r.top + 2, x + 2, r.bottom - 2, Color{},
-                                                  background_color_rgb24(0xffffff), 2, 1);
+                                                  color_from_rgb24(0xffffff), 2, 1);
         } else if (slider(e)) {
             const auto t = track(r);
             const float fraction = e == UiThemeEditorElement::direction  ? s.draft.angle_degrees / 360.f
@@ -647,7 +647,7 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
                                                   theme.surface, 7, 1);
         } else if (e >= UiThemeEditorElement::stop0 && e <= UiThemeEditorElement::stop4) {
             const auto stop = i - at(UiThemeEditorElement::stop0);
-            const auto c = stop < s.draft.color_count ? background_color_rgb24(s.draft.colors[stop]) : theme.base_low;
+            const auto c = stop < s.draft.color_count ? color_from_rgb24(s.draft.colors[stop]) : theme.base_low;
             // Every stop leaves room for the selection ring inside its cell, so
             // stops share one size and the ring stays concentric with the fill.
             const auto& m = tokens.metric;

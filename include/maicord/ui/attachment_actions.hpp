@@ -23,9 +23,9 @@ inline UiRect ui_attachment_save_rectangle(UiRect attachment, bool file_card) no
     return {attachment.right - inset - size, attachment.top + inset,
             attachment.right - inset, attachment.top + inset + size};
 }
-// Virtual child action: the attachment widget owns its hover/focus and content
-// bounds. The caller passes the same action rectangle and clip that input uses,
-// and may expose the action while the containing media row is active.
+// Virtual child action: the attachment widget owns its hover/focus. The
+// caller passes the same action rectangle and clip that input uses, and may
+// expose the action while the containing media row is active.
 inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner,
     UiRect rectangle, UiRect clip, const Theme& theme, bool file_card,
     bool parent_active = false) noexcept {
@@ -54,14 +54,9 @@ inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner
     // On a file card it follows the card's corner; on media it matches the GIF star.
     const float radius = file_card ? ui_inner_radius(kUiAttachmentFileCardRadius, kUiAttachmentFileSaveInset)
                                    : theme.scale.radius_sm;
-    bool ok = ui_background_paint_surface(paint,rectangle,theme,fill,border,radius,1,1,
+    const bool ok = ui_background_paint_surface(paint,rectangle,theme,fill,border,radius,1,1,
         UiBackgroundSurfaceMode::gradient,UiBackgroundTier::highest) &&
-        paint_stream_record_content(paint,owner,visible,UiLayoutContentKind::control,
-            ui_layout_content_bounds_allow_overlap) &&
         ui_icon_paint(paint,UiIcon::download,icon,ui_foreground_color(theme,theme.text_primary));
-    const auto visible_icon = ui_rect_intersection(icon,clip);
-    if (ok && ui_rect_has_area(visible_icon)) ok = paint_stream_record_content(paint,owner,visible_icon,
-        UiLayoutContentKind::icon,ui_layout_content_bounds_allow_overlap);
     return paint_stream_pop_clip(paint) && ok;
 }
 // A GIF preview's favourite star, top right: left of the Save action on an
@@ -99,13 +94,11 @@ inline bool ui_gif_favorite_paint(PaintStream* paint, UiWidgetReference owner, U
     auto color = favorite ? theme.tokens.emphasis.outline : ui_foreground_color(theme, theme.text_primary);
     if (pending)
         color.alpha *= .5f;
-    bool ok = ui_background_paint_surface(paint, rectangle, theme, theme.surface_high, theme.interactive,
-                                          theme.scale.radius_sm, 1, 1, UiBackgroundSurfaceMode::gradient,
-                                          UiBackgroundTier::highest) &&
-              paint_stream_record_content(paint, owner, visible, UiLayoutContentKind::control,
-                                          ui_layout_content_bounds_allow_overlap) &&
-              ui_icon_paint_styled(paint, UiIcon::favorite, {x, y, x + size, y + size},
-                                   {color, favorite ? color : Color{}, 0});
+    const bool ok = ui_background_paint_surface(paint, rectangle, theme, theme.surface_high, theme.interactive,
+                                                theme.scale.radius_sm, 1, 1, UiBackgroundSurfaceMode::gradient,
+                                                UiBackgroundTier::highest) &&
+                    ui_icon_paint_styled(paint, UiIcon::favorite, {x, y, x + size, y + size},
+                                         {color, favorite ? color : Color{}, 0});
     return paint_stream_pop_clip(paint) && ok;
 }
 } // namespace maicord

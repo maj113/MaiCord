@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/media/asset_key.hpp"
+#include "maicord/ui/hover_card.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/text_presentation.hpp"
-#include "maicord/ui/transition.hpp"
 
 namespace maicord {
 // Go Live preview card: hovering a live user under a voice channel shows the
@@ -29,22 +29,14 @@ struct UiStreamCardContent {
     UiStreamCardPreview preview_state;
     bool watching; // The local user already watches this stream.
 };
-struct UiStreamCardScene {
-    UiWidgetManager widgets;
-    UiWidget widget_storage[1];
-    UiLayoutNode layout_storage[1];
-    UiWidgetReference owner;
-    UiRect anchor, viewport, panel, settled, thumbnail, live, button;
+// identity (UiHoverCard) is the stream shown (host value).
+struct UiStreamCardScene : UiHoverCard {
+    UiRect thumbnail, live, button;
     char name[kUiStreamCardTextBytes], channel[kUiStreamCardTextBytes];
     u32 name_bytes, channel_bytes;
     MediaAssetKey preview;
     UiStreamCardPreview preview_state;
-    bool watching, active, hovered, pressed;
-    UiMotionTransition entrance;
-    u64 entrance_generation, content_hash, identity; // identity: the stream shown (host value).
-    float progress; // Entrance 0..1: slide and fade.
-    u32 revision;
-    u8 spinner_phase; // Host frame clock (paint only).
+    bool watching;
 };
 
 // Shows (or re-projects) the card for identity beside anchor inside viewport.

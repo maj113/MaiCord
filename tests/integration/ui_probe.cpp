@@ -384,10 +384,7 @@ bool probe_has_role_mention_colors(u32 packed) noexcept {
     if (!text || packed == 0) {
         return false;
     }
-    constexpr float scale = 1.0f / 255.0f;
-    const Color expected{static_cast<float>((packed >> 16u) & 0xFFu) * scale,
-                         static_cast<float>((packed >> 8u) & 0xFFu) * scale,
-                         static_cast<float>(packed & 0xFFu) * scale, 1.0f};
+    const Color expected = color_from_rgb24(packed);
     bool foreground = false;
     bool background = false;
     for (u32 index = 0; index < text->quad_count; ++index) {

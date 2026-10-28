@@ -111,8 +111,6 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
         return false;
     bool ok =
         ui_surface_paint_plate(paint, panel, theme, UiElevation::popover, style.panel_radius) &&
-        paint_stream_record_content(paint, {&scene.widgets, scene.root}, panel,
-                                    UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap) &&
         // Discord's category list and inspector bar sit on the lower tier.
         paint_band(paint, scene.rail, panel, theme, style.panel_radius) &&
         paint_band(paint, scene.footer, panel, theme, style.panel_radius);
@@ -124,9 +122,6 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
         if (i == static_cast<u32>(scene.kind) || active_widget(scene, widget))
             ok = paint_stream_push_rounded(paint, r, ui_background_hover_color(
                 theme, i == static_cast<u32>(scene.kind) ? theme.surface_high : theme.surface, .28f), scene.style.edit_radius);
-        ok = ok &&
-             paint_stream_record_content(paint, {&scene.widgets, widget}, r, UiLayoutContentKind::control,
-                                         ui_layout_content_bounds_allow_overlap);
     }
     ok = ok &&
          ui_edit_field_paint(paint, scene.field, scene.text, scene.content->edit, edit, theme.base_lowest,
@@ -173,9 +168,6 @@ bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& t
                                                           : UiBackgroundSurfaceMode::gradient,
                                                  UiBackgroundTier::lower);
             }
-            ok = ok && paint_stream_record_content(paint, {&scene.widgets, cell.widget}, cell.clip,
-                                                   UiLayoutContentKind::media,
-                                                   ui_layout_content_bounds_allow_overlap);
         }
         for (u32 i = 0; ok && i < scene.cell_count; ++i) {
             const auto& cell = scene.projection->cells[i];
@@ -281,9 +273,6 @@ bool ui_media_picker_scene_paint_foreground(const UiMediaPickerScene& scene, con
             // The star button nests in the tile's corner: concentric radius.
             ok = paint_stream_push_rounded_border(paint, button, theme.base_lower, theme.interactive, maximum(0.f, minimum(scene.style.control_radius - m.emoji_padding,
                                  minimum(ui_rect_width(button), ui_rect_height(button)) * .5f)), 1) &&
-                 paint_stream_record_content(paint, {&scene.widgets, cell.widget}, button_clip,
-                                             UiLayoutContentKind::control,
-                                             ui_layout_content_bounds_allow_overlap) &&
                  ui_icon_paint_styled(paint, UiIcon::favorite,
                                       {x - extent * .5f, y - extent * .5f, x + extent * .5f, y + extent * .5f},
                                       {color, cell.item.favorite ? color : Color{}, 0});

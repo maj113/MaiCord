@@ -475,13 +475,7 @@ Color ansi_palette_color(const Theme& theme, u8 index) noexcept {
         return theme.tokens.ansi.*palette[index];
     u32 red = 0, green = 0, blue = 0;
     fixed_rgb(index, &red, &green, &blue);
-    constexpr float scale = 1.0f / 255.0f;
-    Color color{};
-    color.red = static_cast<float>(red) * scale;
-    color.green = static_cast<float>(green) * scale;
-    color.blue = static_cast<float>(blue) * scale;
-    color.alpha = 1.0f;
-    return color;
+    return color_from_rgb24(red << 16 | green << 8 | blue);
 }
 
 } // namespace maicord

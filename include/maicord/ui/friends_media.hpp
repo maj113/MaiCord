@@ -8,7 +8,6 @@ struct UserStore;
 struct FriendsAvatarMedia {
     MediaAssetKey key;
     Utf8View hash;
-    UiWidgetReference owner;
     UiRect rectangle, clip;
 };
 static_assert(sizeof(FriendsAvatarMedia) <= 80);

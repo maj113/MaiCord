@@ -116,9 +116,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
         const auto& bounds = projection.geometry.bounds;
         if (!ui_background_paint_surface(paint, bounds, theme, projection.surface, theme.interactive,
                                          style.corner_radius, 1, 1, UiBackgroundSurfaceMode::gradient,
-                                         UiBackgroundTier::high, UiBackgroundBorderTone::palette) ||
-            !paint_stream_record_content(paint, owner, bounds, UiLayoutContentKind::control,
-                                         ui_layout_content_bounds_allow_overlap))
+                                         UiBackgroundTier::high, UiBackgroundBorderTone::palette))
             return false;
         if (!projection.playback.loading && !projection.playback.error &&
             !waveform_paint(projection, style, paint))
@@ -206,12 +204,8 @@ bool ui_audio_scene_text_output(const UiAudioScene& scene, UiTextOutput* output)
            ui_audio_controls_text_output(scene.projection, scene.clip, scene.owner, output);
 }
 u64 ui_audio_scene_text_revision(const UiAudioScene& scene) noexcept {
-    if (!scene.active || !owner_current(scene.owner))
-        return 0;
-    UiTextEmitter emitter{};
-    UiTextOutput output{nullptr, &emitter};
-    return ui_text_emitter_initialize(&emitter) && ui_audio_scene_text_output(scene, &output)
-               ? emitter.signature
+    return scene.active && owner_current(scene.owner)
+               ? ui_text_output_signature<UiAudioScene, ui_audio_scene_text_output>(scene)
                : 0;
 }
 u64 ui_audio_scene_paint_revision(const UiAudioScene& scene) noexcept {

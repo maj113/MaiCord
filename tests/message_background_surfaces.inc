@@ -51,8 +51,6 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
     PaintStream flat{}, gradient{};
     MessageMediaCommand flat_commands[64]{}, gradient_commands[64]{};
     MessageMediaCommandStream flat_media{}, gradient_media{};
-    UiPaintContentBounds flat_bounds[512]{}, gradient_bounds[512]{};
-    UiPaintContentRecorder flat_recorder{}, gradient_recorder{};
     MessagePresentationResult flat_result{}, gradient_result{};
     struct Release {
         PaintStream &a, &b;
@@ -66,18 +64,15 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
     bool ready =
         paint_stream_initialize(&flat) && paint_stream_initialize(&gradient) && paint_stream_reset(&flat) &&
         paint_stream_reset(&gradient) &&
-        paint_stream_bind_content_recorder(&flat, &flat_recorder, {flat_bounds, 512}) &&
-        paint_stream_bind_content_recorder(&gradient, &gradient_recorder, {gradient_bounds, 512}) &&
         message_media_command_stream_initialize(&flat_media, {flat_commands, 64}) &&
         message_media_command_stream_initialize(&gradient_media, {gradient_commands, 64}) && visible &&
         message_presentation_build(scene, kDefaultTheme, &flat, &flat_media, &flat_result) &&
         message_presentation_build(scene, theme, &gradient, &gradient_media, &gradient_result);
     bool geometry = ready && flat.count == gradient.count && flat.clip_count == gradient.clip_count &&
                     flat.batch_count == gradient.batch_count &&
-                    flat_recorder.count == gradient_recorder.count &&
                     flat_media.count == gradient_media.count;
     check(ready, "message gradient fixture initializes and both real presentations succeed");
-    check(geometry, "message gradient fixture preserves quad clip batch bounds and media counts");
+    check(geometry, "message gradient fixture preserves quad clip batch and media counts");
     const auto scrollbar =
         ready ? ui_scrollbar_geometry(scene.viewport, ui_extent_dips(scene.timeline->scroll_units),
                                       ui_extent_dips(scene.timeline->list->total_units))
@@ -121,15 +116,6 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
     }
     geometry = geometry && scrollbar_materials == (scrollbar.visible ? 1u : 0u);
     check(geometry, "message gradient per-quad geometry material metadata and nonmaterial colors match");
-    bool owners = ready && flat_recorder.count == gradient_recorder.count;
-    for (u32 i = 0; owners && i < flat_recorder.count; ++i) {
-        const auto& a = flat_bounds[i];
-        const auto& b = gradient_bounds[i];
-        owners = a.owner.manager == b.owner.manager && a.owner.handle.slot == b.owner.handle.slot &&
-                 a.owner.handle.generation == b.owner.handle.generation &&
-                 ui_rect_equal(a.rectangle, b.rectangle) && a.kind == b.kind && a.flags == b.flags;
-    }
-    check(owners, "message gradient recorded widget owners rectangles and semantic flags match");
     bool media_keys = ready && flat_media.count == gradient_media.count;
     for (u32 i = 0; media_keys && i < flat_media.count; ++i) {
         const auto& a = flat_commands[i];
@@ -145,8 +131,8 @@ inline void test_message_background_surfaces(const MessageScene& original, u64 r
     check(media_keys, "message gradient actual media keys resources clip and owners match");
     check(component_material, "message link button uses the background theme material");
     check(materials != 0, "message gradient admitted rich fixture emits at least one real material card");
-    check(geometry && owners && media_keys && materials && !gradient.rejected &&
-              gradient.count <= kMaxPaintQuads && !gradient_recorder.dropped && !gradient_media.rejected,
+    check(geometry && media_keys && materials && !gradient.rejected &&
+              gradient.count <= kMaxPaintQuads && !gradient_media.rejected,
           "message gradient materials preserve real geometry media semantic paint and widget ownership");
 }
 } // namespace maicord

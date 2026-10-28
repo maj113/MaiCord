@@ -11,17 +11,16 @@ bool friends_avatar_media_resolve(const UiFriendsScene& scene, const UserStore& 
     u32 slot, FriendsAvatarMedia* output) noexcept {
     if (!output) return false;
     u64 user_id = 0;
-    UiWidgetReference owner{};
     UiRect avatar{}, clip{};
     const u32 rows = ui_friends_scene_visible_count(scene);
     if (slot < rows) {
         UiFriendsVisibleRow visible{};
         if (!ui_friends_scene_visible_row(scene, slot, &visible)) return false;
-        user_id = visible.row.user_id;owner = visible.owner;avatar = visible.avatar;clip = visible.clip;
+        user_id = visible.row.user_id;avatar = visible.avatar;clip = visible.clip;
     } else {
         UiFriendsActiveAvatar active{};
         if (!ui_friends_scene_active_avatar(scene, slot - rows, &active)) return false;
-        user_id = active.user_id;owner = {&scene.widgets, scene.heading};avatar = active.rectangle;clip = active.clip;
+        user_id = active.user_id;avatar = active.rectangle;clip = active.clip;
     }
     if (!ui_rect_intersects(avatar, clip)) return false;
     const auto* user = user_store_find(users, user_id);
@@ -29,7 +28,7 @@ bool friends_avatar_media_resolve(const UiFriendsScene& scene, const UserStore& 
     const auto hash = user_store_avatar_hash(*user);
     const u32 variant = user_avatar_variant(hash);
     if (!variant) return false; // Defaults and malformed hashes keep the native placeholder.
-    *output = {media_asset_user_avatar(user->id, variant, asset_hash_animated(hash)), hash, owner, avatar, clip};
+    *output = {media_asset_user_avatar(user->id, variant, asset_hash_animated(hash)), hash, avatar, clip};
     return true;
 }
 bool friends_avatar_media_current(const UiFriendsScene& scene, const UserStore& users,

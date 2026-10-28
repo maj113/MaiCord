@@ -49,19 +49,6 @@ struct PaintBatch {
     u16 reserved;
 };
 
-struct UiPaintContentBounds {
-    UiWidgetReference owner;
-    UiRect rectangle;
-    UiLayoutContentKind kind;
-    u16 flags;
-};
-
-struct UiPaintContentRecorder {
-    Slice<UiPaintContentBounds> storage;
-    u32 count;
-    u32 dropped;
-};
-
 // Stable-address, demand-committed geometry stream: starts at
 // kInitialPaintQuads and grows to kMaxPaintQuads without moving existing
 // geometry or changing batch indices.
@@ -83,20 +70,12 @@ struct PaintStream {
     // Batches below this index are closed (paint_stream_seal): a quad never
     // joins them even under the same clip.
     u32 sealed_batches;
-    UiPaintContentRecorder* content_recorder;
 };
 
 bool paint_stream_initialize(PaintStream* stream, u32 initial_capacity = kInitialPaintQuads) noexcept;
 void paint_stream_release(PaintStream* stream) noexcept;
-bool paint_stream_bind_content_recorder(PaintStream* stream, UiPaintContentRecorder* recorder,
-                                        Slice<UiPaintContentBounds> storage) noexcept;
 bool paint_stream_reset(PaintStream* stream, float right = kMaximumPaintCoordinate,
                         float bottom = kMaximumPaintCoordinate) noexcept;
-// Content recording is disabled. Expose the no-op so callers do not prepare
-// discarded metadata or branch on a result that is always true.
-inline bool paint_stream_record_content(PaintStream*, UiWidgetReference, const UiRect&,
-                                        UiLayoutContentKind,
-                                        u16 = ui_layout_content_bounds_collision) noexcept { return true; }
 bool paint_stream_push_clip(PaintStream* stream, const UiRect& rectangle) noexcept;
 bool paint_stream_push_clip(PaintStream* stream, float left, float top, float right, float bottom) noexcept;
 bool paint_stream_pop_clip(PaintStream* stream) noexcept;

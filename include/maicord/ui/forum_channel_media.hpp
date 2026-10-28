@@ -11,7 +11,6 @@ namespace maicord {
 struct ForumChannelAvatarMedia {
     MediaAssetKey key;
     Utf8View hash;
-    UiWidgetReference owner;
     UiRect rectangle, clip;
 };
 
@@ -27,7 +26,7 @@ inline bool forum_channel_avatar_media_resolve(const UiThreadBrowserScene& scene
     if (!post.author_id || !variant)
         return false;
     *out = {media_asset_user_avatar(post.author_id, variant, asset_hash_animated(post.avatar_hash)),
-            post.avatar_hash, {&scene.widgets, scene.backing->rows[index]}, rectangle, clip};
+            post.avatar_hash, rectangle, clip};
     return true;
 }
 
@@ -40,7 +39,6 @@ struct ForumChannelThumbnailMedia {
     u64 message_id;
     MediaPresentationRequest proxy;
     MediaAttachmentFormat format;
-    UiWidgetReference owner;
     UiRect rectangle, clip;
 };
 inline bool forum_channel_thumbnail_resolve(const UiThreadBrowserScene& scene, u32 index, u32 dpi,
@@ -63,7 +61,7 @@ inline bool forum_channel_thumbnail_resolve(const UiThreadBrowserScene& scene, u
     const auto proxy = media_presentation_request(post.media_width, post.media_height, width, height, dpi,
                                                   media_preview_extent_cap(format));
     *out = {media_asset_attachment(post.media_id, format, proxy.resolution), post.media_url, post.thread_id, proxy,
-            format, {&scene.widgets, scene.backing->rows[index]}, fitted, ui_rect_intersection(clip, fitted)};
+            format, fitted, ui_rect_intersection(clip, fitted)};
     return ui_rect_has_area(out->clip) && media_asset_key_valid(out->key);
 }
 inline bool forum_channel_thumbnail_current(const UiThreadBrowserScene& scene, u32 dpi, MediaAssetKey key) noexcept {

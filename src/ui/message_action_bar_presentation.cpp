@@ -6,21 +6,9 @@
 namespace maicord {
 namespace {
 
-bool push_owned(PaintStream* paint, const MessageActionBar& bar, UiRect rectangle, const Color& fill,
-                const Color& border, float radius, float border_width, UiLayoutContentKind kind) noexcept {
-    return paint_stream_push_rounded_border(paint, rectangle, fill, border, radius, border_width) &&
-           paint_stream_record_content(paint, bar.owner, rectangle, kind,
-                                       ui_layout_content_bounds_allow_overlap |
-                                           ui_layout_content_bounds_allow_overflow);
-}
-
-bool paint_shared_icon(PaintStream* paint, const MessageActionBar& bar, UiRect cell, const Color& color,
-                       UiIcon icon) noexcept {
+bool paint_shared_icon(PaintStream* paint, UiRect cell, const Color& color, UiIcon icon) noexcept {
     const float x = (cell.left + cell.right) * .5f, y = (cell.top + cell.bottom) * .5f;
-    const UiRect slot{x - 10, y - 10, x + 10, y + 10};
-    return ui_icon_paint(paint, icon, slot, color) &&
-           paint_stream_record_content(paint, bar.owner, slot, UiLayoutContentKind::icon,
-                                       ui_layout_content_bounds_allow_overlap);
+    return ui_icon_paint(paint, icon, {x - 10, y - 10, x + 10, y + 10}, color);
 }
 // Indexed by MessageActionBarItemKind; quick reactions paint text and plugins their slot icon.
 constexpr UiIcon kKindIcons[] = {UiIcon::count,   UiIcon::add_reaction, UiIcon::reply,    UiIcon::ellipsis,
@@ -46,18 +34,13 @@ bool message_action_bar_presentation_build(const MessageActionBar& bar, const Th
     }
     UiPluginSlotNode plugins[kMessageActionBarPluginItems]{};
     const u32 plugin_count = ui_plugin_slot_toolbar(kUiPluginSlotMessageHover, {plugins, kMessageActionBarPluginItems});
-    bool success =
-        // The hover toolbar floats over the timeline like any popover.
-        ui_surface_paint_plate(paint, bar.rectangle, theme, UiElevation::popover, theme.scale.radius_sm) &&
-        paint_stream_record_content(paint, bar.owner, bar.rectangle, UiLayoutContentKind::control,
-                                    ui_layout_content_bounds_allow_overlap |
-                                        ui_layout_content_bounds_allow_overflow);
+    // The hover toolbar floats over the timeline like any popover.
+    bool success = ui_surface_paint_plate(paint, bar.rectangle, theme, UiElevation::popover, theme.scale.radius_sm);
     for (u32 index = 0; success && index < bar.item_count; ++index) {
         const MessageActionBarItem& item = bar.items[index];
         if (bar.hovered_index == index) {
             const Color hover = ui_background_hover_color(theme, theme.surface_high);
-            success = push_owned(paint, bar, item.rectangle, hover, hover, 4.0f, 0.0f,
-                                 UiLayoutContentKind::control);
+            success = paint_stream_push_rounded_border(paint, item.rectangle, hover, hover, 4.0f, 0.0f);
         }
         if (!success) {
             break;
@@ -65,12 +48,12 @@ bool message_action_bar_presentation_build(const MessageActionBar& bar, const Th
         if (item.kind == MessageActionBarItemKind::plugin) {
             // A slot change since the bar opened leaves the cell blank until it reconfigures.
             if (item.catalog_index < plugin_count)
-                success = paint_shared_icon(paint, bar, item.rectangle,
+                success = paint_shared_icon(paint, item.rectangle,
                                             ui_plugin_slot_ink(theme, plugins[item.catalog_index].tone,
                                                                theme.text_primary),
                                             ui_plugin_slot_icon(plugins[item.catalog_index]));
         } else if (item.kind != MessageActionBarItemKind::quick_reaction) {
-            success = paint_shared_icon(paint, bar, item.rectangle,
+            success = paint_shared_icon(paint, item.rectangle,
                                         item.kind == MessageActionBarItemKind::delete_message ? theme.notification
                                                                                               : theme.text_primary,
                                         kKindIcons[static_cast<u32>(item.kind)]);

@@ -307,11 +307,7 @@ UiInboxTarget ui_inbox_scene_focused_target(const UiInboxScene& s) noexcept {
                : UiInboxTarget{};
 }
 bool ui_inbox_scene_set_hover(UiInboxScene* s, float x, float y, bool* changed) noexcept {
-    if (!s || !changed || !current(*s))
-        return false;
-    const auto handle = ui_widget_manager_hit_test(s->widgets, x, y);
-    *changed = handle.slot != s->widgets.hovered.slot || handle.generation != s->widgets.hovered.generation;
-    if (!ui_widget_manager_hover(&s->widgets, handle))
+    if (!s || !changed || !current(*s) || !ui_widget_manager_hover_at(&s->widgets, x, y, changed))
         return false;
     if (*changed)
         ++s->revision;
@@ -320,11 +316,7 @@ bool ui_inbox_scene_set_hover(UiInboxScene* s, float x, float y, bool* changed) 
 bool ui_inbox_scene_scroll(UiInboxScene* s, float offset) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(offset))
         return false;
-    const float next = minimum(maximum(0.f, offset), ui_inbox_scene_scroll_maximum(*s));
-    if (next == s->scroll_dips)
-        return true;
-    s->scroll_dips = next;
-    return rebuild(*s);
+    return !ui_scroll_offset_store(&s->scroll_dips, offset, ui_inbox_scene_scroll_maximum(*s)) || rebuild(*s);
 }
 UiScrollbarGeometry ui_inbox_scene_scrollbar(const UiInboxScene& s) noexcept {
     return current(s) ? ui_scrollbar_geometry(s.body, s.scroll_dips, s.offsets[s.measured_count])

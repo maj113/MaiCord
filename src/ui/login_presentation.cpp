@@ -41,13 +41,6 @@ bool push_field_truncated(PaintStream* stream, const Theme& theme, const UiRect&
                                        focused ? UiBackgroundBorderTone::semantic : UiBackgroundBorderTone::palette);
 }
 
-Color packed_rgb(u32 rgb, float alpha = 1.0f) noexcept {
-    constexpr float inverse = 1.0f / 255.0f;
-    return Color{static_cast<float>((rgb >> 16) & 0xffu) * inverse,
-                 static_cast<float>((rgb >> 8) & 0xffu) * inverse,
-                 static_cast<float>(rgb & 0xffu) * inverse, alpha};
-}
-
 // The part of r within the field's 2 DIP inner margin.
 UiRect inside_field(const UiRect& field, const UiRect& r) noexcept {
     return {maximum(field.left + 2.0f, r.left), maximum(field.top + 2.0f, r.top),
@@ -131,7 +124,7 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
                 !paint_stream_push(stream, pixel_truncated(clipped.left), pixel_truncated(clipped.top),
                                    pixel_truncated(clipped.right + 0.999f),
                                    pixel_truncated(clipped.bottom + 0.999f),
-                                   packed_rgb(decoration.span.background_rgb))) {
+                                   color_from_rgb24(decoration.span.background_rgb))) {
                 return false;
             }
         }

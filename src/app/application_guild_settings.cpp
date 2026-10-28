@@ -11,6 +11,7 @@
 #include "application_profile.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/model/channel_settings_model.hpp"
+#include "maicord/core/color_hex.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
@@ -465,7 +466,7 @@ bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
         // The first swatch stands for the icon's own colour.
         u32 color = 0;
         if (choice)
-            guild_role_color_parse(kGuildProfileBannerColors[choice - 1], &color);
+            color_hex_parse_rgb24(kGuildProfileBannerColors[choice - 1], &color);
         rgba = guild_role_color_rgba(color);
     }
     if (!rgba)
@@ -1044,7 +1045,7 @@ bool edited(SettingsLayer*, u64 control) noexcept {
         }
     } else if (editor == editor_hex && p.page == Page::roles && p.editing_role) {
         u32 color = 0;
-        p.hex_invalid = text.bytes && !guild_role_color_parse(text, &color);
+        p.hex_invalid = text.bytes && !color_hex_parse_rgb24(text, &color);
         if (!text.bytes)
             p.role_draft.color = 0;
         else if (!p.hex_invalid)

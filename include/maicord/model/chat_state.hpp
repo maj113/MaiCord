@@ -542,15 +542,13 @@ struct ChatStateSelectionResult {
     }
 };
 
+// `zeroed` is for zero-filled (freshly committed) arrays: it leaves their
+// contents unchanged, so record pages are touched only as slots fill. Active
+// counts bound all order reads.
 bool chat_state_store_initialize(ChatStateStore* store, Slice<GuildRecord> guilds,
-                                    Slice<u16> guild_order, Slice<ChannelRecord> channels,
-                                    Slice<u16> channel_order, Slice<u8> double_buffered_names) noexcept;
-// For zero-filled (freshly committed) arrays: leaves their contents unchanged,
-// so record pages are touched only as slots fill. Active counts bound all
-// order reads.
-bool chat_state_store_initialize_sparse(ChatStateStore* store, Slice<GuildRecord> guilds,
-                                        Slice<u16> guild_order, Slice<ChannelRecord> channels,
-                                        Slice<u16> channel_order, Slice<u8> double_buffered_names) noexcept;
+                                 Slice<u16> guild_order, Slice<ChannelRecord> channels,
+                                 Slice<u16> channel_order, Slice<u8> double_buffered_names,
+                                 bool zeroed = false) noexcept;
 bool chat_state_store_bind_permissions(ChatStateStore* store, Slice<RoleRecord> roles,
                                           Slice<PermissionOverwriteRecord> overwrites) noexcept;
 // Logical slices are stable reserved ranges, initially with zero backed rows.

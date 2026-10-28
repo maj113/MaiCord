@@ -10,7 +10,6 @@ namespace maicord {
 struct PinnedMessagesAvatarMedia {
     MediaAssetKey key;
     Utf8View hash;
-    UiWidgetReference owner;
     UiRect rectangle, clip;
 };
 static_assert(sizeof(PinnedMessagesAvatarMedia) <= 80);
@@ -28,7 +27,7 @@ inline bool pinned_messages_avatar_media_resolve(const UiPinnedMessagesScene& sc
         return false;
     *out = {media_asset_user_avatar(row.author_id, variant,
                                    asset_hash_animated(row.avatar_hash)),
-            row.avatar_hash, {&scene.widgets, scene.rows[slot]}, rectangle, clip};
+            row.avatar_hash, rectangle, clip};
     return true;
 }
 

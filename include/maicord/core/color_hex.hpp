@@ -30,6 +30,16 @@ constexpr bool color_hex_parse(const Utf8View& text, bool alpha, u32* rgba) noex
     return true;
 }
 
+// color_hex_parse for opaque inputs that store plain 0xRRGGBB (role, profile,
+// plugin and gradient colours). Rejected text leaves *rgb24 unchanged.
+constexpr bool color_hex_parse_rgb24(const Utf8View& text, u32* rgb24) noexcept {
+    u32 rgba = 0;
+    if (!rgb24 || !color_hex_parse(text, false, &rgba))
+        return false;
+    *rgb24 = rgba >> 8;
+    return true;
+}
+
 // "#RRGGBB" in upper case, or "#RRGGBBAA" when alpha is allowed and not
 // opaque. Returns the bytes written, or 0 when output is too small.
 constexpr u32 color_hex_format(u32 rgba, bool alpha, Slice<char> output) noexcept {

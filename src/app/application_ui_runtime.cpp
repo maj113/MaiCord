@@ -390,13 +390,14 @@ bool application_initialize_account_ui(Application& application) noexcept {
         return false;
     }
     if (!application_history_decode_storage_initialize(*runtime) ||
-        !chat_state_store_initialize_sparse(
+        // Fresh committed (zero) pages: records commit as slots fill.
+        !chat_state_store_initialize(
             &runtime->chat_state,
             Slice<GuildRecord>{runtime->guild_record_storage, kChatStateGuildCapacity},
             Slice<u16>{runtime->guild_order_storage, kChatStateGuildCapacity},
             Slice<ChannelRecord>{runtime->channel_record_storage, kChatStateChannelCapacity},
             Slice<u16>{runtime->channel_order_storage, kChatStateChannelCapacity},
-            Slice<u8>{runtime->chat_state_name_storage, kChatStateNameBytes}) ||
+            Slice<u8>{runtime->chat_state_name_storage, kChatStateNameBytes}, true) ||
         !chat_state_store_bind_backing(&runtime->chat_state, commit_chat_state_backing, runtime) ||
         !stable_storage_initialize(&runtime->read_state_bank, kChatStateChannelCapacity, 0,
                                    sizeof(ReadStateEntry), alignof(ReadStateEntry)) ||
@@ -478,13 +479,13 @@ bool application_initialize_account_ui(Application& application) noexcept {
                                       kPreviewMediaAtlasGrowthStep) ||
         !message_view_runtime_bind_rich_store(&application.message_view, &runtime->message_rich_store)
              .ok() ||
-        !navigation_view_initialize_sparse(
+        !navigation_view_initialize(
             &runtime->navigation_view,
             Slice<GuildViewRow>{runtime->navigation_guild_rows, kChatStateGuildCapacity * 2},
             Slice<ChannelViewRow>{runtime->navigation_channel_rows, kNavigationChannelRows},
             Slice<u16>{runtime->projection_scratch.navigation_channels, kNavigationChannelRows},
             Slice<u8>{runtime->navigation_visibility, kChatStateChannelCapacity},
-            Slice<ChannelSortKey>{runtime->navigation_sort_keys, kNavigationChannelRows}) ||
+            Slice<ChannelSortKey>{runtime->navigation_sort_keys, kNavigationChannelRows}, true) ||
         !message_event_pump_initialize(
             &application.message_pump, &application.message_view.timeline,
             Slice<u8>{runtime->event_payload_scratch, kGatewayClientDispatchPayloadCapacity},

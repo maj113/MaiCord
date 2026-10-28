@@ -57,7 +57,7 @@ struct StreamUi {
 };
 // Zero-filled in the PE (.bss), as in application_call.cpp: the card entrance
 // is reset with its scope before it ticks, so its stored style is unread.
-StreamUi stream{.card = {.entrance = {.style = {0, UiMotionCurve::linear}}}};
+StreamUi stream{.card = {{.entrance = {.style = {0, UiMotionCurve::linear}}}}};
 
 u64 now_ms() noexcept {
     return clock_monotonic_milliseconds();

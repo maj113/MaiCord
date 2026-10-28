@@ -112,10 +112,7 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
         if (!ui_background_paint_surface(paint, projection.geometry.bounds, theme, projection.surface,
                                          projection.border, style.radius, 1, 1,
                                          UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high,
-                                         UiBackgroundBorderTone::palette) ||
-            !paint_stream_record_content(paint, owner, projection.geometry.bounds,
-                                         UiLayoutContentKind::control,
-                                         ui_layout_content_bounds_allow_overlap))
+                                         UiBackgroundBorderTone::palette))
             return false;
         for (u32 i = 0; i < state.answers.count; ++i) {
             const auto& answer = state.answers[i];
@@ -318,12 +315,8 @@ u64 ui_poll_scene_paint_revision(const UiPollScene& scene) noexcept {
     return hash64_bytes(hash, &scene.style.radius, sizeof(scene.style.radius));
 }
 u64 ui_poll_scene_text_revision(const UiPollScene& scene) noexcept {
-    if (!scene.active || !owner_current(scene.owner))
-        return 0;
-    UiTextEmitter emitter{};
-    UiTextOutput output{nullptr, &emitter};
-    return ui_text_emitter_initialize(&emitter) && ui_poll_scene_text_output(scene, &output)
-               ? emitter.signature
+    return scene.active && owner_current(scene.owner)
+               ? ui_text_output_signature<UiPollScene, ui_poll_scene_text_output>(scene)
                : 0;
 }
 
@@ -343,8 +336,6 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
         if (!ui_background_paint_surface(paint, geometry.panel, theme, scene.surface, theme.interactive,
                                          scene.style.radius, 1, 1, UiBackgroundSurfaceMode::gradient,
                                          UiBackgroundTier::high, UiBackgroundBorderTone::palette) ||
-            !paint_stream_record_content(paint, scene.owner, geometry.panel, UiLayoutContentKind::control,
-                                         ui_layout_content_bounds_allow_overlap) ||
             !ui_icon_paint(paint, UiIcon::close, ui_rect_shrink(geometry.close, 6), scene.foreground))
             return false;
         for (u32 i = 0; i < scene.state.answers.count; ++i) {
@@ -492,12 +483,8 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
     return true;
 }
 u64 ui_poll_voters_scene_text_revision(const UiPollVotersScene& scene) noexcept {
-    if (!scene.active || !owner_current(scene.owner))
-        return 0;
-    UiTextEmitter emitter{};
-    UiTextOutput output{nullptr, &emitter};
-    return ui_text_emitter_initialize(&emitter) && ui_poll_voters_scene_text_output(scene, &output)
-               ? emitter.signature
+    return scene.active && owner_current(scene.owner)
+               ? ui_text_output_signature<UiPollVotersScene, ui_poll_voters_scene_text_output>(scene)
                : 0;
 }
 u64 ui_poll_voters_scene_paint_revision(const UiPollVotersScene& scene) noexcept {

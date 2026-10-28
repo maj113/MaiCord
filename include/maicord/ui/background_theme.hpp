@@ -109,10 +109,10 @@ inline bool background_theme_parse_colors(Utf8View text, BackgroundTheme* output
         const u32 start = offset;
         while (offset < text.bytes && !space(text.data[offset]) && text.data[offset] != ',')
             ++offset;
-        u32 rgba = 0;
-        if (!color_hex_parse({text.data + start, offset - start}, false, &rgba))
+        u32 rgb24 = 0;
+        if (!color_hex_parse_rgb24({text.data + start, offset - start}, &rgb24))
             return false;
-        next.colors[count++] = rgba >> 8;
+        next.colors[count++] = rgb24;
         while (offset < text.bytes && space(text.data[offset]))
             ++offset;
         if (offset == text.bytes)

@@ -9,6 +9,7 @@
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/theme_styles.hpp"
+#include "maicord/ui/unread_divider.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"

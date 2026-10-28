@@ -2,6 +2,7 @@
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/ui/paint.hpp"
 
 namespace maicord {
 namespace {

@@ -1038,7 +1038,6 @@ bool ui_friends_scene_visible_row(const UiFriendsScene& s, u32 slot, UiFriendsVi
     const float top = (r.top + r.bottom - 32) * .5f;
     const UiRect avatar{r.left, top, r.left + 32, top + 32};
     *out = {e.row,
-            {&s.widgets, h},
             node->rectangle,
             avatar,
             {avatar.right - 8, avatar.bottom - 8, avatar.right + 2, avatar.bottom + 2},

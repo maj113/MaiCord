@@ -389,9 +389,11 @@ bool set_selection(ChatStateStore* store, const ChannelRecord* channel) noexcept
     return true;
 }
 
-bool initialize_store(ChatStateStore* store, Slice<GuildRecord> guilds, Slice<u16> guild_order,
-                      Slice<ChannelRecord> channels, Slice<u16> channel_order,
-                      Slice<u8> double_buffered_names, bool zeroed) noexcept {
+} // namespace
+
+bool chat_state_store_initialize(ChatStateStore* store, Slice<GuildRecord> guilds, Slice<u16> guild_order,
+                                 Slice<ChannelRecord> channels, Slice<u16> channel_order,
+                                 Slice<u8> double_buffered_names, bool zeroed) noexcept {
     if (!store || !guilds.data || guilds.count == 0 || guilds.count > 65'535 || !guild_order.data ||
         guild_order.count != guilds.count || !channels.data || channels.count == 0 ||
         channels.count > 65'535 || !channel_order.data || channel_order.count != channels.count ||
@@ -421,22 +423,6 @@ bool initialize_store(ChatStateStore* store, Slice<GuildRecord> guilds, Slice<u1
         channel_order[index] = 0xFFFF;
     }
     return true;
-}
-} // namespace
-
-bool chat_state_store_initialize(ChatStateStore* store, Slice<GuildRecord> guilds, Slice<u16> guild_order,
-                                 Slice<ChannelRecord> channels, Slice<u16> channel_order,
-                                 Slice<u8> double_buffered_names) noexcept {
-    return initialize_store(store, guilds, guild_order, channels, channel_order, double_buffered_names,
-                            false);
-}
-
-bool chat_state_store_initialize_sparse(ChatStateStore* store, Slice<GuildRecord> guilds,
-                                        Slice<u16> guild_order, Slice<ChannelRecord> channels,
-                                        Slice<u16> channel_order,
-                                        Slice<u8> double_buffered_names) noexcept {
-    return initialize_store(store, guilds, guild_order, channels, channel_order, double_buffered_names,
-                            true);
 }
 
 bool chat_state_store_bind_backing(ChatStateStore* store, ChatStateBackingReserve reserve,

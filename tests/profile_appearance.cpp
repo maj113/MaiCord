@@ -1088,9 +1088,9 @@ void test_profile_theme_preview(Check check) noexcept {
         contrast &= ratio >= 7 - 1e-6 && ratio <= 10 + 1e-6;
     }
     check(contrast, "profile theme: button colour reaches 7-10 contrast with white");
-    const auto dark = background_color_hsl(background_color_rgb24(profile_modal_background(0xFF0000, 0x0000FF, true)));
+    const auto dark = background_color_hsl(color_from_rgb24(profile_modal_background(0xFF0000, 0x0000FF, true)));
     const auto light =
-        background_color_hsl(background_color_rgb24(profile_modal_background(0xFF0000, 0x0000FF, false)));
+        background_color_hsl(color_from_rgb24(profile_modal_background(0xFF0000, 0x0000FF, false)));
     check(dark.lightness <= .102f && light.lightness >= .798f && profile_lab(0xFFFFFF).l > 99.9 &&
               profile_from_lab(profile_lab(0x336699)) == 0x336699,
           "profile theme: modal background is the Lab mix clamped to L .1 / .8");

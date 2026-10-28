@@ -770,10 +770,8 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     SearchAvatarMedia avatar{};
     const auto* narrow_native = ui_search_scene_message_scene(search);
     check(narrow_native && search_avatar_media_resolve(search, 0, &avatar) &&
-              avatar.owner.manager == &narrow_native->widgets &&
-              avatar.owner.handle.slot == narrow_native->rows[0].avatar.slot &&
               ui_rect_height(avatar.rectangle) == 40,
-          "search rich: avatar keeps native header ownership even when the independent Jump footer is "
+          "search rich: avatar resolves from the native header even when the independent Jump footer is "
           "clipped");
     check(ui_search_scene_scroll(&search, ui_search_scene_scroll_maximum(search)) && search.first > 0 &&
               ui_search_scene_message_scene(search)->count <= kUiSearchVisibleRows,
@@ -902,12 +900,11 @@ void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     SearchAvatarMedia avatar{};
     check(search_avatar_media_resolve(scene, 0, &avatar) && avatar.key.id == 900 &&
               avatar.key.variant == user_avatar_variant(scene.visible[0].avatar_hash) &&
-              avatar.owner.manager == &scene.widgets &&
               ui_rect_equal(avatar.rectangle,
                             {scene.row_rectangles[0].left + 12, scene.row_rectangles[0].top + 12,
                              scene.row_rectangles[0].left + 44, scene.row_rectangles[0].top + 44}) &&
               search_avatar_media_current(scene, avatar.key),
-          "search_scene_avatar_uses_exact_result_author_hash_and_borrowed_clipped_widget");
+          "search_scene_avatar_uses_exact_result_author_hash_and_clipped_geometry");
     // Close is a square icon button; its hit target is the whole square.
     const auto close = ui_search_close_rectangle(scene.panel);
     check(ui_rect_width(close) == kUiSearchCloseExtent && ui_rect_height(close) == kUiSearchCloseExtent &&

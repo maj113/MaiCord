@@ -44,7 +44,7 @@ struct ProfileLab {
     double l, a, b;
 };
 inline ProfileLab profile_lab(u32 rgb) noexcept {
-    const Color c = background_color_rgb24(rgb);
+    const Color c = color_from_rgb24(rgb);
     const double r = background_color_linear(c.red), g = background_color_linear(c.green),
                  b = background_color_linear(c.blue);
     const auto f = [](double t) noexcept {
@@ -72,8 +72,8 @@ inline u32 profile_from_lab(ProfileLab lab) noexcept {
 }
 // WCAG contrast (chroma.contrast).
 inline double profile_contrast(u32 first, u32 second) noexcept {
-    const double a = background_color_luminance(background_color_rgb24(first)),
-                 b = background_color_luminance(background_color_rgb24(second));
+    const double a = background_color_luminance(color_from_rgb24(first)),
+                 b = background_color_luminance(color_from_rgb24(second));
     return a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05);
 }
 // Profile gradient button colour: the primary colour darkened/brightened in Lab
@@ -99,7 +99,7 @@ inline u32 profile_button_color(u32 primary) noexcept {
 inline u32 profile_modal_background(u32 primary, u32 secondary, bool dark) noexcept {
     const auto p = profile_lab(primary), s = profile_lab(secondary);
     const u32 mix = profile_from_lab({(p.l + s.l) * .5, (p.a + s.a) * .5, (p.b + s.b) * .5});
-    auto hsl = background_color_hsl(background_color_rgb24(mix));
+    auto hsl = background_color_hsl(color_from_rgb24(mix));
     float l = static_cast<float>(static_cast<i32>(hsl.lightness * 100 + .5f)) / 100;
     l = dark ? minimum(l, .1f) : maximum(.8f, minimum(l, 1.f));
     hsl.lightness = l;

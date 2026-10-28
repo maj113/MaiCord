@@ -110,10 +110,7 @@ bool paint_threads_launcher(const D3D11Renderer& renderer, const Theme& theme,
            paint_stream_push_rounded(stream, rectangle.left, rectangle.top, rectangle.right,
                                      rectangle.bottom, fill, 4.f) &&
            ui_icon_paint(stream, UiIcon::thread, {left, top, left + extent, top + extent}, ink) &&
-           paint_stream_pop_clip(stream) &&
-           paint_stream_record_content(stream, {&scene->widgets, button->widget}, rectangle,
-                                       UiLayoutContentKind::control,
-                                       ui_layout_content_bounds_allow_overlap);
+           paint_stream_pop_clip(stream);
 }
 
 void remove_covered_shell_paint(PaintStream* stream, const UiRect& panel) noexcept {
@@ -405,11 +402,7 @@ bool queue_folder_preview(D3D11Renderer* renderer, const GuildRailRowWidget& row
         if (!allocation.ok())
             continue;
         const UiRect mini = guild_rail_folder_preview_rectangle(tile, k);
-        if (!queue_media_quad(renderer, allocation, mini,
-                              renderer->guild_rail_scene->viewport, true) ||
-            !paint_stream_record_content(&renderer->paint_stream,
-                                         UiWidgetReference{&renderer->guild_rail_scene->widgets, row.widget}, mini,
-                                         UiLayoutContentKind::media, ui_layout_content_bounds_allow_overlap))
+        if (!queue_media_quad(renderer, allocation, mini, renderer->guild_rail_scene->viewport, true))
             return false;
     }
     return true;
@@ -451,14 +444,11 @@ void reveal_media_underlay(D3D11Renderer& renderer, u32 media_before, const UiRe
     }
 }
 
-// A round avatar over its placeholder; a valid owner records the media as its content.
+// A round avatar over its placeholder.
 bool queue_avatar(D3D11Renderer* renderer, const MediaAtlasResult& allocation, const UiRect& r, const UiRect& clip,
-                  UiWidgetReference owner, const Color& placeholder, bool first = false) noexcept {
+                  const Color& placeholder, bool first = false) noexcept {
     const u32 before = renderer->media_quad_count;
-    if (!queue_media_quad(renderer, allocation, r, clip, true, first) ||
-        (owner.manager &&
-         !paint_stream_record_content(&renderer->paint_stream, owner, r, UiLayoutContentKind::media,
-                                      ui_layout_content_bounds_allow_overlap)))
+    if (!queue_media_quad(renderer, allocation, r, clip, true, first))
         return false;
     reveal_media_underlay(*renderer, before, r, placeholder);
     return true;
@@ -471,14 +461,13 @@ bool queue_conversation_pin(D3D11Renderer* renderer, const GuildRailRowWidget& r
     const auto* channel = chat_state_store_find_channel(*renderer->chat_state, row.view.id);
     if (!channel || !renderer->user_store)
         return true;
-    const UiWidgetReference owner{&renderer->guild_rail_scene->widgets, row.widget};
     const UiRect clip = renderer->guild_rail_scene->viewport;
     if (row.view.avatar_shape == 1 && channel->type == 3) {
         const Utf8View custom = ui_private_row_custom_icon(*renderer->chat_state, channel->id);
         const MediaAtlasResult allocation = media_atlas_peek(
             renderer->media_atlas,
             media_asset_channel_icon(channel->id, user_avatar_variant(custom), asset_hash_animated(custom)));
-        return !allocation.ok() || queue_avatar(renderer, allocation, icon, clip, owner, theme.avatar_placeholder);
+        return !allocation.ok() || queue_avatar(renderer, allocation, icon, clip, theme.avatar_placeholder);
     }
     u64 people[2]{};
     const u32 count = ui_private_row_group_members(*renderer->chat_state, channel->id, people);
@@ -488,7 +477,7 @@ bool queue_conversation_pin(D3D11Renderer* renderer, const GuildRailRowWidget& r
         if (!user || !find_user_avatar(*renderer, *user, &allocation))
             continue;
         if (!queue_avatar(renderer, allocation, channel->type == 3 ? ui_private_row_group_avatar(icon, j) : icon,
-                          clip, owner, theme.avatar_placeholder))
+                          clip, theme.avatar_placeholder))
             return false;
         if (channel->type != 3)
             break;
@@ -814,10 +803,7 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
                     if (!allocation.ok() || !allocation.width || !allocation.height)
                         continue;
                     if (!queue_media_quad(renderer, allocation, fit_in(tile, allocation.width, allocation.height, false), clip,
-                                          false, first, MediaQuadStyle{tile, 1.f, 0.f, list.style.radius, 0.f, 1}) ||
-                        !paint_stream_record_content(
-                            &renderer->paint_stream, {&scene.widgets, list.parts[row][2]}, tile,
-                            UiLayoutContentKind::media, ui_layout_content_bounds_allow_overlap))
+                                          false, first, MediaQuadStyle{tile, 1.f, 0.f, list.style.radius, 0.f, 1}))
                         return false;
                     first = false;
                 }
@@ -1042,10 +1028,7 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
         if (!queue_media_quad(renderer, allocation, quad, quad_clip, false, first,
                               MediaQuadStyle{tile, 1.f,
                                              command.ordinary_video ? UiVideoSceneStyle{}.preview_radius : 0.f,
-                                             static_cast<float>(command.tile_radius), blur, domain}) ||
-            !paint_stream_record_content(&renderer->paint_stream, command.owner, command.rectangle,
-                                         UiLayoutContentKind::media,
-                                         ui_layout_content_bounds_allow_overlap)) {
+                                             static_cast<float>(command.tile_radius), blur, domain})) {
             return layout_step_failed(__LINE__);
         }
         if (large_preview || command.kind == MessageMediaCommandKind::sticker)
@@ -1122,7 +1105,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                 continue;
             }
             if (!queue_avatar(renderer, allocation, avatar->rectangle, message_scene->viewport,
-                              {&message_scene->widgets, row.avatar}, theme.avatar_placeholder))
+                              theme.avatar_placeholder))
                 return layout_step_failed(__LINE__);
         }
         // A DM's channel-beginning header shows the recipient's avatar.
@@ -1134,7 +1117,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
             MediaAtlasResult allocation{};
             const UiRect clip = ui_rect_intersection(message_scene->viewport, intro.area);
             if (user && ui_rect_has_area(clip) && find_user_avatar(*renderer, *user, &allocation) &&
-                !queue_avatar(renderer, allocation, intro.icon, clip, {}, theme.avatar_placeholder))
+                !queue_avatar(renderer, allocation, intro.icon, clip, theme.avatar_placeholder))
                 return layout_step_failed(__LINE__);
         }
         for (u32 index = 0; index < message_scene->count; ++index) {
@@ -1160,7 +1143,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
             const UiRect reference_avatar{body->content_rectangle.left, reply->rectangle.top + 1.0f,
                                           body->content_rectangle.left + 16.0f,
                                           reply->rectangle.top + 17.0f};
-            if (!queue_avatar(renderer, allocation, reference_avatar, message_scene->viewport, {},
+            if (!queue_avatar(renderer, allocation, reference_avatar, message_scene->viewport,
                               theme.avatar_placeholder))
                 return layout_step_failed(__LINE__);
         }
@@ -1238,10 +1221,7 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
             // Spoilered uploads keep their thumbnail, blurred in the media shader.
             const float blur = ui_composer_attachment_thumbnail_blur(strip.tiles[i], fitted);
             if (!queue_media_quad(renderer, allocation, fitted, clip, false, first_thumbnail,
-                                  MediaQuadStyle{fitted, 1.f, 0.f, theme.scale.radius_sm, blur, 1}) ||
-                !paint_stream_record_content(&renderer->paint_stream, strip.owner,
-                                             ui_rect_intersection(fitted, clip), UiLayoutContentKind::media,
-                                             ui_layout_content_bounds_allow_overlap))
+                                  MediaQuadStyle{fitted, 1.f, 0.f, theme.scale.radius_sm, blur, 1}))
                 return layout_step_failed(__LINE__);
             first_thumbnail = false;
         }
@@ -1274,14 +1254,10 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                 const UiRect pill = message_media_obscure_pill(command.rectangle,
                                                                 static_cast<MessageMediaObscure>(command.obscure));
                 if (ui_rect_has_area(pill) &&
-                    (!paint_stream_push_rounded_border(&renderer->paint_stream, pill.left, pill.top, pill.right,
-                                                       pill.bottom, theme.tokens.overlay.scrim_strong,
-                                                       theme.tokens.overlay.scrim_strong,
-                                                       ui_rect_height(pill) * .5f, 0) ||
-                     !paint_stream_record_content(&renderer->paint_stream, command.owner,
-                                                  ui_rect_intersection(pill, command.clip),
-                                                  UiLayoutContentKind::decoration,
-                                                  ui_layout_content_bounds_allow_overlap)))
+                    !paint_stream_push_rounded_border(&renderer->paint_stream, pill.left, pill.top, pill.right,
+                                                      pill.bottom, theme.tokens.overlay.scrim_strong,
+                                                      theme.tokens.overlay.scrim_strong,
+                                                      ui_rect_height(pill) * .5f, 0))
                     return layout_step_failed(__LINE__);
                 continue;
             }
@@ -1700,11 +1676,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!queue_media_quad(renderer, allocation, icon, renderer->guild_rail_scene->viewport, false, false,
                                   MediaQuadStyle{{}, dimmed ? .5f : 1.f,
                                                  guild_rail_icon_radius(icon, &row.indicator, row.view.selected, hovered),
-                                                 0.f, 0.f, 0}) ||
-                !paint_stream_record_content(
-                    &renderer->paint_stream,
-                    UiWidgetReference{&renderer->guild_rail_scene->widgets, row.widget}, icon,
-                    UiLayoutContentKind::media, ui_layout_content_bounds_allow_overlap)) {
+                                                 0.f, 0.f, 0})) {
                 return layout_step_failed(__LINE__);
             }
         }
@@ -1733,11 +1705,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 clip, {banner.header.left, banner.header.top, banner.header.right, banner.header.bottom + 1});
             const float glass_opacity = banner.glass * banner.opacity;
             if ((banner.opacity > 0 && ui_rect_has_area(clip) &&
-                 (!queue_media_quad(renderer, allocation, picture, clip, false, false,
-                                    MediaQuadStyle{{}, banner.opacity, 0.f, 0.f, 0.f, 0}) ||
-                  !paint_stream_record_content(&renderer->paint_stream,
-                                               UiWidgetReference{&shell_scene.widgets, sidebar->widget}, clip,
-                                               UiLayoutContentKind::media, ui_layout_content_bounds_allow_overlap))) ||
+                 !queue_media_quad(renderer, allocation, picture, clip, false, false,
+                                   MediaQuadStyle{{}, banner.opacity, 0.f, 0.f, 0.f, 0})) ||
                 (glass_opacity > 0 && ui_rect_has_area(glass) &&
                  !queue_media_quad(renderer, allocation, picture, glass, false, false,
                                    MediaQuadStyle{{}, glass_opacity, 0.f, 0.f, kUiGuildBannerGlassBlur, 0})))
@@ -1750,8 +1719,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer->media_gpu.texture_view) {
         const auto& scene = *renderer->shell_navigation_scene;
         // One avatar per DM; a generated group icon stacks its first two members.
-        const auto private_avatars = [&, renderer](u8 type, u64 channel_id, const UiRect& icon, const UiRect& clip,
-                                         const UiWidgetReference& owner) noexcept {
+        const auto private_avatars = [&, renderer](u8 type, u64 channel_id, const UiRect& icon,
+                                                   const UiRect& clip) noexcept {
             // A custom group icon replaces the generated member stack.
             if (type == 3) {
                 const Utf8View custom = ui_private_row_custom_icon(*renderer->chat_state, channel_id);
@@ -1760,7 +1729,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                         renderer->media_atlas,
                         media_asset_channel_icon(channel_id, user_avatar_variant(custom), asset_hash_animated(custom)));
                     if (allocation.ok() &&
-                        !queue_avatar(renderer, allocation, icon, clip, owner, theme.avatar_placeholder))
+                        !queue_avatar(renderer, allocation, icon, clip, theme.avatar_placeholder))
                         return layout_step_failed(__LINE__);
                     return true;
                 }
@@ -1773,7 +1742,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 MediaAtlasResult allocation{};
                 if (!user || !find_user_avatar(*renderer, *user, &allocation))
                     continue;
-                if (!queue_avatar(renderer, allocation, r, clip, owner, theme.avatar_placeholder))
+                if (!queue_avatar(renderer, allocation, r, clip, theme.avatar_placeholder))
                     return layout_step_failed(__LINE__);
                 if (type != 3)
                     break;
@@ -1787,8 +1756,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const auto* avatar = ui_widget_manager_layout_node(scene.widgets, row.icon);
             if (!avatar || !ui_rect_intersects(avatar->rectangle, scene.viewport))
                 continue;
-            if (!private_avatars(row.view.type, row.view.id, avatar->rectangle, scene.viewport,
-                                 {&scene.widgets, row.icon}))
+            if (!private_avatars(row.view.type, row.view.id, avatar->rectangle, scene.viewport))
                 return layout_step_failed(__LINE__);
         }
         const auto* header_channel =
@@ -1805,8 +1773,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                      &renderer->paint_stream,
                      ui_private_avatar_shape(renderer->chat_state, header_channel->id, header_channel->type), avatar,
                      theme) ||
-                 !private_avatars(header_channel->type, header_channel->id, avatar, title->rectangle,
-                                  {&renderer->ui_scene->widgets, title->widget})))
+                 !private_avatars(header_channel->type, header_channel->id, avatar, title->rectangle)))
                 return layout_step_failed(__LINE__);
         }
         const auto* voice_states = renderer->navigation_view ? renderer->navigation_view->voice_states : nullptr;
@@ -1822,8 +1789,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 if (!ui_rect_intersects(voice.avatar, scene.viewport) || !user ||
                     !find_user_avatar(*renderer, *user, &allocation))
                     continue;
-                if (!queue_avatar(renderer, allocation, voice.avatar, scene.viewport,
-                                  {&scene.widgets, row.widget}, theme.avatar_placeholder))
+                if (!queue_avatar(renderer, allocation, voice.avatar, scene.viewport, theme.avatar_placeholder))
                     return layout_step_failed(__LINE__);
             }
         }
@@ -1847,7 +1813,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                                            avatar.bottom, theme.avatar_placeholder, ui_rect_width(avatar) * .5f))
                 return layout_step_failed(__LINE__);
             if (find_user_avatar(*renderer, *user, &allocation) &&
-                !queue_avatar(renderer, allocation, avatar, footer->rectangle, {}, theme.avatar_placeholder))
+                !queue_avatar(renderer, allocation, avatar, footer->rectangle, theme.avatar_placeholder))
                 return layout_step_failed(__LINE__);
         }
     }
@@ -1869,9 +1835,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 continue;
             const auto r = media.rectangle;
             if (!queue_media_quad(renderer, allocation, r, media.clip, false, false,
-                                  MediaQuadStyle{{}, 1.f, 0.f, 0.f, 0.f, domain}) ||
-                !paint_stream_record_content(&renderer->paint_stream, media.owner, r, UiLayoutContentKind::media,
-                                             ui_layout_content_bounds_allow_overlap))
+                                  MediaQuadStyle{{}, 1.f, 0.f, 0.f, 0.f, domain}))
                 return layout_step_failed(__LINE__);
         }
     }
@@ -1889,8 +1853,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const auto allocation = media_atlas_peek(renderer->media_atlas, media.key);
             if (!allocation.ok())
                 continue;
-            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, media.owner,
-                              theme.avatar_placeholder))
+            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, theme.avatar_placeholder))
                 return layout_step_failed(__LINE__);
         }
     }
@@ -1908,7 +1871,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const auto allocation = media_atlas_peek(renderer->media_atlas, media.key);
             if (!allocation.ok())
                 continue;
-            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, media.owner, theme.interactive))
+            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, theme.interactive))
                 return layout_step_failed(__LINE__);
         }
     }
@@ -2062,11 +2025,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 continue;
             const auto r = media.rectangle;
             const u32 before = renderer->media_quad_count;
-            if (!queue_media_quad(renderer, allocation, r, media.clip, true,
-                                  first) ||
-                !paint_stream_record_content(&renderer->paint_stream, media.owner, r,
-                                             UiLayoutContentKind::media,
-                                             ui_layout_content_bounds_allow_overlap))
+            if (!queue_media_quad(renderer, allocation, r, media.clip, true, first))
                 return layout_step_failed(__LINE__);
             if (renderer->media_quad_count != before) {
                 // Clear only the scene's three neutral avatar shapes, once a loaded
@@ -2103,11 +2062,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 continue;
             const auto r = media.rectangle;
             const u32 before = renderer->media_quad_count;
-            if (!queue_media_quad(renderer, allocation, r, media.clip, true,
-                                  first) ||
-                !paint_stream_record_content(&renderer->paint_stream, media.owner, r,
-                                             UiLayoutContentKind::media,
-                                             ui_layout_content_bounds_allow_overlap))
+            if (!queue_media_quad(renderer, allocation, r, media.clip, true, first))
                 return layout_step_failed(__LINE__);
             if (renderer->media_quad_count != before) {
                 // Clear only the neutral circle/person inside this exact slot.
@@ -2140,7 +2095,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const auto allocation = media_atlas_peek(renderer->media_atlas, media.key);
             if (!allocation.ok())
                 continue;
-            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, media.owner, theme.interactive,
+            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, theme.interactive,
                               first_media))
                 return layout_step_failed(__LINE__);
             first_media = false;
@@ -2448,7 +2403,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!allocation.ok())
                 continue;
             const u32 before = renderer->media_quad_count;
-            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, {}, theme.avatar_placeholder,
+            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, theme.avatar_placeholder,
                               first_interaction_media))
                 return layout_step_failed(__LINE__);
             first_interaction_media = first_interaction_media && renderer->media_quad_count == before;
@@ -2499,7 +2454,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!allocation.ok())
                 continue;
             const u32 before = renderer->media_quad_count;
-            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, {}, theme.avatar_placeholder,
+            if (!queue_avatar(renderer, allocation, media.rectangle, media.clip, theme.avatar_placeholder,
                               first_interaction_media))
                 return layout_step_failed(__LINE__);
             first_interaction_media = first_interaction_media && renderer->media_quad_count == before;

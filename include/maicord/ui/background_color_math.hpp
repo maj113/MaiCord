@@ -11,9 +11,6 @@ struct BackgroundOklab {
 inline float background_color_unit(float value) noexcept {
     return value >= 0 ? minimum(value, 1.f) : 0;
 }
-inline Color background_color_rgb24(u32 rgb) noexcept {
-    return {((rgb >> 16) & 255) / 255.f, ((rgb >> 8) & 255) / 255.f, (rgb & 255) / 255.f, 1};
-}
 // Fixed, local arithmetic avoids a CRT math import or lookup-table owner. All
 // callers use the closed unit interval; bisection has a fixed iteration bound.
 inline double background_color_root(double value, u32 degree) noexcept {
@@ -149,10 +146,10 @@ inline bool background_color_anchors(const BackgroundTheme& draft, bool light,
                                      BackgroundColorAnchors* output) noexcept {
     if (!output || !background_theme_valid(draft))
         return false;
-    Color darkest = background_color_rgb24(draft.colors[0]), lightest = darkest;
+    Color darkest = color_from_rgb24(draft.colors[0]), lightest = darkest;
     double minimum_luminance = background_color_luminance(darkest), maximum_luminance = minimum_luminance;
     for (u32 i = 1; i < draft.color_count; ++i) {
-        const Color color = background_color_rgb24(draft.colors[i]);
+        const Color color = color_from_rgb24(draft.colors[i]);
         const double luminance = background_color_luminance(color);
         if (luminance < minimum_luminance) {
             minimum_luminance = luminance;
@@ -182,7 +179,7 @@ inline u32 background_color_pack(Color color) noexcept {
     return (red << 16) | (green << 8) | blue;
 }
 inline u32 background_color_rotate_hue(u32 rgb, float degrees) noexcept {
-    auto hsl = background_color_hsl(background_color_rgb24(rgb));
+    auto hsl = background_color_hsl(color_from_rgb24(rgb));
     hsl.hue += degrees;
     if (hsl.hue >= 360)
         hsl.hue -= 360;
@@ -191,7 +188,7 @@ inline u32 background_color_rotate_hue(u32 rgb, float degrees) noexcept {
     return background_color_pack(background_color_from_hsl(hsl));
 }
 inline u32 background_color_lrgb_midpoint(u32 first, u32 second) noexcept {
-    const auto a = background_color_rgb24(first), b = background_color_rgb24(second);
+    const auto a = color_from_rgb24(first), b = color_from_rgb24(second);
     return background_color_pack(
         {static_cast<float>(background_color_root((a.red * a.red + b.red * b.red) * .5, 2)),
          static_cast<float>(background_color_root((a.green * a.green + b.green * b.green) * .5, 2)),

@@ -269,7 +269,6 @@ bool guild_settings_order_changed(const ChatStateStore&, u64 guild_id, ConstSlic
 // Role colours: 0 means none. Hex parsing accepts "#RRGGBB" or "RRGGBB".
 inline constexpr u32 kGuildRoleColorCount = 20;
 extern const u32 kGuildRoleColors[kGuildRoleColorCount];
-bool guild_role_color_parse(Utf8View text, u32* color) noexcept;
 u32 guild_role_color_format(u32 color, Slice<char> output) noexcept;
 // Packed RGBA for presentation, with a neutral grey for no colour.
 u32 guild_role_color_rgba(u32 color) noexcept;

@@ -327,6 +327,12 @@ bool ui_widget_manager_hover(UiWidgetManager* manager, UiWidgetHandle handle) no
     return true;
 }
 
+bool ui_widget_manager_hover_at(UiWidgetManager* manager, float x, float y, bool* changed) noexcept {
+    const UiWidgetHandle handle = ui_widget_manager_hit_test(*manager, x, y);
+    *changed = handle.slot != manager->hovered.slot || handle.generation != manager->hovered.generation;
+    return ui_widget_manager_hover(manager, handle);
+}
+
 bool ui_widget_manager_input_reachable(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
     for (u32 depth = 0; depth < kMaximumUiLayoutDepth; ++depth) {
         const auto* widget = ui_widget_manager_resolve(manager, handle);

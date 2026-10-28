@@ -212,19 +212,16 @@ void test_download_scene(void (*check)(bool,const char*) noexcept) noexcept {
         !ui_attachment_save_paint(&paint,attachment_owner,file_action,invalid_geometry,kDefaultTheme,true) &&
         !paint.count && !paint.batch_count && !paint.rejected && paint.clip_depth == 1 && paint.clip_count == 1,
         "attachment Save: reversed action or clip geometry fails before emitting partial paint");
-    UiPaintContentBounds save_bounds[4]{}; UiPaintContentRecorder save_recorder{};
     const UiRect half_clip{file_action.left,file_action.top,
         (file_action.left + file_action.right) * .5f,file_action.bottom};
     bool clipped_save = attachment_node &&
-        paint_stream_bind_content_recorder(&paint,&save_recorder,{save_bounds,4}) &&
         ui_attachment_save_paint(&paint,attachment_owner,file_action,half_clip,kLightTheme,true) &&
         paint.count && paint.batch_count && !paint.rejected && paint.clip_depth == 1;
     for (u32 i = 0; i < paint.batch_count; ++i) {
         const auto clip = paint.clips[paint.batches[i].clip_index];
         clipped_save &= ui_rect_equal({clip.left,clip.top,clip.right,clip.bottom},half_clip);
     }
-    check(clipped_save,"attachment Save: file action paints without hover under the exact partial clip and records clipped bounds on its existing owner");
-    paint.content_recorder = nullptr;
+    check(clipped_save,"attachment Save: file action paints without hover under the exact partial clip");
     content.mode = UiDownloadMode::confirmation; content.confirmation_id = 42;
     content.filename = utf8_literal("review-tool.exe");
     content.warning = utf8_literal("This file can run software on your computer. Save it only if you trust its source."); ++content.revision;

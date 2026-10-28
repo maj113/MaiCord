@@ -58,10 +58,7 @@ bool paint_menu_row_check(const PopupScene& scene, u32 index, const Theme& theme
     if (!paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom))
         return false;
     const Color color = menu_row_foreground(item, theme);
-    const bool painted =
-        ui_icon_paint(paint, UiIcon::check, slot, color) &&
-        paint_stream_record_content(paint, {&scene.widgets, scene.rows[index].widget}, slot,
-                                    UiLayoutContentKind::icon, ui_layout_content_bounds_allow_overlap);
+    const bool painted = ui_icon_paint(paint, UiIcon::check, slot, color);
     return paint_stream_pop_clip(paint) && painted;
 }
 
@@ -98,19 +95,14 @@ bool paint_menu_row_icon(const PopupScene& scene, u32 index, const Theme& theme,
     Color icon_color = menu_row_foreground(item, theme);
     if ((item.media_flags & kPopupItemMediaIconTint) && item.media_variant &&
         !(item.flags & (popup_item_avatar | popup_item_emoji_preview)) && (item.flags & popup_item_enabled)) {
-        constexpr float scale = 1.0f / 255.0f;
         // Role colours are server data and pass through every theme unchanged.
-        icon_color = Color{static_cast<float>((item.media_variant >> 16) & 0xFFu) * scale,
-                           static_cast<float>((item.media_variant >> 8) & 0xFFu) * scale,
-                           static_cast<float>(item.media_variant & 0xFFu) * scale, 1.0f};
+        icon_color = color_from_rgb24(item.media_variant);
     }
     const bool painted =
-        (status_icon ? paint_popup_presence(
-                           paint, {x - 5, y - 5, x + 5, y + 5}, static_cast<UiPresence>(item.status),
-                           highlighted ? theme.surface_high : theme.base_lower, highlighted, theme)
-                     : ui_icon_paint(paint, ui_menu_row_icon(presentation), geometry.icon, icon_color)) &&
-        paint_stream_record_content(paint, {&scene.widgets, scene.rows[index].widget}, geometry.icon,
-                                    UiLayoutContentKind::icon, ui_layout_content_bounds_allow_overlap);
+        status_icon ? paint_popup_presence(
+                          paint, {x - 5, y - 5, x + 5, y + 5}, static_cast<UiPresence>(item.status),
+                          highlighted ? theme.surface_high : theme.base_lower, highlighted, theme)
+                    : ui_icon_paint(paint, ui_menu_row_icon(presentation), geometry.icon, icon_color);
     return paint_stream_pop_clip(paint) && painted;
 }
 UiRect popup_avatar_rectangle(const UiLayoutNode& row) noexcept {
@@ -137,15 +129,11 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
     // The pushed clip also forces a distinct paint batch, so the overlay cannot
     // merge into the last base batch and draw under media/text sharing the root
     // clip. Every popup kind shares the popover elevation material on gradient themes.
-    bool success =
-        ui_surface_paint_plate(paint, panel->rectangle, theme, UiElevation::popover, panel_radius) &&
-        paint_stream_record_content(paint, UiWidgetReference{&scene.widgets, scene.panel}, panel->rectangle,
-                                    UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap);
+    bool success = ui_surface_paint_plate(paint, panel->rectangle, theme, UiElevation::popover, panel_radius);
     // Rows sit the panel padding inside its corners, so their fills share its corner centres.
     const float row_radius = ui_inner_radius(panel_radius, popup_metrics(scene).menu_padding);
     for (u32 index = 0; success && index < scene.item_count; ++index) {
         const PopupItem& item = scene.items[index];
-        const PopupRowWidget& row = scene.rows[index];
         PopupItemLayout item_layout{};
         if (!popup_scene_resolve_item_layout(scene, index, &item_layout)) {
             success = false;
@@ -213,10 +201,7 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
             }
         }
         if (!paint_menu_row_icon(scene, index, theme, paint) ||
-            !paint_menu_row_check(scene, index, theme, paint) ||
-            !paint_stream_record_content(paint, UiWidgetReference{&scene.widgets, row.widget},
-                                         layout->rectangle, UiLayoutContentKind::control,
-                                         ui_layout_content_bounds_allow_overlap)) {
+            !paint_menu_row_check(scene, index, theme, paint)) {
             success = false;
         }
     }

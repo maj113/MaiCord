@@ -208,10 +208,10 @@ bool ui_search_scene_scroll(UiSearchScene*, float offset) noexcept;
 float ui_search_scene_scroll_maximum(const UiSearchScene&) noexcept;
 bool ui_search_scene_filter_choice_geometry(const UiSearchScene&, u32 source_index, UiRect*,
                                             UiRect*) noexcept;
-// A visible from:/mentions: people row's avatar circle and the row widget that
-// owns it; the renderer draws the user's avatar over the placeholder.
+// A visible from:/mentions: people row's avatar circle; the renderer draws the
+// user's avatar over the placeholder.
 bool ui_search_scene_filter_choice_avatar(const UiSearchScene&, u32 source_index, UiRect* rectangle,
-                                          UiRect* clip, UiWidgetHandle* owner) noexcept;
+                                          UiRect* clip) noexcept;
 UiSearchTarget ui_search_scene_hit_test(const UiSearchScene&, float x, float y) noexcept;
 bool ui_search_scene_contains(const UiSearchScene&, float x, float y) noexcept;
 bool ui_search_scene_current(const UiSearchScene&) noexcept;

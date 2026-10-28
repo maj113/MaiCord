@@ -339,9 +339,7 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
         const auto surface = ui_surface_style(theme, UiElevation::banner);
         const Color fill = ui_theme_color_alpha(surface.fill, level), border = ui_theme_color_alpha(surface.border, level);
         const Color tone = ui_theme_color_alpha(scene.notice_warning ? theme.tokens.accent.warning : theme.tokens.emphasis.outline, level);
-        ok = paint_stream_record_content(paint, scene.text_owner, r, UiLayoutContentKind::control,
-                                         ui_layout_content_bounds_allow_overlap) &&
-             paint_stream_push_rounded(paint, r.left, r.top + 2, r.right, r.bottom + 2,
+        ok = paint_stream_push_rounded(paint, r.left, r.top + 2, r.right, r.bottom + 2,
                                        ui_theme_color_alpha(theme.tokens.overlay.shadow_soft, level), st.notice_radius) &&
              ui_surface_paint(paint, r, theme, UiElevation::banner, st.notice_radius, &fill, &border) &&
              // A tone stripe along the leading edge marks warnings.
@@ -375,10 +373,8 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
         const float icon_top = (r.top + r.bottom - st.icon) * .5f;
         const UiRect icon{scene.banner_action.right - 10 - st.icon, icon_top, scene.banner_action.right - 10,
                           icon_top + st.icon};
-        ok = paint_stream_record_content(paint, scene.text_owner, r, UiLayoutContentKind::decoration,
-                                         ui_layout_content_bounds_allow_overlap) &&
-             // Square top edge tucks under the channel header; only the bottom is rounded.
-             paint_stream_push(paint, r.left, r.top, r.right, r.top + st.banner_radius, fill) &&
+        // Square top edge tucks under the channel header; only the bottom is rounded.
+        ok = paint_stream_push(paint, r.left, r.top, r.right, r.top + st.banner_radius, fill) &&
              paint_stream_push_rounded(paint, r, fill, st.banner_radius) &&
              (scene.hovered != UiUnreadBannerAction::mark_read ||
               paint_stream_push_rounded(paint, scene.banner_action.left, r.top, r.right, r.bottom,
@@ -395,9 +391,7 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
         const Color fill = ui_theme_color_alpha(surface.fill, level), border = ui_theme_color_alpha(surface.border, level);
         const float icon_top = (r.top + r.bottom - st.icon) * .5f;
         const UiRect icon{r.right - 14 - st.icon, icon_top, r.right - 14, icon_top + st.icon};
-        ok = paint_stream_record_content(paint, scene.text_owner, r, UiLayoutContentKind::control,
-                                         ui_layout_content_bounds_allow_overlap) &&
-             paint_stream_push_rounded(paint, r.left, r.top + 2, r.right, r.bottom + 2, ui_theme_color_alpha(theme.tokens.overlay.shadow_soft, level),
+        ok = paint_stream_push_rounded(paint, r.left, r.top + 2, r.right, r.bottom + 2, ui_theme_color_alpha(theme.tokens.overlay.shadow_soft, level),
                                        st.pill_radius) &&
              ui_surface_paint(paint, r, theme, UiElevation::banner, st.pill_radius, &fill, &border) &&
              (!hovered || paint_stream_push_rounded(paint, r, ui_theme_color_alpha(theme.tokens.state.hover, level), st.pill_radius)) &&

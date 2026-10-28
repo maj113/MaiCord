@@ -419,9 +419,6 @@ bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView
                                          .9f, UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
                                          UiBackgroundBorderTone::semantic) &&
              paint_stream_push_rounded(paint, geometry.media, theme.base_lowest, theme.scale.radius_sm);
-        if (ok && view.owner.manager)
-            ok = paint_stream_record_content(paint, view.owner, ui_rect_intersection(geometry.card, view.strip),
-                                             UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap);
         if (ok && !shows_thumbnail(tile)) {
             const Color ink = tile.spoiler ? theme.text_primary : ui_background_muted_text_color(theme);
             ok = ui_icon_paint(paint, placeholder_icon(tile), centered(geometry.media, style.icon),
@@ -472,9 +469,6 @@ bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripV
                                              theme.tokens.border.subtle, theme.scale.radius_sm, 1, .9f,
                                              UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
                                              UiBackgroundBorderTone::semantic);
-            if (ok && view.owner.manager)
-                ok = paint_stream_record_content(paint, view.owner, ui_rect_intersection(geometry.actions, view.strip),
-                                                 UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap);
             for (u32 b = 0; ok && b < geometry.button_count; ++b) {
                 const auto part = geometry.parts[b];
                 const bool hot = view.hovered == i && view.hovered_part == part;

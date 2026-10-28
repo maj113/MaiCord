@@ -161,6 +161,9 @@ bool ui_widget_manager_focus(UiWidgetManager* manager, UiWidgetHandle handle) no
 // disabled, hidden, blocked or completely clipped targets; never uses a pointer.
 bool ui_widget_manager_context_anchor(const UiWidgetManager& manager, UiRect* anchor) noexcept;
 bool ui_widget_manager_hover(UiWidgetManager* manager, UiWidgetHandle handle) noexcept;
+// Hovers the widget under (x, y) (none when nothing is hit). *changed reports a
+// different hovered widget; false when the manager refuses the hover.
+bool ui_widget_manager_hover_at(UiWidgetManager* manager, float x, float y, bool* changed) noexcept;
 // The widget's chain to the root is visible, unblocked and well formed; the widget itself need not be enabled.
 bool ui_widget_manager_input_reachable(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept;
 bool ui_widget_manager_input_enabled(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept;

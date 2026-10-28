@@ -2674,18 +2674,9 @@ void test_ui_scene() noexcept {
         presentation_owned_row
             ? message_scene_rich_item_widget(*presentation_owned_row, MessageSceneRichItemKind::sticker, 0)
             : ui_widget_invalid_handle();
-    const UiWidgetHandle presentation_component_item =
-        presentation_owned_row ? message_scene_rich_item_widget(*presentation_owned_row,
-                                                                MessageSceneRichItemKind::component, 0)
-                               : ui_widget_invalid_handle();
     PaintStream message_presentation_paint{};
     test_message_background_surfaces(virtual_message_scene, retained_message_id, expect);
     paint_stream_reset(&message_presentation_paint, message_viewport.right, message_viewport.bottom);
-    UiPaintContentBounds message_presentation_content[64]{};
-    UiPaintContentRecorder message_presentation_recorder{};
-    const bool message_presentation_recorder_ready =
-        paint_stream_bind_content_recorder(&message_presentation_paint, &message_presentation_recorder,
-                                           Slice<UiPaintContentBounds>{message_presentation_content, 64});
     MessageMediaCommand message_media_commands[8]{};
     MessageMediaCommandStream message_media_stream{};
     MessagePresentationResult message_presentation_result{};
@@ -2731,51 +2722,9 @@ void test_ui_scene() noexcept {
             message_media_commands[index].owner.handle.slot == expected.slot &&
             message_media_commands[index].owner.handle.generation == expected.generation;
     }
-    UiLayoutContentBounds message_presentation_bounds[64]{};
-    u32 message_presentation_bound_count = 0;
-    bool message_presentation_owners_valid = true;
-    bool message_presentation_group_owned = false;
-    bool message_rich_item_painted[4]{};
-    for (u32 index = 0; index < message_presentation_recorder.count; ++index) {
-        const UiPaintContentBounds& emitted = message_presentation_content[index];
-        const UiWidget* owner =
-            emitted.owner.manager == &virtual_message_scene.widgets
-                ? ui_widget_manager_resolve(virtual_message_scene.widgets, emitted.owner.handle)
-                : nullptr;
-        if (!owner || message_presentation_bound_count >= 64) {
-            message_presentation_owners_valid = false;
-            break;
-        }
-        message_presentation_bounds[message_presentation_bound_count++] =
-            UiLayoutContentBounds{owner->layout, emitted.rectangle, emitted.kind, emitted.flags};
-        if (presentation_owned_row) {
-            const UiWidgetHandle groups[4]{presentation_owned_row->attachments,
-                                           presentation_owned_row->embeds, presentation_owned_row->stickers,
-                                           presentation_owned_row->components};
-            const UiWidgetHandle items[4]{presentation_attachment_item, presentation_embed_item,
-                                          presentation_sticker_item, presentation_component_item};
-            for (u32 rich_index = 0; rich_index < 4; ++rich_index) {
-                message_presentation_group_owned =
-                    message_presentation_group_owned ||
-                    (emitted.owner.handle.slot == groups[rich_index].slot &&
-                     emitted.owner.handle.generation == groups[rich_index].generation);
-                message_rich_item_painted[rich_index] =
-                    message_rich_item_painted[rich_index] ||
-                    (emitted.owner.handle.slot == items[rich_index].slot &&
-                     emitted.owner.handle.generation == items[rich_index].generation);
-            }
-        }
-    }
-    const UiLayoutValidationResult message_presentation_validation =
-        ui_layout_engine_validate_content_bounds(
-            virtual_message_scene.widgets.layout,
-            ConstSlice<UiLayoutContentBounds>{message_presentation_bounds,
-                                              message_presentation_bound_count},
-            Slice<UiLayoutDiagnostic>{message_scene_diagnostics, 32});
     MessageMediaCommand tiny_message_media_commands[2]{};
     MessageMediaCommandStream tiny_message_media_stream{};
     const u32 paint_count_before_tiny = message_presentation_paint.count;
-    const u32 content_count_before_tiny = message_presentation_recorder.count;
     MessagePresentationResult tiny_message_presentation{};
     const bool tiny_message_media_initialized = message_media_command_stream_initialize(
         &tiny_message_media_stream, Slice<MessageMediaCommand>{tiny_message_media_commands, 2});
@@ -2823,21 +2772,16 @@ void test_ui_scene() noexcept {
     expect(presentation_rich_ready && presentation_rich_refresh.ok() && presentation_measured &&
                presentation_measure_changed && presentation_rich_reflow.ok(),
            "message_presentation_rich_scene_reflow");
-    expect(message_presentation_recorder_ready && message_presentation_ready,
+    expect(message_presentation_ready,
            "message_presentation_builds_owned_streams");
     expect(message_presentation_result.geometry_quads != 0, "message_presentation_geometry_count");
     expect(message_presentation_result.media_commands == 4 && attachment_commands == 1 &&
                embed_commands == 1 && sticker_commands == 1 && emoji_commands == 1 &&
                attachment_format_projected && embed_identity_projected && message_media_item_owned,
            "message_presentation_media_projection_uses_exact_retained_items");
-    expect(message_presentation_owners_valid && message_presentation_validation.clean(),
-           "message_presentation_exact_item_bounds_validate");
-    expect(!message_presentation_group_owned,
-           "message_presentation_never_records_rich_group_as_content_owner");
     expect(tiny_message_presentation_failed && tiny_message_media_stream.count == 0 &&
                tiny_message_media_stream.rejected != 0 && tiny_message_presentation.geometry_quads == 0 &&
-               message_presentation_paint.count == paint_count_before_tiny &&
-               message_presentation_recorder.count == content_count_before_tiny,
+               message_presentation_paint.count == paint_count_before_tiny,
            "message_presentation_capacity_failure_is_atomic");
     const u64 restored_scroll = message_scene_timeline.scroll_units;
     const bool message_focused = message_scene_focus_message(&virtual_message_scene, retained_message_id);

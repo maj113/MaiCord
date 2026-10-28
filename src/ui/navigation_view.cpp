@@ -344,10 +344,12 @@ void sync_voice_revisions(NavigationView* view) noexcept {
     view->source_extras_revision = view->voice_extras ? view->voice_extras->revision : 0;
 }
 
-bool initialize_view(NavigationView* view, Slice<GuildViewRow> guild_rows,
-                                        Slice<ChannelViewRow> channel_rows,
-                                        Slice<u16> channel_scratch, Slice<u8> channel_visibility_scratch,
-                                        Slice<ChannelSortKey> channel_sort_keys, bool sparse) noexcept {
+} // namespace
+
+bool navigation_view_initialize(NavigationView* view, Slice<GuildViewRow> guild_rows,
+                                Slice<ChannelViewRow> channel_rows, Slice<u16> channel_scratch,
+                                Slice<u8> channel_visibility_scratch,
+                                Slice<ChannelSortKey> channel_sort_keys, bool sparse) noexcept {
     if (!view || !guild_rows.data || guild_rows.count == 0 || !channel_rows.data ||
         channel_rows.count == 0 || !channel_scratch.data || channel_scratch.count != channel_rows.count ||
         !channel_visibility_scratch.data || channel_visibility_scratch.count == 0 ||
@@ -379,24 +381,6 @@ bool initialize_view(NavigationView* view, Slice<GuildViewRow> guild_rows,
         channel_visibility_scratch[index] = 0;
     }
     return true;
-}
-
-} // namespace
-
-bool navigation_view_initialize(NavigationView* view, Slice<GuildViewRow> guild_rows,
-                               Slice<ChannelViewRow> channel_rows, Slice<u16> channel_scratch,
-                               Slice<u8> channel_visibility_scratch,
-                               Slice<ChannelSortKey> channel_sort_keys) noexcept {
-    return initialize_view(view, guild_rows, channel_rows, channel_scratch,
-                           channel_visibility_scratch, channel_sort_keys, false);
-}
-
-bool navigation_view_initialize_sparse(NavigationView* view, Slice<GuildViewRow> guild_rows,
-                                      Slice<ChannelViewRow> channel_rows, Slice<u16> channel_scratch,
-                                      Slice<u8> channel_visibility_scratch,
-                                      Slice<ChannelSortKey> channel_sort_keys) noexcept {
-    return initialize_view(view, guild_rows, channel_rows, channel_scratch,
-                           channel_visibility_scratch, channel_sort_keys, true);
 }
 
 NavigationViewResult navigation_view_rebuild(NavigationView* view,

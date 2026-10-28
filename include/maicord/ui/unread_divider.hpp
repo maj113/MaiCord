@@ -1,13 +1,10 @@
 #pragma once
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/paint.hpp"
+#include "maicord/ui/unread_divider_style.hpp"
 #include "maicord/ui/widget_manager.hpp"
 
 namespace maicord {
-struct UiUnreadDividerStyle {
-    float height, horizontal_inset, label_width, label_gap, line_thickness;
-};
-inline constexpr UiUnreadDividerStyle kDefaultUiUnreadDividerStyle{24, 18, 112, 8, 1};
 inline constexpr Utf8View kUiUnreadDividerLabel = utf8_literal("New messages");
 inline bool ui_unread_divider_style_valid(const UiUnreadDividerStyle& style) noexcept {
     return ui_extent_valid(style.height) && style.height >= 16 && style.height <= 96 &&

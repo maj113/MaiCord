@@ -395,7 +395,8 @@ maicord_library(maicord_ui
     src/ui/download_scene.cpp src/ui/shortcuts_scene.cpp src/ui/media_picker.cpp
     src/ui/media_picker_presentation.cpp src/ui/search_query.cpp src/ui/search_filter_context.cpp
     src/ui/voice_channel_rows.cpp src/ui/voice_panel.cpp
-    src/ui/call_scene.cpp src/ui/call_stage.cpp src/ui/stream_card_scene.cpp src/ui/guild_card_scene.cpp
+    src/ui/call_scene.cpp src/ui/call_stage.cpp src/ui/hover_card.cpp src/ui/stream_card_scene.cpp
+    src/ui/guild_card_scene.cpp
     src/ui/guild_banner.cpp src/ui/profile_activity.cpp src/ui/caption_bar.cpp src/ui/activity_status.cpp
     src/ui/typing_indicator.cpp src/ui/dm_profile_panel.cpp
     src/ui/toast.cpp src/ui/theme.cpp

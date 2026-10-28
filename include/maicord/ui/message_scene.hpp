@@ -7,7 +7,7 @@
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/ui/message_rich_layout.hpp"
 #include "maicord/ui/widget_manager.hpp"
-#include "maicord/ui/unread_divider.hpp"
+#include "maicord/ui/unread_divider_style.hpp"
 #include "maicord/ui/message_result_card.hpp"
 #include "maicord/ui/message_media_policy.hpp"
 #include "maicord/ui/message_markdown.hpp"

@@ -242,7 +242,6 @@ NativePluginError native_plugin_sdk_settings_submit(NativePluginSdkRuntime*, UiP
 bool native_plugin_sdk_keybind_normalize(Utf8View text, char (&output)[64], u32* bytes) noexcept;
 // Normal form to a virtual key and modifiers; false for Win chords and invalid text.
 bool native_plugin_sdk_keybind_chord(Utf8View normal, NativePluginSdkChord* chord) noexcept;
-bool native_plugin_sdk_colour_parse(Utf8View text, u32* colour) noexcept;
 
 // ---- Keybinds ------------------------------------------------------------------
 

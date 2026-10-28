@@ -6,18 +6,21 @@ namespace maicord {
 namespace foreground_color_detail {
 // The candidate with the most contrast on a fill of this luminance, when it
 // keeps normal-text 4.5:1.
-template <u32 Count>
-inline bool readable(const Color (&candidates)[Count], double background, Color* output) noexcept {
+inline bool readable(const Color* candidates, u32 count, double background, Color* output) noexcept {
     double best = 0;
-    for (const auto color : candidates) {
-        const double value = background_color_luminance(color);
+    for (u32 i = 0; i < count; ++i) {
+        const double value = background_color_luminance(candidates[i]);
         const double contrast = (maximum(value, background) + .05) / (minimum(value, background) + .05);
         if (contrast > best) {
-            *output = color;
+            *output = candidates[i];
             best = contrast;
         }
     }
     return best >= 4.5;
+}
+template <u32 Count>
+inline bool readable(const Color (&candidates)[Count], double background, Color* output) noexcept {
+    return readable(candidates, Count, background, output);
 }
 } // namespace foreground_color_detail
 // Choose an authored palette color for a filled control, in order: the

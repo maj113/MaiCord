@@ -1,4 +1,5 @@
 #include "maicord/app/account_profile_edit.hpp"
+#include "maicord/core/color_hex.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/profile_editor.hpp"
 #include "rest_submit_hook.hpp"
@@ -371,9 +372,9 @@ void test_patches() noexcept {
     char hex[8];
     u32 color = 0;
     check(profile_editor_format_color(0x5865F2, {hex, sizeof(hex)}) == 7 &&
-              utf8_equal({hex, 7}, utf8_literal("#5865F2")) && profile_editor_parse_color(utf8_literal("5865f2"), &color) &&
-              color == 0x5865F2 && !profile_editor_parse_color(utf8_literal("#12345G"), &color) &&
-              !profile_editor_parse_color(utf8_literal("#1234"), &color),
+              utf8_equal({hex, 7}, utf8_literal("#5865F2")) && color_hex_parse_rgb24(utf8_literal("5865f2"), &color) &&
+              color == 0x5865F2 && !color_hex_parse_rgb24(utf8_literal("#12345G"), &color) &&
+              !color_hex_parse_rgb24(utf8_literal("#1234"), &color),
           "profile colours: hex input converts to the API's integer RGB");
 }
 

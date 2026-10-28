@@ -88,7 +88,6 @@ struct UiFriendsActiveAvatar {
 };
 struct UiFriendsVisibleRow {
     UiFriendsRow row;
-    UiWidgetReference owner;
     UiRect rectangle,avatar,presence,clip;
 };
 struct UiFriendsScene {

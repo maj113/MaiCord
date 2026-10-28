@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/media/asset_key.hpp"
+#include "maicord/ui/hover_card.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/text_presentation.hpp"
-#include "maicord/ui/transition.hpp"
 
 namespace maicord {
 struct UiTextMeasureCache;
@@ -45,12 +45,7 @@ struct UiGuildCardContent {
     MediaAssetKey banner;      // Custom banner picture, cover-fit over the colour.
     UiGuildCardAction action;
 };
-struct UiGuildCardScene {
-    UiWidgetManager widgets;
-    UiWidget widget_storage[1];
-    UiLayoutNode layout_storage[1];
-    UiWidgetReference owner;
-    UiRect anchor, viewport, settled, panel;
+struct UiGuildCardScene : UiHoverCard {
     // Panel-relative geometry, offset by the entrance in paint and text.
     UiRect banner, icon_ring, icon, name, tag_chip, tag_badge, tag_text, online_dot, online, members_dot, members,
         established, description, traits[kUiGuildCardTraits], button, status_icon, status_title, status_text;
@@ -63,12 +58,7 @@ struct UiGuildCardScene {
     MediaAssetKey icon_key, badge_key, banner_key;
     UiGuildCardPhase phase;
     UiGuildCardAction action;
-    bool has_brand_color, active, hovered, pressed;
-    UiMotionTransition entrance;
-    u64 entrance_generation, content_hash, identity;
-    float progress; // Entrance 0..1: fade and a short slide.
-    u32 revision;
-    u8 spinner_phase; // Host frame clock (paint only).
+    bool has_brand_color;
 };
 
 // Shows (or re-projects) the card for identity (the guild) beside anchor
