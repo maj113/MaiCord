@@ -68,9 +68,8 @@ bool valid(const VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id) noexcep
 void voice_channel_info_store_reset(VoiceChannelInfoStore* s) noexcept {
     if (!s)
         return;
-    const u32 revision = s->revision + 1;
     s->count = s->text_used = s->dropped = 0;
-    s->revision = revision;
+    ++s->revision;
 }
 
 bool voice_channel_info_store_set_start(VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id,
@@ -91,7 +90,7 @@ bool voice_channel_info_store_set_start(VoiceChannelInfoStore* s, u64 guild_id, 
 
 bool voice_channel_info_store_set_status(VoiceChannelInfoStore* s, u64 guild_id, u64 channel_id,
                                          Utf8View status) noexcept {
-    if (!valid(s, guild_id, channel_id) || (!status.data && status.bytes) || status.bytes > 0xffff ||
+    if (!valid(s, guild_id, channel_id) || (!status.data && status.bytes) ||
         status.bytes > kVoiceChannelInfoTextBytes)
         return false;
     if (const auto* current = voice_channel_info_store_find(*s, channel_id)) {

@@ -1,11 +1,10 @@
 #include "maicord/text/gdef.hpp"
 #include "maicord/core/memory.hpp"
 #include "coverage_index.hpp"
-#include "maicord/text/base.hpp"
+#include "sfnt_read.hpp"
 
 namespace maicord {namespace {
-u16 read(const ConstSlice<u8>& bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}
-bool span(const ConstSlice<u8>& bytes,u32 at,u32 size) noexcept {return bytes.data && at<=bytes.count && size<=bytes.count-at;}
+using namespace sfnt_read;
 SfntStatus tail(const ConstSlice<u8>& view,u32 at,u32 minimum,ConstSlice<u8>* out,bool optional=true) noexcept {
     const ConstSlice<u8> bytes=view; // *out is cleared first
     reset_value(out);if(!at)return optional?SfntStatus::missing_table:SfntStatus::malformed;
@@ -15,23 +14,23 @@ SfntStatus tail(const ConstSlice<u8>& view,u32 at,u32 minimum,ConstSlice<u8>* ou
 }
 SfntStatus mark_sets(const SfntGdef& gdef,ConstSlice<u8>* table,u16* count) noexcept {
     reset_value(table);*count=0;if(!gdef.table.data || gdef.minor_version<2)return SfntStatus::missing_table;
-    const auto status=tail(gdef.table,read(gdef.table,12),gdef.minor_version==3?18:14,table);if(status!=SfntStatus::ok)return status;
-    if(!span(*table,0,4))return SfntStatus::truncated;if(read(*table,0)!=1)return SfntStatus::unsupported;
-    const u16 n=read(*table,2);if(!span(*table,4,static_cast<u32>(n)*4))return SfntStatus::truncated;*count=n;return SfntStatus::ok;
+    const auto status=tail(gdef.table,r16(gdef.table,12),gdef.minor_version==3?18:14,table);if(status!=SfntStatus::ok)return status;
+    if(!span(*table,0,4))return SfntStatus::truncated;if(r16(*table,0)!=1)return SfntStatus::unsupported;
+    const u16 n=r16(*table,2);if(!span(*table,4,static_cast<u32>(n)*4))return SfntStatus::truncated;*count=n;return SfntStatus::ok;
 }
 }
 SfntStatus sfnt_gdef_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntGdef* output) noexcept {
     if(!output)return SfntStatus::invalid_input;reset_value(output);
     if(!bytes.data || !glyph_limit || glyph_limit>65536)return SfntStatus::invalid_input;
-    if(!span(bytes,0,4))return SfntStatus::truncated;const u16 major=read(bytes,0),minor=read(bytes,2);
+    if(!span(bytes,0,4))return SfntStatus::truncated;const u16 major=r16(bytes,0),minor=r16(bytes,2);
     if(major!=1 || (minor!=0 && minor!=2 && minor!=3))return SfntStatus::unsupported;
     const u32 header=minor==3?18:minor==2?14:12;if(!span(bytes,0,header))return SfntStatus::truncated;
     const auto check=[&](u32 offset) noexcept {return !offset||(offset>=header&&span(bytes,offset,2))?SfntStatus::ok:offset<header?SfntStatus::malformed:SfntStatus::truncated;};
-    for(u32 at=4;at<12+(minor>=2?2u:0u);at+=2){const auto status=check(read(bytes,at));if(status!=SfntStatus::ok)return status;}
+    for(u32 at=4;at<12+(minor>=2?2u:0u);at+=2){const auto status=check(r16(bytes,at));if(status!=SfntStatus::ok)return status;}
     if(minor==3){const auto status=check(byte_load_be32(bytes.data+14));if(status!=SfntStatus::ok)return status;}
     SfntGdef result{bytes,{},{},glyph_limit,minor};
-    for(u32 at=4;at<=10;at+=6)if(read(bytes,at)) {
-        ConstSlice<u8> data{};auto status=tail(bytes,read(bytes,at),header,&data);if(status!=SfntStatus::ok)return status;
+    for(u32 at=4;at<=10;at+=6)if(r16(bytes,at)) {
+        ConstSlice<u8> data{};auto status=tail(bytes,r16(bytes,at),header,&data);if(status!=SfntStatus::ok)return status;
         auto* classes=at==4?&result.glyph_classes:&result.mark_classes;
         status=sfnt_class_def_open(data,glyph_limit,classes);if(status!=SfntStatus::ok)return status;
         if(at==4 && classes->max_class>4)return SfntStatus::malformed;

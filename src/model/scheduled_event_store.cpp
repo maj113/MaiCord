@@ -32,14 +32,16 @@ bool earlier(const ScheduledEvent& a, const ScheduledEvent& b) noexcept {
         return live_a;
     return a.start_ms != b.start_ms ? a.start_ms < b.start_ms : a.id < b.id;
 }
+void move_count(ScheduledEvent* event, bool added) noexcept {
+    event->user_count = added ? event->user_count + 1 : (event->user_count ? event->user_count - 1 : 0);
+}
 } // namespace
 
 void scheduled_event_store_reset(ScheduledEventStore* store) noexcept {
     if (!store)
         return;
-    const u32 revision = store->revision;
     store->count = 0;
-    store->revision = revision + 1;
+    ++store->revision;
 }
 
 const ScheduledEvent* scheduled_event_store_find(const ScheduledEventStore& store, u64 event_id) noexcept {
@@ -111,7 +113,7 @@ bool scheduled_event_store_user(ScheduledEventStore* store, u64 event_id, u64 us
     if (self && event->interested_known && event->interested == added)
         return false;
     if (event->user_count_known)
-        event->user_count = added ? event->user_count + 1 : (event->user_count ? event->user_count - 1 : 0);
+        move_count(event, added);
     if (self) {
         event->interested = added;
         event->interested_known = true;
@@ -126,8 +128,7 @@ bool scheduled_event_store_set_interest(ScheduledEventStore* store, u64 event_id
     if (!event || (event->interested_known && event->interested == interested))
         return false;
     if (adjust_count && event->user_count_known)
-        event->user_count =
-            interested ? event->user_count + 1 : (event->user_count ? event->user_count - 1 : 0);
+        move_count(event, interested);
     event->interested = interested;
     event->interested_known = true;
     ++store->revision;

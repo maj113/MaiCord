@@ -4,19 +4,16 @@
 #include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
-using layout_read::WorkReport;using layout_read::r16;
+using layout_read::WorkReport;using layout_read::r16;using layout_read::tail;
 bool span(const ConstSlice<u8>& b,u32 at,u64 count) noexcept {return at<=b.count && count<=b.count-at && (!count || b.data);}
 ConstSlice<u8> slice(const ConstSlice<u8>& b,u32 at) noexcept {return {b.data+at,b.count-at};}
-SfntStatus child(ConstSlice<u8> parent,u16 at,u32 minimum,ConstSlice<u8>* out) noexcept {
-    reset_value(out);if(at<minimum)return SfntStatus::malformed;if(!span(parent,at,2))return SfntStatus::truncated;*out=slice(parent,at);return SfntStatus::ok;
-}
 SfntStatus cover(ConstSlice<u8> parent,u16 at,u32 minimum,u32 limit,u32 count,SfntCoverage* out,u32* work) noexcept {
-    ConstSlice<u8> bytes{};auto s=child(parent,at,minimum,&bytes);if(s!=SfntStatus::ok)return s;if(!span(bytes,0,4))return SfntStatus::truncated;
+    ConstSlice<u8> bytes{};auto s=tail(parent,at,minimum,&bytes);if(s!=SfntStatus::ok)return s;if(!span(bytes,0,4))return SfntStatus::truncated;
     if(!spend(work,r16(bytes,2)))return SfntStatus::resource_limit;s=sfnt_coverage_open(bytes,limit,out);if(s!=SfntStatus::ok)return s;return out->covered_count==count?SfntStatus::ok:SfntStatus::malformed;
 }
 SfntStatus anchor(ConstSlice<u8> parent,u16 at,u32 minimum,bool nullable,u32* work) noexcept {
     if(!spend(work))return SfntStatus::resource_limit;if(!at)return nullable?SfntStatus::ok:SfntStatus::malformed;
-    ConstSlice<u8> bytes{};auto s=child(parent,at,minimum,&bytes);if(s!=SfntStatus::ok)return s;SfntAnchor a{};u32 used=0;s=sfnt_anchor_open(bytes,&a,*work,&used);*work-=used;return s;
+    ConstSlice<u8> bytes{};auto s=tail(parent,at,minimum,&bytes);if(s!=SfntStatus::ok)return s;SfntAnchor a{};u32 used=0;s=sfnt_anchor_open(bytes,&a,*work,&used);*work-=used;return s;
 }
 SfntAnchor anchor_view(ConstSlice<u8> parent,u32 field) noexcept {const u16 at=r16(parent,field);return at?SfntAnchor{slice(parent,at)}:SfntAnchor{};}
 SfntStatus matrix(ConstSlice<u8> parent,u32 rows,u32 classes,u32* work) noexcept {
@@ -31,14 +28,14 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposAttachment* out,
         s=cover(bytes,r16(bytes,2),end,limit,count,&result.coverage[0],work);if(s!=SfntStatus::ok)return s;
         for(u32 i=0;i<count*2;++i){s=anchor(bytes,r16(bytes,6+i*2),end,true,work);if(s!=SfntStatus::ok)return s;}
     }else {result.class_count=r16(bytes,6);
-        for(u32 i=0;i<2;++i){s=child(bytes,r16(bytes,8+i*2),12,&result.arrays[i]);if(s!=SfntStatus::ok)return s;result.counts[i]=r16(result.arrays[i],0);
+        for(u32 i=0;i<2;++i){s=tail(bytes,r16(bytes,8+i*2),12,&result.arrays[i]);if(s!=SfntStatus::ok)return s;result.counts[i]=r16(result.arrays[i],0);
             s=cover(bytes,r16(bytes,2+i*2),12,limit,result.counts[i],&result.coverage[i],work);if(s!=SfntStatus::ok)return s;}
         const auto marks=result.arrays[0];const u32 count=result.counts[0],end=2+count*4;if(!span(marks,0,end))return SfntStatus::truncated;
         for(u32 i=0;i<count;++i){if(!spend(work))return SfntStatus::resource_limit;if(r16(marks,2+i*4)>=result.class_count)return SfntStatus::malformed;
             s=anchor(marks,r16(marks,4+i*4),end,false,work);if(s!=SfntStatus::ok)return s;}
         const auto targets=result.arrays[1];if(type!=5){s=matrix(targets,result.counts[1],result.class_count,work);if(s!=SfntStatus::ok)return s;}
         else {const u32 header=2+static_cast<u32>(result.counts[1])*2;if(!span(targets,0,header))return SfntStatus::truncated;
-            for(u32 i=0;i<result.counts[1];++i){if(!spend(work))return SfntStatus::resource_limit;ConstSlice<u8> lig{};s=child(targets,r16(targets,2+i*2),header,&lig);if(s!=SfntStatus::ok)return s;
+            for(u32 i=0;i<result.counts[1];++i){if(!spend(work))return SfntStatus::resource_limit;ConstSlice<u8> lig{};s=tail(targets,r16(targets,2+i*2),header,&lig);if(s!=SfntStatus::ok)return s;
                 s=matrix(lig,r16(lig,0),result.class_count,work);if(s!=SfntStatus::ok)return s;}}
     }
     *out=result;return SfntStatus::ok;
@@ -70,7 +67,7 @@ SfntStatus sfnt_gpos_target_anchor(const SfntGposTargetAnchors& target,u16 compo
     const u16 at=r16(target.parent,target.offset+(static_cast<u32>(component)*target.class_count+mark_class)*2);
     if(!at)return SfntStatus::ok;
     const u32 minimum=2+static_cast<u32>(r16(target.parent,0))*target.class_count*2;
-    ConstSlice<u8> bytes{};const auto status=child(target.parent,at,minimum,&bytes);
+    ConstSlice<u8> bytes{};const auto status=tail(target.parent,at,minimum,&bytes);
     return status==SfntStatus::ok?sfnt_anchor_open(bytes,output,3):status;
 }
 }

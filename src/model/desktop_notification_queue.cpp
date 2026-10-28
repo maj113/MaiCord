@@ -62,15 +62,15 @@ void desktop_notification_queue_reset(DesktopNotificationQueue* q,u64 p,u64 g) n
     if(!initialized(q))return;purge(q,Purge::all);q->profile_id=p;q->generation=g;
 }
 bool desktop_notification_queue_can_admit(const DesktopNotificationQueue* q,u32 bytes) noexcept {
-    return initialized(q) && q->profile_id && q->generation && q->next_token && bytes<=kDesktopNotificationQueueItemBytes &&
-        bytes<=q->scratch.count && q->count+u32(q->has_inflight)<q->rows.count && bytes<=q->bytes.count-q->used;
+    return initialized(q) && q->profile_id && q->generation && q->next_token && bytes<=q->scratch.count &&
+        q->count+u32(q->has_inflight)<q->rows.count && bytes<=q->bytes.count-q->used;
 }
 DesktopNotificationQueueResult desktop_notification_queue_enqueue(DesktopNotificationQueue* q,const DesktopNotificationQueueInput& in) noexcept {
     if(!initialized(q))return {DesktopNotificationQueueError::invalid_input};
     // Snapshot scalar/views first, so the input object itself can be temporary.
     const auto value=in;
     const u64 total=u64(value.title.bytes)+value.body.bytes+value.avatar_file_uri.bytes;
-    if(total>kDesktopNotificationQueueItemBytes || total>q->scratch.count)return {DesktopNotificationQueueError::invalid_input};
+    if(total>q->scratch.count)return {DesktopNotificationQueueError::invalid_input};
     if(!value.profile_id || !value.generation || !value.channel_id || !value.message_id ||
         aliases(*q,value.title.data,value.title.bytes) || aliases(*q,value.body.data,value.body.bytes) ||
         aliases(*q,value.avatar_file_uri.data,value.avatar_file_uri.bytes) ||

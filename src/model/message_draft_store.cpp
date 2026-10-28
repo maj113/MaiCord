@@ -251,7 +251,6 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
         return draft_error(MessageDraftStoreError::record_capacity);
     }
     MessageDraftRecord& record = store->records[index];
-    reset_value<MessageDraftRecord>(&record);
     record.channel_id = input.channel_id;
     record.touched = touch(store);
     record.reply_message_id = input.reply_message_id;

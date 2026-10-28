@@ -284,13 +284,11 @@ struct AppearanceWriter {
     u32 used = 0;
     bool valid = true;
     void put(const void* data, u32 count) noexcept {
-        if (output.data) {
-            if (used > output.count || count > output.count - used) {
-                valid = false;
-                return;
-            }
-            copy_bytes(output.data + used, data, count);
+        if (count > output.count - used) {
+            valid = false;
+            return;
         }
+        copy_bytes(output.data + used, data, count);
         used += count;
     }
     template <typename T> void scalar(const T& v) noexcept {
@@ -310,7 +308,7 @@ struct AppearanceReader {
     u32 used = 0;
     bool valid = true;
     void get(void* data, u32 count) noexcept {
-        if (used > input.count || count > input.count - used) {
+        if (count > input.count - used) {
             valid = false;
             return;
         }

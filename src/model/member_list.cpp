@@ -122,12 +122,10 @@ MemberListViewResult member_list_view_rebuild(
             const auto* member = guild_member_store_find(members, guild_id, position.user_id);
             if (!member)
                 continue;
-            const auto slot = static_cast<u32>(member - members.records);
-            if (slot >= members.capacity || !member->occupied)
-                return fail(projection, MemberListViewError::corrupt_source);
             if (resident >= projection->rows.count) return fail(projection, MemberListViewError::capacity);
-            projection->rows[resident++] = {member->user_id, group_id(*member), slot, member->role_color,
-                member->group_position, member->status, MemberListRowKind::member, member->generation, position.index, 0};
+            projection->rows[resident++] = {member->user_id, group_id(*member), static_cast<u32>(member - members.records),
+                member->role_color, member->group_position, member->status, MemberListRowKind::member, member->generation,
+                position.index, 0};
             ++resident_members;
         }
         for (const auto& group : members.groups) {
@@ -161,9 +159,6 @@ MemberListViewResult member_list_view_rebuild(
     u32 member_count = 0;
     for (u32 order = 0; order < members.count; ++order) {
         const u32 slot = members.order[order];
-        if (slot >= members.capacity || !members.records[slot].occupied) {
-            return fail(projection, MemberListViewError::corrupt_source);
-        }
         // Opcode 37 member-list subscriptions are channel scoped. Cached
         // identity/role data remains useful after a channel switch, but an
         // invalid list index must not remain visible in the new channel.
@@ -406,23 +401,12 @@ Utf8View member_list_row_label(const MemberListRow& row,
         if (row.group_role_id == kMemberListOnlineGroup) {
             return utf8_literal("Online");
         }
-        const RoleRecord* role = chat_state_store_find_role(
-            state,
-            row.group_role_id == 0
-                ? 0
-                : (row.member_slot < members.capacity ? members.records[row.member_slot].guild_id : 0),
-            row.group_role_id);
-        if (!role) {
-            // Group rows have no member slot. Guild role IDs are unique within
-            // the selected projection, so a bounded state scan is sufficient.
-            for (u32 index = 0; index < state.role_count; ++index) {
-                if (state.roles[index].id == row.group_role_id) {
-                    role = &state.roles[index];
-                    break;
-                }
-            }
-        }
-        return role ? chat_state_store_role_name(state, *role) : Utf8View{};
+        // Group rows have no member slot. Guild role IDs are unique within the
+        // selected projection, so a bounded state scan is sufficient.
+        for (u32 index = 0; index < state.role_count; ++index)
+            if (state.roles[index].id == row.group_role_id)
+                return chat_state_store_role_name(state, state.roles[index]);
+        return {};
     }
     if (row.member_slot >= members.capacity) {
         const auto nickname = state.private_channels ? private_channel_store_nickname(*state.private_channels, row.group_role_id, row.user_id) : Utf8View{};

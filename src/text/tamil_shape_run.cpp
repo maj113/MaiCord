@@ -127,7 +127,7 @@ SfntStatus sfnt_tamil_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
         if(!boundary(source))return SfntStatus::output_too_small;
         const bool circle=sign(initial)||(initial==0x200d&&(end>first+1||end==scalars.count));
         if(circle){status=append(0x25cc,source);if(status!=SfntStatus::ok)return status;}
-        SfntTamilInputScalar expanded[63]{};SfntTamilInputResult sizes{};
+        SfntTamilInputScalar expanded[63];SfntTamilInputResult sizes{};
         status=sfnt_tamil_expand_cluster({scalars.data+first,end-first},{expanded,62},&sizes,limits.stage_work);if(status!=SfntStatus::ok)return status;
         for(u32 i=0;i<sizes.scalar_count;++i){const auto entry=expanded[i];const u32 at=source+entry.source;
             // A consonant following an explicit virama retains its own source

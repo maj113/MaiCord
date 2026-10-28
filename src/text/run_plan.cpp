@@ -1,6 +1,7 @@
 #include "maicord/text/run_plan.hpp"
 #include "maicord/core/memory.hpp"
 #include "run_profile.hpp"
+#include "sfnt_read.hpp"
 #include "maicord/text/metric_variations.hpp"
 #include "maicord/text/nominal_participation.hpp"
 #include "maicord/text/base.hpp"
@@ -48,8 +49,7 @@ SfntStatus bold_advance(void* context,u16 glyph,double* output) noexcept {
     u32 value=metrics.advance;
     if(value){const auto& f=*p.bold_font;const u32 stride=f.loca_stride;
         if((stride!=2&&stride!=4)||!f.loca.data||f.loca.count/stride<=static_cast<u32>(glyph)+1)return SfntStatus::malformed;
-        const auto location=[&](u32 index) noexcept{return stride==4?byte_load_be32(f.loca.data+index*4):byte_load_be16(f.loca.data+index*2)*2u;};
-        const u32 first=location(glyph),end=location(static_cast<u32>(glyph)+1);if(first>end||end>f.glyf.count)return SfntStatus::malformed;
+        const u32 first=sfnt_read::loca_offset(f.loca,stride,glyph),end=sfnt_read::loca_offset(f.loca,stride,static_cast<u32>(glyph)+1);if(first>end||end>f.glyf.count)return SfntStatus::malformed;
         if(first<end){if(!f.glyf.data||end-first<10)return SfntStatus::malformed;const auto* box=f.glyf.data+first+2;
             const i32 width=static_cast<i16>(byte_load_be16(box+4))-static_cast<i16>(byte_load_be16(box));
             const i32 height=static_cast<i16>(byte_load_be16(box+6))-static_cast<i16>(byte_load_be16(box+2));

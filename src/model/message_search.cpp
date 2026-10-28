@@ -87,14 +87,13 @@ bool message_search_complete(MessageSearchController* controller, const MessageS
             fail(controller, MessageSearchFailure::retry_limit);
             return true;
         }
-        const u64 delay = retry_after_ms;
         // Neither index readiness nor rate limits may invent a server deadline.
-        if (!delay || delay > ~u64{0} - now_ms) {
+        if (!retry_after_ms || retry_after_ms > ~u64{0} - now_ms) {
             fail(controller, MessageSearchFailure::deadline);
             return true;
         }
         ++controller->indexing_retries;
-        controller->retry_at_ms = now_ms + delay;
+        controller->retry_at_ms = now_ms + retry_after_ms;
         controller->state =
             http_status == 202 ? MessageSearchState::indexing : MessageSearchState::rate_limited;
     } else if (http_status != 200) {

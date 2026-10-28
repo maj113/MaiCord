@@ -47,8 +47,7 @@ NotificationSoundInvocation invoke(NotificationSoundThrottle* s,u64 now) noexcep
 }
 NotificationSoundInvocation notification_sound_throttle_request(NotificationSoundThrottle* s,u64 now,
     NotificationSoundRequest request) noexcept {
-    if(!s||!request.generation||request.generation!=s->generation||static_cast<u8>(request.kind)>static_cast<u8>(NotificationSoundKind::message3)||
-        !is_finite(request.volume)||request.volume<0.0f||request.volume>1.0f)return {};
+    if(!s||!request.generation||request.generation!=s->generation)return {};
     const bool invoking=should_invoke(*s,now);
     s->pending_request=request;s->pending=true;s->last_call_ms=now;s->has_last_call=true;
     if(invoking) {

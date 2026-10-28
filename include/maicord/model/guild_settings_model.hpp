@@ -82,10 +82,6 @@ GuildRoleLock guild_settings_role_lock(const GuildSettingsAccess&, const RoleRec
 // administrators hold both), for a role below the account's highest role or
 // that role itself; the owner may view as any role.
 bool guild_settings_can_view_as_role(const GuildSettingsAccess&, const RoleRecord&) noexcept;
-// The account's guild-level permissions (its real roles, two-factor gate
-// applied) with one role's permissions replaced by a draft's.
-PermissionSet guild_settings_self_permissions_with(const ChatStateStore&, const GuildSettingsAccess&, u64 role_id,
-                                                   PermissionSet role_permissions) noexcept;
 
 // Roles of a guild by hierarchy, highest first, @everyone last. Returns the
 // number written; rows beyond output are dropped.

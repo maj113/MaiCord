@@ -77,7 +77,7 @@ NativeFontSessionStats native_font_session_stats(const NativeFontSession* sessio
     if(!session)return {};NativeFontSessionStats stats{};stats.live=native_font_stats(session->fonts);
     stats.metadata_committed=session->faces.committed+session->instances.committed+session->runs.committed;
     stats.metadata_committed+=session->header_committed;
-    for(u32 i=0;i<session->store.slots.count;++i){const auto& instance=session->store.slots[i];if(instance.references){++stats.instances;stats.instance_committed+=instance.state.committed;}}
+    for(u32 i=0;i<session->store.slots.count;++i)if(session->store.slots[i].references)++stats.instances;
     stats.peak_files=session->peak_files;stats.peak_faces=session->peak_faces;stats.peak_instances=session->peak_instances;stats.peak_mapped_bytes=session->peak_mapped_bytes;stats.references=session->references;return stats;
 }
 NativeFontResult native_font_session_face(NativeFontSession* session,const wchar_t* path,u32 index,NativeFontHandle* output) noexcept {

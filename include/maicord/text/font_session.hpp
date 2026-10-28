@@ -7,7 +7,7 @@ struct NativeFontRunHandle;
 struct NativeFontSelection;
 struct NativeFontSessionStats {
     NativeFontStoreStats live;
-    usize metadata_committed,instance_committed;
+    usize metadata_committed;
     u64 peak_mapped_bytes;
     u32 instances,peak_files,peak_faces,peak_instances,references;
 };

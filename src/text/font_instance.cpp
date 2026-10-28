@@ -12,7 +12,8 @@ NativeFontInstanceSlot* slot(const NativeFontInstanceStore& s,NativeFontInstance
     auto& p=s.slots[h.slot-1];return p.references&&p.generation==h.generation?&p:nullptr;
 }
 template<class T> usize bytes(u32 n) noexcept {return (static_cast<usize>(n)*sizeof(T)+7)&~usize{7};}
-template<class T> Slice<T> array(Arena& state,u32 count) noexcept {return {count?arena_allocate<T>(&state,count):nullptr,count};}
+void* array_data(Arena& state,u32 count,usize size,usize align) noexcept {return count?arena_allocate(&state,size*count,align):nullptr;}
+template<class T> Slice<T> array(Arena& state,u32 count) noexcept {return {static_cast<T*>(array_data(state,count,sizeof(T),alignof(T))),count};}
 }
 NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,NativeFontHandle handle,
     ConstSlice<FontAxisSetting> settings,bool instructions,NativeFontPrepareScratch scratch,

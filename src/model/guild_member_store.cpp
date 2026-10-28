@@ -14,7 +14,7 @@ namespace maicord {
 namespace {
 
 bool status_valid(GuildMemberStatus status) noexcept {
-    return status >= GuildMemberStatus::unknown && status <= GuildMemberStatus::offline;
+    return status <= GuildMemberStatus::offline;
 }
 #pragma clang attribute pop
 
@@ -163,17 +163,10 @@ u64* overflow_take(GuildMemberStore* store, u32 count, u32* offset) noexcept {
     return overflow_data(*store) + *offset;
 }
 
-bool erase_slot(GuildMemberStore* store, u32 slot) noexcept {
-    if (slot >= store->capacity || !store->records[slot].occupied) {
-        return false;
-    }
-    const u64 guild_id = store->records[slot].guild_id;
-    const u64 user_id = store->records[slot].user_id;
+// `slot` must hold an occupied record; the order array lists every occupied record.
+void erase_slot(GuildMemberStore* store, u32 slot) noexcept {
     bool found = false;
-    const u32 order_index = find_order(*store, guild_id, user_id, &found);
-    if (!found || store->order[order_index] != slot) {
-        return false;
-    }
+    const u32 order_index = find_order(*store, store->records[slot].guild_id, store->records[slot].user_id, &found);
     overflow_release(store, store->records[slot]);
     const u16 generation = next_generation(store->records[slot].generation);
     reset_value<GuildMemberRecord>(&store->records[slot]);
@@ -183,7 +176,6 @@ bool erase_slot(GuildMemberStore* store, u32 slot) noexcept {
     }
     --store->count;
     store->order[store->count] = ~0u;
-    return true;
 }
 
 void resolve_roles(const ChatStateStore& state, u64 guild_id, ConstSlice<u64> role_ids,
@@ -395,6 +387,15 @@ void view_scope(GuildMemberStore* store, u64 guild_id, u64 list_id) noexcept {
     store->lists[scope].viewed = store->clock;
 }
 
+void note_store_change(GuildMemberStore* store) noexcept {
+    saturating_increment(store->revision);
+    saturating_increment(store->mutations);
+}
+void note_record_change(GuildMemberStore* store, GuildMemberRecord& record) noexcept {
+    saturating_increment(record.revision);
+    note_store_change(store);
+}
+
 GuildMemberStoreResult fail(GuildMemberStore* store,
                                    GuildMemberStoreError error) noexcept {
     if (store)
@@ -431,9 +432,7 @@ bool guild_member_store_observe_role(GuildMemberStore* store, const ChatStateSto
             record.role_color = record.group_position = 0;
             refresh = true;
         }
-        saturating_increment(record.revision);
-        saturating_increment(store->revision);
-        saturating_increment(store->mutations);
+        note_record_change(store, record);
     }
     return refresh;
 }
@@ -505,8 +504,8 @@ void guild_member_store_reset_lists(GuildMemberStore* store) noexcept {
     reset_value(&store->visible);
     changed |= store->positions.count != 0;
     reset_value(&store->positions);
-    saturating_increment_if(changed, store->revision);
-    saturating_increment_if(changed, store->mutations);
+    if (changed)
+        note_store_change(store);
 }
 
 void guild_member_store_retire_role_authority(GuildMemberStore* store) noexcept {
@@ -552,9 +551,10 @@ GuildMemberStoreResult guild_member_store_upsert(
     u32 slot = found ? store->order[order_index] : empty_slot(*store);
     if (!found && slot == store->capacity) {
         slot = least_recent_slot(*store);
-        if (slot == store->capacity || !erase_slot(store, slot)) {
+        if (slot == store->capacity) {
             return fail(store, GuildMemberStoreError::capacity);
         }
+        erase_slot(store, slot);
         evicted = true;
         order_index = find_order(*store, guild_id, user_id, &found);
     }
@@ -597,9 +597,7 @@ GuildMemberStoreResult guild_member_store_upsert(
                 previous.list_id != list_id || previous.list_index != list_index)
                 continue;
             previous.list_index = ~0u;
-            saturating_increment(previous.revision);
-            saturating_increment(store->revision);
-            saturating_increment(store->mutations);
+            note_record_change(store, previous);
         }
         for (auto& list : store->lists) {
             if (list.guild_id != guild_id || list.list_id != list_id)
@@ -638,12 +636,10 @@ GuildMemberStoreResult guild_member_store_upsert(
     // stays with a pinned list.
     if (list_id && list_index != ~0u &&
         position_set(store, scope_slot(*store, guild_id, list_id), list_index, user_id) && !changed) {
-        saturating_increment(store->revision);
-        saturating_increment(store->mutations);
+        note_store_change(store);
     }
-    saturating_increment_if(changed, record.revision);
-    saturating_increment_if(changed, store->revision);
-    saturating_increment_if(changed, store->mutations);
+    if (changed)
+        note_record_change(store, record);
     saturating_increment_if(evicted, store->evictions);
     return GuildMemberStoreResult{&record, GuildMemberStoreError::none, !found, changed,
                                          evicted};
@@ -659,9 +655,7 @@ bool guild_member_store_restore_display(GuildMemberStore* store, const ChatState
     if (record.roles_known || record.role_color == role_color)
         return true;
     record.role_color = role_color;
-    saturating_increment(record.revision);
-    saturating_increment(store->revision);
-    saturating_increment(store->mutations);
+    note_record_change(store, record);
     return true;
 }
 
@@ -769,16 +763,12 @@ bool guild_member_store_set_timeout(GuildMemberStore* store, u64 guild_id, u64 u
         return true;
     record.communication_disabled_until = until;
     record.communication_disabled_known = true;
-    saturating_increment(record.revision);
-    saturating_increment(store->revision);
-    saturating_increment(store->mutations);
+    note_record_change(store, record);
     return true;
 }
 
 Utf8View guild_member_store_nickname(const GuildMemberRecord& record) noexcept {
-    return record.occupied && record.nickname_bytes <= kGuildMemberNicknameMaximumBytes
-               ? Utf8View{record.nickname, record.nickname_bytes}
-               : Utf8View{};
+    return record.occupied ? Utf8View{record.nickname, record.nickname_bytes} : Utf8View{};
 }
 
 bool guild_member_store_remove(GuildMemberStore* store, u64 guild_id, u64 user_id) noexcept {
@@ -787,12 +777,12 @@ bool guild_member_store_remove(GuildMemberStore* store, u64 guild_id, u64 user_i
     }
     bool found = false;
     const u32 order_index = find_order(*store, guild_id, user_id, &found);
-    if (!found || !erase_slot(store, store->order[order_index])) {
+    if (!found) {
         return false;
     }
+    erase_slot(store, store->order[order_index]);
     positions_remove_user(store, guild_id, user_id);
-    saturating_increment(store->revision);
-    saturating_increment(store->mutations);
+    note_store_change(store);
     return true;
 }
 
@@ -804,11 +794,7 @@ bool guild_member_store_invalidate_list_range(GuildMemberStore* store, u64 guild
     }
     bool changed = false;
     for (u32 order = 0; order < store->count; ++order) {
-        const u32 slot = store->order[order];
-        if (slot >= store->capacity || !store->records[slot].occupied) {
-            return false;
-        }
-        GuildMemberRecord& member = store->records[slot];
+        GuildMemberRecord& member = store->records[store->order[order]];
         if (member.guild_id != guild_id || (list_id != 0 && member.list_id != list_id) ||
             member.list_index < first || member.list_index > last) {
             continue;
@@ -832,8 +818,8 @@ bool guild_member_store_invalidate_list_range(GuildMemberStore* store, u64 guild
     const u32 positions_before = store->positions.count;
     positions_invalidate(store, guild_id, list_id, first, last);
     changed |= positions_before != store->positions.count;
-    saturating_increment_if(changed, store->revision);
-    saturating_increment_if(changed, store->mutations);
+    if (changed)
+        note_store_change(store);
     return true;
 }
 
@@ -1170,8 +1156,7 @@ bool guild_member_store_shift_list(GuildMemberStore* store, u64 guild_id, u64 li
                 --list->logical_count;
         }
     }
-    saturating_increment(store->revision);
-    saturating_increment(store->mutations);
+    note_store_change(store);
     return true;
 }
 

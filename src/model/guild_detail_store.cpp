@@ -36,12 +36,6 @@ u32 region_bytes(const GuildDetailRecord& record) noexcept {
     return static_cast<u32>(record.description_bytes) + record.vanity_bytes + record.feature_names_bytes;
 }
 
-// Regions only ever move toward the bank start, so a forward copy is safe.
-void move_down(char* destination, const char* source, u32 bytes) noexcept {
-    for (u32 i = 0; i < bytes; ++i)
-        destination[i] = source[i];
-}
-
 // Places regions in bank order; equal offsets (empty regions) by index.
 void compact(GuildDetailStore* store) noexcept {
     u32 used = 0;
@@ -61,7 +55,7 @@ void compact(GuildDetailStore* store) noexcept {
         floor = next_key + 1;
         auto& record = store->records[next];
         const u32 bytes = region_bytes(record);
-        move_down(store->text + used, store->text + record.text_offset, bytes);
+        copy_bytes(store->text + used, store->text + record.text_offset, bytes);
         record.text_offset = used;
         used += bytes;
     }

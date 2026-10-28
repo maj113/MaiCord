@@ -42,7 +42,7 @@ bool spend(u64& work,u64 count) noexcept {if(count>work)return false;work-=count
 enum class Profile:u8 {sinhala,khmer,myanmar,tibetan};
 // Share execution for the six-stage profiles. Only Khmer needs a different
 // membership representation; script/language policy runs once before scheduling.
-template<bool khmer> struct Builder {
+struct Builder {
     const SfntLayout& layout;const SfntFeatureSubstitutions& variations;bool independent;
     Slice<u8> scratch;Slice<SfntLookupStep> output;SfntLookupPlanResult& result;u64 work;bool modern;Profile profile;
     SfntStatus add(u16 index,u8 stages) noexcept {
@@ -56,7 +56,7 @@ template<bool khmer> struct Builder {
         return SfntStatus::ok;
     }
     SfntStatus run() noexcept {
-        const bool myanmar=profile==Profile::myanmar,tibetan=profile==Profile::tibetan;
+        const bool khmer=profile==Profile::khmer,myanmar=profile==Profile::myanmar,tibetan=profile==Profile::tibetan;
         const bool gpos=layout.kind==SfntLayoutKind::positioning;
         const u32 first=khmer?sfnt_tag('k','h','m','r'):myanmar?(modern?sfnt_tag('m','y','m','2'):sfnt_tag('m','y','m','r')):tibetan?sfnt_tag('t','i','b','t'):sfnt_tag('s','i','n','h');
         if(myanmar&&gpos){
@@ -123,28 +123,28 @@ template<bool khmer> struct Builder {
         return SfntStatus::ok;
     }
 };
-template<Profile profile> SfntStatus plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
+SfntStatus plan(Profile profile,const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
     Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work,bool modern=true) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
     if(!layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(output.count&&!output.data))return SfntStatus::invalid_input;
-    Builder<profile==Profile::khmer> builder{layout,variations,independent,scratch,output,*result,work,modern,profile};
+    Builder builder{layout,variations,independent,scratch,output,*result,work,modern,profile};
     const auto status=builder.run();result->operations=work-builder.work;return status;
 }
 }
 SfntStatus sfnt_sinhala_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
     Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    return plan<Profile::sinhala>(layout,variations,independent,scratch,output,result,work);
+    return plan(Profile::sinhala,layout,variations,independent,scratch,output,result,work);
 }
 SfntStatus sfnt_myanmar_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
     Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work,bool modern) noexcept {
-    return plan<Profile::myanmar>(layout,variations,independent,scratch,output,result,work,modern);
+    return plan(Profile::myanmar,layout,variations,independent,scratch,output,result,work,modern);
 }
 SfntStatus sfnt_khmer_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,
     Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    return plan<Profile::khmer>(layout,variations,false,scratch,output,result,work);
+    return plan(Profile::khmer,layout,variations,false,scratch,output,result,work);
 }
 SfntStatus sfnt_tibetan_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
     Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    return plan<Profile::tibetan>(layout,variations,independent,scratch,output,result,work);
+    return plan(Profile::tibetan,layout,variations,independent,scratch,output,result,work);
 }
 }

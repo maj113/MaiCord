@@ -10,6 +10,8 @@
 namespace maicord {
 namespace {
 
+#include "chat_state_backing.inc"
+
 u32 find_guild_order(const ChatStateStore& store, u64 id, bool* found) noexcept {
     const u32 first = sorted_lower_bound(
         store.guild_count, [&](u32 at) noexcept { return store.guilds[store.guild_order[at]].id < id; });
@@ -43,33 +45,16 @@ u32 empty_guild_slot(const ChatStateStore& store) noexcept {
     return store.guild_capacity;
 }
 
-// Backs the first `required` channel slots (records and order) before use. A
-// store without a backing callback is fully backed.
+// Backs the first `required` channel slots (records and order) before use.
 bool back_channels(const ChatStateStore& store, u32 required) noexcept {
-    if (required <= store.channel_backed_count)
-        return true;
-    if (required > store.channel_capacity)
-        return false;
-    if (!store.backing_reserve)
-        return true;
-    if (!store.backing_reserve(store.backing_context, ChatStateBacking::channels, 0, required))
-        return false;
-    store.channel_backed_count = required;
-    return true;
+    return back_range(store, ChatStateBacking::channels, 0, store.channel_backed_count, store.channel_capacity,
+                      required);
 }
 
 // Backs the first `bytes` of name bank `bank` before use.
 bool back_names(const ChatStateStore& store, u32 bank, u32 bytes) noexcept {
-    if (bytes <= store.name_backed_bytes[bank])
-        return true;
-    if (bytes > store.name_bank_bytes)
-        return false;
-    if (!store.backing_reserve)
-        return true;
-    if (!store.backing_reserve(store.backing_context, ChatStateBacking::names, bank, bytes))
-        return false;
-    store.name_backed_bytes[bank] = bytes;
-    return true;
+    return back_range(store, ChatStateBacking::names, bank, store.name_backed_bytes[bank], store.name_bank_bytes,
+                      bytes);
 }
 
 // With channel_count slots occupied, slot channel_count or an earlier one is
@@ -310,20 +295,18 @@ u32 guild_icon_variant(Utf8View hash) noexcept {
     return value == 0 ? 1u : value;
 }
 
+// Writes `hash` into a zero-padded record field; returns its length.
+u8 store_asset_hash(char (&field)[kGuildIconHashMaximumBytes], Utf8View hash) noexcept {
+    for (u32 index = 0; index < kGuildIconHashMaximumBytes; ++index)
+        field[index] = index < hash.bytes ? hash.data[index] : 0;
+    return static_cast<u8>(hash.bytes);
+}
+
 bool guild_icon_equals(const GuildRecord& record, Utf8View hash) noexcept {
     if (record.icon_hash_bytes != hash.bytes) {
         return false;
     }
     return bytes_equal(record.icon_hash, hash.data, hash.bytes);
-}
-
-GuildRecord* mutable_guild(ChatStateStore* store, u64 guild_id) noexcept {
-    if (!store || guild_id == 0) {
-        return nullptr;
-    }
-    bool found = false;
-    const u32 order = find_guild_order(*store, guild_id, &found);
-    return found ? &store->guilds[store->guild_order[order]] : nullptr;
 }
 
 #include "guild_activity.inc"
@@ -555,20 +538,13 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
         record.name_bytes = static_cast<u16>(input.name.bytes);
     }
     if (replace_icon) {
-        for (u32 index = 0; index < kGuildIconHashMaximumBytes; ++index) {
-            record.icon_hash[index] = index < input.icon_hash.bytes ? input.icon_hash.data[index] : 0;
-        }
-        record.icon_hash_bytes = static_cast<u8>(input.icon_hash.bytes);
+        record.icon_hash_bytes = store_asset_hash(record.icon_hash, input.icon_hash);
         record.icon_variant = input.icon_hash.bytes != 0 ? guild_icon_variant(input.icon_hash) : 0;
     }
     // Banners are presentation: a malformed hash is dropped, never the guild.
-    if (input.banner_known) {
-        const bool valid = asset_hash_valid(input.banner_hash);
-        const u32 bytes = valid ? input.banner_hash.bytes : 0u;
-        for (u32 index = 0; index < kGuildIconHashMaximumBytes; ++index)
-            record.banner_hash[index] = index < bytes ? input.banner_hash.data[index] : 0;
-        record.banner_hash_bytes = static_cast<u8>(bytes);
-    }
+    if (input.banner_known)
+        record.banner_hash_bytes =
+            store_asset_hash(record.banner_hash, asset_hash_valid(input.banner_hash) ? input.banner_hash : Utf8View{});
     if (input.owner_id != 0) {
         record.owner_id = input.owner_id;
     }
@@ -736,16 +712,19 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
     return back_name_budget(store, budget);
 }
 
+static bool channel_input_invalid(const ChannelInput& input) noexcept {
+    const bool thread = channel_is_thread(input.type);
+    return input.id == 0 || (input.content_policy & ~kChannelContentAgeRestricted) ||
+           (!input.content_policy_known && input.content_policy) ||
+           (input.thread_listed_active && !input.thread_active_known) || (input.thread_active_known && !thread) ||
+           (input.thread_join_seconds && (!thread || !input.thread_self_joined)) ||
+           (channel_is_private(input.type) ? input.guild_id != 0 || input.parent_id != 0 : input.guild_id == 0) ||
+           !valid_name(input.name);
+}
+
 ChatStateStoreError chat_state_store_preflight_channel(const ChatStateStore& store,
                                                              const ChannelInput& input) noexcept {
-    const bool private_channel = channel_is_private(input.type);
-    if (!preflight_header(store) || input.id == 0 || !valid_name(input.name) ||
-        (input.content_policy & ~kChannelContentAgeRestricted) ||
-        (!input.content_policy_known && input.content_policy) ||
-        (input.thread_listed_active && !input.thread_active_known) ||
-        (input.thread_active_known && !channel_is_thread(input.type)) ||
-        (input.thread_join_seconds && (!channel_is_thread(input.type) || !input.thread_self_joined)) ||
-        (private_channel ? input.guild_id != 0 || input.parent_id != 0 : input.guild_id == 0))
+    if (!preflight_header(store) || channel_input_invalid(input))
         return ChatStateStoreError::invalid_input;
     bool found = false;
     u32 slot = 0;
@@ -811,14 +790,7 @@ ChatStateStoreError chat_state_store_preflight_channel_batch(const ChatStateStor
 ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
                                                            const ChannelInput& input) noexcept {
     const bool private_channel = channel_is_private(input.type);
-    if (!store || !store->channels || input.id == 0 ||
-        (input.content_policy & ~kChannelContentAgeRestricted) ||
-        (!input.content_policy_known && input.content_policy) ||
-        (input.thread_listed_active && !input.thread_active_known) ||
-        (input.thread_active_known && !channel_is_thread(input.type)) ||
-        (input.thread_join_seconds && (!channel_is_thread(input.type) || !input.thread_self_joined)) ||
-        (private_channel ? input.guild_id != 0 || input.parent_id != 0 : input.guild_id == 0) ||
-        !valid_name(input.name)) {
+    if (!store || !store->channels || channel_input_invalid(input)) {
         return state_error(store, ChatStateStoreError::invalid_input);
     }
     bool found = false;
@@ -834,8 +806,7 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
     if (found && record.guild_id != input.guild_id) {
         return state_error(store, ChatStateStoreError::invalid_input);
     }
-    const bool old_unread = found && chat_state_store_channel_unread(*store, record);
-    const u32 old_mentions = chat_state_store_channel_visible(*store, record) ? record.mention_count : 0;
+    const ChannelActivity old = found ? channel_activity(*store, record) : ChannelActivity{};
     const bool replace_name =
         input.name.bytes != 0 &&
         (!found || !name_equals(*store, record.name_offset, record.name_bytes, input.name));
@@ -932,13 +903,7 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
     // insertion contributes activity to the guild, avoiding a transient badge.
     if (!read_state_apply_pending(store, &record))
         return state_error(store, ChatStateStoreError::invalid_input);
-    const bool new_unread = chat_state_store_channel_unread(*store, record);
-    const u32 new_mentions = chat_state_store_channel_visible(*store, record) ? record.mention_count : 0;
-    adjust_guild_activity(mutable_guild(store, record.guild_id), old_unread, old_mentions, new_unread,
-                          new_mentions);
-    if (old_unread != new_unread || old_mentions != new_mentions) {
-        ++store->activity_mutations;
-    }
+    commit_channel_activity(store, record, old);
     saturating_increment(record.revision);
     ++store->channel_mutations;
     const bool changed = chat_state_store_select_default(store);
@@ -957,12 +922,10 @@ bool chat_state_store_remove_channel(ChatStateStore* store, u64 channel_id) noex
     ChannelRecord& record = store->channels[store->channel_order[order_index]];
     if (!read_state_remove_channel(store, record))
         return false;
-    const bool old_unread = chat_state_store_channel_unread(*store, record);
-    const u32 old_mentions = chat_state_store_channel_visible(*store, record) ? record.mention_count : 0;
-    adjust_guild_activity(mutable_guild(store, record.guild_id), old_unread, old_mentions, false, 0);
-    if (old_unread || old_mentions != 0) {
+    const ChannelActivity old = channel_activity(*store, record);
+    adjust_guild_activity(mutable_guild(store, record.guild_id), old.unread, old.mentions, false, 0);
+    if (old.unread || old.mentions != 0)
         ++store->activity_mutations;
-    }
     chat_state_store_clear_channel_overwrites(store, channel_id);
     if (store->private_channels)
         private_channel_store_remove(store->private_channels, channel_id);
@@ -1107,15 +1070,11 @@ Utf8View chat_state_store_guild_name(const ChatStateStore& store,
 }
 
 Utf8View chat_state_store_guild_icon_hash(const GuildRecord& record) noexcept {
-    return record.occupied && record.icon_hash_bytes <= kGuildIconHashMaximumBytes
-               ? Utf8View{record.icon_hash, record.icon_hash_bytes}
-               : Utf8View{};
+    return record.occupied ? Utf8View{record.icon_hash, record.icon_hash_bytes} : Utf8View{};
 }
 
 Utf8View chat_state_store_guild_banner_hash(const GuildRecord& record) noexcept {
-    return record.occupied && record.banner_hash_bytes <= kGuildIconHashMaximumBytes
-               ? Utf8View{record.banner_hash, record.banner_hash_bytes}
-               : Utf8View{};
+    return record.occupied ? Utf8View{record.banner_hash, record.banner_hash_bytes} : Utf8View{};
 }
 
 Utf8View chat_state_store_channel_name(const ChatStateStore& store,
@@ -1201,16 +1160,10 @@ bool channel_is_message_capable(u8 type) noexcept {
            type == 12 || type == 13;
 }
 bool chat_state_store_touch_private_channel(ChatStateStore* store, u64 channel_id) noexcept {
-    if (!store || !channel_id)
+    auto* channel = mutable_channel(store, channel_id);
+    if (!channel || !channel_is_private(channel->type))
         return false;
-    bool found = false;
-    const u32 order = find_channel_order(*store, channel_id, &found);
-    if (!found)
-        return false;
-    auto& channel = store->channels[store->channel_order[order]];
-    if (!channel_is_private(channel.type))
-        return false;
-    saturating_increment(channel.revision);
+    saturating_increment(channel->revision);
     saturating_increment(store->channel_mutations);
     return true;
 }
@@ -1385,33 +1338,28 @@ enum class ThreadAuthorityField : u8 {
     active
 };
 
-void finish_thread_authority_change(ChatStateStore* store, ChannelRecord& channel,
-                                    bool old_unread, u32 old_mentions) noexcept {
+void finish_thread_authority_change(ChatStateStore* store, ChannelRecord& channel, ChannelActivity old) noexcept {
     channel.actions = chat_state_store_thread_actions(*store, channel);
-    const bool new_unread = chat_state_store_channel_unread(*store, channel);
-    const u32 new_mentions =
-        chat_state_store_channel_visible(*store, channel) ? channel.mention_count : 0;
-    adjust_guild_activity(mutable_guild(store, channel.guild_id), old_unread, old_mentions, new_unread,
-                          new_mentions);
-    if (old_unread != new_unread || old_mentions != new_mentions)
-        ++store->activity_mutations;
+    commit_channel_activity(store, channel, old);
     saturating_increment(channel.revision);
     ++store->channel_mutations;
 }
 
+// The occupied thread of the current account, or null.
+ChannelRecord* self_thread(ChatStateStore* store, u64 thread_id, u64 self_user_id) noexcept {
+    if (!store || !self_user_id || self_user_id != store->self_user_id)
+        return nullptr;
+    auto* channel = mutable_channel(store, thread_id);
+    return channel && channel->occupied && channel_is_thread(channel->type) ? channel : nullptr;
+}
+
 bool set_thread_authority(ChatStateStore* store, u64 thread_id, u64 self_user_id, bool value, bool known,
                           ThreadAuthorityField field) noexcept {
-    if (!store || !self_user_id || self_user_id != store->self_user_id)
-        return false;
-    bool found = false;
-    const u32 order = find_channel_order(*store, thread_id, &found);
+    auto* found = self_thread(store, thread_id, self_user_id);
     if (!found)
         return false;
-    auto& channel = store->channels[store->channel_order[order]];
-    if (!channel.occupied || !channel_is_thread(channel.type))
-        return false;
-    const auto* guild = chat_state_store_find_guild(*store, channel.guild_id);
-    if (!guild || guild->unavailable)
+    auto& channel = *found;
+    if (guild_unavailable(*store, channel.guild_id))
         return false;
     const bool old_known = field == ThreadAuthorityField::membership ? channel.thread_self_joined_known
                            : field == ThreadAuthorityField::archived ? channel.thread_archived_known
@@ -1423,9 +1371,7 @@ bool set_thread_authority(ChatStateStore* store, u64 thread_id, u64 self_user_id
                                                                    : channel.thread_listed_active;
     if (old_known == known && (!known || old_value == value))
         return true;
-    const bool old_unread = chat_state_store_channel_unread(*store, channel);
-    const u32 old_mentions =
-        chat_state_store_channel_visible(*store, channel) ? channel.mention_count : 0;
+    const ChannelActivity old = channel_activity(*store, channel);
     if (field == ThreadAuthorityField::membership) {
         channel.thread_self_joined_known = known;
         if (known) {
@@ -1446,7 +1392,7 @@ bool set_thread_authority(ChatStateStore* store, u64 thread_id, u64 self_user_id
         if (known)
             channel.thread_listed_active = value;
     }
-    finish_thread_authority_change(store, channel, old_unread, old_mentions);
+    finish_thread_authority_change(store, channel, old);
     chat_state_store_select_default(store);
     return true;
 }
@@ -1460,28 +1406,17 @@ bool chat_state_store_set_thread_self_membership(ChatStateStore* store, u64 thre
 
 bool chat_state_store_set_thread_join_time(ChatStateStore* store, u64 thread_id, u64 self_user_id,
                                               u32 seconds) noexcept {
-    if (!store || !seconds || !self_user_id || self_user_id != store->self_user_id)
+    if (!seconds)
         return false;
-    bool found = false;
-    const u32 order = find_channel_order(*store, thread_id, &found);
-    if (!found)
+    auto* channel = self_thread(store, thread_id, self_user_id);
+    if (!channel || !channel->thread_self_joined_known || !channel->thread_self_joined)
         return false;
-    auto& channel = store->channels[store->channel_order[order]];
-    if (!channel.occupied || !channel_is_thread(channel.type) || !channel.thread_self_joined_known ||
-        !channel.thread_self_joined)
-        return false;
-    if (channel.thread_join_seconds != seconds) {
+    if (channel->thread_join_seconds != seconds) {
         // The join time is the unread baseline of a thread without an ACK.
-        const bool old_unread = chat_state_store_channel_unread(*store, channel);
-        const u32 mentions = chat_state_store_channel_visible(*store, channel) ? channel.mention_count : 0;
-        channel.thread_join_seconds = seconds;
-        const bool new_unread = chat_state_store_channel_unread(*store, channel);
-        if (old_unread != new_unread) {
-            adjust_guild_activity(mutable_guild(store, channel.guild_id), old_unread, mentions, new_unread,
-                                  mentions);
-            ++store->activity_mutations;
-        }
-        saturating_increment(channel.revision);
+        const ChannelActivity old = channel_activity(*store, *channel);
+        channel->thread_join_seconds = seconds;
+        commit_channel_activity(store, *channel, old);
+        saturating_increment(channel->revision);
         ++store->channel_mutations;
     }
     return true;
@@ -1509,14 +1444,11 @@ bool chat_state_store_set_thread_listing_synced(ChatStateStore* store, u64 paren
                                                    u64 self_user_id, bool synced) noexcept {
     if (!store || !self_user_id || self_user_id != store->self_user_id)
         return false;
-    bool found = false;
-    const u32 order = find_channel_order(*store, parent_id, &found);
-    if (!found)
+    auto* found = mutable_channel(store, parent_id);
+    if (!found || !found->occupied || !channel_is_thread_parent(found->type) ||
+        guild_unavailable(*store, found->guild_id))
         return false;
-    auto& parent = store->channels[store->channel_order[order]];
-    const auto* guild = chat_state_store_find_guild(*store, parent.guild_id);
-    if (!parent.occupied || !channel_is_thread_parent(parent.type) || !guild || guild->unavailable)
-        return false;
+    auto& parent = *found;
     if (parent.thread_listing_synced != synced) {
         parent.thread_listing_synced = synced;
         saturating_increment(parent.revision);
@@ -1544,14 +1476,12 @@ void chat_state_store_invalidate_thread_authority(ChatStateStore* store, u64 gui
             (!channel.thread_self_joined_known && !channel.thread_archived_known &&
              !channel.thread_locked_known && !channel.thread_active_known))
             continue;
-        const bool old_unread = chat_state_store_channel_unread(*store, channel);
-        const u32 old_mentions =
-            chat_state_store_channel_visible(*store, channel) ? channel.mention_count : 0;
+        const ChannelActivity old = channel_activity(*store, channel);
         channel.thread_self_joined_known = false;
         channel.thread_archived_known = false;
         channel.thread_locked_known = false;
         channel.thread_active_known = false;
-        finish_thread_authority_change(store, channel, old_unread, old_mentions);
+        finish_thread_authority_change(store, channel, old);
         changed = true;
     }
     if (changed)

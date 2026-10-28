@@ -49,17 +49,8 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
 SfntStatus sfnt_tibetan_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
     float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;reset_value(result);
-    if((input.count&&!input.data)||(steps.count&&!steps.data)||plan.substitution_roots.count)return SfntStatus::invalid_input;
-    if(static_cast<u64>(input.count)*8+steps.count>limits.stage_work)return SfntStatus::resource_limit;
-    if(steps.count&&!plan.substitutions)return SfntStatus::invalid_input;
     u32 early=0;
-    for(u32 i=0;i<steps.count;++i){if(steps[i].feature_mask||steps[i].stage>=7||(i&&steps[i].stage<steps[i-1].stage)||
-        steps[i].lookup>=plan.substitutions->lookups.count)return SfntStatus::invalid_input;if(steps[i].stage<5)++early;}
-    u64 total_units=0;for(u32 i=0;i<input.count;++i){if(!unicode_is_scalar(input[i]))return SfntStatus::invalid_input;total_units+=input[i]>0xffff?2u:1u;}
-    if(total_units>0xffffffffull)return SfntStatus::resource_limit;
-    if(total_units>storage.character_glyphs.count)return SfntStatus::output_too_small;
-    if((storage.character_glyphs.count&&!storage.character_glyphs.data)||(storage.positions.count&&!storage.positions.data)||
-        (storage.targets.count&&!storage.targets.data))return SfntStatus::invalid_input;
+    if(const auto admitted=use_shape::admit_run(plan,input,steps,storage,limits,&early);admitted!=SfntStatus::ok)return admitted;
     // Reuse positions for initial mapping. Each complete cluster commits its
     // original group IDs before shared execution takes over this storage.
     auto* mapped=reinterpret_cast<SfntClusterGlyph*>(storage.positions.data);

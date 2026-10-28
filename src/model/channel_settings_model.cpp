@@ -40,13 +40,9 @@ bool member(void* opaque, JsonString name, JsonValue value) noexcept {
                                 {"rate_limit_per_user", field_slowmode},
                                 {"nsfw", field_nsfw}};
     u32 bit = 0;
-    for (const auto& key : keys) {
-        u32 length = 0;
-        while (key.name[length])
-            ++length;
-        if (json_string_equals_ascii(name, {key.name, length}))
+    for (const auto& key : keys)
+        if (json_string_equals_ascii(name, {key.name, c_string_length(key.name)}))
             bit = key.bit;
-    }
     if (!bit)
         return true;
     if (parse.seen & bit) {

@@ -11,6 +11,10 @@ enum Role:u8 {base_role=1,halant_role=2,pre_role=4,control_role=8,join_role=16,c
 SfntStatus run(const SfntShapePlan&,const SfntCmap&,ConstSlice<SfntClusterGlyph>,u32 source_units,u32 boundaries,
     u32 early_steps,u32 halant_scalar,float,const SfntShapeStorage&,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,const SfntShapeLimits&,bool rtl,
     const u16* control_glyphs=nullptr) noexcept;
+// Admission shared by the Sinhala and Tibetan frontends: views, step order, scalar validity and
+// the UTF-16 total. *early receives the number of steps before stage 5.
+SfntStatus admit_run(const SfntShapePlan&,ConstSlice<u32> input,ConstSlice<SfntLookupStep> steps,const SfntShapeStorage&,
+    const SfntShapeLimits&,u32* early) noexcept;
 // After late substitution, re-derives each glyph's original source group from its
 // components and reopens the cluster map on the surviving group boundaries.
 SfntStatus restore_groups(Slice<u32> groups,Slice<u32> boundaries,u32 boundary_count,SfntClusterMap*,

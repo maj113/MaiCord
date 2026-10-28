@@ -9,11 +9,7 @@ i64 quotient(i64 numerator,i64 denominator) noexcept {const bool negative=(numer
 // Fixed-point projection multiplication adds a positive half before shifting;
 // its negative ties differ from TrueType's explicit grid-rounding instructions.
 i64 projected_product(i64 numerator,i64 denominator) noexcept {return numerator<0?-((-numerator+(denominator-1)/2)/denominator):(numerator+denominator/2)/denominator;}
-bool multiply_divide(i64 a,i64 b,i64 denominator,i64* out) noexcept {
-    if(!denominator)return false;const bool negative=(a<0)^(b<0)^(denominator<0);const u64 x=static_cast<u64>(absolute_value<i64>(a)),y=static_cast<u64>(absolute_value<i64>(b)),d=static_cast<u64>(absolute_value<i64>(denominator));
-    if(y && x>0xffffffffffffffffull/y)return false;const u64 product=x*y,q=product/d,round=product%d>=(d+1)/2?1:0;
-    if(q>0x7fffffffffffffffull-round)return false;*out=negative?-static_cast<i64>(q+round):static_cast<i64>(q+round);return true;
-}
+using tt_math::multiply_divide;
 using tt_math::normalized_vector;
 i64 rounded(i32 v,const TtGraphicsState& g) noexcept {
     const i64 a=absolute_value<i64>(static_cast<i64>(v));i64 value=a;
@@ -49,11 +45,11 @@ struct Machine {
         if(!multiply_divide(distance,g.freedom_x,dot,&x)||!multiply_divide(distance,g.freedom_y,dot,&y))return SfntStatus::malformed;
         if(x<-2147483648ll-p.x || x>2147483647ll-p.x || y<-2147483648ll-p.y || y>2147483647ll-p.y)return SfntStatus::malformed;p.x=static_cast<i32>(p.x+x);p.y=static_cast<i32>(p.y+y);if(g.freedom_x)p.touched|=1;if(g.freedom_y)p.touched|=2;return SfntStatus::ok;
     }
-    bool distance(const TtPoint& a,const TtPoint& b,bool original,i64* value,bool unscaled=true,bool current_vector=false) noexcept {
+    i64 distance(const TtPoint& a,const TtPoint& b,bool original,bool unscaled=true,bool current_vector=false) noexcept {
         const i64 x=static_cast<i64>(original?a.original_x:a.x)-(original?b.original_x:b.x),y=static_cast<i64>(original?a.original_y:a.y)-(original?b.original_y:b.y);const auto& g=s.graphics;
         const i64 scale=original && unscaled?64:1;
         const i16 vx=original&&!current_vector?g.dual_x:g.projection_x,vy=original&&!current_vector?g.dual_y:g.projection_y;
-        *value=(projected_product(x*vx,16384*scale)+projected_product(y*vy,16384*scale))*scale;return true;
+        return (projected_product(x*vx,16384*scale)+projected_product(y*vy,16384*scale))*scale;
     }
     SfntStatus vector_line(u8 op) noexcept {
         i32 a=0,b=0;if(!two(&a,&b))return SfntStatus::malformed;auto& g=s.graphics;const auto* p1=point(g.zp[2],b);const auto* p2=point(g.zp[1],a);if(!p1||!p2)return SfntStatus::malformed;
@@ -72,7 +68,7 @@ struct Machine {
                 const i64 x=reference->original_x+quotient(target*g.freedom_x,16384),y=reference->original_y+quotient(target*g.freedom_y,16384);if(!fits(x)||!fits(y))return SfntStatus::malformed;
                 p->x=p->original_x=static_cast<i32>(x);p->y=p->original_y=static_cast<i32>(y);}
         }
-        if(!distance(*p,*reference,true,&original,op<0xe0 && g.zp[0] && g.zp[1])||!distance(*p,*reference,false,&current))return SfntStatus::unsupported;
+        original=distance(*p,*reference,true,op<0xe0 && g.zp[0] && g.zp[1]);current=distance(*p,*reference,false);
         if(op<0xe0)target=single_width(original);else{if(g.auto_flip && ((original<0)!=(target<0)))target=-target;if((op&4) && g.zp[0]==g.zp[1] && absolute_value<i64>(target-original)>g.cvt_cut_in)target=original;}
         if(op&4){if(!fits(target))return SfntStatus::unsupported;target=rounded(static_cast<i32>(target),g);}
         if(op&8)target=original<0?minimum(target,-static_cast<i64>(g.minimum_distance)):maximum(target,static_cast<i64>(g.minimum_distance));
@@ -80,7 +76,7 @@ struct Machine {
     }
     SfntStatus shift(u8 op) noexcept {
         auto& g=s.graphics;const u32 zone=op&1?g.zp[0]:g.zp[1],index=op&1?g.rp[1]:g.rp[2];auto* reference=point(zone,static_cast<i32>(index));if(!reference)return SfntStatus::malformed;
-        i64 delta=0;if(!distance(*reference,TtPoint{reference->original_x,reference->original_y,reference->original_x,reference->original_y,0,0,0},false,&delta))return SfntStatus::unsupported;
+        const i64 delta=distance(*reference,TtPoint{reference->original_x,reference->original_y,reference->original_x,reference->original_y,0,0,0},false);
         if(op<=0x33){if(g.loop>s.stack_count)return SfntStatus::malformed;if(!spend(g.loop))return SfntStatus::resource_limit;
             for(u32 i=0;i<g.loop;++i){i32 p=0;pop(&p);auto* target=point(g.zp[2],p);if(!target)return SfntStatus::malformed;const auto status=move(*target,delta,true);if(status!=SfntStatus::ok)return status;}g.loop=1;return SfntStatus::ok;}
         i32 item=0;if(!pop(&item)||item<0)return SfntStatus::malformed;u32 first=0,last=0,target_zone=g.zp[2];
@@ -157,21 +153,21 @@ struct Machine {
             case 0x2e:case 0x2f:{if(!pop(&a))return SfntStatus::malformed;auto* p=point(g.zp[0],a);if(!p)return SfntStatus::malformed;i32 position=0;if(!project(*p,false,&position))return SfntStatus::unsupported;const auto status=move(*p,(op&1)?rounded(position,g)-position:0,true);if(status!=SfntStatus::ok)return status;g.rp[0]=g.rp[1]=static_cast<u32>(a);break;}
             case 0x30:case 0x31:{const auto status=iup(op==0x30?1:0);if(status!=SfntStatus::ok)return status;break;}
             case 0x39:{auto* p1=point(g.zp[0],static_cast<i32>(g.rp[1]));auto* p2=point(g.zp[1],static_cast<i32>(g.rp[2]));if(!p1||!p2||g.loop>s.stack_count)return SfntStatus::malformed;
-                const bool unscaled=g.zp[0] && g.zp[1] && g.zp[2];i64 old_range=0,new_range=0;if(!distance(*p2,*p1,true,&old_range,unscaled)||!distance(*p2,*p1,false,&new_range))return SfntStatus::unsupported;if(!spend(g.loop))return SfntStatus::resource_limit;
+                const bool unscaled=g.zp[0] && g.zp[1] && g.zp[2];const i64 old_range=distance(*p2,*p1,true,unscaled),new_range=distance(*p2,*p1,false);if(!spend(g.loop))return SfntStatus::resource_limit;
                 // The normalized-outline profile uses the dual vector
                 // for the original reference span, but the current projection
                 // vector for each original glyph-point distance.
-                for(u32 i=0;i<g.loop;++i){pop(&a);auto* p=point(g.zp[2],a);if(!p)return SfntStatus::malformed;i64 old=0,current=0,target=0;if(!distance(*p,*p1,true,&old,unscaled,unscaled)||!distance(*p,*p1,false,&current))return SfntStatus::unsupported;
+                for(u32 i=0;i<g.loop;++i){pop(&a);auto* p=point(g.zp[2],a);if(!p)return SfntStatus::malformed;i64 target=0;const i64 old=distance(*p,*p1,true,unscaled,unscaled),current=distance(*p,*p1,false);
                     // The normalized Windows path's zero-range fallback uses
                     // the unscaled design-unit distance as a fixed-point delta.
                     if(old_range){if(!multiply_divide(old,new_range,old_range,&target))return SfntStatus::malformed;}else target=old/64;
                     if(target<-17179869180ll || target>17179869180ll)return SfntStatus::malformed;
                     const auto status=move(*p,target-current,true);if(status!=SfntStatus::ok)return status;}g.loop=1;break;}
             case 0x3c:{auto* ref=point(g.zp[0],static_cast<i32>(g.rp[0]));if(!ref||g.loop>s.stack_count)return SfntStatus::malformed;if(!spend(g.loop))return SfntStatus::resource_limit;
-                for(u32 i=0;i<g.loop;++i){pop(&a);auto* p=point(g.zp[1],a);if(!p)return SfntStatus::malformed;i64 current=0;if(!distance(*p,*ref,false,&current))return SfntStatus::unsupported;const auto status=move(*p,-current,true);if(status!=SfntStatus::ok)return status;}g.loop=1;break;}
+                for(u32 i=0;i<g.loop;++i){pop(&a);auto* p=point(g.zp[1],a);if(!p)return SfntStatus::malformed;const auto status=move(*p,-distance(*p,*ref,false),true);if(status!=SfntStatus::ok)return status;}g.loop=1;break;}
             case 0x3a:case 0x3b:{if(!two(&a,&b))return SfntStatus::malformed;auto* p=point(g.zp[1],a);auto* ref=point(g.zp[0],static_cast<i32>(g.rp[0]));if(!p||!ref)return SfntStatus::malformed;
                 if(!g.zp[1]){const i64 x=ref->original_x+quotient(static_cast<i64>(b)*g.freedom_x,16384),y=ref->original_y+quotient(static_cast<i64>(b)*g.freedom_y,16384);if(!fits(x)||!fits(y))return SfntStatus::malformed;p->x=p->original_x=static_cast<i32>(x);p->y=p->original_y=static_cast<i32>(y);}
-                i64 current=0;if(!distance(*p,*ref,false,&current))return SfntStatus::unsupported;const auto status=move(*p,static_cast<i64>(b)-current,true);if(status!=SfntStatus::ok)return status;g.rp[1]=g.rp[0];g.rp[2]=static_cast<u32>(a);if(op&1)g.rp[0]=static_cast<u32>(a);break;}
+                const auto status=move(*p,static_cast<i64>(b)-distance(*p,*ref,false),true);if(status!=SfntStatus::ok)return status;g.rp[1]=g.rp[0];g.rp[2]=static_cast<u32>(a);if(op&1)g.rp[0]=static_cast<u32>(a);break;}
             case 0x3e:case 0x3f:{if(!two(&a,&b)||b<0||static_cast<u32>(b)>=s.cvt.count)return SfntStatus::malformed;auto* p=point(g.zp[0],a);if(!p)return SfntStatus::malformed;i64 target=s.cvt[b];
                 if(!g.zp[0]){const i64 x=quotient(target*g.freedom_x,16384),y=quotient(target*g.freedom_y,16384);if(!fits(x)||!fits(y))return SfntStatus::malformed;p->x=p->original_x=static_cast<i32>(x);p->y=p->original_y=static_cast<i32>(y);}
                 i32 current=0;if(!project(*p,false,&current))return SfntStatus::unsupported;if(op&1){if(absolute_value<i64>(target-current)>g.cvt_cut_in)target=current;target=rounded(static_cast<i32>(target),g);}
@@ -182,7 +178,7 @@ struct Machine {
             case 0x46:case 0x47:{if(!pop(&a))return SfntStatus::malformed;auto* p=point(g.zp[2],a);if(!p)return SfntStatus::malformed;if(!project(*p,op==0x47,&b))return SfntStatus::unsupported;if(!push(b))return SfntStatus::output_too_small;break;}
             case 0x48:{if(!two(&a,&b))return SfntStatus::malformed;auto* p=point(g.zp[2],a);i32 old=0;if(!p)return SfntStatus::malformed;if(!project(*p,false,&old))return SfntStatus::unsupported;const auto status=move(*p,static_cast<i64>(b)-old,true);if(status!=SfntStatus::ok)return status;break;}
             case 0x4b:case 0x4c:if(!push(op==0x4b?static_cast<i32>(s.units_per_em):0))return SfntStatus::output_too_small;break;
-            case 0x49:case 0x4a:{if(!two(&a,&b))return SfntStatus::malformed;auto* p1=point(g.zp[0],a);auto* p2=point(g.zp[1],b);if(!p1||!p2)return SfntStatus::malformed;i64 d=0;if(!distance(*p1,*p2,op==0x4a,&d,g.zp[0] && g.zp[1])||!fits(d))return SfntStatus::unsupported;if(!push(static_cast<i32>(d)))return SfntStatus::output_too_small;break;}
+            case 0x49:case 0x4a:{if(!two(&a,&b))return SfntStatus::malformed;auto* p1=point(g.zp[0],a);auto* p2=point(g.zp[1],b);if(!p1||!p2)return SfntStatus::malformed;const i64 d=distance(*p1,*p2,op==0x4a,g.zp[0] && g.zp[1]);if(!fits(d))return SfntStatus::unsupported;if(!push(static_cast<i32>(d)))return SfntStatus::output_too_small;break;}
             case 0x4d:g.auto_flip=true;break;case 0x4e:g.auto_flip=false;break;
             case 0x56:case 0x57:if(!pop(&a))return SfntStatus::malformed;if(!push(((absolute_value<i64>(rounded(a,g))/64)&1)==(op==0x56?1:0)))return SfntStatus::output_too_small;break;
             case 0x58:if(!pop(&a))return SfntStatus::malformed;if(!a){const auto status=branch(true);if(status!=SfntStatus::ok)return status;}break;case 0x59:break;

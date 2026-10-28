@@ -68,7 +68,6 @@ enum class MemberListViewError : u8 {
     none,
     invalid_input,
     capacity,
-    corrupt_source,
 };
 
 struct MemberListViewResult {

@@ -33,12 +33,11 @@ bool native_thai_boundary_class(u32 scalar) noexcept {
 u32 native_thai_unknown_recovery(ConstSlice<u32> text,u32 first,i32 syllable) noexcept {
     if(!text.data||first>=text.count)return 0;
     const auto at=[&](u32 offset) noexcept {return syllable_scalar(text,first,offset);};
-    const i32 raw=syllable;
-    if(!raw)return 0;
-    u32 length=static_cast<u32>(raw>0?raw:-raw)-1;
+    if(!syllable)return 0;
+    u32 length=static_cast<u32>(syllable>0?syllable:-syllable)-1;
     // After an open syllable a consonant is its final unless marks attach to
     // the consonant, which then begins the next syllable.
-    if(raw<0&&syllable_consonant(at(length))&&native_thai_boundary_class(at(length+1)))++length;
+    if(syllable<0&&syllable_consonant(at(length))&&native_thai_boundary_class(at(length+1)))++length;
     // Marks attached to the last scalar, and a consonant silenced by
     // THANTHAKHAT one or two scalars later (as in จันทร์), end the syllable.
     // A run of stray marks stops at 31 scalars.

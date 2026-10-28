@@ -69,19 +69,6 @@ u32 merge_message_presentation(const GatewayMessageEvent& event, u32 previous) n
     return previous;
 }
 
-u32 create_presentation(const MessageStore& store, const GatewayMessageEvent& event) noexcept {
-    const auto found = message_store_find(store, event.id);
-    const auto* previous = found.ok() ? message_store_resolve(store, found.handle) : nullptr;
-    return merge_message_presentation(event, previous ? previous->presentation_flags : 0u);
-}
-
-u16 create_type(const MessageStore& store, const GatewayMessageEvent& event) noexcept {
-    if (event.fields & gateway_message_field_type) return event.type;
-    const auto found = message_store_find(store, event.id);
-    const auto* previous = found.ok() ? message_store_resolve(store, found.handle) : nullptr;
-    return previous ? previous->type : u16{0};
-}
-
 // Finds the resident record a Gateway event names and checks its channel.
 MessageReconcileResult find_resident(const MessageStore& store, u64 message_id, u64 channel_id,
                                      const MessageRecord** record) noexcept {
@@ -153,11 +140,15 @@ MessageReconcileError prepare_create(const MessageStore* store, const GatewayMes
         (event.fields & ~known_fields) != 0) {
         return MessageReconcileError::invalid_event;
     }
+    const auto found = message_store_find(*store, event.id);
+    const auto* previous = found.ok() ? message_store_resolve(*store, found.handle) : nullptr;
     *input = MessageInput{event.id, event.channel_id, event.author_id,
                           event.timestamp_ms, event.edited_timestamp_ms,
                           event.content, event.flags, content_availability,
-                          MessageDeliveryState::authoritative, create_presentation(*store, event),
-                          create_type(*store, event)};
+                          MessageDeliveryState::authoritative,
+                          merge_message_presentation(event, previous ? previous->presentation_flags : 0u),
+                          (event.fields & gateway_message_field_type) ? event.type
+                                                                      : previous ? previous->type : u16{0}};
     return MessageReconcileError::none;
 }
 

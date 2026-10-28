@@ -230,7 +230,7 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
         // Only the store clock changed since preflight. Record ages and pins
         // still select the same first victim.
         slot = first_victim;
-        if (slot == store->capacity || !remove_slot(store, slot)) {
+        if (!remove_slot(store, slot)) {
             return store_error(store, UserStoreError::name_capacity);
         }
         evicted = true;

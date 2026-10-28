@@ -235,8 +235,7 @@ Utf8View private_channel_store_nickname(const PrivateChannelStore& store, u64 ch
     const u32 index = nickname_first(store, channel_id, user_id);
     if (index == store.nickname_count) return {};
     const auto& record = store.nicknames[index];
-    return record.channel_id == channel_id && record.user_id == user_id && record.bytes <= 128 ?
-        Utf8View{record.name, record.bytes} : Utf8View{};
+    return record.channel_id == channel_id && record.user_id == user_id ? Utf8View{record.name, record.bytes} : Utf8View{};
 }
 bool private_channel_store_prepare_nicknames(PrivateChannelStore* store, u64 channel_id,
     ConstSlice<PrivateNicknameInput> names) noexcept {

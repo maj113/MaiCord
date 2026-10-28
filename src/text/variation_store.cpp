@@ -29,8 +29,7 @@ SfntStatus variation_index_map_open(ConstSlice<u8> table,u32 at,VariationIndexMa
 }
 SfntStatus variation_index_map_get(const VariationIndexMap& map,u32 index,u32* output) noexcept {
     if(!output)return SfntStatus::invalid_input;*output=0xffffffff;
-    if(!map.entries.data && !map.count){*output=index;return SfntStatus::ok;}
-    if(!map.count || !map.entries.data || !map.entry_size || map.entry_size>4 || !map.inner_bits || map.inner_bits>16)return SfntStatus::invalid_input;
+    if(!map.count){*output=index;return SfntStatus::ok;}
     const u32 at=minimum(index,map.count-1)*map.entry_size;
     const u32 value=packed(map.entries.data+at,map.entry_size);
     *output=((value>>map.inner_bits)<<16)|(value&((1u<<map.inner_bits)-1));return SfntStatus::ok;

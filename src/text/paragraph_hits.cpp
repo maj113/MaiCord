@@ -46,7 +46,7 @@ NativeParagraphHitMetric metric(const NativeParagraphHits& h,u32 c,u32 line) noe
     if(h.style_count){baseline=h.styles[l.ascent_style].baseline;const u32 style=(c<h.clusters.count?h.clusters[c].style:h.clusters.count?h.clusters[h.clusters.count-1].style:l.ascent_style)&65535u;
         const auto& parts=h.styles[style];font_baseline=parts.baseline;height=layout_add(parts.baseline,parts.descent);}
     else{baseline=font_baseline=h.uniform.baseline;height=h.uniform.height;}
-    const float top=_mm_cvtss_f32(_mm_sub_ss(_mm_set_ss(layout_add(l.top,baseline)),_mm_set_ss(font_baseline)));
+    const float top=sub(layout_add(l.top,baseline),font_baseline);
     if(c==h.clusters.count){float x=l.caret_end;u32 level=0;
         if(l.cluster_count&&h.visual_runs.count){const auto* run=run_for(h,c-1);if(run){level=run->bidi_level;x=(level&1)?run->left:layout_add(run->left,run->width);}}
         return {static_cast<u16>(h.source_units),0,x,top,0,height,level};}

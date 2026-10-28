@@ -1,14 +1,9 @@
 #include "maicord/text/layout_directory.hpp"
 #include "maicord/core/memory.hpp"
-#include "sfnt_read.hpp"
+#include "layout_read.hpp"
 
 namespace maicord {namespace {
-using namespace sfnt_read;
-SfntStatus tail(const ConstSlice<u8>& view,u32 at,u32 minimum,ConstSlice<u8>* out) noexcept {
-    const ConstSlice<u8> b=view; // *out is cleared first
-    reset_value(out);if(at<minimum)return SfntStatus::malformed;if(!span(b,at,2))return SfntStatus::truncated;
-    *out={b.data+at,b.count-at};return SfntStatus::ok;
-}
+using namespace layout_read;
 SfntStatus tags(ConstSlice<u8> b,u32 start,u16 count,bool sorted) noexcept {
     const u32 end=start+static_cast<u32>(count)*6;if(!span(b,0,end))return SfntStatus::truncated;
     for(u32 i=0;i<count;++i){const u32 at=start+i*6;if(sorted && i && r32(b,at)<=r32(b,at-6))return SfntStatus::malformed;

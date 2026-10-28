@@ -169,13 +169,16 @@ struct VirtualMachine {
         if (count == 48 || !bounded(value)) return false;
         stack[count++] = value; return true;
     }
+    // The first stack value is the glyph width (relative to the nominal width).
+    bool take_width() noexcept {
+        advance = nominal_width + stack[0];
+        if (!bounded(advance)) return false;
+        for (u32 i = 1; i < count; ++i) stack[i-1] = stack[i];
+        --count;
+        return true;
+    }
     bool width(u32 required) noexcept {
-        if (!width_seen && count == required + 1) {
-            advance = nominal_width + stack[0];
-            if (!bounded(advance)) return false;
-            for (u32 i = 1; i < count; ++i) stack[i-1] = stack[i];
-            --count;
-        }
+        if (!width_seen && count == required + 1 && !take_width()) return false;
         width_seen = true;
         return count == required;
     }
@@ -313,11 +316,7 @@ struct VirtualMachine {
             }
             if (byte == 11) return depth ? SfntStatus::ok : SfntStatus::malformed;
             if (byte == 14) {
-                if (!width_seen && (count == 1 || count == 5)) {
-                    advance=nominal_width+stack[0];
-                    if (!bounded(advance)) return SfntStatus::malformed;
-                    for (u32 i=1;i<count;++i) stack[i-1]=stack[i]; --count;
-                }
+                if (!width_seen && (count == 1 || count == 5) && !take_width()) return SfntStatus::malformed;
                 if (count == 4) {
                     i32 base = 0, accent = 0;
                     if (font.cid || ever_drawn || !integer(stack[2],&base) || !integer(stack[3],&accent) ||
@@ -329,11 +328,7 @@ struct VirtualMachine {
                 return close() ? SfntStatus::ok : geometry_error();
             }
             if (byte == 1 || byte == 3 || byte == 18 || byte == 23 || byte == 19 || byte == 20) {
-                if (!width_seen && (count & 1u)) {
-                    advance=nominal_width+stack[0];
-                    if (!bounded(advance)) return SfntStatus::malformed;
-                    for (u32 i=1;i<count;++i) stack[i-1]=stack[i]; --count;
-                }
+                if (!width_seen && (count & 1u) && !take_width()) return SfntStatus::malformed;
                 width_seen = true;
                 if (count & 1u) return SfntStatus::malformed;
                 stems += count/2; count=0;

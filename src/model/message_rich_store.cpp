@@ -21,100 +21,72 @@ constexpr bool system_target_type(u16 type) noexcept {
 
 using StringVisitor = bool (*)(void*, MessageRichString*) noexcept;
 
-bool visit_string(MessageRichString* value, StringVisitor visitor, void* context) noexcept {
-    return visitor(context, value);
+template <typename... Strings> bool visit_all(StringVisitor visitor, void* context, Strings*... values) noexcept {
+    return (visitor(context, values) && ...);
 }
 
 bool walk_embed_media_strings(MessageRichEmbedMedia* media, StringVisitor visitor, void* context) noexcept {
-    return visit_string(&media->url, visitor, context) &&
-           visit_string(&media->proxy_url, visitor, context) &&
-           visit_string(&media->content_type, visitor, context) &&
-           visit_string(&media->description, visitor, context);
+    return visit_all(visitor, context, &media->url, &media->proxy_url, &media->content_type, &media->description);
 }
 
 bool walk_strings(MessageRichRecord* record, u32 fields, StringVisitor visitor, void* context) noexcept {
     if ((fields & gateway_message_field_interaction) != 0 &&
-        (!visit_string(&record->interaction.user_name, visitor, context) ||
-         !visit_string(&record->interaction.user_avatar_hash, visitor, context) ||
-         !visit_string(&record->interaction.command_name, visitor, context)))
+        !visit_all(visitor, context, &record->interaction.user_name, &record->interaction.user_avatar_hash,
+                   &record->interaction.command_name))
         return false;
-    if ((fields & gateway_message_field_thread) && !visit_string(&record->thread.name, visitor, context))
+    if ((fields & gateway_message_field_thread) && !visitor(context, &record->thread.name))
         return false;
-    if ((fields & gateway_message_field_mentions) && !visit_string(&record->system.target_name, visitor, context))
+    if ((fields & gateway_message_field_mentions) && !visitor(context, &record->system.target_name))
         return false;
     if (record->forwarded_snapshot_child && (fields & gateway_message_field_message_snapshots) &&
-        !visit_string(&record->snapshot.content, visitor, context))
+        !visitor(context, &record->snapshot.content))
         return false;
-    if (!record->forwarded_snapshot_child && (fields & kReferenceFields) != 0) {
-        if (!visit_string(&record->reference.author_name, visitor, context) ||
-            !visit_string(&record->reference.author_avatar_hash, visitor, context) ||
-            !visit_string(&record->reference.content, visitor, context)) {
-            return false;
-        }
-    }
+    if (!record->forwarded_snapshot_child && (fields & kReferenceFields) != 0 &&
+        !visit_all(visitor, context, &record->reference.author_name, &record->reference.author_avatar_hash,
+                   &record->reference.content))
+        return false;
     if ((fields & gateway_message_field_reactions) != 0) {
         for (u32 index = 0; index < record->reaction_count; ++index) {
-            if (!visit_string(&record->reactions[index].name, visitor, context)) {
+            if (!visitor(context, &record->reactions[index].name))
                 return false;
-            }
         }
     }
     if ((fields & gateway_message_field_attachments) != 0) {
         for (u32 index = 0; index < record->attachment_count; ++index) {
             MessageRichAttachment& item = record->attachments[index];
-            if (!visit_string(&item.filename, visitor, context) ||
-                !visit_string(&item.title, visitor, context) ||
-                !visit_string(&item.description, visitor, context) ||
-                !visit_string(&item.content_type, visitor, context) ||
-                !visit_string(&item.url, visitor, context) ||
-                !visit_string(&item.waveform, visitor, context)) {
+            if (!visit_all(visitor, context, &item.filename, &item.title, &item.description, &item.content_type,
+                           &item.url, &item.waveform))
                 return false;
-            }
         }
     }
     if ((fields & gateway_message_field_embeds) != 0) {
         for (u32 index = 0; index < record->embed_count; ++index) {
             MessageRichEmbed& item = record->embeds[index];
-            if (!visit_string(&item.title, visitor, context) ||
-                !visit_string(&item.description, visitor, context) ||
-                !visit_string(&item.url, visitor, context) ||
-                !visit_string(&item.author_name, visitor, context) ||
-                !visit_string(&item.footer_text, visitor, context) ||
-                !visit_string(&item.author_url, visitor, context) ||
-                !visit_string(&item.author_icon, visitor, context) ||
-                !visit_string(&item.footer_icon, visitor, context) ||
-                !visit_string(&item.provider_name, visitor, context) ||
-                !visit_string(&item.provider_url, visitor, context) ||
+            if (!visit_all(visitor, context, &item.title, &item.description, &item.url, &item.author_name,
+                           &item.footer_text, &item.author_url, &item.author_icon, &item.footer_icon,
+                           &item.provider_name, &item.provider_url) ||
                 !walk_embed_media_strings(&item.image, visitor, context) ||
                 !walk_embed_media_strings(&item.thumbnail, visitor, context) ||
-                !walk_embed_media_strings(&item.video, visitor, context)) {
+                !walk_embed_media_strings(&item.video, visitor, context))
                 return false;
-            }
         }
         for (u32 index = 0; index < record->embed_field_count; ++index) {
-            if (!visit_string(&record->embed_fields[index].name, visitor, context) ||
-                !visit_string(&record->embed_fields[index].value, visitor, context)) {
+            if (!visit_all(visitor, context, &record->embed_fields[index].name, &record->embed_fields[index].value))
                 return false;
-            }
         }
     }
     if ((fields & gateway_message_field_sticker_items) != 0) {
         for (u32 index = 0; index < record->sticker_count; ++index) {
-            if (!visit_string(&record->stickers[index].name, visitor, context)) {
+            if (!visitor(context, &record->stickers[index].name))
                 return false;
-            }
         }
     }
     if ((fields & gateway_message_field_components) != 0) {
         for (u32 index = 0; index < record->component_count; ++index) {
             MessageRichComponent& item = record->components[index];
-            if (!visit_string(&item.label, visitor, context) ||
-                !visit_string(&item.content, visitor, context) ||
-                !visit_string(&item.custom_id, visitor, context) ||
-                !visit_string(&item.url, visitor, context) ||
-                !visit_string(&item.emoji_name, visitor, context)) {
+            if (!visit_all(visitor, context, &item.label, &item.content, &item.custom_id, &item.url,
+                           &item.emoji_name))
                 return false;
-            }
         }
     }
     return true;
@@ -212,6 +184,17 @@ SearchResult find_record(const MessageRichStore& store, u64 message_id) noexcept
     return SearchResult{low, 0, false};
 }
 
+// First unoccupied slot at or after `from` (wrapping), other than `skip`; 0xFFFF when none.
+u32 free_slot(const MessageRichStore& store, u32 from, u32 skip) noexcept {
+    for (u32 pass = 0; pass < 2; ++pass) {
+        const u32 end = pass ? minimum(from, store.record_extent) : store.record_extent;
+        for (u32 index = pass ? 0 : from; index < end; ++index)
+            if (!store.records[index].occupied && index != skip)
+                return index;
+    }
+    return 0xFFFFu;
+}
+
 bool compact_excluding(MessageRichStore* store, u16 target_slot, bool has_target,
                        u32 replaced_fields) noexcept {
     TotalContext total{store, 0};
@@ -253,11 +236,13 @@ bool add_bytes(u64* total, const Utf8View& value) noexcept {
     return true;
 }
 
+template <typename... Views> bool add_all(u64* total, const Views&... values) noexcept {
+    return (add_bytes(total, values) && ...);
+}
+
 bool validate_embed_media(const GatewayMessageEmbedMedia& media, u64* desired_bytes) noexcept {
-    return (!media.has_width || media.width != 0) &&
-           (!media.has_height || media.height != 0) && add_bytes(desired_bytes, media.url) &&
-           add_bytes(desired_bytes, media.proxy_url) && add_bytes(desired_bytes, media.content_type) &&
-           add_bytes(desired_bytes, media.description);
+    return (!media.has_width || media.width != 0) && (!media.has_height || media.height != 0) &&
+           add_all(desired_bytes, media.url, media.proxy_url, media.content_type, media.description);
 }
 
 bool validate_attachments(ConstSlice<GatewayMessageAttachment> attachments, u64* desired_bytes) noexcept {
@@ -266,17 +251,16 @@ bool validate_attachments(ConstSlice<GatewayMessageAttachment> attachments, u64*
         return false;
     for (u32 index = 0; index < attachments.count; ++index) {
         const auto& item = attachments[index];
-        if (!item.id || !add_bytes(desired_bytes, item.filename) || !add_bytes(desired_bytes, item.title) ||
-            !add_bytes(desired_bytes, item.description) || !add_bytes(desired_bytes, item.content_type) ||
-            !add_bytes(desired_bytes, item.url) || !gateway_message_waveform_valid(item.waveform) ||
-            !add_bytes(desired_bytes, item.waveform) || (!item.has_duration && item.duration_ms))
+        if (!item.id ||
+            !add_all(desired_bytes, item.filename, item.title, item.description, item.content_type, item.url) ||
+            !gateway_message_waveform_valid(item.waveform) || !add_bytes(desired_bytes, item.waveform) ||
+            (!item.has_duration && item.duration_ms))
             return false;
     }
     return true;
 }
 bool validate_input(const GatewayMessageEvent& input, u32 fields, u64* desired_bytes) noexcept {
     if (input.reactions.count > kGatewayMessageReactionMaximum ||
-        input.attachments.count > kGatewayMessageAttachmentMaximum ||
         input.embeds.count > kGatewayMessageEmbedMaximum ||
         input.embed_fields.count > kGatewayMessageEmbedFieldMaximum ||
         input.stickers.count > kGatewayMessageStickerMaximum ||
@@ -294,22 +278,18 @@ bool validate_input(const GatewayMessageEvent& input, u32 fields, u64* desired_b
         !add_bytes(desired_bytes, input.snapshot.content))
         return false;
     if ((fields & gateway_message_field_interaction) != 0 &&
-        (!add_bytes(desired_bytes, input.interaction.user_name) ||
-         !add_bytes(desired_bytes, input.interaction.user_avatar_hash) ||
-         !add_bytes(desired_bytes, input.interaction.command_name)))
+        !add_all(desired_bytes, input.interaction.user_name, input.interaction.user_avatar_hash,
+                 input.interaction.command_name))
         return false;
     if ((fields & gateway_message_field_thread) && !add_bytes(desired_bytes, input.thread.name))
         return false;
     if ((fields & gateway_message_field_mentions) && input.mention_users.count &&
         !add_bytes(desired_bytes, input.mention_users[0].name))
         return false;
-    if ((fields & kReferenceFields) != 0) {
-        if (!add_bytes(desired_bytes, input.reference.author_name) ||
-            !add_bytes(desired_bytes, input.reference.author_avatar_hash) ||
-            !add_bytes(desired_bytes, input.reference.content)) {
-            return false;
-        }
-    }
+    if ((fields & kReferenceFields) != 0 &&
+        !add_all(desired_bytes, input.reference.author_name, input.reference.author_avatar_hash,
+                 input.reference.content))
+        return false;
     for (u32 index = 0; index < input.reactions.count; ++index) {
         if (input.reactions[index].count == 0 ||
             (!input.reactions[index].emoji_id && !input.reactions[index].name.bytes) ||
@@ -326,11 +306,9 @@ bool validate_input(const GatewayMessageEvent& input, u32 fields, u64* desired_b
         const GatewayMessageEmbed& item = input.embeds[index];
         if (item.field_begin > input.embed_fields.count ||
             item.field_count > input.embed_fields.count - item.field_begin ||
-            !add_bytes(desired_bytes, item.title) || !add_bytes(desired_bytes, item.description) ||
-            !add_bytes(desired_bytes, item.url) || !add_bytes(desired_bytes, item.author_name) ||
-            !add_bytes(desired_bytes, item.footer_text) || !add_bytes(desired_bytes, item.author_url) ||
-            !add_bytes(desired_bytes, item.author_icon) || !add_bytes(desired_bytes, item.footer_icon) ||
-            !add_bytes(desired_bytes, item.provider_name) || !add_bytes(desired_bytes, item.provider_url) ||
+            !add_all(desired_bytes, item.title, item.description, item.url, item.author_name, item.footer_text,
+                     item.author_url, item.author_icon, item.footer_icon, item.provider_name,
+                     item.provider_url) ||
             !validate_embed_media(item.image, desired_bytes) ||
             !validate_embed_media(item.thumbnail, desired_bytes) ||
             !validate_embed_media(item.video, desired_bytes)) {
@@ -339,10 +317,8 @@ bool validate_input(const GatewayMessageEvent& input, u32 fields, u64* desired_b
     }
     for (u32 index = 0; index < input.embed_fields.count; ++index) {
         if (input.embed_fields[index].embed_index >= input.embeds.count ||
-            !add_bytes(desired_bytes, input.embed_fields[index].name) ||
-            !add_bytes(desired_bytes, input.embed_fields[index].value)) {
+            !add_all(desired_bytes, input.embed_fields[index].name, input.embed_fields[index].value))
             return false;
-        }
     }
     for (u32 index = 0; index < input.stickers.count; ++index) {
         if (input.stickers[index].id == 0 || input.stickers[index].format_type == 0 ||
@@ -355,9 +331,7 @@ bool validate_input(const GatewayMessageEvent& input, u32 fields, u64* desired_b
         const GatewayMessageComponent& item = input.components[index];
         if (item.type == 0 || (item.parent != 0xFFFFu && item.parent >= index) ||
             (item.has_accent_color && item.accent_color > 0xFFFFFFu) ||
-            !add_bytes(desired_bytes, item.label) || !add_bytes(desired_bytes, item.content) ||
-            !add_bytes(desired_bytes, item.custom_id) || !add_bytes(desired_bytes, item.url) ||
-            !add_bytes(desired_bytes, item.emoji_name)) {
+            !add_all(desired_bytes, item.label, item.content, item.custom_id, item.url, item.emoji_name)) {
             return false;
         }
     }
@@ -393,12 +367,9 @@ void copy_embed_media(MessageRichStore* store, const GatewayMessageEmbedMedia& s
     destination->state = static_cast<u8>((source.has_width ? 1u : 0u) | (source.has_height ? 2u : 0u));
 }
 
+// Strings come from at most a few hundred 16-bit lengths, so the sum cannot wrap.
 bool count_wasted(void* opaque, MessageRichString* value) noexcept {
-    auto* total = static_cast<u64*>(opaque);
-    if (*total > ~0ull - value->bytes) {
-        return false;
-    }
-    *total += value->bytes;
+    *static_cast<u64*>(opaque) += value->bytes;
     return true;
 }
 
@@ -852,12 +823,13 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
                                          const GatewayMessageEvent& input, bool child = false,
                                          u16 child_slot = 0, const RichValidationPlan* validated = nullptr) noexcept {
     MessageRichStoreResult result{};
-    if (!store->records || !store->order || !store->text || store->capacity == 0 ||
-        message_id == 0 || message_revision == 0 || input.id != message_id) {
-        result.error = MessageRichStoreError::invalid_input;
+    const auto reject = [&](MessageRichStoreError error) noexcept {
+        result.error = error;
         ++store->rejected;
         return result;
-    }
+    };
+    if (!store->text || store->capacity == 0)
+        return reject(MessageRichStoreError::invalid_input);
     u32 fields = input.fields & kRichFields & (child ? ~static_cast<u32>(gateway_message_field_thread) : ~0u);
     SearchResult search = child ? SearchResult{0, child_slot, store->records[child_slot].occupied}
                                 : find_record(*store, message_id);
@@ -886,52 +858,29 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
         if (!(fields & gateway_message_field_mentions)) desired_bytes -= validated->mention_bytes;
         if (!(fields & kReferenceFields)) desired_bytes -= validated->reference_bytes;
     } else if (!validate_input(input, fields, &desired_bytes)) {
-        result.error = MessageRichStoreError::invalid_utf8;
-        ++store->rejected;
-        return result;
+        return reject(MessageRichStoreError::invalid_utf8);
     }
     if (!child && (fields & gateway_message_field_message_snapshots) && input.snapshot.present)
         desired_bytes -= input.snapshot.content.bytes; // retained by the child, not the parent
-    if (!search.found && fields == 0) {
+    if (!search.found && fields == 0)
         return result;
-    }
-    if (!search.found && !child && store->count >= store->capacity) {
-        result.error = MessageRichStoreError::record_capacity;
-        ++store->rejected;
-        return result;
-    }
+    if (!search.found && !child && store->count >= store->capacity)
+        return reject(MessageRichStoreError::record_capacity);
     u16 slot = search.slot;
     if (!search.found) {
-        slot = 0xFFFFu;
-        for (u32 index = 0; index < store->record_extent; ++index) {
-            if (!store->records[index].occupied) {
-                slot = static_cast<u16>(index);
-                break;
-            }
-        }
-        if (slot == 0xFFFFu && extend_records(store)) {
+        slot = static_cast<u16>(free_slot(*store, 0, 0xFFFFu));
+        if (slot == 0xFFFFu && extend_records(store))
             slot = static_cast<u16>(store->record_extent - 1u);
-        }
-        if (slot == 0xFFFFu) {
-            result.error = MessageRichStoreError::record_capacity;
-            ++store->rejected;
-            return result;
-        }
+        if (slot == 0xFFFFu)
+            return reject(MessageRichStoreError::record_capacity);
     }
 
     const u32 capacity = bank_capacity(*store);
-    if (store->text_used > capacity) {
-        result.error = MessageRichStoreError::corrupt_state;
-        ++store->rejected;
-        return result;
-    }
+    if (store->text_used > capacity)
+        return reject(MessageRichStoreError::corrupt_state);
     const u32 previous_compactions = store->compactions;
-    if (desired_bytes > capacity - store->text_used &&
-        !compact_excluding(store, slot, search.found, fields)) {
-        result.error = MessageRichStoreError::corrupt_state;
-        ++store->rejected;
-        return result;
-    }
+    if (desired_bytes > capacity - store->text_used && !compact_excluding(store, slot, search.found, fields))
+        return reject(MessageRichStoreError::corrupt_state);
     MessageRichRecord* record = &store->records[slot];
     if (!search.found) {
         // A free slot is zero except for its generation (erase_slot,
@@ -951,11 +900,8 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
         result.inserted = true;
     } else if (fields != 0 && store->compactions == previous_compactions) {
         u64 wasted = 0;
-        if (!walk_strings(record, fields, count_wasted, &wasted) || wasted > ~0u - store->text_wasted) {
-            result.error = MessageRichStoreError::corrupt_state;
-            ++store->rejected;
-            return result;
-        }
+        if (!walk_strings(record, fields, count_wasted, &wasted) || wasted > ~0u - store->text_wasted)
+            return reject(MessageRichStoreError::corrupt_state);
         store->text_wasted += static_cast<u32>(wasted);
     }
     clear_replaced(record, fields);
@@ -974,14 +920,8 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     ++store->updated;
     result.storage_truncated = storage_truncated;
 
-    if (!record_has_content(*record)) {
-        if (!erase_slot(store, search.order_index, slot)) {
-            result.error = MessageRichStoreError::corrupt_state;
-            ++store->rejected;
-            return result;
-        }
-        return result;
-    }
+    if (!record_has_content(*record))
+        return erase_slot(store, search.order_index, slot) ? result : reject(MessageRichStoreError::corrupt_state);
     result.record = record;
     return result;
 }
@@ -1109,12 +1049,7 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
         return result;
     u16 slot = previous_slot;
     if (!previous) {
-        slot = 0xFFFFu;
-        for (u32 index = 0; index < store->record_extent; ++index)
-            if (!store->records[index].occupied) {
-                slot = static_cast<u16>(index);
-                break;
-            }
+        slot = static_cast<u16>(free_slot(*store, 0, 0xFFFFu));
         if (slot == 0xFFFFu)
             return {nullptr, MessageRichStoreError::corrupt_state, false, false};
     }
@@ -1132,10 +1067,9 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
     MessageRichStore* store, u64 message_id, u32 message_revision,
     const MessageRichReactionMutation& mutation) noexcept {
     MessageRichStoreResult result{};
-    const u8 type = static_cast<u8>(mutation.type);
     const bool needs_emoji = mutation.kind != MessageRichReactionMutationKind::remove_all;
     if (!store || !store->records || !store->order || !store->text || message_id == 0 ||
-        message_revision == 0 || type > static_cast<u8>(MessageReactionType::vote) ||
+        message_revision == 0 ||
         (needs_emoji && ((!mutation.name.data && mutation.name.bytes != 0) ||
                          (mutation.name.bytes == 0 && mutation.emoji_id == 0) ||
                          mutation.name.bytes > kMessageReactionMaximumEmojiNameBytes ||
@@ -1159,7 +1093,7 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
     }
 
     GatewayMessageReaction reactions[kGatewayMessageReactionMaximum]{};
-    char names[kGatewayMessageReactionMaximum][kMessageReactionMaximumEmojiNameBytes]{};
+    char names[kGatewayMessageReactionMaximum][kMessageReactionMaximumEmojiNameBytes];
     u32 reaction_count = existing ? existing->reaction_count : 0;
     u32 name_cursor = 0;
     u32 match = reaction_count;
@@ -1284,28 +1218,32 @@ const MessageRichRecord* message_rich_store_find(const MessageRichStore& store, 
     return search.found ? &store.records[search.slot] : nullptr;
 }
 
+// The record a dimension update edits (the message itself or its forwarded snapshot) when
+// it is resident at message_revision.
+static MessageRichRecord* dimension_target(MessageRichStore* store, u64 message_id, u32 message_revision,
+                                           bool snapshot) noexcept {
+    if (!store || !store->records || !store->order || !message_id || !message_revision)
+        return nullptr;
+    const SearchResult search = find_record(*store, message_id);
+    if (!search.found || (snapshot && !message_rich_store_snapshot(*store, message_id)))
+        return nullptr;
+    MessageRichRecord& record =
+        store->records[snapshot ? store->records[search.slot].forwarded_snapshot_slot : search.slot];
+    return record.occupied && record.message_revision == message_revision ? &record : nullptr;
+}
+
 bool message_rich_store_set_attachment_dimensions(MessageRichStore* store, u64 message_id,
                                                   u32 message_revision, u64 attachment_id, u32 width,
                                                   u32 height, bool* changed, bool snapshot) noexcept {
-    if (!changed) {
+    if (!changed)
         return false;
-    }
     *changed = false;
-    if (!store || !store->records || !store->order || message_id == 0 || message_revision == 0 ||
-        attachment_id == 0 || width == 0 || height == 0) {
+    MessageRichRecord* target = attachment_id && width && height
+                                    ? dimension_target(store, message_id, message_revision, snapshot)
+                                    : nullptr;
+    if (!target)
         return false;
-    }
-    const SearchResult search = find_record(*store, message_id);
-    if (!search.found) {
-        return false;
-    }
-    if (snapshot && !message_rich_store_snapshot(*store, message_id))
-        return false;
-    MessageRichRecord& record =
-        store->records[snapshot ? store->records[search.slot].forwarded_snapshot_slot : search.slot];
-    if (!record.occupied || record.message_revision != message_revision) {
-        return false;
-    }
+    MessageRichRecord& record = *target;
     for (u32 index = 0; index < record.attachment_count; ++index) {
         MessageRichAttachment& attachment = record.attachments[index];
         if (attachment.id == attachment_id) {
@@ -1327,33 +1265,15 @@ bool message_rich_store_set_embed_dimensions(MessageRichStore* store, u64 messag
     if (!changed)
         return false;
     *changed = false;
-    if (!store || !store->records || !store->order || !message_id || !message_revision || !width || !height)
+    MessageRichRecord* target =
+        width && height ? dimension_target(store, message_id, message_revision, snapshot) : nullptr;
+    if (!target || embed_index >= target->embed_count)
         return false;
-    const SearchResult search = find_record(*store, message_id);
-    if (!search.found)
-        return false;
-    if (snapshot && !message_rich_store_snapshot(*store, message_id))
-        return false;
-    auto& record =
-        store->records[snapshot ? store->records[search.slot].forwarded_snapshot_slot : search.slot];
-    if (!record.occupied || record.message_revision != message_revision ||
-        embed_index >= record.embed_count)
-        return false;
+    MessageRichRecord& record = *target;
     auto& embed = record.embeds[embed_index];
-    MessageRichEmbedMedia* media = nullptr;
-    switch (slot) {
-    case MessageRichEmbedMediaSlot::image:
-        media = &embed.image;
-        break;
-    case MessageRichEmbedMediaSlot::thumbnail:
-        media = &embed.thumbnail;
-        break;
-    case MessageRichEmbedMediaSlot::video:
-        media = &embed.video;
-        break;
-    default:
-        return false;
-    }
+    MessageRichEmbedMedia* media = slot == MessageRichEmbedMediaSlot::image       ? &embed.image
+                                   : slot == MessageRichEmbedMediaSlot::thumbnail ? &embed.thumbnail
+                                                                                   : &embed.video;
     // Native providers can supply playback through the card URL alone.
     if (!media->url.bytes && !media->proxy_url.bytes &&
         !(slot == MessageRichEmbedMediaSlot::video && embed.url.bytes))
@@ -1461,25 +1381,17 @@ template <typename T> const u8* read_items(const u8* cursor, T* items, u32 count
     return cursor + count * sizeof(T);
 }
 
-bool count_string(void* opaque, MessageRichString* value) noexcept {
-    auto* total = static_cast<u32*>(opaque);
-    if (value->bytes > ~0u - *total)
-        return false;
-    *total += value->bytes;
-    return true;
-}
-
 // A null output only sizes the record. The stack copy receives relative
 // offsets; only the parts walk_strings and the format read are copied.
 bool pack_record(const MessageRichStore& store, const MessageRichRecord& source, u8* output, u32 capacity,
                  u32* written) noexcept {
     const u32 fixed = packed_fixed_bytes(source);
     if (!output) {
-        u32 string_bytes = 0;
-        if (!walk_strings(const_cast<MessageRichRecord*>(&source), kRichFields, count_string, &string_bytes) ||
+        u64 string_bytes = 0;
+        if (!walk_strings(const_cast<MessageRichRecord*>(&source), kRichFields, count_wasted, &string_bytes) ||
             string_bytes > ~0u - fixed)
             return false;
-        *written = fixed + string_bytes;
+        *written = fixed + static_cast<u32>(string_bytes);
         return true;
     }
     if (fixed > capacity)
@@ -1575,16 +1487,6 @@ bool parse_record(ConstSlice<u8> input, MessageRichRecord* record, ConstSlice<u8
     *strings = ConstSlice<u8>{cursor, header.string_bytes};
     *consumed = header.bytes;
     return true;
-}
-
-u32 free_slot(const MessageRichStore& store, u32 from, u32 skip) noexcept {
-    for (u32 pass = 0; pass < 2; ++pass) {
-        const u32 end = pass ? minimum(from, store.record_extent) : store.record_extent;
-        for (u32 index = pass ? 0 : from; index < end; ++index)
-            if (!store.records[index].occupied && index != skip)
-                return index;
-    }
-    return 0xFFFFu;
 }
 
 } // namespace

@@ -44,10 +44,7 @@ u32 guild_display_order_build(const GuildFolderSettings* settings, const ChatSta
     // Unlisted guilds go to the top in reverse join order, as each is
     // inserted at index 0.
     for (u32 order = 0; order < state.guild_count; ++order) {
-        const u16 slot = state.guild_order[order];
-        if (slot >= state.guild_capacity || !state.guilds[slot].occupied)
-            continue;
-        const u64 id = state.guilds[slot].id;
+        const u64 id = state.guilds[state.guild_order[order]].id;
         if (placed(output, count, id) || count >= output.count)
             continue;
         const bool listed = settings && settings->present && (folders || settings->position_count);

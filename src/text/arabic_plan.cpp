@@ -4,7 +4,6 @@
 #include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
-bool spend(u64& work,u64 amount=1) noexcept {if(amount>work)return false;work-=amount;return true;}
 u32 allowance(u64 work) noexcept {return static_cast<u32>(minimum<u64>(work,0xffffffffu));}
 struct FeatureChoice {u16 bit;u8 stage,mask;};
 FeatureChoice choice(SfntLayoutKind kind,u32 tag,bool independent) noexcept {
@@ -35,18 +34,18 @@ struct Builder {
     SfntStatus pass(bool write) noexcept {
         u32 emitted=0;const u32 stages=layout.kind==SfntLayoutKind::substitution?3:1;
         for(u32 stage=0;stage<stages;++stage) {
-            if(!spend(work,layout.lookup_count))return SfntStatus::resource_limit;
+            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
             for(u32 i=0;i<layout.lookup_count;++i)scratch[i]=0;
             for(u32 f=0;f<count;++f) {
-                if(!spend(work))return SfntStatus::resource_limit;const auto& selected=features[f];
+                if(!spend(&work))return SfntStatus::resource_limit;const auto& selected=features[f];
                 if(selected.stage!=stage && selected.stage!=255)continue;
                 const auto indices=selected.feature.lookup_indices;
-                if(!spend(work,indices.count/2))return SfntStatus::resource_limit;
+                if(!spend(&work,indices.count/2))return SfntStatus::resource_limit;
                 for(u32 i=0;i<indices.count/2;++i)scratch[byte_load_be16(indices.data+i*2)]|=selected.mask;
             }
-            if(!spend(work,layout.lookup_count))return SfntStatus::resource_limit;
+            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
             for(u32 i=0;i<layout.lookup_count;++i)if(scratch[i]) {
-                if(write){if(!spend(work))return SfntStatus::resource_limit;output[emitted]={static_cast<u16>(i),static_cast<u8>((scratch[i]&16)?0:scratch[i]),static_cast<u8>(stage)};}
+                if(write){if(!spend(&work))return SfntStatus::resource_limit;output[emitted]={static_cast<u16>(i),static_cast<u8>((scratch[i]&16)?0:scratch[i]),static_cast<u8>(stage)};}
                 ++emitted;
             }
         }
@@ -61,7 +60,7 @@ struct Builder {
         if(selected.required_feature!=0xffff){s=add(selected.required_feature,255,16);if(s!=SfntStatus::ok)return s;}
         u16 seen=0;
         for(u32 i=0;i<selected.feature_indices.count/2;++i) {
-            if(!spend(work))return SfntStatus::resource_limit;const u16 f=byte_load_be16(selected.feature_indices.data+i*2);
+            if(!spend(&work))return SfntStatus::resource_limit;const u16 f=byte_load_be16(selected.feature_indices.data+i*2);
             const auto c=choice(layout.kind,byte_load_be32(layout.features.data+2+static_cast<u32>(f)*6),independent);
             if(!c.bit || (seen&c.bit))continue;seen|=c.bit;if(f==selected.required_feature)continue;
             s=add(f,c.stage,c.mask);if(s!=SfntStatus::ok)return s;

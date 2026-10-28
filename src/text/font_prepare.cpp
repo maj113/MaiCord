@@ -1,7 +1,8 @@
 #include "maicord/text/font_prepare.hpp"
 #include "maicord/core/memory.hpp"
 namespace maicord {namespace {
-template<class T> Slice<T> take(Arena& a,u32 n) noexcept {return {n?arena_allocate<T>(&a,n):nullptr,n};}
+void* take_data(Arena& a,u32 n,usize size,usize align) noexcept {return n?arena_allocate(&a,size*n,align):nullptr;}
+template<class T> Slice<T> take(Arena& a,u32 n) noexcept {return {static_cast<T*>(take_data(a,n,sizeof(T),alignof(T))),n};}
 NativeFontResult failure(SfntStatus s) noexcept {return {NativeFontError::font,s,0};}
 }
 NativeFontResult native_font_prepare(NativeFontSession* session,NativeFontHandle face,ConstSlice<FontAxisSetting> settings,u32 simulations,bool outline_instructions,Arena* scratch,NativeFontInstanceHandle* output,bool* oblique,bool* bold) noexcept {

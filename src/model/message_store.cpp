@@ -263,14 +263,12 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
     }
     store->order[order_index] = slot;
     MessageRecord& record = store->records[slot];
-    const u16 generation = next_generation(record.generation);
-    reset_value<MessageRecord>(&record);
     record.id = input.id;
     assign_metadata(record, input);
     record.content_offset = store->text_used;
     record.content_bytes = input.content.bytes;
     record.revision = 1;
-    record.generation = generation;
+    record.generation = next_generation(record.generation);
     record.occupied = true;
     copy_bytes(store->text + store->text_used, reinterpret_cast<const u8*>(input.content.data),
                input.content.bytes);

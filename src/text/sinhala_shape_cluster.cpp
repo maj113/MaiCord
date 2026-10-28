@@ -191,20 +191,26 @@ SfntStatus use_shape::move_before(const Slice<SfntComponentGlyph>& view,u32 from
     const auto saved=glyphs[from];if(from<to)for(u32 i=from;i<to;++i)glyphs[i]=glyphs[i+1];
     else for(u32 i=from;i>to;--i)glyphs[i]=glyphs[i-1];glyphs[to]=saved;return SfntStatus::ok;
 }
-SfntStatus sfnt_sinhala_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool rtl) noexcept {
-    if(!result)return SfntStatus::invalid_input;reset_value(result);
+SfntStatus use_shape::admit_run(const SfntShapePlan& plan,ConstSlice<u32> input,ConstSlice<SfntLookupStep> steps,const SfntShapeStorage& storage,
+    const SfntShapeLimits& limits,u32* early) noexcept {
     if((input.count&&!input.data)||(steps.count&&!steps.data)||plan.substitution_roots.count)return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*8+steps.count>limits.stage_work)return SfntStatus::resource_limit;
     if(steps.count&&!plan.substitutions)return SfntStatus::invalid_input;
-    u32 early=0;
+    *early=0;
     for(u32 i=0;i<steps.count;++i){if(steps[i].feature_mask||steps[i].stage>=7||(i&&steps[i].stage<steps[i-1].stage)||
-        steps[i].lookup>=plan.substitutions->lookups.count)return SfntStatus::invalid_input;if(steps[i].stage<5)++early;}
+        steps[i].lookup>=plan.substitutions->lookups.count)return SfntStatus::invalid_input;if(steps[i].stage<5)++*early;}
     u64 total_units=0;for(u32 i=0;i<input.count;++i){if(!unicode_is_scalar(input[i]))return SfntStatus::invalid_input;total_units+=input[i]>0xffff?2u:1u;}
     if(total_units>0xffffffffull)return SfntStatus::resource_limit;
     if(total_units>storage.character_glyphs.count)return SfntStatus::output_too_small;
     if((storage.character_glyphs.count&&!storage.character_glyphs.data)||(storage.positions.count&&!storage.positions.data)||
         (storage.targets.count&&!storage.targets.data))return SfntStatus::invalid_input;
+    return SfntStatus::ok;
+}
+SfntStatus sfnt_sinhala_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
+    float em,const SfntShapeStorage& storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,const SfntShapeLimits& limits,bool rtl) noexcept {
+    if(!result)return SfntStatus::invalid_input;reset_value(result);
+    u32 early=0;
+    if(const auto admitted=use_shape::admit_run(plan,input,steps,storage,limits,&early);admitted!=SfntStatus::ok)return admitted;
     auto* mapped=reinterpret_cast<SfntClusterGlyph*>(storage.positions.data);
     const u64 capacity=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntClusterGlyph);
     u32 count=0,units=0,starts=0;

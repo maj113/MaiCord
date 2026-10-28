@@ -239,9 +239,7 @@ bool user_activities_read(ConstSlice<u8> input, u64 user, UserActivitySet* outpu
             if (!utf8_validate(user_activity_text(a, static_cast<UserActivityField>(k))).valid)
                 return false;
     }
-    if (!r.ok || r.used != input.count)
-        return false;
-    return true;
+    return r.ok && r.used == input.count;
 }
 
 

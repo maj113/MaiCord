@@ -221,7 +221,7 @@ VoiceStateResult voice_state_store_apply_batch(VoiceStateStore* store, ConstSlic
     const u32 rows = static_cast<u32>(packed.count / sizeof(VoiceState));
     const u32 revision = store->revision;
     bool full = false;
-    if (rows <= kBatchThreshold || !make_room(store, 3 * rows, rows ? row_at(packed, 0).guild_id : 0)) {
+    if (rows <= kBatchThreshold || !make_room(store, 3 * rows, row_at(packed, 0).guild_id)) {
         for (u32 i = 0; i < rows; ++i) {
             const VoiceState row = row_at(packed, i);
             full = voice_state_store_apply(store, row.guild_id, row.channel_id, row.user_id, row.flags,

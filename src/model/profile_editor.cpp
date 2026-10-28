@@ -107,9 +107,7 @@ i32 profile_editor_bio_remaining(Utf8View bio, u32 limit) noexcept {
     return used == ~0u ? 0 : static_cast<i32>(limit) - static_cast<i32>(used);
 }
 
-bool profile_editor_changes_allowed(ProfileEditorTab tab, const ProfileEditorBase& base, const ProfileEditorDraft& draft,
-                                    ProfileEditorGate gate) noexcept {
-    const u16 changed = profile_editor_changes(tab, base, draft);
+static bool allowed(ProfileEditorTab tab, u16 changed, const ProfileEditorDraft& draft, ProfileEditorGate gate) noexcept {
     for (u16 bit = 1; bit && bit <= profile_editor_bio; bit = static_cast<u16>(bit << 1)) {
         if (!(changed & bit) || (gate.enabled & bit))
             continue;
@@ -121,7 +119,12 @@ bool profile_editor_changes_allowed(ProfileEditorTab tab, const ProfileEditorBas
     const u32 name_limit =
         tab == ProfileEditorTab::main ? kProfileEditDisplayNameCodepoints : kProfileEditNicknameCodepoints;
     return within(draft.name, name_limit) && within(draft.pronouns, kProfileEditPronounsCodepoints) &&
-           profile_editor_bio_valid(draft.bio);
+           within(draft.bio, kProfileEditBioCodepoints);
+}
+
+bool profile_editor_changes_allowed(ProfileEditorTab tab, const ProfileEditorBase& base, const ProfileEditorDraft& draft,
+                                    ProfileEditorGate gate) noexcept {
+    return allowed(tab, profile_editor_changes(tab, base, draft), draft, gate);
 }
 
 bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base, const ProfileEditorDraft& draft,
@@ -134,9 +137,9 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
         reset_value(user);
     if (member)
         reset_value(member);
-    if (!profile_editor_changes_allowed(tab, base, draft, gate))
-        return false;
     const u16 changed = profile_editor_changes(tab, base, draft);
+    if (!allowed(tab, changed, draft, gate))
+        return false;
     const bool new_avatar = (changed & profile_editor_avatar) && draft.avatar == ProfileImageEdit::replace;
     const bool new_banner = (changed & profile_editor_banner) && draft.banner == ProfileImageEdit::replace;
     if ((new_avatar && !draft.avatar_uri.bytes) || (new_banner && !draft.banner_uri.bytes))

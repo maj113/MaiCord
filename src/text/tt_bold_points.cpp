@@ -5,15 +5,8 @@ struct Point {i64 x,y;};
 bool same(Point a,Point b) noexcept {return a.x==b.x&&a.y==b.y;}
 Point add(Point a,Point b) noexcept {return {a.x+b.x,a.y+b.y};}
 Point sub(Point a,Point b) noexcept {return {a.x-b.x,a.y-b.y};}
-i64 floor_div(i64 n,i64 d) noexcept {return n<0?-((-n+d-1)/d):n/d;}
-bool mul_div(i64 a,i64 b,i64 d,i64* out) noexcept {
-    if(!d)return false;
-    const u64 x=static_cast<u64>(absolute_value<i64>(a)),y=static_cast<u64>(absolute_value<i64>(b)),z=static_cast<u64>(absolute_value<i64>(d));
-    if(y&&x>0xffffffffffffffffull/y)return false;
-    const u64 p=x*y,q=p/z,r=p%z>=(z+1)/2?1:0;
-    if(q>0x7fffffffffffffffull-r)return false;
-    *out=((a<0)^(b<0)^(d<0))?-static_cast<i64>(q+r):static_cast<i64>(q+r);return true;
-}
+using tt_math::floor_div;
+using tt_math::multiply_divide;
 bool read(const SfntOutlinePoint& p,Point* out) noexcept {
     const double x=static_cast<double>(p.x)*64,y=static_cast<double>(p.y)*64;
     if(!(x>=-2147483648.0&&x<=2147483647.0&&y>=-2147483648.0&&y<=2147483647.0))return false;
@@ -25,14 +18,14 @@ bool meeting(Point a0,Point a1,Point b0,Point b1,Point* out) noexcept {
     if(!a.y){if(!b.x){*out={b0.x,a0.y};return true;}n=b0.y-a0.y;d=-b.y;}
     else if(!a.x){if(!b.y){*out={a0.x,b0.y};return true;}n=b0.x-a0.x;d=-b.x;}
     else if(absolute_value<i64>(a.x)<absolute_value<i64>(a.y)){
-        if(!mul_div(b0.y-a0.y,a.x,a.y,&t))return false;n=a0.x-b0.x+t;
-        if(!mul_div(b.y,a.x,a.y,&t))return false;d=b.x-t;
+        if(!multiply_divide(b0.y-a0.y,a.x,a.y,&t))return false;n=a0.x-b0.x+t;
+        if(!multiply_divide(b.y,a.x,a.y,&t))return false;d=b.x-t;
     }else{
-        if(!mul_div(b0.x-a0.x,a.y,a.x,&t))return false;n=b0.y-a0.y-t;
-        if(!mul_div(b.x,a.y,a.x,&t))return false;d=t-b.y;
+        if(!multiply_divide(b0.x-a0.x,a.y,a.x,&t))return false;n=b0.y-a0.y-t;
+        if(!multiply_divide(b.x,a.y,a.x,&t))return false;d=t-b.y;
     }
     if(absolute_value<i64>(d)<=16){*out={floor_div(a1.x+b0.x,2),floor_div(a1.y+b0.y,2)};return true;}
-    i64 x=0,y=0;if(!mul_div(n,b.x,d,&x)||!mul_div(n,b.y,d,&y))return false;
+    i64 x=0,y=0;if(!multiply_divide(n,b.x,d,&x)||!multiply_divide(n,b.y,d,&y))return false;
     // Only the clamped displacement is needed; keep the following sums bounded.
     if(absolute_value<i64>(x)>0x3fffffffffffffffll||absolute_value<i64>(y)>0x3fffffffffffffffll)return false;
     *out={b0.x+x,b0.y+y};return true;
@@ -46,8 +39,6 @@ struct Widen {
         return {xn+floor_div(x*(x>=0?xp:xn)+32,64),yn+floor_div(y*(y>=0?yp:yn)+32,64)};
     }
 };
-}
-namespace {
 SfntStatus widen(Slice<SfntOutlinePoint> points,ConstSlice<u32> ends,
     ConstSlice<u8> directions,bool marked,u16 units,bool fractional_halves,u32 work_limit,u32* work_used) noexcept {
     if(work_used)*work_used=0;

@@ -1,7 +1,8 @@
 #include "maicord/text/font_fallback.hpp"
+#include "sfnt_read.hpp"
 namespace maicord {
 SfntStatus native_fallback_cascade_find(const NativeFallbackCascade& cascade,u32 scalar,u32* output,u32 work,u32* used) noexcept {
-    const u32 initial=work;struct Report {u32 initial;u32& left;u32* out;~Report() noexcept{if(out)*out=initial-left;}} report{initial,work,used};
+    const sfnt_read::WorkReport report{work,work,used};
     if(output)*output=native_fallback_missing;
     if(!output||scalar>0x10ffff||(scalar>=0xd800&&scalar<=0xdfff))return SfntStatus::invalid_input;
     if(!cascade.ranges.count)return SfntStatus::ok;

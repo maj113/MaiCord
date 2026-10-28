@@ -33,8 +33,16 @@ void copy_name(Utf8View source, char* destination, u16* bytes) noexcept {
     copy_bytes(destination, source.data, count);
     *bytes = static_cast<u16>(count);
 }
-bool same_text(const char* a, u16 a_bytes, const char* b, u16 b_bytes) noexcept {
-    return a_bytes == b_bytes && utf8_equal({a, a_bytes}, {b, b_bytes});
+bool same_bytes(const char* a, u32 a_bytes, const char* b, u32 b_bytes) noexcept {
+    return a_bytes == b_bytes && bytes_equal(a, b, a_bytes);
+}
+// IDs of the roles the account holds in a guild, @everyone excluded.
+u32 self_role_ids(const ChatStateStore& store, u64 guild_id, u64 (&roles)[kGuildRoleMaximum]) noexcept {
+    u32 count = 0;
+    for (u32 i = 0; i < store.role_count && count < kGuildRoleMaximum; ++i)
+        if (store.roles[i].guild_id == guild_id && store.roles[i].id != guild_id && store.roles[i].self_assigned)
+            roles[count++] = store.roles[i].id;
+    return count;
 }
 } // namespace
 
@@ -55,10 +63,7 @@ GuildSettingsAccess guild_settings_access(const ChatStateStore& store, u64 guild
     if (!access.resolved)
         return access;
     u64 roles[kGuildRoleMaximum];
-    u32 count = 0;
-    for (u32 i = 0; i < store.role_count && count < kGuildRoleMaximum; ++i)
-        if (store.roles[i].guild_id == guild_id && store.roles[i].id != guild_id && store.roles[i].self_assigned)
-            roles[count++] = store.roles[i].id;
+    const u32 count = self_role_ids(store, guild_id, roles);
     const PermissionMember self{store.self_user_id, {roles, count}, 0,
                                 guild_self_quarantined(guild->settings)};
     access.permissions = permission_compute(chat_state_store_permission_guild(store, guild_id), self, {},
@@ -168,9 +173,9 @@ u32 guild_emoji_name_from_filename(Utf8View filename, Slice<char> output) noexce
 GuildSafetyDraft guild_safety_from_state(const ChatStateStore& store, u64 guild_id) noexcept {
     GuildSafetyDraft draft{};
     if (const auto* guild = chat_state_store_find_guild(store, guild_id)) {
-        draft.verification_level = minimum<u8>(guild->settings.verification_level, 4);
-        draft.explicit_content_filter = minimum<u8>(guild->settings.explicit_content_filter, 2);
-        draft.mfa_level = guild->settings.mfa_level ? 1 : 0;
+        draft.verification_level = guild->settings.verification_level;
+        draft.explicit_content_filter = guild->settings.explicit_content_filter;
+        draft.mfa_level = guild->settings.mfa_level;
     }
     return draft;
 }
@@ -237,17 +242,13 @@ bool guild_settings_can_view_as_role(const GuildSettingsAccess& access, const Ro
            (role.id == access.guild_id || role.id == access.top_role_id || guild_settings_role_below(access, role));
 }
 
-PermissionSet guild_settings_self_permissions_with(const ChatStateStore& store, const GuildSettingsAccess& access,
-                                                   u64 role_id, PermissionSet role_permissions) noexcept {
+static PermissionSet guild_settings_self_permissions_with(const ChatStateStore& store, const GuildSettingsAccess& access,
+                                                          u64 role_id, PermissionSet role_permissions) noexcept {
     const auto* guild = chat_state_store_find_guild(store, access.guild_id);
     if (!guild || !access.resolved)
         return 0;
     u64 roles[kGuildRoleMaximum];
-    u32 count = 0;
-    for (u32 i = 0; i < store.role_count && count < kGuildRoleMaximum; ++i)
-        if (store.roles[i].guild_id == access.guild_id && store.roles[i].id != access.guild_id &&
-            store.roles[i].self_assigned)
-            roles[count++] = store.roles[i].id;
+    const u32 count = self_role_ids(store, access.guild_id, roles);
     const auto permission_guild = chat_state_store_permission_guild(store, access.guild_id);
     const PermissionMember self{store.self_user_id, {roles, count}, 0, guild_self_quarantined(guild->settings)};
     return permission_compute_from_base(permission_compute_base_with(permission_guild, self, role_id, role_permissions),
@@ -346,9 +347,6 @@ const Utf8View kGuildProfileBannerNames[kGuildProfileBannerColorCount]{
 
 namespace {
 constexpr u8 kVisibilityPublic = 1, kVisibilityRestricted = 2, kVisibilityPublicWithRecruitment = 3;
-bool same_bytes(const char* a, u32 a_bytes, const char* b, u32 b_bytes) noexcept {
-    return a_bytes == b_bytes && bytes_equal(a, b, a_bytes);
-}
 } // namespace
 
 GuildServerProfileDraft guild_server_profile_draft(const GuildAdminProfile& profile) noexcept {
@@ -717,7 +715,7 @@ GuildRoleDraft guild_role_draft_from(const ChatStateStore& store, const RoleReco
 
 bool guild_role_draft_equal(const GuildRoleDraft& a, const GuildRoleDraft& b) noexcept {
     return a.role_id == b.role_id && a.permissions == b.permissions && a.color == b.color && a.hoist == b.hoist &&
-           a.mentionable == b.mentionable && same_text(a.name, a.name_bytes, b.name, b.name_bytes);
+           a.mentionable == b.mentionable && same_bytes(a.name, a.name_bytes, b.name, b.name_bytes);
 }
 
 bool guild_role_name_valid(Utf8View text) noexcept {
@@ -728,7 +726,7 @@ bool guild_role_patch(const GuildRoleDraft& baseline, const GuildRoleDraft& draf
     if (!patch || baseline.role_id != draft.role_id || !draft.role_id)
         return false;
     RolePatch value{};
-    if (!same_text(baseline.name, baseline.name_bytes, draft.name, draft.name_bytes)) {
+    if (!same_bytes(baseline.name, baseline.name_bytes, draft.name, draft.name_bytes)) {
         if (!guild_role_name_valid({draft.name, draft.name_bytes}))
             return false;
         value.fields |= role_patch_name;

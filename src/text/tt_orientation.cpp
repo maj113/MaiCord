@@ -1,5 +1,6 @@
 #include "maicord/text/tt_orientation.hpp"
 #include "sfnt_read.hpp"
+#include "tt_math.hpp"
 #include "maicord/sys/simd.hpp"
 #pragma float_control(precise,on,push)
 namespace maicord {namespace {
@@ -7,7 +8,7 @@ struct Point {double x,y;};
 struct IntegerPoint {i64 v[2];};
 Point point(const SfntOutlinePoint& p) noexcept {return {static_cast<double>(p.x)*2,static_cast<double>(p.y)*2};}
 Point middle(Point a,Point b) noexcept {return {(a.x+b.x)*.5,(a.y+b.y)*.5};}
-i64 floor_ratio(i64 n,i64 d) noexcept {return n<0?-((-n+d-1)/d):n/d;}
+using tt_math::floor_div;
 using namespace sfnt_read;
 IntegerPoint integer_point(const SfntOutlinePoint& p) noexcept {return {{static_cast<i64>(p.x)*2,static_cast<i64>(p.y)*2}};}
 IntegerPoint extremum(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,u32 i,u32 direction) noexcept {
@@ -18,7 +19,7 @@ IntegerPoint extremum(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,u32 
     const u32 axis=direction/2;const i64 d=a.v[axis]-2*b.v[axis]+z.v[axis],n=a.v[axis]-b.v[axis];if(!d)return b;
     const i64 other=d-n,denominator=d*d;IntegerPoint result{};
     for(u32 j=0;j<2;++j){const i64 value=a.v[j]*other*other+2*b.v[j]*n*other+z.v[j]*n*n;
-        if(j==axis)result.v[j]=direction&1?-floor_ratio(-value,denominator):floor_ratio(value,denominator);
+        if(j==axis)result.v[j]=direction&1?-floor_div(-value,denominator):floor_div(value,denominator);
         else result.v[j]=(absolute_value<i64>(value)/denominator+1)*(value<0?-1:1);
     }return result;
 }
@@ -83,8 +84,6 @@ bool crossings(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,const Ray& 
         }
     }if(!spend(work))return false;*count+=ray.line(current,start);return true;
 }
-}
-namespace {
 SfntStatus classify(ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,Slice<u8> directions,SfntOutlinePoint* marked,u32 origin,u32 work,u32* used) noexcept {
     WorkReport report{work,work,used};
     if(origin>points.count||(points.count&&!points.data)||(ends.count&&!ends.data)||(!(points.count-origin))!=(!ends.count))return SfntStatus::invalid_input;

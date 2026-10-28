@@ -8,7 +8,6 @@ constexpr u8 required_stage=255;
 constexpr u8 stage_masks[]{0,sfnt_deva_nukta,0,sfnt_deva_reph,0,sfnt_deva_pre,
     sfnt_deva_below,sfnt_deva_half,sfnt_deva_post,sfnt_deva_vatu,sfnt_deva_conjunct,0,0};
 static_assert(sizeof(stage_masks)==static_cast<u8>(SfntDevanagariStage::count));
-bool spend(u64& work,u64 count=1) noexcept {if(count>work)return false;work-=count;return true;}
 struct Choice {u8 identity,stage,mask=0;};
 Choice choice(SfntLayoutKind kind,u32 tag,bool initial) noexcept {
     if(kind==SfntLayoutKind::substitution)switch(tag){
@@ -46,24 +45,24 @@ struct Builder {
             if(stage==static_cast<u8>(SfntDevanagariStage::final_reorder))continue;
             const u32 passes=ordered_presentation&&stage==12?6u:1u;
             for(u32 pass=0;pass<passes;++pass){
-            if(!spend(work,layout.lookup_count))return SfntStatus::resource_limit;
+            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
             for(u32 i=0;i<layout.lookup_count;++i)scratch[i]=0;
             const u16 mask=stage_masks[stage]?stage_masks[stage]:unmasked;
             for(u32 f=0;f<count;++f){
-                if(!spend(work))return SfntStatus::resource_limit;const auto& selected=features[f];
+                if(!spend(&work))return SfntStatus::resource_limit;const auto& selected=features[f];
                 if(selected.stage!=stage&&selected.stage!=required_stage)continue;
                 if(passes>1&&(selected.stage==required_stage?pass!=0:(selected.identity>=17?5u:static_cast<u32>(selected.identity)-12)!=pass))continue;
-                const auto indices=selected.feature.lookup_indices;if(!spend(work,indices.count/2))return SfntStatus::resource_limit;
+                const auto indices=selected.feature.lookup_indices;if(!spend(&work,indices.count/2))return SfntStatus::resource_limit;
                 // Fallback calt/rclt share font order, but a lookup referenced by both
                 // executes once per feature. Two spare scratch bits record which
                 // feature added it; repeats inside one feature still collapse.
                 const u16 context=passes>1&&pass==5?static_cast<u16>(selected.identity==17?512:1024):0;
                 for(u32 i=0;i<indices.count/2;++i)scratch[byte_load_be16(indices.data+i*2)]|=(selected.mask?selected.mask:mask)|context;
             }
-            if(!spend(work,layout.lookup_count))return SfntStatus::resource_limit;
+            if(!spend(&work,layout.lookup_count))return SfntStatus::resource_limit;
             for(u32 i=0;i<layout.lookup_count;++i)if(scratch[i]){
                 const u32 repeat=(scratch[i]&1536)==1536?2u:1u;
-                if(write){if(!spend(work,repeat))return SfntStatus::resource_limit;for(u32 n=0;n<repeat;++n)output[emitted+n]={static_cast<u16>(i),static_cast<u8>(scratch[i]&unmasked?0:scratch[i]),stage};}
+                if(write){if(!spend(&work,repeat))return SfntStatus::resource_limit;for(u32 n=0;n<repeat;++n)output[emitted+n]={static_cast<u16>(i),static_cast<u8>(scratch[i]&unmasked?0:scratch[i]),stage};}
                 emitted+=repeat;
             }
             }
@@ -84,7 +83,7 @@ struct Builder {
                     seen|=1u<<required.identity;status=add(language.required_feature,0);if(status!=SfntStatus::ok)return status;}}
         }
         for(u32 i=0;i<language.feature_indices.count/2;++i){
-            if(!spend(work))return SfntStatus::resource_limit;const u16 index=byte_load_be16(language.feature_indices.data+i*2);
+            if(!spend(&work))return SfntStatus::resource_limit;const u16 index=byte_load_be16(language.feature_indices.data+i*2);
             const auto selected=choice(layout.kind,byte_load_be32(layout.features.data+2+static_cast<u32>(index)*6),initial);
             if(form_stage!=255&&selected.stage!=0&&selected.stage!=form_stage)continue;
             if(!selected.identity)continue;const u32 bit=1u<<selected.identity;if(seen&bit)continue;seen|=bit;

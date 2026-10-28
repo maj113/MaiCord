@@ -67,15 +67,19 @@ bool text_boundary(const MessageComposer& composer, u32 position) noexcept {
                                           (static_cast<u8>(composer.text[position]) & 0xC0u) != 0x80u);
 }
 
+bool usable(const MessageComposer* composer) noexcept {
+    return composer && composer->text && composer->bytes <= composer->capacity;
+}
+
+bool selection_valid(const MessageComposer* composer) noexcept {
+    return usable(composer) && text_boundary(*composer, composer->caret) &&
+           text_boundary(*composer, composer->anchor);
+}
+
 MessageComposerResult replace_selection(MessageComposer* composer, Utf8View inserted,
     TextEditHistoryInput input = TextEditHistoryInput::isolated, u64 time_ms = 0,
     u32 original_anchor = ~0u, u32 original_caret = ~0u) noexcept {
-    if (!composer || !composer->text || composer->capacity == 0 || composer->bytes > composer->capacity ||
-        composer->anchor > composer->bytes || composer->caret > composer->bytes ||
-        (!inserted.data && inserted.bytes != 0)) {
-        return MessageComposerResult::invalid_input;
-    }
-    if (!text_boundary(*composer, composer->anchor) || !text_boundary(*composer, composer->caret))
+    if (!selection_valid(composer) || composer->capacity == 0 || (!inserted.data && inserted.bytes != 0))
         return MessageComposerResult::invalid_input;
     // A borrowed source may be overwritten by the suffix move. Reject it
     // before recording history or changing the document.
@@ -104,9 +108,8 @@ MessageComposerResult replace_selection(MessageComposer* composer, Utf8View inse
     copy_bytes(composer->text + begin, inserted.data, inserted.bytes);
     const u32 old_bytes = composer->bytes;
     composer->bytes = retained + inserted.bytes;
-    for (u32 index = composer->bytes; index < old_bytes; ++index) {
-        composer->text[index] = 0;
-    }
+    if (composer->bytes < old_bytes)
+        clear_bytes(composer->text + composer->bytes, old_bytes - composer->bytes);
     composer->anchor = begin + inserted.bytes;
     composer->caret = composer->anchor;
     composer->phase = MessageComposerPhase::idle;
@@ -160,9 +163,7 @@ bool message_composer_initialize(MessageComposer* composer, Slice<char> storage)
     composer->text = storage.data;
     composer->document_identity = 1;
     composer->capacity = storage.count;
-    for (u32 index = 0; index < storage.count; ++index) {
-        storage[index] = 0;
-    }
+    clear_bytes(storage.data, storage.count);
     return true;
 }
 
@@ -213,7 +214,7 @@ MessageComposerResult message_composer_redo(MessageComposer* composer) noexcept 
 TextEditHistoryCosts message_composer_history_costs(const MessageComposer& composer) noexcept { return text_edit_history_costs(history_state(composer)); }
 
 void message_composer_reset(MessageComposer* composer, u64 channel_id, bool retain_draft) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity) {
+    if (!usable(composer)) {
         return;
     }
     if (!retain_draft || channel_id != composer->channel_id) {
@@ -222,9 +223,7 @@ void message_composer_reset(MessageComposer* composer, u64 channel_id, bool reta
     }
     else message_composer_break_history_run(composer);
     if (!retain_draft) {
-        for (u32 index = 0; index < composer->bytes; ++index) {
-            composer->text[index] = 0;
-        }
+        clear_bytes(composer->text, composer->bytes);
         composer->bytes = 0;
         composer->anchor = 0;
         composer->caret = 0;
@@ -341,10 +340,9 @@ MessageComposerResult message_composer_insert_scalar(MessageComposer* composer, 
     if (!scalar_allowed(codepoint)) {
         return MessageComposerResult::invalid_input;
     }
-    char encoded[4]{};
-    const u8 bytes = utf8_encode(codepoint, encoded);
-    return bytes != 0 ? replace_selection(composer, Utf8View{encoded, bytes}, TextEditHistoryInput::typing, time_ms)
-                      : MessageComposerResult::invalid_input;
+    char encoded[4];
+    return replace_selection(composer, Utf8View{encoded, utf8_encode(codepoint, encoded)},
+                             TextEditHistoryInput::typing, time_ms);
 }
 
 MessageComposerResult message_composer_insert_utf16(MessageComposer* composer, u16 code_unit, u64 time_ms) noexcept {
@@ -387,9 +385,8 @@ MessageComposerResult message_composer_insert_utf8(MessageComposer* composer, Ut
 MessageComposerResult message_composer_replace_range(MessageComposer* composer, u32 begin, u32 end,
                                                      const Utf8View& text_view) noexcept {
     const Utf8View text = text_view; // the composer is written below
-    if (!composer || !composer->text || composer->bytes > composer->capacity || begin > end || end > composer->bytes ||
-        !text_boundary(*composer, begin) || !text_boundary(*composer, end) ||
-        (!text.data && text.bytes != 0)) {
+    if (!usable(composer) || begin > end || end > composer->bytes || !text_boundary(*composer, begin) ||
+        !text_boundary(*composer, end) || (!text.data && text.bytes != 0)) {
         return MessageComposerResult::invalid_input;
     }
     u32 offset = 0;
@@ -417,8 +414,7 @@ MessageComposerResult message_composer_insert_line_break(MessageComposer* compos
 }
 
 MessageComposerResult message_composer_backspace(MessageComposer* composer, u64 time_ms) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity ||
-        !text_boundary(*composer, composer->caret) || !text_boundary(*composer, composer->anchor)) {
+    if (!selection_valid(composer)) {
         return MessageComposerResult::invalid_input;
     }
     const u32 original_anchor = composer->anchor, original_caret = composer->caret;
@@ -432,8 +428,7 @@ MessageComposerResult message_composer_backspace(MessageComposer* composer, u64 
 }
 
 MessageComposerResult message_composer_delete_forward(MessageComposer* composer, u64 time_ms) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity ||
-        !text_boundary(*composer, composer->caret) || !text_boundary(*composer, composer->anchor)) {
+    if (!selection_valid(composer)) {
         return MessageComposerResult::invalid_input;
     }
     const u32 original_anchor = composer->anchor, original_caret = composer->caret;
@@ -448,8 +443,7 @@ MessageComposerResult message_composer_delete_forward(MessageComposer* composer,
 
 MessageComposerResult message_composer_move(MessageComposer* composer, MessageComposerMove movement,
                                             bool extend_selection) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity ||
-        !text_boundary(*composer, composer->caret) || !text_boundary(*composer, composer->anchor)) {
+    if (!selection_valid(composer)) {
         return MessageComposerResult::invalid_input;
     }
     u32 position = composer->caret;
@@ -484,7 +478,6 @@ MessageComposerResult message_composer_move(MessageComposer* composer, MessageCo
             if (!utf8_word_boundary(message_composer_text(*composer), position, movement == MessageComposerMove::next_word, &position))
                 return MessageComposerResult::invalid_input;
             break;
-        default: return MessageComposerResult::invalid_input;
         }
     }
     position = atomic_boundary(*composer, position, position > composer->caret);
@@ -503,8 +496,7 @@ MessageComposerResult message_composer_move(MessageComposer* composer, MessageCo
 
 MessageComposerResult message_composer_set_selection(MessageComposer* composer, u32 anchor,
                                                      u32 caret) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity || anchor > composer->bytes || caret > composer->bytes ||
-        !text_boundary(*composer, anchor) || !text_boundary(*composer, caret)) {
+    if (!usable(composer) || !text_boundary(*composer, anchor) || !text_boundary(*composer, caret)) {
         return MessageComposerResult::invalid_input;
     }
     message_composer_break_history_run(composer);
@@ -519,8 +511,7 @@ MessageComposerResult message_composer_set_selection(MessageComposer* composer, 
 }
 
 MessageComposerResult message_composer_delete_word(MessageComposer* composer, bool forward, u64 time_ms) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity ||
-        !text_boundary(*composer, composer->caret) || !text_boundary(*composer, composer->anchor))
+    if (!selection_valid(composer))
         return MessageComposerResult::invalid_input;
     const u32 anchor = composer->anchor, caret = composer->caret;
     if (anchor == caret && !utf8_word_boundary(message_composer_text(*composer), caret, forward, &composer->anchor))
@@ -534,8 +525,7 @@ MessageComposerResult message_composer_delete_word(MessageComposer* composer, bo
 }
 
 MessageComposerResult message_composer_select_word(MessageComposer* composer, u32 position) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity ||
-        position > composer->bytes || !text_boundary(*composer, position)) {
+    if (!usable(composer) || !text_boundary(*composer, position)) {
         return MessageComposerResult::invalid_input;
     }
     u32 begin = 0, end = 0;
@@ -545,8 +535,7 @@ MessageComposerResult message_composer_select_word(MessageComposer* composer, u3
 }
 
 MessageComposerResult message_composer_select_range(MessageComposer* composer, u32 anchor, u32 caret) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity || anchor > composer->bytes ||
-        caret > composer->bytes)
+    if (!usable(composer) || anchor > composer->bytes || caret > composer->bytes)
         return MessageComposerResult::invalid_input;
     // Mentions, channels and custom emoji are stored as tokens but shown as
     // one unit: a range that touches one selects the whole token.
@@ -557,7 +546,7 @@ MessageComposerResult message_composer_select_range(MessageComposer* composer, u
 }
 
 MessageComposerResult message_composer_select_all(MessageComposer* composer) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity) {
+    if (!usable(composer)) {
         return MessageComposerResult::invalid_input;
     }
     message_composer_break_history_run(composer);
@@ -572,7 +561,7 @@ MessageComposerResult message_composer_select_all(MessageComposer* composer) noe
 }
 
 MessageComposerResult message_composer_clear(MessageComposer* composer) noexcept {
-    if (!composer || !composer->text || composer->bytes > composer->capacity) {
+    if (!usable(composer)) {
         return MessageComposerResult::invalid_input;
     }
     reset_history(composer);
@@ -581,9 +570,7 @@ MessageComposerResult message_composer_clear(MessageComposer* composer) noexcept
     if (composer->bytes == 0 && composer->anchor == 0 && composer->caret == 0) {
         return MessageComposerResult::unchanged;
     }
-    for (u32 index = 0; index < composer->bytes; ++index) {
-        composer->text[index] = 0;
-    }
+    clear_bytes(composer->text, composer->bytes);
     composer->bytes = 0;
     composer->anchor = 0;
     composer->caret = 0;

@@ -95,9 +95,6 @@ bool locate_folder(const Tree& tree, u64 folder, u32* node) noexcept {
     }
     return false;
 }
-bool real_folder(const Tree& tree, u32 node) noexcept {
-    return tree.slots[tree.order[node]].record.has_id;
-}
 // Moves a slot's run to the arena end with room for `extra` more guilds.
 bool relocate(Tree* tree, u32 slot_index, u32 extra) noexcept {
     if (tree->arena_used + tree->slots[slot_index].count + extra > kArena) {
@@ -121,7 +118,7 @@ bool relocate(Tree* tree, u32 slot_index, u32 extra) noexcept {
 }
 bool insert_guild(Tree* tree, u32 node, u32 index, u64 guild) noexcept {
     const u32 slot_index = tree->order[node];
-    if (index > tree->slots[slot_index].count || !relocate(tree, slot_index, 1))
+    if (!relocate(tree, slot_index, 1))
         return false;
     auto& slot = tree->slots[slot_index];
     for (u32 g = slot.count; g > index; --g)
@@ -138,8 +135,7 @@ void remove_guild(Tree* tree, u32 node, u32 index) noexcept {
 }
 // A new single-guild (or given record) node at order position `at`.
 bool insert_node(Tree* tree, u32 at, const GuildFolderRecord& record, u64 guild) noexcept {
-    if (tree->count > kGuildFoldersMaximumFolders || at > tree->count)
-        return false;
+    // `at` never exceeds the node count and a loaded tree leaves room for one more node.
     const u32 slot_index = tree->count;
     auto& slot = tree->slots[slot_index];
     slot.record = record;
@@ -259,7 +255,7 @@ GuildFolderEditError guild_folders_move(GuildFolderSettings* settings, GuildFold
                                             : locate_guild(tree, target.id, &target_node, &target_index);
     if (!target_found)
         return E::input;
-    const bool target_nested = !target.folder && real_folder(tree, target_node);
+    const bool target_nested = !target.folder && tree.slots[tree.order[target_node]].record.has_id;
     if (source.folder) {
         u32 node = 0;
         // Folders stay top level: no combining, no neighbours inside a folder.

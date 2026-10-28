@@ -1,11 +1,13 @@
 #include "maicord/text/colr_variations.hpp"
+#include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "variation_delta.hpp"
 
 namespace maicord {
 namespace {
 #pragma float_control(precise,on,push)
-double floor_value(double value) noexcept;
+double floor_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)-(static_cast<double>(n)>value?1:0);}
+double ceil_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)+(static_cast<double>(n)<value?1:0);}
 SfntStatus adjustment(const ColrVariationInstance& instance,VariationDeltaBlock& block,u32 base,u32 field,double* value) noexcept {
     *value=0;
     if(!instance.present)return SfntStatus::ok;
@@ -22,18 +24,8 @@ SfntStatus adjustment(const ColrVariationInstance& instance,VariationDeltaBlock&
     if(computed==SfntStatus::ok && instance.mode==ColrVariationMode::quantized)*value=floor_value(*value+.5);
     return computed;
 }
-double floor_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)-(static_cast<double>(n)>value?1:0);}
-double ceil_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)+(static_cast<double>(n)<value?1:0);}
-bool later(const ColrResolvedColorStop& a,const ColrResolvedColorStop& b) noexcept {
-    return a.position>b.position || (a.position==b.position && a.original_index>b.original_index);
-}
-void sift(Slice<ColrResolvedColorStop> stops,u32 root,u32 count) noexcept {
-    while(root<count/2) {
-        u32 child=root*2+1;
-        if(child+1<count && later(stops[child+1],stops[child]))++child;
-        if(!later(stops[child],stops[root]))return;
-        const auto value=stops[root];stops[root]=stops[child];stops[child]=value;root=child;
-    }
+bool before(const ColrResolvedColorStop& a,const ColrResolvedColorStop& b) noexcept {
+    return a.position<b.position || (a.position==b.position && a.original_index<b.original_index);
 }
 }
 
@@ -113,8 +105,7 @@ SfntStatus colr_resolve_color_stops(const ColrFont& font,const ColrVariationInst
     if(ordered)return SfntStatus::ok;
     // Heap sort with original-index tie breaking: stable order in O(n log n) time
     // and O(1) extra space, including for adversarial stops.
-    for(u32 i=line.count/2;i>0;--i)sift(output,i-1,line.count);
-    for(u32 count=line.count;count>1;--count){const auto value=output[0];output[0]=output[count-1];output[count-1]=value;sift(output,0,count-1);}
+    heap_sort(output.data,line.count,before);
     return SfntStatus::ok;
 }
 #pragma float_control(pop)

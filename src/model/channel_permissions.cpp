@@ -16,22 +16,6 @@ bool permission_prefix_valid(const ChatStateStore& store) noexcept {
            (store.overwrites || store.overwrite_backed_count == 0);
 }
 
-GuildRecord* mutable_guild(ChatStateStore* store, u64 guild_id) noexcept {
-    if (!store || guild_id == 0) {
-        return nullptr;
-    }
-    const auto* found = chat_state_store_find_guild(*store, guild_id);
-    return found ? &store->guilds[found - store->guilds] : nullptr;
-}
-
-ChannelRecord* mutable_channel(ChatStateStore* store, u64 channel_id) noexcept {
-    if (!store || channel_id == 0) {
-        return nullptr;
-    }
-    const auto* found = chat_state_store_find_channel(*store, channel_id);
-    return found ? &store->channels[found - store->channels] : nullptr;
-}
-
 u32 guild_role_count(const ChatStateStore& store, u64 guild_id) noexcept {
     u32 count = 0;
     for (u32 index = 0; index < store.role_count; ++index) {
@@ -379,9 +363,7 @@ bool chat_state_store_note_message(ChatStateStore* store, u64 channel_id, u64 me
     GuildRecord* guild = mutable_guild(store, channel->guild_id);
     if (!guild && !channel_is_private(channel->type))
         return false;
-    const bool old_unread = channel_activity_visible(*store, *channel);
-    const u32 old_mentions =
-        chat_state_store_channel_visible(*store, *channel) ? channel->mention_count : 0;
+    const ChannelActivity old = channel_activity(*store, *channel);
     channel->last_message_id = message_id;
     if (channel_is_private(channel->type))
         private_channel_store_touch_sort(store->private_channels, channel_id);
@@ -401,12 +383,9 @@ bool chat_state_store_note_message(ChatStateStore* store, u64 channel_id, u64 me
             channel->read_flags |= 4u;
         saturating_increment(channel->mention_count);
     }
-    const bool new_unread = channel_activity_visible(*store, *channel);
-    const u32 new_mentions =
-        chat_state_store_channel_visible(*store, *channel) ? channel->mention_count : 0;
-    if (old_unread != new_unread || old_mentions != new_mentions ||
-        channel_is_private(channel->type)) {
-        adjust_guild_activity(guild, old_unread, old_mentions, new_unread, new_mentions);
+    const ChannelActivity now = channel_activity(*store, *channel);
+    if (old.unread != now.unread || old.mentions != now.mentions || channel_is_private(channel->type)) {
+        adjust_guild_activity(guild, old.unread, old.mentions, now.unread, now.mentions);
         saturating_increment(channel->revision);
         ++store->channel_mutations;
     }
@@ -419,15 +398,10 @@ bool chat_state_store_set_channel_mute(ChatStateStore* store, u64 channel_id, bo
     ChannelRecord* channel = mutable_channel(store, channel_id);
     if (!channel || (channel->notification_muted == muted && channel->notification_dimmed == dimmed))
         return false;
-    const bool old_unread = channel_activity_visible(*store, *channel);
+    const ChannelActivity old = channel_activity(*store, *channel);
     channel->notification_muted = muted;
     channel->notification_dimmed = dimmed;
-    const bool new_unread = channel_activity_visible(*store, *channel);
-    if (old_unread != new_unread) {
-        const u32 mentions = chat_state_store_channel_visible(*store, *channel) ? channel->mention_count : 0;
-        adjust_guild_activity(mutable_guild(store, channel->guild_id), old_unread, mentions, new_unread, mentions);
-        ++store->activity_mutations;
-    }
+    commit_channel_activity(store, *channel, old);
     saturating_increment(channel->revision);
     ++store->channel_mutations;
     return true;
@@ -494,14 +468,9 @@ bool chat_state_store_set_channel_opted_in(ChatStateStore* store, u64 channel_id
     ChannelRecord* channel = mutable_channel(store, channel_id);
     if (!channel || channel->opted_in == opted_in)
         return false;
-    const bool old_unread = channel_activity_visible(*store, *channel);
+    const ChannelActivity old = channel_activity(*store, *channel);
     channel->opted_in = opted_in;
-    const bool new_unread = channel_activity_visible(*store, *channel);
-    if (old_unread != new_unread) {
-        const u32 mentions = chat_state_store_channel_visible(*store, *channel) ? channel->mention_count : 0;
-        adjust_guild_activity(mutable_guild(store, channel->guild_id), old_unread, mentions, new_unread, mentions);
-        ++store->activity_mutations;
-    }
+    commit_channel_activity(store, *channel, old);
     saturating_increment(channel->revision);
     ++store->channel_mutations;
     return true;
@@ -570,28 +539,20 @@ bool chat_state_store_apply_read_state(ChatStateStore* store,
     auto* guild = mutable_guild(store, channel->guild_id);
     if (!guild && !channel_is_private(channel->type))
         return false;
-    const bool old_unread = channel_activity_visible(*store, *channel);
-    const u32 old_mentions =
-        chat_state_store_channel_visible(*store, *channel) ? channel->mention_count : 0;
-    const u64 old_cursor = channel->last_read_message_id;
-    const u32 old_count = channel->mention_count, old_viewed = channel->read_last_viewed,
-              old_flags = channel->read_flags;
-    const bool old_known = channel->read_state_known, old_suppressed = channel->read_auto_ack_suppressed;
-    const bool old_incomplete = channel->read_mentions_incomplete;
-    const bool old_flags_known = channel->read_flags_known,
-               old_viewed_known = channel->read_last_viewed_known;
+    const ChannelActivity old = channel_activity(*store, *channel);
+    const ChannelRecord before = *channel;
     if (!read_state_assign_record(channel, entry, store->selected_channel_id == channel->id))
         return false;
-    const bool new_unread = channel_activity_visible(*store, *channel);
-    const u32 new_mentions =
-        chat_state_store_channel_visible(*store, *channel) ? channel->mention_count : 0;
-    adjust_guild_activity(guild, old_unread, old_mentions, new_unread, new_mentions);
+    const ChannelActivity now = channel_activity(*store, *channel);
+    adjust_guild_activity(guild, old.unread, old.mentions, now.unread, now.mentions);
     const bool changed =
-        old_cursor != channel->last_read_message_id || old_count != channel->mention_count ||
-        old_viewed != channel->read_last_viewed || old_flags != channel->read_flags ||
-        old_known != channel->read_state_known || old_suppressed != channel->read_auto_ack_suppressed ||
-        old_incomplete != channel->read_mentions_incomplete ||
-        old_flags_known != channel->read_flags_known || old_viewed_known != channel->read_last_viewed_known;
+        before.last_read_message_id != channel->last_read_message_id || before.mention_count != channel->mention_count ||
+        before.read_last_viewed != channel->read_last_viewed || before.read_flags != channel->read_flags ||
+        before.read_state_known != channel->read_state_known ||
+        before.read_auto_ack_suppressed != channel->read_auto_ack_suppressed ||
+        before.read_mentions_incomplete != channel->read_mentions_incomplete ||
+        before.read_flags_known != channel->read_flags_known ||
+        before.read_last_viewed_known != channel->read_last_viewed_known;
     if (changed) {
         saturating_increment(channel->revision);
         saturating_increment(store->channel_mutations);
@@ -717,15 +678,12 @@ bool chat_state_store_set_self_roles(ChatStateStore* store, u64 guild_id, u64 ow
     guild->owner_id = owner_id;
     guild->member_roles_known = true;
     for (u32 index = 0; index < store->role_count; ++index) {
-        RoleRecord& role = store->roles[index];
-        if (role.guild_id != guild_id) {
-            continue;
-        }
-        role.self_assigned = false;
+        if (store->roles[index].guild_id == guild_id)
+            store->roles[index].self_assigned = false;
     }
     for (u32 member_role = 0; member_role < role_ids.count; ++member_role) {
         const auto* role = chat_state_store_find_role(*store, guild_id, role_ids[member_role]);
-        store->roles[static_cast<u32>(role - store->roles)].self_assigned = true;
+        store->roles[role - store->roles].self_assigned = true;
     }
     return true;
 }
@@ -759,13 +717,12 @@ bool chat_state_store_append_channel_overwrite(ChatStateStore* store, u64 channe
     if (!store || channel_id == 0 || input.id == 0 || input.type > 1) {
         return false;
     }
-    const auto* owner = chat_state_store_find_channel(*store, channel_id);
-    if (owner && channel_is_private(owner->type))
+    ChannelRecord* channel = mutable_channel(store, channel_id);
+    if (channel && channel_is_private(channel->type))
         return false;
     if (!store->overwrites) {
         return true;
     }
-    ChannelRecord* channel = mutable_channel(store, channel_id);
     if (!channel || channel->overwrite_count == 0xFFFFu ||
         store->overwrite_count >= store->overwrite_capacity ||
         !chat_state_store_prepare_permissions(store, store->role_count, store->overwrite_count + 1)) {

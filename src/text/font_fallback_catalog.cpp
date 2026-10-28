@@ -1,4 +1,5 @@
 #include "maicord/text/font_fallback_catalog.hpp"
+#include "sfnt_read.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -10,7 +11,7 @@ bool valid(const NativeFontCatalog& c) noexcept {
 }
 SfntStatus native_font_catalog_fallback_order(const NativeFontCatalog& c,ConstSlice<u16> name,NativeFontProperties requested,
     Slice<NativeFontProperties> properties,Slice<u32> indices,Slice<u32> output,u32* count,u32 maximum_faces,u32 work,u32* used) noexcept {
-    const u32 initial=work;struct Report {u32 initial;u32& left;u32* used;~Report() noexcept{if(used)*used=initial-left;}} report{initial,work,used};
+    const sfnt_read::WorkReport report{work,work,used};
     if(count)*count=0;
     if(!count||!valid(c)||!name.data||!name.count||name.count>32767||!valid(properties,0)||!valid(indices,0)||!valid(output,0))return SfntStatus::invalid_input;
     if(c.count.faces>maximum_faces)return SfntStatus::resource_limit;u32 n=0;

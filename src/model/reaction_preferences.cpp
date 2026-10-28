@@ -264,8 +264,8 @@ ReactionPreferenceResult reaction_preferences_track_emoji(ReactionPreferenceStor
         saturating_increment(store->unsynced_revision);
     }
     saturating_increment(store->revision);
-    return ReactionPreferenceResult{ReactionPreferenceError::none, true,
-                                    reaction_preferences_is_favorite_emoji(*store, emoji)};
+    u32 favorite = 0;
+    return ReactionPreferenceResult{ReactionPreferenceError::none, true, favorite_index(*store, emoji, &favorite)};
 }
 
 ReactionPreferenceResult reaction_preferences_toggle_favorite_emoji(ReactionPreferenceStore* store,
@@ -343,11 +343,9 @@ bool reaction_preferences_apply_remote(ReactionPreferenceStore* store, ConstSlic
                     insert_recent(usage, source.recent_uses[sample]);
         }
     }
-    for (u32 i = 0; i < store->pending_use_count; ++i) {
-        const auto& use = store->pending_uses[i];
-        if (kind_valid(use.kind) && use.emoji.valid())
-            track_one(store, use.kind, use.emoji, use.timestamp_ms, 1);
-    }
+    // Pending uses were validated when queued.
+    for (u32 i = 0; i < store->pending_use_count; ++i)
+        track_one(store, store->pending_uses[i].kind, store->pending_uses[i].emoji, store->pending_uses[i].timestamp_ms, 1);
     for (u32 kind = 0; kind < kReactionPreferenceKindCount; ++kind) {
         recompute_table(store->tables[kind], static_cast<ReactionPreferenceKind>(kind), now_ms);
         // An empty authoritative table is seeded again by its picker.

@@ -73,21 +73,19 @@ SfntStatus validate_base(ConstSlice<u8> table, u16 glyphs) noexcept {
         }
         return previous == 0xffffu ? SfntStatus::ok : SfntStatus::malformed;
     }
-    if (format == 12 || format == 13) {
-        const u32 count = be32(p + 12);
-        if (count > (table.count - 16u) / 12u) return SfntStatus::truncated;
-        u32 previous = 0;
-        for (u32 i = 0; i < count; ++i) {
-            const u8* group = p + 16 + i * 12;
-            const u32 first = be32(group), last = be32(group + 4), glyph = be32(group + 8);
-            if (first > last || last > 0x10ffffu || (i && first <= previous) ||
-                glyph >= glyphs || (format == 12 && last - first >= glyphs - glyph))
-                return SfntStatus::malformed;
-            previous = last;
-        }
-        return SfntStatus::ok;
+    // Formats 12 and 13: base_rank admits no other base format.
+    const u32 count = be32(p + 12);
+    if (count > (table.count - 16u) / 12u) return SfntStatus::truncated;
+    u32 previous = 0;
+    for (u32 i = 0; i < count; ++i) {
+        const u8* group = p + 16 + i * 12;
+        const u32 first = be32(group), last = be32(group + 4), glyph = be32(group + 8);
+        if (first > last || last > 0x10ffffu || (i && first <= previous) ||
+            glyph >= glyphs || (format == 12 && last - first >= glyphs - glyph))
+            return SfntStatus::malformed;
+        previous = last;
     }
-    return SfntStatus::unsupported;
+    return SfntStatus::ok;
 }
 
 SfntStatus validate_uvs(ConstSlice<u8> table, u16 glyphs) noexcept {
@@ -163,7 +161,7 @@ SfntStatus nominal(const SfntCmap& cmap, u32 scalar, u16* out) noexcept {
             // A zero array entry stays .notdef even with a nonzero delta.
             if (glyph) glyph = (glyph + delta) & 0xffffu;
         }
-    } else if (cmap.format == 12 || cmap.format == 13) {
+    } else {
         u32 low = 0, high = be32(p + 12);
         const u32 count = high;
         while (low < high) {
@@ -176,7 +174,7 @@ SfntStatus nominal(const SfntCmap& cmap, u32 scalar, u16* out) noexcept {
         const u32 first = be32(group);
         if (scalar < first) return SfntStatus::ok;
         glyph = be32(group + 8) + (cmap.format == 12 ? scalar - first : 0);
-    } else return SfntStatus::unsupported;
+    }
     if (glyph >= cmap.glyph_count) return SfntStatus::glyph_out_of_range;
     *out = static_cast<u16>(glyph);
     return SfntStatus::ok;

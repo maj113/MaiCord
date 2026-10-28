@@ -184,9 +184,8 @@ u32 channel_reorder_plan(const ChatStateStore& state, u64 source_id, u64 target_
         old_order = category_order;
     else if (!group(state, r.source->guild_id, r.group, category_order, &old_order))
         return ~0u;
+    // The source and target passed resolve(), so both are listed in their group's order.
     const u32 from = index_of(old_order, source_id);
-    if (from == ~0u)
-        return ~0u;
     const u64 source_parent = r.group == ChannelSortGroup::category ? 0 : old_order.entries[from].parent;
     // The new order: remove the source, then insert at the destination.
     new_order.count = 0;
@@ -214,10 +213,7 @@ u32 channel_reorder_plan(const ChatStateStore& state, u64 source_id, u64 target_
             }
         }
     } else {
-        const u32 target = index_of(new_order, target_id);
-        if (target == ~0u)
-            return ~0u;
-        at = target + (drop == ChannelReorderDrop::after ? 1u : 0u);
+        at = index_of(new_order, target_id) + (drop == ChannelReorderDrop::after ? 1u : 0u);
     }
     Entry moved = old_order.entries[from];
     moved.parent = r.group == ChannelSortGroup::category ? 0 : r.destination_parent;

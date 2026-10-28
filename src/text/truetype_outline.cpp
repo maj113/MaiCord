@@ -447,7 +447,7 @@ SfntStatus sfnt_truetype_outline(const SfntTrueType& font, u16 glyph,
         const bool color=(mode==SfntOutlineMode::colr||mode==SfntOutlineMode::colr_commands) && end-begin>=10 && s16(font.glyf.data+begin)>=0 &&
             scratch->point_count<=2048 && scratch->contour_count<=2048;
         if(color)for(u32 i=0;i<scratch->point_count;++i)scratch->points[i]=normalized(scratch->points[i],origin,scale);
-        if (status == SfntStatus::ok) status = emit(*scratch, *output, origin, scale,color,mode!=SfntOutlineMode::colr_commands);
+        status = emit(*scratch, *output, origin, scale,color,mode!=SfntOutlineMode::colr_commands);
     }
     if (status != SfntStatus::ok) {
         reset(output); output->rejected = 1;

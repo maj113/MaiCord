@@ -1,4 +1,5 @@
 #include "maicord/text/font_fallback_range.hpp"
+#include "sfnt_read.hpp"
 #include "maicord/text/unicode.hpp"
 namespace maicord {namespace {
 struct FallbackOverride {u32 first,last_flags;};
@@ -17,7 +18,7 @@ u8 native_font_fallback_class(u32 cp) noexcept {
 }
 SfntStatus native_font_fallback_range(Utf8View text,NativeFallbackSelect select,NativeFallbackCoverage coverage,void* context,
     NativeFallbackRangeResult* output,u32 work,u32* used) noexcept {
-    const u32 initial=work;struct Report {u32 initial;u32& left;u32* used;~Report() noexcept{if(used)*used=initial-left;}} report{initial,work,used};
+    const sfnt_read::WorkReport report{work,work,used};
     constexpr NativeFallbackRangeResult empty{{native_fallback_missing,native_fallback_missing},0,0};if(output)*output=empty;
     if(!output||(text.bytes&&!text.data)||!select||!coverage)return SfntStatus::invalid_input;
     NativeFallbackRangeResult result=empty;u8 previous=0;

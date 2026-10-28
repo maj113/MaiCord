@@ -45,7 +45,7 @@ TextInputResult replace(const TextInputTarget& t, u32 a, u32 b, ConstSlice<u16> 
         !utf8_byte_offset_for_utf16_position(message_composer_text(*c), b, &last)) return TextInputResult::invalid_utf16;
     const u32 available = c->capacity - (c->bytes - (last - first));
     if (input.count > available) return TextInputResult::capacity;
-    char converted[kMessageComposerMaximumBytes]{};
+    char converted[kMessageComposerMaximumBytes];
     u32 bytes = 0; TextInputResult converted_result = TextInputResult::unchanged;
     for (u32 i = 0; i < input.count; ++i) {
         u32 scalar = input[i];
@@ -53,8 +53,7 @@ TextInputResult replace(const TextInputTarget& t, u32 a, u32 b, ConstSlice<u16> 
             if (i + 1 >= input.count || input[i + 1] < 0xDC00 || input[i + 1] > 0xDFFF) { converted_result = TextInputResult::invalid_utf16; break; }
             scalar = 0x10000 + ((scalar - 0xD800) << 10) + (input[++i] - 0xDC00);
         } else if (scalar >= 0xDC00 && scalar <= 0xDFFF) { converted_result = TextInputResult::invalid_utf16; break; }
-        char encoded[4]{}; const u32 count = utf8_encode(scalar, encoded);
-        if (!count) { converted_result = TextInputResult::invalid_utf16; break; }
+        char encoded[4]; const u32 count = utf8_encode(scalar, encoded);
         if (count > available - bytes) { converted_result = TextInputResult::capacity; break; }
         copy_bytes(converted + bytes, encoded, count); bytes += count;
     }
