@@ -2,10 +2,7 @@
 // Never linked into MaiCord.exe.
 #include "dwrite_text_system.hpp"
 #include "maicord/core/win32_process.hpp"
-#include "maicord/core/hash.hpp"
-#include "maicord/ui/geometry.hpp"
 #include "maicord/text/font_session.hpp"
-#include "maicord/text/font_run.hpp"
 #include "maicord/ui/emoji_presentation.hpp"
 #include "maicord/ui/ansi_text.hpp"
 #include "maicord/ui/native_text_candidate.hpp"

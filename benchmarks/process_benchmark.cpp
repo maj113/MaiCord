@@ -1,5 +1,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/win32_process.hpp"
+#include "benchmark_output.hpp"
 
 #include <Windows.h>
 
@@ -39,19 +40,6 @@ bool validate() noexcept {
 }
 DWORD WINAPI worker(void*) noexcept { return validate() ? 0 : 1; }
 
-void metric(const char* name, u64 value) noexcept {
-    char line[128];
-    u32 count = 0;
-    while (*name) line[count++] = *name++;
-    line[count++] = '=';
-    char digits[20];
-    u32 used = 0;
-    do { digits[used++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
-    while (used) line[count++] = digits[--used];
-    line[count++] = '\n';
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, count, &written, nullptr);
-}
 u64 measure(Getter getter, const Clock& clock) noexcept {
     Getter volatile invoke = getter; // Equal dispatch overhead; prevent hoisting either accessor.
     u64 checksum = 0;
@@ -73,23 +61,23 @@ extern "C" void maicord_process_benchmark_entry() noexcept {
         !GetExitCodeThread(thread, &code) || code) ExitProcess(2);
     CloseHandle(thread);
     const Clock clock = clock_initialize();
-    metric("iterations", kIterations);
+    write_value("iterations", kIterations);
     for (u32 sample = 0; sample < 15; ++sample) {
-        metric("sample", sample + 1);
+        write_value("sample", sample + 1);
         if (sample & 1) {
-            metric("heap_derived_us", measure(derived_heap, clock));
-            metric("heap_api_us", measure(api_heap, clock));
-            metric("pid_derived_us", measure(derived_pid, clock));
-            metric("pid_api_us", measure(api_pid, clock));
-            metric("error_derived_us", measure(derived_error, clock));
-            metric("error_api_us", measure(api_error, clock));
+            write_value("heap_derived_us", measure(derived_heap, clock));
+            write_value("heap_api_us", measure(api_heap, clock));
+            write_value("pid_derived_us", measure(derived_pid, clock));
+            write_value("pid_api_us", measure(api_pid, clock));
+            write_value("error_derived_us", measure(derived_error, clock));
+            write_value("error_api_us", measure(api_error, clock));
         } else {
-            metric("heap_api_us", measure(api_heap, clock));
-            metric("heap_derived_us", measure(derived_heap, clock));
-            metric("pid_api_us", measure(api_pid, clock));
-            metric("pid_derived_us", measure(derived_pid, clock));
-            metric("error_api_us", measure(api_error, clock));
-            metric("error_derived_us", measure(derived_error, clock));
+            write_value("heap_api_us", measure(api_heap, clock));
+            write_value("heap_derived_us", measure(derived_heap, clock));
+            write_value("pid_api_us", measure(api_pid, clock));
+            write_value("pid_derived_us", measure(derived_pid, clock));
+            write_value("error_api_us", measure(api_error, clock));
+            write_value("error_derived_us", measure(derived_error, clock));
         }
     }
     ExitProcess(0);

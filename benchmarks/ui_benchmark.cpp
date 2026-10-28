@@ -10,13 +10,16 @@
 #include "maicord/render/d3d11_gpu_timer.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/model/message_store.hpp"
+#include "maicord/model/message_composer.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/login_scene.hpp"
+#include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/login_presentation.hpp"
 #include "maicord/ui/login_text_presentation.hpp"
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/message_rich_widgets.hpp"
 #include "maicord/ui/message_scene.hpp"
+#include "maicord/ui/message_composer_scene.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/model/guild_member_store.hpp"
@@ -25,6 +28,7 @@
 #include "maicord/ui/qr_code.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/ui/shell_presentation.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/ui/secure_text_store.hpp"
@@ -316,20 +320,8 @@ bool benchmark_text_measure(void*, const UiLayoutMeasureRequest& request, UiSize
     return true;
 }
 
-void write_metric(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" runs/s\r\n");
-}
-
-void write_value(const char* name, u64 value, const char* unit) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" ");
-    write_text(unit);
-    write_text("\r\n");
+void write_runs(const char* name, u64 iterations, u64 elapsed_us) noexcept {
+    write_metric(name, per_second(iterations, elapsed_us), "runs/s");
 }
 
 int run() noexcept {
@@ -1590,7 +1582,7 @@ int run() noexcept {
         if (!projected.ok()) {
             return 35;
         }
-        checksum += projected.command_count + projected.measurement_count + projected.transformed_bytes;
+        checksum += projected.command_count + projected.measurement_count;
     }
     const u64 message_text_presentation_us = clock_microseconds(clock, begin, clock_now());
 
@@ -1777,144 +1769,101 @@ int run() noexcept {
         composer_layout_hits != composer_layout_cached_iterations || g_ui_checksum == 0) {
         return 11;
     }
-    write_metric("ui_scene_layout", static_cast<u64>(kLayoutIterations) * 1'000'000ull / layout_us);
-    write_metric("ui_scene_reflow",
-                 static_cast<u64>(kLayoutReflowIterations) * 1'000'000ull / layout_reflow_us);
-    write_metric("ui_friends_scene_reflow",
-                 static_cast<u64>(kLayoutReflowIterations) * 1'000'000ull / friends_reflow_us);
-    write_metric("ui_constrained_text_reflow",
-                 static_cast<u64>(kLayoutReflowIterations) * 1'000'000ull / constrained_reflow_us);
-    write_metric("ui_content_bounds_validation", static_cast<u64>(kContentBoundsValidationIterations) *
-                                                     1'000'000ull / content_bounds_validation_us);
-    write_metric("ui_login_layout",
-                 static_cast<u64>(kLoginLayoutIterations) * 1'000'000ull / login_layout_us);
-    write_metric("ui_login_mfa_layout",
-                 static_cast<u64>(kLoginLayoutIterations) * 1'000'000ull / login_mfa_layout_us);
-    write_metric("ui_login_layout_cached",
-                 static_cast<u64>(kLoginLayoutIterations) * 1'000'000ull / login_cached_layout_us);
-    write_metric("ui_login_reflow",
-                 static_cast<u64>(kLoginLayoutIterations) * 1'000'000ull / login_reflow_us);
-    write_metric("ui_login_presentation",
-                 static_cast<u64>(kPresentationIterations) * 1'000'000ull / login_presentation_us);
-    write_metric("ui_login_text_presentation",
-                 static_cast<u64>(kPresentationIterations) * 1'000'000ull / login_text_presentation_us);
-    write_metric("ui_layout_validation",
-                 static_cast<u64>(kLayoutValidationIterations) * 1'000'000ull / layout_validation_us);
-    write_metric("ui_qr_v5_m_encode", static_cast<u64>(kQrIterations) * 1'000'000ull / qr_us);
-    write_metric("ui_secure_edit", static_cast<u64>(kSecureEditIterations) * 1'000'000ull / secure_edit_us);
-    write_metric("ui_secure_edit_render_window",
-                 static_cast<u64>(kSecureEditIterations) * 1'000'000ull / secure_edit_render_us);
-    write_metric("ui_secure_edit_utf16_acp",
-                 static_cast<u64>(kSecureEditIterations) * 1'000'000ull / secure_edit_acp_us);
-    write_metric("ui_secure_text_store_read_lock",
-                 static_cast<u64>(kSecureTextStoreIterations) * 1'000'000ull / secure_text_store_us);
-    write_metric("ui_member_list_100k_scroll_materialize",
-                 static_cast<u64>(kMemberListIterations) * 1'000'000ull / member_list_us);
-    write_metric("ui_variable_range", static_cast<u64>(kVariableIterations) * 1'000'000ull / variable_us);
-    write_metric("ui_navigation_projection",
-                 static_cast<u64>(kProjectionIterations) * 1'000'000ull / projection_us);
-    write_metric("ui_guild_rail_widget_layout",
-                 static_cast<u64>(kPresentationIterations) * 1'000'000ull / guild_rail_layout_us);
-    write_metric("ui_shell_navigation_widget_layout",
-                 static_cast<u64>(kPresentationIterations) * 1'000'000ull / shell_navigation_layout_us);
-    write_metric("ui_shell_presentation",
-                 static_cast<u64>(kPresentationIterations) * 1'000'000ull / shell_presentation_us);
-    write_metric("ui_shell_text_presentation",
-                 static_cast<u64>(kPresentationIterations) * 1'000'000ull / shell_text_presentation_us);
-    write_metric("ui_message_scene_scroll_layout",
-                 static_cast<u64>(kMessageSceneIterations) * 1'000'000ull / message_scene_layout_us);
-    write_metric("ui_rich_message_widget_layout",
-                 static_cast<u64>(kRichMessageLayoutIterations) * 1'000'000ull / rich_message_layout_us);
-    write_metric("ui_rich_message_widget_materialize", static_cast<u64>(kRichMessageMaterializeIterations) *
-                                                           1'000'000ull / rich_message_materialize_us);
-    write_metric("ui_message_presentation",
-                 static_cast<u64>(kPresentationIterations) * 1'000'000ull / message_presentation_us);
-    write_metric("ui_text_flow_layout",
-                 static_cast<u64>(kTextFlowIterations) * 1'000'000ull / text_flow_us);
-    write_metric("ui_wrap_widget_layout",
-                 static_cast<u64>(kWrapLayoutIterations) * 1'000'000ull / wrap_layout_us);
-    write_metric("ui_message_text_presentation",
-                 static_cast<u64>(kMessageSceneIterations) * 1'000'000ull / message_text_presentation_us);
-    write_metric("ui_text_measure_cache_hit", static_cast<u64>(kTextMeasureCacheHitIterations) *
-                                                  1'000'000ull / text_measure_cache_hit_us);
-    write_metric("ui_text_measure_cache_miss", static_cast<u64>(kTextMeasureCacheMissIterations) *
-                                                   1'000'000ull / text_measure_cache_miss_us);
-    write_metric("ui_message_text_measure_cached", static_cast<u64>(kMessageTextMeasureIterations) *
-                                                       1'000'000ull / message_text_measure_cached_us);
-    write_metric("ui_message_text_converge_cached", static_cast<u64>(kMessageTextConvergenceIterations) *
-                                                        1'000'000ull / message_text_converge_cached_us);
-    write_metric("ui_content_text_retention_hit", static_cast<u64>(content_text_retention_hit_iterations) *
-                                                      1'000'000ull / content_text_retention_hit_us);
-    write_metric("ui_content_text_retention_miss_commit",
-                 static_cast<u64>(content_text_retention_miss_iterations) * 1'000'000ull /
-                     content_text_retention_miss_us);
-    write_metric("ui_message_view_runtime_initialize",
-                 static_cast<u64>(kMessageViewRuntimeInitializeIterations) * 1'000'000ull /
-                     message_view_runtime_initialize_us);
-    write_metric("ui_message_view_runtime_reindex", static_cast<u64>(kMessageViewRuntimeReindexIterations) *
-                                                        1'000'000ull / message_view_runtime_reindex_us);
-    write_metric("ui_message_send_round_trip", static_cast<u64>(kMessageSendRoundTripIterations) *
-                                                   1'000'000ull / message_send_round_trip_us);
-    write_metric("ui_message_draft_switch",
-                 static_cast<u64>(kMessageDraftSwitchIterations) * 1'000'000ull / message_draft_switch_us);
-    write_metric("ui_message_composer_selection_projection",
-                 static_cast<u64>(kMessageComposerSelectionProjectionIterations) * 1'000'000ull /
-                     message_composer_selection_projection_us);
-    write_metric("ui_composer_layout_cached", static_cast<u64>(composer_layout_cached_iterations) *
-                                                  1'000'000ull / composer_layout_cached_us);
-    write_metric("ui_composer_layout_rebuild", static_cast<u64>(composer_layout_rebuild_iterations) *
-                                                   1'000'000ull / composer_layout_rebuild_us);
-    write_metric("ui_message_composer_send_round_trip",
-                 static_cast<u64>(kMessageComposerSendRoundTripIterations) * 1'000'000ull /
-                     message_composer_send_round_trip_us);
-    write_metric("ui_message_media_legacy_double_resolve_192",
-                 static_cast<u64>(kMessageMediaSnapshotIterations) * 1'000'000ull /
-                     message_media_legacy_resolve_us);
-    write_metric("ui_message_media_single_snapshot_192", static_cast<u64>(kMessageMediaSnapshotIterations) *
-                                                             1'000'000ull / message_media_snapshot_us);
-    write_value("ui_widget_size", sizeof(UiWidget), "bytes");
-    write_value("ui_layout_node_size", sizeof(UiLayoutNode), "bytes");
-    write_value("ui_message_scene_row_size", sizeof(MessageSceneRowWidget), "bytes");
-    write_value("ui_message_scene_source_items", kMessageSceneItems, "items");
-    write_value("ui_message_scene_retained_rows", 32, "rows");
-    write_value("ui_message_scene_retained_nodes", 32 * kMessageSceneWidgetsPerRow + 1, "nodes");
-    write_value("ui_member_list_source_items", kMemberListItems, "items");
-    write_value("ui_member_list_retained_nodes", 1 + 32 * kMemberListWidgetsPerRow, "nodes");
-    write_value("ui_message_text_command_size", sizeof(MessageTextCommand), "bytes");
-    write_value("ui_message_text_measurement_size", sizeof(MessageTextMeasurement), "bytes");
-    write_value("ui_text_measure_record_size", sizeof(UiTextMeasureRecord), "bytes");
-    write_value("ui_message_text_measure_cache_capacity",
-                sizeof(UiTextMeasureRecord) * static_cast<u64>(kMaximumMessageTextMeasureCacheRecords),
-                "bytes");
-    write_value("ui_message_send_tracker_size", sizeof(MessageSendTracker), "bytes");
-    write_value("ui_message_draft_store_size", sizeof(MessageDraftStore), "bytes");
-    write_value("ui_message_draft_record_size", sizeof(MessageDraftRecord), "bytes");
-    write_value("ui_message_composer_controller_size", sizeof(MessageComposerController), "bytes");
-    write_value("ui_message_composer_scene_size", sizeof(MessageComposerScene), "bytes");
-    write_value("ui_message_media_controller_size", sizeof(MessageMediaController), "bytes");
-    write_value("ui_message_media_benchmark_backing",
-                sizeof(g_message_media_visible_rows) + sizeof(g_message_media_asset_marks), "bytes");
-    write_value("ui_d3d11_device_owner_size", sizeof(D3D11DeviceOwner), "bytes");
-    write_value("ui_d3d11_draw_pipeline_owner_size", sizeof(D3D11DrawPipelineOwner), "bytes");
-    write_value("ui_d3d11_gpu_timer_owner_size", sizeof(D3D11GpuTimerOwner), "bytes");
-    write_value("ui_text_composer_layout_owner_size", sizeof(TextEditLayoutOwner), "bytes");
-    write_value("ui_message_hit_owner_size", sizeof(MessageHitTestCacheOwner), "bytes");
-    write_value("ui_d3d11_glyph_text_owner_size", sizeof(D3D11GlyphTextOwner), "bytes");
-    write_value("ui_text_command_stream_size", sizeof(UiTextCommandStream), "bytes");
-    write_value("ui_message_text_presentation_size", sizeof(MessageTextPresentation), "bytes");
-    write_value("ui_content_text_retention_owner_size", sizeof(ContentTextRetentionOwner), "bytes");
-    write_value("ui_d3d11_renderer_size", sizeof(D3D11Renderer), "bytes");
-    write_value("ui_message_scene_retained_capacity_per_row",
-                sizeof(MessageSceneRowWidget) + static_cast<u64>(kMessageSceneWidgetsPerRow) *
-                                                    (sizeof(UiWidget) + sizeof(UiLayoutNode)),
-                "bytes");
+    write_runs("ui_scene_layout", kLayoutIterations, layout_us);
+    write_runs("ui_scene_reflow", kLayoutReflowIterations, layout_reflow_us);
+    write_runs("ui_friends_scene_reflow", kLayoutReflowIterations, friends_reflow_us);
+    write_runs("ui_constrained_text_reflow", kLayoutReflowIterations, constrained_reflow_us);
+    write_runs("ui_content_bounds_validation", kContentBoundsValidationIterations, content_bounds_validation_us);
+    write_runs("ui_login_layout", kLoginLayoutIterations, login_layout_us);
+    write_runs("ui_login_mfa_layout", kLoginLayoutIterations, login_mfa_layout_us);
+    write_runs("ui_login_layout_cached", kLoginLayoutIterations, login_cached_layout_us);
+    write_runs("ui_login_reflow", kLoginLayoutIterations, login_reflow_us);
+    write_runs("ui_login_presentation", kPresentationIterations, login_presentation_us);
+    write_runs("ui_login_text_presentation", kPresentationIterations, login_text_presentation_us);
+    write_runs("ui_layout_validation", kLayoutValidationIterations, layout_validation_us);
+    write_runs("ui_qr_v5_m_encode", kQrIterations, qr_us);
+    write_runs("ui_secure_edit", kSecureEditIterations, secure_edit_us);
+    write_runs("ui_secure_edit_render_window", kSecureEditIterations, secure_edit_render_us);
+    write_runs("ui_secure_edit_utf16_acp", kSecureEditIterations, secure_edit_acp_us);
+    write_runs("ui_secure_text_store_read_lock", kSecureTextStoreIterations, secure_text_store_us);
+    write_runs("ui_member_list_100k_scroll_materialize", kMemberListIterations, member_list_us);
+    write_runs("ui_variable_range", kVariableIterations, variable_us);
+    write_runs("ui_navigation_projection", kProjectionIterations, projection_us);
+    write_runs("ui_guild_rail_widget_layout", kPresentationIterations, guild_rail_layout_us);
+    write_runs("ui_shell_navigation_widget_layout", kPresentationIterations, shell_navigation_layout_us);
+    write_runs("ui_shell_presentation", kPresentationIterations, shell_presentation_us);
+    write_runs("ui_shell_text_presentation", kPresentationIterations, shell_text_presentation_us);
+    write_runs("ui_message_scene_scroll_layout", kMessageSceneIterations, message_scene_layout_us);
+    write_runs("ui_rich_message_widget_layout", kRichMessageLayoutIterations, rich_message_layout_us);
+    write_runs("ui_rich_message_widget_materialize", kRichMessageMaterializeIterations, rich_message_materialize_us);
+    write_runs("ui_message_presentation", kPresentationIterations, message_presentation_us);
+    write_runs("ui_text_flow_layout", kTextFlowIterations, text_flow_us);
+    write_runs("ui_wrap_widget_layout", kWrapLayoutIterations, wrap_layout_us);
+    write_runs("ui_message_text_presentation", kMessageSceneIterations, message_text_presentation_us);
+    write_runs("ui_text_measure_cache_hit", kTextMeasureCacheHitIterations, text_measure_cache_hit_us);
+    write_runs("ui_text_measure_cache_miss", kTextMeasureCacheMissIterations, text_measure_cache_miss_us);
+    write_runs("ui_message_text_measure_cached", kMessageTextMeasureIterations, message_text_measure_cached_us);
+    write_runs("ui_message_text_converge_cached", kMessageTextConvergenceIterations, message_text_converge_cached_us);
+    write_runs("ui_content_text_retention_hit", content_text_retention_hit_iterations, content_text_retention_hit_us);
+    write_runs("ui_content_text_retention_miss_commit", content_text_retention_miss_iterations,
+               content_text_retention_miss_us);
+    write_runs("ui_message_view_runtime_initialize", kMessageViewRuntimeInitializeIterations,
+               message_view_runtime_initialize_us);
+    write_runs("ui_message_view_runtime_reindex", kMessageViewRuntimeReindexIterations,
+               message_view_runtime_reindex_us);
+    write_runs("ui_message_send_round_trip", kMessageSendRoundTripIterations, message_send_round_trip_us);
+    write_runs("ui_message_draft_switch", kMessageDraftSwitchIterations, message_draft_switch_us);
+    write_runs("ui_message_composer_selection_projection", kMessageComposerSelectionProjectionIterations,
+               message_composer_selection_projection_us);
+    write_runs("ui_composer_layout_cached", composer_layout_cached_iterations, composer_layout_cached_us);
+    write_runs("ui_composer_layout_rebuild", composer_layout_rebuild_iterations, composer_layout_rebuild_us);
+    write_runs("ui_message_composer_send_round_trip", kMessageComposerSendRoundTripIterations,
+               message_composer_send_round_trip_us);
+    write_runs("ui_message_media_legacy_double_resolve_192", kMessageMediaSnapshotIterations,
+               message_media_legacy_resolve_us);
+    write_runs("ui_message_media_single_snapshot_192", kMessageMediaSnapshotIterations, message_media_snapshot_us);
+    write_metric("ui_widget_size", sizeof(UiWidget), "bytes");
+    write_metric("ui_layout_node_size", sizeof(UiLayoutNode), "bytes");
+    write_metric("ui_message_scene_row_size", sizeof(MessageSceneRowWidget), "bytes");
+    write_metric("ui_message_scene_source_items", kMessageSceneItems, "items");
+    write_metric("ui_message_scene_retained_rows", 32, "rows");
+    write_metric("ui_message_scene_retained_nodes", 32 * kMessageSceneWidgetsPerRow + 1, "nodes");
+    write_metric("ui_member_list_source_items", kMemberListItems, "items");
+    write_metric("ui_member_list_retained_nodes", 1 + 32 * kMemberListWidgetsPerRow, "nodes");
+    write_metric("ui_message_text_command_size", sizeof(MessageTextCommand), "bytes");
+    write_metric("ui_message_text_measurement_size", sizeof(MessageTextMeasurement), "bytes");
+    write_metric("ui_text_measure_record_size", sizeof(UiTextMeasureRecord), "bytes");
+    write_metric("ui_message_text_measure_cache_capacity",
+                 sizeof(UiTextMeasureRecord) * static_cast<u64>(kMaximumMessageTextMeasureCacheRecords), "bytes");
+    write_metric("ui_message_send_tracker_size", sizeof(MessageSendTracker), "bytes");
+    write_metric("ui_message_draft_store_size", sizeof(MessageDraftStore), "bytes");
+    write_metric("ui_message_draft_record_size", sizeof(MessageDraftRecord), "bytes");
+    write_metric("ui_message_composer_controller_size", sizeof(MessageComposerController), "bytes");
+    write_metric("ui_message_composer_scene_size", sizeof(MessageComposerScene), "bytes");
+    write_metric("ui_message_media_controller_size", sizeof(MessageMediaController), "bytes");
+    write_metric("ui_message_media_benchmark_backing",
+                 sizeof(g_message_media_visible_rows) + sizeof(g_message_media_asset_marks), "bytes");
+    write_metric("ui_d3d11_device_owner_size", sizeof(D3D11DeviceOwner), "bytes");
+    write_metric("ui_d3d11_draw_pipeline_owner_size", sizeof(D3D11DrawPipelineOwner), "bytes");
+    write_metric("ui_d3d11_gpu_timer_owner_size", sizeof(D3D11GpuTimerOwner), "bytes");
+    write_metric("ui_text_composer_layout_owner_size", sizeof(TextEditLayoutOwner), "bytes");
+    write_metric("ui_message_hit_owner_size", sizeof(MessageHitTestCacheOwner), "bytes");
+    write_metric("ui_d3d11_glyph_text_owner_size", sizeof(D3D11GlyphTextOwner), "bytes");
+    write_metric("ui_text_command_stream_size", sizeof(UiTextCommandStream), "bytes");
+    write_metric("ui_message_text_presentation_size", sizeof(MessageTextPresentation), "bytes");
+    write_metric("ui_content_text_retention_owner_size", sizeof(ContentTextRetentionOwner), "bytes");
+    write_metric("ui_d3d11_renderer_size", sizeof(D3D11Renderer), "bytes");
+    write_metric("ui_message_scene_retained_capacity_per_row",
+                 sizeof(MessageSceneRowWidget) + static_cast<u64>(kMessageSceneWidgetsPerRow) *
+                                                     (sizeof(UiWidget) + sizeof(UiLayoutNode)),
+                 "bytes");
     login_scene_release(&login_scene);
-    if (!benchmark_widget_scroll(clock, write_value)) return 43;
-    if (!benchmark_input_router(clock, write_value)) return 44;
-    if (!benchmark_navigation_shortcuts(clock, write_value)) return 45;
-    if (!benchmark_private_channels(clock, write_value)) return 46;
-    if (!benchmark_text_entry(clock, write_value)) return 47;
-    if (!benchmark_text_form(clock, write_value)) return 48;
+    if (!benchmark_widget_scroll(clock, write_metric)) return 43;
+    if (!benchmark_input_router(clock, write_metric)) return 44;
+    if (!benchmark_navigation_shortcuts(clock, write_metric)) return 45;
+    if (!benchmark_private_channels(clock, write_metric)) return 46;
+    if (!benchmark_text_entry(clock, write_metric)) return 47;
+    if (!benchmark_text_form(clock, write_metric)) return 48;
     ui_scene_release(&friends_scene);
     ui_scene_release(&scene);
     return 0;
@@ -1925,6 +1874,6 @@ int run() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_ui_benchmark_entry() noexcept {
     const int result = maicord::run();
-    if (result != 0) maicord::write_value("ui_benchmark_failure_stage", static_cast<maicord::u64>(result), "stage");
+    if (result != 0) maicord::write_metric("ui_benchmark_failure_stage", static_cast<maicord::u64>(result), "stage");
     ExitProcess(static_cast<UINT>(result));
 }

@@ -37,20 +37,6 @@ struct SyntheticSource {
     u32 emitted;
 };
 
-void write_metric(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" events/s\r\n");
-}
-
-void write_value(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text("\r\n");
-}
-
 // One simulated minute of a large guild's presence stream: 1,000 members in a
 // dense client-sorted list, 50 PRESENCE_UPDATE/s (status and activity churn),
 // a 30-row member viewport and 12 visible message authors. "Text rebuilds"
@@ -531,11 +517,9 @@ int run() noexcept {
         pump.ignored != kMetadataEvents) {
         return 8;
     }
-    write_metric("message_event_pump_update",
-                 static_cast<u64>(kPumpUpdates) * 1'000'000ull / update_us);
-    write_metric("message_event_pump_unknown",
-                 static_cast<u64>(kMetadataEvents) * 1'000'000ull /
-                     metadata_us);
+    write_metric("message_event_pump_update", static_cast<u64>(kPumpUpdates) * 1'000'000ull / update_us, "events/s");
+    write_metric("message_event_pump_unknown", static_cast<u64>(kMetadataEvents) * 1'000'000ull / metadata_us,
+                 "events/s");
 
     PresencePolicyResult legacy{}, current{};
     if (const u32 failed = run_presence_policy(true, clock, &legacy))

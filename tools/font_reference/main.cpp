@@ -9,7 +9,6 @@
 #include "maicord/text/font_geometry.hpp"
 #include "maicord/text/font_store.hpp"
 #include "maicord/text/font_instance.hpp"
-#include "maicord/text/font_metrics.hpp"
 #include "maicord/text/tt_outline.hpp"
 #include "maicord/text/tt_orientation.hpp"
 #include "maicord/core/byte_order.hpp"

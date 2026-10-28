@@ -74,7 +74,7 @@ def prepare(root):
     print('Prepared',len(cases),'cases from',len(SAMPLES),'samples',flush=True)
 
 def capture(root,config,repeat):
-    exe=root/f'MaiCordAppTextBoundary.exe';env=os.environ.copy();data=root/f'data-{config.lower()}-{repeat}';data.mkdir(exist_ok=True);env['LOCALAPPDATA']=str(data)
+    exe=root/'MaiCordAppTextBoundary.exe';env=os.environ.copy();data=root/f'data-{config.lower()}-{repeat}';data.mkdir(exist_ok=True);env['LOCALAPPDATA']=str(data)
     output=root/f'observations-{config.lower()}-{repeat}.jsonl'
     with output.open('wb') as stream:
         result=subprocess.run([str(exe),str(root/'corpus.bin')],stdout=stream,stderr=subprocess.PIPE,env=env,creationflags=subprocess.CREATE_NO_WINDOW)

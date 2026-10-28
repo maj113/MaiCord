@@ -19,13 +19,6 @@ RestRateBucket g_buckets[8]{};
 RestRateBinding g_bindings[16]{};
 volatile u64 g_rest_checksum = 0;
 
-void write_metric(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" ops/s\r\n");
-}
-
 template <u32 Count>
 constexpr ConstSlice<u8> bytes(const char (&value)[Count]) noexcept {
     return ConstSlice<u8>{reinterpret_cast<const u8*>(value), Count - 1};
@@ -139,18 +132,10 @@ int run() noexcept {
         scheduler_us == 0 || g_rest_checksum == 0) {
         return 9;
     }
-    write_metric("rest_request_head",
-                 static_cast<u64>(kRequestIterations) * 1'000'000ull /
-                     request_us);
-    write_metric("rest_rate_head",
-                 static_cast<u64>(kHeadIterations) * 1'000'000ull /
-                     head_us);
-    write_metric("rest_response",
-                 static_cast<u64>(kResponseIterations) * 1'000'000ull /
-                     response_us);
-    write_metric("rest_rate_cycle",
-                 static_cast<u64>(kSchedulerIterations) * 1'000'000ull /
-                     scheduler_us);
+    write_ops("rest_request_head", per_second(kRequestIterations, request_us));
+    write_ops("rest_rate_head", per_second(kHeadIterations, head_us));
+    write_ops("rest_response", per_second(kResponseIterations, response_us));
+    write_ops("rest_rate_cycle", per_second(kSchedulerIterations, scheduler_us));
     return 0;
 }
 

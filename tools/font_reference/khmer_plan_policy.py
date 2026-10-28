@@ -7,7 +7,7 @@ import argparse,json,subprocess,sys,threading,time
 from pathlib import Path
 from fontTools.ttLib import TTFont,newTable
 from feature_plan_oracle import language,script,layout
-from gsub_execution_oracle import make_font,lookup,single,marker,ORDER,BASE,identity
+from gsub_execution_oracle import make_font,lookup,single,marker,ORDER,identity
 from gpos_execution_oracle import adjust
 
 SUBSTITUTION=('locl','ccmp','pref','blwf','abvf','pstf','cfar','pres','blws','abvs','psts','clig','liga','calt','rclt','rlig','rvrn','nukt','akhn','rphf','half','init','isol','cjct','vatu')

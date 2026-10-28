@@ -274,9 +274,7 @@ add_custom_command(TARGET MaiCord POST_BUILD
         "$<TARGET_FILE_DIR:MaiCord>/licenses/Opus-BSD.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
-        "$<TARGET_FILE_DIR:MaiCord>/licenses/MaiCord-MPL-2.0.txt")
-add_custom_command(TARGET MaiCord POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:MaiCord>/licenses"
+        "$<TARGET_FILE_DIR:MaiCord>/licenses/MaiCord-MPL-2.0.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/licenses/Twemoji-graphics.txt"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/licenses/Unicode-3.0.txt"

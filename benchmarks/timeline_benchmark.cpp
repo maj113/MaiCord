@@ -25,13 +25,6 @@ u32 g_indexed_heights[kMessageItems + 1];
 u64 g_indexed_fenwick[kMessageItems + 1];
 volatile u64 g_timeline_checksum = 0;
 
-void write_metric(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" ops/s\r\n");
-}
-
 GatewayClientEvent message_event(GatewayClientDispatchKind kind, u64 id,
                                  u32 fields, u32 flags = 0) noexcept {
     GatewayClientEvent event{};
@@ -159,12 +152,9 @@ int run() noexcept {
         g_timeline_checksum == 0) {
         return 10;
     }
-    write_metric("ui_indexed_insert_remove_pair",
-                 static_cast<u64>(kIndexedPairs) * 1'000'000ull / indexed_us);
-    write_metric("message_timeline_update",
-                 static_cast<u64>(kTimelineUpdates) * 1'000'000ull / update_us);
-    write_metric("message_timeline_insert_remove_pair",
-                 static_cast<u64>(kTimelinePairs) * 1'000'000ull / pair_us);
+    write_ops("ui_indexed_insert_remove_pair", per_second(kIndexedPairs, indexed_us));
+    write_ops("message_timeline_update", per_second(kTimelineUpdates, update_us));
+    write_ops("message_timeline_insert_remove_pair", per_second(kTimelinePairs, pair_us));
     return 0;
 }
 

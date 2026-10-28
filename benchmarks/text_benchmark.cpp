@@ -25,20 +25,6 @@ TextDecoration g_decorations[128];
 TextHitRegion g_hit_regions[128];
 volatile u64 g_text_checksum = 0;
 
-void write_metric(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" runs/s\r\n");
-}
-
-void write_value(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text("\r\n");
-}
-
 u64 message_hit_cached_per_second(MessageHitTestCacheOwner* owner,
                                   const MessageTextPresentation& presentation,
                                   const TextSystem& system, const Clock& clock) noexcept {
@@ -54,7 +40,7 @@ u64 message_hit_cached_per_second(MessageHitTestCacheOwner* owner,
     }
     const u64 elapsed = clock_microseconds(clock, begin, clock_now());
     g_text_checksum ^= checksum;
-    return elapsed == 0 ? 0 : static_cast<u64>(kTextBenchmarkIterations) * 1'000'000ull / elapsed;
+    return per_second(kTextBenchmarkIterations, elapsed);
 }
 
 u64 message_hit_rebuild_per_second(MessageHitTestCacheOwner* owner,
@@ -73,9 +59,7 @@ u64 message_hit_rebuild_per_second(MessageHitTestCacheOwner* owner,
     }
     const u64 elapsed = clock_microseconds(clock, begin, clock_now());
     g_text_checksum ^= checksum;
-    return elapsed == 0
-               ? 0
-               : static_cast<u64>(kMessageHitRebuildIterations) * 1'000'000ull / elapsed;
+    return per_second(kMessageHitRebuildIterations, elapsed);
 }
 
 u64 shape_per_second(TextSystem* system, ShapedText* shaped, Utf8View input,
@@ -95,9 +79,7 @@ u64 shape_per_second(TextSystem* system, ShapedText* shaped, Utf8View input,
     }
     const u64 elapsed = clock_microseconds(clock, begin, clock_now());
     g_text_checksum = g_text_checksum ^ checksum;
-    return elapsed == 0
-               ? 0
-               : (static_cast<u64>(kTextBenchmarkIterations) * 1'000'000ull) / elapsed;
+    return per_second(kTextBenchmarkIterations, elapsed);
 }
 
 u64 measure_per_second(TextSystem* system, Utf8View input, const Clock& clock) noexcept {
@@ -113,9 +95,7 @@ u64 measure_per_second(TextSystem* system, Utf8View input, const Clock& clock) n
     }
     const u64 elapsed = clock_microseconds(clock, begin, clock_now());
     g_text_checksum = g_text_checksum ^ checksum;
-    return elapsed == 0
-               ? 0
-               : (static_cast<u64>(kTextBenchmarkIterations) * 1'000'000ull) / elapsed;
+    return per_second(kTextBenchmarkIterations, elapsed);
 }
 
 // Alternating inputs defeat the single-entry paragraph cache, so every call
@@ -170,10 +150,7 @@ u64 styled_shape_per_second(TextSystem* system, ShapedText* shaped,
     }
     const u64 elapsed = clock_microseconds(clock, begin, clock_now());
     g_text_checksum ^= checksum;
-    return elapsed == 0
-               ? 0
-               : (static_cast<u64>(kTextBenchmarkIterations) * 1'000'000ull) /
-                     elapsed;
+    return per_second(kTextBenchmarkIterations, elapsed);
 }
 
 u64 interactive_shape_per_second(TextSystem* system, ShapedText* shaped,
@@ -211,10 +188,7 @@ u64 interactive_shape_per_second(TextSystem* system, ShapedText* shaped,
     }
     const u64 elapsed = clock_microseconds(clock, begin, clock_now());
     g_text_checksum ^= checksum;
-    return elapsed == 0
-               ? 0
-               : static_cast<u64>(kTextBenchmarkIterations) * 1'000'000ull /
-                     elapsed;
+    return per_second(kTextBenchmarkIterations, elapsed);
 }
 
 int run() noexcept {
@@ -318,14 +292,14 @@ int run() noexcept {
         rejected_after_rebuild != 0 || g_text_checksum == 0) {
         return 3;
     }
-    write_metric("text_shape_latin", latin);
-    write_metric("text_shape_arabic", arabic);
-    write_metric("text_shape_emoji", emoji);
-    write_metric("text_shape_styled", styled);
-    write_metric("text_shape_interactive", interactive);
-    write_metric("text_measure_latin", measure);
-    write_metric("message_hit_cached", message_hit_cached);
-    write_metric("message_hit_rebuild", message_hit_rebuild);
+    write_metric("text_shape_latin", latin, "runs/s");
+    write_metric("text_shape_arabic", arabic, "runs/s");
+    write_metric("text_shape_emoji", emoji, "runs/s");
+    write_metric("text_shape_styled", styled, "runs/s");
+    write_metric("text_shape_interactive", interactive, "runs/s");
+    write_metric("text_measure_latin", measure, "runs/s");
+    write_metric("message_hit_cached", message_hit_cached, "runs/s");
+    write_metric("message_hit_rebuild", message_hit_rebuild, "runs/s");
     write_value("message_hit_cache_owner_bytes", sizeof(MessageHitTestCacheOwner));
     write_value("message_hit_cached_speedup_x1000",
                 message_hit_rebuild == 0 ? 0 : message_hit_cached * 1'000ull / message_hit_rebuild);

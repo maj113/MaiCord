@@ -5,6 +5,7 @@
 // FNV-1a over the packets and decoded PCM (with losses, concealment and FEC) of a
 // wide setting matrix and of streams that switch settings every few frames, so
 // codec changes can be checked bit-exact against a previous build.
+#include "benchmark_line.hpp"
 #include "fixtures/opus_voice_signal.hpp"
 #include "maicord/media/opus_decoder.hpp"
 #include "maicord/media/opus_encoder.hpp"
@@ -15,34 +16,6 @@ namespace maicord {
 namespace {
 constexpr u32 kFrame = kOpusEncoderFrameSamples, kSeconds = 10, kFrames = kSeconds * 50;
 constexpr u32 kMaximumPacket = kOpusEncoderMaximumPacketBytes;
-
-struct Line {
-    char text[512];
-    u32 used = 0;
-    void put(const char* value) noexcept {
-        while (*value && used + 3 < sizeof(text)) text[used++] = *value++;
-    }
-    void number(u64 value) noexcept {
-        char digits[21];
-        u32 count = 0;
-        do digits[count++] = static_cast<char>('0' + value % 10), value /= 10;
-        while (value);
-        while (count && used + 3 < sizeof(text)) text[used++] = digits[--count];
-    }
-    void hex(u64 value) noexcept {
-        for (i32 shift = 60; shift >= 0 && used + 3 < sizeof(text); shift -= 4)
-            text[used++] = "0123456789abcdef"[(value >> shift) & 15];
-    }
-    void field(const char* key, u64 value) noexcept { put(" "), put(key), put("="), number(value); }
-    void field(const char* key, const char* value) noexcept { put(" "), put(key), put("="), put(value); }
-    void digest(const char* key, u64 value) noexcept { put(" "), put(key), put("="), hex(value); }
-    void emit() noexcept {
-        text[used++] = '\r', text[used++] = '\n';
-        DWORD written = 0;
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, used, &written, nullptr);
-        used = 0;
-    }
-};
 
 u64 fnv(u64 hash, const void* data, usize bytes) noexcept {
     const auto* p = static_cast<const u8*>(data);

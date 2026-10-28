@@ -45,12 +45,8 @@ u64 parse_per_second(Utf8View input, const Clock& clock,
     }
     const u64 elapsed = clock_microseconds(clock, begin, clock_now());
     g_checksum ^= checksum;
-    if (elapsed == 0) {
-        return 0;
-    }
-    *bytes_per_second =
-        static_cast<u64>(input.bytes) * kIterations * 1'000'000ull / elapsed;
-    return static_cast<u64>(kIterations) * 1'000'000ull / elapsed;
+    *bytes_per_second = per_second(static_cast<u64>(input.bytes) * kIterations, elapsed);
+    return per_second(kIterations, elapsed);
 }
 
 Utf8View resolve_entity(void*, MessageMarkdownEntityKind kind, u64) noexcept {
@@ -100,12 +96,8 @@ u64 semantic_per_second(const Clock& clock, u64* bytes_per_second) noexcept {
     }
     const u64 elapsed = clock_microseconds(clock, begin, clock_now());
     g_checksum ^= checksum;
-    if (elapsed == 0) {
-        return 0;
-    }
-    *bytes_per_second = static_cast<u64>(kSemantic.bytes) * kIterations *
-                        1'000'000ull / elapsed;
-    return static_cast<u64>(kIterations) * 1'000'000ull / elapsed;
+    *bytes_per_second = per_second(static_cast<u64>(kSemantic.bytes) * kIterations, elapsed);
+    return per_second(kIterations, elapsed);
 }
 
 u64 highlight_per_second(const Clock& clock, u64* bytes_per_second) noexcept {
@@ -126,12 +118,8 @@ u64 highlight_per_second(const Clock& clock, u64* bytes_per_second) noexcept {
     }
     const u64 elapsed = clock_microseconds(clock, begin, clock_now());
     g_checksum ^= checksum;
-    if (elapsed == 0) {
-        return 0;
-    }
-    *bytes_per_second =
-        static_cast<u64>(code.bytes) * kIterations * 1'000'000ull / elapsed;
-    return static_cast<u64>(kIterations) * 1'000'000ull / elapsed;
+    *bytes_per_second = per_second(static_cast<u64>(code.bytes) * kIterations, elapsed);
+    return per_second(kIterations, elapsed);
 }
 
 int run() noexcept {

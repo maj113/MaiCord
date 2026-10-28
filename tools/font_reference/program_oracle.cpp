@@ -1,5 +1,4 @@
 #include "program_oracle.hpp"
-#include "maicord/ui/text.hpp"
 #include "maicord/text/truetype_outline.hpp"
 #include "maicord/text/cff_outline.hpp"
 #include "maicord/render/colr_source.hpp"

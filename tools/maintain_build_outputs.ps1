@@ -2,7 +2,6 @@
 [CmdletBinding()]
 param(
     [switch]$Apply,
-    [switch]$ConfigureScratch,
     [switch]$RuntimeOnly
 )
 
@@ -104,7 +103,6 @@ foreach ($match in Select-String -Path "$repository\CMakeLists.txt", "$repositor
 }
 Add-File (Join-Path $releaseRoot 'showcase.maicord-plugin.json')
 if ($RuntimeOnly) {
-    $ConfigureScratch = $true
     $ownership = Assert-ReleasePath (Join-Path $releaseRoot 'maicord-build-outputs.txt')
     if (!(Test-Path -LiteralPath $ownership -PathType Leaf)) {
         throw 'Runtime-only cleanup requires the CMake build-output ownership manifest.'
@@ -156,8 +154,6 @@ if ($RuntimeOnly) {
     # Include empty configure-created directories without treating unknown
     # files in them as disposable products.
     foreach ($name in @('generated', 'CMakeFiles', 'third_party')) { Add-Tree (Join-Path $releaseRoot $name) { $false } }
-}
-if ($ConfigureScratch) {
     # The resource editor's precompiled cache is not a build input or runtime asset.
     Add-File (Join-Path $releaseRoot 'notification_sounds.aps')
     # Interrupted atomic configuration writes are disposable only after the

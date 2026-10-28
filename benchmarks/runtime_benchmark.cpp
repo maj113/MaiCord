@@ -72,50 +72,28 @@ u32 iterations_for(u32 bytes) noexcept {
     return minimum(kMaximumCalls, maximum(kMinimumCalls, iterations));
 }
 
-u64 benchmark_copy(CopyFunction function, u32 bytes) noexcept {
+// Median time of five passes over `operation(iteration)`: calls/s for an empty
+// operand, MiB/s otherwise.
+template <typename Operation>
+u64 benchmark(u32 bytes, Operation operation) noexcept {
     constexpr u32 kSamples = 5;
     const u32 iterations = iterations_for(bytes);
     u64 samples[kSamples]{};
     for (u32 sample = 0; sample < kSamples; ++sample) {
         const u64 begin = ticks();
         for (u32 iteration = 0; iteration < iterations; ++iteration) {
-            function(g_destination + 3, g_source + 5, bytes);
+            operation(iteration);
             g_sink ^= g_destination[iteration & 63u];
         }
         samples[sample] = ticks() - begin;
     }
     sort_samples(samples, kSamples);
     const u64 elapsed = samples[kSamples / 2];
-    if (bytes == 0) {
-        return elapsed == 0 ? 0 :
-            (static_cast<u64>(iterations) * tick_frequency()) / elapsed;
+    if (elapsed == 0) {
+        return 0;
     }
-    return elapsed == 0 ? 0 :
-        (static_cast<u64>(iterations) * bytes * tick_frequency()) /
-            (elapsed * 1024ull * 1024ull);
-}
-
-u64 benchmark_set(SetFunction function, u32 bytes) noexcept {
-    constexpr u32 kSamples = 5;
-    const u32 iterations = iterations_for(bytes);
-    u64 samples[kSamples]{};
-    for (u32 sample = 0; sample < kSamples; ++sample) {
-        const u64 begin = ticks();
-        for (u32 iteration = 0; iteration < iterations; ++iteration) {
-            function(g_destination + 3, static_cast<int>(iteration), bytes);
-            g_sink ^= g_destination[iteration & 63u];
-        }
-        samples[sample] = ticks() - begin;
-    }
-    sort_samples(samples, kSamples);
-    const u64 elapsed = samples[kSamples / 2];
-    if (bytes == 0) {
-        return elapsed == 0 ? 0 :
-            (static_cast<u64>(iterations) * tick_frequency()) / elapsed;
-    }
-    return elapsed == 0 ? 0 :
-        (static_cast<u64>(iterations) * bytes * tick_frequency()) /
-            (elapsed * 1024ull * 1024ull);
+    return bytes == 0 ? (static_cast<u64>(iterations) * tick_frequency()) / elapsed
+                      : (static_cast<u64>(iterations) * bytes * tick_frequency()) / (elapsed * 1024ull * 1024ull);
 }
 
 bool equal_bytes(const u8* left, const u8* right, u32 count) noexcept {
@@ -181,11 +159,17 @@ extern "C" int WINAPI maicord_runtime_benchmark_entry() {
     }
     write_text("runtime_correctness=pass\r\n");
     constexpr u32 sizes[] = {0, 1, 4, 16, 64, 256, 4096, 65536, 1048576};
+    const CopyFunction copy = g_copy, move = g_move;
+    const SetFunction set = g_set;
     for (u32 bytes : sizes) {
         const char* unit = bytes == 0 ? " calls/s" : " MiB/s";
-        write_metric("runtime_memcpy", bytes, benchmark_copy(g_copy, bytes), unit);
-        write_metric("runtime_memmove", bytes, benchmark_copy(g_move, bytes), unit);
-        write_metric("runtime_memset", bytes, benchmark_set(g_set, bytes), unit);
+        write_metric("runtime_memcpy", bytes,
+                     benchmark(bytes, [&](u32) { copy(g_destination + 3, g_source + 5, bytes); }), unit);
+        write_metric("runtime_memmove", bytes,
+                     benchmark(bytes, [&](u32) { move(g_destination + 3, g_source + 5, bytes); }), unit);
+        write_metric("runtime_memset", bytes,
+                     benchmark(bytes, [&](u32 iteration) { set(g_destination + 3, static_cast<int>(iteration), bytes); }),
+                     unit);
     }
     write_metric("runtime_sink", 0, g_sink, "");
     return 0;

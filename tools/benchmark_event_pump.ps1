@@ -4,26 +4,13 @@ param(
     [int]$Samples = 7
 )
 
-# Builds the opt-in benchmark inside the single Release cache under the shared
-# build mutex, then removes its binary/objects and restores the shipping-only
-# configuration.
+# Builds the opt-in benchmark (tools/benchmark_session.ps1 owns the build, mutex
+# and cleanup), audits its image and prints the per-sample and median metrics.
 $ErrorActionPreference = 'Stop'
-$repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
-$cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
-$binary = Join-Path $cacheRoot 'MaiCordEventPumpBenchmark.exe'
-$objects = Join-Path $cacheRoot 'CMakeFiles\MaiCordEventPumpBenchmark.dir'
-. (Join-Path $PSScriptRoot 'enter_build_environment.ps1')
+. (Join-Path $PSScriptRoot 'benchmark_session.ps1')
 
-$mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
-$locked = $false
-Push-Location $repository
-try {
-    try { $locked = $mutex.WaitOne([TimeSpan]::FromMinutes(45)) } catch [Threading.AbandonedMutexException] { $locked = $true }
-    if (-not $locked) { throw 'The MaiCord Release build mutex was not acquired.' }
-    cmake --preset x64-release -DMAICORD_BUILD_BENCHMARKS=ON | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Benchmark configuration failed.' }
-    cmake --build $cacheRoot --target MaiCordEventPumpBenchmark
-    if ($LASTEXITCODE -ne 0) { throw 'MaiCord event-pump benchmark build failed.' }
+Invoke-BenchmarkTarget -Target 'MaiCordEventPumpBenchmark' -Label 'MaiCord event-pump benchmark' -Run {
+    param($binary)
     & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable $binary
 
     $names = [ordered]@{
@@ -61,11 +48,4 @@ try {
     $summary = [ordered]@{ Samples = $Samples }
     foreach ($property in $names.Keys) { $summary[$property + 'Median'] = @($measurements.$property | Sort-Object)[$middle] }
     [pscustomobject]$summary | Format-List
-} finally {
-    if ($locked) {
-        & (Join-Path $PSScriptRoot 'clear_benchmark_outputs.ps1') -CacheRoot $cacheRoot -Paths @($binary, $objects)
-        $mutex.ReleaseMutex()
-    }
-    $mutex.Dispose()
-    Pop-Location
 }

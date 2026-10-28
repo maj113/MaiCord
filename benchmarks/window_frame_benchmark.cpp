@@ -13,6 +13,7 @@
 // dispatch cost, steady frames and live-resize steps, with the CPU time
 // other processes (DWM) spent meanwhile.
 #include "maicord/core/time.hpp"
+#include "benchmark_output.hpp"
 #include <d3d11.h>
 #include <dxgi1_3.h>
 #include <dcomp.h>
@@ -44,34 +45,13 @@ struct State {
     u32 calcsize_calls;
 } g;
 
-void write_text(const char* text) noexcept {
-    DWORD written = 0;
-    u32 bytes = 0;
-    while (text[bytes])
-        ++bytes;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, bytes, &written, nullptr);
-}
-
 void metric(const char* mode, const char* name, u64 value) noexcept {
-    char line[160];
-    u32 count = 0;
-    for (const char* p = mode; *p;)
-        line[count++] = *p++;
-    line[count++] = '.';
-    for (const char* p = name; *p;)
-        line[count++] = *p++;
-    line[count++] = '=';
-    char digits[20];
-    u32 used = 0;
-    do {
-        digits[used++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    while (used)
-        line[count++] = digits[--used];
-    line[count++] = '\n';
-    line[count] = 0;
-    write_text(line);
+    write_text(mode);
+    write_text(".");
+    write_text(name);
+    write_text("=");
+    write_u64(value);
+    write_text("\n");
 }
 
 u64 median(u64* values, u32 count) noexcept {

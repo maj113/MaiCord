@@ -4,30 +4,18 @@ param(
     [int]$Samples = 5
 )
 
-# Builds the opt-in inflate benchmark inside the single Release cache under the
-# shared build mutex, decodes a generated gzip/zlib corpus, then
-# removes the binary, objects and corpus and restores the shipping-only configuration.
+# Builds the opt-in inflate benchmark (tools/benchmark_session.ps1 owns the
+# build, mutex and cleanup), decodes a generated gzip/zlib corpus, then removes
+# the corpus as well.
 $ErrorActionPreference = 'Stop'
-$repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
-$cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
-$binary = Join-Path $cacheRoot 'MaiCordHttpCompressionBenchmark.exe'
-$objects = Join-Path $cacheRoot 'CMakeFiles\MaiCordHttpCompressionBenchmark.dir'
+. (Join-Path $PSScriptRoot 'benchmark_session.ps1')
 $corpus = Join-Path ([IO.Path]::GetTempPath()) ('maicord-compression-' + [guid]::NewGuid().ToString('N') + '.bin')
-. (Join-Path $PSScriptRoot 'enter_build_environment.ps1')
 
-$mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
-$locked = $false
-Push-Location $repository
-try {
+Invoke-BenchmarkTarget -Target 'MaiCordHttpCompressionBenchmark' -Label 'MaiCord compression benchmark' -Prepare {
     & python (Join-Path $PSScriptRoot 'build_compression_corpus.py') $corpus | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Corpus generation failed.' }
-    try { $locked = $mutex.WaitOne([TimeSpan]::FromMinutes(45)) } catch [Threading.AbandonedMutexException] { $locked = $true }
-    if (-not $locked) { throw 'The MaiCord Release build mutex was not acquired.' }
-    cmake --preset x64-release -DMAICORD_BUILD_BENCHMARKS=ON | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Benchmark configuration failed.' }
-    cmake --build $cacheRoot --target MaiCordHttpCompressionBenchmark
-    if ($LASTEXITCODE -ne 0) { throw 'MaiCord compression benchmark build failed.' }
-
+} -Run {
+    param($binary)
     $env:MAICORD_COMPRESSION_CORPUS = $corpus
     $rows = @{}
     for ($sample = 1; $sample -le $Samples; $sample++) {
@@ -53,13 +41,7 @@ try {
             MedianMBps = [math]::Round($row.Entry.raw_bytes * $row.Entry.iterations / $median, 1)
         }
     } | Format-Table -AutoSize
-} finally {
+} -Cleanup {
     Remove-Item Env:MAICORD_COMPRESSION_CORPUS -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $corpus) { Remove-Item -LiteralPath $corpus -Force }
-    if ($locked) {
-        & (Join-Path $PSScriptRoot 'clear_benchmark_outputs.ps1') -CacheRoot $cacheRoot -Paths @($binary, $objects)
-        $mutex.ReleaseMutex()
-    }
-    $mutex.Dispose()
-    Pop-Location
 }

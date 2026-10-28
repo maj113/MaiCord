@@ -3,7 +3,7 @@ import argparse,json,struct,subprocess
 from pathlib import Path
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
-from fontTools.ttLib import TTFont,newTable
+from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._f_v_a_r import Axis
 from fontTools.ttLib.tables.TupleVariation import TupleVariation
 from embed_fixture import write_embedded_array

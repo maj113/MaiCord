@@ -11,6 +11,7 @@
 //       the fixture's payloads as the Gateway's ETF terms, compressed with one
 //       shared context and a flush per payload (tools/benchmark_gateway_pipeline.ps1).
 #include "../src/app/gateway_client.cpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/protocol/writer.hpp"
 #include <psapi.h>
 #include <shellapi.h>
@@ -32,10 +33,9 @@ struct Line {
     }
     Line& field(const char* key, u64 value) noexcept {
         add(" "); add(key); add("=");
-        char digits[21];
-        u32 count = 0;
-        do { digits[count++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
-        while (count && used + 3 < sizeof(text)) text[used++] = digits[--count];
+        char digits[20];
+        const u32 count = decimal_write(digits, value);
+        for (u32 i = 0; i < count && used + 3 < sizeof(text); ++i) text[used++] = digits[i];
         return *this;
     }
     Line& field(const char* key, const char* value) noexcept {
@@ -114,12 +114,8 @@ struct Json {
         return raw(text, bytes);
     }
     Json& n(u64 value) noexcept {
-        char digits[21];
-        u32 count = 0;
-        do { digits[count++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
-        char ordered[21];
-        for (u32 i = 0; i < count; ++i) ordered[i] = digits[count - 1 - i];
-        return raw(ordered, count);
+        char digits[20];
+        return raw(digits, decimal_write(digits, value));
     }
     Json& id(u64 value) noexcept { return s("\"").n(value).s("\""); }
     Json& comma(u32 index) noexcept { return index ? s(",") : *this; }
@@ -638,7 +634,6 @@ u32 chunk_count;
 
 // Wire stream: each compressed payload as one unmasked binary server frame,
 // delivered to the session in TLS-record pieces.
-constexpr u32 kWireMessageBytes = ~0u;
 constexpr u32 kRecordBytes = 16 * 1024;
 constexpr u32 kReceiveBytes = 64 * 1024;
 u8* wire;
@@ -646,30 +641,26 @@ u32 wire_offsets[kMaximumMessages + 1];
 
 bool build_wire() noexcept {
     u32 total = 0;
-    for (u32 i = 0; i < chunk_count; ++i) total += chunks[i].bytes + (chunks[i].bytes / kWireMessageBytes + 1) * 10;
+    for (u32 i = 0; i < chunk_count; ++i) total += chunks[i].bytes + 10;
     wire = static_cast<u8*>(VirtualAlloc(nullptr, total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!wire) return false;
     u32 cursor = 0;
     for (u32 i = 0; i < chunk_count; ++i) {
         wire_offsets[i] = cursor;
-        u32 offset = 0;
-        while (offset < chunks[i].bytes) {
-            const u32 part = minimum(chunks[i].bytes - offset, kWireMessageBytes);
-            wire[cursor++] = 0x82;
-            if (part < 126) wire[cursor++] = static_cast<u8>(part);
-            else if (part < 65536) {
-                wire[cursor++] = 126;
-                wire[cursor++] = static_cast<u8>(part >> 8);
-                wire[cursor++] = static_cast<u8>(part);
-            } else {
-                wire[cursor++] = 127;
-                for (u32 shift = 56; shift < 64; shift -= 8)
-                    wire[cursor++] = static_cast<u8>(static_cast<u64>(part) >> shift);
-            }
-            copy_bytes(wire + cursor, chunks[i].data + offset, part);
-            cursor += part;
-            offset += part;
+        const u32 part = chunks[i].bytes;
+        wire[cursor++] = 0x82;
+        if (part < 126) wire[cursor++] = static_cast<u8>(part);
+        else if (part < 65536) {
+            wire[cursor++] = 126;
+            wire[cursor++] = static_cast<u8>(part >> 8);
+            wire[cursor++] = static_cast<u8>(part);
+        } else {
+            wire[cursor++] = 127;
+            for (u32 shift = 56; shift < 64; shift -= 8)
+                wire[cursor++] = static_cast<u8>(static_cast<u64>(part) >> shift);
         }
+        copy_bytes(wire + cursor, chunks[i].data, part);
+        cursor += part;
     }
     wire_offsets[chunk_count] = cursor;
     return true;
@@ -1186,13 +1177,10 @@ int run() noexcept {
     const wchar_t* mode = arguments[1];
     if (mode[0] == L'e') return count >= 4 && select_preset(arguments[3]) ? emit(arguments[2]) : 1;
     if (count < 5 || !select_preset(arguments[4])) return 1;
-    u32 runs = 5;
-    {
-        runs = 0;
-        for (const wchar_t* digit = arguments[3]; *digit >= L'0' && *digit <= L'9'; ++digit)
-            runs = runs * 10 + static_cast<u32>(*digit - L'0');
-        if (!runs || runs > 100) return 1;
-    }
+    u32 runs = 0;
+    for (const wchar_t* digit = arguments[3]; *digit >= L'0' && *digit <= L'9'; ++digit)
+        runs = runs * 10 + static_cast<u32>(*digit - L'0');
+    if (!runs || runs > 100) return 1;
     return replay(arguments[2], runs, count >= 6 && arguments[5][0] == L'p');
 }
 

@@ -26,6 +26,12 @@ void reset_mailbox() noexcept {
     InterlockedExchange(&g_mailbox.dropped, 0);
 }
 
+void report(const char* event_metric, const char* byte_metric, u64 iterations, u32 payload_bytes,
+            u64 elapsed_us) noexcept {
+    write_metric(event_metric, per_second(iterations, elapsed_us), "events/s");
+    write_metric(byte_metric, per_second(iterations * payload_bytes * 2, elapsed_us) / (1024 * 1024), "MiB/s");
+}
+
 bool benchmark_same_thread(const Clock& clock, u32 iterations, u32 payload_bytes, const char* event_metric,
                            const char* byte_metric) noexcept {
     u8 source[65536]{};
@@ -55,11 +61,7 @@ bool benchmark_same_thread(const Clock& clock, u32 iterations, u32 payload_bytes
     if (elapsed_us == 0) {
         return false;
     }
-    write_metric(event_metric, static_cast<u64>(iterations) * 1'000'000ull / elapsed_us, "events/s");
-    write_metric(byte_metric,
-                 static_cast<u64>(iterations) * payload_bytes * 2ull * 1'000'000ull / elapsed_us /
-                     (1024ull * 1024ull),
-                 "MiB/s");
+    report(event_metric, byte_metric, iterations, payload_bytes, elapsed_us);
     return true;
 }
 
@@ -128,19 +130,14 @@ bool benchmark_cross_thread(const Clock& clock, u32 iterations, u32 payload_byte
     if (waited != WAIT_OBJECT_0 || g_producer_failed != 0 || elapsed_us == 0) {
         return false;
     }
-    write_metric(event_metric, static_cast<u64>(g_cross_iterations) * 1'000'000ull / elapsed_us,
-                 "events/s");
-    write_metric(byte_metric,
-                 static_cast<u64>(g_cross_iterations) * payload_bytes * 2ull * 1'000'000ull / elapsed_us /
-                     (1024ull * 1024ull),
-                 "MiB/s");
+    report(event_metric, byte_metric, g_cross_iterations, payload_bytes, elapsed_us);
     return true;
 }
 
 int run() noexcept {
     const Clock clock = clock_initialize();
-    const bool small = benchmark_same_thread(clock, kSmallIterations, 64, "mailbox_64_same_thread",
-                                             "mailbox_64_same_thread_mib");
+    const bool tiny = benchmark_same_thread(clock, kSmallIterations, 64, "mailbox_64_same_thread",
+                                            "mailbox_64_same_thread_mib");
     const bool large = benchmark_same_thread(clock, kLargeIterations, 2048, "mailbox_2048_same_thread",
                                              "mailbox_2048_same_thread_mib");
     const bool empty = benchmark_same_thread(clock, kSmallIterations, 0, "mailbox_0_same_thread",
@@ -154,8 +151,7 @@ int run() noexcept {
     const bool cross_bulk =
         cross && benchmark_cross_thread(clock, 65'536, 16'384, "mailbox_16384_cross_thread",
                                         "mailbox_16384_cross_thread_mib");
-    return small && large && empty && bulk && huge && cross && cross_bulk && g_mailbox_checksum != 0 ? 0
-                                                                                                     : 1;
+    return tiny && large && empty && bulk && huge && cross && cross_bulk && g_mailbox_checksum != 0 ? 0 : 1;
 }
 
 } // namespace

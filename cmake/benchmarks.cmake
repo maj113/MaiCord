@@ -42,23 +42,6 @@ maicord_program(MaiCordWindowFrameBenchmark ENTRY maicord_window_frame_benchmark
     LIBS kernel32 user32 dwmapi d3d11 dxgi dcomp)
 maicord_program(MaiCordPngCrcBenchmark ENTRY maicord_png_crc_entry SOURCES benchmarks/png_crc_benchmark.cpp
     LIBS maicord_core maicord_media_codec kernel32)
-maicord_program(MaiCordResolverPublicationProbe ENTRY maicord_resolver_publication_entry
-    SOURCES tests/resolver_publication.cpp
-    LIBS maicord_core kernel32 ws2_32
-    DEFINES MAICORD_RESOLVER_PUBLICATION_PROBE=1)
-foreach(maicord_json_mode IN ITEMS Number Integer Ascii String)
-    string(TOLOWER "${maicord_json_mode}" maicord_json_name)
-    string(TOUPPER "${maicord_json_mode}" maicord_json_define)
-    maicord_program(MaiCordJson${maicord_json_mode}Benchmark ENTRY maicord_json_${maicord_json_name}_entry
-        SOURCES tests/json_string_decode.cpp
-        LIBS maicord_core kernel32
-        DEFINES MAICORD_JSON_${maicord_json_define}_BENCHMARK=1)
-endforeach()
-maicord_program(MaiCordReadyUsersBenchmark ENTRY maicord_ready_users_entry
-    SOURCES tests/gateway_ready_users.cpp src/model/user_profile.cpp
-    LIBS maicord_app_core maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_model kernel32
-        ${maicord_tls_libs}
-    DEFINES MAICORD_READY_USERS_BENCHMARK=1)
 maicord_program(MaiCordGatewayPipelineBenchmark ENTRY maicord_gateway_pipeline_benchmark_entry
     SOURCES benchmarks/gateway_pipeline_benchmark.cpp src/model/user_profile.cpp
     LIBS maicord_app_core maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_model kernel32
@@ -68,10 +51,6 @@ maicord_program(MaiCordRestWorkerStorageBenchmark ENTRY maicord_rest_worker_stor
     SOURCES benchmarks/rest_worker_storage.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_media_codec maicord_app_core kernel32
         ${maicord_tls_libs})
-maicord_program(MaiCordRestStorageBenchmark ENTRY maicord_rest_storage_entry SOURCES tests/rest_response_storage.cpp
-    LIBS maicord_core maicord_protocol maicord_platform maicord_media_codec maicord_app_core kernel32
-        ${maicord_tls_libs}
-    DEFINES MAICORD_REST_STORAGE_BENCHMARK=1)
 maicord_program(MaiCordArenaBenchmark ENTRY maicord_arena_benchmark_entry SOURCES benchmarks/arena_strategies.cpp
     LIBS maicord_core kernel32)
 maicord_program(MaiCordHttpCompressionBenchmark ENTRY maicord_http_compression_entry

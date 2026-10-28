@@ -26,4 +26,20 @@ inline void write_metric(const char* name, u64 value, const char* unit) noexcept
     write_text("\r\n");
 }
 
+inline void write_value(const char* name, u64 value) noexcept {
+    write_text(name);
+    write_text("=");
+    write_u64(value);
+    write_text("\r\n");
+}
+
+inline void write_ops(const char* name, u64 operations_per_second) noexcept {
+    write_metric(name, operations_per_second, "ops/s");
+}
+
+// Operations (or bytes) per second; zero while the clock has not advanced.
+inline u64 per_second(u64 count, u64 elapsed_us) noexcept {
+    return elapsed_us == 0 ? 0 : count * 1'000'000ull / elapsed_us;
+}
+
 } // namespace maicord

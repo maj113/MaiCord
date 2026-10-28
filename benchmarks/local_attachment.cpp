@@ -1,3 +1,5 @@
+#include "maicord/model/message_composer.hpp"
+#include "maicord/model/message_rich_store.hpp"
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/app/message_send_response.hpp"
 #include "maicord/app/message_history_sync.hpp"

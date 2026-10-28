@@ -51,13 +51,6 @@ u16 g_rich_order[kRichItems];
 u8 g_rich_text[kRichTextCapacity];
 volatile u64 g_model_checksum = 0;
 
-void write_metric(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" ops/s\r\n");
-}
-
 int run() noexcept {
     MessageStore store{};
     if (!message_store_initialize(&store, Slice<MessageRecord>{g_records, kMessageItems},
@@ -373,28 +366,17 @@ int run() noexcept {
         g_model_checksum == 0) {
         return 13;
     }
-    write_metric("message_sorted_append", static_cast<u64>(kMessageItems) * 1'000'000ull / append_us);
-    write_metric("message_find", static_cast<u64>(kLookupIterations) * 1'000'000ull / lookup_us);
-    write_metric("message_ordered_resolve",
-                 static_cast<u64>(kOrderedIterations) * 1'000'000ull / ordered_us);
-    write_metric("message_same_content_update",
-                 static_cast<u64>(kUpdateIterations) * 1'000'000ull / update_us);
-    write_metric("chat_state_bootstrap",
-                 static_cast<u64>(kStateGuilds + kStateChannels) * 1'000'000ull / state_append_us);
-    write_metric("chat_state_find",
-                 static_cast<u64>(kStateLookupIterations) * 1'000'000ull / state_lookup_us);
-    write_metric("chat_state_same_name_update",
-                 static_cast<u64>(kStateUpdateIterations) * 1'000'000ull / state_update_us);
-    write_metric("permission_recompute",
-                 static_cast<u64>(kPermissionIterations) * 1'000'000ull / permission_us);
-    write_metric("activity_mutation",
-                 activity_operations * 1'000'000ull / activity_us);
-    write_metric("message_rich_full_update",
-                 static_cast<u64>(kRichUpdateIterations) * 1'000'000ull /
-                     rich_update_us);
-    write_metric("message_rich_find",
-                 static_cast<u64>(kRichLookupIterations) * 1'000'000ull /
-                     rich_lookup_us);
+    write_ops("message_sorted_append", per_second(kMessageItems, append_us));
+    write_ops("message_find", per_second(kLookupIterations, lookup_us));
+    write_ops("message_ordered_resolve", per_second(kOrderedIterations, ordered_us));
+    write_ops("message_same_content_update", per_second(kUpdateIterations, update_us));
+    write_ops("chat_state_bootstrap", per_second(kStateGuilds + kStateChannels, state_append_us));
+    write_ops("chat_state_find", per_second(kStateLookupIterations, state_lookup_us));
+    write_ops("chat_state_same_name_update", per_second(kStateUpdateIterations, state_update_us));
+    write_ops("permission_recompute", per_second(kPermissionIterations, permission_us));
+    write_ops("activity_mutation", per_second(activity_operations, activity_us));
+    write_ops("message_rich_full_update", per_second(kRichUpdateIterations, rich_update_us));
+    write_ops("message_rich_find", per_second(kRichLookupIterations, rich_lookup_us));
     return 0;
 }
 

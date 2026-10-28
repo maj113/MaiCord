@@ -30,13 +30,6 @@ u32 g_heights[kResidentMessages];
 u64 g_fenwick[kResidentMessages];
 volatile u64 g_history_checksum = 0;
 
-void write_metric(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" ops/s\r\n");
-}
-
 bool append_byte(u32* offset, char value) noexcept {
     if (*offset >= sizeof(g_body)) {
         return false;
@@ -226,24 +219,13 @@ int run() noexcept {
             (kBatchIterations + kOlderIterations) * 2) {
         return 10;
     }
-    write_metric("message_history_decode_page",
-                 static_cast<u64>(kDecodeIterations) * 1'000'000ull /
-                     decode_us);
-    write_metric("message_history_decode_message",
-                 static_cast<u64>(kDecodeIterations) * kDecodeMessages *
-                     1'000'000ull / decode_us);
-    write_metric("message_history_batch_page",
-                 static_cast<u64>(kBatchIterations) * 1'000'000ull /
-                     batch_us);
-    write_metric("message_history_batch_message",
-                 static_cast<u64>(kBatchIterations) * kBatchMessages *
-                     1'000'000ull / batch_us);
-    write_metric("message_history_older_demand_page",
-                 static_cast<u64>(kOlderIterations) * 1'000'000ull /
-                     older_us);
-    write_metric("message_history_older_demand_message",
-                 static_cast<u64>(kOlderIterations) * kBatchMessages *
-                     1'000'000ull / older_us);
+    write_ops("message_history_decode_page", per_second(kDecodeIterations, decode_us));
+    write_ops("message_history_decode_message", per_second(static_cast<u64>(kDecodeIterations) * kDecodeMessages, decode_us));
+    write_ops("message_history_batch_page", per_second(kBatchIterations, batch_us));
+    write_ops("message_history_batch_message", per_second(static_cast<u64>(kBatchIterations) * kBatchMessages, batch_us));
+    write_ops("message_history_older_demand_page", per_second(kOlderIterations, older_us));
+    write_ops("message_history_older_demand_message",
+              per_second(static_cast<u64>(kOlderIterations) * kBatchMessages, older_us));
     return 0;
 }
 

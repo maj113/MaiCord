@@ -1,5 +1,6 @@
 #include "maicord/core/module.hpp"
 #include "maicord/core/time.hpp"
+#include "benchmark_output.hpp"
 #include <unknwn.h>
 #include <shellapi.h>
 
@@ -46,23 +47,6 @@ __declspec(noinline) bool byte_guid(REFGUID left, REFGUID right) noexcept {
 
 __declspec(noinline) bool sdk_guid(REFGUID left, REFGUID right) noexcept {
     return InlineIsEqualGUID(left, right) != 0;
-}
-
-void metric(const char* name, u64 value) noexcept {
-    char line[128];
-    u32 count = 0;
-    while (*name) line[count++] = *name++;
-    line[count++] = '=';
-    char digits[20];
-    u32 used = 0;
-    do {
-        digits[used++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    while (used) line[count++] = digits[--used];
-    line[count++] = '\n';
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line, count, &written, nullptr);
 }
 
 u64 measure_module(ModuleFunction function, const Clock& clock) noexcept {
@@ -126,24 +110,24 @@ extern "C" void maicord_import_benchmark_entry() noexcept {
     // Resolve the original wrapper before warm measurements.
     original_drop(window, true);
     original_drop(window, false);
-    metric("iterations", kIterations);
+    write_value("iterations", kIterations);
     for (u32 sample = 0; sample < 15; ++sample) {
-        metric("sample", sample + 1);
+        write_value("sample", sample + 1);
         // Alternate order to distribute warmup and frequency drift.
         if (sample & 1) {
-            metric("module_linked_us", measure_module(linked_module, clock));
-            metric("module_lookup_us", measure_module(lookup_module, clock));
-            metric("guid_sdk_us", measure_guid(sdk_guid, clock));
-            metric("guid_bytes_us", measure_guid(byte_guid, clock));
-            metric("drop_direct_us", measure_drop(direct_drop, window, clock));
-            metric("drop_original_us", measure_drop(original_drop, window, clock));
+            write_value("module_linked_us", measure_module(linked_module, clock));
+            write_value("module_lookup_us", measure_module(lookup_module, clock));
+            write_value("guid_sdk_us", measure_guid(sdk_guid, clock));
+            write_value("guid_bytes_us", measure_guid(byte_guid, clock));
+            write_value("drop_direct_us", measure_drop(direct_drop, window, clock));
+            write_value("drop_original_us", measure_drop(original_drop, window, clock));
         } else {
-            metric("module_lookup_us", measure_module(lookup_module, clock));
-            metric("module_linked_us", measure_module(linked_module, clock));
-            metric("guid_bytes_us", measure_guid(byte_guid, clock));
-            metric("guid_sdk_us", measure_guid(sdk_guid, clock));
-            metric("drop_original_us", measure_drop(original_drop, window, clock));
-            metric("drop_direct_us", measure_drop(direct_drop, window, clock));
+            write_value("module_lookup_us", measure_module(lookup_module, clock));
+            write_value("module_linked_us", measure_module(linked_module, clock));
+            write_value("guid_bytes_us", measure_guid(byte_guid, clock));
+            write_value("guid_sdk_us", measure_guid(sdk_guid, clock));
+            write_value("drop_original_us", measure_drop(original_drop, window, clock));
+            write_value("drop_direct_us", measure_drop(direct_drop, window, clock));
         }
     }
     if (GetWindowLongPtrW(window, GWL_EXSTYLE) != initial_style) ExitProcess(7);

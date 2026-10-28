@@ -11,6 +11,7 @@
 #include "maicord/protocol/remote_auth.hpp"
 #include "maicord/protocol/webauthn_mfa.hpp"
 #include "maicord/protocol/websocket_frame.hpp"
+#include "benchmark_output.hpp"
 
 #include <Windows.h>
 
@@ -36,43 +37,6 @@ volatile usize g_benchmark_sink = 0;
 SpscQueue<u32, 256> g_spsc_queue{};
 HANDLE g_spsc_start_event = nullptr;
 
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length] != 0) {
-        ++length;
-    }
-    return length;
-}
-
-void write_text(const char* text) noexcept {
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, text_length(text), &written, nullptr);
-}
-
-void write_u64(u64 value) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + (value % 10));
-        value /= 10;
-    } while (value != 0);
-
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index) {
-        output[index] = digits[count - index - 1];
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-}
-
-void write_metric(const char* name, u64 value, const char* unit) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(unit);
-    write_text("\r\n");
-}
-
 bool benchmark_arena(const Clock& clock) noexcept {
     constexpr u32 kAllocations = 1'000'000;
     Arena arena{};
@@ -90,9 +54,7 @@ bool benchmark_arena(const Clock& clock) noexcept {
         g_benchmark_sink = g_benchmark_sink ^ reinterpret_cast<usize>(allocation);
     }
     const u64 elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 allocations_per_second =
-        elapsed_us == 0 ? 0 : (static_cast<u64>(kAllocations) * 1'000'000ull) / elapsed_us;
-    write_metric("arena_32b_align16", allocations_per_second, " alloc/s");
+    write_metric("arena_32b_align16", per_second(kAllocations, elapsed_us), "alloc/s");
     arena_release(&arena);
     return true;
 }
@@ -111,9 +73,7 @@ bool benchmark_spsc(const Clock& clock) noexcept {
         g_benchmark_sink = g_benchmark_sink ^ value;
     }
     const u64 elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 messages_per_second =
-        elapsed_us == 0 ? 0 : (static_cast<u64>(kIterations) * 1'000'000ull) / elapsed_us;
-    write_metric("spsc_round_trip", messages_per_second, " messages/s");
+    write_metric("spsc_round_trip", per_second(kIterations, elapsed_us), "messages/s");
     return true;
 }
 
@@ -171,9 +131,7 @@ bool benchmark_spsc_cross_thread(const Clock& clock) noexcept {
     if (joined != WAIT_OBJECT_0) {
         return false;
     }
-    const u64 messages_per_second =
-        elapsed_us == 0 ? 0 : (static_cast<u64>(kIterations) * 1'000'000ull) / elapsed_us;
-    write_metric("spsc_cross_thread", messages_per_second, " messages/s");
+    write_metric("spsc_cross_thread", per_second(kIterations, elapsed_us), "messages/s");
     return true;
 }
 
@@ -202,9 +160,8 @@ bool benchmark_utf8(const Clock& clock) noexcept {
         g_benchmark_sink = g_benchmark_sink ^ validation.codepoints;
     }
     const u64 elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 total_bytes = static_cast<u64>(kUtf8BufferBytes) * kIterations;
-    const u64 bytes_per_second = elapsed_us == 0 ? 0 : (total_bytes * 1'000'000ull) / elapsed_us;
-    write_metric("utf8_mixed_validation", bytes_per_second / (1024 * 1024), " MiB/s");
+    write_metric("utf8_mixed_validation",
+                 per_second(static_cast<u64>(kUtf8BufferBytes) * kIterations, elapsed_us) / (1024 * 1024), "MiB/s");
     return true;
 }
 
@@ -236,9 +193,8 @@ bool benchmark_json_scan(const Clock& clock) noexcept {
         g_benchmark_sink = g_benchmark_sink ^ result.count;
     }
     const u64 elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 total_bytes = static_cast<u64>(input_bytes) * kIterations;
-    const u64 bytes_per_second = elapsed_us == 0 ? 0 : (total_bytes * 1'000'000ull) / elapsed_us;
-    write_metric("json_structural_scan", bytes_per_second / (1024 * 1024), " MiB/s");
+    write_metric("json_structural_scan",
+                 per_second(static_cast<u64>(input_bytes) * kIterations, elapsed_us) / (1024 * 1024), "MiB/s");
     return true;
 }
 
@@ -258,12 +214,9 @@ bool benchmark_gateway_envelope(const Clock& clock) noexcept {
         g_benchmark_sink = g_benchmark_sink ^ envelope.sequence ^ envelope.data.source.bytes;
     }
     const u64 elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 total_bytes = static_cast<u64>(input.bytes) * kIterations;
-    const u64 bytes_per_second = elapsed_us == 0 ? 0 : (total_bytes * 1'000'000ull) / elapsed_us;
-    const u64 events_per_second =
-        elapsed_us == 0 ? 0 : (static_cast<u64>(kIterations) * 1'000'000ull) / elapsed_us;
-    write_metric("gateway_envelope_decode", bytes_per_second / (1024 * 1024), " MiB/s");
-    write_metric("gateway_envelope_events", events_per_second, " events/s");
+    write_metric("gateway_envelope_decode",
+                 per_second(static_cast<u64>(input.bytes) * kIterations, elapsed_us) / (1024 * 1024), "MiB/s");
+    write_metric("gateway_envelope_events", per_second(kIterations, elapsed_us), "events/s");
     return true;
 }
 
@@ -291,13 +244,7 @@ bool benchmark_webauthn(const Clock& clock) noexcept {
             g_webauthn_request.challenge[iteration & 3u];
     }
     u64 elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 decodes_per_second =
-        elapsed_us == 0
-            ? 0
-            : (static_cast<u64>(kDecodeIterations) * 1'000'000ull) /
-                  elapsed_us;
-    write_metric("webauthn_request_decode", decodes_per_second,
-                 " decodes/s");
+    write_metric("webauthn_request_decode", per_second(kDecodeIterations, elapsed_us), "decodes/s");
 
     begin = clock_now();
     for (u32 iteration = 0; iteration < kClientDataIterations;
@@ -314,13 +261,7 @@ bool benchmark_webauthn(const Clock& clock) noexcept {
             g_webauthn_output[iteration % written.bytes];
     }
     elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 client_data_writes_per_second =
-        elapsed_us == 0
-            ? 0
-            : (static_cast<u64>(kClientDataIterations) * 1'000'000ull) /
-                  elapsed_us;
-    write_metric("webauthn_client_data_write",
-                 client_data_writes_per_second, " writes/s");
+    write_metric("webauthn_client_data_write", per_second(kClientDataIterations, elapsed_us), "writes/s");
 
     const u8 credential_id[] = {0xFB, 0xFF, 0x00};
     const u8 client_data[] = {'{', '}'};
@@ -350,13 +291,7 @@ bool benchmark_webauthn(const Clock& clock) noexcept {
             g_webauthn_output[iteration % written.bytes];
     }
     elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 assertion_writes_per_second =
-        elapsed_us == 0
-            ? 0
-            : (static_cast<u64>(kAssertionIterations) * 1'000'000ull) /
-                  elapsed_us;
-    write_metric("webauthn_assertion_write", assertion_writes_per_second,
-                 " writes/s");
+    write_metric("webauthn_assertion_write", per_second(kAssertionIterations, elapsed_us), "writes/s");
     return true;
 }
 
@@ -380,13 +315,7 @@ bool benchmark_remote_auth(const Clock& clock) noexcept {
                            packet.heartbeat_interval_ms ^ iteration;
     }
     u64 elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 packets_per_second =
-        elapsed_us == 0
-            ? 0
-            : (static_cast<u64>(kDecodeIterations) * 1'000'000ull) /
-                  elapsed_us;
-    write_metric("remote_auth_packet_decode", packets_per_second,
-                 " packets/s");
+    write_metric("remote_auth_packet_decode", per_second(kDecodeIterations, elapsed_us), "packets/s");
 
     u8 rsa[kRemoteAuthRsaBytes]{};
     char encoded[512]{};
@@ -408,13 +337,7 @@ bool benchmark_remote_auth(const Clock& clock) noexcept {
         g_benchmark_sink = g_benchmark_sink ^ rsa[iteration & 255u];
     }
     elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 decodes_per_second =
-        elapsed_us == 0
-            ? 0
-            : (static_cast<u64>(kBase64Iterations) * 1'000'000ull) /
-                  elapsed_us;
-    write_metric("remote_auth_rsa_base64_decode", decodes_per_second,
-                 " decodes/s");
+    write_metric("remote_auth_rsa_base64_decode", per_second(kBase64Iterations, elapsed_us), "decodes/s");
     return true;
 }
 
@@ -451,9 +374,7 @@ bool benchmark_websocket(const Clock& clock) noexcept {
             g_benchmark_sink ^ parsed.frame.frame_bytes ^ static_cast<usize>(parsed.frame.final);
     }
     u64 elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 frames_per_second =
-        elapsed_us == 0 ? 0 : (static_cast<u64>(kParseIterations) * 1'000'000ull) / elapsed_us;
-    write_metric("websocket_frame_parse", frames_per_second, " frames/s");
+    write_metric("websocket_frame_parse", per_second(kParseIterations, elapsed_us), "frames/s");
 
     begin = clock_now();
     for (u32 iteration = 0; iteration < kWriteIterations; ++iteration) {
@@ -466,9 +387,8 @@ bool benchmark_websocket(const Clock& clock) noexcept {
         g_benchmark_sink = g_benchmark_sink ^ g_websocket_frame[written.bytes - 1];
     }
     elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 total_bytes = static_cast<u64>(64 * 1024) * kWriteIterations;
-    const u64 bytes_per_second = elapsed_us == 0 ? 0 : (total_bytes * 1'000'000ull) / elapsed_us;
-    write_metric("websocket_client_mask_write", bytes_per_second / (1024 * 1024), " MiB/s");
+    write_metric("websocket_client_mask_write",
+                 per_second(static_cast<u64>(64 * 1024) * kWriteIterations, elapsed_us) / (1024 * 1024), "MiB/s");
     return true;
 }
 
@@ -491,9 +411,7 @@ bool benchmark_http(const Clock& clock) noexcept {
         g_benchmark_sink = g_benchmark_sink ^ parsed.head.header_bytes ^ parsed.head.field_count;
     }
     u64 elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 heads_per_second =
-        elapsed_us == 0 ? 0 : (static_cast<u64>(kHeadIterations) * 1'000'000ull) / elapsed_us;
-    write_metric("http_response_head_parse", heads_per_second, " heads/s");
+    write_metric("http_response_head_parse", per_second(kHeadIterations, elapsed_us), "heads/s");
 
     constexpr u32 chunk_count = 512;
     constexpr u32 chunk_bytes = 128;
@@ -544,9 +462,8 @@ bool benchmark_http(const Clock& clock) noexcept {
         g_benchmark_sink = g_benchmark_sink ^ delivered ^ consumed;
     }
     elapsed_us = clock_microseconds(clock, begin, clock_now());
-    const u64 total_bytes = static_cast<u64>(payload_bytes) * kChunkIterations;
-    const u64 bytes_per_second = elapsed_us == 0 ? 0 : (total_bytes * 1'000'000ull) / elapsed_us;
-    write_metric("http_chunk_decode", bytes_per_second / (1024 * 1024), " MiB/s");
+    write_metric("http_chunk_decode",
+                 per_second(static_cast<u64>(payload_bytes) * kChunkIterations, elapsed_us) / (1024 * 1024), "MiB/s");
     return true;
 }
 
@@ -571,9 +488,9 @@ bool benchmark_log(const Clock& clock) noexcept {
     begin = clock_now();
     log_close();
     const u64 close_us = clock_microseconds(clock, begin, clock_now());
-    write_metric("log_info_line", info_us * 1000 / kInfoLines, " ns");
-    write_metric("log_error_line", error_us * 1000 / kErrorLines, " ns");
-    write_metric("log_close", close_us, " us");
+    write_metric("log_info_line", info_us * 1000 / kInfoLines, "ns");
+    write_metric("log_error_line", error_us * 1000 / kErrorLines, "ns");
+    write_metric("log_close", close_us, "us");
     return true;
 }
 
@@ -617,8 +534,8 @@ bool benchmark_draft_persist(const Clock& clock) noexcept {
             return false;
     }
     DeleteFileW(path);
-    write_metric("draft_save_sync_write_through", sync_us * 1000 / kSaves, " ns");
-    write_metric("draft_save_ui_thread_queue", queue_us * 1000 / kSaves, " ns");
+    write_metric("draft_save_sync_write_through", sync_us * 1000 / kSaves, "ns");
+    write_metric("draft_save_ui_thread_queue", queue_us * 1000 / kSaves, "ns");
     return true;
 }
 

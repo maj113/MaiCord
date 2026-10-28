@@ -5,7 +5,7 @@ import fontTools
 from fontTools.ttLib import TTFont,newTable
 from fontTools.ttLib.tables.otBase import ValueRecord
 from embed_fixture import write_embedded_array
-from gsub_execution_oracle import obj,coverage,lookup,make_font,ORDER,BASE,TEXT,CLASSES,identity,ligature,single,multiple
+from gsub_execution_oracle import obj,coverage,lookup,make_font,ORDER,TEXT,identity,ligature,single,multiple
 from gsub_execution_oracle import context as gsub_context
 from gsub_execution_oracle import context_format as gsub_context_format
 

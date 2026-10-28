@@ -1,5 +1,5 @@
 """Preserve pre-17 line properties for newly assigned Unicode 17 characters."""
-import argparse,collections,hashlib,json,re,struct,zipfile
+import argparse,hashlib,json,struct,zipfile
 from pathlib import Path
 PIN17='2066d1909b2ea93916ce092da1c0ee4808ea3ef8407c94b4f14f5b7eb263d28e'
 PIN16='4be1c18e7b121d951018065b453bb05083f624c8f905ce8be7c0f354c9097c95'

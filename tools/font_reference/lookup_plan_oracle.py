@@ -1,5 +1,5 @@
 """MaiCord Latin full-shaping plan corpus, with separate TextLayout observations."""
-import argparse,json,struct,subprocess,sys
+import argparse,json,struct,subprocess
 from pathlib import Path
 from fontTools.ttLib import TTFont
 from embed_fixture import write_embedded_array

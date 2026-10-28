@@ -19,25 +19,17 @@ param(
     [ValidateRange(1, 20)][int]$Repeat = 1
 )
 
-# Builds the opt-in decode benchmark inside the single Release cache under the
-# shared build mutex, decodes a generated synthetic corpus (images, animations,
-# local thumbnails, Ogg Opus, MP3), then removes the binary, objects and corpus
-# and restores the shipping-only configuration.
+# Builds the opt-in decode benchmark (tools/benchmark_session.ps1 owns the build,
+# mutex and cleanup), decodes a generated synthetic corpus (images, animations,
+# local thumbnails, Ogg Opus, MP3), then removes the corpus as well.
 $ErrorActionPreference = 'Stop'
-$repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
-$cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
-$binary = Join-Path $cacheRoot 'MaiCordMediaDecodeBenchmark.exe'
-$objects = Join-Path $cacheRoot 'CMakeFiles\MaiCordMediaDecodeBenchmark.dir'
+. (Join-Path $PSScriptRoot 'benchmark_session.ps1')
 $ownedCorpus = !$CorpusPath
 $corpus = if ($CorpusPath) { (Resolve-Path -LiteralPath $CorpusPath).ProviderPath } else {
     Join-Path ([IO.Path]::GetTempPath()) ('maicord-decode-' + [guid]::NewGuid().ToString('N') + '.bin')
 }
-. (Join-Path $PSScriptRoot 'enter_build_environment.ps1')
 
-$mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
-$locked = $false
-Push-Location $repository
-try {
+Invoke-BenchmarkTarget -Target 'MaiCordMediaDecodeBenchmark' -Label 'MaiCord decode benchmark' -Prepare {
     if ($ownedCorpus) {
         $generator = @('-I', (Join-Path $PSScriptRoot 'generate_media_decode_benchmark_corpus.py'), $corpus)
         if ($Quick) { $generator += '--quick' }
@@ -48,13 +40,8 @@ try {
         $ErrorActionPreference = 'Stop'
         if ($LASTEXITCODE -ne 0) { throw 'Corpus generation failed.' }
     }
-    try { $locked = $mutex.WaitOne([TimeSpan]::FromMinutes(45)) } catch [Threading.AbandonedMutexException] { $locked = $true }
-    if (-not $locked) { throw 'The MaiCord Release build mutex was not acquired.' }
-    cmake --preset x64-release -DMAICORD_BUILD_BENCHMARKS=ON | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Benchmark configuration failed.' }
-    cmake --build $cacheRoot --target MaiCordMediaDecodeBenchmark
-    if ($LASTEXITCODE -ne 0) { throw 'MaiCord decode benchmark build failed.' }
-
+} -Run {
+    param($binary)
     $env:MAICORD_DECODE_CORPUS = $corpus
     $env:MAICORD_DECODE_FILTER = $Filter
     $env:MAICORD_DECODE_BUDGET_MS = [string]$BudgetMs
@@ -113,15 +100,9 @@ try {
         Write-Host "All $(@($rows).Count) decode outputs match $CompareGolden."
     }
     if ($exit -ne 0) { throw "MaiCord decode benchmark failed with code $exit." }
-} finally {
+} -Cleanup {
     foreach ($name in @('MAICORD_DECODE_CORPUS', 'MAICORD_DECODE_FILTER', 'MAICORD_DECODE_BUDGET_MS', 'MAICORD_DECODE_STAGES')) {
         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
     }
     if ($ownedCorpus -and (Test-Path -LiteralPath $corpus)) { Remove-Item -LiteralPath $corpus -Force }
-    if ($locked) {
-        & (Join-Path $PSScriptRoot 'clear_benchmark_outputs.ps1') -CacheRoot $cacheRoot -Paths @($binary, $objects)
-        $mutex.ReleaseMutex()
-    }
-    $mutex.Dispose()
-    Pop-Location
 }

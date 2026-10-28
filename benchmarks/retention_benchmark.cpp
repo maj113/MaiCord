@@ -24,13 +24,6 @@ u32 g_heights[kResidentMessages];
 u64 g_fenwick[kResidentMessages];
 volatile u64 g_checksum = 0;
 
-void write_metric(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text(" ops/s\r\n");
-}
-
 GatewayClientEvent create_event(u64 id, u32 payload_bytes) noexcept {
     constexpr u32 fields = gateway_message_field_id |
                            gateway_message_field_channel_id |
@@ -144,13 +137,9 @@ int run() noexcept {
         timeline.deferred != kDeferredEvents || store.compactions == 0) {
         return 9;
     }
-    write_metric("message_retention_follow_bottom",
-                 static_cast<u64>(kRetentionEvents) * 1'000'000ull / retained_us);
-    write_metric("message_retention_scrolled_deferred",
-                 static_cast<u64>(kDeferredEvents) * 1'000'000ull / deferred_us);
-    write_metric("message_store_replacement_churn",
-                 static_cast<u64>(kReplacementEvents) * 1'000'000ull /
-                     replacement_us);
+    write_ops("message_retention_follow_bottom", per_second(kRetentionEvents, retained_us));
+    write_ops("message_retention_scrolled_deferred", per_second(kDeferredEvents, deferred_us));
+    write_ops("message_store_replacement_churn", per_second(kReplacementEvents, replacement_us));
     return 0;
 }
 

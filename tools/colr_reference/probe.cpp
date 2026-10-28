@@ -1,4 +1,5 @@
 #include "maicord/render/colr_paint.hpp"
+#include "maicord/render/glyph_atlas.hpp"
 #include "dwrite_paint_builder.hpp"
 #include "native_source.hpp"
 #include "maicord/render/native_glyph_outlines.hpp"

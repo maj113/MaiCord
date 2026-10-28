@@ -1,32 +1,11 @@
 #include "maicord/platform/aes_gcm.hpp"
 #include "maicord/platform/xchacha20_poly1305.hpp"
+#include "benchmark_output.hpp"
 
 #include <Windows.h>
 
 namespace maicord {
 namespace {
-void text(const char* value) noexcept {
-    u32 length = 0;
-    while (value[length])
-        ++length;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, length, &written, nullptr);
-}
-void number(u64 value) noexcept {
-    char bytes[24];
-    u32 count = 0;
-    do {
-        bytes[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    for (u32 i = 0; i < count / 2; ++i) {
-        const char temporary = bytes[i];
-        bytes[i] = bytes[count - i - 1];
-        bytes[count - i - 1] = temporary;
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), bytes, count, &written, nullptr);
-}
 bool run() noexcept {
     // Synthetic keys only. Timings include validation, derivation/import/erasure
     // where required, encryption and tag generation; exclude initialization.
@@ -41,7 +20,7 @@ bool run() noexcept {
         aes_gcm_release(&aes);
         xchacha_release(&cng);
         xchacha_release(&portable);
-        text("crypto benchmark initialization failed\n");
+        write_text("crypto benchmark initialization failed\n");
         return false;
     }
     LARGE_INTEGER frequency{};
@@ -78,31 +57,31 @@ bool run() noexcept {
                 QueryPerformanceCounter(&end);
                 if (!ok)
                     break;
-                text("{\"backend\":\"");
-                text(names[backend]);
-                text("\",\"bytes\":");
-                number(size);
-                text(",\"trial\":");
-                number(trial);
-                text(",\"iterations\":");
-                number(iterations);
-                text(",\"ns_per_packet\":");
-                number(static_cast<u64>(end.QuadPart - begin.QuadPart) * 1'000'000'000 /
-                       static_cast<u64>(frequency.QuadPart) / iterations);
-                text(",\"locked_bytes\":");
-                number(backend == 0   ? aes.object.capacity
-                       : backend == 1 ? cng.storage.capacity
-                                      : portable.storage.capacity);
-                text("}\n");
+                write_text("{\"backend\":\"");
+                write_text(names[backend]);
+                write_text("\",\"bytes\":");
+                write_u64(size);
+                write_text(",\"trial\":");
+                write_u64(trial);
+                write_text(",\"iterations\":");
+                write_u64(iterations);
+                write_text(",\"ns_per_packet\":");
+                write_u64(static_cast<u64>(end.QuadPart - begin.QuadPart) * 1'000'000'000 /
+                          static_cast<u64>(frequency.QuadPart) / iterations);
+                write_text(",\"locked_bytes\":");
+                write_u64(backend == 0   ? aes.object.capacity
+                          : backend == 1 ? cng.storage.capacity
+                                         : portable.storage.capacity);
+                write_text("}\n");
             }
         }
     }
     aes_gcm_release(&aes);
     xchacha_release(&cng);
     xchacha_release(&portable);
-    text("{\"checksum\":");
-    number(checksum);
-    text("}\n");
+    write_text("{\"checksum\":");
+    write_u64(checksum);
+    write_text("}\n");
     return ok;
 }
 } // namespace

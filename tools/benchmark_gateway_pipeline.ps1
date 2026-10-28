@@ -16,20 +16,14 @@ param(
     [int]$ZstdWindowLog = 16
 )
 
-# Builds the opt-in Gateway pipeline benchmark inside the single Release cache
-# under the shared build mutex, emits its synthetic fixture, encodes each
+# Builds the opt-in Gateway pipeline benchmark (tools/benchmark_session.ps1 owns
+# the build, mutex and cleanup), emits its synthetic fixture, encodes each
 # payload as the Gateway's ETF term and compresses them as one zstd-stream
-# (shared context, a flush per payload), replays it and removes the binary,
-# objects and fixture files.
+# (shared context, a flush per payload), replays it and removes the fixture files.
 $ErrorActionPreference = 'Stop'
-$repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
-$cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
-$binary = Join-Path $cacheRoot 'MaiCordGatewayPipelineBenchmark.exe'
+. (Join-Path $PSScriptRoot 'benchmark_session.ps1')
 $map = Join-Path $cacheRoot 'MaiCordGatewayPipelineBenchmark.map'
-$objects = Join-Path $cacheRoot 'CMakeFiles\MaiCordGatewayPipelineBenchmark.dir'
 $work = Join-Path ([IO.Path]::GetTempPath()) ('maicord-gateway-pipeline-' + [guid]::NewGuid().ToString('N'))
-. (Join-Path $PSScriptRoot 'enter_build_environment.ps1')
-$python = (Get-Command python -ErrorAction Stop).Source
 $compress = @'
 import json, struct, sys
 from compression.zstd import ZstdCompressor, CompressionParameter as P
@@ -135,18 +129,10 @@ for phase, (count, outside) in sorted(samples.items()):
             print(f'    {100.0 * value / count:5.1f}%  {name(rva)}')
 '@
 
-$mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
-$locked = $false
-Push-Location $repository
-try {
-    try { $locked = $mutex.WaitOne([TimeSpan]::FromMinutes(45)) } catch [Threading.AbandonedMutexException] { $locked = $true }
-    if (-not $locked) { throw 'The MaiCord Release build mutex was not acquired.' }
-    # The profiler walks the producer's stack through unwind tables.
-    cmake --preset x64-release -DMAICORD_BUILD_BENCHMARKS=ON "-DMAICORD_UNWIND_TABLES=$(if ($Profile) { 'ON' } else { 'OFF' })" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Benchmark configuration failed.' }
-    cmake --build $cacheRoot --target MaiCordGatewayPipelineBenchmark
-    if ($LASTEXITCODE -ne 0) { throw 'Gateway pipeline benchmark build failed.' }
-
+Invoke-BenchmarkTarget -Target 'MaiCordGatewayPipelineBenchmark' -Label 'Gateway pipeline benchmark' -ExtraOutputs @($map) `
+    -CMakeArguments "-DMAICORD_UNWIND_TABLES=$(if ($Profile) { 'ON' } else { 'OFF' })" -Run {
+    param($binary)
+    $python = (Get-Command python -ErrorAction Stop).Source
     [void](New-Item -ItemType Directory -Path $work)
     $raw = Join-Path $work 'fixture.raw'
     $compressed = Join-Path $work 'fixture.z'
@@ -169,12 +155,6 @@ try {
             if ($LASTEXITCODE -ne 0) { Write-Host "Gateway pipeline replay ($name) failed with code $LASTEXITCODE." }
         }
     }
-} finally {
+} -Cleanup {
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
-    if ($locked) {
-        & (Join-Path $PSScriptRoot 'clear_benchmark_outputs.ps1') -CacheRoot $cacheRoot -Paths @($binary, $map, $objects)
-        $mutex.ReleaseMutex()
-    }
-    $mutex.Dispose()
-    Pop-Location
 }

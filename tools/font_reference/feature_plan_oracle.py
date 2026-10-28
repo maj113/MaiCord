@@ -1,5 +1,5 @@
 """First-party script/language/feature policy probes. Windows observations, QA only."""
-import argparse,copy,json,platform,struct,subprocess,sys
+import argparse,json,platform,struct,subprocess,sys
 from pathlib import Path
 from fontTools.ttLib import TTFont,newTable
 from gsub_execution_oracle import obj,lookup,single,make_font,ORDER,TEXT,identity

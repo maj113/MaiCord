@@ -44,7 +44,6 @@ int run() noexcept {
     write("attachment_codec_iterations", iterations);
     write("attachment_codec_us", clock_microseconds(clock, start, clock_now()));
     write("attachment_codec_checksum", checksum);
-    write("https_file_upload_runtime_bytes", https_file_upload_runtime_bytes());
     write("https_file_upload_owner_bytes", sizeof(HttpsFileUpload));
     write("network_file_owner_bytes", sizeof(NetworkFile));
     write("network_completion_bytes", sizeof(NetworkCompletion));

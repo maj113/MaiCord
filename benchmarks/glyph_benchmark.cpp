@@ -5,8 +5,6 @@
 #include "maicord/render/gpu_timing.hpp"
 #include "maicord/ui/text.hpp"
 #include "maicord/render/native_glyph_outlines.hpp"
-#include "maicord/text/font_run.hpp"
-#include "maicord/text/font_session.hpp"
 
 #include <d3d11_1.h>
 
@@ -29,13 +27,6 @@ inline constexpr u32 kChurnIterations = 100'000;
 GlyphAtlasEntry g_full_entries[kFullEntries];
 GlyphAtlasRow g_full_rows[128];
 u16 g_full_index[kFullEntries * 2];
-
-void write_metric(const char* name, u64 value) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(value);
-    write_text("\r\n");
-}
 
 bool wait_query(ID3D11DeviceContext* context, ID3D11Query* query, void* output, u32 output_bytes) noexcept {
     for (u32 attempt = 0; attempt < 1'000'000; ++attempt) {
@@ -61,7 +52,7 @@ u64 nanoseconds_per(const Clock& clock, i64 begin, i64 end, u32 operations) noex
 
 void write_prefixed(const char* prefix, const char* name, u64 value) noexcept {
     write_text(prefix);
-    write_metric(name, value);
+    write_value(name, value);
 }
 
 // CPU-only full-occupancy lookup/churn cost, with the renderer's key index or
@@ -260,15 +251,15 @@ int run() noexcept {
     }
     context->Unmap(staging, 0);
 
-    write_metric("glyph_commands", outline.count);
-    write_metric("glyph_width", bounds.width);
-    write_metric("glyph_height", bounds.height);
-    write_metric("glyph_covered_pixels", covered_pixels);
-    write_metric("glyph_partial_pixels", partial_pixels);
-    write_metric("glyph_coverage_sum", coverage_sum);
-    write_metric("glyph_dispatch_count", gpu.dispatch_count);
-    write_metric("glyph_dispatch_cpu_batch_us", cpu_us);
-    write_metric("glyph_dispatch_gpu_batch_us", gpu_us);
+    write_value("glyph_commands", outline.count);
+    write_value("glyph_width", bounds.width);
+    write_value("glyph_height", bounds.height);
+    write_value("glyph_covered_pixels", covered_pixels);
+    write_value("glyph_partial_pixels", partial_pixels);
+    write_value("glyph_coverage_sum", coverage_sum);
+    write_value("glyph_dispatch_count", gpu.dispatch_count);
+    write_value("glyph_dispatch_cpu_batch_us", cpu_us);
+    write_value("glyph_dispatch_gpu_batch_us", gpu_us);
 
     const bool valid_output = coverage_sum != 0 && covered_pixels != 0 && partial_pixels != 0 &&
                               gpu.dispatch_count == kDispatchIterations;

@@ -3,7 +3,7 @@ from pathlib import Path
 import argparse,json,struct,subprocess
 from fontTools.ttLib import TTFont
 from embed_fixture import write_embedded_array
-from gsub_execution_oracle import make_font,lookup,multiple,ligature
+from gsub_execution_oracle import make_font,multiple,ligature
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--exe',type=Path,required=True);a=p.parse_args();a.root.mkdir(parents=True,exist_ok=True)

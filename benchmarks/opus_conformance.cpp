@@ -9,6 +9,7 @@
 //     original (.dec) or the RFC 8251 (m.dec) reference output;
 //   - the decoded PCM must hash to the pinned value of the fixed-point build,
 //     so any change to the codec has to be bit-exact.
+#include "benchmark_line.hpp"
 #include "maicord/media/deflate.hpp"
 #include "opus_vector_decode.hpp"
 
@@ -37,39 +38,13 @@ constexpr u64 kPinned[kVectors][2]{
     {0x2a281c70d5a80b77ull, 0x4e168c3987b94351ull},
 };
 
-struct Line {
-    char text[512];
-    u32 used = 0;
-    void put(const char* value) noexcept {
-        while (*value && used + 3 < sizeof(text)) text[used++] = *value++;
-    }
-    void number(u64 value) noexcept {
-        char digits[21];
-        u32 count = 0;
-        do digits[count++] = static_cast<char>('0' + value % 10), value /= 10;
-        while (value);
-        while (count && used + 3 < sizeof(text)) text[used++] = digits[--count];
-    }
-    void field(const char* key, u64 value) noexcept { put(" "), put(key), put("="), number(value); }
-    void field(const char* key, const char* value) noexcept { put(" "), put(key), put("="), put(value); }
-    void digest(const char* key, u64 value) noexcept {
-        put(" "), put(key), put("=");
-        for (i32 shift = 60; shift >= 0 && used + 3 < sizeof(text); shift -= 4)
-            text[used++] = "0123456789abcdef"[(value >> shift) & 15];
-    }
-    void tenths(const char* key, double value) noexcept { // one decimal, sign kept
-        put(" "), put(key), put("=");
-        if (value < 0) put("-"), value = -value;
-        const u64 scaled = static_cast<u64>(value * 10 + 0.5);
-        number(scaled / 10), put("."), number(scaled % 10);
-    }
-    void emit() noexcept {
-        text[used++] = '\r', text[used++] = '\n';
-        DWORD written = 0;
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, used, &written, nullptr);
-        used = 0;
-    }
-};
+// One decimal, sign kept.
+void tenths(Line& line, const char* key, double value) noexcept {
+    line.put(" "), line.put(key), line.put("=");
+    if (value < 0) line.put("-"), value = -value;
+    const u64 scaled = static_cast<u64>(value * 10 + 0.5);
+    line.number(scaled / 10), line.put("."), line.number(scaled % 10);
+}
 
 // Double-precision helpers for the compare metric (no CRT math).
 constexpr double kPi = 3.14159265358979323846;
@@ -347,7 +322,7 @@ bool run() noexcept {
         line.put("opus_vector name="), line.put(name);
         line.field("channels", job.channels), line.field("packets", job.packets), line.field("lost", job.lost);
         line.field("range_errors", job.range_errors), line.field("decode_errors", job.decode_errors);
-        line.field("samples", job.samples), line.tenths("q_dec", job.q[0]), line.tenths("q_mdec", job.q[1]);
+        line.field("samples", job.samples), tenths(line, "q_dec", job.q[0]), tenths(line, "q_mdec", job.q[1]);
         line.digest("pcm", job.digest);
         line.field("bit_exact", kPinned[job.vector][job.channels - 1] == job.digest ? 1 : 0);
         line.field("pass", job.ok ? 1 : 0);

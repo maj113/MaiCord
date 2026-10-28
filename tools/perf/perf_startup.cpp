@@ -13,13 +13,11 @@
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "maicord/sys/d3d11.hpp"
-#include "maicord/sys/dcomp.hpp"
 #include "maicord/sys/gdi.hpp"
 #include "maicord/sys/ole.hpp"
 #include "maicord/sys/process_info.hpp"
 #include "maicord/sys/registry.hpp"
 #include "maicord/sys/winrt.hpp"
-#include "maicord/core/win32_image.hpp"
 
 namespace maicord::perf {
 namespace {

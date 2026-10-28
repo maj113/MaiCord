@@ -4,30 +4,15 @@ param(
     [int]$Samples = 5
 )
 
-# Builds the opt-in LTCG text benchmark (benchmarks/text_benchmark.cpp) inside
-# the single Release cache under the shared build mutex, runs it -Samples times
-# and prints the median of each metric, then removes the binary and objects and
-# restores the shipping configuration. cycles_* metrics are thread cycles per
+# Builds the opt-in LTCG text benchmark (benchmarks/text_benchmark.cpp), runs it
+# -Samples times and prints the median of each metric (tools/benchmark_session.ps1
+# owns the build, mutex and cleanup). cycles_* metrics are thread cycles per
 # uncached text_shape_utf8 call.
 $ErrorActionPreference = 'Stop'
-$repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
-$cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
-$target = 'MaiCordTextBenchmark'
-$binary = Join-Path $cacheRoot "$target.exe"
-$objects = Join-Path $cacheRoot "CMakeFiles\$target.dir"
-. (Join-Path $PSScriptRoot 'enter_build_environment.ps1') -AddInstallerToPath
+. (Join-Path $PSScriptRoot 'benchmark_session.ps1')
 
-$mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
-$locked = $false
-Push-Location $repository
-try {
-    try { $locked = $mutex.WaitOne([TimeSpan]::FromMinutes(45)) } catch [Threading.AbandonedMutexException] { $locked = $true }
-    if (-not $locked) { throw 'The MaiCord Release build mutex was not acquired.' }
-    cmake --preset x64-release -DMAICORD_BUILD_BENCHMARKS=ON | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Benchmark configuration failed.' }
-    cmake --build $cacheRoot --target $target
-    if ($LASTEXITCODE -ne 0) { throw 'MaiCord text benchmark build failed.' }
-
+Invoke-BenchmarkTarget -Target 'MaiCordTextBenchmark' -Label 'MaiCord text benchmark' -AddInstallerToPath -Run {
+    param($binary)
     $values = @{}
     for ($sample = 1; $sample -le $Samples; $sample++) {
         $output = @(& $binary)
@@ -43,11 +28,4 @@ try {
     foreach ($name in $values.Keys | Sort-Object) {
         [pscustomobject]@{ Metric = $name; Median = @($values[$name] | Sort-Object)[$middle] }
     }
-} finally {
-    if ($locked) {
-        & (Join-Path $PSScriptRoot 'clear_benchmark_outputs.ps1') -CacheRoot $cacheRoot -Paths @($binary, $objects)
-        $mutex.ReleaseMutex()
-    }
-    $mutex.Dispose()
-    Pop-Location
 }

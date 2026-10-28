@@ -1,6 +1,6 @@
+#include "benchmark_output.hpp"
 #include "maicord/app/message_snapshot_cache.hpp"
 #include "maicord/app/gateway_client.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/core/time.hpp"
@@ -55,33 +55,6 @@ Page g_page;
 MessageSnapshotCache g_cache;
 volatile u64 g_checksum;
 inline constexpr u32 kUnit = 60 * kUiExtentUnitsPerDip;
-
-void write_text(const char* value) noexcept {
-    u32 length = 0;
-    while (value[length])
-        ++length;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, length, &written, nullptr);
-}
-
-void write_metric(const char* name, u64 value, const char* unit) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    char output[24]{};
-    for (u32 index = 0; index < count; ++index)
-        output[index] = digits[count - index - 1];
-    write_text(name);
-    write_text("=");
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, count, &written, nullptr);
-    write_text(" ");
-    write_text(unit);
-    write_text("\r\n");
-}
 
 bool append(ProtocolWriter* w, const char* text) noexcept {
     return protocol_writer_append_c_string(w, text);

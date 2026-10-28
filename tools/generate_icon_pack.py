@@ -180,10 +180,6 @@ class PathReader:
             return self.text[self.at - 1] == '1'
         raise IconError('expected an arc flag')
 
-    def at_number(self):
-        self.skip()
-        return self.at < len(self.text) and (self.text[self.at] in '+-.' or self.text[self.at].isdigit())
-
 
 class Contour:
     def __init__(self, start, filled):
@@ -258,7 +254,6 @@ def parse_path(data, filled):
         contours.append(contour)
 
     def append(kind, points):
-        nonlocal contour
         if contour is None or contour.closed:
             begin(current)
         contour.segments.append((kind, points))

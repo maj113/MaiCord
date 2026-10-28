@@ -17,7 +17,7 @@ MTU = 1100  # Maximum RTP payload bytes used by the reference packetizer.
 SSRC = 0x1234ABCD
 RTX_SSRC = SSRC + 1
 LOCAL_SSRC = 0x00C0FFEE
-CODECS = {'h264': (101, 102), 'h265': (103, 104), 'av1': (105, 106)}
+CODECS = {'h264': 101, 'h265': 103, 'av1': 105}
 
 
 def nal_body(rng, size, first_bit):
@@ -217,7 +217,6 @@ def annex_b(nals):
 class Stream:
     def __init__(self, codec, units, first_seq, first_ts):
         self.codec = codec
-        pt, self.rtx_pt = CODECS[codec]
         packetize = {'h264': packetize_h264, 'h265': packetize_h265, 'av1': packetize_av1}[codec]
         self.packets, self.frame_of, self.frames = [], [], []
         seq, ts = first_seq, first_ts
@@ -229,15 +228,11 @@ class Stream:
                 seq += 1
             self.frames.append(av1_frame(nals) if codec == 'av1' else annex_b(nals))
             ts += 3000
-        self.pt = pt
+        self.pt = CODECS[codec]
 
     def media(self, index):
         seq, ts, marker, payload = self.packets[index]
         return rtp(self.pt, seq, ts, SSRC, marker, payload)
-
-    def rtx(self, index, rtx_seq):
-        seq, ts, marker, payload = self.packets[index]
-        return rtp(self.rtx_pt, rtx_seq, ts, RTX_SSRC, marker, struct.pack('>H', seq) + payload)
 
     def first_packet(self, frame):
         return self.frame_of.index(frame)

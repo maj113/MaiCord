@@ -5,6 +5,7 @@
 // verification run hashes the complete decoder output (golden hash); timed runs
 // then repeat the decode and report minimum/median TSC cycles per output pixel
 // (per PCM frame for audio). Lines are "decode key=value ..." on stdout.
+#include "benchmark_line.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/animated_webp.hpp"
@@ -46,48 +47,6 @@ const char* kind_name(u32 kind) noexcept {
                                      "jpeg_thumbnail", "webp_thumbnail", "png_stream", "ogg_opus", "mp3"};
     return kind < sizeof(names) / sizeof(names[0]) ? names[kind] : "unknown";
 }
-
-struct Line {
-    char text[1024];
-    u32 used = 0;
-    void append(const char* value) noexcept {
-        while (*value && used + 3 < sizeof(text))
-            text[used++] = *value++;
-    }
-    void append(const char* value, u32 count) noexcept {
-        for (u32 i = 0; i < count && used + 3 < sizeof(text); ++i)
-            text[used++] = value[i];
-    }
-    void number(u64 value) noexcept {
-        char digits[21];
-        u32 count = 0;
-        do {
-            digits[count++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value);
-        while (count && used + 3 < sizeof(text))
-            text[used++] = digits[--count];
-    }
-    void field(const char* key, u64 value) noexcept {
-        append(" ");
-        append(key);
-        append("=");
-        number(value);
-    }
-    void hex(const char* key, u64 value) noexcept {
-        append(" ");
-        append(key);
-        append("=");
-        for (i32 shift = 60; shift >= 0; shift -= 4)
-            text[used++] = "0123456789abcdef"[(value >> shift) & 15u];
-    }
-    void write() noexcept {
-        text[used++] = '\r';
-        text[used++] = '\n';
-        DWORD written = 0;
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, used, &written, nullptr);
-    }
-};
 
 u8* reserve(usize bytes) noexcept {
     return static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -599,9 +558,9 @@ int run() noexcept {
     const u64 tsc_per_us = (tsc_after - tsc_before) * static_cast<u64>(frequency.QuadPart) /
                            (static_cast<u64>(after.QuadPart - before.QuadPart) * 1'000'000ull);
     Line header{};
-    header.append("decode_header");
+    header.put("decode_header");
     header.field("tsc_mhz", tsc_per_us);
-    header.write();
+    header.emit();
 
     usize cursor = 0;
     u32 failures = 0;
@@ -635,10 +594,10 @@ int run() noexcept {
         }
         sort(samples, runs);
         Line line{};
-        line.append("decode name=");
-        line.append(name, name_bytes);
-        line.append(" kind=");
-        line.append(kind_name(kind));
+        line.put("decode name=");
+        line.put(name, name_bytes);
+        line.put(" kind=");
+        line.put(kind_name(kind));
         line.field("ok", consistent ? 1 : 0);
         line.field("bytes", payload_bytes);
         line.field("frames", verified.frames);
@@ -652,18 +611,18 @@ int run() noexcept {
         line.field("scratch_bytes", verified.scratch_bytes);
         if (g_parse_minimum != ~0ull)
             line.field("parse_cycles", g_parse_minimum);
-        line.hex("hash", verified.hash);
-        line.write();
+        line.digest("hash", verified.hash);
+        line.emit();
         if (g_stages && g_stage_minimum[3] != ~0ull) {
             Line stages{};
-            stages.append("decode_stages name=");
-            stages.append(name, name_bytes);
+            stages.put("decode_stages name=");
+            stages.put(name, name_bytes);
             stages.field("envelope", g_stage_minimum[0]);
             stages.field("control", g_stage_minimum[1]);
             stages.field("modes", g_stage_minimum[2]);
             stages.field("tokens", g_stage_minimum[3]);
             stages.field("alpha", g_stage_minimum[4]);
-            stages.write();
+            stages.emit();
         }
         failures += consistent ? 0 : 1;
     }
@@ -671,10 +630,10 @@ int run() noexcept {
     counters.cb = sizeof(counters);
     if (K32GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) {
         Line memory{};
-        memory.append("decode_memory");
+        memory.put("decode_memory");
         memory.field("peak_working_set", counters.PeakWorkingSetSize);
         memory.field("peak_pagefile", counters.PeakPagefileUsage);
-        memory.write();
+        memory.emit();
     }
     return failures ? 8 : 0;
 }

@@ -32,11 +32,8 @@ inline constexpr u32 kProfilePromotionIterations = 32;
 inline constexpr u32 kMfaCodeIterations = 2'000'000;
 volatile u64 g_checksum = 0;
 
-void write_metric(const char* name, u64 iterations, u64 elapsed_us) noexcept {
-    write_text(name);
-    write_text("=");
-    write_u64(iterations * 1'000'000ull / elapsed_us);
-    write_text(" ops/s\r\n");
+void write_rate(const char* name, u64 iterations, u64 elapsed_us) noexcept {
+    write_metric(name, iterations * 1'000'000ull / elapsed_us, "ops/s");
 }
 
 template <usize Count>
@@ -376,38 +373,27 @@ u32 run() noexcept {
         profile_promotion_us == 0 || mfa_code_us == 0) {
         return 13;
     }
-    write_metric("account_user_gateway_identify", kCommandIterations, identify_us);
-    write_metric("account_user_gateway_resume", kCommandIterations, resume_us);
-    write_metric("account_user_gateway_configuration_validate", kMetadataIterations, configuration_us);
-    write_metric("account_user_super_properties", kMetadataIterations, properties_us);
-    write_metric("account_user_gateway_endpoint", kMetadataIterations, endpoint_us);
-    write_metric("account_auth_password_write", kCommandIterations, auth_write_us);
-    write_metric("account_auth_request_head_write", kCommandIterations, auth_head_us);
-    write_metric("account_auth_webauthn_write", kWebauthnIterations, webauthn_write_us);
-    write_metric("account_auth_captcha_decode", kCaptchaIterations, captcha_decode_us);
-    write_metric("account_auth_dense_captcha_decode", kCaptchaIterations, dense_captcha_decode_us);
-    write_metric("account_path_build", kPathIterations, path_us);
-    write_metric("account_profile_promotion_commit", kProfilePromotionIterations, profile_promotion_us);
-    write_metric("account_auth_mfa_code_prepare", kMfaCodeIterations, mfa_code_us);
-    write_text("account_user_gateway_runtime_bytes=");
-    write_u64(gateway_client_user_runtime_bytes());
-    write_text(" bytes\r\naccount_gateway_session_inline_bytes=");
-    write_u64(sizeof(GatewaySession));
-    write_text(" bytes\r\naccount_gateway_zstd_stream_bytes=");
-    write_u64(sizeof(ZstdStreamDecoder));
-    write_text(" bytes\r\naccount_user_rest_runtime_bytes=");
-    write_u64(rest_client_user_runtime_bytes(kRestClientMinimumResponseBytes));
-    write_text(" bytes\r\naccount_user_auth_runtime_bytes=");
-    write_u64(rest_client_user_auth_runtime_bytes(kUserAuthMaximumResponseBytes));
-    write_text(" bytes\r\naccount_auth_coordinator_runtime_bytes=");
-    write_u64(user_auth_coordinator_runtime_bytes());
-    write_text(" bytes\r\naccount_remote_auth_runtime_bytes=");
-    write_u64(remote_auth_client_runtime_bytes());
-    write_text(" bytes\r\naccount_module_runtime_bytes=");
-    write_u64(account_module_runtime_bytes());
-    write_text(" bytes\r\naccount_profile_promotion_owner_bytes=");
-    write_u64(sizeof(AccountProfilePromotion));
-    write_text(" bytes\r\n");
+    write_rate("account_user_gateway_identify", kCommandIterations, identify_us);
+    write_rate("account_user_gateway_resume", kCommandIterations, resume_us);
+    write_rate("account_user_gateway_configuration_validate", kMetadataIterations, configuration_us);
+    write_rate("account_user_super_properties", kMetadataIterations, properties_us);
+    write_rate("account_user_gateway_endpoint", kMetadataIterations, endpoint_us);
+    write_rate("account_auth_password_write", kCommandIterations, auth_write_us);
+    write_rate("account_auth_request_head_write", kCommandIterations, auth_head_us);
+    write_rate("account_auth_webauthn_write", kWebauthnIterations, webauthn_write_us);
+    write_rate("account_auth_captcha_decode", kCaptchaIterations, captcha_decode_us);
+    write_rate("account_auth_dense_captcha_decode", kCaptchaIterations, dense_captcha_decode_us);
+    write_rate("account_path_build", kPathIterations, path_us);
+    write_rate("account_profile_promotion_commit", kProfilePromotionIterations, profile_promotion_us);
+    write_rate("account_auth_mfa_code_prepare", kMfaCodeIterations, mfa_code_us);
+    write_metric("account_gateway_session_inline_bytes", sizeof(GatewaySession), "bytes");
+    write_metric("account_gateway_zstd_stream_bytes", sizeof(ZstdStreamDecoder), "bytes");
+    write_metric("account_user_auth_runtime_bytes", rest_client_user_auth_runtime_bytes(kUserAuthMaximumResponseBytes),
+                 "bytes");
+    write_metric("account_auth_coordinator_runtime_bytes", user_auth_coordinator_runtime_bytes(), "bytes");
+    write_metric("account_remote_auth_runtime_bytes", remote_auth_client_runtime_bytes(), "bytes");
+    write_metric("account_module_runtime_bytes", account_module_runtime_bytes(), "bytes");
+    write_metric("account_profile_promotion_owner_bytes", sizeof(AccountProfilePromotion), "bytes");
     return 0;
 }
 

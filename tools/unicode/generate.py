@@ -8,7 +8,6 @@ from array import array
 import hashlib
 import json
 from pathlib import Path
-import re
 import zipfile
 LIMIT = 0x110000
 EXPECTED_UCD_SHA256 = '2066d1909b2ea93916ce092da1c0ee4808ea3ef8407c94b4f14f5b7eb263d28e'

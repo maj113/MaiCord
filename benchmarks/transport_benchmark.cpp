@@ -251,7 +251,7 @@ int run() noexcept {
         if (failure)
             break;
         const DWORD ready = WaitForMultipleObjects(count, notifications, FALSE, 10000);
-        if (ready < WAIT_OBJECT_0 || ready >= WAIT_OBJECT_0 + count) {
+        if (ready >= WAIT_OBJECT_0 + count) {
             failure = 5;
             break;
         }

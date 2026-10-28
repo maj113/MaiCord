@@ -1,5 +1,5 @@
 """First-party font participation probes for MaiCord's nominal-mapping gate."""
-import argparse,copy,json,subprocess,struct
+import argparse,json,subprocess,struct
 from pathlib import Path
 from fontTools.ttLib import TTFont,newTable
 from feature_plan_oracle import layout,language,script,identity

@@ -1,7 +1,6 @@
 // QA-only Windows observations. Every official vector and the given probes are compared
 // with line_breaks_tailored at interior scalar boundaries; raw UTF-16 before/after
 // conditions and endpoints are retained without inventing neutral policy.
-#include "maicord/text/line_break.hpp"
 #include "maicord/text/detail/line_break_tailored.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <dwrite.h>

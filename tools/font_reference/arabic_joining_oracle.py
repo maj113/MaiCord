@@ -2,7 +2,7 @@
 import argparse,itertools,json,subprocess
 from pathlib import Path
 from fontTools.fontBuilder import FontBuilder
-from fontTools.ttLib import TTFont,newTable
+from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._g_l_y_f import Glyph
 from feature_plan_oracle import layout,language,script
 from gsub_execution_oracle import lookup,single,identity

@@ -1,32 +1,10 @@
-#include "maicord/platform/aes_gcm.hpp"
+#include "benchmark_output.hpp"
 // White-box QA build: time private stages without a production instrumentation API.
 // The static archive does not extract its AES-GCM64 object: this TU defines it.
 #include "../src/platform/aes_gcm64.cpp"
 
 namespace maicord {
 namespace {
-void text(const char* value) noexcept {
-    u32 length = 0;
-    while (value[length])
-        ++length;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, length, &written, nullptr);
-}
-void number(u64 value) noexcept {
-    char bytes[24];
-    u32 count = 0;
-    do {
-        bytes[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    for (u32 i = 0; i < count / 2; ++i) {
-        const char temporary = bytes[i];
-        bytes[i] = bytes[count - i - 1];
-        bytes[count - i - 1] = temporary;
-    }
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), bytes, count, &written, nullptr);
-}
 bool run() noexcept {
     u8 secret[16]{}, nonce[12]{}, aad[12]{}, data[8192]{}, output[8192], mask[16]{};
     AesGcm64Key key{};
@@ -71,28 +49,28 @@ bool run() noexcept {
                 QueryPerformanceCounter(&end);
                 if (!ok)
                     break;
-                text("{\"stage\":\"");
-                text(stage == 0   ? "ghash"
-                     : stage == 1 ? "counter_transform"
-                     : stage == 2 ? "ecb_batches"
-                                  : "counter_inplace");
-                text("\",\"bytes\":");
-                number(size);
-                text(",\"trial\":");
-                number(trial);
-                text(",\"iterations\":");
-                number(iterations);
-                text(",\"ns_per_packet\":");
-                number(static_cast<u64>(end.QuadPart - begin.QuadPart) * 1'000'000'000 /
-                       static_cast<u64>(frequency.QuadPart) / iterations);
-                text("}\n");
+                write_text("{\"stage\":\"");
+                write_text(stage == 0   ? "ghash"
+                           : stage == 1 ? "counter_transform"
+                           : stage == 2 ? "ecb_batches"
+                                        : "counter_inplace");
+                write_text("\",\"bytes\":");
+                write_u64(size);
+                write_text(",\"trial\":");
+                write_u64(trial);
+                write_text(",\"iterations\":");
+                write_u64(iterations);
+                write_text(",\"ns_per_packet\":");
+                write_u64(static_cast<u64>(end.QuadPart - begin.QuadPart) * 1'000'000'000 /
+                          static_cast<u64>(frequency.QuadPart) / iterations);
+                write_text("}\n");
             }
         }
     }
     aes_gcm64_release(&key);
-    text("{\"checksum\":");
-    number(checksum);
-    text("}\n");
+    write_text("{\"checksum\":");
+    write_u64(checksum);
+    write_text("}\n");
     return ok;
 }
 } // namespace

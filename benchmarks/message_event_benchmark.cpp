@@ -137,25 +137,15 @@ int run() noexcept {
         g_message_event_checksum == 0) {
         return 4;
     }
-    write_metric("message_create_decode",
-                 static_cast<u64>(kIterations) * 1'000'000ull / create_us, "events/s");
+    write_metric("message_create_decode", per_second(kIterations, create_us), "events/s");
     write_metric("message_create_decode_mib",
-                 static_cast<u64>(kIterations) * kCreatePayload.bytes * 1'000'000ull /
-                     create_us / (1024ull * 1024ull),
-                 "MiB/s");
-    write_metric("message_update_decode",
-                 static_cast<u64>(kIterations) * 1'000'000ull / update_us, "events/s");
+                 per_second(static_cast<u64>(kIterations) * kCreatePayload.bytes, create_us) / (1024 * 1024), "MiB/s");
+    write_metric("message_update_decode", per_second(kIterations, update_us), "events/s");
     write_metric("message_update_decode_mib",
-                 static_cast<u64>(kIterations) * kUpdatePayload.bytes * 1'000'000ull /
-                     update_us / (1024ull * 1024ull),
-                 "MiB/s");
-    write_metric("message_rich_decode",
-                 static_cast<u64>(kRichIterations) * 1'000'000ull /
-                     rich_us,
-                 "events/s");
+                 per_second(static_cast<u64>(kIterations) * kUpdatePayload.bytes, update_us) / (1024 * 1024), "MiB/s");
+    write_metric("message_rich_decode", per_second(kRichIterations, rich_us), "events/s");
     write_metric("message_rich_decode_mib",
-                 static_cast<u64>(kRichIterations) * kRichPayload.bytes *
-                     1'000'000ull / rich_us / (1024ull * 1024ull),
+                 per_second(static_cast<u64>(kRichIterations) * kRichPayload.bytes, rich_us) / (1024 * 1024),
                  "MiB/s");
     return 0;
 }

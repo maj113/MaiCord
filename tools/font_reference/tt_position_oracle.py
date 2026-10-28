@@ -1,5 +1,5 @@
 """First-party TrueType positioning probes; Windows is an offline oracle only."""
-import argparse,json,subprocess
+import argparse,json
 from pathlib import Path
 from fontTools.ttLib import TTFont
 from fontTools.fontBuilder import FontBuilder
