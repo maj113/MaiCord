@@ -25,10 +25,7 @@
 #include "maicord/text/arabic_paragraph.hpp"
 #include "maicord/text/devanagari_paragraph.hpp"
 #include "maicord/text/tamil_paragraph.hpp"
-#include "maicord/text/sinhala_paragraph.hpp"
-#include "maicord/text/khmer_paragraph.hpp"
-#include "maicord/text/myanmar_paragraph.hpp"
-#include "maicord/text/tibetan_paragraph.hpp"
+#include "maicord/text/cluster_paragraph.hpp"
 #include "maicord/text/detail/indic_form.hpp"
 #include "maicord/text/visibility.hpp"
 #include "maicord/text/arabic_marks.hpp"
@@ -84,10 +81,7 @@ constexpr usize arabic_region_bytes=(sizeof(NativeArabicPlanSlot)*capacity+4095u
 using StyledSpan=NativeStyledSpan<Binding>;
 struct AlphabeticProfile {AlphabeticProfile* next;NativeAlphabeticPlan plan;};
 struct IndicProfile {IndicProfile* next;NativeIndicPlan plan;};
-struct SinhalaProfile {SinhalaProfile* next;NativeSinhalaPlan plan;};
-struct MyanmarProfile {MyanmarProfile* next;NativeMyanmarPlan plan;};
-struct TibetanProfile {TibetanProfile* next;NativeTibetanPlan plan;};
-struct KhmerProfile {KhmerProfile* next;NativeKhmerPlan plan;};
+struct ClusterProfile {ClusterProfile* next;NativeClusterPlan plan;};
 struct IndicFormProfile {IndicFormProfile* next;NativeIndicFormPlan plan;};
 struct DevanagariProfile {DevanagariProfile* next;NativeDevanagariPlan plan;};
 // Glyphs immediately follow this header in the catalog arena. The cache owns
@@ -122,10 +116,7 @@ struct NativeTextContext {
     AlphabeticProfile* alphabetic_profiles;
     DevanagariProfile* devanagari_profiles;
     IndicProfile* indic_profiles;
-    SinhalaProfile* sinhala_profiles;
-    KhmerProfile* khmer_profiles;
-    MyanmarProfile* myanmar_profiles;
-    TibetanProfile* tibetan_profiles;
+    ClusterProfile* cluster_profiles[4];
     IndicFormProfile* form_profiles;
     NativeOmissionSign* omission_signs;
     Slice<u16> styled_analysis;
@@ -379,51 +370,27 @@ SfntStatus tamil_run(NativeTextContext& owner,const Binding& binding,Utf8View te
     const auto* profile=indic_profile(owner,binding,SfntIndicProfile::tamil);if(!profile)return SfntStatus::unsupported_sequence;
     return native_tamil_run(owner.store,*profile,text,em,s,out,{},spacing,rtl);
 }
-// Cluster-shaper plans are cached per font plan generation and letter policy.
-// A face without the script's features is cached as unsupported, so a neutral
-// fallback span returning to it does not prepare it again; capacity and work
-// failures stay retryable.
-template<class Profile,class Prepare> const decltype(Profile::plan)* cluster_profile(NativeTextContext& owner,Profile*& profiles,
-    const Binding& selected,bool independent,Prepare prepare) noexcept {
+// Cluster-shaper plans are cached per script, font plan generation and letter
+// policy. A face without the script's features is cached as unsupported, so a
+// neutral fallback span returning to it does not prepare it again; capacity and
+// work failures stay retryable.
+const NativeClusterPlan* cluster_profile(NativeTextContext& owner,NativeClusterScript script,const Binding& selected,bool independent) noexcept {
+    auto*& profiles=owner.cluster_profiles[static_cast<u32>(script)];
     for(auto* p=profiles;p;p=p->next)if(p->plan.run.slot==selected.plan.slot&&p->plan.run.generation==selected.plan.generation&&p->plan.independent_letters==independent)return p->plan.cmap?&p->plan:nullptr;
-    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<Profile>(&arena);
-    const auto status=p?prepare(&arena,&p->plan):SfntStatus::resource_limit;
+    auto& arena=owner.catalogs.storage;const auto mark=arena_mark(&arena);auto* p=arena_allocate<ClusterProfile>(&arena);
+    const auto status=p?native_cluster_plan_prepare(script,owner.store,selected.plan,independent,&arena,&owner.scratch,&p->plan):SfntStatus::resource_limit;
     if(status!=SfntStatus::ok){++owner.prepare_failed;
         if(p&&status==SfntStatus::unsupported_sequence){p->plan.run=selected.plan;p->plan.independent_letters=independent;p->next=profiles;profiles=p;}
         else arena_rewind(&arena,mark);return nullptr;}
     p->next=profiles;profiles=p;return &p->plan;
 }
-const NativeSinhalaPlan* sinhala_profile(NativeTextContext& owner,const Binding& selected,bool independent) noexcept {
-    return cluster_profile(owner,owner.sinhala_profiles,selected,independent,[&](Arena* arena,NativeSinhalaPlan* plan) noexcept {
-        return native_sinhala_plan_prepare(owner.store,selected.plan,independent,arena,&owner.scratch,plan);});
-}
-SfntStatus sinhala_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
-    const auto* profile=sinhala_profile(owner,binding,owner.last_independent);if(!profile)return SfntStatus::unsupported_sequence;
-    return native_sinhala_run(owner.store,*profile,text,em,s,out,{},rtl,spacing);
-}
-const NativeMyanmarPlan* myanmar_profile(NativeTextContext& owner,const Binding& selected,bool independent) noexcept {
-    return cluster_profile(owner,owner.myanmar_profiles,selected,independent,[&](Arena* arena,NativeMyanmarPlan* plan) noexcept {
-        return native_myanmar_plan_prepare(owner.store,selected.plan,independent,arena,&owner.scratch,plan);});
-}
-SfntStatus myanmar_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
-    const auto* profile=myanmar_profile(owner,binding,owner.last_independent);if(!profile)return SfntStatus::unsupported_sequence;
-    return native_myanmar_run(owner.store,*profile,text,em,s,out,{},rtl,spacing);
-}
-const NativeTibetanPlan* tibetan_profile(NativeTextContext& owner,const Binding& selected,bool independent) noexcept {
-    return cluster_profile(owner,owner.tibetan_profiles,selected,independent,[&](Arena* arena,NativeTibetanPlan* plan) noexcept {
-        return native_tibetan_plan_prepare(owner.store,selected.plan,independent,arena,&owner.scratch,plan);});
-}
-SfntStatus tibetan_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
-    const auto* profile=tibetan_profile(owner,binding,owner.last_independent);if(!profile)return SfntStatus::unsupported_sequence;
-    return native_tibetan_run(owner.store,*profile,text,em,s,out,{},rtl,spacing);
-}
-const NativeKhmerPlan* khmer_profile(NativeTextContext& owner,const Binding& selected,bool independent) noexcept {
-    return cluster_profile(owner,owner.khmer_profiles,selected,independent,[&](Arena* arena,NativeKhmerPlan* plan) noexcept {
-        return native_khmer_plan_prepare(owner.store,selected.plan,independent,arena,&owner.scratch,plan);});
-}
-SfntStatus khmer_run(NativeTextContext& owner,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
-    const auto* profile=khmer_profile(owner,binding,owner.last_independent);if(!profile)return SfntStatus::unsupported_sequence;
-    return native_khmer_run(owner.store,*profile,text,em,s,out,{},rtl,spacing);
+// Sinhala, Khmer, Myanmar and Tibetan have consecutive script ids.
+constexpr NativeClusterScript cluster_script(u16 script) noexcept {return static_cast<NativeClusterScript>((script-sinhala_script)/16);}
+static_assert(cluster_script(sinhala_script)==NativeClusterScript::sinhala&&cluster_script(khmer_script)==NativeClusterScript::khmer&&
+    cluster_script(myanmar_script)==NativeClusterScript::myanmar&&cluster_script(tibetan_script)==NativeClusterScript::tibetan);
+SfntStatus cluster_run(NativeTextContext& owner,NativeClusterScript script,const Binding& binding,Utf8View text,float em,const NativeAsciiStorage& s,NativeAsciiResult* out,float spacing,bool rtl) noexcept {
+    const auto* profile=cluster_profile(owner,script,binding,owner.last_independent);if(!profile)return SfntStatus::unsupported_sequence;
+    return native_cluster_run(script,owner.store,*profile,text,em,s,out,{},rtl,spacing);
 }
 const NativeIndicFormPlan* form_profile(NativeTextContext& owner,const Binding& selected,SfntIndicProfile script) noexcept {
     for(auto* p=owner.form_profiles;p;p=p->next)if(p->plan.indic.run.slot==selected.plan.slot&&p->plan.indic.run.generation==selected.plan.generation&&p->plan.indic.profile==script)return p->plan.indic.cmap?&p->plan:nullptr;
@@ -442,10 +409,7 @@ SfntStatus form_run(SfntIndicProfile script,NativeTextContext& owner,const Bindi
 }
 bool prepare_script_profile(NativeTextContext& owner,Binding& selected,u16 script,bool independent) noexcept {
     if(form_script(script))return selected.font_flags!=emoji_font_flag&&form_profile(owner,selected,form_script_profile(script))!=nullptr;
-    if(script==sinhala_script)return selected.font_flags!=emoji_font_flag&&sinhala_profile(owner,selected,independent)!=nullptr;
-    if(script==khmer_script)return selected.font_flags!=emoji_font_flag&&khmer_profile(owner,selected,independent)!=nullptr;
-    if(script==myanmar_script)return selected.font_flags!=emoji_font_flag&&myanmar_profile(owner,selected,independent)!=nullptr;
-    if(script==tibetan_script)return selected.font_flags!=emoji_font_flag&&tibetan_profile(owner,selected,independent)!=nullptr;
+    if(script>=sinhala_script&&script<=tibetan_script&&!(script%16))return selected.font_flags!=emoji_font_flag&&cluster_profile(owner,cluster_script(script),selected,independent)!=nullptr;
     if(script==tamil_script)return selected.font_flags!=emoji_font_flag&&indic_profile(owner,selected,SfntIndicProfile::tamil)!=nullptr;
     if(script==devanagari_script)return selected.font_flags!=emoji_font_flag&&devanagari_profile(owner,selected)!=nullptr;
     if(script!=arabic_script)return !script||alphabetic_profile(owner,selected,script,independent)!=nullptr;

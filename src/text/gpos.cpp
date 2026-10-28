@@ -64,15 +64,14 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposSubtable* output
     else result.last_covered_glyph=0;
     *output=result;return SfntStatus::ok;
 }
-inline bool glyph_valid(const SfntGsubGlyph& glyph,u32 limit) noexcept {return glyph.glyph<limit && static_cast<u8>(glyph.glyph_class)<=4;}
 }
 SfntStatus gpos_subtable_match(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 end,SfntGposMatch* output,u32* work) noexcept {
-    if(!spend(work))return SfntStatus::resource_limit;const auto& first=sfnt_glyph_at(glyphs,start);if(!glyph_valid(first,sub.glyph_limit))return SfntStatus::invalid_input;
+    if(!spend(work))return SfntStatus::resource_limit;const auto& first=sfnt_glyph_at(glyphs,start);if(!sfnt_glyph_valid(first,sub.glyph_limit))return SfntStatus::invalid_input;
     if(first.glyph>sub.last_covered_glyph)return SfntStatus::ok;
     const u32 cov=sfnt_coverage_index(sub.coverage,first.glyph);if(cov==sfnt_not_covered)return SfntStatus::ok;
     SfntGposMatch result{};result.first_input=start;result.second_input=0xffffffffu;result.next_input=start+1;result.matched=true;
     if(sub.type==1){const u32 at=sub.format==1?6u:8+cov*sub.value_bytes[0];result.values[0]=value_view(sub.table,at,sub.value_formats[0],sub.value_bytes[0]);*output=result;return SfntStatus::ok;}
-    u32 second=start+1;for(;second<end;++second){if(!spend(work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,second);if(!glyph_valid(glyph,sub.glyph_limit))return SfntStatus::invalid_input;if(!sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class))break;}
+    u32 second=start+1;for(;second<end;++second){if(!spend(work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,second);if(!sfnt_glyph_valid(glyph,sub.glyph_limit))return SfntStatus::invalid_input;if(!sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class))break;}
     if(second==end)return SfntStatus::ok;const u16 glyph=sfnt_glyph_at(glyphs,second).glyph;ConstSlice<u8> parent=sub.table;u32 at=0;
     if(sub.format==1){auto s=tail(sub.table,r16(sub.table,10+cov*2),10+static_cast<u32>(sub.counts[0])*2,&parent);if(s!=SfntStatus::ok)return s;
         u32 lo=0,hi=r16(parent,0);const u32 stride=2u+sub.value_bytes[0]+sub.value_bytes[1];bool found=false;

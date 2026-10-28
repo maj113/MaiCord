@@ -1,6 +1,6 @@
 // No argument runs the registered checks; MAICORD_KHMER_OWNED_TEST=1 runs the retained-plan checks on a system font.
 #include "maicord/text/khmer_shape_run.hpp"
-#include "maicord/text/khmer_run.hpp"
+#include "maicord/text/cluster_run.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/text/khmer_plan.hpp"
 #include "maicord/core/arena.hpp"

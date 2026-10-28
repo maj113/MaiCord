@@ -44,9 +44,8 @@ SfntStatus class_open(ConstSlice<u8> b,u32 at,u32 minimum,u32 limit,SfntClassDef
     reset_value(out);if(!at)return SfntStatus::ok;ConstSlice<u8> data{};auto s=tail(b,at,minimum,&data);if(s!=SfntStatus::ok)return s;if(!span(data,0,4))return SfntStatus::truncated;
     const u16 format=r16(data,0);if(format==1 && !span(data,0,6))return SfntStatus::truncated;if(!spend(work,r16(data,format==1?4:2)))return SfntStatus::resource_limit;return sfnt_class_def_open(data,limit,out);
 }
-inline bool valid_glyph(const SfntGsubGlyph& g,u32 limit) noexcept {return g.glyph<limit && static_cast<u8>(g.glyph_class)<=4;}
 SfntStatus step(SfntGlyphView glyphs,u32 limit,const SfntGdef& gdef,const SfntLookupFilter& filter,u32* at,u32 end,bool backward,bool* found,u32* work,u8 mask=0) noexcept {
-    *found=false;while(backward?*at>0:*at+1<end){if(backward)--*at;else ++*at;if(!spend(work))return SfntStatus::resource_limit;const auto& g=sfnt_glyph_at(glyphs,*at);if(!valid_glyph(g,limit))return SfntStatus::invalid_input;if(!sfnt_glyph_feature_enabled(g,mask))break;if(!sfnt_lookup_ignores(gdef,filter,g.glyph,g.glyph_class)){*found=true;break;}}return SfntStatus::ok;
+    *found=false;while(backward?*at>0:*at+1<end){if(backward)--*at;else ++*at;if(!spend(work))return SfntStatus::resource_limit;const auto& g=sfnt_glyph_at(glyphs,*at);if(!sfnt_glyph_valid(g,limit))return SfntStatus::invalid_input;if(!sfnt_glyph_feature_enabled(g,mask))break;if(!sfnt_lookup_ignores(gdef,filter,g.glyph,g.glyph_class)){*found=true;break;}}return SfntStatus::ok;
 }
 bool accepts(const SfntContext& c,const Pattern& p,u32 part,u32 i,u16 glyph) noexcept {
     if(c.format==3){const u32 back=p.back.count/2,input=p.input_count,index=part==0?i:part==1?back+i:back+input+i;return sfnt_coverage_index(c.coverages.data[index],glyph)!=sfnt_not_covered;}
@@ -118,7 +117,7 @@ SfntStatus sfnt_context_open(ConstSlice<u8> bytes,SfntContextKind kind,u32 limit
 SfntStatus sfnt_context_match_view(const SfntContext& c,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 input_end,Slice<u32> positions,SfntContextMatch* output,u32 work,u32* work_used,u8 mask,u32 first_coverage_index) noexcept {
     const WorkReport report{work,work,work_used};
     if(!output)return SfntStatus::invalid_input;reset_value(output);if(!sfnt_glyph_view_valid(glyphs) || start>=input_end || input_end>sfnt_glyph_count(glyphs) || (positions.count && !positions.data))return SfntStatus::invalid_input;
-    if(!spend(&work))return SfntStatus::resource_limit;if(!valid_glyph(sfnt_glyph_at(glyphs,start),c.glyph_limit))return SfntStatus::invalid_input;
+    if(!spend(&work))return SfntStatus::resource_limit;if(!sfnt_glyph_valid(sfnt_glyph_at(glyphs,start),c.glyph_limit))return SfntStatus::invalid_input;
     if(c.format<1||c.format>3||static_cast<u8>(c.kind)>1)return SfntStatus::invalid_input;const auto h=prepared_header(c);
     if(!sfnt_glyph_feature_enabled(sfnt_glyph_at(glyphs,start),mask))return SfntStatus::ok;
     const u16 first=sfnt_glyph_at(glyphs,start).glyph;
@@ -149,7 +148,7 @@ SfntStatus sfnt_gsub_reverse_open(ConstSlice<u8> bytes,u32 limit,Slice<SfntCover
 }
 SfntStatus sfnt_gsub_reverse_match_view(const SfntReverseSubstitution& r,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,SfntGsubMatch* output,u32 work,u32* work_used,u8 mask) noexcept {
     const WorkReport report{work,work,work_used};
-    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!sfnt_glyph_view_valid(glyphs) || start>=sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;if(!spend(&work))return SfntStatus::resource_limit;if(!valid_glyph(sfnt_glyph_at(glyphs,start),r.glyph_limit))return SfntStatus::invalid_input;
+    if(!output)return SfntStatus::invalid_input;reset_value(output);if(!sfnt_glyph_view_valid(glyphs) || start>=sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;if(!spend(&work))return SfntStatus::resource_limit;if(!sfnt_glyph_valid(sfnt_glyph_at(glyphs,start),r.glyph_limit))return SfntStatus::invalid_input;
     if(!sfnt_glyph_feature_enabled(sfnt_glyph_at(glyphs,start),mask))return SfntStatus::ok;
     const u32 index=sfnt_coverage_index(r.coverages.data[0],sfnt_glyph_at(glyphs,start).glyph);if(index==sfnt_not_covered)return SfntStatus::ok;u32 coverage=1;
     for(u32 part=0;part<2;++part){u32 at=start;const u32 count=part==0?r.backtrack_count:r.lookahead_count;for(u32 i=0;i<count;++i){bool found=false;auto s=step(glyphs,r.glyph_limit,gdef,filter,&at,sfnt_glyph_count(glyphs),part==0,&found,&work);if(s!=SfntStatus::ok)return s;if(!found || sfnt_coverage_index(r.coverages.data[coverage++],sfnt_glyph_at(glyphs,at).glyph)==sfnt_not_covered)return SfntStatus::ok;}}

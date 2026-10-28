@@ -1,6 +1,6 @@
 // No argument runs the registered checks. Manual: MAICORD_MYANMAR_FONT=<font file> streams that
 // font's shaping results for external comparison (QA only).
-#include "maicord/text/myanmar_run.hpp"
+#include "maicord/text/cluster_run.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/text/myanmar_shape_run.hpp"
 #include "maicord/text/use_plan.hpp"

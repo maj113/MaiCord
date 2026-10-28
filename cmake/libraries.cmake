@@ -294,11 +294,11 @@ maicord_library(maicord_unicode
 maicord_library(maicord_font
     src/text/arabic_shape_run.cpp src/text/arabic_marks.cpp src/text/arabic_plan.cpp
     src/text/devanagari_plan.cpp src/text/use_plan.cpp src/text/sinhala_input.cpp src/text/tibetan_input.cpp
-    src/text/tibetan_run.cpp src/text/tibetan_shape_cluster.cpp src/text/khmer_input.cpp
+    src/text/cluster_run.cpp src/text/tibetan_shape_cluster.cpp src/text/khmer_input.cpp
     src/text/myanmar_shape_cluster.cpp src/text/myanmar_input.cpp src/text/khmer_shape_cluster.cpp
-    src/text/khmer_run.cpp src/text/sinhala_shape_cluster.cpp src/text/devanagari_forms.cpp
+    src/text/sinhala_shape_cluster.cpp src/text/devanagari_forms.cpp
     src/text/devanagari_clusters.cpp src/text/indic_input.cpp src/text/tamil_shape_run.cpp
-    src/text/tamil_run.cpp src/text/myanmar_run.cpp src/text/sinhala_run.cpp src/text/script_paragraphs.cpp
+    src/text/tamil_run.cpp src/text/script_paragraphs.cpp
     src/text/indic_run_plan.cpp src/text/devanagari_order.cpp
     src/text/devanagari_shape_cluster.cpp src/text/indic_run.cpp src/text/compact_run.cpp src/text/devanagari_run.cpp
     src/text/devanagari_run_plan.cpp src/text/tt_orientation.cpp

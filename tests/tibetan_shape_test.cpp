@@ -1,6 +1,6 @@
 // MAICORD_TIBETAN_OWNED_TEST=1 runs the owned-units checks against the Windows Himalaya font.
 #include "maicord/text/tibetan_shape_run.hpp"
-#include "maicord/text/tibetan_run.hpp"
+#include "maicord/text/cluster_run.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/text/use_plan.hpp"
 #include "maicord/core/arena.hpp"

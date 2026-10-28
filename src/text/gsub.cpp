@@ -37,11 +37,10 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGsubSubtable* output
     }
     *output=result;return SfntStatus::ok;
 }
-inline bool valid_glyph(const SfntGsubGlyph& glyph,u32 limit) noexcept {return glyph.glyph<limit && static_cast<u8>(glyph.glyph_class)<=4;}
 bool valid_input(SfntGlyphView glyphs,u32 start,Slice<u32> positions) noexcept {return sfnt_glyph_view_valid(glyphs) && start<sfnt_glyph_count(glyphs) && (!positions.count || positions.data);}
 }
 SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch* output,u32* work,u8 mask) noexcept {
-    if(!spend(work))return SfntStatus::resource_limit;if(!valid_glyph(sfnt_glyph_at(glyphs,start),sub.glyph_limit))return SfntStatus::invalid_input;
+    if(!spend(work))return SfntStatus::resource_limit;if(!sfnt_glyph_valid(sfnt_glyph_at(glyphs,start),sub.glyph_limit))return SfntStatus::invalid_input;
     if(!sfnt_glyph_feature_enabled(sfnt_glyph_at(glyphs,start),mask))return SfntStatus::ok;
     const u16 first=sfnt_glyph_at(glyphs,start).glyph;const u32 coverage_index=sfnt_coverage_index(sub.coverage,first);if(coverage_index==sfnt_not_covered)return SfntStatus::ok;
     SfntGsubMatch result{{},1,start,0,1,true};if(positions.count)positions.data[0]=start;
@@ -67,7 +66,7 @@ SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,
                     if(next_state){const u32 distance=next_position-start;if(distance>*work){*work=0;return SfntStatus::resource_limit;}*work-=distance;}
                     else{next_state=2;
                         while(next_position+1<sfnt_glyph_count(glyphs)){++next_position;if(!spend(work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,next_position);
-                            if(!valid_glyph(glyph,sub.glyph_limit))return SfntStatus::invalid_input;if(!sfnt_glyph_feature_enabled(glyph,mask))break;
+                            if(!sfnt_glyph_valid(glyph,sub.glyph_limit))return SfntStatus::invalid_input;if(!sfnt_glyph_feature_enabled(glyph,mask))break;
                             if(!sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class)){next_state=1;next_glyph=glyph.glyph;if(positions.count>1)positions.data[1]=next_position;break;}}
                     }
                     if(next_state!=1||next_glyph!=r16(ligature,4))continue;at=next_position;
@@ -80,7 +79,7 @@ SfntStatus gsub_subtable_match(const SfntGsubSubtable& sub,const SfntGdef& gdef,
                         if(distance>*work){*work=0;return SfntStatus::resource_limit;}*work-=distance;
                         at+=distance;available=component<ready;
                     }else{const u32 before=at;
-                        while(at+1<sfnt_glyph_count(glyphs)){++at;if(!spend(work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,at);if(!valid_glyph(glyph,sub.glyph_limit))return SfntStatus::invalid_input;
+                        while(at+1<sfnt_glyph_count(glyphs)){++at;if(!spend(work))return SfntStatus::resource_limit;const auto& glyph=sfnt_glyph_at(glyphs,at);if(!sfnt_glyph_valid(glyph,sub.glyph_limit))return SfntStatus::invalid_input;
                             if(!sfnt_glyph_feature_enabled(glyph,mask))break;
                             if(!sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class)){available=true;break;}}
                         if(component==ready){if(available&&component<positions.count){positions.data[component]=at;++ready;}

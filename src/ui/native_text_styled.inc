@@ -131,21 +131,12 @@ SfntStatus publish_rtl_line(void* context,ConstSlice<NativeParagraphRun> runs,u3
                                   s.work.run, &result, spacing, shaping_rtl);
             else
                 switch (script) {
-                case tibetan_script:
-                    status = tibetan_run(owner, *item.binding(), input, item.em, s.work.run, &result,
-                                         spacing, shaping_rtl);
-                    break;
-                case myanmar_script:
-                    status = myanmar_run(owner, *item.binding(), input, item.em, s.work.run, &result,
-                                         spacing, shaping_rtl);
-                    break;
-                case khmer_script:
-                    status = khmer_run(owner, *item.binding(), input, item.em, s.work.run, &result, spacing,
-                                       shaping_rtl);
-                    break;
                 case sinhala_script:
-                    status = sinhala_run(owner, *item.binding(), input, item.em, s.work.run, &result,
-                                         spacing, shaping_rtl);
+                case khmer_script:
+                case myanmar_script:
+                case tibetan_script:
+                    status = cluster_run(owner, cluster_script(script), *item.binding(), input, item.em, s.work.run,
+                                         &result, spacing, shaping_rtl);
                     break;
                 case tamil_script:
                     status = tamil_run(owner, *item.binding(), input, item.em, s.work.run, &result, spacing,
@@ -691,28 +682,15 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
                                                   group_boundaries, &part, tracking, group_rtl);
             } else
                 switch (shaping_script) {
-                case tibetan_script:
-                    if (const auto* plan = tibetan_profile(owner, *r.binding(), system.independent_letters))
-                        status =
-                            native_tibetan_paragraph_shape(owner.store, *plan, input, r.em, segment,
-                                                           group_boundaries, &part, tracking, group_rtl);
-                    break;
-                case myanmar_script:
-                    if (const auto* plan = myanmar_profile(owner, *r.binding(), system.independent_letters))
-                        status =
-                            native_myanmar_paragraph_shape(owner.store, *plan, input, r.em, segment,
-                                                           group_boundaries, &part, tracking, group_rtl);
-                    break;
-                case khmer_script:
-                    if (const auto* plan = khmer_profile(owner, *r.binding(), system.independent_letters))
-                        status = native_khmer_paragraph_shape(owner.store, *plan, input, r.em, segment,
-                                                              group_boundaries, &part, tracking, group_rtl);
-                    break;
                 case sinhala_script:
-                    if (const auto* plan = sinhala_profile(owner, *r.binding(), system.independent_letters))
-                        status =
-                            native_sinhala_paragraph_shape(owner.store, *plan, input, r.em, segment,
-                                                           group_boundaries, &part, tracking, group_rtl);
+                case khmer_script:
+                case myanmar_script:
+                case tibetan_script:
+                    if (const auto* plan = cluster_profile(owner, cluster_script(static_cast<u16>(shaping_script)), *r.binding(),
+                                                           system.independent_letters))
+                        status = native_cluster_paragraph_shape(cluster_script(static_cast<u16>(shaping_script)), owner.store, *plan,
+                                                                input, r.em, segment, group_boundaries, &part, tracking,
+                                                                group_rtl);
                     break;
                 case tamil_script:
                     if (const auto* plan = indic_profile(owner, *r.binding(), SfntIndicProfile::tamil))

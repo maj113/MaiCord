@@ -1,6 +1,6 @@
 // No argument runs the registered checks; MAICORD_SINHALA_OWNED_TEST=1 runs the owned-plan checks against the system font.
 #include "maicord/text/sinhala_shape_run.hpp"
-#include "maicord/text/sinhala_run.hpp"
+#include "maicord/text/cluster_run.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"

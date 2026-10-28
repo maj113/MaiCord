@@ -8,6 +8,10 @@ struct SfntGsubGlyph {u16 glyph;SfntGlyphClass glyph_class;u8 reserved;};
 inline bool sfnt_glyph_feature_enabled(const SfntGsubGlyph& glyph,u8 mask) noexcept {
     return !mask || (glyph.reserved&mask)!=0;
 }
+// The record's glyph ID is within the font and its class is a defined GDEF class.
+inline bool sfnt_glyph_valid(const SfntGsubGlyph& glyph,u32 limit) noexcept {
+    return glyph.glyph<limit && static_cast<u8>(glyph.glyph_class)<=4;
+}
 // Every record begins with SfntGsubGlyph. Remaining bytes are caller
 // metadata and move unchanged. Replacement records supply all metadata; this
 // storage layer does not choose cluster, class or ligature-provenance policies.
