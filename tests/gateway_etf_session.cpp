@@ -4,39 +4,19 @@
 // decode error that ends the session. Synthetic payloads only.
 #include "maicord/protocol/gateway_session.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace {
 
 u32 checks = 0;
-bool print_ok = true;
-void print(const char* text) noexcept {
-    u32 n = 0;
-    while (text[n])
-        ++n;
-    DWORD written = 0;
-    print_ok = print_ok && WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, n, &written, nullptr) && written == n;
-}
-void number(u64 v) noexcept {
-    char digits[21];
-    u32 n = 0;
-    do {
-        digits[n++] = static_cast<char>('0' + v % 10);
-        v /= 10;
-    } while (v);
-    while (n) {
-        const char text[]{digits[--n], 0};
-        print(text);
-    }
-}
 #define CHECK(x)                                                                                                       \
     do {                                                                                                               \
         ++checks;                                                                                                      \
         if (!(x)) {                                                                                                    \
-            print("FAIL line=");                                                                                       \
-            number(__LINE__);                                                                                          \
-            print("\n");                                                                                               \
+            test_write_text("FAIL line=");                                                                             \
+            test_write_u64(__LINE__);                                                                                  \
+            test_write_text("\n");                                                                                     \
             return false;                                                                                              \
         }                                                                                                              \
     } while (0)
@@ -186,8 +166,8 @@ bool run() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_gateway_etf_session_entry() noexcept {
     using namespace maicord;
     const bool ok = run();
-    print("checks=");
-    number(checks);
-    print(ok ? " PASS Gateway session over zstd-stream ETF\n" : " FAIL Gateway session over zstd-stream ETF\n");
-    ExitProcess(ok && print_ok ? 0 : 1);
+    test_write_text("checks=");
+    test_write_u64(checks);
+    test_write_text(ok ? " PASS Gateway session over zstd-stream ETF\n" : " FAIL Gateway session over zstd-stream ETF\n");
+    ExitProcess(ok ? 0 : 1);
 }

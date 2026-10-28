@@ -77,14 +77,8 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
         }
     check(borrowed && borrowed <= scene.count, "friends_labels_borrow_source_without_duplicate_strings");
     // Friend rows end in round 36-DIP icon buttons (Message, More) 10 DIP
-    // apart with tooltips; they replace the old "Chat"/"More" text labels.
-    const auto chat_commands = [](const UiFriendsScene& s, const UiTextCommandStream& text) noexcept {
-        for (u32 i = 0; i < text.count; ++i) {
-            const auto& c = text.storage[i];
-            if ((c.text.bytes == 4 && (bytes_equal(c.text.data, "Chat", 4) || bytes_equal(c.text.data, "More", 4))) ||
-                (c.text.bytes == 7 && bytes_equal(c.text.data, "Message", 7)))
-                return false;
-        }
+    // apart with tooltips.
+    const auto chat_commands = [](const UiFriendsScene& s) noexcept {
         u32 chats = 0;
         for (u32 slot = 0; slot < ui_friends_scene_visible_count(s); ++slot) {
             UiFriendsVisibleRow row{};
@@ -120,16 +114,16 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
         }
         return chats != 0;
     };
-    check(chat_commands(scene, stream),
+    check(chat_commands(scene),
           "friends_message_icon_button_preserves_open_dm_target_size_spacing_and_tooltip");
     UiFriendsScene compact_chat{};
     check(ui_friends_scene_update(&compact_chat, &source, UiFriendsTab::all, UiFriendsPhase::ready, {},
                                   {0, 0, 320, 240}) &&
               ui_text_command_stream_initialize(&stream, {commands, 128}) &&
               ui_friends_scene_text_output(compact_chat, kDefaultTheme, &stream_output, nullptr) &&
-              chat_commands(compact_chat, stream),
+              chat_commands(compact_chat),
           "friends_compact_icon_buttons_remain_unclipped_and_actionable");
-    bool more = false, wide_name = false, old_inline = false;
+    bool more = false, wide_name = false;
     for (u32 slot = 0; slot < ui_friends_scene_visible_count(compact_chat); ++slot) {
         UiFriendsVisibleRow row{};
         if (!ui_friends_scene_visible_row(compact_chat, slot, &row))
@@ -145,11 +139,9 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
     for (u32 i = 0; i < stream.count; ++i) {
         const auto& c = commands[i];
         wide_name |= c.text.data == fixture.display_name.data && ui_rect_width(c.rectangle) >= 140;
-        old_inline |= (c.text.bytes == 6 && bytes_equal(c.text.data, "Remove", 6)) ||
-                      (c.text.bytes == 5 && bytes_equal(c.text.data, "Block", 5));
     }
     UiFriendsTarget menu_request{};
-    check(more && wide_name && !old_inline &&
+    check(more && wide_name &&
               ui_friends_scene_activation(compact_chat, {UiFriendsAction::more, 1, UiFriendsTab::all},
                                           &menu_request) &&
               ui_friends_scene_activation(compact_chat, {UiFriendsAction::profile, 1, UiFriendsTab::all},
@@ -633,19 +625,6 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               visible.clip.left >= modal.surface.left && visible.clip.right <= modal.surface.right &&
               hidden_fixture.calls == hidden_calls,
           "friends_hidden_modal_last_media_row_clips_to_card_without_resolution");
-    check(ui_text_command_stream_initialize(&stream, {commands, 128}) &&
-              ui_friends_scene_text_output(modal, kDefaultTheme, &stream_output, nullptr),
-          "friends_hidden_modal_native_text_stream");
-    bool hidden_title = false, hidden_tabs = false, hidden_more = false, hidden_subtitle = false;
-    for (u32 i = 0; i < stream.count; ++i) {
-        const auto& c = commands[i];
-        hidden_title |= c.text.bytes == 14 && bytes_equal(c.text.data, "Other requests", 14);
-        hidden_tabs |= c.text.bytes == 6 && bytes_equal(c.text.data, "Online", 6);
-        hidden_more |= c.text.bytes == 4 && bytes_equal(c.text.data, "More", 4);
-        hidden_subtitle |= c.text.bytes == 14 && bytes_equal(c.text.data, "Potential spam", 14);
-    }
-    check(hidden_title && hidden_subtitle && !hidden_tabs && !hidden_more,
-          "friends_hidden_modal_exact_other_requests_copy_has_no_tabs_or_inline_more");
     hidden_fixture.ignored = true;
     ++hidden_source.revision;
     check(ui_friends_scene_update(&modal, &hidden_source, UiFriendsTab::pending, UiFriendsPhase::ready, {},

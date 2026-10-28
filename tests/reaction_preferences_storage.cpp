@@ -1,5 +1,4 @@
 #include "maicord/model/reaction_preferences.hpp"
-#include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -8,9 +7,6 @@ namespace maicord::reaction_preference_storage_test {
 u32 failures;
 void check(bool success, const char* message) noexcept {
     test_check(&failures, success, message);
-}
-void measurement(const char* name, usize value) noexcept {
-    test_write_metric(name, value);
 }
 bool vm(const void* address, DWORD expected) noexcept {
     MEMORY_BASIC_INFORMATION information{};
@@ -31,8 +27,8 @@ void ownership() noexcept {
         store.collapsed_guilds.arena.committed == system.dwPageSize && store.collapsed_guilds.arena.commit_count == 1 &&
         reaction_preferences_section_collapsed(store, 16, 1007),
         "reaction storage: first guild collapse commits exactly one native page before publishing identity");
-    measurement("MEASURE reaction_collapse_initial_committed_bytes=", 0);
-    measurement("MEASURE reaction_collapse_first_committed_bytes=", store.collapsed_guilds.arena.committed);
+    test_write_metric("MEASURE reaction_collapse_initial_committed_bytes=", 0);
+    test_write_metric("MEASURE reaction_collapse_first_committed_bytes=", store.collapsed_guilds.arena.committed);
     check(!reaction_preferences_initialize(&store) && store.collapsed_guilds.arena.base == base &&
         reaction_preferences_section_collapsed(store, 16, 1007),
         "reaction storage: duplicate reset cannot discard a live owned bank");
@@ -95,7 +91,7 @@ void commit_failure() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_reaction_preference_storage_entry() noexcept {
     using namespace maicord::reaction_preference_storage_test;
-    measurement("MEASURE reaction_preference_owner_bytes=", sizeof(maicord::ReactionPreferenceStore));
+    maicord::test_write_metric("MEASURE reaction_preference_owner_bytes=", sizeof(maicord::ReactionPreferenceStore));
     DWORD before = 0, after = 0;
     const bool counted = GetProcessHandleCount(GetCurrentProcess(), &before) != FALSE;
     ownership(); commit_failure();

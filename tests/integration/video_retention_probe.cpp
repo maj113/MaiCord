@@ -4,7 +4,6 @@
 #include "maicord/ui/theme.hpp"
 #include "nv12_test_picture.hpp"
 
-#include "maicord/sys/d3d11.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/asset.hpp"
 

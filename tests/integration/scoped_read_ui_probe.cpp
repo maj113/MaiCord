@@ -67,14 +67,14 @@ struct Fixture {
     u32 message_byte_styles[4];
     BulkMessageAckEntry admitted[kBulkMessageAckMaximumEntries];
     u8 wire[kBulkMessageAckMaximumBodyBytes];
-    u64 now, request_id, individual_channel, individual_cursor;
-    u32 admitted_count, bulk_posts, individual_posts, encoded, frames, captures, failures;
+    u64 now, request_id, individual_channel;
+    u32 admitted_count, bulk_posts, individual_posts, encoded, frames, captures;
     u32 navigation_cancels, bottom_scrolls;
     // Server menu stage: recorded feature entry points and role storage.
     RoleRecord roles[4];
     PermissionOverwriteRecord overwrites[2];
     u64 settings_guild;
-    u32 settings_opens, invites, creations, privacy_opens, profile_opens, leaves;
+    u32 settings_opens, creations, privacy_opens, profile_opens, leaves;
     u64 profile_guild;
     // Synced user guild settings writes: hide_muted_channels and opt-in.
     u32 hide_writes, opt_in_writes;
@@ -151,8 +151,6 @@ bool fail_at(u32 line, u32 stage = 0) noexcept {
 }
 bool require_at(bool valid, u32 stage, u32 line) noexcept {
     if (!valid) {
-        if (fixture)
-            ++fixture->failures;
         log_u64(LogLevel::error, "scoped_read_native", "failure_stage", stage);
         return fail_at(line, stage);
     }
@@ -173,7 +171,6 @@ RestClientSubmitResult WINAPI individual(void* context, u64 channel_id, u64 curs
         return {RestClientSubmitError::target_capacity};
     copy_bytes(f.wire, body.data, body.count);
     f.individual_channel = channel_id;
-    f.individual_cursor = cursor;
     f.request_id = request_id;
     ++f.individual_posts;
     ++f.encoded;
@@ -831,7 +828,6 @@ bool application_guild_settings_create_channel(u64, u64, u8 type) noexcept {
     return true;
 }
 bool application_guild_lifecycle_open_invite(u64, u64) noexcept {
-    ++fixture->invites;
     return true;
 }
 bool application_guild_lifecycle_leave(u64) noexcept {
@@ -1099,10 +1095,7 @@ bool click_header() noexcept {
     return project();
 }
 Utf8View text(const char* label) noexcept {
-    u32 bytes = 0;
-    while (label[bytes])
-        ++bytes;
-    return {label, bytes};
+    return {label, c_string_length(label)};
 }
 template <usize Count>
 bool rows(const char* const (&labels)[Count]) noexcept {
@@ -1436,7 +1429,6 @@ bool scoped_read_ui_probe() noexcept {
     if (!fixture)
         return fail_at(__LINE__);
     fixture->theme = kDefaultTheme;
-    fixture->refresh_ok = true;
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     const HINSTANCE instance = GetModuleHandleW(nullptr);
     WNDCLASSW type{};

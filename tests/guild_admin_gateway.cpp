@@ -250,6 +250,33 @@ constexpr Utf8View kRoles = utf8_literal(
     R"({"id":"30","name":"Mods","permissions":"2","position":3,"mentionable":true,"unicode_emoji":"⭐","flags":1},)"
     R"({"id":"31","name":"Quiet","permissions":"0","position":1,"mentionable":false,"icon":null,"unicode_emoji":null}])");
 
+struct DetailState {
+    ChatStateStore store;
+    GuildRecord guilds[2];
+    ChannelRecord channels[2];
+    RoleRecord roles[8];
+    PermissionOverwriteRecord overwrites[2];
+    u16 guild_order[2], channel_order[2];
+    u8 names[8192];
+    u64 guild_ids[4];
+    GuildDetailStore details;
+    GuildDetailRecord records[4];
+    char text[2048];
+};
+DetailState detail_state;
+
+bool detail_fixture() noexcept {
+    auto& s = detail_state;
+    clear_bytes(&s, sizeof(s));
+    s.store.self_user_id = kSelf;
+    const bool bound = chat_state_store_initialize(&s.store, {s.guilds, 2}, {s.guild_order, 2}, {s.channels, 2},
+                                                      {s.channel_order, 2}, {s.names, sizeof(s.names)}) &&
+                       chat_state_store_bind_permissions(&s.store, {s.roles, 8}, {s.overwrites, 2}) &&
+                       guild_detail_store_bind(&s.details, {s.records, 4}, {s.text, sizeof(s.text)});
+    s.store.self_user_id = kSelf;
+    return bound && chat_state_store_upsert_guild(&s.store, {100, utf8_literal("Lab"), GuildMutationKind::create, 1}).ok();
+}
+
 void test_guild_settings() noexcept {
     char body[2048];
     u32 used = 0;
@@ -279,25 +306,11 @@ void test_guild_settings() noexcept {
               gateway_client_event_guild_role(event, payload, 2, &role, &name) && role.id == 31 && !role.flags,
           "gateway admin: role arrays carry mentionable, icon presence and prompt flags");
 
-    ChatStateStore store{};
-    GuildRecord guilds[2]{};
-    ChannelRecord channels[2]{};
-    RoleRecord roles[8]{};
-    PermissionOverwriteRecord overwrites[2]{};
-    u16 guild_order[2]{}, channel_order[2]{};
-    static u8 names[8192];
-    u64 guild_ids[4]{};
-    store.self_user_id = kSelf;
-    const bool bound = chat_state_store_initialize(&store, {guilds, 2}, {guild_order, 2}, {channels, 2},
-                                                      {channel_order, 2}, {names, sizeof(names)}) &&
-                       chat_state_store_bind_permissions(&store, {roles, 8}, {overwrites, 2});
-    store.self_user_id = kSelf;
-    const bool created =
-        bound && chat_state_store_upsert_guild(&store, {100, utf8_literal("Lab"), GuildMutationKind::create, 1})
-                     .ok();
-    const auto applied = chat_state_apply_gateway_event(&store, event, payload, {guild_ids, 4});
-    const auto* guild = chat_state_store_find_guild(store, 100);
-    const auto* mods = chat_state_store_find_role(store, 100, 30);
+    auto& s = detail_state;
+    const bool created = detail_fixture();
+    const auto applied = chat_state_apply_gateway_event(&s.store, event, payload, {s.guild_ids, 4});
+    const auto* guild = chat_state_store_find_guild(s.store, 100);
+    const auto* mods = chat_state_store_find_role(s.store, 100, 30);
     check(created && applied.ok() && guild && guild->settings.known == all_guild && guild->settings.mfa_level == 1 &&
               guild->settings.afk_timeout_seconds == 900 && guild->settings.system_channel_id == 500 && mods &&
               mods->mentionable && mods->has_icon && mods->in_prompt,
@@ -353,33 +366,6 @@ void test_guild_settings() noexcept {
 
 bool names_equal(ConstSlice<u8> names, const char* expected, u32 bytes) noexcept {
     return names.count == bytes && bytes_equal(names.data, expected, bytes);
-}
-
-struct DetailState {
-    ChatStateStore store;
-    GuildRecord guilds[2];
-    ChannelRecord channels[2];
-    RoleRecord roles[8];
-    PermissionOverwriteRecord overwrites[2];
-    u16 guild_order[2], channel_order[2];
-    u8 names[8192];
-    u64 guild_ids[4];
-    GuildDetailStore details;
-    GuildDetailRecord records[4];
-    char text[2048];
-};
-DetailState detail_state;
-
-bool detail_fixture() noexcept {
-    auto& s = detail_state;
-    clear_bytes(&s, sizeof(s));
-    s.store.self_user_id = kSelf;
-    const bool bound = chat_state_store_initialize(&s.store, {s.guilds, 2}, {s.guild_order, 2}, {s.channels, 2},
-                                                      {s.channel_order, 2}, {s.names, sizeof(s.names)}) &&
-                       chat_state_store_bind_permissions(&s.store, {s.roles, 8}, {s.overwrites, 2}) &&
-                       guild_detail_store_bind(&s.details, {s.records, 4}, {s.text, sizeof(s.text)});
-    s.store.self_user_id = kSelf;
-    return bound && chat_state_store_upsert_guild(&s.store, {100, utf8_literal("Lab"), GuildMutationKind::create, 1}).ok();
 }
 
 bool apply_details() noexcept {
@@ -747,9 +733,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_guild_admin_gateway_entry() 
     test_guild_details();
     test_detail_store();
     test_user_mfa();
-    constexpr char pass[] = "PASS guild admin gateway fixtures\n";
-    constexpr char fail[] = "FAIL guild admin gateway fixtures\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "guild admin gateway fixtures");
 }

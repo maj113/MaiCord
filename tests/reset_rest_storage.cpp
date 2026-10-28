@@ -22,8 +22,7 @@ void storage_check(bool condition, const char* name) noexcept {
     if (condition) return;
     ++storage_failures;
     DWORD written = 0;
-    u32 bytes = 0;
-    while (name[bytes]) ++bytes;
+    const u32 bytes = c_string_length(name);
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), name, bytes, &written, nullptr);
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\r\n", 2, &written, nullptr);
 }
@@ -276,7 +275,10 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
         runtime->user_accept_language == runtime->user_timezone + kRestUserTimezoneMaximumBytes &&
         reinterpret_cast<usize>(runtime->user_accept_language + kRestUserAcceptLanguageMaximumBytes) <=
             handshake_begin &&
-        valid_base64_metadata({runtime->user_super_properties, runtime->user_super_properties_bytes}) &&
+        rest_user_headers_valid({{runtime->user_super_properties, runtime->user_super_properties_bytes},
+                                 {runtime->user_locale, runtime->user_locale_bytes},
+                                 {runtime->user_timezone, runtime->user_timezone_bytes},
+                                 {runtime->user_accept_language, runtime->user_accept_language_bytes}}) &&
         runtime->user_locale_bytes && runtime->user_timezone_bytes <= kRestUserTimezoneMaximumBytes,
         "nonsecret metadata fits before aligned final handshake output outside locked credentials");
     copy_bytes(storage_metadata_snapshot, runtime->user_super_properties, sizeof(storage_metadata_snapshot));

@@ -1,10 +1,8 @@
 #include "gsub_program_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 namespace maicord {namespace {
 #include "generated/gsub_execute_fixture.inc"
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 struct Reader {ConstSlice<u8> data;u32 at=0;
     bool word(u32* v) noexcept {if(at>data.count || data.count-at<4)return false;*v=byte_load_le32(data.data+at);at+=4;return true;}
     bool take(u32 n,ConstSlice<u8>* v) noexcept {if(at>data.count || n>data.count-at)return false;*v={data.data+at,n};at+=n;return true;}
@@ -142,9 +140,9 @@ bool file_corpus(const wchar_t* path) noexcept {
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL execution units\n"));return 3;}
     if(!guards()){print(utf8_literal("FAIL execution guards\n"));return 4;}
-    const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
+    const wchar_t* command=test_arguments();
     bool ok=false;if(!*command)ok=corpus({gsub_execution_fixture,sizeof(gsub_execution_fixture)});
-    else {wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}if(quote){if(*command!='"')return 2;++command;}while(*command==' ' || *command=='\t')++command;if(*command || !n)return 2;path[n]=0;ok=file_corpus(path);}
+    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
     print(utf8_literal("queries="));number(queries);print(utf8_literal("\nglyph_checks="));number(checked);print(utf8_literal("\nedits="));number(edits);print(utf8_literal("\nexplicit_windows_differences="));number(windows_differences);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguard_observations="));number(guard_observations);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
     print(utf8_literal("direct_entries="));number(direct_entries);print(utf8_literal("\ndirect_limits="));number(direct_limits);print(utf8_literal("\n"));
     print(utf8_literal("shared_certificates="));number(shared_certificates);print(utf8_literal("\n"));

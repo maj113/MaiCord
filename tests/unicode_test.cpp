@@ -1,6 +1,6 @@
 #include "maicord/text/unicode.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 bool unicode_grapheme_tests() noexcept;
@@ -87,8 +87,7 @@ int run() noexcept {
         while(*command==' ' || *command=='\t')++command;
         if(*command || !count)return 2;path[count]=0;if(!dump(path))return 3;
     }
-    constexpr auto message=utf8_literal("PASS Unicode properties and graphemes\n");
-    DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message.data,message.bytes,&written,nullptr);
+    test_write_line("PASS Unicode properties and graphemes");
     return 0;
 }
 }

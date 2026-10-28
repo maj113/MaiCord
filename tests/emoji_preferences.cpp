@@ -209,12 +209,8 @@ void test_keys(Check check) noexcept {
           "emoji preferences: skin-tone keys round-trip through Unicode tone variants");
     // Names other clients store resolve, whichever alias set they come from.
     const auto resolves = [](const char* key, const char* catalog_name) noexcept {
-        Utf8View name{catalog_name, 0};
-        while (catalog_name[name.bytes])
-            ++name.bytes;
-        Utf8View text{key, 0};
-        while (key[text.bytes])
-            ++text.bytes;
+        const Utf8View name{catalog_name, c_string_length(catalog_name)};
+        const Utf8View text{key, c_string_length(key)};
         const u16 index = catalog_index(name);
         return index != kReactionPreferenceInvalidCatalogIndex &&
                reaction_emoji_from_settings_key(text) == reaction_emoji_unicode(index);
@@ -389,9 +385,7 @@ void test_interop(Check check) noexcept {
     // The local tables hold the same emoji under this client's own keys.
     char keys[6][96]{};
     const auto entry = [&](u32 slot, const char* name, bool updated) noexcept {
-        Utf8View text{name, 0};
-        while (name[text.bytes])
-            ++text.bytes;
+        const Utf8View text{name, c_string_length(name)};
         EmojiFrecencyEntry result{};
         result.key = {keys[slot], reaction_emoji_settings_key(reaction_emoji_unicode(catalog_index(text)),
                                                               {keys[slot], 96})};

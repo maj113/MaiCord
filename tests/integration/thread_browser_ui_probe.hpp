@@ -165,27 +165,26 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         auto* scene = application_thread_browser_scene();
         if (!scene) return false;
         const auto owner = application_thread_browser_metrics();
-        const u32 before[]{scene->rebuilds, scene->layout_passes, renderer.ui_scene->layout_passes,
-            renderer.ui_scene->layout_rebuilds, renderer.guild_rail_scene->layout_passes,
-            renderer.shell_navigation_scene->layout_passes, context.navigation.revision, measure.backend_calls,
-            renderer.glyph_text.cache_builds, renderer.content_text->rebuilds, renderer.paint_stream_builds,
-            renderer.paint_instance_uploads, renderer.text_instance_uploads, renderer.media_instance_uploads,
-            renderer.painted_frames, renderer.unchanged_present_skips};
+        struct Counters { u32 values[16]; };
+        const auto counters = [&]() noexcept {
+            return Counters{{scene->rebuilds, scene->layout_passes, renderer.ui_scene->layout_passes,
+                renderer.ui_scene->layout_rebuilds, renderer.guild_rail_scene->layout_passes,
+                renderer.shell_navigation_scene->layout_passes, context.navigation.revision, measure.backend_calls,
+                renderer.glyph_text.cache_builds, renderer.content_text->rebuilds, renderer.paint_stream_builds,
+                renderer.paint_instance_uploads, renderer.text_instance_uploads, renderer.media_instance_uploads,
+                renderer.painted_frames, renderer.unchanged_present_skips}};
+        };
+        const Counters before = counters();
         for (u32 i = 0; i < 64; ++i) if (!context.project() || !probe_present(&renderer, context.theme)) return false;
-        const u32 after[]{scene->rebuilds, scene->layout_passes, renderer.ui_scene->layout_passes,
-            renderer.ui_scene->layout_rebuilds, renderer.guild_rail_scene->layout_passes,
-            renderer.shell_navigation_scene->layout_passes, context.navigation.revision, measure.backend_calls,
-            renderer.glyph_text.cache_builds, renderer.content_text->rebuilds, renderer.paint_stream_builds,
-            renderer.paint_instance_uploads, renderer.text_instance_uploads, renderer.media_instance_uploads,
-            renderer.painted_frames, renderer.unchanged_present_skips};
+        const Counters after = counters();
         const char* labels[]{"scene_rebuild", "scene_layout", "shell_layout", "shell_rebuild", "rail_layout",
             "sidebar_layout", "navigation", "shape", "raster", "text_build", "paint_build", "paint_upload",
             "text_upload", "media_upload", "painted_frames", "unchanged_skips"};
         bool unchanged = true;
         log_u64(LogLevel::info, "thread_browser_warm", "case", case_id);
         for (u32 i = 0; i < 16; ++i) {
-            log_u64(LogLevel::info, "thread_browser_warm", labels[i], after[i] - before[i]);
-            unchanged &= after[i] - before[i] == (i == 15 ? 64u : 0u);
+            log_u64(LogLevel::info, "thread_browser_warm", labels[i], after.values[i] - before.values[i]);
+            unchanged &= after.values[i] - before.values[i] == (i == 15 ? 64u : 0u);
         }
         const auto current = application_thread_browser_metrics();
         log_u64(LogLevel::info, "thread_browser_warm", "owner_bytes", current.owner_bytes);

@@ -147,8 +147,7 @@ u32 project_updates(UiSettingsControl* out, UiSettingsControlPresentation* looks
         e.version = v.offer_version - i;
         e.date_unix_seconds = 1792406289 - i * 43200;
         e.text_offset = u.log.text_bytes;
-        while (subjects[i][e.text_bytes])
-            ++e.text_bytes;
+        e.text_bytes = c_string_length(subjects[i]);
         copy_bytes(u.log.text + u.log.text_bytes, subjects[i], e.text_bytes);
         u.log.text_bytes += e.text_bytes;
     }
@@ -400,7 +399,6 @@ bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
     if (valid) {
         f.surface.scene = &f.form;
         renderer_bind_text_form(&renderer, &f.surface);
-        if (valid)
         stage = __LINE__;
         valid = renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme) &&
                 capture(L"user-settings-hex-error.bmp");

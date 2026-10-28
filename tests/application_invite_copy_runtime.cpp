@@ -15,7 +15,7 @@ void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
 UiSettingsControl rows[16];
-u32 row_count, revoke_forms, queued;
+u32 row_count, revoke_forms;
 bool can_edit = true, request_busy;
 ChatStateStore chat{};
 struct Captured {
@@ -195,7 +195,6 @@ bool connected() noexcept {
     return true;
 }
 void queue(Op, u64) noexcept {
-    ++invite_copy_test::queued;
 }
 TextFormOwnerKey form_key(u64, u64) noexcept {
     return {};

@@ -2,7 +2,6 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace thread_browser_test {
@@ -265,8 +264,7 @@ void run() noexcept {
         {fixture.rows, 100}, {reinterpret_cast<char*>(fixture.rows), 100}, &fixture.page).error ==
         ThreadBrowserError::input && same_page(fixture.page, preserved),
         "thread browser: overlapping candidate banks refuse before any scratch mutation");
-    auto max_offset = archived; max_offset.offset = kThreadBrowserMaximumOffset;
-    max_offset.offset = 9975;
+    auto max_offset = archived; max_offset.offset = 9975;
     check(thread_browser_write_target(max_offset, {target, sizeof(target)}).ok(),
         "thread browser: documented final offset9975 is accepted");
     auto beyond_offset = max_offset; beyond_offset.offset = 10000;
@@ -330,10 +328,5 @@ void run() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_thread_browser_protocol_test_entry() noexcept {
     maicord::thread_browser_test::run();
-    const bool failed = maicord::thread_browser_test::failures != 0;
-    const auto result = failed ? maicord::utf8_literal("FAIL thread browser protocol\n")
-                               : maicord::utf8_literal("PASS thread browser protocol\n");
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), result.data, result.bytes, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::thread_browser_test::failures, "thread browser protocol");
 }

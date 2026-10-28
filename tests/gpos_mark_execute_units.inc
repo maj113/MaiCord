@@ -1,12 +1,15 @@
 SfntGsubGlyph long_marks[4097];SfntPosition long_positions[4097];double long_advances[4097];u8 long_flags[4097];
 u64 linear_search_steps=0,linear_mark_matches=0;
-bool mark_history_units() noexcept {
-    // The new-mark Windows fixtures cover source-cluster starts and unresolved
-    // ownership after GSUB, including the second child in family emoji.
-    u8 raw[46]{};put(raw,0,1);put(raw,2,12);put(raw,4,18);put(raw,6,1);put(raw,8,24);put(raw,10,36);
+void mark_fixture(u8* raw) noexcept {
+    put(raw,0,1);put(raw,2,12);put(raw,4,18);put(raw,6,1);put(raw,8,24);put(raw,10,36);
     put(raw,12,1);put(raw,14,1);put(raw,16,2);put(raw,18,1);put(raw,20,1);put(raw,22,1);
     put(raw,24,1);put(raw,28,6);put(raw,30,1);put(raw,32,20);put(raw,34,30);
     put(raw,36,1);put(raw,38,4);put(raw,40,1);put(raw,42,300);put(raw,44,700);
+}
+bool mark_history_units() noexcept {
+    // The new-mark Windows fixtures cover source-cluster starts and unresolved
+    // ownership after GSUB, including the second child in family emoji.
+    u8 raw[46]{};mark_fixture(raw);
     SfntGposAttachment sub{};if(sfnt_gpos_attachment_open({raw,46},6,3,&sub)!=SfntStatus::ok)return false;
     const SfntGposAttachmentLookup lookup{{&sub,1},{}};
     const SfntGsubGlyph glyphs[]{{0,SfntGlyphClass::base,0},{1,SfntGlyphClass::mark,0},{2,SfntGlyphClass::mark,0}};
@@ -26,11 +29,7 @@ bool mark_history_units() noexcept {
 }
 bool mark_units() noexcept {
     if(!mark_history_units())return false;
-    u8 raw[64]{};
-    put(raw,0,1);put(raw,2,12);put(raw,4,18);put(raw,6,1);put(raw,8,24);put(raw,10,36);
-    put(raw,12,1);put(raw,14,1);put(raw,16,2);put(raw,18,1);put(raw,20,1);put(raw,22,1);
-    put(raw,24,1);put(raw,28,6);put(raw,30,1);put(raw,32,20);put(raw,34,30);
-    put(raw,36,1);put(raw,38,4);put(raw,40,1);put(raw,42,300);put(raw,44,700);
+    u8 raw[64]{};mark_fixture(raw);
     SfntGposAttachment sub{};SfntGposAttachmentLookup lookup{{&sub,1},{}};SfntMarkExecution result{};
     if(sfnt_gpos_attachment_open({raw,46},4,3,&sub)!=SfntStatus::ok)return false;
     // A script can retain an earlier source owner when presentation GSUB

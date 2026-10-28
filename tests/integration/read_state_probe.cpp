@@ -231,9 +231,8 @@ bool paint_contract(const D3D11Renderer& renderer, bool read) noexcept {
 } // namespace
 
 // This is native presentation QA, not an authenticated account or ACK request.
-bool read_state_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure,
+bool read_state_probe(D3D11Renderer& renderer, UiTextMeasureCache&,
     bool (*capture)(const wchar_t*) noexcept) noexcept {
-    (void)measure;
     if (!capture || !renderer.ui_scene || !renderer.chat_state || !renderer.navigation_view ||
         !renderer.guild_rail_scene || !renderer.shell_navigation_scene) return false;
     const auto* guild_pane = ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::guild_navigation));

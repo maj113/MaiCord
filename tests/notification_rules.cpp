@@ -201,7 +201,6 @@ MessageNotificationOutputs decide(const Settings& s, const Case& c) noexcept {
     in.everyone_mention = c.mention == everyone_mention;
     in.focused = c.focused;
     in.selected = c.selected;
-    in.current_voice_channel_known = true;
     const MessageNotificationDevice device{c.desktop, c.sounds, c.selected_sounds, c.flash, false};
     return message_notification_outputs({&in, true, c.selected, true, c.selected_sounds}, device);
 }

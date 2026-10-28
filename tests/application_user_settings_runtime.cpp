@@ -173,6 +173,21 @@ UserSettingsExtractResult extract_raw(ConstSlice<u8> proto, Slice<u8> output) no
                                                           utf8_literal("cur"), output)
                      : UserSettingsExtractResult{0, 0, UserSettingsProtoError::input};
 }
+// {"settings":"<base64 of the proto message>"}
+u32 settings_json(ConstSlice<u8> proto, char* out) noexcept {
+    copy_bytes(out, "{\"settings\":\"", 13);
+    const u32 encoded = base64_encoded_size(proto.count);
+    base64_encode(proto, {out + 13, encoded});
+    out[13 + encoded] = '"';
+    out[14 + encoded] = '}';
+    return 15 + encoded;
+}
+// The proto message a captured settings PATCH carries, decoded from its JSON body.
+Base64Result decode_sent(Utf8View json, u8* storage, u32 capacity) noexcept {
+    constexpr u32 prefix = 13; // {"settings":"
+    return json.bytes > prefix + 2 ? base64_decode({json.data + prefix, json.bytes - prefix - 2}, {storage, capacity})
+                                   : Base64Result{0, 0, Base64Error::invalid_input};
+}
 } // namespace
 
 bool application_refresh_theme_consumers(bool, bool) noexcept {
@@ -247,11 +262,8 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     u8 target[kAccountSettingsMaximumTargetBytes];
     Utf8View path{};
     Utf8View json = body_of(body, kUserSettingsPatchBytes, target, sizeof(target), &path);
-    const u32 prefix = 13; // {"settings":"
     u8 sent[256]{};
-    const auto decoded = json.bytes > prefix + 2
-                             ? base64_decode({json.data + prefix, json.bytes - prefix - 2}, {sent, sizeof(sent)})
-                             : Base64Result{0, 0, Base64Error::invalid_input};
+    const auto decoded = decode_sent(json, sent, sizeof(sent));
     UserSettingsValue v{};
     const ConstSlice<u8> sent_message{sent, decoded.bytes};
     check(decoded.ok() && utf8_equal(path, utf8_literal("/api/v10/users/@me/settings-proto/1")) &&
@@ -270,12 +282,8 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     application_user_settings_activate(SettingBinding::message_display, false, 1);
     application_user_settings_submit(901, now + 5000);
     const u8 echo[]{10, 2, 24, 6, 50, 5, 0x8A, 0x01, 2, 8, 1, 106, 2, 72, 1};
-    char echo_json[96] = "{\"settings\":\"";
-    const u32 encoded = base64_encoded_size(sizeof(echo));
-    base64_encode({echo, sizeof(echo)}, {echo_json + 13, encoded});
-    echo_json[13 + encoded] = '"';
-    echo_json[14 + encoded] = '}';
-    application_user_settings_response(reply(901, 200), {echo_json, 15 + encoded});
+    char echo_json[96];
+    application_user_settings_response(reply(901, 200), {echo_json, settings_json({echo, sizeof(echo)}, echo_json)});
     check(project(SettingBinding::message_display) && c.selected_choice == 1 && g_app.message_scene.display.compact &&
               !project(SettingBinding::user_settings_notice) && !application_user_settings_pending(now + 99'000),
           "user settings runtime: a saved PATCH adopts the returned settings");
@@ -298,9 +306,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
           "user settings runtime: per-server privacy edits batch into one settings PATCH");
     json = body_of(body, kUserSettingsPatchBytes, target, sizeof(target), &path);
     u8 privacy_sent[256]{};
-    const auto privacy_decoded =
-        json.bytes > prefix + 2 ? base64_decode({json.data + prefix, json.bytes - prefix - 2}, {privacy_sent, 256})
-                                : Base64Result{0, 0, Base64Error::invalid_input};
+    const auto privacy_decoded = decode_sent(json, privacy_sent, 256);
     const auto privacy_group = user_settings_proto_group({privacy_sent, privacy_decoded.bytes}, 8);
     const u8 packed_server[]{26, 8, 0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01};
     bool packed = false;
@@ -314,12 +320,9 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
           "message_request_restricted_guild_ids");
     const u8 privacy_echo[]{10, 2, 24, 8, 66, 21, 26, 8, 0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01,
                             0x82, 0x01, 8, 0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01};
-    char privacy_json[96] = "{\"settings\":\"";
-    const u32 privacy_encoded = base64_encoded_size(sizeof(privacy_echo));
-    base64_encode({privacy_echo, sizeof(privacy_echo)}, {privacy_json + 13, privacy_encoded});
-    privacy_json[13 + privacy_encoded] = '"';
-    privacy_json[14 + privacy_encoded] = '}';
-    application_user_settings_response(reply(902, 200), {privacy_json, 15 + privacy_encoded});
+    char privacy_json[96];
+    application_user_settings_response(
+        reply(902, 200), {privacy_json, settings_json({privacy_echo, sizeof(privacy_echo)}, privacy_json)});
     check(application_user_settings_guild_restricted(GuildPrivacyList::direct_messages, server) &&
               application_user_settings_guild_restricted(GuildPrivacyList::message_requests, server) &&
               !application_user_settings_failure().bytes,
@@ -343,9 +346,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     const u8 requests_restricted[]{0x8A, 0x01, 2, 8, 1}, requests_allowed[]{0x8A, 0x01, 0};
     const auto sent_privacy = [&](u8* storage, u32 capacity) noexcept {
         json = body_of(body, kUserSettingsPatchBytes, target, sizeof(target), &path);
-        const auto out = json.bytes > prefix + 2
-                             ? base64_decode({json.data + prefix, json.bytes - prefix - 2}, {storage, capacity})
-                             : Base64Result{0, 0, Base64Error::invalid_input};
+        const auto out = decode_sent(json, storage, capacity);
         return out.ok() ? user_settings_proto_group({storage, out.bytes}, 8) : ConstSlice<u8>{};
     };
     const auto has_bytes = [](ConstSlice<u8> group, const u8* needle, u32 count) noexcept {
@@ -363,12 +364,9 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
               has_bytes(sent_privacy(requests_sent, 256), requests_restricted, sizeof(requests_restricted)),
           "user settings runtime: turning message requests off writes restricted = BoolValue{true} (8A 01 02 08 01)");
     const u8 requests_echo[]{10, 2, 24, 9, 66, 5, 0x8A, 0x01, 2, 8, 1};
-    char requests_json[64] = "{\"settings\":\"";
-    const u32 requests_encoded = base64_encoded_size(sizeof(requests_echo));
-    base64_encode({requests_echo, sizeof(requests_echo)}, {requests_json + 13, requests_encoded});
-    requests_json[13 + requests_encoded] = '"';
-    requests_json[14 + requests_encoded] = '}';
-    application_user_settings_response(reply(903, 200), {requests_json, 15 + requests_encoded});
+    char requests_json[64];
+    application_user_settings_response(
+        reply(903, 200), {requests_json, settings_json({requests_echo, sizeof(requests_echo)}, requests_json)});
     check(project(SettingBinding::message_requests) && !c.checked && !application_user_settings_failure().bytes,
           "user settings runtime: a saved restricted default reads back as message requests off");
     check(application_user_settings_activate(SettingBinding::message_requests, true, 0) &&
@@ -479,9 +477,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
           "user settings runtime: the permission edits batch into one PATCH");
     json = body_of(body, kUserSettingsPatchBytes, target, sizeof(target), &path);
     u8 permissions_sent[256]{};
-    const auto permissions_decoded =
-        json.bytes > prefix + 2 ? base64_decode({json.data + prefix, json.bytes - prefix - 2}, {permissions_sent, 256})
-                                : Base64Result{0, 0, Base64Error::invalid_input};
+    const auto permissions_decoded = decode_sent(json, permissions_sent, 256);
     const ConstSlice<u8> permissions_message{permissions_sent, permissions_decoded.bytes};
     const auto permission_privacy = user_settings_proto_group(permissions_message, 8);
     const auto notifications_sent = user_settings_proto_group(permissions_message, 7);

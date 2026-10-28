@@ -1,7 +1,6 @@
 #include "../src/app/application_guild_community.cpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_system_time.hpp"
 
 // Controlled responses, form projection and serialization; no account or
 // network is opened and renderer/editor hooks remain inert.

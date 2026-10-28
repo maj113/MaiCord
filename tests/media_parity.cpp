@@ -1,9 +1,7 @@
-// Manual extension: MAICORD_MEDIA_PARITY_SAMPLES=<directory> adds local sample files to the run.
 #include "maicord/app/media_url_resolver.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/app/account_media.hpp"
 #include "maicord/protocol/writer.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/message_rich_layout.hpp"
 #include "media_fixture.hpp"
@@ -52,81 +50,6 @@ void exercise_animation(Check check, MediaAssetKey key, u32 bytes, bool gif,
     check(account_media_stop(&media, 5000), "message_animation_stop");
 }
 
-void local_sample(Check check, const wchar_t* name, bool gif) noexcept {
-    wchar_t path[1024]{};
-    const DWORD count = GetEnvironmentVariableW(L"MAICORD_MEDIA_PARITY_SAMPLES", path, 900);
-    if (count == 0 || count >= 900)
-        return;
-    u32 used = count;
-    path[used++] = L'/';
-    for (u32 i = 0; name[i] && used < 1023; ++i)
-        path[used++] = name[i];
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    DWORD bytes = 0;
-    LARGE_INTEGER size{};
-    const bool loaded = file != INVALID_HANDLE_VALUE && GetFileSizeEx(file, &size) && size.QuadPart > 0 &&
-                        static_cast<u64>(size.QuadPart) <= sizeof(encoded) &&
-                        ReadFile(file, encoded, static_cast<DWORD>(size.QuadPart), &bytes, nullptr) &&
-                        bytes == size.QuadPart;
-    if (file != INVALID_HANDLE_VALUE)
-        CloseHandle(file);
-    check(loaded, "message_animation_local_sample_loaded");
-    if (loaded)
-        exercise_animation(check,
-                           gif ? media_asset_attachment(9876, MediaAttachmentFormat::gif)
-                               : media_asset_embed(777, 2, 0, MediaEmbedResource::image,
-                                                   MediaAttachmentFormat::webp, true),
-                           bytes, gif);
-}
-
-void network_animation_sample(Check check, bool gif) noexcept {
-    char source[2048]{};
-    const DWORD bytes = GetEnvironmentVariableA(gif ? "MAICORD_MEDIA_PARITY_NETWORK_GIF"
-                                                    : "MAICORD_MEDIA_PARITY_NETWORK_WEBP",
-                                                source, sizeof(source));
-    if (bytes == 0 || bytes >= sizeof(source))
-        return;
-    AccountMedia media{};
-    if (!account_media_initialize(&media).ok()) {
-        check(false, "network_gif_initialize");
-        return;
-    }
-    const auto key =
-        media_asset_embed(777, 2, 0, MediaEmbedResource::image,
-                          gif ? MediaAttachmentFormat::gif : MediaAttachmentFormat::webp, true);
-    const AccountMediaAttachmentRequest request{{source, bytes},
-                                                key,
-                                                777,
-                                                2,
-                                                static_cast<u16>(gif ? 0 : 512),
-                                                static_cast<u16>(gif ? 0 : 288),
-                                                gif ? CdnImageType::gif : CdnImageType::webp,
-                                                {},
-                                                nullptr};
-    auto requested = account_media_request_attachment(&media, request, clock_monotonic_milliseconds(),
-                                                      clock_unix_milliseconds() / 1000);
-    const u64 deadline = clock_monotonic_milliseconds() + 30'000;
-    while (!media.frame_ready && media.active && clock_monotonic_milliseconds() < deadline) {
-        WaitForSingleObject(account_media_notification_handle(&media), 1000);
-        if (!account_media_pump(&media, clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000))
-            break;
-    }
-    AccountMediaFrame first{};
-    bool ok = requested.ok() && account_media_take_frame(&media, &first) && first.frame_count > 1 &&
-              (gif ? first.kind == AccountMediaFrameKind::gif_indices
-                   : first.kind == AccountMediaFrameKind::animated_webp_vp8 ||
-                         first.kind == AccountMediaFrameKind::animated_webp_rgba8) &&
-              first.source_message_id == 777;
-    for (u32 i = 1; ok && i < first.frame_count; ++i) {
-        const auto advanced = account_media_advance_animation(&media, key, first.cache_generation, i,
-                                                              clock_unix_milliseconds() / 1000);
-        AccountMediaFrame frame{};
-        ok = advanced.ok() && account_media_take_frame(&media, &frame) && frame.frame_index == i;
-    }
-    check(ok, gif ? "network_gif_native_download_and_all_frames"
-                  : "network_webp_animated_proxy_and_all_frames");
-    check(account_media_stop(&media, 5000), "network_animation_stop");
-}
 } // namespace
 
 void test_media_parity(Check check) noexcept {
@@ -395,11 +318,5 @@ void test_media_parity(Check check) noexcept {
           "message_gif_over_2mb_http_policy");
     exercise_animation(check, media_asset_attachment(9876, MediaAttachmentFormat::gif), gif.encoded_bytes,
                        true, 1);
-    local_sample(check, L"fxtwitter-512-animated.webp", false);
-    local_sample(check, L"oomfie.gif", true);
-    local_sample(check, L"holdon-native.gif", true);
-    local_sample(check, L"atlas-pressure-image0.gif", true);
-    network_animation_sample(check, true);
-    network_animation_sample(check, false);
 }
 } // namespace maicord

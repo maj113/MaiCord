@@ -75,16 +75,28 @@ bool append_riff_chunk(Slice<u8> output, u32* cursor, u32 type, ConstSlice<u8> p
     return true;
 }
 
-bool append_jpeg_bytes(Slice<u8> output, u32* cursor, ConstSlice<u8> bytes) noexcept {
-    if (!cursor || (!output.data && output.count != 0) || (!bytes.data && bytes.count != 0) ||
-        static_cast<u64>(*cursor) + bytes.count > output.count) {
-        return false;
+bool begin_animated_webp(Slice<u8> encoded, u32* cursor, const u8 (&anim)[6]) noexcept {
+    write_le32(encoded.data, 0x46464952u);
+    write_le32(encoded.data + 8, 0x50424557u);
+    *cursor = 12;
+    u8 vp8x[10]{};
+    vp8x[0] = 0x12;
+    write_le24(vp8x + 4, 3);
+    write_le24(vp8x + 7, 3);
+    return append_riff_chunk(encoded, cursor, 0x58385056u, ConstSlice<u8>{vp8x, sizeof(vp8x)}) &&
+           append_riff_chunk(encoded, cursor, 0x4D494E41u, ConstSlice<u8>{anim, sizeof(anim)});
+}
+
+void fill_unit_jpeg_tables(u8 (&quantization)[65], u8 (&huffman)[37]) noexcept {
+    for (u32 index = 1; index < sizeof(quantization); ++index) {
+        quantization[index] = 1;
     }
-    for (u32 index = 0; index < bytes.count; ++index) {
-        output[*cursor + index] = bytes[index];
-    }
-    *cursor += bytes.count;
-    return true;
+    // DC: '0' no change, '10' a nine-bit difference; AC: '0' end of block.
+    huffman[1] = 1;
+    huffman[2] = 1;
+    huffman[18] = 9;
+    huffman[19] = 0x10;
+    huffman[20] = 1;
 }
 
 bool append_jpeg_segment(Slice<u8> output, u32* cursor, u8 marker, ConstSlice<u8> payload) noexcept {
@@ -121,6 +133,50 @@ bool append_chunk(Slice<u8> output, u32* cursor, u32 type, ConstSlice<u8> data) 
     write_be32(destination + 8 + data.count, crc32(destination + 4, data.count + 4));
     *cursor += data.count + 12;
     return true;
+}
+
+bool begin_png(Slice<u8> encoded, u32* cursor, u32 width, u32 height, u8 bit_depth,
+               u8 color_type) noexcept {
+    constexpr u8 signature[8] = {
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+    };
+    if (encoded.count < sizeof(signature)) {
+        return false;
+    }
+    for (u32 index = 0; index < sizeof(signature); ++index) {
+        encoded[index] = signature[index];
+    }
+    *cursor = sizeof(signature);
+    u8 header[13]{};
+    write_be32(header, width);
+    write_be32(header + 4, height);
+    header[8] = bit_depth;
+    header[9] = color_type;
+    return append_chunk(encoded, cursor, 0x49484452u, ConstSlice<u8>{header, sizeof(header)});
+}
+
+bool begin_apng(Slice<u8> encoded, u32* cursor, u32 frames, u32 plays) noexcept {
+    u8 animation[8]{};
+    write_be32(animation, frames);
+    write_be32(animation + 4, plays);
+    return begin_png(encoded, cursor, 4, 4, 8, 6) &&
+           append_chunk(encoded, cursor, 0x6163544Cu, ConstSlice<u8>{animation, sizeof(animation)});
+}
+
+void write_stored_zlib_header(u8* output, u32 filtered_bytes) noexcept {
+    const u16 inverse = static_cast<u16>(filtered_bytes ^ 0xFFFFu);
+    const u8 header[7] = {
+        0x78,
+        0x01,
+        0x01,
+        static_cast<u8>(filtered_bytes),
+        static_cast<u8>(filtered_bytes >> 8),
+        static_cast<u8>(inverse),
+        static_cast<u8>(inverse >> 8),
+    };
+    for (u32 index = 0; index < sizeof(header); ++index) {
+        output[index] = header[index];
+    }
 }
 
 u8 channel_byte(u32 x_byte, u32 y, u32 width, u32 height, PngFixturePixel pixel) noexcept {
@@ -227,14 +283,7 @@ bool build_apng_zlib(u32 frame, u16 width, u16 height, Slice<u8> output, u32* by
     if (filtered_bytes > 65'535 || required > output.count) {
         return false;
     }
-    output[0] = 0x78;
-    output[1] = 0x01;
-    output[2] = 0x01;
-    output[3] = static_cast<u8>(filtered_bytes);
-    output[4] = static_cast<u8>(filtered_bytes >> 8);
-    const u16 inverse = static_cast<u16>(filtered_bytes ^ 0xFFFFu);
-    output[5] = static_cast<u8>(inverse);
-    output[6] = static_cast<u8>(inverse >> 8);
+    write_stored_zlib_header(output.data, filtered_bytes);
     u8* filtered = output.data + 7;
     for (u32 y = 0; y < height; ++y) {
         u8* row = filtered + y * (static_cast<u32>(width) * 4u + 1u);
@@ -449,6 +498,38 @@ bool append_deferred_lzw(Slice<u8> output, u32* cursor, ConstSlice<u8> lzw) noex
     return append_bytes(output, cursor, ConstSlice<u8>{&terminator, 1});
 }
 
+bool jpeg_icc_insertion_point(ConstSlice<u8> source, Slice<u8> encoded, const JpegIccFixtureResult* result,
+                              u32* insertion) noexcept {
+    if (!source.data || source.count < 6 || !encoded.data || encoded.data == source.data || !result ||
+        source[0] != 0xFF || source[1] != 0xD8) {
+        return false;
+    }
+    *insertion = 2;
+    if (source[2] == 0xFF && source[3] == 0xE0) {
+        const u32 length = static_cast<u32>(source[4]) << 8u | source[5];
+        if (length < 2 || 4u + length > source.count) {
+            return false;
+        }
+        *insertion = 4u + length;
+    }
+    return true;
+}
+
+void write_icc_header(u8* profile, bool version_four, u32 device_class, u32 color_space, u32 pcs,
+                      u32 tag_count) noexcept {
+    profile[8] = version_four ? 4 : 2;
+    profile[9] = version_four ? 0x30 : 0x10;
+    write_be32(profile + 12, device_class);
+    write_be32(profile + 16, color_space);
+    write_be32(profile + 20, pcs);
+    write_be32(profile + 36, 0x61637370u); // acsp
+    write_be32(profile + 64, 1);
+    write_be32(profile + 68, 0x0000F6D6u);
+    write_be32(profile + 72, 0x00010000u);
+    write_be32(profile + 76, 0x0000D32Du);
+    write_be32(profile + 128, tag_count);
+}
+
 template <usize Capacity>
 bool insert_jpeg_icc_profile(ConstSlice<u8> source, Slice<u8> encoded, u32 insertion,
                              const u8 (&profile)[Capacity], u32 profile_bytes, bool reverse_chunks,
@@ -459,7 +540,7 @@ bool insert_jpeg_icc_profile(ConstSlice<u8> source, Slice<u8> encoded, u32 inser
     output.chunk_data_bytes[0] = static_cast<u16>(first_bytes);
     output.chunk_data_bytes[1] = static_cast<u16>(profile_bytes - first_bytes);
     u32 cursor = 0;
-    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{source.data, insertion})) {
+    if (!append_bytes(encoded, &cursor, ConstSlice<u8>{source.data, insertion})) {
         return false;
     }
     for (u32 placement = 0; placement < 2; ++placement) {
@@ -484,8 +565,8 @@ bool insert_jpeg_icc_profile(ConstSlice<u8> source, Slice<u8> encoded, u32 inser
             return false;
         }
     }
-    if (!append_jpeg_bytes(encoded, &cursor,
-                           ConstSlice<u8>{source.data + insertion, source.count - insertion})) {
+    if (!append_bytes(encoded, &cursor,
+                      ConstSlice<u8>{source.data + insertion, source.count - insertion})) {
         return false;
     }
     output.encoded_bytes = cursor;
@@ -771,23 +852,8 @@ bool build_rgba8_apng_fixture(Slice<u8> encoded, Slice<u8> zlib_scratch,
     if (!encoded.data || !zlib_scratch.data || !result || encoded.count < 512 || zlib_scratch.count < 512) {
         return false;
     }
-    constexpr u8 signature[8] = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-    };
-    for (u32 index = 0; index < sizeof(signature); ++index) {
-        encoded[index] = signature[index];
-    }
-    u32 cursor = sizeof(signature);
-    u8 header[13]{};
-    write_be32(header, 4);
-    write_be32(header + 4, 4);
-    header[8] = 8;
-    header[9] = 6;
-    u8 animation[8]{};
-    write_be32(animation, 4);
-    write_be32(animation + 4, 2);
-    if (!append_chunk(encoded, &cursor, 0x49484452u, ConstSlice<u8>{header, sizeof(header)}) ||
-        !append_chunk(encoded, &cursor, 0x6163544Cu, ConstSlice<u8>{animation, sizeof(animation)}) ||
+    u32 cursor = 0;
+    if (!begin_apng(encoded, &cursor, 4, 2) ||
         !append_fctl(encoded, &cursor, 0, 4, 4, 0, 0, 1, 20, 0, 0)) {
         return false;
     }
@@ -855,24 +921,9 @@ bool build_rgba8_apng_default_fixture(Slice<u8> encoded, Slice<u8> zlib_scratch,
     if (!encoded.data || !zlib_scratch.data || !result || encoded.count < 512 || zlib_scratch.count < 512) {
         return false;
     }
-    constexpr u8 signature[8] = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-    };
-    for (u32 index = 0; index < sizeof(signature); ++index) {
-        encoded[index] = signature[index];
-    }
-    u32 cursor = sizeof(signature);
-    u8 header[13]{};
-    write_be32(header, 4);
-    write_be32(header + 4, 4);
-    header[8] = 8;
-    header[9] = 6;
-    u8 animation[8]{};
-    write_be32(animation, 1);
-    write_be32(animation + 4, 1);
+    u32 cursor = 0;
     u32 default_bytes = 0;
-    if (!append_chunk(encoded, &cursor, 0x49484452u, ConstSlice<u8>{header, sizeof(header)}) ||
-        !append_chunk(encoded, &cursor, 0x6163544Cu, ConstSlice<u8>{animation, sizeof(animation)}) ||
+    if (!begin_apng(encoded, &cursor, 1, 1) ||
         !build_apng_zlib(0, 4, 4, zlib_scratch, &default_bytes) ||
         !append_chunk(encoded, &cursor, 0x49444154u, ConstSlice<u8>{zlib_scratch.data, default_bytes}) ||
         !append_fctl(encoded, &cursor, 0, 1, 1, 3, 3, 1, 20, 0, 0)) {
@@ -903,14 +954,7 @@ bool build_png_format_fixture(u8 color_type, u8 bit_depth, u16 width, u16 height
     if (filtered_bytes > 65'535 || zlib_bytes > zlib_scratch.count) {
         return false;
     }
-    zlib_scratch[0] = 0x78;
-    zlib_scratch[1] = 0x01;
-    zlib_scratch[2] = 0x01;
-    zlib_scratch[3] = static_cast<u8>(filtered_bytes);
-    zlib_scratch[4] = static_cast<u8>(filtered_bytes >> 8);
-    const u16 inverse = static_cast<u16>(filtered_bytes ^ 0xFFFFu);
-    zlib_scratch[5] = static_cast<u8>(inverse);
-    zlib_scratch[6] = static_cast<u8>(inverse >> 8);
+    write_stored_zlib_header(zlib_scratch.data, filtered_bytes);
     u8* filtered = zlib_scratch.data + 7;
     for (u32 y = 0; y < height; ++y) {
         u8* row = filtered + y * (row_bytes + 1u);
@@ -942,22 +986,8 @@ bool build_png_format_fixture(u8 color_type, u8 bit_depth, u16 width, u16 height
     }
     write_be32(filtered + filtered_bytes, adler32(filtered, filtered_bytes));
 
-    constexpr u8 signature[8] = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-    };
-    if (encoded.count < sizeof(signature)) {
-        return false;
-    }
-    for (u32 index = 0; index < sizeof(signature); ++index) {
-        encoded[index] = signature[index];
-    }
-    u32 output_cursor = sizeof(signature);
-    u8 header[13]{};
-    write_be32(header, width);
-    write_be32(header + 4, height);
-    header[8] = bit_depth;
-    header[9] = color_type;
-    if (!append_chunk(encoded, &output_cursor, 0x49484452u, ConstSlice<u8>{header, sizeof(header)})) {
+    u32 output_cursor = 0;
+    if (!begin_png(encoded, &output_cursor, width, height, bit_depth, color_type)) {
         return false;
     }
 
@@ -1016,14 +1046,7 @@ bool build_rgba8_png_fixture(u16 width, u16 height, Slice<u8> encoded, Slice<u8>
         return false;
     }
 
-    zlib_scratch[0] = 0x78;
-    zlib_scratch[1] = 0x01;
-    zlib_scratch[2] = 0x01;
-    zlib_scratch[3] = static_cast<u8>(filtered_bytes);
-    zlib_scratch[4] = static_cast<u8>(filtered_bytes >> 8);
-    const u16 inverse = static_cast<u16>(filtered_bytes ^ 0xFFFFu);
-    zlib_scratch[5] = static_cast<u8>(inverse);
-    zlib_scratch[6] = static_cast<u8>(inverse >> 8);
+    write_stored_zlib_header(zlib_scratch.data, filtered_bytes);
     u8* filtered = zlib_scratch.data + 7;
     for (u32 y = 0; y < height; ++y) {
         u8* row = filtered + y * (row_bytes + 1);
@@ -1054,23 +1077,9 @@ bool build_rgba8_png_fixture(u16 width, u16 height, Slice<u8> encoded, Slice<u8>
     }
     write_be32(filtered + filtered_bytes, adler32(filtered, filtered_bytes));
 
-    constexpr u8 signature[8] = {
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-    };
-    if (encoded.count < sizeof(signature)) {
-        return false;
-    }
-    for (u32 index = 0; index < sizeof(signature); ++index) {
-        encoded[index] = signature[index];
-    }
-    u32 cursor = sizeof(signature);
-    u8 header[13]{};
-    write_be32(header, width);
-    write_be32(header + 4, height);
-    header[8] = 8;
-    header[9] = 6;
+    u32 cursor = 0;
     const u32 split = minimum<u32>(11, zlib_bytes);
-    if (!append_chunk(encoded, &cursor, 0x49484452u, ConstSlice<u8>{header, sizeof(header)}) ||
+    if (!begin_png(encoded, &cursor, width, height, 8, 6) ||
         !append_chunk(encoded, &cursor, 0x49444154u, ConstSlice<u8>{zlib_scratch.data, split}) ||
         !append_chunk(encoded, &cursor, 0x49444154u,
                       ConstSlice<u8>{zlib_scratch.data + split, zlib_bytes - split}) ||
@@ -1099,16 +1108,9 @@ bool build_lossless_animated_webp_fixture(Slice<u8> encoded, AnimatedWebpFixture
     constexpr u32 durations[4] = {50, 0, 10, 20};
     constexpr u8 flags[4] = {2, 1, 2, 0};
 
-    write_le32(encoded.data, 0x46464952u);
-    write_le32(encoded.data + 8, 0x50424557u);
-    u32 cursor = 12;
-    u8 vp8x[10]{};
-    vp8x[0] = 0x12;
-    write_le24(vp8x + 4, 3);
-    write_le24(vp8x + 7, 3);
-    u8 anim[6] = {48, 32, 16, 128, 2, 0};
-    if (!append_riff_chunk(encoded, &cursor, 0x58385056u, ConstSlice<u8>{vp8x, sizeof(vp8x)}) ||
-        !append_riff_chunk(encoded, &cursor, 0x4D494E41u, ConstSlice<u8>{anim, sizeof(anim)})) {
+    u32 cursor = 0;
+    const u8 anim[6] = {48, 32, 16, 128, 2, 0};
+    if (!begin_animated_webp(encoded, &cursor, anim)) {
         return false;
     }
     for (u32 frame = 0; frame < 4; ++frame) {
@@ -1149,17 +1151,10 @@ bool build_mixed_animated_webp_fixture(Slice<u8> encoded, AnimatedWebpFixtureRes
         alpha[index] = 128;
     }
 
-    write_le32(encoded.data, 0x46464952u);
-    write_le32(encoded.data + 8, 0x50424557u);
-    u32 cursor = 12;
-    u8 vp8x[10]{};
-    vp8x[0] = 0x12;
-    write_le24(vp8x + 4, 3);
-    write_le24(vp8x + 7, 3);
+    u32 cursor = 0;
     u8 anim[6]{};
     anim[4] = 1;
-    if (!append_riff_chunk(encoded, &cursor, 0x58385056u, ConstSlice<u8>{vp8x, sizeof(vp8x)}) ||
-        !append_riff_chunk(encoded, &cursor, 0x4D494E41u, ConstSlice<u8>{anim, sizeof(anim)})) {
+    if (!begin_animated_webp(encoded, &cursor, anim)) {
         return false;
     }
 
@@ -1170,23 +1165,16 @@ bool build_mixed_animated_webp_fixture(Slice<u8> encoded, AnimatedWebpFixtureRes
         write_le24(anmf + 12, 30 + frame * 10);
         anmf[15] = frame == 1 ? 3 : frame == 0 ? 2 : 0;
         u32 frame_cursor = 16;
-        if (frame == 0) {
-            if (!append_riff_chunk(Slice<u8>{anmf, sizeof(anmf)}, &frame_cursor, 0x4C385056u,
-                                   ConstSlice<u8>{lossless_red, sizeof(lossless_red)})) {
-                return false;
-            }
-        } else {
-            if (frame == 2 && !append_riff_chunk(Slice<u8>{anmf, sizeof(anmf)}, &frame_cursor, 0x48504C41u,
-                                                 ConstSlice<u8>{alpha, sizeof(alpha)})) {
-                return false;
-            }
-            if (!append_riff_chunk(
-                    Slice<u8>{anmf, sizeof(anmf)}, &frame_cursor, 0x20385056u,
-                    ConstSlice<u8>{kWebpLossy4x4 + lossy_payload_offset, lossy_payload_bytes})) {
-                return false;
-            }
-        }
-        if (!append_riff_chunk(encoded, &cursor, 0x464D4E41u, ConstSlice<u8>{anmf, frame_cursor})) {
+        const Slice<u8> frame_payload{anmf, sizeof(anmf)};
+        const ConstSlice<u8> lossy{kWebpLossy4x4 + lossy_payload_offset, lossy_payload_bytes};
+        const bool built =
+            frame == 0 ? append_riff_chunk(frame_payload, &frame_cursor, 0x4C385056u,
+                                           ConstSlice<u8>{lossless_red, sizeof(lossless_red)})
+                       : (frame != 2 || append_riff_chunk(frame_payload, &frame_cursor, 0x48504C41u,
+                                                          ConstSlice<u8>{alpha, sizeof(alpha)})) &&
+                             append_riff_chunk(frame_payload, &frame_cursor, 0x20385056u, lossy);
+        if (!built ||
+            !append_riff_chunk(encoded, &cursor, 0x464D4E41u, ConstSlice<u8>{anmf, frame_cursor})) {
             return false;
         }
     }
@@ -1200,18 +1188,11 @@ bool build_opaque_lossy_animated_webp_fixture(Slice<u8> encoded,
     if (!encoded.data || !result || encoded.count < 256) {
         return false;
     }
-    write_le32(encoded.data, 0x46464952u);
-    write_le32(encoded.data + 8, 0x50424557u);
-    u32 cursor = 12;
-    u8 vp8x[10]{};
     // Original opaque VP8 frames with the redundant alpha hint seen in public
     // animated preview containers. No provider payload is embedded in tests.
-    vp8x[0] = 0x12;
-    write_le24(vp8x + 4, 3);
-    write_le24(vp8x + 7, 3);
-    u8 anim[6] = {0, 0, 0, 255, 2, 0};
-    if (!append_riff_chunk(encoded, &cursor, 0x58385056u, {vp8x, sizeof(vp8x)}) ||
-        !append_riff_chunk(encoded, &cursor, 0x4D494E41u, {anim, sizeof(anim)})) {
+    u32 cursor = 0;
+    const u8 anim[6] = {0, 0, 0, 255, 2, 0};
+    if (!begin_animated_webp(encoded, &cursor, anim)) {
         return false;
     }
     for (u32 frame = 0; frame < 2; ++frame) {
@@ -1242,9 +1223,6 @@ bool build_baseline_jpeg_fixture(Slice<u8> encoded, bool restart_markers,
         'J', 'F', 'I', 'F', 0, 1, 2, 0, 0, 1, 0, 1, 0, 0,
     };
     u8 quantization[65]{};
-    for (u32 index = 1; index < sizeof(quantization); ++index) {
-        quantization[index] = 1;
-    }
     u8 frame[] = {
         8, 0, 8, 0, 8, 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0,
     };
@@ -1253,17 +1231,7 @@ bool build_baseline_jpeg_fixture(Slice<u8> encoded, bool restart_markers,
         frame[4] = 16;
     }
     u8 huffman[37]{};
-    u32 huffman_cursor = 0;
-    huffman[huffman_cursor++] = 0x00;
-    huffman[huffman_cursor++] = 1;
-    huffman[huffman_cursor++] = 1;
-    huffman_cursor += 14;
-    huffman[huffman_cursor++] = 0;
-    huffman[huffman_cursor++] = 9;
-    huffman[huffman_cursor++] = 0x10;
-    huffman[huffman_cursor++] = 1;
-    huffman_cursor += 15;
-    huffman[huffman_cursor++] = 0;
+    fill_unit_jpeg_tables(quantization, huffman);
     constexpr u8 restart_interval[] = {0, 1};
     constexpr u8 scan[] = {
         3, 1, 0, 2, 0, 3, 0, 0, 63, 0,
@@ -1273,7 +1241,7 @@ bool build_baseline_jpeg_fixture(Slice<u8> encoded, bool restart_markers,
     constexpr u8 eoi[] = {0xFF, 0xD9};
 
     u32 cursor = 0;
-    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{soi, sizeof(soi)}) ||
+    if (!append_bytes(encoded, &cursor, ConstSlice<u8>{soi, sizeof(soi)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xE0, ConstSlice<u8>{jfif, sizeof(jfif)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xDB, ConstSlice<u8>{quantization, sizeof(quantization)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xC0, ConstSlice<u8>{frame, sizeof(frame)}) ||
@@ -1282,11 +1250,11 @@ bool build_baseline_jpeg_fixture(Slice<u8> encoded, bool restart_markers,
          !append_jpeg_segment(encoded, &cursor, 0xDD,
                               ConstSlice<u8>{restart_interval, sizeof(restart_interval)})) ||
         !append_jpeg_segment(encoded, &cursor, 0xDA, ConstSlice<u8>{scan, sizeof(scan)}) ||
-        !append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{mcu, sizeof(mcu)}) ||
+        !append_bytes(encoded, &cursor, ConstSlice<u8>{mcu, sizeof(mcu)}) ||
         (restart_markers &&
-         (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{restart, sizeof(restart)}) ||
-          !append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{mcu, sizeof(mcu)}))) ||
-        !append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{eoi, sizeof(eoi)})) {
+         (!append_bytes(encoded, &cursor, ConstSlice<u8>{restart, sizeof(restart)}) ||
+          !append_bytes(encoded, &cursor, ConstSlice<u8>{mcu, sizeof(mcu)}))) ||
+        !append_bytes(encoded, &cursor, ConstSlice<u8>{eoi, sizeof(eoi)})) {
         return false;
     }
     *result = JpegFixtureResult{cursor, static_cast<u16>(restart_markers ? 16 : 8), 8,
@@ -1303,34 +1271,21 @@ bool build_grayscale_jpeg_fixture(Slice<u8> encoded, JpegFixtureResult* result) 
         'J', 'F', 'I', 'F', 0, 1, 2, 0, 0, 1, 0, 1, 0, 0,
     };
     u8 quantization[65]{};
-    for (u32 index = 1; index < sizeof(quantization); ++index) {
-        quantization[index] = 1;
-    }
-    constexpr u8 frame[] = {8, 0, 8, 0, 8, 1, 1, 0x11, 0};
     u8 huffman[37]{};
-    u32 huffman_cursor = 0;
-    huffman[huffman_cursor++] = 0x00;
-    huffman[huffman_cursor++] = 1;
-    huffman[huffman_cursor++] = 1;
-    huffman_cursor += 14;
-    huffman[huffman_cursor++] = 0;
-    huffman[huffman_cursor++] = 9;
-    huffman[huffman_cursor++] = 0x10;
-    huffman[huffman_cursor++] = 1;
-    huffman_cursor += 15;
-    huffman[huffman_cursor++] = 0;
+    fill_unit_jpeg_tables(quantization, huffman);
+    constexpr u8 frame[] = {8, 0, 8, 0, 8, 1, 1, 0x11, 0};
     constexpr u8 scan[] = {1, 1, 0, 0, 63, 0};
     constexpr u8 mcu[] = {0x3F};
     constexpr u8 eoi[] = {0xFF, 0xD9};
     u32 cursor = 0;
-    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{soi, sizeof(soi)}) ||
+    if (!append_bytes(encoded, &cursor, ConstSlice<u8>{soi, sizeof(soi)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xE0, ConstSlice<u8>{jfif, sizeof(jfif)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xDB, ConstSlice<u8>{quantization, sizeof(quantization)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xC0, ConstSlice<u8>{frame, sizeof(frame)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xC4, ConstSlice<u8>{huffman, sizeof(huffman)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xDA, ConstSlice<u8>{scan, sizeof(scan)}) ||
-        !append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{mcu, sizeof(mcu)}) ||
-        !append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{eoi, sizeof(eoi)})) {
+        !append_bytes(encoded, &cursor, ConstSlice<u8>{mcu, sizeof(mcu)}) ||
+        !append_bytes(encoded, &cursor, ConstSlice<u8>{eoi, sizeof(eoi)})) {
         return false;
     }
     *result = JpegFixtureResult{cursor, 8, 8, 0};
@@ -1343,23 +1298,14 @@ bool build_marked_jpeg_fixture(Slice<u8> encoded, u16 width, u16 height, JpegFix
     }
     constexpr u8 soi[] = {0xFF, 0xD8};
     u8 quantization[65]{};
-    for (u32 index = 1; index < sizeof(quantization); ++index) {
-        quantization[index] = 1;
-    }
+    u8 huffman[37]{};
+    fill_unit_jpeg_tables(quantization, huffman);
     const u8 frame[] = {8, static_cast<u8>(height >> 8), static_cast<u8>(height), static_cast<u8>(width >> 8),
                         static_cast<u8>(width), 3, 1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0};
-    // DC: '0' no change, '10' a nine-bit difference; AC: '0' end of block.
-    u8 huffman[37]{};
-    huffman[0] = 0x00;
-    huffman[1] = 1;
-    huffman[2] = 1;
-    huffman[18] = 9;
-    huffman[19] = 0x10;
-    huffman[20] = 1;
     constexpr u8 scan[] = {3, 1, 0, 2, 0, 3, 0, 0, 63, 0};
     constexpr u8 eoi[] = {0xFF, 0xD9};
     u32 cursor = 0;
-    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{soi, sizeof(soi)}) ||
+    if (!append_bytes(encoded, &cursor, ConstSlice<u8>{soi, sizeof(soi)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xDB, ConstSlice<u8>{quantization, sizeof(quantization)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xC0, ConstSlice<u8>{frame, sizeof(frame)}) ||
         !append_jpeg_segment(encoded, &cursor, 0xC4, ConstSlice<u8>{huffman, sizeof(huffman)}) ||
@@ -1393,7 +1339,7 @@ bool build_marked_jpeg_fixture(Slice<u8> encoded, u16 width, u16 height, JpegFix
     }
     if (bits)
         put(0xFF, 8 - bits);
-    if (!fits || !append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{eoi, sizeof(eoi)})) {
+    if (!fits || !append_bytes(encoded, &cursor, ConstSlice<u8>{eoi, sizeof(eoi)})) {
         return false;
     }
     *result = JpegFixtureResult{cursor, width, height, 0};
@@ -1437,9 +1383,9 @@ bool build_jpeg_exif_orientation_fixture(ConstSlice<u8> source, Slice<u8> encode
         exif[24] = orientation;
     }
     u32 cursor = 0;
-    if (!append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{source.data, 2}) ||
+    if (!append_bytes(encoded, &cursor, ConstSlice<u8>{source.data, 2}) ||
         !append_jpeg_segment(encoded, &cursor, 0xE1, ConstSlice<u8>{exif, sizeof(exif)}) ||
-        !append_jpeg_bytes(encoded, &cursor, ConstSlice<u8>{source.data + 2, source.count - 2})) {
+        !append_bytes(encoded, &cursor, ConstSlice<u8>{source.data + 2, source.count - 2})) {
         return false;
     }
     *encoded_bytes = cursor;
@@ -1449,33 +1395,14 @@ bool build_jpeg_exif_orientation_fixture(ConstSlice<u8> source, Slice<u8> encode
 bool build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8> source, Slice<u8> encoded, JpegIccFixtureCurve curve,
                                        bool version_four, bool reverse_chunks,
                                        JpegIccFixtureResult* result) noexcept {
-    if (!source.data || source.count < 6 || !encoded.data || encoded.data == source.data || !result ||
-        source[0] != 0xFF || source[1] != 0xD8 ||
-        static_cast<u8>(curve) > static_cast<u8>(JpegIccFixtureCurve::sampled_srgb)) {
+    u32 insertion = 0;
+    if (static_cast<u8>(curve) > static_cast<u8>(JpegIccFixtureCurve::sampled_srgb) ||
+        !jpeg_icc_insertion_point(source, encoded, result, &insertion)) {
         return false;
-    }
-    u32 insertion = 2;
-    if (source[2] == 0xFF && source[3] == 0xE0) {
-        const u32 length = static_cast<u32>(source[4]) << 8u | source[5];
-        if (length < 2 || 4u + length > source.count) {
-            return false;
-        }
-        insertion = 4u + length;
     }
 
     u8 profile[768]{};
-    write_be32(profile, 0);
-    profile[8] = version_four ? 4 : 2;
-    profile[9] = version_four ? 0x30 : 0x10;
-    write_be32(profile + 12, 0x6D6E7472u); // mntr
-    write_be32(profile + 16, 0x52474220u); // RGB
-    write_be32(profile + 20, 0x58595A20u); // XYZ
-    write_be32(profile + 36, 0x61637370u); // acsp
-    write_be32(profile + 64, 1);
-    write_be32(profile + 68, 0x0000F6D6u);
-    write_be32(profile + 72, 0x00010000u);
-    write_be32(profile + 76, 0x0000D32Du);
-    write_be32(profile + 128, 6);
+    write_icc_header(profile, version_four, 0x6D6E7472u, 0x52474220u, 0x58595A20u, 6);
     constexpr u32 tag_signatures[6] = {
         0x7258595Au, 0x6758595Au, 0x6258595Au, 0x72545243u, 0x67545243u, 0x62545243u,
     };
@@ -1547,19 +1474,11 @@ bool build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8> source, Slice<u8> encoded,
 bool build_jpeg_icc_lut_fixture(ConstSlice<u8> source, Slice<u8> encoded,
                                 JpegIccLutFixtureSpace color_space, JpegIccLutFixturePrecision precision,
                                 bool reverse_chunks, JpegIccFixtureResult* result) noexcept {
-    if (!source.data || source.count < 6 || !encoded.data || encoded.data == source.data || !result ||
-        source[0] != 0xFF || source[1] != 0xD8 ||
-        static_cast<u8>(color_space) > static_cast<u8>(JpegIccLutFixtureSpace::cmyk) ||
-        static_cast<u8>(precision) > static_cast<u8>(JpegIccLutFixturePrecision::mft2)) {
+    u32 insertion = 0;
+    if (static_cast<u8>(color_space) > static_cast<u8>(JpegIccLutFixtureSpace::cmyk) ||
+        static_cast<u8>(precision) > static_cast<u8>(JpegIccLutFixturePrecision::mft2) ||
+        !jpeg_icc_insertion_point(source, encoded, result, &insertion)) {
         return false;
-    }
-    u32 insertion = 2;
-    if (source[2] == 0xFF && source[3] == 0xE0) {
-        const u32 length = static_cast<u32>(source[4]) << 8u | source[5];
-        if (length < 2 || 4u + length > source.count) {
-            return false;
-        }
-        insertion = 4u + length;
     }
 
     const bool cmyk = color_space == JpegIccLutFixtureSpace::cmyk;
@@ -1570,17 +1489,8 @@ bool build_jpeg_icc_lut_fixture(ConstSlice<u8> source, Slice<u8> encoded,
     const u32 clut_entries = (1u << input_channels) * 3u;
 
     u8 profile[2'048]{};
-    profile[8] = mft2 ? 4 : 2;
-    profile[9] = mft2 ? 0x30 : 0x10;
-    write_be32(profile + 12, cmyk ? 0x70727472u : 0x6D6E7472u); // prtr / mntr
-    write_be32(profile + 16, cmyk ? 0x434D594Bu : 0x52474220u); // CMYK / RGB
-    write_be32(profile + 20, 0x4C616220u);                      // Lab
-    write_be32(profile + 36, 0x61637370u);                      // acsp
-    write_be32(profile + 64, 1);
-    write_be32(profile + 68, 0x0000F6D6u);
-    write_be32(profile + 72, 0x00010000u);
-    write_be32(profile + 76, 0x0000D32Du);
-    write_be32(profile + 128, 1);
+    write_icc_header(profile, mft2, cmyk ? 0x70727472u : 0x6D6E7472u, cmyk ? 0x434D594Bu : 0x52474220u,
+                     0x4C616220u, 1);
     write_be32(profile + 132, 0x41324230u); // A2B0
     write_be32(profile + 136, 144);
 
@@ -1598,17 +1508,22 @@ bool build_jpeg_icc_lut_fixture(ConstSlice<u8> source, Slice<u8> encoded,
         write_be16(profile + data + 2u, 2);
         data += 4u;
     }
-    for (u32 channel = 0; channel < input_channels; ++channel) {
-        for (u32 entry = 0; entry < table_entries; ++entry) {
-            const u32 value = table_entries == 2 ? entry * 65'535u : entry;
-            if (mft2) {
-                write_be16(profile + data, static_cast<u16>(value));
-                data += 2u;
-            } else {
-                profile[data++] = static_cast<u8>(value);
+    const auto put_sample = [&](u32 value) noexcept {
+        if (mft2) {
+            write_be16(profile + data, static_cast<u16>(value));
+            data += 2u;
+        } else {
+            profile[data++] = static_cast<u8>(value);
+        }
+    };
+    const auto put_identity_curves = [&](u32 count) noexcept {
+        for (u32 channel = 0; channel < count; ++channel) {
+            for (u32 entry = 0; entry < table_entries; ++entry) {
+                put_sample(table_entries == 2 ? entry * 65'535u : entry);
             }
         }
-    }
+    };
+    put_identity_curves(input_channels);
     const float encoded_maximum = mft2 ? 65'280.0f : 255.0f;
     const u32 node_count = 1u << input_channels;
     for (u32 node = 0; node < node_count; ++node) {
@@ -1622,26 +1537,10 @@ bool build_jpeg_icc_lut_fixture(ConstSlice<u8> source, Slice<u8> encoded,
             0.375f + 0.25f * (cmyk ? 1.0f - third_node : third_node),
         };
         for (u32 output = 0; output < 3; ++output) {
-            const u32 value = static_cast<u32>(lab[output] * encoded_maximum + 0.5f);
-            if (mft2) {
-                write_be16(profile + data, static_cast<u16>(value));
-                data += 2u;
-            } else {
-                profile[data++] = static_cast<u8>(value);
-            }
+            put_sample(static_cast<u32>(lab[output] * encoded_maximum + 0.5f));
         }
     }
-    for (u32 channel = 0; channel < 3; ++channel) {
-        for (u32 entry = 0; entry < table_entries; ++entry) {
-            const u32 value = table_entries == 2 ? entry * 65'535u : entry;
-            if (mft2) {
-                write_be16(profile + data, static_cast<u16>(value));
-                data += 2u;
-            } else {
-                profile[data++] = static_cast<u8>(value);
-            }
-        }
-    }
+    put_identity_curves(3);
     const u32 tag_bytes = data - cursor;
     write_be32(profile + 140, tag_bytes);
     const u32 profile_bytes = (data + 3u) & ~3u;
@@ -1659,30 +1558,12 @@ bool build_jpeg_icc_lut_fixture(ConstSlice<u8> source, Slice<u8> encoded,
 
 bool build_jpeg_icc_gray_trc_fixture(ConstSlice<u8> source, Slice<u8> encoded, bool pcs_lab,
                                      bool reverse_chunks, JpegIccFixtureResult* result) noexcept {
-    if (!source.data || source.count < 6 || !encoded.data || encoded.data == source.data || !result ||
-        source[0] != 0xFF || source[1] != 0xD8) {
+    u32 insertion = 0;
+    if (!jpeg_icc_insertion_point(source, encoded, result, &insertion)) {
         return false;
     }
-    u32 insertion = 2;
-    if (source[2] == 0xFF && source[3] == 0xE0) {
-        const u32 length = static_cast<u32>(source[4]) << 8u | source[5];
-        if (length < 2 || 4u + length > source.count) {
-            return false;
-        }
-        insertion = 4u + length;
-    }
     u8 profile[160]{};
-    profile[8] = 4;
-    profile[9] = 0x30;
-    write_be32(profile + 12, 0x6D6E7472u); // mntr
-    write_be32(profile + 16, 0x47524159u); // GRAY
-    write_be32(profile + 20, pcs_lab ? 0x4C616220u : 0x58595A20u);
-    write_be32(profile + 36, 0x61637370u); // acsp
-    write_be32(profile + 64, 1);
-    write_be32(profile + 68, 0x0000F6D6u);
-    write_be32(profile + 72, 0x00010000u);
-    write_be32(profile + 76, 0x0000D32Du);
-    write_be32(profile + 128, 1);
+    write_icc_header(profile, true, 0x6D6E7472u, 0x47524159u, pcs_lab ? 0x4C616220u : 0x58595A20u, 1);
     write_be32(profile + 132, 0x6B545243u); // kTRC
     write_be32(profile + 136, 144);
     write_be32(profile + 140, 14);

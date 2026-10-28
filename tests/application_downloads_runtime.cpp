@@ -16,7 +16,7 @@ HttpsFileDownloadError start_error{};
 bool retain_failed_start;
 NativeFilePickerResult picker_result{};
 HttpsFileDownloadResult transfer_result{};
-u64 transfer_id, submitted_origin, submitted_attachment, submitted_bytes;
+u64 submitted_origin, submitted_attachment, submitted_bytes;
 bool submitted_overwrite;
 char submitted_url[2048];
 wchar_t submitted_path[256];
@@ -362,9 +362,7 @@ bool labels_are(const char* const* expected, u32 count) noexcept {
 }
 u32 row_action(const char* label) noexcept {
     for (u32 index = 0; index < menu_row_count; ++index) {
-        u32 bytes = 0;
-        while (label[bytes])
-            ++bytes;
+        const u32 bytes = c_string_length(label);
         if (utf8_equal(menu_rows[index].label, {label, bytes}))
             return menu_rows[index].action;
     }
@@ -553,7 +551,6 @@ AccountDownloadResult WINAPI download(void*, AccountDownloadOperation op, u64 id
                                       const AccountDownloadRequest* request) noexcept {
     if (op == AccountDownloadOperation::start) {
         ++starts;
-        transfer_id = id;
         transfer_result = {};
         transfer_result.phase = HttpsFileDownloadPhase::receiving;
         if (request) {
@@ -1327,9 +1324,6 @@ bool dismiss_popup() noexcept {
     popup_scene_close(&g_app.popup_scene);
     message_context_controller_close(&g_app.message_context);
     return true;
-}
-void set_popup_owner(PopupOwnerKind kind) noexcept {
-    g_app.popup_owner_kind = kind;
 }
 bool refresh_account_text(bool) noexcept {
     return true;

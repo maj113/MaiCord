@@ -1,5 +1,3 @@
-// Also built with MAICORD_REST_STORAGE_BENCHMARK=1 as the manual MaiCordRestStorageBenchmark
-// (cmake/benchmarks.cmake).
 // Exercise the shipping private owner, including publication and transport close.
 #include "../src/app/rest_client.cpp"
 #include "fixtures/rest_gzip_fixtures.hpp"
@@ -932,60 +930,4 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
     }
     check(valid, "rest_partial_header_cancel_clears_unsent_header_suffix");
 }
-
-#if defined(MAICORD_REST_STORAGE_BENCHMARK)
-bool rest_storage_benchmark() noexcept {
-    const Clock clock = clock_initialize();
-    const u32 uploads[]{0, kRestClientMaximumRequestBodyBytes};
-    for (const u32 upload : uploads)
-    for (const auto& fixture : rest_gzip_fixtures) {
-        const u32 capacity = maximum(kHandshakeOutputBytes, fixture.decoded_bytes);
-        for (u32 mode = 0; mode < 2; ++mode) for (u32 round = 0; round < 9; ++round) {
-            const u32 calls = fixture.decoded_bytes >= 65536 ? 32 : 512;
-            i64 elapsed = 0;
-            u64 committed = 0;
-            u32 page_faults = 0;
-            RestStorageProbe warm;
-            if (mode && !warm.initialize(capacity)) return false;
-            for (u32 call = 0; call < calls; ++call) {
-                RestStorageProbe cold;
-                auto& probe = mode ? warm : cold;
-                if ((!mode && !probe.initialize(capacity)) || !probe.prepare(fixture, true, false, upload)) return false;
-                PROCESS_MEMORY_COUNTERS before{};
-                if (call == 0) K32GetProcessMemoryInfo(GetCurrentProcess(), &before, sizeof(before));
-                const i64 start = clock_now();
-                if (!probe.finish()) return false;
-                elapsed += clock_now() - start;
-                if (call == 0) {
-                    PROCESS_MEMORY_COUNTERS after{};
-                    K32GetProcessMemoryInfo(GetCurrentProcess(), &after, sizeof(after));
-                    page_faults = after.PageFaultCount - before.PageFaultCount;
-                }
-                if (!probe.correct(fixture)) return false;
-                committed = probe.committed();
-                probe.consume();
-            }
-            TraceRecord line("rest_gzip_storage");
-            line.field("raw_bytes", fixture.decoded_bytes);
-            line.field("request_bytes", upload);
-            line.field("mode", mode ? "reuse" : "first");
-            line.field("round", round);
-            line.field("calls", calls);
-            line.field("us", clock_microseconds(clock, 0, elapsed));
-            line.field("committed", committed);
-            line.field("first_call_faults", page_faults);
-            DWORD written = 0;
-            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
-            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\r\n", 2, &written, nullptr);
-        }
-    }
-    return true;
-}
-#endif
 } // namespace maicord
-
-#if defined(MAICORD_REST_STORAGE_BENCHMARK)
-extern "C" void maicord_rest_storage_entry() noexcept {
-    ExitProcess(maicord::rest_storage_benchmark() ? 0 : 1);
-}
-#endif

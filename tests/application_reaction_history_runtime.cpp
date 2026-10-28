@@ -888,6 +888,17 @@ void run() noexcept {
 // Inactive independent App owners are isolated; lower composer/history and the
 // history PRIMARY loop above are shipping implementations.
 namespace maicord::app_detail {
+// Request owners idle in this fixture: nothing pending, nothing to submit, a completed receipt.
+#define INACTIVE_REQUEST_OWNER(owner, response_result)                                                 \
+    bool application_##owner##_pending(u64) noexcept {                                                 \
+        return false;                                                                                  \
+    }                                                                                                  \
+    bool application_##owner##_submit(u64, u64) noexcept {                                             \
+        return false;                                                                                  \
+    }                                                                                                  \
+    bool application_##owner##_response(const RestClientResponse&, Utf8View) noexcept {                \
+        return response_result;                                                                        \
+    }
 u64 application_channel_prefetch_take(u64) noexcept {
     return 0;
 }
@@ -981,15 +992,7 @@ bool application_profile_submit(u64) noexcept {
 bool application_profile_response(const RestClientResponse&, Utf8View) noexcept {
     return true;
 }
-bool application_friends_pending(u64) noexcept {
-    return false;
-}
-bool application_friends_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_friends_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
+INACTIVE_REQUEST_OWNER(friends, true)
 bool application_reaction_tooltip_pending() noexcept {
     return false;
 }
@@ -1067,15 +1070,7 @@ void application_attachment_did_queue(ConstSlice<u64>, u64) noexcept {
 }
 void application_attachment_complete(u64) noexcept {
 }
-bool application_search_pending(u64) noexcept {
-    return false;
-}
-bool application_search_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_search_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
+INACTIVE_REQUEST_OWNER(search, true)
 void application_search_navigation_synchronize() noexcept {
 }
 bool application_search_navigation_pending(u64) noexcept {
@@ -1119,24 +1114,8 @@ bool application_pinned_messages_submit(u64 id, u64) noexcept {
 bool application_pinned_messages_response(const RestClientResponse&, Utf8View) noexcept {
     return true;
 }
-bool application_media_picker_pending(u64) noexcept {
-    return false;
-}
-bool application_media_picker_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_media_picker_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
-bool application_emoji_preferences_pending(u64) noexcept {
-    return false;
-}
-bool application_emoji_preferences_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_emoji_preferences_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
+INACTIVE_REQUEST_OWNER(media_picker, true)
+INACTIVE_REQUEST_OWNER(emoji_preferences, true)
 void application_emoji_preferences_response_drained() noexcept {
 }
 Slice<u8> application_emoji_preferences_response_buffer() noexcept {
@@ -1147,15 +1126,7 @@ ApplicationEmojiUse application_emoji_preferences_scan(Utf8View) noexcept {
 }
 void application_emoji_preferences_track_message(const ApplicationEmojiUse&) noexcept {
 }
-bool application_gif_favorites_pending(u64) noexcept {
-    return false;
-}
-bool application_gif_favorites_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_gif_favorites_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
+INACTIVE_REQUEST_OWNER(gif_favorites, true)
 void application_gif_favorites_response_drained() noexcept {
 }
 Slice<u8> application_gif_favorites_response_buffer() noexcept {
@@ -1234,97 +1205,17 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
     details_flights[3] = 0;
     return true;
 }
-bool application_self_status_pending(u64) noexcept {
-    return false;
-}
-bool application_self_status_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_self_status_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
-bool application_user_settings_pending(u64) noexcept {
-    return false;
-}
-bool application_user_settings_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_user_settings_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
-bool application_account_settings_pending(u64) noexcept {
-    return false;
-}
-bool application_account_settings_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_account_settings_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
-bool application_notification_controls_pending(u64) noexcept {
-    return false;
-}
-bool application_notification_controls_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_notification_controls_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
-bool application_custom_status_pending(u64) noexcept {
-    return false;
-}
-bool application_custom_status_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_custom_status_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
-bool application_activity_sharing_pending(u64) noexcept {
-    return false;
-}
-bool application_activity_sharing_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_activity_sharing_response(const RestClientResponse&, Utf8View) noexcept {
-    return false;
-}
-bool application_inbox_pending(u64) noexcept {
-    return false;
-}
-bool application_inbox_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_inbox_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
-bool application_stream_preview_pending(u64) noexcept {
-    return false;
-}
-bool application_stream_preview_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_stream_preview_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
-bool application_stage_pending(u64) noexcept {
-    return false;
-}
-bool application_stage_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_stage_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
-bool application_message_components_pending(u64) noexcept {
-    return false;
-}
+INACTIVE_REQUEST_OWNER(self_status, true)
+INACTIVE_REQUEST_OWNER(user_settings, true)
+INACTIVE_REQUEST_OWNER(account_settings, true)
+INACTIVE_REQUEST_OWNER(notification_controls, true)
+INACTIVE_REQUEST_OWNER(custom_status, true)
+INACTIVE_REQUEST_OWNER(activity_sharing, false)
+INACTIVE_REQUEST_OWNER(inbox, true)
+INACTIVE_REQUEST_OWNER(stream_preview, true)
+INACTIVE_REQUEST_OWNER(stage, true)
+INACTIVE_REQUEST_OWNER(message_components, true)
 void application_message_components_tick(u64) noexcept {}
-bool application_message_components_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_message_components_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
 bool application_guild_folders_pending(u64) noexcept {
     return false;
 }
@@ -1341,15 +1232,7 @@ bool application_account_logout_blocked() noexcept {
 bool application_guild_folders_submit(u64, u64) noexcept {
     return false;
 }
-bool application_invite_cards_pending(u64) noexcept {
-    return false;
-}
-bool application_invite_cards_submit(u64, u64) noexcept {
-    return false;
-}
-bool application_invite_cards_response(const RestClientResponse&, Utf8View) noexcept {
-    return true;
-}
+INACTIVE_REQUEST_OWNER(invite_cards, true)
 bool application_message_forward_synchronize() noexcept {
     return true;
 }
@@ -1393,6 +1276,7 @@ bool accept_private_conversation(const RestClientResponse&, Utf8View) noexcept {
 bool application_composer_text_input_composing() noexcept {
     return false;
 }
+#undef INACTIVE_REQUEST_OWNER
 } // namespace maicord::app_detail
 extern "C" __declspec(noreturn) void WINAPI maicord_application_reaction_history_runtime_entry() noexcept {
     maicord::reaction_history_test::run();

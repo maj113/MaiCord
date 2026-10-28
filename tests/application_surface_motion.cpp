@@ -1,6 +1,5 @@
 #include "application_surface_motion.hpp"
 #include "test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::surface_motion_test {
 using namespace app_detail;

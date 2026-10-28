@@ -1,10 +1,8 @@
 #include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 namespace maicord {namespace {
 #include "generated/gpos_fixture.inc"
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
 u64 value_checks=0,device_samples=0,anchor_checks=0,queries=0,gap_queries=0;u32 failures=0;
 volatile u32 observations=0;
@@ -142,9 +140,9 @@ bool file_corpus(const wchar_t* path) noexcept {
 }
 int run() noexcept {
     if(!units()||!coverage_bound_units()){print(utf8_literal("FAIL GPOS units\n"));return 3;}if(!guards()){print(utf8_literal("FAIL GPOS guards\n"));return 4;}
-    const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
+    const wchar_t* command=test_arguments();
     bool ok=false;if(!*command)ok=corpus({gpos_fixture,sizeof(gpos_fixture)});
-    else {wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}if(quote){if(*command!='"')return 2;++command;}while(*command==' ' || *command=='\t')++command;if(*command || !n)return 2;path[n]=0;ok=file_corpus(path);}
+    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
     print(utf8_literal("value_checks="));number(value_checks);print(utf8_literal("\ndevice_samples="));number(device_samples);print(utf8_literal("\nanchor_checks="));number(anchor_checks);print(utf8_literal("\nqueries="));number(queries);print(utf8_literal("\ngap_queries="));number(gap_queries);print(utf8_literal("\nguard_observations="));number(observations);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));print(ok && !failures?utf8_literal("PASS native GPOS basic matching\n"):utf8_literal("FAIL native GPOS basic matching\n"));return ok && !failures?0:1;
 }
 }}

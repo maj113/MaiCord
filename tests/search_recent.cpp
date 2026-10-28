@@ -28,12 +28,8 @@ void test_search_recent(void (*check)(bool, const char*) noexcept) noexcept {
               !search_recent_push(&list, {"\xff", 1}) && list.count == 1,
           "search_recent_rejects_empty_control_and_invalid_text");
     const char* names[] = {"beta", "gamma", "delta", "epsilon", "zeta"};
-    for (const char* name : names) {
-        u32 bytes = 0;
-        while (name[bytes])
-            ++bytes;
-        search_recent_push(&list, {name, bytes});
-    }
+    for (const char* name : names)
+        search_recent_push(&list, {name, c_string_length(name)});
     check(list.count == kSearchRecentCapacity && entry(list, 0, utf8_literal("zeta")) &&
               entry(list, 4, utf8_literal("beta")),
           "search_recent_keeps_the_five_newest");

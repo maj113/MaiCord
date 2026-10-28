@@ -2,7 +2,6 @@
 #include "maicord/app/message_event_pump.hpp"
 #include "maicord/app/message_history_sync.hpp"
 #include "maicord/model/message_reconcile.hpp"
-#include "maicord/core/memory.hpp"
 #include <stddef.h>
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"

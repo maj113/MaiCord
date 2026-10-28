@@ -7,28 +7,21 @@
 
 namespace maicord {
 namespace {
-bool equals(Utf8View a, Utf8View b) noexcept {
-    if (a.bytes != b.bytes) return false;
-    for (u32 i = 0; i < a.bytes; ++i) if (a.data[i] != b.data[i]) return false;
-    return true;
-}
-}
-// A large client-sorted member list: only rows whose avatar intersects the
-// viewport resolve media, never overscan rows; guild avatars keep their own URL.
-u32 test_member_visible_avatar_requests() noexcept {
-    u32 failed = 0;
-    const auto check = [&](bool valid) noexcept { if (!valid) ++failed; };
-    constexpr u32 count = 64;
-    static GuildMemberRecord member_records[count];
-    static u32 member_order[count];
-    static UserRecord user_records[count];
-    static u32 user_order[count];
-    static u8 names[count * 16];
-    static MemberListRow source_rows[count + 1];
-    static u32 member_scratch[count];
-    static MemberListRowWidget rows[32];
-    static UiWidget widgets[32 * kMemberListWidgetsPerRow + 1];
-    static UiLayoutNode nodes[32 * kMemberListWidgetsPerRow + 1];
+constexpr u32 kMembers = 64;
+
+// Stores holding kMembers online members (every fourth without an avatar), a
+// client-sorted projection of them and a scene over the first 20 rows.
+struct MemberFixture {
+    static inline GuildMemberRecord member_records[kMembers];
+    static inline u32 member_order[kMembers];
+    static inline UserRecord user_records[kMembers];
+    static inline u32 user_order[kMembers];
+    static inline u8 names[kMembers * 16];
+    static inline MemberListRow source_rows[kMembers + 1];
+    static inline u32 member_scratch[kMembers];
+    static inline MemberListRowWidget rows[32];
+    static inline UiWidget widgets[32 * kMemberListWidgetsPerRow + 1];
+    static inline UiLayoutNode nodes[32 * kMemberListWidgetsPerRow + 1];
     GuildMemberStore members{};
     UserStore users{};
     ChatStateStore state{};
@@ -38,29 +31,46 @@ u32 test_member_visible_avatar_requests() noexcept {
     u8 state_names[256]{};
     MemberListView projection{};
     MemberListScene scene{};
-    bool ready = guild_member_store_initialize(&members, {member_records, count}, {member_order, count}) &&
-                 user_store_initialize(&users, {user_records, count}, {user_order, count}, {names, sizeof(names)}) &&
-                 chat_state_store_initialize(&state, {&guild, 1}, {guild_order, 1}, {&channel, 1},
-                                             {channel_order, 1}, {state_names, sizeof(state_names)}) &&
-                 member_list_view_initialize(&projection, {source_rows, count + 1}, {member_scratch, count});
-    char hash[33] = "0123456789abcdef0123456789abcd00";
-    for (u32 i = 0; ready && i < count; ++i) {
-        char name[6] = {'u', 's', 'e', 'r', static_cast<char>('A' + i / 26), static_cast<char>('a' + i % 26)};
-        hash[30] = "0123456789abcdef"[i >> 4];
-        hash[31] = "0123456789abcdef"[i & 15];
-        ready = user_store_upsert(&users, 100 + i, {name, 6}).ok() &&
-                (i % 4 == 3 || user_store_set_avatar(&users, 100 + i, {hash, 32})) &&
-                guild_member_store_upsert(&members, state, 7, 100 + i, {}, {}, false, GuildMemberStatus::online,
-                                          i, 70)
-                    .ok();
+    bool populate() noexcept {
+        bool ready = guild_member_store_initialize(&members, {member_records, kMembers}, {member_order, kMembers}) &&
+                     user_store_initialize(&users, {user_records, kMembers}, {user_order, kMembers},
+                                           {names, sizeof(names)}) &&
+                     chat_state_store_initialize(&state, {&guild, 1}, {guild_order, 1}, {&channel, 1},
+                                                 {channel_order, 1}, {state_names, sizeof(state_names)}) &&
+                     member_list_view_initialize(&projection, {source_rows, kMembers + 1}, {member_scratch, kMembers});
+        char hash[33] = "0123456789abcdef0123456789abcd00";
+        for (u32 i = 0; ready && i < kMembers; ++i) {
+            char name[6] = {'u', 's', 'e', 'r', static_cast<char>('A' + i / 26), static_cast<char>('a' + i % 26)};
+            hash[30] = "0123456789abcdef"[i >> 4];
+            hash[31] = "0123456789abcdef"[i & 15];
+            ready = user_store_upsert(&users, 100 + i, {name, 6}).ok() &&
+                    (i % 4 == 3 || user_store_set_avatar(&users, 100 + i, {hash, 32})) &&
+                    guild_member_store_upsert(&members, state, 7, 100 + i, {}, {}, false,
+                                              GuildMemberStatus::online, i, 70)
+                        .ok();
+        }
+        return ready;
     }
-    ready = ready && member_list_view_rebuild(&projection, members, users, state, 7, 70).ok() &&
-            !projection.authoritative && projection.count == count + 1 &&
-            member_list_scene_initialize(&scene, {rows, 32}, {widgets, 32 * kMemberListWidgetsPerRow + 1},
-                                         {nodes, 32 * kMemberListWidgetsPerRow + 1}) &&
-            member_list_scene_update(&scene, &projection, &members, &users, &state, {0, 0, 240, 220},
-                                     20 * kMemberListRowHeight)
-                .ok();
+    bool rebuild() noexcept { return member_list_view_rebuild(&projection, members, users, state, 7, 70).ok(); }
+    bool present() noexcept {
+        return member_list_scene_initialize(&scene, {rows, 32}, {widgets, 32 * kMemberListWidgetsPerRow + 1},
+                                            {nodes, 32 * kMemberListWidgetsPerRow + 1}) &&
+               member_list_scene_update(&scene, &projection, &members, &users, &state, {0, 0, 240, 220},
+                                        20 * kMemberListRowHeight)
+                   .ok();
+    }
+};
+} // namespace
+// A large client-sorted member list: only rows whose avatar intersects the
+// viewport resolve media, never overscan rows; guild avatars keep their own URL.
+u32 test_member_visible_avatar_requests() noexcept {
+    u32 failed = 0;
+    const auto check = [&](bool valid) noexcept { if (!valid) ++failed; };
+    MemberFixture fixture{};
+    auto& users = fixture.users;
+    auto& scene = fixture.scene;
+    const bool ready = fixture.populate() && fixture.rebuild() && !fixture.projection.authoritative &&
+                       fixture.projection.count == kMembers + 1 && fixture.present();
     check(ready);
     if (!ready)
         return failed + 1;
@@ -155,7 +165,7 @@ u32 test_member_viewport_ranges_and_sparse_scene() noexcept {
     u8 output[256]{};
     const auto written = gateway_write_guild_subscriptions_bulk(command, {output, sizeof(output)});
     constexpr auto expected = utf8_literal("{\"op\":37,\"d\":{\"subscriptions\":{\"7\":{\"typing\":true,\"activities\":true,\"threads\":true,\"channels\":{\"80\":[[0,99],[8900,8999],[9000,9099]]}}}}}");
-    check(written.ok() && equals({reinterpret_cast<const char*>(output), written.bytes}, expected));
+    check(written.ok() && utf8_equal({reinterpret_cast<const char*>(output), written.bytes}, expected));
     check(gateway_write_guild_subscriptions_bulk(command, {output, written.bytes - 1}).error ==
         GatewayCommandError::output_too_small);
     member_list_subscription_sent(&retry);
@@ -222,7 +232,7 @@ u32 test_member_viewport_ranges_and_sparse_scene() noexcept {
         if (scene.rows[i].resident) {
             ++resident;
             check(scene.rows[i].source_index == 5'000 &&
-                equals(scene.rows[i].group_label.view(), utf8_literal("ONLINE \xE2\x80\x94 1,000")));
+                utf8_equal(scene.rows[i].group_label.view(), utf8_literal("ONLINE \xE2\x80\x94 1,000")));
         } else {
             const auto* widget = ui_widget_manager_resolve(scene.widgets, scene.rows[i].widget);
             check(widget && !(widget->flags & (ui_widget_hit_test | ui_widget_focusable)));
@@ -330,45 +340,13 @@ u32 test_member_viewport_ranges_and_sparse_scene() noexcept {
 u32 test_member_media_cache_scroll() noexcept {
     u32 failed = 0;
     const auto check = [&](bool valid) noexcept { if (!valid) ++failed; };
-    constexpr u32 count = 64;
-    static GuildMemberRecord member_records[count];
-    static u32 member_order[count];
-    static UserRecord user_records[count];
-    static u32 user_order[count];
-    static u8 names[count * 16];
-    static MemberListRow source_rows[count + 1];
-    static u32 member_scratch[count];
-    static MemberListRowWidget rows[32];
-    static UiWidget widgets[32 * kMemberListWidgetsPerRow + 1];
-    static UiLayoutNode nodes[32 * kMemberListWidgetsPerRow + 1];
     static MemberMediaCache cache;
-    GuildMemberStore members{};
-    UserStore users{};
-    ChatStateStore state{};
-    GuildRecord guild{};
-    ChannelRecord channel{};
-    u16 guild_order[1]{}, channel_order[1]{};
-    u8 state_names[256]{};
-    MemberListView projection{};
-    MemberListScene scene{};
-    bool ready = guild_member_store_initialize(&members, {member_records, count}, {member_order, count}) &&
-                 user_store_initialize(&users, {user_records, count}, {user_order, count}, {names, sizeof(names)}) &&
-                 chat_state_store_initialize(&state, {&guild, 1}, {guild_order, 1}, {&channel, 1},
-                                             {channel_order, 1}, {state_names, sizeof(state_names)}) &&
-                 member_list_view_initialize(&projection, {source_rows, count + 1}, {member_scratch, count});
-    char hash[33] = "0123456789abcdef0123456789abcd00";
-    for (u32 i = 0; ready && i < count; ++i) {
-        char name[6] = {'u', 's', 'e', 'r', static_cast<char>('A' + i / 26), static_cast<char>('a' + i % 26)};
-        hash[30] = "0123456789abcdef"[i >> 4];
-        hash[31] = "0123456789abcdef"[i & 15];
-        ready = user_store_upsert(&users, 100 + i, {name, 6}).ok() &&
-                (i % 4 == 3 || user_store_set_avatar(&users, 100 + i, {hash, 32})) &&
-                guild_member_store_upsert(&members, state, 7, 100 + i, {}, {}, false, GuildMemberStatus::online,
-                                          i, 70)
-                    .ok();
-    }
+    MemberFixture fixture{};
+    auto& users = fixture.users;
+    auto& scene = fixture.scene;
+    bool ready = fixture.populate();
     // Every fifth member wears a decoration and a guild tag: layers and the name badge.
-    for (u32 i = 0; ready && i < count; i += 5) {
+    for (u32 i = 0; ready && i < kMembers; i += 5) {
         UserAppearance look{};
         look.user_id = 100 + i;
         look.fields = appearance_decoration | appearance_guild_tag;
@@ -382,12 +360,7 @@ u32 test_member_media_cache_scroll() noexcept {
         look.primary_tag.bytes = 3;
         ready = user_appearance_upsert(&users.appearance, look);
     }
-    ready = ready && member_list_view_rebuild(&projection, members, users, state, 7, 70).ok() &&
-            member_list_scene_initialize(&scene, {rows, 32}, {widgets, 32 * kMemberListWidgetsPerRow + 1},
-                                         {nodes, 32 * kMemberListWidgetsPerRow + 1}) &&
-            member_list_scene_update(&scene, &projection, &members, &users, &state, {0, 0, 240, 220},
-                                     20 * kMemberListRowHeight)
-                .ok();
+    ready = ready && fixture.rebuild() && fixture.present();
     check(ready);
     if (!ready) {
         user_appearance_release(&users.appearance);

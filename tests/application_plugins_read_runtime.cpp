@@ -45,8 +45,7 @@ bool collect(void* context, const NativePluginSdkEvent& event) noexcept {
     return true;
 }
 bool equals(Utf8View view, const char* literal) noexcept {
-    u32 bytes = 0;
-    while (literal[bytes]) ++bytes;
+    const u32 bytes = c_string_length(literal);
     return view.bytes == bytes && bytes_equal(view.data, literal, bytes);
 }
 template <u32 N> bool equals(const char (&text)[N], u32 bytes, const char* literal) noexcept {

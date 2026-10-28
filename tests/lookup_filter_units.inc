@@ -22,20 +22,3 @@ bool filter_membership_units() noexcept {
     }
     print(utf8_literal("filter_membership_checks="));number(checks);print(utf8_literal("\n"));return true;
 }
-bool filter_cost() noexcept {
-    u8 bytes[2048];LARGE_INTEGER frequency{};if(!QueryPerformanceFrequency(&frequency))return false;
-    for(u32 mode=4;mode<6;++mode){filter_fixture(bytes,mode);SfntGdef gdef{};SfntLookupFilter filter{};
-        if(sfnt_gdef_open({bytes,sizeof(bytes)},65536,&gdef)!=SfntStatus::ok||sfnt_lookup_filter_prepare(gdef,0x10,0,&filter)!=SfntStatus::ok)return false;
-        SfntCoverage coverage{};if(sfnt_gdef_mark_set(gdef,0,&coverage)!=SfntStatus::ok)return false;
-        for(u32 path=0;path<2;++path){
-        LARGE_INTEGER begin{},end{};u64 first_cycles=0,last_cycles=0,total=0;
-        if(!QueryPerformanceCounter(&begin)||!QueryThreadCycleTime(GetCurrentThread(),&first_cycles))return false;
-        for(u32 trial=0;trial<64;++trial)for(u32 i=0;i<65536;++i)
-            total+=path?sfnt_lookup_ignores(gdef,filter,static_cast<u16>(i*40503u+trial*7919u),SfntGlyphClass::mark):
-                sfnt_coverage_index(coverage,static_cast<u16>(i*40503u+trial*7919u))==sfnt_not_covered;
-        if(!QueryThreadCycleTime(GetCurrentThread(),&last_cycles)||!QueryPerformanceCounter(&end)||total!=64ull*(mode==4?65280:32768))return false;
-        print(utf8_literal("filter_cost="));number(mode);print(utf8_literal(" path="));number(path);print(utf8_literal(" ticks="));number(end.QuadPart-begin.QuadPart);
-        print(utf8_literal(" cycles="));number(last_cycles-first_cycles);print(utf8_literal(" frequency="));number(frequency.QuadPart);
-        print(utf8_literal(" queries=4194304 bytes="));number(sizeof(SfntLookupFilter));print(utf8_literal("\n"));}
-    }return true;
-}

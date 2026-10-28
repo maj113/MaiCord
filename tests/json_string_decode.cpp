@@ -1,5 +1,3 @@
-// Also built with MAICORD_JSON_{NUMBER,INTEGER,ASCII,STRING}_BENCHMARK=1 as the manual
-// MaiCordJson*Benchmark programs (cmake/benchmarks.cmake).
 // Differential coverage against the previous scalar implementation.
 #include "../src/core/json_reader.cpp"
 
@@ -7,7 +5,7 @@
 
 namespace maicord {
 namespace json_string_probe {
-__declspec(noinline) bool reference_number(const JsonValue& value, u64* output) noexcept {
+bool reference_number(const JsonValue& value, u64* output) noexcept {
     if (!output || value.kind != JsonValueKind::number || value.source.bytes == 0) return false;
     u64 result = 0;
     for (u32 offset = 0; offset < value.source.bytes; ++offset) {
@@ -31,7 +29,7 @@ bool compare_number(Utf8View source) noexcept {
     }
     return true;
 }
-__declspec(noinline) bool reference_integer(const JsonString& value, u64* output) noexcept {
+bool reference_integer(const JsonString& value, u64* output) noexcept {
     if (!output || (!value.encoded.data && value.encoded.bytes != 0)) return false;
     u32 source_offset = 0, digits = 0;
     u64 result = 0;
@@ -57,7 +55,7 @@ bool compare_integer(Utf8View source) noexcept {
     }
     return true;
 }
-__declspec(noinline) bool reference_ascii(const JsonString& value, const Utf8View& ascii) noexcept {
+bool reference_ascii(const JsonString& value, const Utf8View& ascii) noexcept {
     if ((!value.encoded.data && value.encoded.bytes != 0) || (!ascii.data && ascii.bytes != 0)) return false;
     u32 source_offset = 0, ascii_offset = 0;
     while (source_offset < value.encoded.bytes) {
@@ -259,135 +257,4 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
     if (source_pages) VirtualFree(source_pages, 0, MEM_RELEASE);
     if (output_pages) VirtualFree(output_pages, 0, MEM_RELEASE);
 }
-
-#if defined(MAICORD_JSON_INTEGER_BENCHMARK) || defined(MAICORD_JSON_NUMBER_BENCHMARK)
-#if defined(MAICORD_JSON_NUMBER_BENCHMARK)
-extern "C" void maicord_json_number_entry() noexcept {
-#else
-extern "C" void maicord_json_integer_entry() noexcept {
-#endif
-    struct Fixture { const char* name; Utf8View source; };
-    const Fixture cases[]{
-        {"enum", utf8_literal("7")}, {"count", utf8_literal("42")},
-        {"color", utf8_literal("16777215")}, {"flags", utf8_literal("4294967295")},
-        {"snowflake", utf8_literal("1111222233334444555")},
-        {"zero", utf8_literal("0")}, {"maximum", utf8_literal("18446744073709551615")},
-        {"overflow", utf8_literal("18446744073709551616")},
-        {"leading_zeroes", utf8_literal("000000000000000001234567890")},
-        {"escaped_first", utf8_literal("\\u0031111222233334444555")},
-        {"escaped_digits", utf8_literal("\\u0031\\u0032\\u0033\\u0034")},
-        {"late_invalid", utf8_literal("11112222333344445x")},
-        {"unicode", utf8_literal("\\uff11")}, {"empty", {}},
-    };
-#if defined(MAICORD_JSON_NUMBER_BENCHMARK)
-    using Convert = bool (*)(const JsonValue&, u64*) noexcept;
-#else
-    using Convert = bool (*)(const JsonString&, u64*) noexcept;
-#endif
-    const Clock clock = clock_initialize(); constexpr u32 calls = 1000000;
-    for (const auto& fixture : cases) {
-        u64 expected = 0;
-        for (u32 round = 0; round < 4; ++round) for (u32 order = 0; order < 2; ++order) {
-            const u32 implementation = (round + order) & 1;
-#if defined(MAICORD_JSON_NUMBER_BENCHMARK)
-            Convert volatile convert = implementation ? json_value_to_u64 : json_string_probe::reference_number;
-#else
-            Convert volatile convert = implementation ? json_string_to_u64 : json_string_probe::reference_integer;
-#endif
-            u64 sum = 0; const i64 start = clock_now();
-            for (u32 i = 0; i < calls; ++i) {
-                u64 result = 0xa537ed4f10382acbull;
-                auto source = fixture.source; if (source.bytes) source.bytes -= i & 1;
-#if defined(MAICORD_JSON_NUMBER_BENCHMARK)
-                const bool ok = convert({source, 0, JsonValueKind::number}, &result);
-#else
-                const bool ok = convert({source, 0, (i & 2) != 0}, &result);
-#endif
-                sum += result ^ static_cast<u64>(ok);
-            }
-            const u64 us = clock_microseconds(clock, start, clock_now());
-            if (!round && !order) expected = sum;
-            if (sum != expected) ExitProcess(1);
-            TraceRecord line("json_integer"); line.field("fixture", fixture.name);
-            line.field("implementation", implementation ? "shipping" : "scalar");
-            line.field("round", round); line.field("calls", calls); line.field("us", us); line.field("sum", sum);
-            DWORD written; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
-            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\r\n", 2, &written, nullptr);
-        }
-    }
-    ExitProcess(0);
-}
-#endif
-
-#if defined(MAICORD_JSON_ASCII_BENCHMARK)
-extern "C" void maicord_json_ascii_entry() noexcept {
-    struct Fixture { const char* name; Utf8View source, target; };
-    const Fixture cases[]{
-        {"same_field", utf8_literal("application_id"), utf8_literal("application_id")},
-        {"short_miss", utf8_literal("id"), utf8_literal("username")},
-        {"prefix_miss", utf8_literal("application_id"), utf8_literal("application_flags")},
-        {"first_miss", utf8_literal("guild_id"), utf8_literal("username")},
-        {"escaped_field", utf8_literal("applic\\u0061tion_id"), utf8_literal("application_id")},
-        {"escaped_ascii", utf8_literal("\\u0069\\u0064"), utf8_literal("id")},
-        {"unicode_miss", utf8_literal("\xc3\xa9"), utf8_literal("e")},
-        {"escaped_unicode_miss", utf8_literal("\\ud83d\\ude00"), utf8_literal("e")},
-        {"empty", {}, {}},
-    };
-    using Compare = bool (*)(const JsonString&, const Utf8View&) noexcept;
-    const Clock clock = clock_initialize();
-    constexpr u32 calls = 2000000;
-    for (const auto& fixture : cases) {
-        u64 reference_sum = 0;
-        for (u32 round = 0; round < 4; ++round) for (u32 order = 0; order < 2; ++order) {
-            const u32 implementation = (round + order) & 1;
-            Compare volatile compare = implementation ? json_string_equals_ascii : json_string_probe::reference_ascii;
-            u64 sum = 0; const i64 start = clock_now();
-            for (u32 i = 0; i < calls; ++i) {
-                Utf8View target = fixture.target;
-                if (target.bytes) target.bytes -= i & 1;
-                sum += compare({fixture.source, 0, (i & 2) != 0}, target);
-            }
-            const u64 us = clock_microseconds(clock, start, clock_now());
-            if (round == 0 && order == 0) reference_sum = sum;
-            if (sum != reference_sum) ExitProcess(1);
-            TraceRecord line("json_ascii"); line.field("fixture", fixture.name);
-            line.field("implementation", implementation ? "shipping" : "scalar");
-            line.field("round", round); line.field("calls", calls); line.field("us", us); line.field("sum", sum);
-            DWORD written; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
-            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\r\n", 2, &written, nullptr);
-        }
-    }
-    ExitProcess(0);
-}
-#endif
-
-#if defined(MAICORD_JSON_STRING_BENCHMARK)
-extern "C" void maicord_json_string_entry() noexcept {
-    char source[4096], output[4096]; const Clock clock = clock_initialize();
-    for (u32 fixture = 0; fixture < 7; ++fixture) {
-        const u32 size = fixture < 4 ? (8u << (fixture * 3)) : 512;
-        for (u32 i = 0; i < size; ++i) source[i] = 'a' + i % 26;
-        if (fixture == 4) for (u32 i = 0; i < size; i += 4) {
-            source[i] = '\xf0'; source[i+1] = '\x9f'; source[i+2] = '\x98'; source[i+3] = '\x80';
-        }
-        if (fixture == 5) for (u32 i = 0; i < size; i += 2) { source[i] = '\\'; source[i+1] = 'n'; }
-        if (fixture == 6) { source[size/2] = '\\'; source[size/2+1] = 'n'; }
-        for (u32 mode = 0; mode < 2; ++mode) {
-            const u32 calls = 2'000'000 / (size / 8);
-            u64 checksum = 0; const i64 begin = clock_now();
-            for (u32 i = 0; i < calls; ++i) {
-                const auto decoded = json_string_decode_utf8({{source, size}, 0, false},
-                    {mode ? output : nullptr, mode ? size : 0});
-                if (decoded.error != (mode ? JsonStringDecodeError::none : JsonStringDecodeError::output_too_small)) ExitProcess(1);
-                checksum += decoded.bytes + (mode ? static_cast<u8>(output[decoded.bytes - 1]) : 0);
-            }
-            TraceRecord line("json_string"); line.field("fixture", fixture); line.field("mode", mode);
-            line.field("calls", calls); line.field("us", clock_microseconds(clock, begin, clock_now())); line.field("checksum", checksum);
-            DWORD written = 0; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
-            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\r\n", 2, &written, nullptr);
-        }
-    }
-    ExitProcess(0);
-}
-#endif
 }

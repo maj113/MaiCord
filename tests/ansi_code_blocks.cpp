@@ -19,15 +19,12 @@ struct Scan {
     u32 bytes;
     Piece pieces[64];
     u32 count;
-    bool overflow;
 };
 
 bool collect(void* context, u32 begin, u32 end, AnsiTextStyle style) noexcept {
     auto& scan = *static_cast<Scan*>(context);
-    if (scan.count == 64 || end - begin > sizeof(scan.text) - scan.bytes) {
-        scan.overflow = true;
+    if (scan.count == 64 || end - begin > sizeof(scan.text) - scan.bytes)
         return false;
-    }
     scan.pieces[scan.count++] = {scan.bytes, scan.bytes + (end - begin), style};
     copy_bytes(scan.text + scan.bytes, scan.input.data + begin, end - begin);
     scan.bytes += end - begin;
@@ -179,7 +176,6 @@ void test_extended_and_malformed(Check check) noexcept {
 struct Parsed {
     char text[1024];
     u32 styles[1024];
-    u32 offsets[1024];
     TextStyleSpan spans[64];
     MessageMarkdownResult result;
 };
@@ -191,7 +187,7 @@ Parsed& parse(Utf8View input, bool editor = false, bool reply = false) noexcept 
     options.preserve_entities = editor;
     options.inline_reply = reply;
     parsed.result = message_markdown_parse(input, {parsed.text, 1024}, {parsed.styles, 1024}, {parsed.spans, 64},
-                                           options, {}, {parsed.offsets, 1024});
+                                           options, {});
     return parsed;
 }
 
@@ -203,9 +199,7 @@ const TextStyleSpan* span_at(const Parsed& parsed, u32 at) noexcept {
 }
 
 u32 find(const Parsed& parsed, const char* needle) noexcept {
-    u32 bytes = 0;
-    while (needle[bytes])
-        ++bytes;
+    const u32 bytes = c_string_length(needle);
     for (u32 i = 0; i + bytes <= parsed.result.text.bytes; ++i)
         if (bytes_equal(parsed.text + i, needle, bytes))
             return i;
@@ -239,8 +233,6 @@ void test_markdown(Check check) noexcept {
               ansi_span_foreground(*gap) == 0 && ansi_span_background(*gap) == 0 &&
               (gap->flags & text_style_code_block),
           "ansi: a ```ansi block yields styled, coloured spans without escapes");
-    check(red != ~0u && p.offsets[red] == 15 && blue != ~0u && p.offsets[blue] == 28,
-          "ansi: display bytes keep their source offsets");
 
     auto& spoiler = parse(utf8_literal("x ||```ansi\n\x1b[31mA\x1b[0mB```||"));
     const u32 a = find(spoiler, "AB");

@@ -362,8 +362,7 @@ u32 rechunk_idat(const u8* png, u32 bytes, u32 piece, u8* out, u32 capacity) noe
     u32 idat_bytes = 0;
     bool written = false;
     while (cursor + 12 <= bytes) {
-        const u32 length = static_cast<u32>(png[cursor]) << 24 | static_cast<u32>(png[cursor + 1]) << 16 |
-                           static_cast<u32>(png[cursor + 2]) << 8 | png[cursor + 3];
+        const u32 length = byte_load_be32(png + cursor);
         const u8* type = png + cursor + 4;
         const bool is_idat = type[0] == 'I' && type[1] == 'D' && type[2] == 'A' && type[3] == 'T';
         if (is_idat) {
@@ -444,9 +443,8 @@ void test_png_streaming(Check check) noexcept {
         // zlib header (2) + block header (5), then the first filter byte.
         u32 at = 8;
         while (at + 12 <= fixture.encoded_bytes && !(bad_filter[at + 4] == 'I' && bad_filter[at + 7] == 'T'))
-            at += 12 + (static_cast<u32>(bad_filter[at]) << 24 | static_cast<u32>(bad_filter[at + 1]) << 16 |
-                        static_cast<u32>(bad_filter[at + 2]) << 8 | bad_filter[at + 3]);
-        const u32 length = static_cast<u32>(bad_filter[at + 2]) << 8 | bad_filter[at + 3];
+            at += 12 + byte_load_be32(bad_filter + at);
+        const u32 length = byte_load_be32(bad_filter + at);
         bad_filter[at + 8 + 7] = 9;
         byte_store_be32(bad_filter + at + 8 + length - 4, png_fixture_adler32({bad_filter + at + 8 + 7, length - 11}));
         byte_store_be32(bad_filter + at + 8 + length, png_crc32(bad_filter + at + 4, length + 4));

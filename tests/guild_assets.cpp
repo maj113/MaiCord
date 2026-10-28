@@ -148,6 +148,16 @@ Utf8View data_uri(Utf8View mime, ConstSlice<u8> raw) noexcept {
     return {buffer, at + encoded.bytes};
 }
 
+// `head` + the PNG's data URI + `tail`, in a buffer reused by every call.
+Utf8View json_with_uri(Utf8View head, ConstSlice<u8> png, Utf8View tail) noexcept {
+    static char json[256 * 1024];
+    const auto uri = data_uri(utf8_literal("image/png"), png);
+    copy_bytes(json, head.data, head.bytes);
+    copy_bytes(json + head.bytes, uri.data, uri.bytes);
+    copy_bytes(json + head.bytes + uri.bytes, tail.data, tail.bytes);
+    return {json, head.bytes + uri.bytes + tail.bytes};
+}
+
 GuildAssetRequest asset(GuildAssetOperation op, u64 target = 0) noexcept {
     GuildAssetRequest request{};
     request.operation = op;
@@ -523,19 +533,7 @@ void test_account() noexcept {
     request.image = small_png;
     request.info = &info;
     request.reason = utf8_literal("new look");
-    const auto icon_body = [&]() noexcept {
-        static char json[256 * 1024];
-        const auto uri = data_uri(utf8_literal("image/png"), small_png);
-        u32 at = 0;
-        for (char c : R"({"icon":")")
-            if (c)
-                json[at++] = c;
-        copy_bytes(json + at, uri.data, uri.bytes);
-        at += uri.bytes;
-        json[at++] = '"';
-        json[at++] = '}';
-        return Utf8View{json, at};
-    }();
+    const auto icon_body = json_with_uri(utf8_literal(R"({"icon":")"), small_png, utf8_literal(R"("})"));
     check(account_guild_assets_submit(&details, &request, 201).ok() && capture.id == 201 &&
               captured(RestMethod::patch, GuildAssetOperation::guild_icon, utf8_literal("/api/v10/guilds/10"),
                        icon_body) &&
@@ -574,19 +572,11 @@ void test_account() noexcept {
     request = asset(GuildAssetOperation::emoji_create);
     request.name = utf8_literal("blob");
     request.image = small_png;
-    static char emoji_json[256 * 1024];
-    u32 at = 0;
-    for (char c : R"({"name":"blob","image":")")
-        if (c)
-            emoji_json[at++] = c;
-    const auto emoji_uri = data_uri(utf8_literal("image/png"), small_png);
-    copy_bytes(emoji_json + at, emoji_uri.data, emoji_uri.bytes);
-    at += emoji_uri.bytes;
-    emoji_json[at++] = '"';
-    emoji_json[at++] = '}';
+    const auto emoji_json =
+        json_with_uri(utf8_literal(R"({"name":"blob","image":")"), small_png, utf8_literal(R"("})"));
     check(account_guild_assets_submit(&details, &request, 205).ok() &&
               captured(RestMethod::post, GuildAssetOperation::emoji_create,
-                       utf8_literal("/api/v10/guilds/10/emojis"), {emoji_json, at}),
+                       utf8_literal("/api/v10/guilds/10/emojis"), emoji_json),
           "account: emoji upload POSTs the name and image data URI");
 
     const auto submissions = capture.submissions + capture.large_submissions;
@@ -636,9 +626,7 @@ void test_account() noexcept {
     u8 delete_wire[1024];
     const auto head_written = write_rest_request_head(delete_head, {delete_wire, sizeof(delete_wire)});
     const auto contains_text = [&](const char* text) noexcept {
-        u32 bytes = 0;
-        while (text[bytes])
-            ++bytes;
+        const u32 bytes = c_string_length(text);
         for (u32 i = 0; head_written.ok() && i + bytes <= head_written.bytes; ++i)
             if (bytes_equal(delete_wire + i, text, bytes))
                 return true;
@@ -660,19 +648,11 @@ void test_account() noexcept {
                                 "\"system_channel_id\":null,\"guild_template_code\":\"2TffvPucqHkN\"}")),
           "account: creating a server POSTs the name with a null icon and the blank template");
     request.image = small_png;
-    static char create_json[256 * 1024];
-    u32 create_at = 0;
-    for (char c : "{\"name\":\"Rob\xE2\x80\x99s \\\"server\\\"\",\"icon\":\"")
-        if (c)
-            create_json[create_at++] = c;
-    const auto create_uri = data_uri(utf8_literal("image/png"), small_png);
-    copy_bytes(create_json + create_at, create_uri.data, create_uri.bytes);
-    create_at += create_uri.bytes;
-    for (char c : "\",\"channels\":[],\"system_channel_id\":null,\"guild_template_code\":\"2TffvPucqHkN\"}")
-        if (c)
-            create_json[create_at++] = c;
+    const auto create_json = json_with_uri(
+        utf8_literal("{\"name\":\"Rob\xE2\x80\x99s \\\"server\\\"\",\"icon\":\""), small_png,
+        utf8_literal("\",\"channels\":[],\"system_channel_id\":null,\"guild_template_code\":\"2TffvPucqHkN\"}"));
     check(account_guild_assets_submit(&details, &request, 221).ok() &&
-              same(capture.body, capture.body_bytes, {create_json, create_at}),
+              same(capture.body, capture.body_bytes, create_json),
           "account: a picked server icon travels as the new server's data URI");
     auto refused = request;
     refused.guild_id = 10;
@@ -786,9 +766,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_guild_assets_entry() noexcep
     test_protocol();
     test_images();
     test_account();
-    constexpr char pass[] = "PASS guild assets protocol, images and transport\n";
-    constexpr char fail[] = "FAIL guild assets protocol, images and transport\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "guild assets protocol, images and transport");
 }

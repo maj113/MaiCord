@@ -74,7 +74,8 @@ struct PixelReadback {
         bgra = description.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
         readable = SUCCEEDED(r.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped));
     }
-    u32 visible_difference(const PixelReadback& other, u32 threshold = 2) const noexcept {
+    // Pixels where some channel differs by 2 or more: brighter (+1), dimmer (-1) or either (0).
+    u32 visible_difference(const PixelReadback& other, i32 direction = 0) const noexcept {
         if (!readable || !other.readable || width != other.width || height != other.height)
             return 0;
         u32 changed = 0;
@@ -85,32 +86,13 @@ struct PixelReadback {
                 bool visible = false;
                 for (u32 c = 0; c < 3; ++c) {
                     const i32 difference = static_cast<i32>(a[x * 4 + c]) - b[x * 4 + c];
-                    visible = visible || difference >= static_cast<i32>(threshold) ||
-                              difference <= -static_cast<i32>(threshold);
+                    visible = visible || (direction >= 0 && difference >= 2) ||
+                              (direction <= 0 && difference <= -2);
                 }
-                if (visible)
-                    ++changed;
+                changed += visible ? 1u : 0u;
             }
         }
         return changed;
-    }
-    u32 directed_difference(const PixelReadback& other, bool brighter) const noexcept {
-        if (!readable || !other.readable || width != other.width || height != other.height)
-            return 0;
-        u32 count = 0;
-        for (u32 y = 0; y < height; ++y) {
-            const auto* a = static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch;
-            const auto* b = static_cast<const u8*>(other.mapped.pData) + y * other.mapped.RowPitch;
-            for (u32 x = 0; x < width; ++x) {
-                bool changed = false;
-                for (u32 channel = 0; channel < 3; ++channel) {
-                    const i32 difference = static_cast<i32>(a[x * 4 + channel]) - b[x * 4 + channel];
-                    changed |= brighter ? difference >= 2 : difference <= -2;
-                }
-                count += changed ? 1u : 0u;
-            }
-        }
-        return count;
     }
     bool independent_regions(const PixelReadback& other, u32* brighter, u32* dimmer) const noexcept {
         if (!readable || !other.readable || width != other.width || height != other.height || !brighter ||
@@ -145,13 +127,21 @@ struct PixelReadback {
             renderer.graphics.context->Unmap(staging, 0);
         com_release(staging);
     }
-    bool color(float x, float y, const float* expected) const noexcept {
-        if (!readable || x < 0 || x >= 1 || y < 0 || y >= 1)
+    bool read(float x, float y, u8* rgb) const noexcept {
+        if (!readable || !width || !height || !rgb || x < 0 || x >= 1 || y < 0 || y >= 1)
             return false;
         const u32 px = minimum(width - 1, static_cast<u32>(width * x));
         const u32 py = minimum(height - 1, static_cast<u32>(height * y));
         const auto* pixel = static_cast<const u8*>(mapped.pData) + py * mapped.RowPitch + px * 4;
-        const u8 rgb[]{pixel[bgra ? 2 : 0], pixel[1], pixel[bgra ? 0 : 2]};
+        rgb[0] = pixel[bgra ? 2 : 0];
+        rgb[1] = pixel[1];
+        rgb[2] = pixel[bgra ? 0 : 2];
+        return true;
+    }
+    bool color(float x, float y, const float* expected) const noexcept {
+        u8 rgb[3];
+        if (!read(x, y, rgb))
+            return false;
         for (u32 i = 0; i < 3; ++i) {
             const i32 want = static_cast<i32>(expected[i] * 255 + .5f);
             const i32 delta = static_cast<i32>(rgb[i]) - want;
@@ -162,17 +152,6 @@ struct PixelReadback {
                 return false;
             }
         }
-        return true;
-    }
-    bool read(float x, float y, u8* rgb) const noexcept {
-        if (!readable || !width || !height || !rgb || x < 0 || x >= 1 || y < 0 || y >= 1)
-            return false;
-        const u32 px = minimum(width - 1, static_cast<u32>(width * x));
-        const u32 py = minimum(height - 1, static_cast<u32>(height * y));
-        const auto* pixel = static_cast<const u8*>(mapped.pData) + py * mapped.RowPitch + px * 4;
-        rgb[0] = pixel[bgra ? 2 : 0];
-        rgb[1] = pixel[1];
-        rgb[2] = pixel[bgra ? 0 : 2];
         return true;
     }
     // Pixels of the region within `tolerance` of `ink` per channel; `canvas` (optional) counts near-white pixels.
@@ -253,6 +232,34 @@ void reference(const Theme& theme, float position, float* rgb) noexcept {
     for (u32 c = 0; c < 3; ++c)
         rgb[c] = a[c] + (b[c] - a[c]) * blend;
 }
+// Saves the renderer's paint stream, text and media counts so a probe can draw an isolated
+// stream; restores them, and redraws the retained scene under `theme`, when it goes out of scope.
+struct StreamSwap {
+    D3D11Renderer& r;
+    PaintStream saved;
+    RendererTextStorage* text;
+    u32 quads, batches;
+    PaintStream& isolated;
+    const Theme& theme;
+    bool plugin;
+    StreamSwap(D3D11Renderer& renderer, PaintStream& stream, const Theme& restore_theme,
+               bool clear_plugin = false) noexcept
+        : r(renderer), saved(renderer.paint_stream), text(renderer.content_text),
+          quads(renderer.media_quad_count), batches(renderer.media_batch_count), isolated(stream),
+          theme(restore_theme), plugin(clear_plugin) {}
+    ~StreamSwap() noexcept {
+        if (plugin)
+            renderer_clear_plugin_effect(&r);
+        r.paint_stream = saved;
+        r.content_text = text;
+        r.media_quad_count = quads;
+        r.media_batch_count = batches;
+        paint_stream_release(&isolated);
+        // Restore the original instance buffer before another retained
+        // present; otherwise this temporary one-quad stream could survive.
+        d3d11_renderer_draw_stream(&r, theme, true, true, nullptr);
+    }
+};
 bool shader_pixels(D3D11Renderer& r, const Theme& theme, float seconds, u64* hash = nullptr,
                    const Theme& restore_theme = kDefaultTheme, bool canvas = false,
                    u8 (*sampled)[3] = nullptr, ID3D11Texture2D** snapshot = nullptr) noexcept {
@@ -271,31 +278,11 @@ bool shader_pixels(D3D11Renderer& r, const Theme& theme, float seconds, u64* has
         paint_stream_release(&isolated);
         return false;
     }
-    const auto saved_paint = r.paint_stream;
-    auto* saved_text = r.content_text;
-    const u32 saved_quads = r.media_quad_count, saved_batches = r.media_batch_count;
     RendererTextStorage empty{};
+    StreamSwap restore{r, isolated, restore_theme};
     r.paint_stream = isolated;
     r.content_text = &empty;
     r.media_quad_count = r.media_batch_count = 0;
-    struct Restore {
-        D3D11Renderer& r;
-        const PaintStream& paint;
-        RendererTextStorage* text;
-        u32 quads, batches;
-        PaintStream& isolated;
-        const Theme& theme;
-        ~Restore() noexcept {
-            r.paint_stream = paint;
-            r.content_text = text;
-            r.media_quad_count = quads;
-            r.media_batch_count = batches;
-            paint_stream_release(&isolated);
-            // Restore the original instance buffer before another retained
-            // present; otherwise this temporary one-quad stream could survive.
-            d3d11_renderer_draw_stream(&r, theme, true, true, nullptr);
-        }
-    } restore{r, saved_paint, saved_text, saved_quads, saved_batches, isolated, restore_theme};
     if (!renderer_set_background_phase(&r, seconds) ||
         !d3d11_renderer_draw_stream(&r, theme, true, true, nullptr))
         return false;
@@ -346,41 +333,16 @@ bool overlay_surface_pixels(D3D11Renderer& r, bool solid = false) noexcept {
     PaintStream isolated{};
     if (!paint_stream_initialize(&isolated))
         return failure(65);
-    const auto original_paint = r.paint_stream;
-    auto* original_text = r.content_text;
-    const u32 original_media_count = r.media_quad_count, original_media_batches = r.media_batch_count;
     RendererTextStorage empty{};
+    StreamSwap restore{r, isolated, kDefaultTheme};
     r.content_text = &empty;
     r.media_quad_count = r.media_batch_count = 0;
-    struct Restore {
-        D3D11Renderer& r;
-        const PaintStream& paint;
-        RendererTextStorage* text;
-        u32 media_count, media_batches;
-        PaintStream& isolated;
-        ~Restore() noexcept {
-            r.paint_stream = paint;
-            r.content_text = text;
-            r.media_quad_count = media_count;
-            r.media_batch_count = media_batches;
-            paint_stream_release(&isolated);
-            d3d11_renderer_draw_stream(&r, kDefaultTheme, true, true, nullptr);
-        }
-    } restore{r, original_paint, original_text, original_media_count, original_media_batches, isolated};
     const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
     const UiRect cards[]{{32, 32, width * .4f, 192},
                          {width * .56f, height * .38f, width * .92f, height * .68f}};
     const Color border{.9f, .6f, .1f, 1};
     for (u32 mode = 0; mode < 2; ++mode) {
         Theme theme = mode ? kLightTheme : kDefaultTheme;
-        theme.background = background_theme_defaults();
-        theme.background.effect = BackgroundEffect::none;
-        theme.background.angle_degrees = 120;
-        if (solid) {
-            theme.background.color_count = 1;
-            theme.background.colors[0] = 0x15304f;
-            theme.background.colors[1] = theme.background.colors[2] = 0;
-        }
         for (u32 enabled = 0; enabled < 2; ++enabled) {
             theme.background = background_theme_defaults();
             theme.background.angle_degrees = 120;
@@ -724,7 +686,7 @@ bool effect_canvas_pixels(D3D11Renderer& r) noexcept {
             PixelReadback first{r, first_texture}, second{r, second_texture};
             com_release(first_texture);
             com_release(second_texture);
-            const u32 visible = first.directed_difference(baseline, mode != 2);
+            const u32 visible = first.visible_difference(baseline, mode != 2 ? 1 : -1);
             if (!rendered || !visible || !first.visible_difference(second) ||
                 foreground_key != content_text_theme_signature(theme)) {
                 log_u64(LogLevel::error, "probe", "background_canvas_effect_mode", mode);
@@ -755,26 +717,8 @@ bool plugin_effect_pixels(D3D11Renderer& r) noexcept {
     PaintStream isolated{};
     if (!paint_stream_initialize(&isolated))
         return failure(120);
-    const auto saved_paint = r.paint_stream;
-    auto* saved_text = r.content_text;
-    const u32 saved_quads = r.media_quad_count, saved_batches = r.media_batch_count;
     RendererTextStorage empty{};
-    struct Restore {
-        D3D11Renderer& r;
-        const PaintStream& paint;
-        RendererTextStorage* text;
-        u32 quads, batches;
-        PaintStream& isolated;
-        ~Restore() noexcept {
-            renderer_clear_plugin_effect(&r);
-            r.paint_stream = paint;
-            r.content_text = text;
-            r.media_quad_count = quads;
-            r.media_batch_count = batches;
-            paint_stream_release(&isolated);
-            d3d11_renderer_draw_stream(&r, kDefaultTheme, true, true, nullptr);
-        }
-    } restore{r, saved_paint, saved_text, saved_quads, saved_batches, isolated};
+    StreamSwap restore{r, isolated, kDefaultTheme, true};
     const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
     const Theme theme = kDefaultTheme;
     const UiRect canvas{width * .25f, height * .25f, width * .75f, height * .75f};

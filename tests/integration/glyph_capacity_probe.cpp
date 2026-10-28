@@ -46,14 +46,18 @@ bool run() noexcept {
     CHECK(s.control.command_committed==2048&&descriptor(s.control));
     const u32 counts[]{5,128,129,256,257,512,513,1024,1025,2048,5};
     u8 pixels[2][1024]{};u32 compared=0;test_write_text("{\"kind\":\"glyph_command_growth\",\"owner_bytes\":");test_write_u64(sizeof(GlyphAtlasGpu));test_write_text(",\"capacities\":[");
+    const auto read_back=[&](u32 side) noexcept {
+        s.context->CopyResource(s.staging,side?s.control.texture:s.gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};
+        if(FAILED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)))return false;
+        for(u32 y=0;y<32;++y)CopyMemory(pixels[side]+y*32,static_cast<const u8*>(mapped.pData)+y*mapped.RowPitch,32);
+        s.context->Unmap(s.staging,0);return true;
+    };
     for(u32 test=0;test<11;++test){const auto outline=shape(counts[test]);const UINT clear[4]{};
         auto* old_buffer=s.gpu.command_buffer;const u32 old_capacity=s.gpu.command_committed;
         for(u32 side=0;side<2;++side){auto& gpu=side?s.control:s.gpu;s.context->ClearUnorderedAccessViewUint(gpu.texture_uav,clear);
             CHECK(rasterize(&gpu,s.context,outline,bounds,allocation,8,1).ok()&&descriptor(gpu));
-            s.context->CopyResource(s.staging,gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};
-            CHECK(SUCCEEDED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)));
-            for(u32 y=0;y<32;++y)CopyMemory(pixels[side]+y*32,static_cast<const u8*>(mapped.pData)+y*mapped.RowPitch,32);
-            s.context->Unmap(s.staging,0);}
+            CHECK(read_back(side));
+        }
         if(counts[test]<=old_capacity)CHECK(s.gpu.command_buffer==old_buffer&&s.gpu.command_committed==old_capacity);
         else CHECK(s.gpu.command_buffer!=old_buffer&&s.gpu.command_committed>=counts[test]);
         for(u32 i=0;i<1024;++i){CHECK(pixels[0][i]==pixels[1][i]);++compared;}
@@ -69,10 +73,8 @@ bool run() noexcept {
     for(u32 side=0;side<2;++side){auto& gpu=side?s.control:s.gpu;const UINT clear[4]{};s.context->ClearUnorderedAccessViewUint(gpu.texture_uav,clear);
         allocation.x=1;CHECK(rasterize(&gpu,s.context,shape(5),bounds,allocation,8,1).ok());
         allocation.x=17;CHECK(rasterize(&gpu,s.context,shape(129),bounds,allocation,8,1).ok());
-        s.context->CopyResource(s.staging,gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};
-        CHECK(SUCCEEDED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)));
-        for(u32 y=0;y<32;++y)CopyMemory(pixels[side]+y*32,static_cast<const u8*>(mapped.pData)+y*mapped.RowPitch,32);
-        s.context->Unmap(s.staging,0);}
+        CHECK(read_back(side));
+    }
     CHECK(s.gpu.command_committed==256&&descriptor(s.gpu)&&pixels[0][4*32+4]==255&&pixels[0][4*32+20]==255);
     for(u32 i=0;i<1024;++i){CHECK(pixels[0][i]==pixels[1][i]);++compared;}
     glyph_atlas_gpu_release(&s.gpu);CHECK(!s.gpu.command_buffer&&!s.gpu.command_view&&!s.gpu.command_capacity&&!s.gpu.command_committed);
@@ -97,10 +99,7 @@ bool run() noexcept {
             }
             CHECK(batch.finish()&&!batch.pending()&&gpu.raster_count-raster_first==64);
             CHECK(side||mode==2?gpu.dispatch_count-dispatch_first==64:gpu.dispatch_count-dispatch_first<64);
-            s.context->CopyResource(s.staging,gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};
-            CHECK(SUCCEEDED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)));
-            for(u32 y=0;y<32;++y)CopyMemory(pixels[side]+y*32,static_cast<const u8*>(mapped.pData)+y*mapped.RowPitch,32);
-            s.context->Unmap(s.staging,0);
+            CHECK(read_back(side));
         }
         for(u32 i=0;i<1024;++i){CHECK(pixels[0][i]==pixels[1][i]);++compared;}
     }
@@ -119,10 +118,7 @@ bool run() noexcept {
             CHECK((side?rasterize(&gpu,s.context,outline,bounds,allocation,1,0):batch.add(outline,bounds,allocation,1,0)).ok());
         }
         CHECK(batch.finish()&&gpu.dispatch_count-before==(side?2u:1u));
-        s.context->CopyResource(s.staging,gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};
-        CHECK(SUCCEEDED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)));
-        for(u32 y=0;y<32;++y)CopyMemory(pixels[side]+y*32,static_cast<const u8*>(mapped.pData)+y*mapped.RowPitch,32);
-        s.context->Unmap(s.staging,0);
+        CHECK(read_back(side));
     }
     CHECK(pixels[0][33]==255&&pixels[0][49]==255);
     for(u32 i=0;i<1024;++i){CHECK(pixels[0][i]==pixels[1][i]);++compared;}

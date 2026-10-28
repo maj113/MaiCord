@@ -310,16 +310,10 @@ void application_private_channel_set_requests_mode(bool) noexcept {}
 bool application_message_action_bar_activate(const MessageActionBarHit&, bool) noexcept {
     return false;
 }
-bool application_message_forward_open(u64) noexcept {
-    return false;
-}
 bool application_guild_card_open(u64, UiRect) noexcept {
     return false;
 }
 bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
-    return false;
-}
-bool application_plugins_slot_action(u64, NativePluginSdkSlotTarget, u64) noexcept {
     return false;
 }
 bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRect) noexcept {
@@ -367,22 +361,10 @@ bool application_video_open_focused() noexcept {
 bool application_composer_fill_command(Utf8View) noexcept {
     return true;
 }
-bool begin_message_reply(u64) noexcept {
-    return false;
-}
 bool queue_message_reaction(u64, u32) noexcept {
     return false;
 }
-bool queue_message_reaction_emoji(u64, u64, Utf8View, bool) noexcept {
-    return false;
-}
-bool application_quick_switcher_input(UiInputKind, u32, bool) noexcept {
-    return false;
-}
 bool dismiss_popup() noexcept {
-    return false;
-}
-bool open_message_context_popup(u64, UiRect) noexcept {
     return false;
 }
 bool application_thread_browser_read_blocked() noexcept {
@@ -420,7 +402,6 @@ void application_thread_browser_close() noexcept {
 }
 void application_read_state_activity() noexcept {
 }
-void application_read_state_log_guild_unread(u64) noexcept {}
 bool synchronize_navigation_view() noexcept {
     return true;
 }

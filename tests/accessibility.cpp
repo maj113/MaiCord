@@ -17,7 +17,7 @@
 
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/uia.hpp"
-#include "maicord/ui/text_measure_cache.hpp"
+#include "fake_text_measure.hpp"
 
 namespace maicord::accessibility_test {
 namespace {
@@ -25,11 +25,7 @@ namespace {
 u32 failures;
 
 void check(bool valid, const char* name) noexcept {
-    if (valid)
-        return;
-    ++failures;
-    test_write_text("FAIL: ");
-    test_write_line(name);
+    test_check(&failures, valid, name);
 }
 
 bool equal(Utf8View text, Utf8View expected) noexcept {
@@ -610,10 +606,6 @@ u32 g_overlay_slots[8192];
 u32 g_overlay_keys[4096];
 constexpr u8 kOverlaySurface = 20;
 
-bool starts_with(Utf8View text, Utf8View prefix) noexcept {
-    return text.bytes >= prefix.bytes && bytes_equal(text.data, prefix.data, prefix.bytes);
-}
-
 bool descends(const UiAccessTree& tree, u32 node, u32 ancestor) noexcept {
     for (u32 current = node; current != kUiAccessNone && current < tree.count; current = tree.nodes[current].parent)
         if (current == ancestor)
@@ -625,7 +617,7 @@ bool descends(const UiAccessTree& tree, u32 node, u32 ancestor) noexcept {
 u32 find_node(const UiAccessTree& tree, u32 ancestor, UiAccessRole role, Utf8View prefix = {}) noexcept {
     for (u32 index = 1; index < tree.count; ++index)
         if (tree.nodes[index].role == role && descends(tree, index, ancestor) &&
-            starts_with(ui_access_name(tree, index), prefix))
+            utf8_starts_with(ui_access_name(tree, index), prefix))
             return index;
     return kUiAccessNone;
 }
@@ -656,9 +648,6 @@ u32 project_overlay(UiAccessTree* tree, const Scene& scene,
                                        : kUiAccessNone;
 }
 
-struct QuickFixture {
-    u32 calls;
-};
 bool quick_row(void*, u32 index, UiQuickSwitcherRow* row) noexcept {
     *row = {1000 + index, 71, 100 + index, 0, UiQuickSwitcherKind::text_channel, utf8_literal("release-planning"),
             utf8_literal("Native Lab"), utf8_literal("Channel"), {}, true};
@@ -670,8 +659,7 @@ bool always_current(void*) noexcept {
 
 void test_quick_switcher(UiAccessTree* tree) noexcept {
     static UiQuickSwitcherScene scene{};
-    QuickFixture fixture{};
-    UiQuickSwitcherSource source{&fixture, 100, 1, quick_row, always_current};
+    UiQuickSwitcherSource source{nullptr, 100, 1, quick_row, always_current};
     UiQuickSwitcherContent content{};
     content.phase = UiQuickSwitcherPhase::ready;
     content.revision = 1;
@@ -928,23 +916,10 @@ void test_call(UiAccessTree* tree) noexcept {
     ui_call_scene_release(&scene);
 }
 
-bool measure_text(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
-    const auto validation = utf8_validate(request.text);
-    if (!validation.valid || request.constraint.width <= 0)
-        return false;
-    const float natural = static_cast<float>(validation.codepoints) * 8;
-    const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
-    const u32 lines = request.no_wrap ? 1u : maximum(1u, (validation.codepoints + columns - 1) / columns);
-    *value = {{request.no_wrap ? natural : minimum(natural, request.constraint.width), static_cast<float>(lines) * 20},
-              16,
-              lines};
-    return true;
-}
-
 void test_forms(UiAccessTree* tree) noexcept {
     static UiTextMeasureRecord records[64]{};
     static UiTextMeasureCache cache{};
-    check(ui_text_measure_cache_initialize(&cache, {records, 64}, measure_text, nullptr), "form measure cache");
+    check(ui_text_measure_cache_initialize(&cache, {records, 64}, fake_text_measure<>, nullptr), "form measure cache");
     static TextFormScene form{};
     TextFormContent content{utf8_literal("Description"), utf8_literal("image.png"),
                             utf8_literal("Describe this attachment"), utf8_literal("Too long"),
@@ -1008,7 +983,7 @@ void test_viewer(UiAccessTree* tree) noexcept {
     const u32 image = find_node(*tree, dialog, UiAccessRole::image, utf8_literal("Image"));
     check(dialog != kUiAccessNone && equal(ui_access_name(*tree, dialog), utf8_literal("Image viewer")) &&
               (tree->nodes[dialog].state & ui_access_modal) && image != kUiAccessNone &&
-              starts_with(ui_access_help(*tree, image), utf8_literal("Zoom ")),
+              utf8_starts_with(ui_access_help(*tree, image), utf8_literal("Zoom ")),
           "media viewer: modal dialog around the image with its zoom");
     check(find_node(*tree, dialog, UiAccessRole::button, utf8_literal("Close image")) != kUiAccessNone &&
               find_node(*tree, dialog, UiAccessRole::button, utf8_literal("Zoom in")) != kUiAccessNone &&
@@ -1550,9 +1525,8 @@ struct Probe {
     HWND window;
     UiaProviderHost host;
     HostContext context;
-    bool name_ok, child_ok, invoke_ok, created;
+    bool name_ok, child_ok, invoke_ok;
     DWORD window_thread;
-    HRESULT failure;
 };
 
 Probe* g_probe;
@@ -1598,7 +1572,6 @@ DWORD WINAPI probe_client(void* parameter) noexcept {
                                          reinterpret_cast<void**>(&invoke));
     if (SUCCEEDED(hr) && invoke)
         probe.invoke_ok = SUCCEEDED(invoke->Invoke());
-    probe.failure = hr;
     if (invoke)
         invoke->Release();
     if (button)

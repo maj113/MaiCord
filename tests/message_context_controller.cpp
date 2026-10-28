@@ -293,14 +293,12 @@ void test_message_context_controller_extensions(void (*check)(bool, const char*)
     reject_extra({&invalid, 1}, "message context extras: one hundred twenty-nine byte label rejects atomically");
     invalid = extras[0]; invalid.action = 0;
     reject_extra({&invalid, 1}, "message context extras: zero action rejects atomically");
-    invalid.action = static_cast<u32>(MessageContextAction::edit_message);
-    reject_extra({&invalid, 1}, "message context extras: absent builtin action cannot be impersonated");
-    invalid.action = static_cast<u32>(MessageContextAction::pin_message);
-    reject_extra({&invalid, 1}, "message context extras: absent pin action cannot be impersonated");
-    invalid.action = static_cast<u32>(MessageContextAction::unpin_message);
-    reject_extra({&invalid, 1}, "message context extras: absent unpin action cannot be impersonated");
-    invalid.action = static_cast<u32>(MessageContextAction::mark_unread);
-    reject_extra({&invalid, 1}, "message context extras: absent Mark unread action cannot be impersonated");
+    constexpr MessageContextAction absent_actions[]{MessageContextAction::edit_message, MessageContextAction::pin_message,
+                                                    MessageContextAction::unpin_message, MessageContextAction::mark_unread};
+    for (const auto action : absent_actions) {
+        invalid.action = static_cast<u32>(action);
+        reject_extra({&invalid, 1}, "message context extras: absent builtin action cannot be impersonated");
+    }
     extras[1].action = extras[0].action;
     reject_extra({extras, 2}, "message context extras: duplicate action IDs reject atomically");
     extras[1].action = 1001;

@@ -1,7 +1,5 @@
 #pragma once
 
-#include "maicord/render/d3d11_renderer.hpp"
-
 namespace maicord {
 // A separate native executable links shipping content input, the shared link
 // owner, thread membership and mutation notices. Only account transport,

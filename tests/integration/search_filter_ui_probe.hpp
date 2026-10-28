@@ -70,38 +70,6 @@ struct Fixture {
     UiSearchContent content;
     UiResolvedThemeStyles styles;
 };
-inline void failure_state(const D3D11Renderer& r, const Fixture& f, u32 sample,
-                          const UiShellHeaderGeometry& header) noexcept {
-    failure_scalar("sample", sample);
-    failure_scalar("dpi", r.dpi);
-    failure_scalar("shell_width", static_cast<u32>(f.shell.width));
-    failure_scalar("shell_height", static_cast<u32>(f.shell.height));
-    failure_scalar("title_width", static_cast<u32>(ui_rect_width(header.title)));
-    failure_scalar("search_field_width", static_cast<u32>(ui_rect_width(header.search_field)));
-    failure_scalar("scene_active", f.scene.active);
-    failure_scalar("scene_current", ui_search_scene_current(f.scene));
-    failure_scalar("scene_revision", f.scene.revision);
-    failure_scalar("scene_widgets", f.scene.widgets.count);
-    failure_scalar("source_revision", f.choices.revision);
-    failure_scalar("visible_choices", f.scene.choice_count);
-    failure_scalar("result_resolves", f.resolves);
-    failure_scalar("glyph_ready", r.glyph_text.ready);
-    failure_scalar("has_state", r.chat_state != nullptr);
-    failure_scalar("has_navigation", r.navigation_view != nullptr);
-    if (r.content_text) {
-        failure_scalar("text_error", static_cast<u32>(r.content_text->last_error));
-        failure_scalar("shape_error", static_cast<u32>(r.content_text->last_shape_error));
-        failure_scalar("native_error", static_cast<u32>(r.content_text->native_error));
-        failure_scalar("text_quads", r.content_text->quad_count);
-        failure_scalar("text_batches", r.content_text->batch_count);
-        failure_scalar("text_quad_capacity", r.content_text->quad_capacity);
-        failure_scalar("text_batch_capacity", r.content_text->batch_capacity);
-        failure_scalar("text_rejected", r.content_text->rejected);
-    }
-    failure_scalar("paint_quads", r.paint_stream.count);
-    failure_scalar("paint_rejected", r.paint_stream.rejected);
-    failure_scalar("frame_draws", r.draw_calls_last_frame);
-}
 template <u32 Size> inline Utf8View own(char (&destination)[Size], Utf8View source) noexcept {
     if (source.bytes > Size)
         return {};
@@ -477,18 +445,12 @@ inline bool search_filter_ui_probe(D3D11Renderer& renderer,
         ++f.content.revision;
         if (!require(
                 ui_search_scene_update(&f.scene, &f.results, &f.content, viewport, header.title, &header),
-                200 + sample)) {
-            failure_state(renderer, f, sample, header);
+                200 + sample))
             return false;
-        }
-        if (!require(renderer_rebuild_content_text(&renderer, theme), 210 + sample)) {
-            failure_state(renderer, f, sample, header);
+        if (!require(renderer_rebuild_content_text(&renderer, theme), 210 + sample))
             return false;
-        }
-        if (!require(probe_present(&renderer, theme), 220 + sample)) {
-            failure_state(renderer, f, sample, header);
+        if (!require(probe_present(&renderer, theme), 220 + sample))
             return false;
-        }
         const auto selected = static_cast<u32>(f.choices.selected);
         UiRect selected_rect{}, selected_clip{};
         if (!require(f.scene.choice_total == 10 && f.scene.choice_count >= 2 && f.scene.choice_count < 10 &&
@@ -587,10 +549,8 @@ inline bool search_filter_ui_probe(D3D11Renderer& renderer,
                                                 &header) &&
                              renderer_rebuild_content_text(&renderer, theme) && probe_present(&renderer, theme) &&
                              search_layer_whole(renderer, f.scene, theme),
-                         160 + sample * 2 + blink)) {
-                failure_state(renderer, f, sample, header);
+                         160 + sample * 2 + blink))
                 return false;
-            }
         }
         if (sample == 0 || sample == 3) {
             if (!require(probe_present(&renderer, theme) && warm(renderer, f, theme, viewport, header),

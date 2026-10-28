@@ -34,9 +34,6 @@ bool freed(const void* address) noexcept {
     MEMORY_BASIC_INFORMATION region{};
     return address&&VirtualQuery(address,&region,sizeof(region))==sizeof(region)&&region.State==MEM_FREE;
 }
-void measurement(const char* name,u64 value) noexcept {
-    test_write_metric(name, value);
-}
 
 }
 void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noexcept {
@@ -93,10 +90,10 @@ void test_notification_sound_assets(void(*check)(bool,const char*) noexcept) noe
     }
     check(regions&&logical_bytes==72960&&committed_bytes>=logical_bytes&&reserved_bytes>=committed_bytes&&reserved_bytes<=128*1024,
         "sound assets: both decoded original clips stay within the bounded shared VM bank budget");
-    measurement("sound_asset_bank_metadata_bytes=",sizeof(bank));
-    measurement("sound_asset_original_pair_pcm_logical_bytes=",logical_bytes);
-    measurement("sound_asset_original_pair_vm_committed_bytes=",committed_bytes);
-    measurement("sound_asset_original_pair_vm_reserved_bytes=",reserved_bytes);
+    test_write_metric("sound_asset_bank_metadata_bytes=",sizeof(bank));
+    test_write_metric("sound_asset_original_pair_pcm_logical_bytes=",logical_bytes);
+    test_write_metric("sound_asset_original_pair_vm_committed_bytes=",committed_bytes);
+    test_write_metric("sound_asset_original_pair_vm_reserved_bytes=",reserved_bytes);
     bool volumes=true;
     for(u32 percent=0;percent<=200;++percent){
         notification_sound_assets_volume(&bank,percent);float gain=-1,clamped=-1;

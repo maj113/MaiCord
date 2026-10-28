@@ -59,6 +59,17 @@ bool resolve_picker(void* opaque, u32 index, UiMediaPickerItem* item) noexcept {
     item->regional_flag = fixture.regional_flag;
     return true;
 }
+UiMediaPickerContent picker_content(UiMediaPickerKind kind, u64 scope = 7, u64 query = 1) noexcept {
+    UiMediaPickerContent content{};
+    content.account_scope = scope;
+    content.query_generation = query;
+    content.revision = 1;
+    content.kind = kind;
+    content.phase = UiMediaPickerPhase::ready;
+    content.available_tabs = 7;
+    content.edit.active = true;
+    return content;
+}
 void test_picker_scrollbars(void (*check)(bool, const char*) noexcept) noexcept {
     const UiRect viewport{0, 0, 400, 200};
     const auto top = ui_scrollbar_geometry(viewport, 0, 800);
@@ -97,14 +108,7 @@ void test_picker_scrollbars(void (*check)(bool, const char*) noexcept) noexcept 
     UiMediaPickerScene scene{};
     PickerFixture fixture{0, 120, 100, UiMediaPickerItemKind::gif, false};
     UiMediaPickerSource source{&fixture, 3, 7, fixture.count, 1, {}, resolve_picker};
-    UiMediaPickerContent content{};
-    content.account_scope = 3;
-    content.query_generation = 7;
-    content.revision = 1;
-    content.kind = UiMediaPickerKind::gif;
-    content.phase = UiMediaPickerPhase::ready;
-    content.available_tabs = 7;
-    content.edit.active = true;
+    auto content = picker_content(UiMediaPickerKind::gif, 3, 7);
     const UiRect pane{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     check(ui_media_picker_scene_update(&scene, &source, &content, pane, anchor) &&
               ui_media_picker_scene_scrollbar(scene).visible &&
@@ -161,14 +165,7 @@ void test_picker_emoji(void (*check)(bool, const char*) noexcept) noexcept {
     fixture.missing_asset = true;
     fixture.glyph = utf8_literal("😀");
     UiMediaPickerSource source{&fixture, 3, 7, fixture.count, 1, {}, resolve_picker};
-    UiMediaPickerContent content{};
-    content.account_scope = 3;
-    content.query_generation = 7;
-    content.revision = 1;
-    content.kind = UiMediaPickerKind::emoji;
-    content.phase = UiMediaPickerPhase::ready;
-    content.available_tabs = 7;
-    content.edit.active = true;
+    auto content = picker_content(UiMediaPickerKind::emoji, 3, 7);
     const UiRect pane{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     check(
         ui_media_picker_scene_update(&scene, &source, &content, pane, anchor) && scene.columns == 10 &&
@@ -265,14 +262,7 @@ void test_picker_rail_and_scroll_reuse(void (*check)(bool, const char*) noexcept
     fixture.missing_asset = true;
     fixture.glyph = utf8_literal("😀");
     UiMediaPickerSource source{&fixture, 3, 7, fixture.count, 1, {}, resolve_picker};
-    UiMediaPickerContent content{};
-    content.account_scope = 3;
-    content.query_generation = 7;
-    content.revision = 1;
-    content.kind = UiMediaPickerKind::emoji;
-    content.phase = UiMediaPickerPhase::ready;
-    content.available_tabs = 7;
-    content.edit.active = true;
+    auto content = picker_content(UiMediaPickerKind::emoji, 3, 7);
     const UiRect pane{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     bool valid = ui_media_picker_scene_update(&scene, &source, &content, pane, anchor);
     const auto bank = scene.storage.arena.base;
@@ -375,14 +365,7 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     PickerFixture fixture{0, 65'536, 10'000, UiMediaPickerItemKind::gif, false};
     fixture.favoritable = true;
     UiMediaPickerSource source{&fixture, 3, 7, fixture.count, 1, {}, resolve_picker};
-    UiMediaPickerContent content{};
-    content.account_scope = 3;
-    content.query_generation = 7;
-    content.revision = 1;
-    content.kind = UiMediaPickerKind::gif;
-    content.phase = UiMediaPickerPhase::ready;
-    content.available_tabs = 7;
-    content.edit.active = true;
+    auto content = picker_content(UiMediaPickerKind::gif, 3, 7);
     const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     UiRect button{};
     check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&
@@ -605,14 +588,8 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     UiMediaPickerSection sections[]{{1, 0, 128, utf8_literal("Guild stickers"), true},
                                     {2, 128, 128, utf8_literal("Sticker pack"), true}};
     UiMediaPickerSource source{&fixture, 9, 4, fixture.count, 1, {sections, 2}, resolve_picker};
-    UiMediaPickerContent content{};
-    content.account_scope = 9;
-    content.query_generation = 4;
-    content.revision = 1;
-    content.kind = UiMediaPickerKind::sticker;
-    content.phase = UiMediaPickerPhase::ready;
-    content.available_tabs = 7;
-    content.edit.active = content.edit.focused = true;
+    auto content = picker_content(UiMediaPickerKind::sticker, 9, 4);
+    content.edit.focused = true;
     content.placeholder = utf8_literal("Search stickers");
     const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     const auto defaults = ui_media_picker_style();
@@ -863,17 +840,6 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
           "fabricated requests");
     paint_stream_release(&paint);
     ui_media_picker_scene_release(&scene);
-}
-UiMediaPickerContent picker_content(UiMediaPickerKind kind, u64 scope = 7, u64 query = 1) noexcept {
-    UiMediaPickerContent content{};
-    content.account_scope = scope;
-    content.query_generation = query;
-    content.revision = 1;
-    content.kind = kind;
-    content.phase = UiMediaPickerPhase::ready;
-    content.available_tabs = 7;
-    content.edit.active = true;
-    return content;
 }
 void test_picker_resize(void (*check)(bool, const char*) noexcept) noexcept {
     UiMediaPickerScene scene{};
@@ -1143,16 +1109,9 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
     UiMediaPickerScene scene{};
     PickerFixture fixture{0, 65'536, 10, UiMediaPickerItemKind::category, false};
     UiMediaPickerSource source{&fixture, 7, 1, fixture.count, 1, {}, resolve_picker};
-    UiMediaPickerContent content{};
-    content.account_scope = 7;
-    content.query_generation = 1;
-    content.revision = 1;
-    content.kind = UiMediaPickerKind::gif;
-    content.phase = UiMediaPickerPhase::ready;
-    content.available_tabs = 7;
+    auto content = picker_content(UiMediaPickerKind::gif);
     content.placeholder = utf8_literal("Search GIFs");
     content.status = utf8_literal("Browse categories");
-    content.edit.active = true;
     const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     check(!scene.storage.arena.base &&
               ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&

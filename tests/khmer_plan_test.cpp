@@ -1,13 +1,11 @@
 #include "maicord/text/khmer_plan.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 namespace maicord {namespace {
 #include "generated/khmer_plan_fixture.inc"
 u32 checks=0;
-void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&written,nullptr);}
-void number(u64 v) noexcept {char b[32];u32 n=0;do{b[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);while(n){char c[]{b[--n],0};print(c);}}
 void store16(u8* p,u16 v) noexcept {p[0]=static_cast<u8>(v>>8);p[1]=static_cast<u8>(v);}
-bool fail(u32 line) noexcept {print("FAIL Khmer plan line ");number(line);print("\n");return false;}
+bool fail(u32 line) noexcept {test_write_text("FAIL Khmer plan line ");test_write_u64(line);test_write_text("\n");return false;}
 #define CHECK(x) do {++checks;if(!(x))return fail(__LINE__);} while(false)
 bool untouched(const SfntLookupStep (&steps)[32]) noexcept {
     for(const auto& s:steps)if(s.lookup!=65535||s.feature_mask!=255||s.stage!=255)return false;return true;
@@ -88,37 +86,8 @@ bool units() noexcept {
         for(u64 budget=0;budget<full.operations;++budget){poison(steps);
             CHECK(sfnt_khmer_lookup_plan(layout,{},{scratch,8},{steps,32},&result,budget)==SfntStatus::resource_limit&&result.operations<=budget&&untouched(steps));}
     }
-    print("PASS Khmer schedule, conditional union, required features, variation, isolation and atomic limits; checks=");number(checks);print("\n");return true;
+    test_write_text("PASS Khmer schedule, conditional union, required features, variation, isolation and atomic limits; checks=");test_write_u64(checks);test_write_text("\n");return true;
 }
-bool plans(ConstSlice<u8> bytes) noexcept {
-    SfntFace face{};CHECK(sfnt_open(bytes,0,&face)==SfntStatus::ok);
-    u8 scratch[4096];SfntLookupStep steps[8192];
-    for(u32 kind=0;kind<2;++kind){ConstSlice<u8> table{};SfntLayout layout{};
-        const auto status=sfnt_table(face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&table);
-        if(status==SfntStatus::missing_table)continue;CHECK(status==SfntStatus::ok);
-        CHECK(sfnt_layout_open(table,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout)==SfntStatus::ok);
-        for(u32 mode=0;mode<2;++mode){SfntLookupPlanResult result{};
-            CHECK(sfnt_khmer_lookup_plan(layout,{},{scratch,4096},{steps,8192},&result)==SfntStatus::ok);
-            print("{\"kind\":");number(kind);print(",\"independent\":");number(mode);print(",\"steps\":[");
-            for(u32 i=0;i<result.lookup_count;++i){if(i)print(",");print("[");number(steps[i].lookup);print(",");number(steps[i].feature_mask);print(",");number(steps[i].stage);print("]");}
-            print("]}\n");
-        }
-    }return true;
-}
-int run() noexcept {
-    const wchar_t* command=GetCommandLineW();bool quote=false;
-    while(*command){if(*command=='"')quote=!quote;else if(!quote&&(*command==' '||*command=='\t'))break;++command;}
-    while(*command==' '||*command=='\t')++command;if(!*command)return units()?0:1;
-    wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;
-    while(*command&&!(quote?*command=='"':(*command==' '||*command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}
-    if(quote){if(*command!='"')return 2;++command;}while(*command==' '||*command=='\t')++command;if(*command||!n)return 2;path[n]=0;
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
-    if(file==INVALID_HANDLE_VALUE)return 2;Win32LargeInteger size{};
-    if(!GetFileSizeEx(file,size.native())||size.QuadPart<12||size.QuadPart>0xffffffffll){CloseHandle(file);return 2;}
-    HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);
-    const auto* bytes=mapping?static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0)):nullptr;
-    const bool ok=bytes&&plans({bytes,static_cast<u32>(size.QuadPart)});
-    if(bytes)UnmapViewOfFile(bytes);if(mapping)CloseHandle(mapping);CloseHandle(file);return ok?0:3;
-}
+int run() noexcept {return units()?0:1;}
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_khmer_plan_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

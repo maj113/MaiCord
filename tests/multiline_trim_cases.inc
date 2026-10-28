@@ -50,20 +50,6 @@ bool compare_multiline_plan(DWriteTextSystem system,Utf8View text,ConstSlice<Tex
     }
     CHECK(source==reference_output.text.cluster_count);return true;
 }
-// Audit the complete multi-line requirement, including cases not yet native.
-bool inspect_multiline_trim(DWriteTextSystem system,Utf8View,float width,float height,TextWrapping wrapping) noexcept {
-    IDWriteTextLayout* layout=nullptr;
-    CHECK(SUCCEEDED(owner.factory->CreateTextLayout(utf16,reference_output.text.cluster_count,system.format,width,height,&layout)));
-    struct Release {IDWriteTextLayout*& value;~Release() noexcept {com_release(value);}} release{layout};
-    CHECK(SUCCEEDED(layout->SetWordWrapping(wrapping==TextWrapping::wrap?DWRITE_WORD_WRAPPING_WRAP:DWRITE_WORD_WRAPPING_NO_WRAP)));
-    IDWriteInlineObject* sign=nullptr;CHECK(SUCCEEDED(owner.factory->CreateEllipsisTrimmingSign(layout,&sign)));
-    const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER,0,0};const auto status=layout->SetTrimming(&trimming,sign);com_release(sign);CHECK(SUCCEEDED(status));
-    DWRITE_LINE_METRICS lines[256]{};u32 count=0;CHECK(SUCCEEDED(layout->GetLineMetrics(lines,256,&count)));
-    print("reference lines length/trailing/newline/height/baseline/trimmed=");
-    for(u32 i=0;i<count;++i){const auto& l=lines[i];print("[");number(l.length);print(",");number(l.trailingWhitespaceLength);print(",");number(l.newlineLength);print(",");real(l.height);print(",");real(l.baseline);print(",");number(l.isTrimmed);print("]");}print("\n");
-    const auto& out=reference_output.text;print("reference metrics width/extent/height/lines=");real(out.width);print("/");real(out.width_including_trailing_whitespace);print("/");real(out.height);print("/");number(out.line_count);print("\nreference runs source/count/glyphs/x/y=");
-    for(u32 i=0;i<out.run_count;++i){const auto& r=out.runs[i];print("[");number(r.text_position);print(",");number(r.text_length);print(",");number(r.glyph_count);print(",");real(r.baseline_x);print(",");real(r.baseline_y);print("]");}print("\n");return true;
-}
 bool native_multiline_trim_corpus(DWriteTextSystem system) noexcept {
     const Utf8View texts[]{utf8_literal("AV abcdefghijklmnopqrstuvwxyz\nTo abcdefghijklmnopqrstuvwxyz"),
         utf8_literal("AV office ffi To office ffi AV office ffi To office ffi"),
@@ -101,11 +87,6 @@ bool native_multiline_trim_corpus(DWriteTextSystem system) noexcept {
         auto plan_system=system;plan_system.independent_letters=mode!=0;
         const bool plan_ok=!multiline_plan_profiles||compare_multiline_plan(plan_system,text,styles,width,height,wrapping);if(!plan_ok)++plan_failures;
         if(multiline_plan_profiles?!plan_ok:!exact){print("multiline style part=");number(part);print("\n");if(multiline_hit_profiles){print("multiline hit pattern=");number(pattern);print("\n");}print("multiline sample/mode/flag/wrap/width/height/em/error=");number(sample);print("/");number(mode);print("/");number(flag);print("/");number(wrap);print("/");real(width);print("/");real(height);print("/");real(system.em_size);print("/");number(static_cast<u32>(a.error));print("\n");}
-        if(!multiline_quick&&!multiline_plan_profiles&&!multiline_hit_profiles&&sample<3&&!mode&&!flag&&system.em_size==14&&width==system.em_size*5){
-            print("audit sample/wrap/height=");number(sample);print("/");number(wrap);print("/");real(height);print("\n");
-            // The native call may reuse the UTF-16 scratch. Restore reference text.
-            CHECK(text_shape_utf8_styled(&reference,text,styles,width,height,{utf16,256},&reference_output.text,wrapping,TextOverflow::ellipsis).ok());
-            CHECK(inspect_multiline_trim(reference,text,width,height,wrapping));}
     }
     if(!multiline_plan_profiles){
         const auto text=texts[0];native.independent_letters=reference.independent_letters=false;

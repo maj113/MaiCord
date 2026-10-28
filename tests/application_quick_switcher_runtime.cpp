@@ -58,9 +58,6 @@ TextFormSurface form_surface_fixture;
 void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
-bool same(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
 void modifiers(bool control = false, bool alt = false, bool shift = false) noexcept {
     BYTE clean[256]{};
     clean[VK_CONTROL] = control ? 0x80 : 0;
@@ -121,22 +118,22 @@ void picker() noexcept {
                         (scene = g_app.renderer.quick_switcher_scene) != nullptr;
     check(opened && scene->content->picker && scene->accepted_count == 2 && !scene->content->can_confirm &&
               scene->accepted[0].user_id == 4 && scene->accepted[1].user_id == 5 &&
-              same(scene->content->hint, utf8_literal("You can add 9 more friends.")),
+              utf8_equal(scene->content->hint, utf8_literal("You can add 9 more friends.")),
           "Picker: new message lists every friend by name with nine places");
     if (!opened)
         return;
     key(VK_RETURN);
     check(checked_count() == 1 && scene->content->checked[0] == 4 && scene->content->can_confirm &&
-              same(scene->content->action, utf8_literal("Create DM")) && application_quick_switcher_active(),
+              utf8_equal(scene->content->action, utf8_literal("Create DM")) && application_quick_switcher_active(),
           "Picker: Enter toggles the highlighted friend and keeps the picker open");
     key(VK_DOWN);
     key(VK_RETURN);
-    check(checked_count() == 2 && same(scene->content->action, utf8_literal("Create group DM")) &&
-              same(scene->content->status, utf8_literal("2 selected")) &&
-              same(scene->content->hint, utf8_literal("You can add 7 more friends.")),
+    check(checked_count() == 2 && utf8_equal(scene->content->action, utf8_literal("Create group DM")) &&
+              utf8_equal(scene->content->status, utf8_literal("2 selected")) &&
+              utf8_equal(scene->content->hint, utf8_literal("You can add 7 more friends.")),
           "Picker: a second friend turns the action into a group DM");
     key(VK_RETURN);
-    check(checked_count() == 1 && same(scene->content->action, utf8_literal("Create DM")),
+    check(checked_count() == 1 && utf8_equal(scene->content->action, utf8_literal("Create DM")),
           "Picker: toggling again removes the friend");
     check(query(utf8_literal("bob")) && scene->accepted_count == 1, "Picker: search narrows friends");
     key(VK_RETURN);
@@ -149,25 +146,25 @@ void picker() noexcept {
           "Picker: Ctrl Enter creates the group from every chosen friend");
     const bool dm = application_quick_switcher_open_picker(201) && (scene = g_app.renderer.quick_switcher_scene);
     check(dm && scene->accepted_count == 2 && !scene->accepted[0].enabled &&
-              same(scene->accepted[0].detail, utf8_literal("Already in the group")) && scene->accepted[1].enabled &&
-              same(scene->content->hint, utf8_literal("You can add 8 more friends.")),
+              utf8_equal(scene->accepted[0].detail, utf8_literal("Already in the group")) && scene->accepted[1].enabled &&
+              utf8_equal(scene->content->hint, utf8_literal("You can add 8 more friends.")),
           "Picker: current DM members are shown but cannot be chosen");
     key(VK_RETURN);
     const u32 adds = group_adds;
     check(checked_count() == 1 && scene->content->checked[0] == 5 &&
-              same(scene->content->action, utf8_literal("Create group DM")),
+              utf8_equal(scene->content->action, utf8_literal("Create group DM")),
           "Picker: adding to a DM starts a group");
     key(VK_RETURN, true);
     check(group_adds == adds + 1 && group_channel == 201 && group_count == 1 && group_people[0] == 5,
           "Picker: confirmation adds the chosen friend to the conversation");
     const bool group = application_quick_switcher_open_picker(202) && (scene = g_app.renderer.quick_switcher_scene);
-    check(group && same(scene->content->hint, utf8_literal("You can add 1 more friend.")), "Picker: one place left");
+    check(group && utf8_equal(scene->content->hint, utf8_literal("You can add 1 more friend.")), "Picker: one place left");
     key(VK_RETURN);
     key(VK_DOWN);
     key(VK_RETURN);
     check(checked_count() == 1 && scene->content->checked[0] == 4 &&
-              same(scene->content->hint, utf8_literal("Groups are limited to 10 members.")) &&
-              same(scene->content->action, utf8_literal("Add")),
+              utf8_equal(scene->content->hint, utf8_literal("Groups are limited to 10 members.")) &&
+              utf8_equal(scene->content->action, utf8_literal("Add")),
           "Picker: selection stops at the group limit");
     application_quick_switcher_close();
     const u64 full[] = {6, 7, 8, 9, 10, 11, 12, 13, 14};
@@ -265,16 +262,16 @@ void run() noexcept {
           "Quick runtime: empty query uses successful same account navigation recency");
     underlying_input = 0;
     check(route_application_input(UiInputKind::character, 'x') &&
-              same(message_composer_text(*application_quick_switcher_edit_model()), utf8_literal("x")) &&
+              utf8_equal(message_composer_text(*application_quick_switcher_edit_model()), utf8_literal("x")) &&
               route_application_input(UiInputKind::key_down, VK_F6) &&
               route_application_input(UiInputKind::key_up, VK_F6) &&
               route_application_input(UiInputKind::system_character, 'q') && !underlying_input &&
-              same(message_composer_text(g_app.message_composer), utf8_literal("Retained draft")),
+              utf8_equal(message_composer_text(g_app.message_composer), utf8_literal("Retained draft")),
           "Quick runtime: modal query and unhandled keys cannot edit underlying composer");
     check(route_application_input(UiInputKind::character, 0xD83D) &&
               route_application_input(UiInputKind::character, 0xDE80) &&
-              same(message_composer_text(*application_quick_switcher_edit_model()),
-                   utf8_literal("x\xF0\x9F\x9A\x80")) &&
+              utf8_equal(message_composer_text(*application_quick_switcher_edit_model()),
+                         utf8_literal("x\xF0\x9F\x9A\x80")) &&
               !underlying_input,
           "Quick runtime: supplementary text stays in the modal UTF8 document");
     const u16 newline[] = {10};
@@ -483,9 +480,6 @@ bool application_navigate_notification(u64 channel_id, u64) noexcept {
     ++state.selection_revision;
     application_quick_switcher_note_channel(channel_id);
     return true;
-}
-bool application_message_forward_active() noexcept {
-    return false;
 }
 bool application_message_forward_input(UiInputKind, u32, bool) noexcept {
     return false;

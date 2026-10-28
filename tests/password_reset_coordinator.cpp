@@ -18,48 +18,9 @@ struct Fixture {
 #include "user_auth_coordinator_test_support.inc"
 }
 
-namespace maicord {
-// The production size-query entry shares the REST object with the transport.
-// This fixture never measures that owner; keep its unused link boundary mocked
-// so the real networking implementation cannot be pulled into the test.
-u32 rest_client_user_auth_runtime_bytes(u32) noexcept { return 0; }
-u32 rest_client_user_auth_capacity_runtime_bytes(u32, u32) noexcept { return 0; }
-RestClientResult rest_client_start_user_auth_capacity(RestClient* client, u32 response, u32 capacity) noexcept {
-    reset_coordinator_test::fixture.request_capacity = capacity;
-    return rest_client_start_user_auth(client, response);
-}
-RestClientResult rest_client_start_user_auth(RestClient* client, u32) noexcept {
-    return reset_coordinator_test::start_client(client);
-}
-RestClientSubmitResult rest_client_submit_user_auth(
-    RestClient*, const RestUserAuthRequest& value) noexcept {
-    using namespace reset_coordinator_test;
-    if (fixture.fail_submit) return {RestClientSubmitError::busy};
-    if (!value.body || !value.body->locked || value.body->bytes > fixture.request_capacity || !secure_buffer_assign(&fixture.request, secure_buffer_view(*value.body)).ok())
-        return {RestClientSubmitError::invalid_input};
-    return record_request(value);
-}
-RestClientResult rest_client_status(const RestClient*) noexcept {
-    return reset_coordinator_test::client_status();
-}
-RestClientTakeResult rest_client_consume_user_auth_response(
-    RestClient*, RestClientResponse* response,
-    RestUserAuthConsumeFunction consume, void* context) noexcept {
-    return reset_coordinator_test::consume_response(response, consume, context);
-}
-HANDLE rest_client_notification_handle(const RestClient*) noexcept {
-    ++reset_coordinator_test::fixture.notification_reads;
-    return reinterpret_cast<HANDLE>(1);
-}
-RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
-                                            RestClientResponse* receipt) noexcept {
-    reset_coordinator_test::stop_receipt(receipt);
-    return rest_client_stop(client, timeout_ms);
-}
-RestClientResult rest_client_stop(RestClient* client, u32) noexcept {
-    return reset_coordinator_test::stop_client(client);
-}
-}
+#define MAICORD_AUTH_TEST_NS reset_coordinator_test
+#include "user_auth_coordinator_test_link.inc"
+#undef MAICORD_AUTH_TEST_NS
 
 namespace maicord::reset_coordinator_test {
 constexpr auto initial = utf8_literal(R"({"token":"reset-link","password":"new-password","source":"/reset"})");
@@ -86,24 +47,16 @@ void deliver(UserAuthCoordinator* coordinator, UserAuthCoordinatorEvent* event, 
     response(status, request_id ? request_id : fixture.request_id, retry_at, error);
     user_auth_coordinator_pump(coordinator, event);
 }
-void diagnostic_number(const char* name, u32 value) noexcept {
-    DWORD written = 0; u32 name_bytes = 0; while (name[name_bytes]) ++name_bytes;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), name, name_bytes, &written, nullptr);
-    char digits[10]{}; u32 count = 0;
-    do { digits[count++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
-    for (u32 i = 0; i < count / 2; ++i) { const char a = digits[i]; digits[i] = digits[count - i - 1]; digits[count - i - 1] = a; }
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), digits, count, &written, nullptr);
-}
 bool start_fixture(UserAuthCoordinator* coordinator) noexcept {
     const auto result = user_auth_coordinator_start_reset(coordinator);
     const auto* runtime = runtime_of(coordinator);
     if (result.ok() && runtime && runtime->secrets.data && runtime->secrets.locked) return true;
     check(false, "reset coordinator: actual reset owner starts");
-    diagnostic_number("start_error=", static_cast<u32>(result.error));
-    diagnostic_number(" native_error=", result.native_error);
-    diagnostic_number(" phase=", static_cast<u32>(result.phase));
-    diagnostic_number(" caller_and_fixture_locked_bytes=", fixture.request.capacity + fixture.response.capacity + fixture.headers.capacity + 32 * 1024);
-    DWORD written = 0; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
+    test_write_metric("start_error=", static_cast<u32>(result.error));
+    test_write_metric("native_error=", result.native_error);
+    test_write_metric("phase=", static_cast<u32>(result.phase));
+    test_write_metric("caller_and_fixture_locked_bytes=",
+                      fixture.request.capacity + fixture.response.capacity + fixture.headers.capacity + 32 * 1024);
     return false;
 }
 void run() noexcept {

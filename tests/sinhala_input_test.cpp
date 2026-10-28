@@ -1,6 +1,5 @@
 // No argument runs the registered checks.
 #include "maicord/text/sinhala_input.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;

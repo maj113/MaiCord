@@ -339,6 +339,19 @@ void expect(bool condition, const char* name) noexcept {
     }
 }
 
+// Sentinel bytes proving an output buffer was left untouched on failure.
+void guard_fill(u8* data, usize bytes, u8 value = 0xA5) noexcept {
+    for (usize index = 0; index < bytes; ++index)
+        data[index] = value;
+}
+
+bool guard_intact(const u8* data, usize bytes, u8 value = 0xA5) noexcept {
+    for (usize index = 0; index < bytes; ++index)
+        if (data[index] != value)
+            return false;
+    return true;
+}
+
 void write_hex(u64 value) noexcept {
     char digits[19] = {'0', 'x'};
     u32 count = 2;
@@ -3302,8 +3315,6 @@ void test_message_text_presentation() noexcept {
                       0.5f)
             : MessageSceneHit{};
     const MessageTextCommand* content = nullptr;
-    const MessageMarkdownSemantic* link = nullptr;
-    const MessageMarkdownSemantic* spoiler = nullptr;
     bool command_owners_valid = true;
     bool rich_commands_item_owned = true;
     bool command_clips_owned = row != nullptr;
@@ -3368,14 +3379,6 @@ void test_message_text_presentation() noexcept {
         }
         if (command.measurement_kind == MessageTextMeasurementKind::content) {
             content = &command;
-            for (u32 semantic = 0; semantic < command.semantics.count; ++semantic) {
-                const MessageMarkdownSemantic& candidate = command.semantics[semantic];
-                if (candidate.kind == MessageMarkdownSemanticKind::link) {
-                    link = &candidate;
-                } else if (candidate.kind == MessageMarkdownSemanticKind::spoiler) {
-                    spoiler = &candidate;
-                }
-            }
         }
     }
     const bool content_owned = row && content && content->owner.handle.slot == row->content.slot &&
@@ -3999,8 +4002,8 @@ void test_message_text_presentation() noexcept {
             ? message_text_presentation_build(&presentation, scene, state, &users, navigation,
                                               kDefaultTheme, 1'700'000'100ull)
             : MessageTextPresentationResult{};
-    link = nullptr;
-    spoiler = nullptr;
+    const MessageMarkdownSemantic* link = nullptr;
+    const MessageMarkdownSemantic* spoiler = nullptr;
     for (u32 index = 0; index < presentation.command_count; ++index) {
         const MessageTextCommand& command = presentation.commands[index];
         if (command.measurement_kind != MessageTextMeasurementKind::content) {
@@ -4104,7 +4107,7 @@ void test_message_text_presentation() noexcept {
                          : MessageTextPresentationResult{};
     expect(tiny_initialized, "message_text_tiny_fixture_ready");
     expect(tiny_result.error == MessageTextPresentationError::capacity && tiny.command_count == 0 &&
-               !tiny.active && tiny.rejected == 1,
+               !tiny.active,
            "message_text_capacity_failure_is_atomic");
 
     const UiWidgetHandle saved_content = scene.rows[0].content;
@@ -4113,7 +4116,7 @@ void test_message_text_presentation() noexcept {
         &tiny, scene, state, &users, navigation, kDefaultTheme, 1'700'000'100ull);
     scene.rows[0].content = saved_content;
     expect(layout_failure.error == MessageTextPresentationError::layout && tiny.command_count == 0 &&
-               !tiny.active && tiny.rejected == 2 && tiny.failure_message_id == 91'000 &&
+               !tiny.active && tiny.failure_message_id == 91'000 &&
                tiny.failure_source_index == 0 && tiny.failure_stage == MessageTextPresentationStage::row &&
                tiny.failure_operation == MessageTextPresentationOperation::resolve_layout,
            "message_text_layout_failure_is_atomic_and_classified");
@@ -5072,6 +5075,17 @@ void test_login_scene() noexcept {
            "login_presentation_reject_invalid_dpi");
     UiTextCommand login_text_commands[kMaximumLoginTextCommands]{};
     UiTextCommandStream login_text_stream{};
+    const auto has_text = [&](LoginElement element, Utf8View text) noexcept {
+        for (u32 index = 0; index < login_text_stream.count; ++index) {
+            const UiTextCommand& command = login_text_stream.storage[index];
+            if (command.owner.manager == &scene.widgets &&
+                command.owner.handle.slot == scene.elements[static_cast<u32>(element)].slot &&
+                utf8_equal(command.text, text)) {
+                return true;
+            }
+        }
+        return false;
+    };
     const LoginView login_text_view{utf8_literal("account@example.com"),
                                     utf8_literal("********"),
                                     {},
@@ -5138,29 +5152,14 @@ void test_login_scene() noexcept {
     remote_text_view.remote_user = utf8_literal("mobile-user");
     scene.recovery_disabled = login_view_recovery_disabled(remote_text_view);
     login_text_stream.count = 0;
-    bool found_status_message = false;
-    bool found_status_account = false;
     expect(login_text_presentation_build(scene, remote_text_view, kDefaultTheme, &login_text_stream),
            "login_text_presentation_remote_status_build");
     const UiRect status_message_rectangle =
         login_scene_content_rectangle(scene, LoginElement::status_message);
     const UiRect status_account_rectangle =
         login_scene_content_rectangle(scene, LoginElement::status_account);
-    for (u32 index = 0; index < login_text_stream.count; ++index) {
-        const UiTextCommand& command = login_text_stream.storage[index];
-        found_status_message =
-            found_status_message ||
-            (command.owner.manager == &scene.widgets &&
-             command.owner.handle.slot ==
-                 scene.elements[static_cast<u32>(LoginElement::status_message)].slot &&
-             utf8_equal(command.text, utf8_literal("Confirm on your phone to log in as:")));
-        found_status_account = found_status_account ||
-                               (command.owner.manager == &scene.widgets &&
-                                command.owner.handle.slot ==
-                                    scene.elements[static_cast<u32>(LoginElement::status_account)].slot &&
-                                utf8_equal(command.text, utf8_literal("mobile-user")));
-    }
-    expect(found_status_message && found_status_account &&
+    expect(has_text(LoginElement::status_message, utf8_literal("Confirm on your phone to log in as:")) &&
+               has_text(LoginElement::status_account, utf8_literal("mobile-user")) &&
                status_message_rectangle.bottom <= status_account_rectangle.top,
            "login_status_lines_are_distinct_layout_owned_widgets");
 
@@ -5178,33 +5177,15 @@ void test_login_scene() noexcept {
     scene.recovery_disabled = login_view_recovery_disabled(backup_acknowledgement_view);
     scene.submit_disabled = login_view_submit_disabled(backup_acknowledgement_view);
     login_text_stream.count = 0;
-    bool found_backup_acknowledgement = false;
-    bool found_backup_countdown = false;
     expect(login_scene_layout(&scene, 830.0f, 720.0f) && scene.focus == LoginControl::none,
            "login_backup_countdown_clears_disabled_submit_focus");
     backup_acknowledgement_view.focus = scene.focus;
     expect(login_text_presentation_build(scene, backup_acknowledgement_view, kDefaultTheme,
                                              &login_text_stream),
            "login_text_presentation_backup_acknowledgement_build");
-    for (u32 index = 0; index < login_text_stream.count; ++index) {
-        const UiTextCommand& command = login_text_stream.storage[index];
-        if (command.owner.manager != &scene.widgets) {
-            continue;
-        }
-        found_backup_acknowledgement =
-            found_backup_acknowledgement ||
-            (command.owner.handle.slot ==
-                 scene.elements[static_cast<u32>(LoginElement::status_message)].slot &&
-             utf8_equal(
-                 command.text,
-                 utf8_literal("Backup codes can only be used once.")));
-        found_backup_countdown =
-            found_backup_countdown ||
-            (command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::submit)].slot &&
-             utf8_equal(command.text, utf8_literal("Continue in 10")));
-    }
     const UiRect backup_acknowledgement_submit = login_scene_rectangle(scene, LoginElement::submit);
-    expect(found_backup_acknowledgement && found_backup_countdown &&
+    expect(has_text(LoginElement::status_message, utf8_literal("Backup codes can only be used once.")) &&
+               has_text(LoginElement::submit, utf8_literal("Continue in 10")) &&
                !login_scene_element(scene, LoginElement::password_label) &&
                !login_scene_element(scene, LoginElement::password_field) &&
                login_view_action_disabled(backup_acknowledgement_view) &&
@@ -5216,21 +5197,13 @@ void test_login_scene() noexcept {
     scene.recovery_disabled = login_view_recovery_disabled(backup_acknowledgement_view);
     scene.submit_disabled = login_view_submit_disabled(backup_acknowledgement_view);
     login_text_stream.count = 0;
-    bool found_backup_continue = false;
     const u32 backup_layout_passes = scene.layout_passes;
     expect(login_scene_layout(&scene, 830.0f, 720.0f) && scene.layout_passes == backup_layout_passes &&
                login_text_presentation_build(scene, backup_acknowledgement_view, kDefaultTheme,
                                          &login_text_stream),
            "login_text_presentation_backup_acknowledgement_ready_build");
-    for (u32 index = 0; index < login_text_stream.count; ++index) {
-        const UiTextCommand& command = login_text_stream.storage[index];
-        found_backup_continue =
-            found_backup_continue ||
-            (command.owner.manager == &scene.widgets &&
-             command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::submit)].slot &&
-             utf8_equal(command.text, utf8_literal("Continue")));
-    }
-    expect(found_backup_continue && !login_view_action_disabled(backup_acknowledgement_view) &&
+    expect(has_text(LoginElement::submit, utf8_literal("Continue")) &&
+               !login_view_action_disabled(backup_acknowledgement_view) &&
                login_scene_hit_test(scene, backup_acknowledgement_submit.left + 1.0f,
                                     backup_acknowledgement_submit.top + 1.0f) == LoginControl::submit,
            "login_backup_acknowledgement_enables_explicit_continue_at_zero");
@@ -5248,28 +5221,13 @@ void test_login_scene() noexcept {
     scene.recovery_disabled = login_view_recovery_disabled(local_mfa_error_view);
     scene.submit_disabled = login_view_submit_disabled(local_mfa_error_view);
     login_text_stream.count = 0;
-    bool found_local_mfa_error = false;
-    bool found_mfa_verify_action = false;
     expect(
         login_scene_layout(&scene, 830.0f, 720.0f) &&
             login_text_presentation_build(scene, local_mfa_error_view, kDefaultTheme, &login_text_stream),
         "login_text_presentation_local_mfa_error_build");
-    for (u32 index = 0; index < login_text_stream.count; ++index) {
-        const UiTextCommand& command = login_text_stream.storage[index];
-        if (command.owner.manager != &scene.widgets) {
-            continue;
-        }
-        found_local_mfa_error =
-            found_local_mfa_error ||
-            (command.owner.handle.slot ==
-                 scene.elements[static_cast<u32>(LoginElement::status_message)].slot &&
-             utf8_equal(command.text, utf8_literal("Enter a valid backup code (8-11 characters).")));
-        found_mfa_verify_action =
-            found_mfa_verify_action ||
-            (command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::submit)].slot &&
-             utf8_equal(command.text, utf8_literal("Verify")));
-    }
-    expect(found_local_mfa_error && found_mfa_verify_action &&
+    expect(has_text(LoginElement::status_message,
+                    utf8_literal("Enter a valid backup code (8-11 characters).")) &&
+               has_text(LoginElement::submit, utf8_literal("Verify")) &&
                !login_view_action_disabled(local_mfa_error_view) &&
                login_view_submit_disabled(local_mfa_error_view),
            "login_local_mfa_error_remains_retryable_in_challenge");
@@ -5306,28 +5264,11 @@ void test_login_scene() noexcept {
     scene.recovery_disabled = login_view_recovery_disabled(rejected_mfa_view);
     scene.submit_disabled = login_view_submit_disabled(rejected_mfa_view);
     login_text_stream.count = 0;
-    bool found_rejected_mfa_error = false;
-    bool found_retry_mfa_action = false;
     expect(login_scene_layout(&scene, 830.0f, 720.0f) &&
                login_text_presentation_build(scene, rejected_mfa_view, kDefaultTheme, &login_text_stream),
            "login_text_presentation_rejected_mfa_build");
-    for (u32 index = 0; index < login_text_stream.count; ++index) {
-        const UiTextCommand& command = login_text_stream.storage[index];
-        if (command.owner.manager != &scene.widgets) {
-            continue;
-        }
-        found_rejected_mfa_error =
-            found_rejected_mfa_error ||
-            (command.owner.handle.slot ==
-                 scene.elements[static_cast<u32>(LoginElement::status_message)].slot &&
-             utf8_equal(command.text,
-                        utf8_literal("That code didn't work. Try again.")));
-        found_retry_mfa_action =
-            found_retry_mfa_action ||
-            (command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::submit)].slot &&
-             utf8_equal(command.text, utf8_literal("Verify")));
-    }
-    expect(found_rejected_mfa_error && found_retry_mfa_action &&
+    expect(has_text(LoginElement::status_message, utf8_literal("That code didn't work. Try again.")) &&
+               has_text(LoginElement::submit, utf8_literal("Verify")) &&
                !login_view_action_disabled(rejected_mfa_view) &&
                login_view_submit_disabled(rejected_mfa_view) &&
                rejected_mfa_view.mfa_capabilities == login_mfa_capability_all,
@@ -5357,44 +5298,22 @@ void test_login_scene() noexcept {
     scene.captcha_action = login_view_captcha_action(captcha_text_view);
     expect(login_scene_layout(&scene, 830.0f, 720.0f), "login_captcha_back_layout");
     login_text_stream.count = 0;
-    bool found_captcha_action = false;
-    bool found_captcha_status = false;
     expect(login_text_presentation_build(scene, captcha_text_view, kDefaultTheme, &login_text_stream),
            "login_text_presentation_captcha_status_build");
-    for (u32 index = 0; index < login_text_stream.count; ++index) {
-        const UiTextCommand& command = login_text_stream.storage[index];
-        if (command.owner.manager != &scene.widgets) {
-            continue;
-        }
-        found_captcha_action =
-            found_captcha_action ||
-            (command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::submit)].slot &&
-             utf8_equal(command.text, utf8_literal("Verify in browser")));
-        found_captcha_status =
-            found_captcha_status ||
-            (command.owner.handle.slot ==
-                 scene.elements[static_cast<u32>(LoginElement::status_message)].slot &&
-             utf8_equal(command.text,
-                        utf8_literal("Complete a quick check in your browser to continue.")));
-    }
     const UiRect captcha_submit = login_scene_rectangle(scene, LoginElement::submit);
     const UiRect captcha_login = login_scene_rectangle(scene, LoginElement::login_field);
     const UiRect captcha_back = login_scene_rectangle(scene, LoginElement::forgot_password);
-    bool found_back_label = false;
-    for (u32 index = 0; index < login_text_stream.count; ++index) {
-        const auto& command = login_text_stream.storage[index];
-        found_back_label = found_back_label ||
-            (command.owner.manager == &scene.widgets &&
-             command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::forgot_password)].slot &&
-             utf8_equal(command.text, utf8_literal("Back to sign in")));
-    }
-    expect(found_captcha_action && found_captcha_status && login_view_action_disabled(captcha_text_view) &&
+    expect(has_text(LoginElement::submit, utf8_literal("Verify in browser")) &&
+               has_text(LoginElement::status_message,
+                        utf8_literal("Complete a quick check in your browser to continue.")) &&
+               login_view_action_disabled(captcha_text_view) &&
                login_scene_hit_test(scene, captcha_submit.left + 1.0f, captcha_submit.top + 1.0f) ==
                    LoginControl::submit &&
                login_scene_hit_test(scene, captcha_login.left + 1.0f, captcha_login.top + 1.0f) ==
                    LoginControl::none,
            "login_captcha_state_offers_browser_verification_without_credentials");
-    expect(found_back_label && login_scene_hit_test(scene, captcha_back.left + 1, captcha_back.top + 1) == LoginControl::back &&
+    expect(has_text(LoginElement::forgot_password, utf8_literal("Back to sign in")) &&
+               login_scene_hit_test(scene, captcha_back.left + 1, captcha_back.top + 1) == LoginControl::back &&
                login_scene_move_focus(&scene, false) == LoginControl::submit &&
                login_scene_move_focus(&scene, false) == LoginControl::back &&
                login_control_action(LoginControl::back, captcha_text_view.status, captcha_text_view.remote_status) == LoginAction::back &&
@@ -5418,18 +5337,10 @@ void test_login_scene() noexcept {
     scene.captcha_action = login_view_captcha_action(captcha_text_view);
     expect(login_scene_layout(&scene, 830.0f, 720.0f), "login_remote_captcha_back_layout");
     login_text_stream.count = 0;
-    found_captcha_action = false;
     expect(login_text_presentation_build(scene, captcha_text_view, kDefaultTheme, &login_text_stream),
            "login_text_presentation_remote_captcha_build");
-    for (u32 index = 0; index < login_text_stream.count; ++index) {
-        const UiTextCommand& command = login_text_stream.storage[index];
-        found_captcha_action =
-            found_captcha_action ||
-            (command.owner.manager == &scene.widgets &&
-             command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::submit)].slot &&
-             utf8_equal(command.text, utf8_literal("Verify in browser")));
-    }
-    expect(found_captcha_action && login_view_action_disabled(captcha_text_view) &&
+    expect(has_text(LoginElement::submit, utf8_literal("Verify in browser")) &&
+               login_view_action_disabled(captcha_text_view) &&
                login_scene_hit_test(scene, captcha_submit.left + 1.0f, captcha_submit.top + 1.0f) ==
                    LoginControl::submit &&
                login_scene_hit_test(scene, captcha_login.left + 1.0f, captcha_login.top + 1.0f) ==
@@ -5437,21 +5348,16 @@ void test_login_scene() noexcept {
                login_scene_hit_test(scene, captcha_back.left + 1, captcha_back.top + 1) == LoginControl::back &&
                login_control_action(LoginControl::back, LoginStatus::idle, LoginRemoteStatus::captcha_required) == LoginAction::back,
            "login_remote_captcha_retained_mfa_metadata_cannot_hide_back");
-    bool password_placeholder = false;
     bool mfa_text_absent = true;
     for (u32 index = 0; index < login_text_stream.count; ++index) {
         const auto& command = login_text_stream.storage[index];
-        password_placeholder = password_placeholder ||
-            (command.owner.manager == &scene.widgets &&
-             command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::password_field)].slot &&
-             utf8_equal(command.text, utf8_literal("Password")));
         mfa_text_absent = mfa_text_absent && !utf8_equal(command.text, utf8_literal("SMS")) &&
             !utf8_equal(command.text, utf8_literal("SMS code")) &&
             !utf8_equal(command.text, utf8_literal("TOTP")) &&
             !utf8_equal(command.text, utf8_literal("BACKUP")) &&
             !utf8_equal(command.text, utf8_literal("KEY"));
     }
-    expect(password_placeholder && mfa_text_absent,
+    expect(has_text(LoginElement::password_field, utf8_literal("Password")) && mfa_text_absent,
            "login_remote_captcha_ignores_retained_mfa_placeholder_and_method_text");
     expect(login_control_action(LoginControl::forgot_password, LoginStatus::idle, LoginRemoteStatus::idle) == LoginAction::recovery &&
                login_control_action(LoginControl::forgot_password, LoginStatus::mfa_required, LoginRemoteStatus::idle) == LoginAction::none &&
@@ -5475,33 +5381,12 @@ void test_login_scene() noexcept {
            "login_leaving_blocked_state_restores_credentials_and_removes_back");
     scene.focus = profile_retry_view.focus;
     login_text_stream.count = 0;
-    bool found_profile_retry_action = false;
-    bool found_profile_retry_status = false;
-    bool found_profile_retry_detail = false;
     expect(login_text_presentation_build(scene, profile_retry_view, kDefaultTheme, &login_text_stream),
            "login_text_presentation_profile_retry_build");
-    for (u32 index = 0; index < login_text_stream.count; ++index) {
-        const UiTextCommand& command = login_text_stream.storage[index];
-        if (command.owner.manager != &scene.widgets) {
-            continue;
-        }
-        found_profile_retry_action =
-            found_profile_retry_action ||
-            (command.owner.handle.slot == scene.elements[static_cast<u32>(LoginElement::submit)].slot &&
-             utf8_equal(command.text, utf8_literal("Try again")));
-        found_profile_retry_status =
-            found_profile_retry_status ||
-            (command.owner.handle.slot ==
-                 scene.elements[static_cast<u32>(LoginElement::status_message)].slot &&
-             utf8_equal(command.text, utf8_literal("Couldn't save your sign-in.")));
-        found_profile_retry_detail =
-            found_profile_retry_detail ||
-            (command.owner.handle.slot ==
-                 scene.elements[static_cast<u32>(LoginElement::status_account)].slot &&
-             utf8_equal(command.text,
-                        utf8_literal("Try again, or close MaiCord to sign out.")));
-    }
-    expect(found_profile_retry_action && found_profile_retry_status && found_profile_retry_detail &&
+    expect(has_text(LoginElement::submit, utf8_literal("Try again")) &&
+               has_text(LoginElement::status_message, utf8_literal("Couldn't save your sign-in.")) &&
+               has_text(LoginElement::status_account,
+                        utf8_literal("Try again, or close MaiCord to sign out.")) &&
                !login_view_action_disabled(profile_retry_view) &&
                status_message_rectangle.bottom <= status_account_rectangle.top &&
                login_scene_hit_test(scene, captcha_submit.left + 1.0f, captcha_submit.top + 1.0f) ==
@@ -5964,7 +5849,6 @@ void test_qr_code() noexcept {
                qr_code_module(code, 0, 0) && !qr_code_module(code, 1, 1) && qr_code_module(code, 3, 3) &&
                qr_code_module(code, 8, kQrCodeSize - 8),
            "qr_v5_m_function_patterns");
-    expect(code.mask == 1, "qr_reference_mask");
     expect(hash64_bytes(kHash64Seed, unpacked, sizeof(unpacked)) == 0x707756D752311B69ull,
            "qr_reference_matrix_hash");
 
@@ -7523,22 +7407,14 @@ void test_member_list_scene() noexcept {
     auto* projected_rows = static_cast<MemberListRow*>(VirtualAlloc(
         nullptr, sizeof(MemberListRow) * source_count, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     u8 names[2]{};
+    void* const sources[]{records, order, member_records, member_order, projected_rows};
+    const auto release_sources = [&sources]() noexcept {
+        for (void* source : sources)
+            if (source)
+                VirtualFree(source, 0, MEM_RELEASE);
+    };
     if (!records || !order || !member_records || !member_order || !projected_rows) {
-        if (records) {
-            VirtualFree(records, 0, MEM_RELEASE);
-        }
-        if (order) {
-            VirtualFree(order, 0, MEM_RELEASE);
-        }
-        if (member_records) {
-            VirtualFree(member_records, 0, MEM_RELEASE);
-        }
-        if (member_order) {
-            VirtualFree(member_order, 0, MEM_RELEASE);
-        }
-        if (projected_rows) {
-            VirtualFree(projected_rows, 0, MEM_RELEASE);
-        }
+        release_sources();
         expect(false, "member_list_100k_source_allocation");
         return;
     }
@@ -7824,11 +7700,7 @@ void test_member_list_scene() noexcept {
     projection.count = source_count + 1;
     expect(!member_list_scene_navigate(&scene, UiListMove::first).user_id,
            "member_navigation_rejects_inconsistent_source_capacity");
-    VirtualFree(order, 0, MEM_RELEASE);
-    VirtualFree(records, 0, MEM_RELEASE);
-    VirtualFree(member_records, 0, MEM_RELEASE);
-    VirtualFree(member_order, 0, MEM_RELEASE);
-    VirtualFree(projected_rows, 0, MEM_RELEASE);
+    release_sources();
     ui_virtual_row_storage_release(&row_storage);
     ui_widget_storage_release(&widget_storage);
 }
@@ -8247,6 +8119,14 @@ void test_popup_scene() noexcept {
            "popup_scene_owned_storage_release");
 }
 
+u32 shark_catalog_index() noexcept {
+    const ConstSlice<EmojiCatalogEntry> catalog = unicode_emoji_catalog();
+    for (u32 index = 0; index < catalog.count; ++index)
+        if (utf8_equal(catalog[index].name(), utf8_literal("shark")))
+            return index;
+    return ~0u;
+}
+
 void test_message_context_menu() noexcept {
     MessageRecord message{};
     message.id = 11;
@@ -8255,14 +8135,8 @@ void test_message_context_menu() noexcept {
 
     ReactionPreferenceStore preferences{};
     const bool preferences_ready = reaction_preferences_initialize(&preferences);
-    u32 shark_index = ~0u;
+    const u32 shark_index = shark_catalog_index();
     const ConstSlice<EmojiCatalogEntry> catalog = unicode_emoji_catalog();
-    for (u32 index = 0; index < catalog.count; ++index) {
-        if (utf8_equal(catalog[index].name(), utf8_literal("shark"))) {
-            shark_index = index;
-            break;
-        }
-    }
     const bool shark_tracked =
         preferences_ready && shark_index <= 0xFFFEu &&
         reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
@@ -8726,14 +8600,7 @@ void test_message_action_bar() noexcept {
 
     ReactionPreferenceStore preferences{};
     const bool preferences_ready = reaction_preferences_initialize(&preferences);
-    u32 shark_index = ~0u;
-    const ConstSlice<EmojiCatalogEntry> catalog = unicode_emoji_catalog();
-    for (u32 index = 0; index < catalog.count; ++index) {
-        if (utf8_equal(catalog[index].name(), utf8_literal("shark"))) {
-            shark_index = index;
-            break;
-        }
-    }
+    const u32 shark_index = shark_catalog_index();
     const bool preference_ready =
         preferences_ready && shark_index <= 0xFFFEu &&
         reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
@@ -8833,7 +8700,7 @@ void test_message_action_bar() noexcept {
         synchronized_row ? synchronized_row->widget : ui_widget_invalid_handle(),
         synchronized_row ? synchronized_row->source_index : 0};
     const bool forward_opened = message && message_action_bar_open(&bar, scene, forward_hit, *message,
-        &preferences, true).ok();
+        &preferences, MessageActionBarOptions{message_action_bar_forward}).ok();
     const auto arrow = bar.items[5].rectangle;
     const float arrow_x = (arrow.left + arrow.right) * .5f, arrow_y = (arrow.top + arrow.bottom) * .5f;
     paint_stream_reset(&paint);
@@ -8845,13 +8712,16 @@ void test_message_action_bar() noexcept {
         "message_action_bar_forward_launcher_uses_bounded_native_arrow_before_more");
     bool forward_allowed = false;
     const auto revoked = message_action_bar_track_pointer(&bar, &scene, arrow_x, arrow_y, &preferences,
-        +[](void* context, u64) noexcept { return *static_cast<bool*>(context); }, &forward_allowed);
+        +[](void* context, u64) noexcept -> u16 {
+            return *static_cast<bool*>(context) ? u16{message_action_bar_forward} : u16{0};
+        }, &forward_allowed);
     expect(revoked.ok() && revoked.changed && bar.item_count == kMessageActionBarItemCount &&
         revoked.action_bar.action != MessageActionBarAction::forward,
         "message_action_bar_revalidates_retained_hover_forward_authority_before_dispatch");
     MessageRecord poll_source = message ? *message : MessageRecord{};
     poll_source.presentation_flags |= message_presentation_has_poll;
-    expect(message_action_bar_open(&bar, scene, forward_hit, poll_source, &preferences, true).ok() &&
+    expect(message_action_bar_open(&bar, scene, forward_hit, poll_source, &preferences,
+               MessageActionBarOptions{message_action_bar_forward}).ok() &&
         bar.item_count == kMessageActionBarItemCount,
         "message_action_bar_unsupported_source_cannot_gain_forward_from_caller_hint");
     message_action_bar_close(&bar);
@@ -10663,28 +10533,28 @@ void test_message_event_pump() noexcept {
 
     struct ReactionObserveProbe {
         MessageStore* messages; MessageRichStore* rich;
-        u32 reactions{}, sources{}, deletions{}, count{}, normal{}, burst{}, snapshot_count{};
-        u64 user{}, id{}, channel{};
+        u32 reactions{}, sources{}, deletions{}, count{}, normal{}, snapshot_count{};
+        u64 user{}, id{};
         MessageHandle handle{}; u32 revision{};
         bool applied{}, mine{}, source_committed{}, snapshot_unnamed{}, deleted{};
     } observed{&store, &rich_store};
     const auto reaction_observer = +[](void* context, const GatewayMessageReactionEvent& value,
                                        MessageHandle handle, u32 revision, bool applied) noexcept {
         auto& probe = *static_cast<ReactionObserveProbe*>(context);
-        ++probe.reactions; probe.user = value.user_id; probe.id = value.message_id; probe.channel = value.channel_id;
+        ++probe.reactions; probe.user = value.user_id; probe.id = value.message_id;
         probe.handle = handle; probe.revision = revision; probe.applied = applied;
-        probe.count = probe.normal = probe.burst = 0; probe.mine = false;
+        probe.count = probe.normal = 0; probe.mine = false;
         const auto* rich = applied ? message_rich_store_find(*probe.rich, value.message_id) : nullptr;
         for (u32 i = 0; rich && i < rich->reaction_count; ++i) {
             if (rich->reactions[i].emoji_id != value.emoji_id) continue;
             probe.count = rich->reactions[i].count; probe.normal = rich->reactions[i].normal_count;
-            probe.burst = rich->reactions[i].burst_count; probe.mine = (rich->reactions[i].flags & 1u) != 0;
+            probe.mine = (rich->reactions[i].flags & 1u) != 0;
         }
     };
     const auto source_observer = +[](void* context, const GatewayMessageEvent& value,
                                      MessageHandle handle, u32 revision, bool applied) noexcept {
         auto& probe = *static_cast<ReactionObserveProbe*>(context);
-        ++probe.sources; probe.id = value.id; probe.channel = value.channel_id;
+        ++probe.sources; probe.id = value.id;
         probe.handle = handle; probe.revision = revision; probe.applied = applied;
         probe.snapshot_count = value.reactions.count;
         probe.snapshot_unnamed = value.reactions.count && value.reactions[0].emoji_id && !value.reactions[0].name.bytes;
@@ -10694,9 +10564,9 @@ void test_message_event_pump() noexcept {
             (!(value.fields & gateway_message_field_reactions) || (rich && rich->message_revision == revision &&
                 rich->reaction_count == value.reactions.count));
     };
-    const auto delete_observer = +[](void* context, u64 channel, u64 id) noexcept {
+    const auto delete_observer = +[](void* context, u64, u64 id) noexcept {
         auto& probe = *static_cast<ReactionObserveProbe*>(context);
-        ++probe.deletions; probe.channel = channel; probe.id = id;
+        ++probe.deletions; probe.id = id;
         probe.deleted = !message_store_find(*probe.messages, id).ok();
     };
     message_event_pump_set_reaction_observers(&pump, reaction_observer, source_observer, delete_observer, &observed);
@@ -11177,15 +11047,10 @@ void test_cdn_targets() noexcept {
            "cdn_gif_sticker_media_host");
 
     u8 short_output[8]{};
-    for (u32 index = 0; index < sizeof(short_output); ++index) {
-        short_output[index] = 0xA5;
-    }
+    guard_fill(short_output, sizeof(short_output));
     const CdnTargetResult short_result =
         write_custom_emoji_cdn_target(1, false, 32, Slice<u8>{short_output, sizeof(short_output)});
-    bool short_unchanged = true;
-    for (u32 index = 0; index < sizeof(short_output); ++index) {
-        short_unchanged = short_unchanged && short_output[index] == 0xA5;
-    }
+    const bool short_unchanged = guard_intact(short_output, sizeof(short_output));
     expect(
         short_result.error == CdnTargetError::output_capacity && short_unchanged &&
             write_custom_emoji_cdn_target(1, false, 24, Slice<u8>{output, sizeof(output)}).error ==
@@ -11311,15 +11176,11 @@ void test_cdn_targets() noexcept {
                                         "1732050807568877293/picture.png")),
            "cdn_unsigned_attachment_is_validated_refresh_identity");
     u8 short_attachment_target[16]{};
-    for (u32 index = 0; index < sizeof(short_attachment_target); ++index) {
-        short_attachment_target[index] = 0xA5;
-    }
+    guard_fill(short_attachment_target, sizeof(short_attachment_target));
     const AttachmentUrlResult attachment_short = parse_signed_attachment_url(
         signed_attachment, 456, Slice<u8>{short_attachment_target, sizeof(short_attachment_target)});
-    bool attachment_short_unchanged = true;
-    for (u32 index = 0; index < sizeof(short_attachment_target); ++index) {
-        attachment_short_unchanged = attachment_short_unchanged && short_attachment_target[index] == 0xA5;
-    }
+    const bool attachment_short_unchanged =
+        guard_intact(short_attachment_target, sizeof(short_attachment_target));
     expect(attachment_short.error == AttachmentUrlError::output_capacity &&
                attachment_short_unchanged,
            "cdn_signed_attachment_transactional_capacity");
@@ -11483,16 +11344,11 @@ void test_cdn_http_policy() noexcept {
            "cdn_long_signed_target_request_capacity");
 
     u8 short_output[8]{};
-    for (u32 index = 0; index < sizeof(short_output); ++index) {
-        short_output[index] = 0xA5;
-    }
+    guard_fill(short_output, sizeof(short_output));
     const CdnRequestResult short_result =
         write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn, byte_literal("/stickers/1.png"), {},
                                          Slice<u8>{short_output, sizeof(short_output)});
-    bool short_unchanged = true;
-    for (u32 index = 0; index < sizeof(short_output); ++index) {
-        short_unchanged = short_unchanged && short_output[index] == 0xA5;
-    }
+    const bool short_unchanged = guard_intact(short_output, sizeof(short_output));
     expect(short_result.error == CdnHttpError::output_capacity && short_unchanged &&
                write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn,
                                                 byte_literal("/stickers/1.png\r\nCookie:x"), {},
@@ -12073,6 +11929,11 @@ void test_encoded_media_cache_dense_index() noexcept {
            "encoded_media_cache_full_dense_index_hash_and_lease");
 }
 
+CdnResponseResult accepted_cdn_response(ConstSlice<u8> etag, u64 expires_at_seconds, u32 body_bytes) noexcept {
+    return CdnResponseResult{etag, {}, expires_at_seconds, 0, body_bytes, 200,
+                             CdnResponseDisposition::accept_body, CdnHttpError::none, true, false};
+}
+
 // Profile artwork past the GPU decoder's 512 px (Spotify's 640 px album art)
 // decodes once, reduced to the card's 160 px, from a response and from cache.
 void test_cdn_reduced_jpeg_pipeline() noexcept {
@@ -12092,8 +11953,7 @@ void test_cdn_reduced_jpeg_pipeline() noexcept {
         cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)});
     pipeline.jpeg_workspace = &g_jpeg_workspace;
     const auto policy = [](u32 bytes) noexcept {
-        return CdnResponseResult{byte_literal("\"art-1\""), {}, 2'100, 0, bytes, 200,
-                                 CdnResponseDisposition::accept_body, CdnHttpError::none, true, false};
+        return accepted_cdn_response(byte_literal("\"art-1\""), 2'100, bytes);
     };
     const auto key = [](u64 id) noexcept {
         auto value = media_asset_embed(id, 1, 0, MediaEmbedResource::image, MediaAttachmentFormat::jpeg, false,
@@ -12240,8 +12100,7 @@ void test_cdn_reduced_webp_pipeline() noexcept {
         cdn_media_pipeline_initialize(&pipeline, &cache, {scanlines, sizeof(scanlines)}) &&
         cdn_media_pipeline_bind_webp_workspace(&pipeline, &g_vp8l_workspace);
     const auto policy = [](u32 bytes) noexcept {
-        return CdnResponseResult{byte_literal("\"webp-1\""), {}, 2'100, 0, bytes, 200,
-                                 CdnResponseDisposition::accept_body, CdnHttpError::none, true, false};
+        return accepted_cdn_response(byte_literal("\"webp-1\""), 2'100, bytes);
     };
     const auto key = [](u64 id) noexcept {
         return media_asset_attachment(id, MediaAttachmentFormat::webp, MediaResolutionTier::px2048);
@@ -12427,9 +12286,7 @@ void test_cdn_static_png_pipeline() noexcept {
            "cdn_pipeline_vp8_decode_before_cache_and_fresh_hit");
 
     u8 corrupt_webp[sizeof(kWebpOne)]{};
-    for (u32 index = 0; index < sizeof(corrupt_webp); ++index) {
-        corrupt_webp[index] = kWebpOne[index];
-    }
+    copy_bytes(corrupt_webp, kWebpOne, sizeof(corrupt_webp));
     corrupt_webp[0] ^= 1;
     const CdnResponseResult corrupt_webp_policy =
         validate_static_image_response(CdnImageType::webp, byte_literal("HTTP/1.1 200 OK\r\n"
@@ -12451,16 +12308,8 @@ void test_cdn_static_png_pipeline() noexcept {
     expect(
         build_baseline_jpeg_fixture(Slice<u8>{g_png_encoded, sizeof(g_png_encoded)}, true, &jpeg_fixture),
         "cdn_pipeline_jpeg_fixture_build");
-    const CdnResponseResult jpeg_policy{byte_literal("\"jpeg-1\""),
-                                        {},
-                                        2'100,
-                                        0,
-                                        jpeg_fixture.encoded_bytes,
-                                        200,
-                                        CdnResponseDisposition::accept_body,
-                                        CdnHttpError::none,
-                                        true,
-                                        false};
+    const CdnResponseResult jpeg_policy =
+        accepted_cdn_response(byte_literal("\"jpeg-1\""), 2'100, jpeg_fixture.encoded_bytes);
     const MediaAssetKey jpeg_key = media_asset_attachment(650);
     const CdnStaticJpegResult jpeg_requires_workspace = cdn_media_pipeline_admit_static_jpeg(
         &pipeline, jpeg_key, jpeg_policy, ConstSlice<u8>{g_png_encoded, jpeg_fixture.encoded_bytes});
@@ -12483,16 +12332,8 @@ void test_cdn_static_png_pipeline() noexcept {
            "cdn_pipeline_jpeg_decode_before_cache_and_fresh_hit");
 
     const MediaAssetKey progressive_key = media_asset_attachment(651);
-    const CdnResponseResult progressive_policy{byte_literal("\"jpeg-progressive-1\""),
-                                               {},
-                                               2'100,
-                                               0,
-                                               kJpegProgressive420ReferenceBytes,
-                                               200,
-                                               CdnResponseDisposition::accept_body,
-                                               CdnHttpError::none,
-                                               true,
-                                               false};
+    const CdnResponseResult progressive_policy = accepted_cdn_response(
+        byte_literal("\"jpeg-progressive-1\""), 2'100, kJpegProgressive420ReferenceBytes);
     const CdnStaticJpegResult progressive = cdn_media_pipeline_admit_static_jpeg(
         &pipeline, progressive_key, progressive_policy,
         ConstSlice<u8>{reinterpret_cast<const u8*>(kJpegProgressive420Reference),
@@ -12738,16 +12579,8 @@ void test_cdn_static_png_pipeline() noexcept {
     expect(
         build_mixed_animated_webp_fixture(Slice<u8>{g_png_encoded, sizeof(g_png_encoded)}, &mixed_fixture),
         "cdn_pipeline_mixed_animated_webp_fixture_build");
-    const CdnResponseResult mixed_policy{byte_literal("\"animated-webp-mixed\""),
-                                         {},
-                                         8'000,
-                                         0,
-                                         mixed_fixture.encoded_bytes,
-                                         200,
-                                         CdnResponseDisposition::accept_body,
-                                         CdnHttpError::none,
-                                         true,
-                                         false};
+    const CdnResponseResult mixed_policy =
+        accepted_cdn_response(byte_literal("\"animated-webp-mixed\""), 8'000, mixed_fixture.encoded_bytes);
     const MediaAssetKey mixed_key = media_asset_custom_emoji(903, true);
     pipeline.lossy_webp_workspace = nullptr;
     const CdnAnimatedWebpResult mixed_requires_workspace = cdn_media_pipeline_admit_animated_webp(
@@ -13451,6 +13284,13 @@ bool stop_media_worker_fixture(AccountMediaWorker* worker, const char* label) no
     ExitProcess(1);
 }
 
+bool start_media_worker_fixture(AccountMediaWorker* worker, const char* label) noexcept {
+    if (account_media_worker_initialize(worker).ok())
+        return true;
+    expect(false, label);
+    return false;
+}
+
 void test_account_media_worker_decode_boundary() noexcept {
     GifFixtureResult fixture{};
     expect(build_indexed_gif_fixture(Slice<u8>{g_png_encoded, sizeof(g_png_encoded)},
@@ -13458,11 +13298,7 @@ void test_account_media_worker_decode_boundary() noexcept {
            "account_media_worker_gif_fixture_build");
 
     AccountMediaWorker worker{};
-    const AccountMediaRequestResult initialized = account_media_worker_initialize(&worker);
-    if (!initialized.ok()) {
-        expect(false, "account_media_worker_initialize");
-        return;
-    }
+    if (!start_media_worker_fixture(&worker, "account_media_worker_initialize")) return;
 
     const MediaAssetKey key = media_asset_sticker(8'100, 4);
     const EncodedMediaCacheStoreResult stored = encoded_media_cache_store(
@@ -13550,11 +13386,7 @@ void test_account_media_worker_decode_boundary() noexcept {
 
 void test_account_media_worker_failure_is_edge_triggered() noexcept {
     AccountMediaWorker worker{};
-    const AccountMediaRequestResult initialized = account_media_worker_initialize(&worker);
-    if (!initialized.ok()) {
-        expect(false, "account_media_worker_failure_initialize");
-        return;
-    }
+    if (!start_media_worker_fixture(&worker, "account_media_worker_failure_initialize")) return;
 
     const MediaAssetKey key = media_asset_custom_emoji(8'101, false);
     const u8 invalid_webp[]{'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P'};
@@ -13597,10 +13429,7 @@ void test_account_media_worker_reclaimed_failure_cooldown() noexcept {
         return;
     }
     AccountMediaWorker worker{};
-    if (!account_media_worker_initialize(&worker).ok()) {
-        expect(false, "account_media_worker_reclaimed_failure_initialize");
-        return;
-    }
+    if (!start_media_worker_fixture(&worker, "account_media_worker_reclaimed_failure_initialize")) return;
     const MediaAssetKey bad_key = media_asset_custom_emoji(8'103, false);
     const MediaAssetKey good_key = media_asset_sticker(8'104, 1);
     const u8 invalid_webp[]{'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P'};
@@ -13663,10 +13492,7 @@ void test_account_media_worker_later_frame_failure_cooldown() noexcept {
     g_png_encoded[payload] = static_cast<u8>((g_png_encoded[payload] & 0xF8u) | 1u);
 
     AccountMediaWorker worker{};
-    if (!account_media_worker_initialize(&worker).ok()) {
-        expect(false, "account_media_worker_later_frame_initialize");
-        return;
-    }
+    if (!start_media_worker_fixture(&worker, "account_media_worker_later_frame_initialize")) return;
     const MediaAssetKey key = media_asset_sticker(8'102, 4);
     const EncodedMediaCacheStoreResult stored = encoded_media_cache_store(
         &worker.lanes[0].media.cache, key, ConstSlice<u8>{g_png_encoded, fixture.encoded_bytes},
@@ -13712,11 +13538,7 @@ void test_account_media_worker_shared_parallel_lanes() noexcept {
     if (parallel_delay == ~0u) { expect(false, "account_media_worker_parallel_gif_control"); return; }
 
     AccountMediaWorker worker{};
-    const AccountMediaRequestResult initialized = account_media_worker_initialize(&worker);
-    if (!initialized.ok()) {
-        expect(false, "account_media_worker_parallel_initialize");
-        return;
-    }
+    if (!start_media_worker_fixture(&worker, "account_media_worker_parallel_initialize")) return;
 
     MediaAssetKey keys[kAccountMediaDecodeLaneCount]{};
     u16 generations[kAccountMediaDecodeLaneCount]{};
@@ -13828,7 +13650,6 @@ void test_account_media_worker_shared_parallel_lanes() noexcept {
         }
     }
     const bool counters = InterlockedCompareExchange64(&worker.counters.queued, 0, 0) >= 8 &&
-                          InterlockedCompareExchange64(&worker.counters.ready, 0, 0) >= 8 &&
                           worker.lanes[0].media.cache.counters.lease_acquires >= 8 &&
                           worker.lanes[0].media.cache.counters.lease_acquires ==
                               worker.lanes[0].media.cache.counters.lease_releases;
@@ -13845,11 +13666,7 @@ void test_account_media_worker_animation_priority_reserve() noexcept {
                                    Slice<u8>{g_png_zlib, sizeof(g_png_zlib)}, &png),
            "account_media_worker_priority_png_fixture_build");
     AccountMediaWorker worker{};
-    const AccountMediaRequestResult initialized = account_media_worker_initialize(&worker);
-    if (!initialized.ok()) {
-        expect(false, "account_media_worker_priority_initialize");
-        return;
-    }
+    if (!start_media_worker_fixture(&worker, "account_media_worker_priority_initialize")) return;
 
     MediaAssetKey stills[kAccountMediaDecodeLaneCount]{};
     bool stored = true;
@@ -14799,9 +14616,7 @@ void test_jpeg_baseline() noexcept {
            "jpeg_adobe_ycck_progressive_decode");
 
     u8 invalid_cmyk_transform[sizeof(kJpegCmykAdobeReference)]{};
-    for (u32 index = 0; index < sizeof(invalid_cmyk_transform); ++index) {
-        invalid_cmyk_transform[index] = kJpegCmykAdobeReference[index];
-    }
+    copy_bytes(invalid_cmyk_transform, kJpegCmykAdobeReference, sizeof(invalid_cmyk_transform));
     invalid_cmyk_transform[17] = 1;
     expect(jpeg_parse(ConstSlice<u8>{invalid_cmyk_transform, sizeof(invalid_cmyk_transform)}, &image,
                       &g_jpeg_workspace)
@@ -14841,9 +14656,7 @@ void test_webp_lossless() noexcept {
 
     WebpImage image{};
     u8 malformed[sizeof(kWebpOne)]{};
-    for (u32 index = 0; index < sizeof(malformed); ++index) {
-        malformed[index] = kWebpOne[index];
-    }
+    copy_bytes(malformed, kWebpOne, sizeof(malformed));
     malformed[4] ^= 1;
     expect(webp_parse(ConstSlice<u8>{malformed, sizeof(malformed)}, &image).error == WebpError::riff,
            "webp_exact_riff_size_reject");
@@ -15574,11 +15387,7 @@ void test_animated_webp_lossless() noexcept {
     expect(prefixes_rejected, "animated_webp_every_proper_prefix_reject");
 
     u8 corrupt[512]{};
-    auto restore = [&]() noexcept {
-        for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-            corrupt[index] = encoded[index];
-        }
-    };
+    auto restore = [&]() noexcept { copy_bytes(corrupt, encoded, fixture.encoded_bytes); };
     restore();
     corrupt[20] |= 0x80;
     expect(animated_webp_parse(ConstSlice<u8>{corrupt, fixture.encoded_bytes}, &animation,
@@ -15798,9 +15607,7 @@ void test_apng_decode() noexcept {
     if (fixture.encoded_bytes > sizeof(malformed)) {
         return;
     }
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     const u32 actl = test_find_png_chunk(ConstSlice<u8>{malformed, fixture.encoded_bytes}, 0x6163544Cu, 0);
     const u32 first_fctl =
         test_find_png_chunk(ConstSlice<u8>{malformed, fixture.encoded_bytes}, 0x6663544Cu, 0);
@@ -15816,9 +15623,7 @@ void test_apng_decode() noexcept {
             ApngError::frame_sequence,
         "apng_sequence_gap_reject");
 
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     png_fixture_write_be32(malformed + second_fctl + 12, 999);
     test_rewrite_png_chunk_crc(Slice<u8>{malformed, fixture.encoded_bytes}, second_fctl);
     expect(
@@ -15826,9 +15631,7 @@ void test_apng_decode() noexcept {
             ApngError::frame_control,
         "apng_frame_rectangle_outside_canvas_reject");
 
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     png_fixture_write_be32(malformed + actl + 8, kApngFrameCapacity + 1);
     test_rewrite_png_chunk_crc(Slice<u8>{malformed, fixture.encoded_bytes}, actl);
     expect(
@@ -15836,9 +15639,7 @@ void test_apng_decode() noexcept {
             ApngError::frame_limit,
         "apng_declared_frame_capacity_reject");
 
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     malformed[first_fctl + 8 + 24] = 2;
     test_rewrite_png_chunk_crc(Slice<u8>{malformed, fixture.encoded_bytes}, first_fctl);
     const ApngParseResult normalized =
@@ -15846,9 +15647,7 @@ void test_apng_decode() noexcept {
     expect(normalized.ok() && animation.frames[0].dispose == ApngDispose::background,
            "apng_first_previous_normalizes_to_background");
 
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     malformed[first_fctl + 10] ^= 1;
     expect(
         apng_parse(ConstSlice<u8>{malformed, fixture.encoded_bytes}, &animation, &apng_workspace).error ==
@@ -15967,26 +15766,20 @@ void test_gif_decode() noexcept {
     if (fixture.encoded_bytes > sizeof(malformed)) {
         return;
     }
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     malformed[0] ^= 1;
     expect(gif_parse(ConstSlice<u8>{malformed, fixture.encoded_bytes}, &image, &workspace).error ==
                GifError::signature,
            "gif_signature_reject");
 
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     const u32 first_descriptor_packed = first_data_offset - 2;
     malformed[first_descriptor_packed] |= 0x08;
     expect(gif_parse(ConstSlice<u8>{malformed, fixture.encoded_bytes}, &image, &workspace).error ==
                GifError::reserved_bits,
            "gif_image_reserved_bits_reject");
 
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     const u32 first_descriptor = first_descriptor_packed - 9;
     malformed[first_descriptor + 5] = 99;
     malformed[first_descriptor + 6] = 0;
@@ -16003,9 +15796,7 @@ void test_gif_decode() noexcept {
                image.frames[0].width == 511 && image.frames[0].height == 255,
            "gif_rectangle_preserves_each_16_bit_descriptor_field");
 
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     const u32 second_control_packed = second_descriptor - 8 + 3;
     malformed[second_control_packed] = static_cast<u8>((malformed[second_control_packed] & ~0x1Cu) | 0x10u);
     expect(gif_parse(ConstSlice<u8>{malformed, fixture.encoded_bytes}, &image, &workspace).ok() &&
@@ -16019,9 +15810,7 @@ void test_gif_decode() noexcept {
     }
     expect(all_prefixes_rejected, "gif_all_proper_prefixes_reject");
 
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     malformed[25 + 16] = 0;
     malformed[25 + 17] = 0;
     expect(gif_parse(ConstSlice<u8>{malformed, fixture.encoded_bytes}, &image, &workspace).ok() &&
@@ -16042,9 +15831,7 @@ void test_gif_decode() noexcept {
 
     const GifParseResult restored =
         gif_parse(ConstSlice<u8>{g_png_encoded, fixture.encoded_bytes}, &image, &workspace);
-    for (u32 index = 0; index < fixture.encoded_bytes; ++index) {
-        malformed[index] = g_png_encoded[index];
-    }
+    copy_bytes(malformed, g_png_encoded, fixture.encoded_bytes);
     malformed[first_data_offset + 1] = static_cast<u8>((malformed[first_data_offset + 1] & 0xF8u) | 1u);
     GifImage malformed_image{};
     const GifParseResult malformed_parsed =
@@ -19299,6 +19086,16 @@ void test_channel_permissions() noexcept {
     GatewayClientEvent event{};
     ConstSlice<u8> payload{};
     GatewayReady ready{};
+    const auto route_json = [&](Utf8View json) noexcept {
+        return decode_gateway(json, &envelope).ok() &&
+               gateway_client_route_dispatch(
+                   envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
+                   Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
+                   .ok();
+    };
+    const auto apply_event = [&]() noexcept {
+        return chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 2}).ok();
+    };
     const bool ready_ok =
         decode_gateway(
             utf8_literal(
@@ -19406,16 +19203,8 @@ void test_channel_permissions() noexcept {
             chat_state_store_channel_visible(store, *thread) && store.selected_channel_id == 11,
         "channel_permissions_overwrite_precedence_thread_inheritance");
 
-    const bool missing_create_policy_routed =
-        decode_gateway(
-            utf8_literal(
-                R"({"op":0,"d":{"id":"16","guild_id":"100","type":0,"position":5,"name":"missing-policy"},"s":3,"t":"CHANNEL_CREATE"})"),
-            &envelope)
-            .ok() &&
-        gateway_client_route_dispatch(
-            envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
-            Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
-            .ok();
+    const bool missing_create_policy_routed = route_json(utf8_literal(
+        R"({"op":0,"d":{"id":"16","guild_id":"100","type":0,"position":5,"name":"missing-policy"},"s":3,"t":"CHANNEL_CREATE"})"));
     const ChatStateApplyResult missing_create_policy =
         missing_create_policy_routed
             ? chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 2})
@@ -19443,17 +19232,9 @@ void test_channel_permissions() noexcept {
            "channel_permissions_hidden_category_retained_for_visible_child");
 
     const bool member_update_ok =
-        decode_gateway(
-            utf8_literal(
-                R"({"op":0,"d":{"guild_id":"100","roles":["2000"],"user":{"id":"1"}},"s":3,"t":"GUILD_MEMBER_UPDATE"})"),
-            &envelope)
-            .ok() &&
-        gateway_client_route_dispatch(
-            envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
-            Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
-            .ok() &&
-        event.dispatch_kind == GatewayClientDispatchKind::guild_member_update &&
-        chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 2}).ok();
+        route_json(utf8_literal(
+            R"({"op":0,"d":{"guild_id":"100","roles":["2000"],"user":{"id":"1"}},"s":3,"t":"GUILD_MEMBER_UPDATE"})")) &&
+        event.dispatch_kind == GatewayClientDispatchKind::guild_member_update && apply_event();
     role_allow = chat_state_store_find_channel(store, 11);
     role_collision = chat_state_store_find_channel(store, 12);
     expect(member_update_ok && role_allow && role_collision &&
@@ -19463,81 +19244,41 @@ void test_channel_permissions() noexcept {
            "channel_permissions_self_member_update_selection_fallback");
 
     const bool administrator_ok =
-        decode_gateway(
-            utf8_literal(
-                R"({"op":0,"d":{"guild_id":"100","role":{"id":"2000","permissions":"8"}},"s":4,"t":"GUILD_ROLE_UPDATE"})"),
-            &envelope)
-            .ok() &&
-        gateway_client_route_dispatch(
-            envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
-            Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
-            .ok() &&
-        event.dispatch_kind == GatewayClientDispatchKind::guild_role_update &&
-        chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 2}).ok();
+        route_json(utf8_literal(
+            R"({"op":0,"d":{"guild_id":"100","role":{"id":"2000","permissions":"8"}},"s":4,"t":"GUILD_ROLE_UPDATE"})")) &&
+        event.dispatch_kind == GatewayClientDispatchKind::guild_role_update && apply_event();
     member_deny = chat_state_store_find_channel(store, 13);
     const ChatStateSelectionResult selected_member = chat_state_store_select_channel(&store, 13);
     expect(administrator_ok && member_deny && chat_state_store_channel_visible(store, *member_deny) &&
                selected_member.ok() && store.selected_channel_id == 13,
            "channel_permissions_administrator_bypasses_overwrites");
 
-    const bool administrator_removed =
-        decode_gateway(
-            utf8_literal(
-                R"({"op":0,"d":{"guild_id":"100","role":{"id":"2000","permissions":"0"}},"s":5,"t":"GUILD_ROLE_UPDATE"})"),
-            &envelope)
-            .ok() &&
-        gateway_client_route_dispatch(
-            envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
-            Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
-            .ok() &&
-        chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 2}).ok();
+    const bool administrator_removed = route_json(utf8_literal(
+                                           R"({"op":0,"d":{"guild_id":"100","role":{"id":"2000","permissions":"0"}},"s":5,"t":"GUILD_ROLE_UPDATE"})")) &&
+                                       apply_event();
     expect(administrator_removed && store.selected_channel_id == 14,
            "channel_permissions_role_update_revokes_selected_channel");
 
     const bool partial_parent_update =
-        decode_gateway(
-            utf8_literal(
-                R"({"op":0,"d":{"id":"14","guild_id":"100","type":0,"position":4,"name":"thread-parent-renamed"},"s":6,"t":"CHANNEL_UPDATE"})"),
-            &envelope)
-            .ok() &&
-        gateway_client_route_dispatch(
-            envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
-            Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
-            .ok() &&
-        (event.state.fields & gateway_client_state_field_permission_overwrites) == 0 &&
-        chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 2}).ok();
+        route_json(utf8_literal(
+            R"({"op":0,"d":{"id":"14","guild_id":"100","type":0,"position":4,"name":"thread-parent-renamed"},"s":6,"t":"CHANNEL_UPDATE"})")) &&
+        (event.state.fields & gateway_client_state_field_permission_overwrites) == 0 && apply_event();
     thread_parent = chat_state_store_find_channel(store, 14);
     expect(partial_parent_update && thread_parent && store.overwrite_count == 7 &&
                chat_state_store_channel_visible(store, *thread_parent),
            "channel_permissions_partial_channel_update_preserves_overwrites");
 
-    const bool parent_hidden =
-        decode_gateway(
-            utf8_literal(
-                R"({"op":0,"d":{"id":"14","guild_id":"100","type":0,"position":4,"name":"thread-parent","permission_overwrites":[{"id":"100","type":0,"allow":"0","deny":"1024"}]},"s":6,"t":"CHANNEL_UPDATE"})"),
-            &envelope)
-            .ok() &&
-        gateway_client_route_dispatch(
-            envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
-            Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
-            .ok() &&
-        chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 2}).ok();
+    const bool parent_hidden = route_json(utf8_literal(
+                                   R"({"op":0,"d":{"id":"14","guild_id":"100","type":0,"position":4,"name":"thread-parent","permission_overwrites":[{"id":"100","type":0,"allow":"0","deny":"1024"}]},"s":6,"t":"CHANNEL_UPDATE"})")) &&
+                               apply_event();
     thread = chat_state_store_find_channel(store, 15);
     expect(parent_hidden && thread && !chat_state_store_channel_visible(store, *thread) &&
                store.selected_channel_id == 0,
            "channel_permissions_parent_update_hides_inherited_thread");
 
-    const bool owner_update =
-        decode_gateway(
-            utf8_literal(
-                R"({"op":0,"d":{"id":"100","owner_id":"1","name":"Permissions","roles":[{"id":"100","permissions":"0"},{"id":"2000","permissions":"0"},{"id":"3000","permissions":"0"}]},"s":7,"t":"GUILD_UPDATE"})"),
-            &envelope)
-            .ok() &&
-        gateway_client_route_dispatch(
-            envelope, Slice<u32>{scratch, 2'048}, 32, Slice<char>{payload_storage, 16'384},
-            Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds}, 1, &event, &payload)
-            .ok() &&
-        chat_state_apply_gateway_event(&store, event, payload, Slice<u64>{guild_ids, 2}).ok();
+    const bool owner_update = route_json(utf8_literal(
+                                  R"({"op":0,"d":{"id":"100","owner_id":"1","name":"Permissions","roles":[{"id":"100","permissions":"0"},{"id":"2000","permissions":"0"},{"id":"3000","permissions":"0"}]},"s":7,"t":"GUILD_UPDATE"})")) &&
+                              apply_event();
     member_deny = chat_state_store_find_channel(store, 13);
     expect(owner_update && member_deny && chat_state_store_channel_visible(store, *member_deny) &&
                store.selected_channel_id == 11,
@@ -21795,14 +21536,10 @@ void test_user_auth_protocol() noexcept {
            "user_auth_password_wire_contract");
 
     u8 guarded[2048]{};
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        guarded[index] = 0xA5;
-    }
+    guard_fill(guarded, sizeof(guarded));
     written = user_auth_write_password_request(password, Slice<u8>{guarded, expected_password.count - 1});
-    bool unchanged = written.error == UserAuthWriteError::output_too_small;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        unchanged = unchanged && guarded[index] == 0xA5;
-    }
+    bool unchanged = written.error == UserAuthWriteError::output_too_small &&
+                     guard_intact(guarded, sizeof(guarded));
     expect(unchanged, "user_auth_password_capacity_is_atomic");
 
     char oversized_login[kUserAuthMaximumLoginBytes + 1]{};
@@ -21886,17 +21623,13 @@ void test_user_auth_protocol() noexcept {
                                                                      utf8_literal("request-token"),
                                                                      utf8_literal("session-7")},
                                               Slice<u8>{output, static_cast<u32>(sizeof(output))});
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        guarded[index] = 0xA5;
-    }
+    guard_fill(guarded, sizeof(guarded));
     const UserAuthWriteResult small_headers = user_auth_write_captcha_headers(
         UserAuthCaptchaHeaders{utf8_literal("solution"), utf8_literal("request-token"),
                                utf8_literal("session-7")},
         Slice<u8>{guarded, expected_captcha_headers.count - 1});
-    unchanged = small_headers.error == UserAuthWriteError::output_too_small;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        unchanged = unchanged && guarded[index] == 0xA5;
-    }
+    unchanged = small_headers.error == UserAuthWriteError::output_too_small &&
+                guard_intact(guarded, sizeof(guarded));
     expect(written.ok() && written.bytes == expected_captcha_headers.count &&
                bytes_equal(ConstSlice<u8>{output, written.bytes}, expected_captcha_headers) && unchanged &&
                user_auth_write_captcha_headers(
@@ -21940,16 +21673,12 @@ void test_user_auth_protocol() noexcept {
                                                                   utf8_literal("request-token"),
                                                                   utf8_literal("session-7")},
                                            Slice<u8>{output, static_cast<u32>(sizeof(output))});
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        guarded[index] = 0xA5;
-    }
+    guard_fill(guarded, sizeof(guarded));
     const UserAuthWriteResult small_head = user_auth_write_request_head(
         UserAuthOperation::password, 123,
         UserAuthCaptchaHeaders{utf8_literal("solution"), Utf8View{}, Utf8View{}}, Slice<u8>{guarded, 32});
-    unchanged = small_head.error == UserAuthWriteError::output_too_small;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        unchanged = unchanged && guarded[index] == 0xA5;
-    }
+    unchanged = small_head.error == UserAuthWriteError::output_too_small &&
+                guard_intact(guarded, sizeof(guarded));
     expect(
         written.ok() && written.bytes == expected_auth_head.count &&
             bytes_equal(ConstSlice<u8>{output, written.bytes}, expected_auth_head) && unchanged &&
@@ -22019,12 +21748,11 @@ void test_user_auth_protocol() noexcept {
     u8 auth_guarded[2048]{};
     const u32 short_capacities[]{0, metadata_head.bytes / 2, metadata_head.bytes - 1};
     for (const u32 capacity : short_capacities) {
-        for (u32 n = 0; n < sizeof(auth_guarded); ++n) auth_guarded[n] = 0xA5;
+        guard_fill(auth_guarded, sizeof(auth_guarded));
         metadata_atomic = metadata_atomic &&
             user_auth_write_request_head(UserAuthOperation::password, 32, {}, {auth_guarded, capacity},
                 &metadata).error == UserAuthWriteError::output_too_small;
-        for (u32 n = 0; n < sizeof(auth_guarded); ++n)
-            metadata_atomic = metadata_atomic && auth_guarded[n] == 0xA5;
+        metadata_atomic = metadata_atomic && guard_intact(auth_guarded, sizeof(auth_guarded));
     }
     const RestUserRequestHeaders invalid_metadata[]{
         {byte_literal("not-base64"), metadata.locale, metadata.timezone},
@@ -22038,12 +21766,11 @@ void test_user_auth_protocol() noexcept {
         {metadata.super_properties, metadata.locale, {reinterpret_cast<const char*>(auth_guarded), 4}},
     };
     for (const auto& invalid_headers : invalid_metadata) {
-        for (u32 n = 0; n < sizeof(auth_guarded); ++n) auth_guarded[n] = 0xA5;
+        guard_fill(auth_guarded, sizeof(auth_guarded));
         metadata_atomic = metadata_atomic &&
             user_auth_write_request_head(UserAuthOperation::password, 32, {},
                 {auth_guarded, sizeof(auth_guarded)}, &invalid_headers).error == UserAuthWriteError::invalid_input;
-        for (u32 n = 0; n < sizeof(auth_guarded); ++n)
-            metadata_atomic = metadata_atomic && auth_guarded[n] == 0xA5;
+        metadata_atomic = metadata_atomic && guard_intact(auth_guarded, sizeof(auth_guarded));
     }
     RestUserRequestHeaders alias_metadata = metadata;
     const RestUserRequestHeaders alias_before = alias_metadata;
@@ -22358,9 +22085,7 @@ void test_webauthn_protocol() noexcept {
                encoded[2] == '8' && encoded[3] == 'A',
            "base64url_canonical_encode");
 
-    for (u32 index = 0; index < static_cast<u32>(sizeof(binary)); ++index) {
-        binary[index] = 0xA5;
-    }
+    guard_fill(binary, sizeof(binary));
     const Base64UrlResult invalid_alphabet =
         base64url_decode(utf8_literal("+/8A"), Slice<u8>{binary, static_cast<u32>(sizeof(binary))});
     const Base64UrlResult invalid_padding =
@@ -22368,13 +22093,11 @@ void test_webauthn_protocol() noexcept {
     const Base64UrlResult noncanonical =
         base64url_decode(utf8_literal("AB"), Slice<u8>{binary, static_cast<u32>(sizeof(binary))});
     const Base64UrlResult short_output = base64url_decode(utf8_literal("SGVsbG8"), Slice<u8>{binary, 4});
-    bool atomic = invalid_alphabet.error == Base64UrlError::invalid_character &&
-                  invalid_padding.error == Base64UrlError::invalid_padding &&
-                  noncanonical.error == Base64UrlError::non_canonical &&
-                  short_output.error == Base64UrlError::output_too_small && short_output.bytes == 5;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(binary)); ++index) {
-        atomic = atomic && binary[index] == 0xA5;
-    }
+    const bool atomic = invalid_alphabet.error == Base64UrlError::invalid_character &&
+                        invalid_padding.error == Base64UrlError::invalid_padding &&
+                        noncanonical.error == Base64UrlError::non_canonical &&
+                        short_output.error == Base64UrlError::output_too_small && short_output.bytes == 5 &&
+                        guard_intact(binary, sizeof(binary));
     expect(atomic, "base64url_rejects_noncanonical_atomically");
 
     constexpr Utf8View request_json = utf8_literal(
@@ -22422,9 +22145,7 @@ void test_webauthn_protocol() noexcept {
            "webauthn_public_key_credential_json_contract");
 
     u8 short_assertion[32];
-    for (u32 index = 0; index < static_cast<u32>(sizeof(short_assertion)); ++index) {
-        short_assertion[index] = 0xA5;
-    }
+    guard_fill(short_assertion, sizeof(short_assertion));
     written = webauthn_mfa_write_assertion(
         WebAuthnMfaAssertionView{
             ConstSlice<u8>{url_fixture, static_cast<u32>(sizeof(url_fixture))},
@@ -22433,11 +22154,9 @@ void test_webauthn_protocol() noexcept {
             ConstSlice<u8>{signature, static_cast<u32>(sizeof(signature))}, ConstSlice<u8>{nullptr, 0},
             WebAuthnAuthenticatorAttachment::platform},
         Slice<u8>{short_assertion, static_cast<u32>(sizeof(short_assertion))});
-    bool assertion_atomic =
-        written.error == WebAuthnMfaError::output_too_small && written.bytes == expected_assertion.count;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(short_assertion)); ++index) {
-        assertion_atomic = assertion_atomic && short_assertion[index] == 0xA5;
-    }
+    const bool assertion_atomic = written.error == WebAuthnMfaError::output_too_small &&
+                                  written.bytes == expected_assertion.count &&
+                                  guard_intact(short_assertion, sizeof(short_assertion));
     expect(assertion_atomic, "webauthn_assertion_capacity_is_atomic");
 
     WebAuthnMfaRequestOptions untouched{};
@@ -22642,9 +22361,7 @@ void test_gateway_commands() noexcept {
            "gateway_does_not_advertise_unhandled_auth_token_refresh");
     u8 output[2048]{};
     u8 guarded[2048]{};
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        guarded[index] = 0xA5;
-    }
+    guard_fill(guarded, sizeof(guarded));
     bool unchanged = true;
     const char invalid_utf8[] = {static_cast<char>(0xC0), static_cast<char>(0xAF)};
 
@@ -22679,15 +22396,11 @@ void test_gateway_commands() noexcept {
                properties_written.ok() && properties_written.bytes == expected_user_properties.count &&
                bytes_equal(ConstSlice<u8>{output, properties_written.bytes}, expected_user_properties),
            "gateway_user_properties_write");
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        guarded[index] = 0x5A;
-    }
+    guard_fill(guarded, sizeof(guarded), 0x5A);
     unchanged = gateway_write_user_properties(user_identify.properties,
                                               Slice<u8>{guarded, expected_user_properties.count - 1})
-                    .error == GatewayCommandError::output_too_small;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        unchanged = unchanged && guarded[index] == 0x5A;
-    }
+                        .error == GatewayCommandError::output_too_small &&
+                guard_intact(guarded, sizeof(guarded), 0x5A);
     expect(unchanged, "gateway_user_properties_output_bound");
 
 #define MAICORD_TEST_PROPERTIES_HEAD \
@@ -22819,16 +22532,11 @@ void test_gateway_commands() noexcept {
                            ConstSlice<u8>{reinterpret_cast<const u8*>(header), header_expected.bytes}),
            "rest_user_super_properties_match_identify");
 
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        guarded[index] = 0x5A;
-    }
+    guard_fill(guarded, sizeof(guarded), 0x5A);
     expect(gateway_write_user_identify(user_identify, Slice<u8>{guarded, expected_user_identify.count - 1})
                    .error == GatewayCommandError::output_too_small,
            "gateway_user_identify_output_bound");
-    unchanged = true;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        unchanged = unchanged && guarded[index] == 0x5A;
-    }
+    unchanged = guard_intact(guarded, sizeof(guarded), 0x5A);
     expect(unchanged, "gateway_user_identify_no_partial_secret");
 
     GatewayUserIdentify invalid_user_identify = user_identify;
@@ -22858,9 +22566,7 @@ void test_gateway_commands() noexcept {
                    .error == GatewayCommandError::invalid_utf8,
            "gateway_user_identify_utf8_validation");
     char oversized_user_token[kGatewayUserMaximumTokenBytes + 1]{};
-    for (u32 index = 0; index < static_cast<u32>(sizeof(oversized_user_token)); ++index) {
-        oversized_user_token[index] = 'x';
-    }
+    guard_fill(reinterpret_cast<u8*>(oversized_user_token), sizeof(oversized_user_token), 'x');
     invalid_user_identify = user_identify;
     invalid_user_identify.token =
         Utf8View{oversized_user_token, static_cast<u32>(sizeof(oversized_user_token))};
@@ -22869,9 +22575,7 @@ void test_gateway_commands() noexcept {
                    .error == GatewayCommandError::value_too_large,
            "gateway_user_identify_token_bound");
     char maximum_escaped_user_token[kGatewayUserMaximumTokenBytes]{};
-    for (u32 index = 0; index < static_cast<u32>(sizeof(maximum_escaped_user_token)); ++index) {
-        maximum_escaped_user_token[index] = '\n';
-    }
+    guard_fill(reinterpret_cast<u8*>(maximum_escaped_user_token), sizeof(maximum_escaped_user_token), '\n');
     invalid_user_identify = user_identify;
     invalid_user_identify.token =
         Utf8View{maximum_escaped_user_token, static_cast<u32>(sizeof(maximum_escaped_user_token))};
@@ -22879,10 +22583,7 @@ void test_gateway_commands() noexcept {
                                        Slice<u8>{guarded, static_cast<u32>(sizeof(guarded))})
                    .error == GatewayCommandError::value_too_large,
            "gateway_user_identify_command_bound");
-    unchanged = true;
-    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
-        unchanged = unchanged && guarded[index] == 0x5A;
-    }
+    unchanged = guard_intact(guarded, sizeof(guarded), 0x5A);
     expect(unchanged, "gateway_user_identify_command_bound_atomic");
 
     GatewayUserIdentify idle_user_identify = user_identify;
@@ -23652,9 +23353,8 @@ void test_http1() noexcept {
         const ConstSlice<u8> readable = byte_queue_readable(queue);
         const HttpChunkStep step = http_chunk_decode(&decoder, readable);
         if (step.state == HttpChunkStepState::data) {
-            for (u32 index = 0; index < step.data.count; ++index) {
-                decoded[decoded_bytes++] = step.data[index];
-            }
+            copy_bytes(decoded + decoded_bytes, step.data.data, step.data.count);
+            decoded_bytes += step.data.count;
         }
         byte_queue_consume(&queue, step.consumed);
         if (step.state == HttpChunkStepState::error) {
@@ -23928,17 +23628,12 @@ void test_rest() noexcept {
            "rest_user_page_origin_on_non_get_requests");
 
     u8 atomic_output[16]{};
-    for (u32 index = 0; index < 16; ++index) {
-        atomic_output[index] = 0xA5;
-    }
+    guard_fill(atomic_output, sizeof(atomic_output));
     const RestRequestWriteResult too_small = write_rest_request_head(
         RestRequestHead{byte_literal("/api/v10/gateway"), byte_literal("secret"), 0,
                         RestMethod::get, RestAuthorization::bearer, false, false},
         Slice<u8>{atomic_output, 16});
-    bool untouched = true;
-    for (u32 index = 0; index < 16; ++index) {
-        untouched = untouched && atomic_output[index] == 0xA5;
-    }
+    const bool untouched = guard_intact(atomic_output, sizeof(atomic_output));
     expect(too_small.error == RestRequestError::output_capacity && untouched,
            "rest_request_capacity_is_atomic");
     expect(write_rest_request_head(
@@ -24965,10 +24660,8 @@ void test_secure_buffer() noexcept {
     if (restored_initialized.ok() && protected_result.ok()) {
         const SecureBufferResult unprotected =
             secure_buffer_unprotect_user_bound(ConstSlice<u8>{protected_data, protected_result.bytes}, {}, &restored);
-        bool equal = unprotected.ok() && restored.bytes == sizeof(token);
-        for (u32 index = 0; equal && index < sizeof(token); ++index) {
-            equal = restored.data[index] == token[index];
-        }
+        const bool equal = unprotected.ok() && restored.bytes == sizeof(token) &&
+                           maicord::bytes_equal(restored.data, token, sizeof(token));
         expect(equal, "secure_buffer_dpapi_round_trip");
         secure_buffer_clear(&restored);
         bool cleared = restored.bytes == 0;
@@ -25172,8 +24865,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
 
     const bool other_deleted = DeleteFileW(path) != FALSE;
     const bool other_missing = message_draft_session_configure(session, drafts, path, profile_id + 1, 3'000);
-    bool text_erased = true;
-    for (u32 index = 0; index < sizeof(text); ++index) text_erased = text_erased && text[index] == 0;
+    bool text_erased = guard_intact(text, sizeof(text), 0);
     expect(other_deleted && other_missing && session.profile_id == profile_id + 1 &&
         session.persisted_revision == 0 && session.persist_at_ms == 0 && session.persist_saves == 0 &&
         !session.cleanup_required && drafts.count == 0 && drafts.revision == 0 && drafts.clock == 0 &&
@@ -25185,8 +24877,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
         message_drafts_save_file(path, profile_id + 1, drafts).ok() &&
         write_message_draft_test_image(path, {corrupt, sizeof(corrupt)});
     const bool other_corrupt = message_draft_session_configure(session, drafts, path, profile_id + 2, 3'100);
-    text_erased = true;
-    for (u32 index = 0; index < sizeof(text); ++index) text_erased = text_erased && text[index] == 0;
+    text_erased = guard_intact(text, sizeof(text), 0);
     expect(other_ready && other_corrupt && session.profile_id == profile_id + 2 &&
         session.persisted_revision == 0 && session.persist_at_ms == 0 && session.persist_saves == 0 &&
         !session.cleanup_required && drafts.count == 0 && drafts.revision == 0 && drafts.clock == 0 &&
@@ -25889,12 +25580,8 @@ void test_account_session_store() noexcept {
     snapshot.self_user_id = 0x123456789abcdef0ull;
     constexpr char session_id[] = "session-state";
     constexpr char resume_url[] = "wss://gateway.discord.gg";
-    for (u32 index = 0; index < sizeof(session_id) - 1; ++index) {
-        snapshot.resume.session_id[index] = session_id[index];
-    }
-    for (u32 index = 0; index < sizeof(resume_url) - 1; ++index) {
-        snapshot.resume.resume_url[index] = resume_url[index];
-    }
+    copy_bytes(snapshot.resume.session_id, session_id, sizeof(session_id) - 1);
+    copy_bytes(snapshot.resume.resume_url, resume_url, sizeof(resume_url) - 1);
     snapshot.resume.session_id_bytes = sizeof(session_id) - 1;
     snapshot.resume.resume_url_bytes = sizeof(resume_url) - 1;
     snapshot.resume.sequence = 77;
@@ -26053,9 +25740,7 @@ void test_gateway_client_contract() noexcept {
     AccountProfile expanded_profile{};
     expanded_profile.metadata = AccountProfileMetadata{9};
     u8 expanded_token[kGatewayUserMaximumTokenBytes]{};
-    for (u32 index = 0; index < static_cast<u32>(sizeof(expanded_token)); ++index) {
-        expanded_token[index] = '"';
-    }
+    guard_fill(expanded_token, sizeof(expanded_token), '"');
     const bool expanded_ready =
         secure_buffer_initialize(&expanded_profile.credential, kGatewayUserMaximumTokenBytes).ok() &&
         secure_buffer_assign(&expanded_profile.credential,

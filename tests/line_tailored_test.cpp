@@ -1,10 +1,8 @@
 #include "maicord/text/detail/line_break_tailored.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 namespace maicord {namespace {
 u32 cases=0,checks=0;
-void print(Utf8View text) noexcept {DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text.data,text.bytes,&done,nullptr);}
-void number(u32 value) noexcept {char s[16];u32 n=0;do{s[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){char t=s[i];s[i]=s[n-i-1];s[n-i-1]=t;}print({s,n});}
 bool compare(ConstSlice<u32> text,ConstSlice<u8> expected) noexcept {
     u8 out[258];if(text.count>256||expected.count!=text.count+1)return false;out[text.count+1]=0x5a;
     if(!line_breaks_tailored(text,{out,text.count+1})||out[text.count+1]!=0x5a)return false;
@@ -64,10 +62,9 @@ bool property_contract() noexcept {
 }
 bool run() noexcept {
     if(!units()||!long_contexts()||!property_contract())return false;
-    const wchar_t* c=GetCommandLineW();bool quote=false;while(*c){if(*c=='"')quote=!quote;else if(!quote&&(*c==' '||*c=='\t'))break;++c;}while(*c==' '||*c=='\t')++c;
-    if(!*c)return true;wchar_t path[32768];u32 n=0;quote=*c=='"';if(quote)++c;
-    while(*c&&!(quote?*c=='"':*c==' '||*c=='\t')){if(n+1>=32768)return false;path[n++]=*c++;}path[n]=0;
-    if(quote){if(*c!='"')return false;++c;}while(*c==' '||*c=='\t')++c;return n&&!*c&&corpus(path);
+    const wchar_t* c=test_arguments();
+    if(!*c)return true;
+    wchar_t path[32768];return test_path_argument(c,path)&&corpus(path);
 }
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_line_tailored_entry() noexcept {

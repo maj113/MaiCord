@@ -47,6 +47,17 @@ ConstSlice<u32> indic_input_fixture(u16 id) noexcept {
     if(!data)return {};
     return {static_cast<const u32*>(data),static_cast<u32>(size/sizeof(u32))};
 }
+// Replays a frozen cluster-boundary corpus (word = scalar | 0x40000000 cluster end | boundary<<31).
+bool indic_input_corpus(SfntIndicProfile profile,u16 resource,u32 words,u32 cases,const char* name,ConstSlice<u8> forms={}) noexcept {
+    const auto fixture=indic_input_fixture(resource);
+    u32 scalars[256]{};u8 boundaries[256]{};u32 first=0,count=0,done=0;
+    if(fixture.count!=words)return false;
+    for(u32 i=0;i<fixture.count;++i){const u32 entry=fixture[i];if(count==256)return false;scalars[count++]=entry&0x1fffffu;
+        if(entry&0x40000000u){if(sfnt_indic_cluster_boundaries(profile,{scalars,count},{boundaries,count},1000000,forms)!=SfntStatus::ok)return false;
+            for(u32 j=0;j<count;++j)if(boundaries[j]!=(fixture[first+j]>>31)){print(name);print(" fixture case ");number(done);print("\n");return false;}
+            ++done;count=0;first=i+1;}}
+    return !count&&done==cases;
+}
 #include "tamil_plan_units.inc"
 #include "bengali_plan_units.inc"
 #include "tamil_input_units.inc"
@@ -346,10 +357,11 @@ bool units() noexcept {
     print("PASS Devanagari stages, eligibility, reuse, capacity and work limits\n");return true;
 }
 template<class T> Slice<T> allocate(Arena& arena,u32 count) noexcept {return {arena_allocate<T>(&arena,count),count};}
-bool gujarati_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_GUJARATI_RUN",value,2)==1&&value[0]=='1';}
-bool bengali_run_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_BENGALI_RUN",value,2)==1&&value[0]=='1';}
+bool env_flag(const wchar_t* name) noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(name,value,2)==1&&value[0]=='1';}
+bool gujarati_run_mode() noexcept {return env_flag(L"MAICORD_GUJARATI_RUN");}
+bool bengali_run_mode() noexcept {return env_flag(L"MAICORD_BENGALI_RUN");}
 bool shape_right_to_left=false;
-bool memo_benchmark_mode() noexcept {wchar_t value[2]{};return GetEnvironmentVariableW(L"MAICORD_DEVANAGARI_MEMO_BENCH",value,2)==1&&value[0]=='1';}
+bool memo_benchmark_mode() noexcept {return env_flag(L"MAICORD_DEVANAGARI_MEMO_BENCH");}
 struct TextOutput {u16 glyphs[1024];SfntPlacement placements[1024];u32 clusters[256];u32 count;};
 struct OwnedProfile {
     NativeFontFileSlot files[1]{};NativeFontFaceSlot faces[1]{};NativeFontInstanceSlot instances[1]{};NativeRunPlanSlot plans[1]{};
@@ -534,7 +546,7 @@ bool font_case(ConstSlice<u8> bytes,u32 index,Arena& arena,const wchar_t* path,b
     return owned.close();
 }
 bool font_file(const wchar_t* path,bool profile_only=false) noexcept {
-    wchar_t direction[2]{};shape_right_to_left=GetEnvironmentVariableW(L"MAICORD_DEVANAGARI_RTL",direction,2)==1&&direction[0]=='1';
+    shape_right_to_left=env_flag(L"MAICORD_DEVANAGARI_RTL");
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);
     struct Close {HANDLE h;~Close() noexcept {CloseHandle(h);}} close{file};LARGE_INTEGER size{};CHECK(GetFileSizeEx(file,&size)&&size.QuadPart>0&&size.QuadPart<64*1024*1024);
     HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);Close close_mapping{mapping};

@@ -10,7 +10,7 @@ struct Fixture {
     RestClientResponse metadata;
     UserAuthOperation operation;
     u64 request_id;
-    u32 submissions, notification_reads;
+    u32 submissions, notification_reads, request_capacity;
     bool ready, fail_stop, fail_submit, joined_error;
     RestClientPhase phase;
     RestClientError error;
@@ -18,50 +18,9 @@ struct Fixture {
 #include "user_auth_coordinator_test_support.inc"
 }
 
-namespace maicord {
-// The production size-query entry shares the REST object with the transport.
-// This fixture never measures that owner; keep its unused link boundary mocked
-// so the real networking implementation cannot be pulled into the test.
-u32 rest_client_user_auth_runtime_bytes(u32) noexcept { return 0; }
-u32 rest_client_user_auth_capacity_runtime_bytes(u32, u32) noexcept { return 0; }
-RestClientResult rest_client_start_user_auth_capacity(RestClient* client, u32 response, u32) noexcept {
-    return rest_client_start_user_auth(client, response);
-}
-RestClientResult rest_client_start_user_auth(RestClient* client, u32) noexcept {
-    return phone_coordinator_test::start_client(client);
-}
-RestClientSubmitResult rest_client_submit_user_auth(
-    RestClient*, const RestUserAuthRequest& value) noexcept {
-    using namespace phone_coordinator_test;
-    if (fixture.fail_submit) return {RestClientSubmitError::busy};
-    if (!value.body || !value.body->locked || !secure_buffer_assign(&fixture.request, secure_buffer_view(*value.body)).ok())
-        return {RestClientSubmitError::invalid_input};
-    return record_request(value);
-}
-RestClientResult rest_client_status(const RestClient*) noexcept {
-    return phone_coordinator_test::client_status();
-}
-RestClientTakeResult rest_client_consume_user_auth_response(
-    RestClient*, RestClientResponse* response,
-    RestUserAuthConsumeFunction consume, void* context) noexcept {
-    return phone_coordinator_test::consume_response(response, consume, context);
-}
-HANDLE rest_client_notification_handle(const RestClient*) noexcept {
-    ++phone_coordinator_test::fixture.notification_reads;
-    return reinterpret_cast<HANDLE>(1);
-}
-RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
-                                            RestClientResponse* receipt) noexcept {
-    phone_coordinator_test::stop_receipt(receipt);
-    return rest_client_stop(client, timeout_ms);
-}
-RestClientResult rest_client_stop(RestClient* client, u32) noexcept {
-    return phone_coordinator_test::stop_client(client);
-}
-void measure(const char* label, u32 value) noexcept {
-    test_write_metric(label, value);
-}
-}
+#define MAICORD_AUTH_TEST_NS phone_coordinator_test
+#include "user_auth_coordinator_test_link.inc"
+#undef MAICORD_AUTH_TEST_NS
 
 namespace maicord::phone_coordinator_test {
 bool zero_range(const u8* data, u32 count) noexcept {
@@ -109,10 +68,10 @@ void run() noexcept {
         secret_pages.AllocationBase == runtime->secrets.data && secret_pages.State == MEM_COMMIT &&
         secret_pages.RegionSize == kUserAuthCoordinatorSecretBytes,
         "phone coordinator: actual native metadata/locked arena commitment matches ordinary owner capacities");
-    measure("MEASURE phone_coordinator_owner_bytes=", static_cast<u32>(sizeof(UserAuthCoordinatorRuntime)));
-    measure("MEASURE phone_coordinator_owner_committed_bytes=", static_cast<u32>(owner_pages.RegionSize));
-    measure("MEASURE phone_coordinator_secret_committed_bytes=", static_cast<u32>(secret_pages.RegionSize));
-    measure("MEASURE phone_coordinator_request_capacity=", runtime->request_capacity);
+    test_write_metric("MEASURE phone_coordinator_owner_bytes=", sizeof(UserAuthCoordinatorRuntime));
+    test_write_metric("MEASURE phone_coordinator_owner_committed_bytes=", owner_pages.RegionSize);
+    test_write_metric("MEASURE phone_coordinator_secret_committed_bytes=", secret_pages.RegionSize);
+    test_write_metric("MEASURE phone_coordinator_request_capacity=", runtime->request_capacity);
     check(runtime->secrets.capacity == kUserAuthCoordinatorSecretBytes && runtime->request_capacity == 32768 &&
         runtime->continuation_base_bytes == base.bytes && bytes_equal(runtime->secrets.data, base.data, base.bytes) &&
         zero_range(runtime->secrets.data + base.bytes, kPhoneTokenOffset - base.bytes) &&

@@ -29,11 +29,6 @@ u8 message_text[2048];
 void check(bool ok, const char* label) noexcept {
     test_check(&failures, ok, label);
 }
-bool contains(Utf8View text, Utf8View part) noexcept {
-    for (u32 i=0; i+part.bytes<=text.bytes; ++i)
-        if (bytes_equal(text.data+i, part.data, part.bytes)) return true;
-    return false;
-}
 RestClientSubmitResult WINAPI fetch(void*, ChannelOverviewOperation op, u64 channel,
                                           const ChannelOverviewPatch* patch, u64) noexcept {
     check(op==ChannelOverviewOperation::fetch && !patch, "navigation uses GET metadata without patch");
@@ -181,7 +176,7 @@ void tests() noexcept {
     RestClientResponse history{}; history.request_id=11; history.status_code=403;
     MessageHistoryRestResult failed{}; failed.error=MessageHistoryRestError::http_status;
     application_search_navigation_history_response(history,failed);
-    check(application_message_mutation_notice_is_error() && contains(application_message_mutation_notice_text(),utf8_literal("cannot read")),
+    check(application_message_mutation_notice_is_error() && test_contains(application_message_mutation_notice_text(),utf8_literal("cannot read")),
         "admitted history403 produces visible real composer notice");
 
     const u16 statuses[]{403,404};
@@ -209,7 +204,7 @@ void tests() noexcept {
     check(chat_state_store_upsert_channel(&g_app.account_ui->chat_state,{70,7,0,utf8_literal("New Gateway name"),0,0,0}).ok(),"newer Gateway record arrives");
     chat_state_store_recompute_guild_permissions(&g_app.account_ui->chat_state,7);
     check(response(50,ordinary) && moves==1 &&
-        contains(chat_state_store_channel_name(g_app.account_ui->chat_state,
+        test_contains(chat_state_store_channel_name(g_app.account_ui->chat_state,
             *chat_state_store_find_channel(g_app.account_ui->chat_state,70)),utf8_literal("New Gateway")),
         "older GET cannot overwrite the newer Gateway publication");
     check(reset() && application_search_navigation_begin(accepted_source.ticket) && application_search_navigation_submit(51,1),"exact response fixture admits");
@@ -285,7 +280,7 @@ void tests() noexcept {
     RestClientResponse limited{}; limited.request_id=70; limited.status_code=429; limited.rate_limited=true;
     limited.retry_at_ms=deadline_after(clock_monotonic_milliseconds(),10000);
     check(application_search_navigation_response(limited,{}) && !application_search_navigation_pending(1) &&
-        application_search_navigation_next_wake()==limited.retry_at_ms && contains(shown,utf8_literal("Too many requests")),
+        application_search_navigation_next_wake()==limited.retry_at_ms && test_contains(shown,utf8_literal("Too many requests")),
         "metadata429 retains bounded owner and explicit rate waiting deadline");
 
     check(reset() && application_search_navigation_begin(accepted_source.ticket) && application_search_navigation_submit(75,1) && response(75,ordinary),"history429 fixture admits");
@@ -295,7 +290,7 @@ void tests() noexcept {
     application_search_navigation_history_response(limited,failed);
     g_app.pending_message_jump_channel_id=g_app.pending_message_jump_message_id=0;
     check(navigation.phase==MessageNavigationPhase::history_retry && application_search_navigation_next_wake()==limited.retry_at_ms &&
-        contains(application_message_mutation_notice_text(),utf8_literal("Retrying")) && !application_message_mutation_notice_is_error(),
+        test_contains(application_message_mutation_notice_text(),utf8_literal("Retrying")) && !application_message_mutation_notice_is_error(),
         "admitted history429 keeps explicit waiting notice and exact retry deadline without terminal failure");
 
     check(reset() && application_search_navigation_link(accepted_source.ticket,{8,80,901,0}) && application_search_navigation_submit(80,1),"cross-server link fixture admits");
@@ -307,7 +302,7 @@ void tests() noexcept {
     check(navigation.request_id==81 && !history_cancels,"admitted target authority survives original Search scope retirement");
     history.request_id=81; history.status_code=404;
     application_search_navigation_history_response(history,failed);
-    check(contains(application_message_mutation_notice_text(),utf8_literal("unavailable")),"cross-server history404 remains visible after Search disappears");
+    check(test_contains(application_message_mutation_notice_text(),utf8_literal("unavailable")),"cross-server history404 remains visible after Search disappears");
 
     check(reset() && application_search_navigation_begin(accepted_source.ticket) && application_search_navigation_submit(90,1) && response(90,ordinary),"history retirement fixture admits");
     application_search_navigation_history_submitted(70,900,91);
@@ -337,7 +332,7 @@ void timeline_tests() noexcept {
     check(reset() && timeline_source(&source) && application_message_navigation_link(source,{7,70,900}) &&
         application_search_navigation_submit(101,1) &&
         g_app.message_mutation_notice.shown.channel_id==60 && g_app.message_mutation_notice.shown.message_id==600 &&
-        contains(application_message_mutation_notice_text(),utf8_literal("Loading channel")),
+        test_contains(application_message_mutation_notice_text(),utf8_literal("Loading channel")),
         "uncached timeline link reports metadata progress on clicked source channel");
     check(message_store_upsert(&g_app.message_view.store,{600,60,2,1,2,utf8_literal("Changed during GET"),0}).ok(),
         "actual source revision changes while GET is pending");
@@ -445,7 +440,7 @@ void timeline_tests() noexcept {
     source_valid=false;
     check(application_message_navigation_link(source,{7,70,900}) && fetches==1 && navigation.request_id==117 &&
         g_app.message_mutation_notice.shown.channel_id==60 && g_app.message_mutation_notice.shown.message_id==600 &&
-        contains(application_message_mutation_notice_text(),utf8_literal("Another message")),
+        test_contains(application_message_mutation_notice_text(),utf8_literal("Another message")),
         "new timeline attempt shows source busy notice while cancelled Search ID drains");
     const auto busy_frames=frames;
     application_message_navigation_link(source,{7,70,900});
@@ -455,13 +450,13 @@ void timeline_tests() noexcept {
     check(application_message_navigation_owner_bytes()<=512,"shared owner footprint stays bounded independently of UI and decoder scratch");
 
     check(reset() && timeline_source(&source) && application_message_navigation_link(source,{0,70,900}) && !fetches &&
-        contains(application_message_mutation_notice_text(),utf8_literal("unavailable")),
+        test_contains(application_message_mutation_notice_text(),utf8_literal("unavailable")),
         "missing private channel is visibly unavailable without ungrounded @me hydration");
     check(reset() && timeline_source(&source) && application_message_navigation_link(source,{99,70,900}) && !fetches &&
-        contains(application_message_mutation_notice_text(),utf8_literal("unavailable")),
+        test_contains(application_message_mutation_notice_text(),utf8_literal("unavailable")),
         "unknown guild link fails visibly without treating unchanged source as stale");
     check(reset() && timeline_source(&source) && application_message_navigation_link(source,{8,60,900}) && !moves &&
-        contains(application_message_mutation_notice_text(),utf8_literal("unavailable")),
+        test_contains(application_message_mutation_notice_text(),utf8_literal("unavailable")),
         "known destination with mismatched guild identity is unavailable before selection");
     check(reset() && chat_state_store_upsert_channel(&g_app.account_ui->chat_state,{80,0,0,utf8_literal("DM"),0,0,1}).ok() &&
         timeline_source(&source) && application_message_navigation_link(source,{0,80,900}) && moves==1 && !fetches,

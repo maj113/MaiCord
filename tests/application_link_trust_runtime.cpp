@@ -5,6 +5,7 @@
 #include "application_text_form_state.hpp"
 #include "maicord/sys/shell.hpp"
 #include "maicord/core/memory.hpp"
+#include "test_output.hpp"
 
 namespace maicord::link_trust_runtime_test {
 HINSTANCE WINAPI shell_execute(HWND, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR, INT) noexcept;
@@ -31,15 +32,6 @@ bool launched_is(const wchar_t* url) noexcept {
     while (url[i] && launched[i] == url[i])
         ++i;
     return !url[i] && !launched[i];
-}
-bool contains(Utf8View text, Utf8View part) noexcept {
-    for (u32 i = 0; part.bytes <= text.bytes && i <= text.bytes - part.bytes; ++i)
-        if (bytes_equal(text.data + i, part.data, part.bytes))
-            return true;
-    return false;
-}
-bool same(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
 }
 bool click(TextFormElement element) noexcept {
     const auto* node = g_app.text_form ? text_form_node(g_app.text_form->scene, element) : nullptr;
@@ -123,12 +115,12 @@ void run(Check check, UiTextMeasureBackend measure) noexcept {
     if (!g_app.text_form)
         return;
     const auto& content = g_app.text_form->scene.content;
-    check(same(content.title, utf8_literal("Leaving Discord")) &&
-              contains(content.context, utf8_literal("This link is taking you to the following website")) &&
-              contains(content.context, utf8_literal("https://example.com/b")) &&
-              !contains(content.context, utf8_literal("secret")) &&
-              same(content.option, utf8_literal("Trust example.com links from now on")) && !content.option_checked &&
-              same(content.accept, utf8_literal("Visit Site")) && same(content.cancel, utf8_literal("Go Back")) &&
+    check(utf8_equal(content.title, utf8_literal("Leaving Discord")) &&
+              test_contains(content.context, utf8_literal("This link is taking you to the following website")) &&
+              test_contains(content.context, utf8_literal("https://example.com/b")) &&
+              !test_contains(content.context, utf8_literal("secret")) &&
+              utf8_equal(content.option, utf8_literal("Trust example.com links from now on")) && !content.option_checked &&
+              utf8_equal(content.accept, utf8_literal("Visit Site")) && utf8_equal(content.cancel, utf8_literal("Go Back")) &&
               text_form_focused(g_app.text_form->scene) == TextFormElement::accept,
           "link trust: the warning names the URL and the host, with Visit Site and Go Back");
     check(click(TextFormElement::cancel) && !g_app.text_form && launches == 2 &&
@@ -164,10 +156,10 @@ void run(Check check, UiTextMeasureBackend measure) noexcept {
 
     // Application protocols ask with their own wording and trust the scheme.
     check(application_link_open(utf8_literal("discord://-/channels/1/2"), true) && g_app.text_form &&
-              contains(g_app.text_form->scene.content.context,
+              test_contains(g_app.text_form->scene.content.context,
                        utf8_literal("This link is trying to open an application on your device")) &&
-              same(g_app.text_form->scene.content.option, utf8_literal("Trust discord: links from now on")) &&
-              same(g_app.text_form->scene.content.accept, utf8_literal("Open Link")),
+              utf8_equal(g_app.text_form->scene.content.option, utf8_literal("Trust discord: links from now on")) &&
+              utf8_equal(g_app.text_form->scene.content.accept, utf8_literal("Open Link")),
           "link trust: application links ask to trust their protocol");
     check(click(TextFormElement::option) && g_app.text_form && g_app.text_form->scene.content.option_checked &&
               click(TextFormElement::accept) && !g_app.text_form && launches == 6 &&

@@ -3,6 +3,7 @@
 #include "maicord/model/upload_allowance.hpp"
 #include "maicord/protocol/upload_allowance.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/platform/clipboard_image.hpp"
 #include "maicord/media/png.hpp"
 
@@ -79,17 +80,16 @@ struct Provider final : IDataObject {
     HRESULT STDMETHODCALLTYPE EnumDAdvise(IEnumSTATDATA**) override { return OLE_E_ADVISENOTSUPPORTED; }
 };
 using Check = void (*)(bool, const char*) noexcept;
-void store32(u8* p, u32 v) noexcept { p[0] = static_cast<u8>(v); p[1] = static_cast<u8>(v >> 8); p[2] = static_cast<u8>(v >> 16); p[3] = static_cast<u8>(v >> 24); }
 // Writes a DIB header (and masks or palette after it); returns the pixel offset.
 u32 dib_header(u8* out, u32 header, i32 width, i32 height, u16 bits, u32 compression, const u32* in_header_masks,
                const u32* masks_after, u32 masks_after_count, const u32* palette, u32 used) noexcept {
     clear_bytes(out, header);
-    store32(out, header); store32(out + 4, static_cast<u32>(width)); store32(out + 8, static_cast<u32>(height));
-    out[12] = 1; out[14] = static_cast<u8>(bits); store32(out + 16, compression); store32(out + 32, used);
-    for (u32 i = 0; in_header_masks && i < 4 && 40 + i * 4 + 4 <= header; ++i) store32(out + 40 + i * 4, in_header_masks[i]);
+    byte_store_le32(out, header); byte_store_le32(out + 4, static_cast<u32>(width)); byte_store_le32(out + 8, static_cast<u32>(height));
+    out[12] = 1; out[14] = static_cast<u8>(bits); byte_store_le32(out + 16, compression); byte_store_le32(out + 32, used);
+    for (u32 i = 0; in_header_masks && i < 4 && 40 + i * 4 + 4 <= header; ++i) byte_store_le32(out + 40 + i * 4, in_header_masks[i]);
     u32 offset = header;
-    for (u32 i = 0; i < masks_after_count; ++i, offset += 4) store32(out + offset, masks_after[i]);
-    for (u32 i = 0; i < used; ++i, offset += 4) store32(out + offset, palette[i]);
+    for (u32 i = 0; i < masks_after_count; ++i, offset += 4) byte_store_le32(out + offset, masks_after[i]);
+    for (u32 i = 0; i < used; ++i, offset += 4) byte_store_le32(out + offset, palette[i]);
     return offset;
 }
 struct Decoded { PngImage image; u8* scan; bool ok; };
@@ -178,7 +178,7 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
     // Windows synthesizes CF_DIBV5 from CF_DIB with the masks repeated after the V5 header.
     const u32 v5_rgb_masks[4]{0x00ff0000, 0x0000ff00, 0x000000ff, 0};
     offset = dib_header(work, 124, 2, 1, 32, BI_BITFIELDS, v5_rgb_masks, rgb_masks, 3, nullptr, 0);
-    store32(work + offset, 0x00112233); store32(work + offset + 4, 0x00445566);
+    byte_store_le32(work + offset, 0x00112233); byte_store_le32(work + offset + 4, 0x00445566);
     decoded = clipboard_paste_png(ClipboardPasteKind::dibv5, {work, offset + 8}, 1u << 20, &png) == ERROR_SUCCESS
                   ? decode(png, scan, scan_capacity) : Decoded{};
     check(decoded.ok && decoded.image.color_type == 2 && pixel_is(decoded, 0, 0, 0x11, 0x22, 0x33, 255) &&

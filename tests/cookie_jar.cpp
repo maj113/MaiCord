@@ -182,9 +182,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_cookie_jar_entry() noexcept 
     test_cross_site();
     test_capacity();
     test_persistence();
-    constexpr char pass[] = "PASS cookie jar\n";
-    constexpr char fail[] = "FAIL cookie jar\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "cookie jar");
 }

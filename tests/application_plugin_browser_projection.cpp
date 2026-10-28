@@ -130,12 +130,12 @@ const UiSettingsControl* find(u32 count, u64 id) noexcept {
     return nullptr;
 }
 bool contains(Utf8View haystack, const char* needle) noexcept {
-    const u32 n = test_text_length(needle);
+    const u32 n = c_string_length(needle);
     for (u32 i = 0; i + n <= haystack.bytes; ++i)
         if (bytes_equal(haystack.data + i, needle, n)) return true;
     return false;
 }
-bool is(Utf8View a, const char* b) noexcept { return a.bytes == test_text_length(b) && bytes_equal(a.data, b, a.bytes); }
+bool is(Utf8View a, const char* b) noexcept { return a.bytes == c_string_length(b) && bytes_equal(a.data, b, a.bytes); }
 
 void test_browse() noexcept {
     build();

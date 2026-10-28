@@ -9,10 +9,9 @@
 #include "../src/text/run_profile.hpp"
 #include "maicord/text/nominal_participation.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 namespace maicord {namespace {
 #include "generated/component_shaping_fixture.inc"
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 bool error(u32 font,u32 split,Utf8View what,u32 value=0) noexcept {print(what);print(utf8_literal(" font="));number(font);print(utf8_literal(" split="));number(split);print(utf8_literal(" value="));number(value);print(utf8_literal("\n"));return false;}
 struct Reader {ConstSlice<u8> data;u32 at=0;
     bool word(u32* v) noexcept {if(at>data.count || data.count-at<4)return false;*v=byte_load_le32(data.data+at);at+=4;return true;}
@@ -195,9 +194,9 @@ int run() noexcept {
     if(!gpos_cycle_units()){print(utf8_literal("FAIL GPOS cycle units\n"));return 5;}
     if(!sequence_units() || !affinity_units()){print(utf8_literal("FAIL component sequence units\n"));return 3;}
     if(!position_flag_units()){print(utf8_literal("FAIL positioning flag units\n"));return 4;}
-    const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
+    const wchar_t* command=test_arguments();
     bool ok=false;if(!*command)ok=corpus({component_fixture,sizeof(component_fixture)});
-    else {wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}if(quote){if(*command!='"')return 2;++command;}while(*command==' ' || *command=='\t')++command;if(*command || !n)return 2;path[n]=0;ok=file_corpus(path);}
+    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
     print(utf8_literal("shape_runs="));number(shape_runs);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\ncluster_checks="));number(cluster_checks);print(utf8_literal("\nplacement_runs="));number(placement_runs);print(utf8_literal("\nfloat_checks="));number(float_checks);print(utf8_literal("\ngsub_operations="));number(gsub_operations);print(utf8_literal("\ncomponent_export_work="));number(component_export_work);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
     print(utf8_literal("sequence_queries="));number(sequence_queries);print(utf8_literal("\nsequence_edits="));number(sequence_edits);print(utf8_literal("\nsequence_operations="));number(sequence_operations);print(utf8_literal("\nsequence_rollbacks="));number(sequence_rollbacks);print(utf8_literal("\nsequence_max_height="));number(sequence_max_height);print(utf8_literal("\nsequence_max_journal="));number(sequence_max_journal);print(utf8_literal("\n"));
     print(utf8_literal("affinity_first_work="));number(affinity_first_work);print(utf8_literal("\naffinity_repeat_work="));number(affinity_repeat_work);print(utf8_literal("\n"));

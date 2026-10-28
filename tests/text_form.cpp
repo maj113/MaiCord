@@ -1,28 +1,13 @@
 #include "maicord/ui/text_form.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/ui/text_measure_cache.hpp"
+#include "fake_text_measure.hpp"
 
 namespace maicord {
-namespace {
-bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
-    const auto validation = utf8_validate(request.text);
-    if (!validation.valid || request.constraint.width <= 0)
-        return false;
-    const float natural = static_cast<float>(validation.codepoints) * 8;
-    const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
-    const u32 lines = request.no_wrap ? 1u : maximum(1u, (validation.codepoints + columns - 1) / columns);
-    *value = {{request.no_wrap ? natural : minimum(natural, request.constraint.width),
-               static_cast<float>(lines) * 20},
-              16,
-              lines};
-    return true;
-}
-} // namespace
 void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
     TextFormScene scene{};
     UiTextMeasureRecord records[32]{};
     UiTextMeasureCache cache{};
-    check(ui_text_measure_cache_initialize(&cache, {records, 32}, measure, nullptr),
+    check(ui_text_measure_cache_initialize(&cache, {records, 32}, fake_text_measure<>, nullptr),
           "text_form_measure_initialize");
     TextFormContent content{utf8_literal("Description"),
                             utf8_literal("image.png"),
@@ -237,7 +222,7 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
         const auto* cancel = text_form_node(actions, TextFormElement::cancel);
         UiTextMeasureValue measured{};
         const bool measured_label =
-            measure(nullptr,
+            fake_text_measure(nullptr,
                     {{1, 1, 1, 1, 1},
                      name.accept,
                      {},

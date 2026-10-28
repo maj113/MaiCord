@@ -1,5 +1,4 @@
 #include "../src/render/shaped_text_cache.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/text/font_session.hpp"
 
 namespace maicord {

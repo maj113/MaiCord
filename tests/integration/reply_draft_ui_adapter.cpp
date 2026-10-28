@@ -4,7 +4,6 @@
 #include "application_message_edit.hpp"
 #include "application_message_delete.hpp"
 #include "application_reply_draft.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/app/message_draft_persistence.hpp"

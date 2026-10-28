@@ -86,6 +86,19 @@ u32 ink_pixels(const ProbeTargetReadback& image, UiRect box, float scale, Color 
     return count;
 }
 
+// The brightest pixel (by channel sum) down column `x` over `rows`: a glyph stroke's ink.
+Pixel strongest_ink(const ProbeTargetReadback& image, u32 x, u32 rows) noexcept {
+    Pixel stroke = read(image, x, 0);
+    i32 contrast = -1;
+    for (u32 y = 0; y < rows; ++y) {
+        const Pixel p = read(image, x, y);
+        const i32 c = static_cast<i32>(p.r) + p.g + p.b;
+        if (c > contrast)
+            contrast = c, stroke = p;
+    }
+    return stroke;
+}
+
 } // namespace
 
 bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_height) noexcept,
@@ -166,14 +179,7 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
             if (!equal(read(image, sample_x[i], sample_y[i] + caption), before[i]))
                 return fail(40 + shot);
         // The minimize stroke: the strongest ink on its button's centre column.
-        Pixel stroke = read(image, glyph_x, 0);
-        i32 contrast = -1;
-        for (u32 y = 0; y < caption; ++y) {
-            const Pixel p = read(image, glyph_x, y);
-            const i32 c = static_cast<i32>(p.r) + p.g + p.b;
-            if (c > contrast)
-                contrast = c, stroke = p;
-        }
+        const Pixel stroke = strongest_ink(image, glyph_x, caption);
         const Color ink = state.active ? tokens.icon : over(tokens.icon_inactive, background);
         if (!matches(stroke, ink, 8))
             return fail(50 + shot);
@@ -318,14 +324,7 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
         if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme, &scrim) ||
             probe_target_readback(renderer, &image))
             return fail(105);
-        Pixel stroke = read(image, glyph_x, 0);
-        i32 contrast = -1;
-        for (u32 y = 0; y < caption; ++y) {
-            const Pixel p = read(image, glyph_x, y);
-            const i32 c = static_cast<i32>(p.r) + p.g + p.b;
-            if (c > contrast)
-                contrast = c, stroke = p;
-        }
+        const Pixel stroke = strongest_ink(image, glyph_x, caption);
         if (!matches(read(image, 1, caption - 1), over(scrim, background)) ||
             !matches(read(image, fill_x, fill_y), over(tokens.close_hover, over(scrim, background))) ||
             !matches(stroke, tokens.icon, 8) ||

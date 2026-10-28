@@ -1,14 +1,9 @@
 #include "generated/malayalam_input_fixture.inc"
 bool malayalam_input_units() noexcept {
-    const auto malayalam_input_fixture=indic_input_fixture(malayalam_input_fixture_resource);
-    CHECK(malayalam_input_fixture.count==malayalam_input_fixture_words);
     constexpr auto profile=SfntIndicProfile::malayalam;
-    const ConstSlice<u8> forms{malayalam_input_forms,128};u32 scalars[256]{};u8 boundaries[256]{};u32 first=0,count=0,cases=0;
-    for(u32 i=0;i<malayalam_input_fixture.count;++i){const u32 entry=malayalam_input_fixture[i];CHECK(count<256);scalars[count++]=entry&0x1fffffu;
-        if(entry&0x40000000u){CHECK(sfnt_indic_cluster_boundaries(profile,{scalars,count},{boundaries,256},1000000,forms)==SfntStatus::ok);
-            for(u32 j=0;j<count;++j)if(boundaries[j]!=(malayalam_input_fixture[first+j]>>31)){print("Malayalam fixture case ");number(cases);print("\n");CHECK(false);}
-            ++cases;count=0;first=i+1;}}
-    CHECK(!count&&cases==malayalam_input_fixture_cases);
+    const ConstSlice<u8> forms{malayalam_input_forms,128};
+    CHECK(indic_input_corpus(profile,malayalam_input_fixture_resource,malayalam_input_fixture_words,malayalam_input_fixture_cases,"Malayalam",forms));
+    u32 scalars[256]{};u8 boundaries[256]{};
     const u32 post_vowel[]{0xd0e,0xd4d,0xd2f,0xd46};const u8 post_boundaries[]{1,0,0,1};
     CHECK(sfnt_indic_cluster_boundaries(profile,{post_vowel,4},{boundaries,256},16,forms)==SfntStatus::ok&&bytes_equal(boundaries,post_boundaries,4));
     for(auto& value:boundaries)value=255;

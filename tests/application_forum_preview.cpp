@@ -9,6 +9,7 @@
 #include "../src/app/account_ui_runtime.hpp"
 #include "../src/app/application_forum_preview.cpp"
 #include "test_output.hpp"
+#include "fake_text_measure.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::forum_preview_test {
@@ -49,19 +50,6 @@ bool same(const ApplicationForumPostTicket& a, const ApplicationForumPostTicket&
     return a.serial == b.serial && a.parent_id == b.parent_id &&
            a.publication_revision == b.publication_revision;
 }
-bool text_measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* out) noexcept {
-    const auto scalars = utf8_validate(request.text);
-    if (!out || !scalars.valid || request.constraint.width <= 0)
-        return false;
-    const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
-    const u32 count = request.no_wrap ? 1 : maximum(1u, (scalars.codepoints + columns - 1) / columns);
-    *out = {{request.no_wrap ? scalars.codepoints * 8.f
-                             : minimum(scalars.codepoints * 8.f, request.constraint.width),
-             count * 20.f},
-            16,
-            count};
-    return true;
-}
 AccountMediaRequestResult WINAPI media(void* instance, AccountLocalPreviewOperation operation,
                                        const AccountMediaLocalPreviewRequest* request, u64 now,
                                        u64 unix_now) noexcept {
@@ -101,7 +89,7 @@ AccountMediaRequestResult WINAPI media(void* instance, AccountLocalPreviewOperat
 bool geometry(float height) noexcept {
     card = {
         row.id,      row.filename, row.status, {},   row.bytes, 0,    {}, UiAttachmentDraftPhase::uploading,
-        row.spoiler, true,         false,      true, false,     false};
+        row.spoiler, true,         false,      true, false};
     content.attachments = {&card, present ? 1u : 0u};
     return forum_post_update(&scene, content, {0, 0, 640, height}, &measure);
 }
@@ -147,7 +135,7 @@ void run() noexcept {
     content.editable = content.can_accept = true;
     content.can_add_files = true;
     const bool initialized =
-        ui_text_measure_cache_initialize(&measure, {records, 128}, text_measure, nullptr) &&
+        ui_text_measure_cache_initialize(&measure, {records, 128}, fake_text_measure<>, nullptr) &&
         media_atlas_initialize(&atlas, 256, 256, 1, {entries, 16}, {buckets, 32}, {allocations, 16},
                                {rows, 16}) &&
         geometry(240);

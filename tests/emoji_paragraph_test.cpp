@@ -99,15 +99,11 @@ bool run() noexcept {
     CHECK(visibility());CHECK(arena_initialize(&scratch,16*1024*1024,0,4096)&&arena_initialize(&state,1024*1024,0,4096));wchar_t folder[MAX_PATH];
     CHECK(GetTempPathW(MAX_PATH,folder)&&GetTempFileNameW(folder,L"mcp",0,temporary));const wchar_t* command=GetCommandLineW();CHECK(argument(&command,font_path,32768));
     if(!argument(&command,font_path,32768))return corpus({emoji_paragraph_fixture,sizeof(emoji_paragraph_fixture)});
-    HANDLE file=CreateFileW(font_path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);const DWORD size=GetFileSize(file,nullptr);CHECK(size<=32*1024*1024);
-    input_file=static_cast<u8*>(VirtualAlloc(nullptr,size,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));DWORD read=0;const bool loaded=input_file&&ReadFile(file,input_file,size,&read,nullptr)&&read==size;CloseHandle(file);CHECK(loaded);return corpus({input_file,size});
+    ConstSlice<u8> data;return load_input(&data)&&corpus(data);
 }
 }}
 extern "C" void maicord_emoji_paragraph_entry() noexcept {
-    using namespace maicord;bool ok=run();while(plans[0].references)native_run_plan_release(&store,{1,plans[0].generation});
-    while(instances[0].references)native_font_instance_release(&font_instances,{1,instances[0].generation});while(faces[0].references)native_font_release(&fonts,{1,faces[0].generation});
-    arena_release(&scratch);arena_release(&state);if(input_file)VirtualFree(input_file,0,MEM_RELEASE);if(temporary[0]&&!DeleteFileW(temporary))ok=false;
-    if(GetModuleHandleW(L"dwrite.dll")||GetModuleHandleW(L"DWriteCore.dll"))ok=false;
+    using namespace maicord;bool ok=emoji_cleanup(run());
     print("cases=");number(cases);print("\nruns=");number(runs);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\ndigest=");number(digest);
     print(ok?"\nPASS native emoji itemized paragraphs\n":"\nFAIL native emoji itemized paragraphs\n");ExitProcess(ok?0u:1u);
 }

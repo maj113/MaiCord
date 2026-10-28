@@ -25,7 +25,7 @@ bool mapping_guards() noexcept {
         {"x\xef\xb8\x8f",2,2},{"\xcd\x8f" "b",2,2},{"\xef\xb8\x8f" "x",1,0},
         {"\xef\xa4\x80" "a",1,2},{"xxx",3,2},{"\xcd\x8f" "ab",1,2}};
     NativeFallbackRangeResult result{};u32 used=0;
-    for(const auto& c:cases){u32 bytes=0;while(c.text[bytes])++bytes;MapMock m{};
+    for(const auto& c:cases){const u32 bytes=c_string_length(c.text);MapMock m{};
         CHECK(native_font_fallback_map({c.text,bytes},map_base,map_route,map_fallback,map_cover,&m,&result,100,&used)==SfntStatus::ok);
         CHECK(result.units==c.units&&result.choice.font==c.font&&result.choice.policy==(c.font<2?native_fallback_missing:0));
         if(c.font<2)CHECK(!m.route_calls&&!m.fallback_calls);

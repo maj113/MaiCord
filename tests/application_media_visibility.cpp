@@ -25,6 +25,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/app/account_media.hpp"
+#include "test_output.hpp"
 
 namespace maicord::app_detail {
 ForumPostScene* fixture_forum_scene;
@@ -187,15 +188,7 @@ u32 picker_emoji_requests;
 MediaAssetKey picker_requested_keys[8];
 
 void check(bool accepted, const char* label) noexcept {
-    if (accepted)
-        return;
-    ++failures;
-    u32 bytes = 0;
-    while (label[bytes])
-        ++bytes;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_ERROR_HANDLE), label, bytes, &written, nullptr);
-    WriteFile(GetStdHandle(STD_ERROR_HANDLE), "\r\n", 2, &written, nullptr);
+    test_check(&failures, accepted, label);
 }
 
 AccountMediaRequestResult busy_result() noexcept {

@@ -117,16 +117,10 @@ void test_client_session_metadata(const UserClientConfigurationStorage& configur
 }
 void test_client_languages(void (*check)(bool, const char*) noexcept) noexcept {
     char text[kRestUserAcceptLanguageMaximumBytes];
-    const auto length = [](const char* value) noexcept {
-        u32 bytes = 0;
-        while (value[bytes])
-            ++bytes;
-        return bytes;
-    };
     const auto host = [&](const char* name, const char* expected) noexcept {
-        const Utf8View input{name, length(name)};
+        const Utf8View input{name, c_string_length(name)};
         const u32 bytes = client_host_locale(input, {text, sizeof(text)});
-        return utf8_equal({text, bytes}, {expected, length(expected)});
+        return utf8_equal({text, bytes}, {expected, c_string_length(expected)});
     };
     check(host("en-US", "en-US") && host("EN-us", "en-US") && host("sl-SI", "sl") && host("de-AT", "de") &&
               host("es-MX", "es-419") && host("es-ES", "es") && host("pt-BR", "pt-BR") &&
@@ -135,9 +129,9 @@ void test_client_languages(void (*check)(bool, const char*) noexcept) noexcept {
               host("en", "en-US") && host("sr-Latn-RS", "sr") && host("haw-US", "en-US"),
           "Windows locales resolve to the host's shipped locales as Chromium resolves them");
     const auto discord = [&](const char* name, const char* expected) noexcept {
-        const Utf8View input{name, length(name)};
+        const Utf8View input{name, c_string_length(name)};
         const u32 bytes = client_discord_locale(input, {text, sizeof(text)});
-        return utf8_equal({text, bytes}, {expected, length(expected)});
+        return utf8_equal({text, bytes}, {expected, c_string_length(expected)});
     };
     check(discord("en-GB", "en-GB") && discord("de", "de") && discord("es", "es-419") &&
               discord("sv", "sv-SE") && discord("pt-PT", "pt-BR") && discord("nb", "en-US") &&
@@ -145,7 +139,7 @@ void test_client_languages(void (*check)(bool, const char*) noexcept) noexcept {
           "Discord's initial interface locale follows its own resolution of the host locale");
     const auto accept = [&](const wchar_t* preferred, const char* expected) noexcept {
         const u32 bytes = client_accept_language(utf8_literal("en-US"), preferred, {text, sizeof(text)});
-        return utf8_equal({text, bytes}, {expected, length(expected)});
+        return utf8_equal({text, bytes}, {expected, c_string_length(expected)});
     };
     check(
         accept(nullptr, "en-US") && accept(L"en-US\0", "en-US") &&

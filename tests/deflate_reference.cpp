@@ -274,10 +274,8 @@ bool ensure_output(InflateState* state, u32 bytes) noexcept {
     return false;
 }
 bool emit_byte(InflateState* state, u8 value) noexcept {
-    if (!ensure_output(state, 1)) {
-        state->error = ZlibInflateError::output_capacity;
+    if (!ensure_output(state, 1))
         return false;
-    }
     state->output[state->output_bytes++] = value;
     return true;
 }
@@ -391,7 +389,7 @@ bool decode_compressed_block(InflateState* state, const DeflatePrefixTable& lite
         if (symbol == 256) {
             return true;
         }
-        if (symbol < 257 || symbol > 285) {
+        if (symbol > 285) {
             state->error = ZlibInflateError::invalid_symbol;
             return false;
         }
@@ -464,10 +462,8 @@ bool decode_stored_block(InflateState* state) noexcept {
         state->error = ZlibInflateError::invalid_block;
         return false;
     }
-    if (!ensure_output(state, length)) {
-        state->error = ZlibInflateError::output_capacity;
+    if (!ensure_output(state, length))
         return false;
-    }
     for (u32 index = 0; index < length; ++index) {
         u8 value = 0;
         if (!read_byte(&state->reader, &value)) {

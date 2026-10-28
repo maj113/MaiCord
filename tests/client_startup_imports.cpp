@@ -157,9 +157,5 @@ void test_imports() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_client_startup_imports_entry() noexcept {
     using namespace maicord::client_startup_imports_test;
     test_imports();
-    const bool failed = failures != 0;
-    constexpr char pass[] = "PASS client startup imports\n", fail[] = "FAIL client startup imports\n";
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(failures, "client startup imports");
 }

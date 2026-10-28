@@ -1,54 +1,46 @@
 #include "maicord/protocol/message_create.hpp"
 #include "maicord/app/poll_draft.hpp"
 #include "maicord/core/memory.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
-namespace {
-bool contains(Utf8View text, Utf8View expected) noexcept {
-    for (u32 i = 0; i + expected.bytes <= text.bytes; ++i)
-        if (bytes_equal(text.data + i, expected.data, expected.bytes)) return true;
-    return false;
-}
-}
 
 void test_message_create_stickers(void (*check)(bool, const char*) noexcept) noexcept {
     u8 body[1024]{};
     const u64 ids[]{123, 456, 18446744073709551615ull};
     const auto only = write_message_create_body({}, 99, 0, 0, {}, {ids, 3}, {body, sizeof(body)});
     const Utf8View output{reinterpret_cast<const char*>(body), only.bytes};
-    check(only.ok() && contains(output, utf8_literal(R"("content":"")")) &&
-        contains(output, utf8_literal(R"("sticker_ids":["123","456","18446744073709551615"])")) &&
-        contains(output, utf8_literal(R"("nonce":"99")")) &&
-        contains(output, utf8_literal(R"("enforce_nonce":true)")),
+    check(only.ok() && test_contains(output, utf8_literal(R"("content":"")")) &&
+        test_contains(output, utf8_literal(R"("sticker_ids":["123","456","18446744073709551615"])")) &&
+        test_contains(output, utf8_literal(R"("nonce":"99")")) &&
+        test_contains(output, utf8_literal(R"("enforce_nonce":true)")),
         "sticker-only message body has empty content, exact snowflakes, and deduplicated nonce");
     UploadedAttachment file{utf8_literal("file.txt"), utf8_literal("upload/file.txt"), {}, 0, true};
     const auto combined = write_message_create_body(utf8_literal("reply"), 100, 7, 8,
         {&file, 1}, {ids, 1}, {body, sizeof(body)});
     const Utf8View combined_output{reinterpret_cast<const char*>(body), combined.bytes};
-    check(combined.ok() && contains(combined_output, utf8_literal(R"("message_reference":)")) &&
-        contains(combined_output, utf8_literal(R"("attachments":[)")) &&
-        contains(combined_output, utf8_literal(R"("sticker_ids":["123"])")) &&
-        contains(combined_output, utf8_literal(R"("replied_user":true)")),
+    check(combined.ok() && test_contains(combined_output, utf8_literal(R"("message_reference":)")) &&
+        test_contains(combined_output, utf8_literal(R"("attachments":[)")) &&
+        test_contains(combined_output, utf8_literal(R"("sticker_ids":["123"])")) &&
+        test_contains(combined_output, utf8_literal(R"("replied_user":true)")),
         "sticker message supports reply, content, and uploaded attachments together");
     const auto muted = write_message_create_body(utf8_literal("<@81> <@&82> @everyone"), 101, 7, 8,
         {&file, 1}, {ids, 1}, {body, sizeof(body)}, false);
     const Utf8View muted_output{reinterpret_cast<const char*>(body), muted.bytes};
-    check(muted.ok() && contains(muted_output, utf8_literal(R"("replied_user":false)")) &&
-        !contains(muted_output, utf8_literal(R"("replied_user":true)")) &&
-        contains(muted_output, utf8_literal(R"("message_id":"8")")) &&
-        contains(muted_output, utf8_literal(R"("parse":["users","roles","everyone"])")) &&
-        contains(muted_output, utf8_literal(R"("content":"<@81> <@&82> @everyone")")) &&
-        contains(muted_output, utf8_literal(R"("attachments":[)")) &&
-        contains(muted_output, utf8_literal(R"("sticker_ids":["123"])")),
+    check(muted.ok() && test_contains(muted_output, utf8_literal(R"("replied_user":false)")) &&
+        !test_contains(muted_output, utf8_literal(R"("replied_user":true)")) &&
+        test_contains(muted_output, utf8_literal(R"("message_id":"8")")) &&
+        test_contains(muted_output, utf8_literal(R"("parse":["users","roles","everyone"])")) &&
+        test_contains(muted_output, utf8_literal(R"("content":"<@81> <@&82> @everyone")")) &&
+        test_contains(muted_output, utf8_literal(R"("attachments":[)")) &&
+        test_contains(muted_output, utf8_literal(R"("sticker_ids":["123"])")),
         "reply author mention can be disabled without suppressing explicit mentions attachments or stickers");
     const auto muted_text = write_message_create_body(utf8_literal("reply"), 102, 7, 8,
         {body, sizeof(body)}, false);
-    check(muted_text.ok() && contains({reinterpret_cast<const char*>(body), muted_text.bytes},
-        utf8_literal(R"("replied_user":false)")), "reply-only writer overload carries explicit author mention policy");
+    check(muted_text.ok() && test_contains({reinterpret_cast<const char*>(body), muted_text.bytes}, utf8_literal(R"("replied_user":false)")), "reply-only writer overload carries explicit author mention policy");
     const auto muted_attachment = write_message_create_body({}, 103, 7, 8,
         {&file, 1}, {body, sizeof(body)}, false);
-    check(muted_attachment.ok() && contains({reinterpret_cast<const char*>(body), muted_attachment.bytes},
-        utf8_literal(R"("replied_user":false)")), "attachment-only reply writer carries explicit author mention policy");
+    check(muted_attachment.ok() && test_contains({reinterpret_cast<const char*>(body), muted_attachment.bytes}, utf8_literal(R"("replied_user":false)")), "attachment-only reply writer carries explicit author mention policy");
     const u64 invalid[]{0, 123, 123, 456};
     body[0] = 0xa5;
     check(write_message_create_body({}, 99, 0, 0, {}, {invalid, 1}, {body, sizeof(body)}).error ==
@@ -70,24 +62,23 @@ void test_message_create_stickers(void (*check)(bool, const char*) noexcept) noe
     const auto ordinary = write_message_create_body(utf8_literal("text"), 1234, 0, 0, {}, {},
         {muted_plain, sizeof(muted_plain)}, false);
     check(a.ok() && ordinary.ok() && ordinary.bytes == a.bytes && bytes_equal(plain, muted_plain, a.bytes) &&
-        !contains({reinterpret_cast<const char*>(muted_plain), ordinary.bytes}, utf8_literal("replied_user")) &&
-        !contains({reinterpret_cast<const char*>(muted_plain), ordinary.bytes}, utf8_literal("message_reference")),
+        !test_contains({reinterpret_cast<const char*>(muted_plain), ordinary.bytes}, utf8_literal("replied_user")) &&
+        !test_contains({reinterpret_cast<const char*>(muted_plain), ordinary.bytes}, utf8_literal("message_reference")),
         "ordinary send wire bytes ignore reply-only mention policy and never synthesize reply authority");
     const MessageForwardReference private_source{18446744073709551615ull, 18446744073709551614ull, 0};
     const auto forward = write_message_forward_body({}, 99, private_source, {body, sizeof(body)});
     const auto forward_text = Utf8View{reinterpret_cast<const char*>(body), forward.bytes};
-    check(forward.ok() && contains(forward_text, utf8_literal(R"("content":"")")) &&
-        contains(forward_text, utf8_literal(R"("message_reference":{"type":1,"message_id":"18446744073709551615","channel_id":"18446744073709551614","fail_if_not_exists":true})")) &&
-        contains(forward_text, utf8_literal(R"("allowed_mentions":{"parse":[],"replied_user":false})")) &&
-        contains(forward_text, utf8_literal(R"("enforce_nonce":true)")) &&
-        !contains(forward_text, utf8_literal("guild_id")) &&
-        !contains(forward_text, utf8_literal("message_snapshots")) && !contains(forward_text, utf8_literal("attachments")),
+    check(forward.ok() && test_contains(forward_text, utf8_literal(R"("content":"")")) &&
+        test_contains(forward_text, utf8_literal(R"("message_reference":{"type":1,"message_id":"18446744073709551615","channel_id":"18446744073709551614","fail_if_not_exists":true})")) &&
+        test_contains(forward_text, utf8_literal(R"("allowed_mentions":{"parse":[],"replied_user":false})")) &&
+        test_contains(forward_text, utf8_literal(R"("enforce_nonce":true)")) &&
+        !test_contains(forward_text, utf8_literal("guild_id")) &&
+        !test_contains(forward_text, utf8_literal("message_snapshots")) && !test_contains(forward_text, utf8_literal("attachments")),
         "private forward admits empty caption and exact origin IDs without client snapshots or mention authority");
     const auto captioned = write_message_forward_body(utf8_literal("a\n\"b\\c <@81> @everyone"),
         100, {8, 7, 6}, {body, sizeof(body)});
-    check(captioned.ok() && contains({reinterpret_cast<const char*>(body), captioned.bytes},
-        utf8_literal(R"("content":"a\n\"b\\c <@81> @everyone")")) &&
-        contains({reinterpret_cast<const char*>(body), captioned.bytes}, utf8_literal(R"("guild_id":"6")")),
+    check(captioned.ok() && test_contains({reinterpret_cast<const char*>(body), captioned.bytes}, utf8_literal(R"("content":"a\n\"b\\c <@81> @everyone")")) &&
+        test_contains({reinterpret_cast<const char*>(body), captioned.bytes}, utf8_literal(R"("guild_id":"6")")),
         "guild forward escapes caption and attributes the origin guild");
     body[0] = 0xa5;
     const char malformed[]{'\xc3', '('};
@@ -171,9 +162,9 @@ void test_poll_draft(void (*check)(bool, const char*) noexcept) noexcept {
     const auto written = built ? write_message_poll_body(poll, 55, {body, sizeof(body)})
                                : MessageCreateWriteResult{};
     const Utf8View output{reinterpret_cast<const char*>(body), written.bytes};
-    check(written.ok() && contains(output, utf8_literal(R"({"content":"","nonce":"55","tts":false,"flags":0,"poll":)")) &&
-              contains(output, utf8_literal(R"("answers":[{"poll_media":{"text":"Tacos","emoji":{"name":"🌮"}}},{"poll_media":{"text":"1",)")) &&
-              contains(output, utf8_literal(R"("allow_multiselect":true,"duration":168,"layout_type":1})")),
+    check(written.ok() && test_contains(output, utf8_literal(R"({"content":"","nonce":"55","tts":false,"flags":0,"poll":)")) &&
+              test_contains(output, utf8_literal(R"("answers":[{"poll_media":{"text":"Tacos","emoji":{"name":"🌮"}}},{"poll_media":{"text":"1",)")) &&
+              test_contains(output, utf8_literal(R"("allow_multiselect":true,"duration":168,"layout_type":1})")),
           "poll draft: keycap emoji are accepted and the body carries the poll object");
     check(write_message_poll_body(poll, 0, {body, sizeof(body)}).error ==
                   MessageCreateWriteError::invalid_input &&

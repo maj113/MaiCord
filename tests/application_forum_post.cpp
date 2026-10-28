@@ -28,7 +28,7 @@ void parent_ack_cancel(void*, u64 id) noexcept {
     parent_ack_cancelled = id;
     ++parent_ack_cancellations;
 }
-u8 actor{}, replacement_actor{};
+u8 actor{};
 RestClientSubmitError admission{};
 ForumPostRequest submitted{};
 char submitted_title[400]{}, submitted_body[8000]{}, body[4096]{};

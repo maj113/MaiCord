@@ -12,10 +12,7 @@ namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/voice_packet_vectors.hpp"
 bool zero(const u8* bytes, u32 count) noexcept {
-    for (u32 i = 0; i != count; ++i)
-        if (bytes[i])
-            return false;
-    return true;
+    return test_filled(bytes, count, 0);
 }
 struct Consumer {
     Check check;

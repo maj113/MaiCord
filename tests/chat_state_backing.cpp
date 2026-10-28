@@ -65,17 +65,12 @@ bool commit(void* context, ChatStateBacking kind, u32 bank, u32 required) noexce
 bool seed(u32 channel_limit, u32 name_limit) noexcept {
     backing = {};
     auto& f = backing;
-    auto* channel_bytes = reinterpret_cast<u8*>(f.channels);
-    for (u32 i = 0; i < sizeof(f.channels); ++i)
-        channel_bytes[i] = kUncommitted;
-    auto* order_bytes = reinterpret_cast<u8*>(f.channel_order);
-    for (u32 i = 0; i < sizeof(f.channel_order); ++i)
-        order_bytes[i] = kUncommitted;
-    for (u32 i = 0; i < sizeof(f.names); ++i)
-        f.names[i] = kUncommitted;
-    auto* emoji_bytes = reinterpret_cast<u8*>(f.emojis);
-    for (u32 i = 0; i < sizeof(f.emojis) + sizeof(f.emoji_roles); ++i)
-        emoji_bytes[i] = kUncommitted;
+    // The emoji records and role ids are adjacent: one pass poisons both.
+    const auto poison = [](void* data, usize bytes) noexcept { memset(data, kUncommitted, bytes); };
+    poison(f.channels, sizeof(f.channels));
+    poison(f.channel_order, sizeof(f.channel_order));
+    poison(f.names, sizeof(f.names));
+    poison(f.emojis, sizeof(f.emojis) + sizeof(f.emoji_roles));
     f.channel_limit = channel_limit;
     f.name_limit[0] = f.name_limit[1] = name_limit;
     f.emoji_limit = 8;
@@ -91,10 +86,7 @@ bool seed(u32 channel_limit, u32 name_limit) noexcept {
 constexpr const char* kNames[] = {"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"};
 
 Utf8View text(const char* value) noexcept {
-    u32 bytes = 0;
-    while (value[bytes])
-        ++bytes;
-    return {value, bytes};
+    return {value, c_string_length(value)};
 }
 
 ChannelInput channel(u64 id, Utf8View name) noexcept {

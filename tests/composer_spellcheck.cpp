@@ -49,9 +49,7 @@ u32 fake_suggest(void*, Utf8View, Slice<char> storage, Slice<Utf8View> output) n
     const char* values[] = {"hello", "help", "hell", "held", "helot", "heal", "hero"};
     u32 used = 0, count = 0;
     for (const char* value : values) {
-        u32 length = 0;
-        while (value[length])
-            ++length;
+        const u32 length = c_string_length(value);
         if (count == output.count || used + length > storage.count)
             break;
         copy_bytes(storage.data + used, value, length);

@@ -64,10 +64,10 @@ struct Fixture {
     UiWidget message_widgets[kMessageSceneWidgetsPerRow + 1];
     UiLayoutNode message_nodes[kMessageSceneWidgetsPerRow + 1];
     HANDLE stop_entered, stop_allowed, blocked_file;
-    u64 now, accepted_id, cancelled_id;
+    u64 now, accepted_id;
     AccountLogoutResponse receipt;
-    u32 begins, posts, takes, cancels, prepares, publishes, deletes, frames, failures, captures;
-    u32 unexpected, stop_attempts, stop_observations, account_ui_releases, login_inputs, total_posts;
+    u32 posts, prepares, frames, failures, captures;
+    u32 unexpected, stop_attempts, stop_observations, account_ui_releases, total_posts;
     UiRect old_accept, old_cancel;
     volatile LONG stop_active;
     DWORD stop_thread;
@@ -178,7 +178,6 @@ AccountCredentialForgetResult logout_native_begin(const AccountPaths& paths,
 AccountCredentialForgetResult logout_native_forget(const AccountPaths& paths, bool joined,
                                                    const AccountCredentialForgetIo* io = nullptr) noexcept {
     auto& f = *logout_native::fixture;
-    ++f.deletes;
     if (!joined || app_detail::application_account_logout_host_owned() || ReadAcquire(&f.stop_active))
         f.file_order_error = true;
     return account_credential_forget_complete_after_join(paths, joined, io);
@@ -229,7 +228,6 @@ AccountLogoutResult WINAPI server(void* instance, AccountLogoutOperation operati
         f.host_order_error = true;
     switch (operation) {
     case AccountLogoutOperation::begin:
-        ++f.begins;
         if (f.accepted_id) {
             ++f.unexpected;
             return {RestClientSubmitError::busy};
@@ -241,11 +239,8 @@ AccountLogoutResult WINAPI server(void* instance, AccountLogoutOperation operati
         ++f.total_posts;
         return {};
     case AccountLogoutOperation::cancel:
-        ++f.cancels;
-        f.cancelled_id = id;
         return {RestClientSubmitError::none, RestClientTakeError::empty, true, false};
     case AccountLogoutOperation::take:
-        ++f.takes;
         if (!f.receipt_ready)
             return {RestClientSubmitError::none, RestClientTakeError::empty, false, false};
         if (!response || f.accepted_id != id) {
@@ -375,8 +370,8 @@ bool seed() noexcept {
         CloseHandle(f.blocked_file);
         f.blocked_file = nullptr;
     }
-    f.begins = f.posts = f.takes = f.cancels = f.prepares = f.publishes = f.deletes = 0;
-    f.accepted_id = f.cancelled_id = 0;
+    f.posts = f.prepares = 0;
+    f.accepted_id = 0;
     f.receipt = {};
     f.receipt_ready = f.fail_stop = f.unconfirmed = false;
     ResetEvent(f.stop_entered);
@@ -723,7 +718,6 @@ bool application_account_publish_logged_out(bool unconfirmed) noexcept {
         return false;
     }
     release_account_storage();
-    ++fixture->publishes;
     fixture->unconfirmed = unconfirmed;
     g_app.login.visible = true;
     g_app.login.status =
@@ -772,9 +766,6 @@ bool application_private_channel_title_hit(float, float) noexcept {
 }
 u16 application_message_action_bar_capabilities(u64) noexcept {
     return 0;
-}
-bool application_message_forward_available(u64) noexcept {
-    return false;
 }
 MessageProfileHit application_message_profile_hit_test(float, float) noexcept {
     return {};
@@ -863,12 +854,6 @@ bool dismiss_popup() noexcept {
     return true;
 }
 bool application_voice_shell_click(float, float) noexcept {
-    return false;
-}
-bool application_plugins_slot_action(u64, NativePluginSdkSlotTarget, u64) noexcept {
-    return false;
-}
-bool application_plugins_render_click(const MessageTextHit&, UiRect) noexcept {
     return false;
 }
 bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRect) noexcept {
@@ -1005,7 +990,6 @@ bool scenarios() noexcept {
                      !g_app.account.instance && !g_app.account_ui,
                  15))
         return false;
-    ++f.login_inputs;
     log_write(LogLevel::info, "probe", "account_logout_native_startup_model_free_modal_then_login");
     log_write(LogLevel::info, "probe",
               "account_logout_native_injected_server_and_lifecycle_real_native_ui");

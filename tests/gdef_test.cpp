@@ -1,14 +1,11 @@
-// Manual: --filter-cost measures lookup-flag filtering; the registered run is the check.
 #include "maicord/text/gdef.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 
 namespace maicord {namespace {
 u8 seen[65536];
 volatile u32 guard_observations=0;
 void observe(SfntStatus status) noexcept {guard_observations=guard_observations+static_cast<u32>(status)+1;}
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
 void fixture(u8* p) noexcept {
     clear_bytes(p,64);put(p,0,1);put(p,2,2);put(p,4,14);put(p,10,30);put(p,12,40);
@@ -105,9 +102,8 @@ bool corpus(const wchar_t* path) noexcept {
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL GDEF units\n"));return 1;}if(!guards()){print(utf8_literal("FAIL GDEF guards\n"));return 2;}
     if(!filter_membership_units()){print(utf8_literal("FAIL filter membership\n"));return 5;}
-    const wchar_t* cmd=GetCommandLineW();bool quote=false;while(*cmd){if(*cmd=='"')quote=!quote;else if(!quote && (*cmd==' ' || *cmd=='\t'))break;++cmd;}while(*cmd==' ' || *cmd=='\t')++cmd;
-    if(*cmd){if(lstrcmpW(cmd,L"--filter-cost")==0)return filter_cost()?0:6;
-        wchar_t path[32768];u32 n=0;quote=*cmd=='"';if(quote)++cmd;while(*cmd && !(quote?*cmd=='"':(*cmd==' ' || *cmd=='\t'))){if(n+1>=32768)return 3;path[n++]=*cmd++;}if(quote){if(*cmd!='"')return 3;++cmd;}while(*cmd==' ' || *cmd=='\t')++cmd;if(*cmd || !n)return 3;path[n]=0;if(!corpus(path))return 4;}
+    const wchar_t* cmd=test_arguments();
+    if(*cmd){wchar_t path[32768];if(!test_path_argument(cmd,path))return 3;if(!corpus(path))return 4;}
     print(utf8_literal("PASS native GDEF\n"));return 0;
 }
 }}

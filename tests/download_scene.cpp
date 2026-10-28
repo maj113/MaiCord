@@ -1,7 +1,6 @@
 #include "maicord/ui/download_scene.hpp"
 #include "maicord/ui/attachment_actions.hpp"
 #include "maicord/ui/button.hpp"
-#include "maicord/ui/foreground_color.hpp"
 
 namespace maicord {
 namespace {
@@ -30,7 +29,7 @@ bool download_row(void* context, u32 index, UiDownloadRow* row) noexcept {
     return true;
 }
 bool has(Utf8View text, const char* part) noexcept {
-    u32 bytes = 0; while (part[bytes]) ++bytes;
+    const u32 bytes = c_string_length(part);
     for (u32 i = 0; i + bytes <= text.bytes; ++i)
         if (bytes_equal(text.data + i,part,bytes)) return true;
     return false;

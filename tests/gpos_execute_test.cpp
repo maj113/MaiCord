@@ -1,6 +1,6 @@
 #include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 #include "maicord/text/gpos_mark_execute.hpp"
 #include "maicord/text/gpos_cursive_execute.hpp"
 #include "maicord/text/gpos_ligature_execute.hpp"
@@ -24,8 +24,6 @@ namespace ligature_corpus {
 u64 cursive_matches=0,cursive_steps=0,cursive_words=0;bool cursive_lookup[8];
 u64 mark_matches=0,target_steps=0,compatibility_anchors=0;
 SfntGposAttachment mark_storage[8][32];SfntGposAttachmentLookup mark_lookups[8];bool mark_lookup[8];
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 u64 configurations=0,executions=0,float_checks=0,budget_checks=0;u32 failures=0;
 struct Reader {ConstSlice<u8> data;u32 at=0;
     bool word(u32* v) noexcept {if(data.count-at<4)return false;*v=byte_load_le32(data.data+at);at+=4;return true;}
@@ -144,12 +142,12 @@ int run() noexcept {
     if(!mark_units()){print(utf8_literal("FAIL mark units\n"));return 4;}
     if(!cursive_units()){print(utf8_literal("FAIL cursive units\n"));return 5;}
     if(!ligature_units()){print(utf8_literal("FAIL ligature units\n"));return 6;}
-    const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
+    const wchar_t* command=test_arguments();
     bool ok=false;if(!*command){const ConstSlice<u8> corpora[]{{basic_corpus::position_fixture,sizeof(basic_corpus::position_fixture)},
             {mark_corpus::position_fixture,sizeof(mark_corpus::position_fixture)},{cursive_corpus::position_fixture,sizeof(cursive_corpus::position_fixture)},
             {ligature_corpus::position_fixture,sizeof(ligature_corpus::position_fixture)}};
         ok=true;for(const auto& c:corpora)ok=corpus(c)&&ok;}
-    else {wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}if(quote){if(*command!='"')return 2;++command;}while(*command==' ' || *command=='\t')++command;if(*command || !n)return 2;path[n]=0;ok=file_corpus(path);}
+    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
     print(utf8_literal("configurations="));number(configurations);print(utf8_literal("\nexecutions="));number(executions);print(utf8_literal("\nfloat_checks="));number(float_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
     print(utf8_literal("linear_search_steps="));number(linear_search_steps);print(utf8_literal("\nlinear_mark_matches="));number(linear_mark_matches);print(utf8_literal("\n"));
     print(utf8_literal("mark_matches="));number(mark_matches);print(utf8_literal("\ntarget_steps="));number(target_steps);print(utf8_literal("\ncompatibility_anchors="));number(compatibility_anchors);print(utf8_literal("\n"));

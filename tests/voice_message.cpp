@@ -24,18 +24,14 @@ void check(bool passed, const char* message) noexcept {
     test_check(&failures, passed, message);
 }
 bool text_equal(ConstSlice<u8> bytes, const char* expected) noexcept {
-    u32 n = 0;
-    while (expected[n])
-        ++n;
+    const u32 n = c_string_length(expected);
     return bytes.count == n && bytes_equal(bytes.data, expected, n);
 }
 bool text_equal(Utf8View text, const char* expected) noexcept {
     return text_equal(ConstSlice<u8>{reinterpret_cast<const u8*>(text.data), text.bytes}, expected);
 }
 bool contains(ConstSlice<u8> bytes, const char* needle) noexcept {
-    u32 n = 0;
-    while (needle[n])
-        ++n;
+    const u32 n = c_string_length(needle);
     for (u32 i = 0; n <= bytes.count && i <= bytes.count - n; ++i)
         if (bytes_equal(bytes.data + i, needle, n))
             return true;
@@ -60,10 +56,9 @@ u32 reference_crc(const u8* page, u32 bytes) noexcept {
 struct PageWalk {
     u32 pages, packets, bos_pages, eos_pages, bad_crc, bad_sequence, bad_serial, decreasing_granule;
     u64 last_granule;
-    u32 packet_sizes_other_than; // Audio packets whose size differs from `expected_packet`.
 };
 // Walks every page: header fields, checksum, sequence, serial and granules.
-PageWalk walk(ConstSlice<u8> stream, u32 expected_packet) noexcept {
+PageWalk walk(ConstSlice<u8> stream) noexcept {
     PageWalk w{};
     u32 offset = 0, serial = 0;
     while (offset + 27 <= stream.count) {
@@ -71,17 +66,11 @@ PageWalk walk(ConstSlice<u8> stream, u32 expected_packet) noexcept {
         if (!bytes_equal(p, "OggS", 4) || p[4] != 0)
             break;
         const u32 segments = p[26];
-        u32 body = 0, packet = 0;
+        u32 body = 0;
         for (u32 i = 0; i < segments; ++i) {
             body += p[27 + i];
-            packet += p[27 + i];
-            if (p[27 + i] < 255) {
-                if (w.pages >= 2) {
-                    ++w.packets;
-                    w.packet_sizes_other_than += expected_packet && packet != expected_packet;
-                }
-                packet = 0;
-            }
+            if (p[27 + i] < 255 && w.pages >= 2)
+                ++w.packets;
         }
         const u32 bytes = 27 + segments + body;
         if (offset + bytes > stream.count)
@@ -134,7 +123,7 @@ void test_writer() noexcept {
               ogg_opus_writer_finish(&w, final_granule) == OggOpusWriterError::none,
           "writer: finish bounds the final granule");
     const auto stream = ogg_opus_writer_stream(w);
-    const auto walked = walk(stream, 0);
+    const auto walked = walk(stream);
     check(walked.pages == 5 && walked.packets == 120 && walked.bos_pages == 1 && walked.eos_pages == 1 &&
               !walked.bad_crc && !walked.bad_sequence && !walked.bad_serial && !walked.decreasing_granule &&
               walked.last_granule == final_granule,
@@ -165,7 +154,7 @@ void test_writer() noexcept {
     while (ogg_opus_writer_packet(&s, {packet, 80}, 960) == OggOpusWriterError::none)
         ++accepted;
     check(accepted >= 2 && ogg_opus_writer_finish(&s, 312 + accepted * 960 - 960 + 1) == OggOpusWriterError::none &&
-              walk(ogg_opus_writer_stream(s), 0).eos_pages == 1 && !walk(ogg_opus_writer_stream(s), 0).bad_crc,
+              walk(ogg_opus_writer_stream(s)).eos_pages == 1 && !walk(ogg_opus_writer_stream(s)).bad_crc,
           "writer: capacity failure keeps a valid stream");
     OggOpusWriter empty{};
     check(ogg_opus_writer_begin(&empty, {little, sizeof(little)}, 7, 312, 48000, {}) == OggOpusWriterError::none &&
@@ -176,7 +165,6 @@ void test_writer() noexcept {
 // Synthetic microphone: two vowels at a time, then near silence.
 struct Synthetic {
     OpusVoiceSignal signal;
-    u32 tone_phase;
     void fill(i16* pcm, u32 count, bool silent) noexcept {
         for (u32 i = 0; i < count; ++i)
             pcm[i] = silent ? 0 : opus_voice_speech_sample(&signal);
@@ -209,7 +197,7 @@ void test_recorder() noexcept {
     check(level_count == 30 && loudest > 100 && levels[29] == 0, "recorder: live levels track speech and silence");
     check(voice_message_recorder_finish(&r) == VoiceMessageRecorderError::none, "recorder: finish");
     const auto stream = voice_message_recorder_stream(r);
-    const auto walked = walk(stream, 0);
+    const auto walked = walk(stream);
     check(stream.count && walked.bos_pages == 1 && walked.eos_pages == 1 && !walked.bad_crc &&
               !walked.bad_sequence && !walked.decreasing_granule && walked.last_granule == 144000u + r.pre_skip,
           "recorder: Ogg pages and final granule");
@@ -346,11 +334,8 @@ void test_requests() noexcept {
     char expected[1024];
     u32 used = 0;
     const auto append = [&](const char* text, u32 bytes = ~0u) noexcept {
-        if (bytes == ~0u) {
-            bytes = 0;
-            while (text[bytes])
-                ++bytes;
-        }
+        if (bytes == ~0u)
+            bytes = c_string_length(text);
         copy_bytes(expected + used, text, bytes);
         used += bytes;
     };
@@ -619,7 +604,7 @@ void test_module_flow() noexcept {
           "module: finish closes the stream");
     static u8 copied[64 * 1024];
     check(!run(VoiceMessageOperation::copy, {copied, 16}) && run(VoiceMessageOperation::copy, {copied, sizeof(copied)}) &&
-              bytes_equal(copied, "OggS", 4) && walk({copied, status.bytes}, 0).eos_pages == 1,
+              bytes_equal(copied, "OggS", 4) && walk({copied, status.bytes}).eos_pages == 1,
           "module: copy hands the client the Ogg stream");
     // Preview rendering (the output thread's callback), without a device.
     AcquireSRWLockExclusive(v.lock.native());

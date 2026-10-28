@@ -86,12 +86,6 @@ struct Fixture {
         return {&manager, root};
     }
 };
-Utf8View text_of(const char* value) noexcept {
-    u32 bytes = 0;
-    while (value[bytes])
-        ++bytes;
-    return {value, bytes};
-}
 bool layout_clean(const UiPollProjection& p) noexcept {
     const auto& g = p.geometry;
     if (!contained(g.bounds, g.question) || !contained(g.bounds, g.instruction) ||
@@ -236,7 +230,7 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
         UiPollProjection timed{};
         details = details &&
                   ui_poll_controls_project_layout(f.state, {0, 0}, layout, kDefaultUiPollStyle, kLightTheme, &timed) &&
-                  utf8_equal(ui_poll_summary_label(timed), text_of(labels[i]));
+                  utf8_equal(ui_poll_summary_label(timed), Utf8View{labels[i], c_string_length(labels[i])});
     }
     check(details, "poll footer: \"{n} votes \xE2\x88\x99 {d}d/{h}h/{m}m/< 1m left\" like the official client");
     f.state.expiry_ms = 5000;

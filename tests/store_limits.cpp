@@ -266,7 +266,6 @@ void voice_states() noexcept {
 
     // At the bound the largest other guild goes; the selected one never.
     store.retained_guild = 100;
-    const u32 evictions = store.evictions;
     VoiceStateStore small{};
     voice_state_store_initialize_owned(&small, 256);
     small.retained_guild = 1;
@@ -279,7 +278,6 @@ void voice_states() noexcept {
               voice_state_store_find(small, 1, 7000) && voice_state_store_find(small, 4, 1),
           "voice: at the bound the largest unselected guild is evicted");
     voice_state_store_release(&small);
-    (void)evictions;
 
     check(voice_state_store_reset(&store) && store.owned.arena.committed <= 4096,
           "voice: reset returns the committed pages");

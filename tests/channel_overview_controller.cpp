@@ -12,14 +12,6 @@ ChannelOverviewSnapshot initial() noexcept {
     copy_bytes(value.topic, "old", 3);
     return value;
 }
-bool text(Utf8View value, Utf8View expected) noexcept {
-    if (value.bytes != expected.bytes)
-        return false;
-    for (u32 i = 0; i < value.bytes; ++i)
-        if (value.data[i] != expected.data[i])
-            return false;
-    return true;
-}
 bool submit(ChannelOverviewController& value, u64 id, u64 now = 1) noexcept {
     const auto request = channel_overview_controller_request(value, now);
     return request.ready && channel_overview_controller_submitted(&value, request, id);
@@ -49,7 +41,7 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
     copy_bytes(value.draft.name, "renamed", 7);
     check(channel_overview_controller_edit(&value, {{value.draft.name, 7}, {}, 0, 1, false}) &&
               value.dirty_fields == 1 &&
-              text(channel_overview_name_view(value.baseline), utf8_literal("general")) &&
+              utf8_equal(channel_overview_name_view(value.baseline), utf8_literal("general")) &&
               channel_overview_controller_save(&value),
           "channel overview controller: borrowed inline buffer edits compare against baseline without a "
           "third string bank");
@@ -64,7 +56,7 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
     copy_bytes(accepted.name, "renamed", 7);
     check(channel_overview_controller_complete(&value, scope, 101, {}, &accepted, 2) &&
               !value.dirty_fields &&
-              text(channel_overview_name_view(value.baseline), utf8_literal("renamed")),
+              utf8_equal(channel_overview_name_view(value.baseline), utf8_literal("renamed")),
           "channel overview controller: successful normalized server response commits baseline and draft "
           "together");
     check(channel_overview_controller_edit(&value, {{}, utf8_literal("mine"), 0, 2, false}) &&
@@ -77,7 +69,7 @@ void test_channel_overview_controller(void (*check)(bool, const char*) noexcept)
               channel_overview_controller_complete(&value, scope, 102, {}, &accepted, 3) &&
               value.phase == ChannelOverviewPhase::refetch &&
               value.operation == ChannelOverviewOperation::fetch &&
-              text(channel_overview_topic_view(value.draft), utf8_literal("mine")) && submit(value, 103),
+              utf8_equal(channel_overview_topic_view(value.draft), utf8_literal("mine")) && submit(value, 103),
           "channel overview controller: newer Gateway metadata rejects an older REST baseline and "
           "refetches without losing draft");
     check(channel_overview_controller_complete(&value, scope, 103, {}, &newer, 4) &&

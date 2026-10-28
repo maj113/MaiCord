@@ -625,10 +625,5 @@ Utf8View application_plugins_hover_label(u32) noexcept {
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_tooltip_runtime_entry() noexcept {
     maicord::tooltip_runtime_test::run();
-    constexpr char passed[] = "PASS tooltip runtime\n", failed[] = "FAIL tooltip runtime\n";
-    const bool failure = maicord::tooltip_runtime_test::failures != 0;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failure ? failed : passed, sizeof(passed) - 1, &written,
-              nullptr);
-    ExitProcess(failure ? 1 : 0);
+    maicord::test_exit(maicord::tooltip_runtime_test::failures, "tooltip runtime");
 }

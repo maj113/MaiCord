@@ -441,212 +441,48 @@ bool clipboard_write_utf8(HWND, Utf8View) noexcept {
 ClipboardTextResult clipboard_read_utf8(HWND, Slice<char>) noexcept {
     return {0, ClipboardTextError::unavailable};
 }
+// The host's other modal owners are never open in this fixture. Each family
+// defines the same inert boundary the shipping scheduler and input router query.
+#define INACTIVE_MODAL_CORE(owner)                                                       \
+    bool owner##_active() noexcept { return false; }                                     \
+    void owner##_close(bool) noexcept {}                                                 \
+    void owner##_release() noexcept {}                                                   \
+    bool owner##_synchronize() noexcept { return true; }                                 \
+    bool owner##_input(UiInputKind, u32, bool) noexcept { return false; }                \
+    bool owner##_window_message(UINT, WPARAM, LPARAM) noexcept { return false; }         \
+    u64 owner##_caret_wake() noexcept { return 0; }                                      \
+    bool owner##_edit_focused() noexcept { return false; }                               \
+    MessageComposer* owner##_edit_model() noexcept { return nullptr; }                   \
+    TextInputTarget owner##_edit_target() noexcept { return {}; }                        \
+    void owner##_edit_cancel_native_group(TextInputTarget) noexcept {}                   \
+    UiRect owner##_edit_bounds() noexcept { return {}; }                                 \
+    bool owner##_edit_changed(bool) noexcept { return false; }                           \
+    u32 owner##_owner_bytes() noexcept { return 0; }
+#define INACTIVE_MODAL_REQUESTS(owner, response_text)                                    \
+    bool owner##_submit(u64) noexcept { return false; }                                  \
+    bool owner##_owns_response(u64) noexcept { return false; }                           \
+    bool owner##_response(const RestClientResponse&, response_text) noexcept {           \
+        return false;                                                                    \
+    }                                                                                    \
+    u64 owner##_next_wake() noexcept { return 0; }                                       \
+    void owner##_tick(u64) noexcept {}
 namespace app_detail {
-// Server Settings is never open in this fixture.
-bool application_guild_settings_active() noexcept {
-    return false;
-}
-void application_guild_settings_close(bool) noexcept {
-}
-void application_guild_settings_release() noexcept {
-}
-bool application_guild_settings_synchronize() noexcept {
-    return true;
-}
-bool application_guild_settings_input(UiInputKind, u32, bool) noexcept {
-    return false;
-}
-bool application_guild_settings_window_message(UINT, WPARAM, LPARAM) noexcept {
-    return false;
-}
-bool application_guild_settings_submit(u64) noexcept {
-    return false;
-}
-bool application_guild_settings_owns_response(u64) noexcept {
-    return false;
-}
-bool application_guild_settings_response(const RestClientResponse&, const Utf8View&) noexcept {
-    return false;
-}
-void application_guild_settings_gateway(const GatewayClientEvent&, const Utf8View&) noexcept {
-}
-void application_media_picker_gateway(const GatewayClientEvent&, Utf8View) noexcept {
-}
-u64 application_guild_settings_next_wake() noexcept {
-    return 0;
-}
-u64 application_guild_settings_caret_wake() noexcept {
-    return 0;
-}
-void application_guild_settings_tick(u64) noexcept {
-}
-bool application_guild_settings_edit_focused() noexcept {
-    return false;
-}
-MessageComposer* application_guild_settings_edit_model() noexcept {
-    return nullptr;
-}
-TextInputTarget application_guild_settings_edit_target() noexcept {
-    return {};
-}
-void application_guild_settings_edit_cancel_native_group(TextInputTarget) noexcept {
-}
-UiRect application_guild_settings_edit_bounds() noexcept {
-    return {};
-}
-bool application_guild_settings_edit_changed(bool) noexcept {
-    return false;
-}
-u32 application_guild_settings_owner_bytes() noexcept {
-    return 0;
-}
-// Create poll is never open in this fixture.
-bool application_poll_create_active() noexcept {
-    return false;
-}
-void application_poll_create_close(bool) noexcept {
-}
-void application_poll_create_release() noexcept {
-}
-bool application_poll_create_synchronize() noexcept {
-    return true;
-}
-bool application_poll_create_input(UiInputKind, u32, bool) noexcept {
-    return false;
-}
-bool application_poll_create_window_message(UINT, WPARAM, LPARAM) noexcept {
-    return false;
-}
-bool application_poll_create_submit(u64) noexcept {
-    return false;
-}
-bool application_poll_create_owns_response(u64) noexcept {
-    return false;
-}
-bool application_poll_create_response(const RestClientResponse&, Utf8View) noexcept {
-    return false;
-}
-u64 application_poll_create_next_wake() noexcept {
-    return 0;
-}
-u64 application_poll_create_caret_wake() noexcept {
-    return 0;
-}
-void application_poll_create_tick(u64) noexcept {
-}
-bool application_poll_create_edit_focused() noexcept {
-    return false;
-}
-MessageComposer* application_poll_create_edit_model() noexcept {
-    return nullptr;
-}
-TextInputTarget application_poll_create_edit_target() noexcept {
-    return {};
-}
-void application_poll_create_edit_cancel_native_group(TextInputTarget) noexcept {
-}
-UiRect application_poll_create_edit_bounds() noexcept {
-    return {};
-}
-bool application_poll_create_edit_changed(bool) noexcept {
-    return false;
-}
-u32 application_poll_create_owner_bytes() noexcept {
-    return 0;
-}
-// The server lifecycle modal is never open in this fixture.
-bool application_guild_lifecycle_active() noexcept {
-    return false;
-}
-void application_guild_lifecycle_close(bool) noexcept {
-}
-void application_guild_lifecycle_release() noexcept {
-}
-bool application_guild_lifecycle_synchronize() noexcept {
-    return true;
-}
-bool application_guild_lifecycle_input(UiInputKind, u32, bool) noexcept {
-    return false;
-}
-bool application_guild_lifecycle_window_message(UINT, WPARAM, LPARAM) noexcept {
-    return false;
-}
-bool application_guild_lifecycle_submit(u64) noexcept {
-    return false;
-}
-bool application_guild_lifecycle_owns_response(u64) noexcept {
-    return false;
-}
-bool application_guild_lifecycle_response(const RestClientResponse&, Utf8View) noexcept {
-    return false;
-}
-u64 application_guild_lifecycle_next_wake() noexcept {
-    return 0;
-}
-u64 application_guild_lifecycle_caret_wake() noexcept {
-    return 0;
-}
-void application_guild_lifecycle_tick(u64) noexcept {
-}
-bool application_guild_lifecycle_edit_focused() noexcept {
-    return false;
-}
-MessageComposer* application_guild_lifecycle_edit_model() noexcept {
-    return nullptr;
-}
-TextInputTarget application_guild_lifecycle_edit_target() noexcept {
-    return {};
-}
-void application_guild_lifecycle_edit_cancel_native_group(TextInputTarget) noexcept {
-}
-UiRect application_guild_lifecycle_edit_bounds() noexcept {
-    return {};
-}
-bool application_guild_lifecycle_edit_changed(bool) noexcept {
-    return false;
-}
-// The profile editor is never open here either.
-bool application_profile_editor_open(ProfileEditorTab, u64) noexcept { return false; }
-bool application_profile_editor_active() noexcept { return false; }
-void application_profile_editor_close(bool) noexcept {}
-void application_profile_editor_release() noexcept {}
-bool application_profile_editor_synchronize() noexcept { return true; }
-bool application_profile_editor_input(UiInputKind, u32, bool) noexcept { return false; }
-SettingsLayer* application_profile_editor_settings_layer() noexcept { return nullptr; }
-bool application_profile_editor_window_message(UINT, WPARAM, LPARAM) noexcept { return false; }
-bool application_profile_editor_submit(u64) noexcept { return false; }
-bool application_profile_editor_owns_response(u64) noexcept { return false; }
-bool application_profile_editor_response(const RestClientResponse&, const Utf8View&) noexcept { return false; }
-u64 application_profile_editor_next_wake() noexcept { return 0; }
-u64 application_profile_editor_caret_wake() noexcept { return 0; }
-void application_profile_editor_tick(u64) noexcept {}
-bool application_profile_editor_edit_focused() noexcept { return false; }
-MessageComposer* application_profile_editor_edit_model() noexcept { return nullptr; }
-TextInputTarget application_profile_editor_edit_target() noexcept { return {}; }
-void application_profile_editor_edit_cancel_native_group(TextInputTarget) noexcept {}
-UiRect application_profile_editor_edit_bounds() noexcept { return {}; }
-bool application_profile_editor_edit_changed(bool) noexcept { return false; }
-u32 application_profile_editor_owner_bytes() noexcept { return 0; }
-// Community modals (rules, onboarding, events) are never open here either.
-bool application_guild_community_active() noexcept { return false; }
-void application_guild_community_close(bool) noexcept {}
-void application_guild_community_release() noexcept {}
-bool application_guild_community_synchronize() noexcept { return true; }
-bool application_guild_community_input(UiInputKind, u32, bool) noexcept { return false; }
-bool application_guild_community_window_message(UINT, WPARAM, LPARAM) noexcept { return false; }
-bool application_guild_community_submit(u64) noexcept { return false; }
-bool application_guild_community_owns_response(u64) noexcept { return false; }
-bool application_guild_community_response(const RestClientResponse&, Utf8View) noexcept { return false; }
-u64 application_guild_community_next_wake() noexcept { return 0; }
-u64 application_guild_community_caret_wake() noexcept { return 0; }
-void application_guild_community_tick(u64) noexcept {}
-bool application_guild_community_edit_focused() noexcept { return false; }
-MessageComposer* application_guild_community_edit_model() noexcept { return nullptr; }
-TextInputTarget application_guild_community_edit_target() noexcept { return {}; }
-void application_guild_community_edit_cancel_native_group(TextInputTarget) noexcept {}
-UiRect application_guild_community_edit_bounds() noexcept { return {}; }
-bool application_guild_community_edit_changed(bool) noexcept { return false; }
-u32 application_guild_community_owner_bytes() noexcept { return 0; }
+INACTIVE_MODAL_CORE(application_guild_settings)
+INACTIVE_MODAL_REQUESTS(application_guild_settings, const Utf8View&)
+void application_guild_settings_gateway(const GatewayClientEvent&, const Utf8View&) noexcept {}
+void application_media_picker_gateway(const GatewayClientEvent&, Utf8View) noexcept {}
+INACTIVE_MODAL_CORE(application_poll_create)
+INACTIVE_MODAL_REQUESTS(application_poll_create, Utf8View)
+INACTIVE_MODAL_CORE(application_guild_lifecycle)
+INACTIVE_MODAL_REQUESTS(application_guild_lifecycle, Utf8View)
+INACTIVE_MODAL_CORE(application_profile_editor)
+INACTIVE_MODAL_REQUESTS(application_profile_editor, const Utf8View&)
+INACTIVE_MODAL_CORE(application_guild_community)
+INACTIVE_MODAL_REQUESTS(application_guild_community, Utf8View)
+INACTIVE_MODAL_CORE(application_custom_status)
+void application_custom_status_dialog_tick(u64) noexcept {}
+#undef INACTIVE_MODAL_CORE
+#undef INACTIVE_MODAL_REQUESTS
 // Reports and user actions share the host; this fixture never opens them.
 bool application_report_active() noexcept { return false; }
 void application_report_close(bool) noexcept {}
@@ -654,7 +490,6 @@ void application_report_release() noexcept {}
 bool application_report_synchronize() noexcept { return true; }
 bool application_report_input(UiInputKind, u32, bool) noexcept { return false; }
 bool application_report_window_message(UINT, WPARAM, LPARAM) noexcept { return false; }
-SettingsLayer* application_report_settings_layer() noexcept { return nullptr; }
 u64 application_report_next_wake() noexcept { return 0; }
 u64 application_report_caret_wake() noexcept { return 0; }
 void application_report_tick(u64) noexcept {}
@@ -667,51 +502,6 @@ bool application_user_actions_submit(u64) noexcept { return false; }
 bool application_user_actions_owns_response(u64) noexcept { return false; }
 bool application_user_actions_response(const RestClientResponse&, Utf8View) noexcept { return true; }
 void application_user_actions_release() noexcept {}
-u32 application_guild_lifecycle_owner_bytes() noexcept {
-    return 0;
-}
-// The custom status dialog is never open in this fixture.
-bool application_custom_status_active() noexcept {
-    return false;
-}
-void application_custom_status_close(bool) noexcept {
-}
-void application_custom_status_release() noexcept {
-}
-bool application_custom_status_synchronize() noexcept {
-    return true;
-}
-bool application_custom_status_input(UiInputKind, u32, bool) noexcept {
-    return false;
-}
-bool application_custom_status_window_message(UINT, WPARAM, LPARAM) noexcept {
-    return false;
-}
-u64 application_custom_status_caret_wake() noexcept {
-    return 0;
-}
-void application_custom_status_dialog_tick(u64) noexcept {
-}
-bool application_custom_status_edit_focused() noexcept {
-    return false;
-}
-MessageComposer* application_custom_status_edit_model() noexcept {
-    return nullptr;
-}
-TextInputTarget application_custom_status_edit_target() noexcept {
-    return {};
-}
-void application_custom_status_edit_cancel_native_group(TextInputTarget) noexcept {
-}
-UiRect application_custom_status_edit_bounds() noexcept {
-    return {};
-}
-bool application_custom_status_edit_changed(bool) noexcept {
-    return false;
-}
-u32 application_custom_status_owner_bytes() noexcept {
-    return 0;
-}
 UiSettingsAvatarMedia application_user_avatar_media(u64) noexcept {
     return {};
 }

@@ -23,7 +23,7 @@ u32 scratch[16 * 1024];
 struct Capture {
     RestRouteKey route;
     u64 id;
-    u32 submissions, large, cancellations, target_bytes, body_bytes, reason_bytes, timeout_ms;
+    u32 submissions, large, target_bytes, body_bytes, reason_bytes;
     u8 target[kRestClientMaximumTargetBytes], reason[256];
     u8* body;
     u32 body_capacity;
@@ -482,7 +482,6 @@ RestClientSubmitResult capture_request(const RestClientRequest& request) noexcep
     ++c.submissions;
     c.route = request.route;
     c.id = request.request_id;
-    c.timeout_ms = request.timeout_ms;
     c.json = request.json_body;
     if (request.target.count > sizeof(c.target) || request.audit_reason.count > sizeof(c.reason))
         return {RestClientSubmitError::invalid_input};
@@ -512,7 +511,6 @@ RestClientSubmitResult rest_client_submit_large(RestClient*,
     return capture_request(request);
 }
 bool rest_client_cancel(RestClient*, u64 request_id) noexcept {
-    ++soundboard_test::capture.cancellations;
     return request_id == 5;
 }
 

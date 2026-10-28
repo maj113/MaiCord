@@ -257,8 +257,7 @@ void page(Check check) noexcept {
                                "http://127.0.0.1:50123/c/0123456789abcdef0123456789abcdef0"};
         bool refused = true;
         for (const char* candidate : rejected) {
-            u32 bytes = 0; while (candidate[bytes]) ++bytes;
-            secure_buffer_assign(&locked, {reinterpret_cast<const u8*>(candidate), bytes});
+            secure_buffer_assign(&locked, {reinterpret_cast<const u8*>(candidate), c_string_length(candidate)});
             refused = refused && !captcha_bridge_url_valid(&locked);
         }
         locked.locked = false;

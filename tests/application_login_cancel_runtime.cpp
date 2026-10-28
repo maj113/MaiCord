@@ -31,7 +31,7 @@ struct Audit {
     u32 phone_verify_submits, phone_resend_submits, phone_takes, phone_token_bytes, malformed_take;
     bool fail_take, joined_error, attach_success;
     u32 browser_starts, browser_copies, browser_launches;
-    bool fail_browser_launch, browser_cancel_on_launch;
+    bool fail_browser_launch;
     AccountLoginStatus browser_response;
     bool scripted_mfa;
     bool logout_blocked, logout_host_owned, logout_on_browser_copy;
@@ -227,7 +227,7 @@ bool seed(bool remote) noexcept {
     audit.phone_verify_submits = audit.phone_resend_submits = audit.phone_takes = audit.phone_token_bytes = audit.malformed_take = 0;
     audit.fail_take = audit.joined_error = audit.attach_success = false;
     audit.browser_starts = audit.browser_copies = audit.browser_launches = 0;
-    audit.fail_browser_launch = audit.browser_cancel_on_launch = false; audit.browser_response = {};
+    audit.fail_browser_launch = false; audit.browser_response = {};
     audit.scripted_mfa = false;
     audit.logout_blocked = audit.logout_host_owned = audit.logout_on_browser_copy = false;
     audit.login_starts = audit.module_loads = audit.path_resolves = 0;
@@ -1086,12 +1086,6 @@ void run() noexcept {
 } // namespace maicord::login_cancel_test
 
 namespace maicord::app_detail {
-// This auth-only harness has no scoped read owner or menu. Account cleanup may
-// retire these dormant boundaries without introducing transport/UI work.
-void application_scoped_read_reset() noexcept {
-}
-void application_scoped_read_menu_clear() noexcept {
-}
 bool application_account_logout_blocked() noexcept {
     return login_cancel_test::audit.logout_blocked;
 }
@@ -1146,7 +1140,6 @@ bool application_login_position_edit(LoginControl, i32, i32, bool) noexcept { re
 
 namespace maicord {
 // The CAPTCHA bridge never launches in this harness (no challenge is bridged).
-bool captcha_bridge_url_valid(const SecureBuffer*) noexcept { return false; }
 bool captcha_bridge_launch(HWND, const SecureBuffer*) noexcept { return false; }
 bool browser_sign_in_launch(HWND, const SecureBuffer* url) noexcept {
     auto& audit = login_cancel_test::audit;

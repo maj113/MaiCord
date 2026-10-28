@@ -173,14 +173,6 @@ u32 proposal(KdfSha256Workspace& kdf, const P256Key& gateway, u64 group_id, u64 
     out.vector(signature, signed_result.bytes);
     return out.used;
 }
-u32 batch(ConstSlice<u8> first, ConstSlice<u8> second, u8* output) noexcept {
-    Out out{output, 0};
-    out.integer(0, 1);
-    out.varint(first.count + second.count);
-    out.bytes(first.data, first.count);
-    out.bytes(second.data, second.count);
-    return out.used;
-}
 struct Member {
     DaveSession session;
     u64 user_id;
@@ -276,6 +268,10 @@ u32 batch_of(ConstSlice<ConstSlice<u8>> items, u8* output) noexcept {
     for (u32 i = 0; i != items.count; ++i)
         out.bytes(items[i].data, items[i].count);
     return out.used;
+}
+u32 batch(ConstSlice<u8> first, ConstSlice<u8> second, u8* output) noexcept {
+    const ConstSlice<u8> items[]{first, second};
+    return batch_of({items, 2}, output);
 }
 u32 unmerged_at(const DaveSession& session, u32 node) noexcept {
     auto iterator = mls_tree_iterate(session.group.active.tree);
@@ -707,7 +703,7 @@ void voice_signaling(Check check, KdfSha256Workspace& kdf) noexcept {
     check(binary(VoiceDaveOpcode::mls_external_sender, {es, es_bytes}) && !c->dave_session.initialized &&
               c->dave_external_sender_bytes == es_bytes,
           "an ExternalSender before Session Description is retained");
-    check(voice_connection_dave_description(c, 100) && c->dave_session.initialized &&
+    check(voice_connection_dave_description(c) && c->dave_session.initialized &&
               c->dave_session.group_state == DaveGroupState::initial && !c->dave_external_sender_bytes &&
               c->dave_outbox_count == 1 && queued_binary(*c, 0, 26),
           "sole member: Session Description creates our one-member group and queues opcode 26");
@@ -890,9 +886,8 @@ struct ReferenceMedia {
     // RFC 9420 ExpandWithLabel with a single HKDF-Expand block (length <= 32).
     bool expand(ConstSlice<u8> secret, const char* label, ConstSlice<u8> context, u32 length, u8* output) noexcept {
         u8 info[128];
-        u32 n = 0, label_bytes = 0;
-        while (label[label_bytes])
-            ++label_bytes;
+        u32 n = 0;
+        const u32 label_bytes = c_string_length(label);
         info[n++] = static_cast<u8>(length >> 8);
         info[n++] = static_cast<u8>(length);
         info[n++] = static_cast<u8>(8 + label_bytes);
@@ -1053,7 +1048,7 @@ void reference_interop(Check check, KdfSha256Workspace& kdf) noexcept {
     // Our opcode 26 is the KeyPackage the reference implementation writes: basic
     // credential with the big-endian user id, capabilities {1}/{2}/{}/{}/{1},
     // lifetime 0..max.
-    check(voice_connection_dave_description(c, 10) && queued_binary(*c, 0, 26),
+    check(voice_connection_dave_description(c) && queued_binary(*c, 0, 26),
           "Reference interop: we start alone and send our KeyPackage");
     const auto& kp = outbox(*c, 0);
     const u8 expected_tail[]{0x02, 0x00, 0x01, 0x02, 0x00, 0x02, 0x00, 0x00, 0x02, 0x00, 0x01, 0x01,

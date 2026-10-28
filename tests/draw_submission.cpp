@@ -194,9 +194,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_draw_submission_entry() noex
     test_runs();
     test_state();
     test_frame();
-    const bool failed = failures != 0;
-    constexpr char pass[] = "PASS draw submission\n", fail[] = "FAIL draw submission\n";
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(failures, "draw submission");
 }

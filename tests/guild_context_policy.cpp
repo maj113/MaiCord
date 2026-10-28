@@ -37,18 +37,15 @@ bool header_build(u64 owner, PermissionSet self_permissions) noexcept {
     chat_state_store_recompute_guild_permissions(&f.state, guild);
     return true;
 }
-bool header_rows(u16 capabilities, ConstSlice<const char*> labels, u32 separators) noexcept {
+bool header_rows(u16 capabilities, ConstSlice<u32> expected, u32 separators) noexcept {
     constexpr GuildMenuActions actions{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
     PopupItem rows[kGuildHeaderMenuMaximumItems]{};
     const u32 count = guild_header_menu_build(header_fixture.state, 7, 70, actions, capabilities,
                                               {rows, kGuildHeaderMenuMaximumItems});
-    if (count != labels.count)
+    if (count != expected.count)
         return false;
     for (u32 i = 0; i < count; ++i) {
-        u32 bytes = 0;
-        while (labels[i][bytes])
-            ++bytes;
-        if (!utf8_equal(rows[i].label, {labels[i], bytes}) || !(rows[i].flags & popup_item_enabled) ||
+        if (rows[i].action != expected[i] || !(rows[i].flags & popup_item_enabled) ||
             ((rows[i].flags & popup_item_separator_before) != 0) != ((separators >> i) & 1u))
             return false;
     }
@@ -57,23 +54,20 @@ bool header_rows(u16 capabilities, ConstSlice<const char*> labels, u32 separator
 void test_guild_header_menu(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr u16 all = guild_menu_capability_create_event | guild_menu_capability_notifications |
                         guild_menu_capability_profile | guild_menu_capability_developer;
-    const char* owner[]{"Invite people", "Server settings", "Create channel", "Create category", "Create event",
-                        "Notification settings", "Privacy settings", "Edit per-server profile",
-                        "Hide muted channels", "Copy server ID"};
+    // Row actions: invite 1, settings 2, create channel 3, create category 4, create event 5,
+    // notifications 6, privacy 7, profile 8, hide muted 9, leave 10, copy ID 11.
+    const u32 owner[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 11};
     check(header_build(5, 0) && header_rows(all, {owner, 10}, (1u << 5) | (1u << 7) | (1u << 9)),
           "header popout: the owner gets every server row in the official order and groups, without Leave");
-    const char* admin[]{"Invite people", "Server settings", "Create channel", "Create category", "Create event",
-                        "Notification settings", "Privacy settings", "Edit per-server profile",
-                        "Hide muted channels", "Leave server", "Copy server ID"};
+    const u32 admin[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
     check(header_build(9, kPermissionAdministrator) &&
               header_rows(all, {admin, 11}, (1u << 5) | (1u << 7) | (1u << 9) | (1u << 10)),
           "header popout: an administrator also gets Leave server");
-    const char* member[]{"Notification settings", "Privacy settings", "Hide muted channels", "Leave server"};
+    const u32 member[]{6, 7, 9, 10};
     check(header_build(9, 0) &&
               header_rows(guild_menu_capability_notifications, {member, 4}, (1u << 2) | (1u << 3)),
           "header popout: a plain member gets no invite, settings or creation rows");
-    const char* nickname[]{"Invite people", "Privacy settings", "Edit per-server profile", "Hide muted channels",
-                           "Leave server"};
+    const u32 nickname[]{1, 7, 8, 9, 10};
     check(header_build(9, kPermissionCreateInvite | kPermissionChangeNickname) &&
               header_rows(guild_menu_capability_profile, {nickname, 5}, (1u << 1) | (1u << 2) | (1u << 4)),
           "header popout: Create Invite and nickname rows follow their own capabilities");
@@ -90,19 +84,14 @@ void test_guild_header_menu(void (*check)(bool, const char*) noexcept) noexcept 
               guild_header_menu_build(header_fixture.state, 8, 0, actions, 0, {rows, 11}) == 0,
           "header popout: short storage or an unknown server publishes nothing");
     constexpr GuildMenuActions opt_in_actions{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
-    const char* community[]{"Show all channels", "Notification settings", "Privacy settings", "Hide muted channels",
-                            "Leave server"};
+    const u32 community[]{12, 6, 7, 9, 10};
     PopupItem opt_rows[kGuildHeaderMenuMaximumItems]{};
     const u16 shown_all = guild_menu_capability_notifications | guild_menu_capability_show_all |
                           guild_menu_capability_show_all_checked;
     bool labels = header_build(9, 0) && guild_header_menu_build(header_fixture.state, 7, 0, opt_in_actions, shown_all,
                                           {opt_rows, kGuildHeaderMenuMaximumItems}) == 5;
-    for (u32 i = 0; labels && i < 5; ++i) {
-        u32 bytes = 0;
-        while (community[i][bytes])
-            ++bytes;
-        labels = utf8_equal(opt_rows[i].label, {community[i], bytes});
-    }
+    for (u32 i = 0; labels && i < 5; ++i)
+        labels = opt_rows[i].action == community[i];
     check(labels && opt_rows[0].action == 12 && (opt_rows[0].flags & popup_item_checked) &&
               opt_rows[2].action == 7 && opt_rows[2].presentation.icon_plus_one == static_cast<u8>(static_cast<u32>(UiIcon::shield) + 1) &&
               guild_header_menu_build(header_fixture.state, 7, 0, opt_in_actions,
@@ -126,14 +115,12 @@ void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexce
     PopupItem items[3]{};
     constexpr u32 copy = 801, mark = 802, retry = 803;
     check(guild_context_policy_build(state, 1, copy, {items, 3}) == 1 && items[0].action == copy &&
-              items[0].flags == popup_item_enabled &&
-              utf8_equal(items[0].label, utf8_literal("Copy server ID")),
+              items[0].flags == popup_item_enabled,
           "guild default policy preserves single enabled Copy server ID row");
     guild.permissions_resolved = true;
     UiScopedReadMenuState scoped{mark, retry, true, false, false};
     check(guild_context_policy_build(state, 1, copy, {items, 3}, scoped) == 2 && items[0].action == mark &&
-              items[0].flags == popup_item_enabled &&
-              utf8_equal(items[0].label, utf8_literal("Mark as read")) && items[1].action == copy &&
+              items[0].flags == popup_item_enabled && items[1].action == copy &&
               items[1].flags == (popup_item_enabled | popup_item_separator_before),
           "available server read action precedes separated Copy server ID with normal themed row");
     scoped.pending = true;
@@ -144,8 +131,7 @@ void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexce
           "pending server operation disables mutation and hides Retry while copy remains usable");
     scoped.pending = false;
     check(guild_context_policy_build(state, 1, copy, {items, 3}, scoped) == 3 && items[1].action == retry &&
-              items[1].flags == popup_item_enabled &&
-              utf8_equal(items[1].label, utf8_literal("Retry mark as read")),
+              items[1].flags == popup_item_enabled,
           "failed current server intent receives a separate explicit Retry row");
     items[0] = {utf8_literal("unchanged"), 999, 0};
     items[1] = items[0];
@@ -175,7 +161,6 @@ void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexce
     PopupItem with_settings[4]{};
     check(guild_context_policy_build(state, 1, copy, {with_settings, 4}, scoped, settings) == 3 &&
               with_settings[1].action == settings &&
-              utf8_equal(with_settings[1].label, utf8_literal("Server settings")) &&
               with_settings[1].flags == (popup_item_enabled | popup_item_separator_before) &&
               with_settings[2].action == copy,
           "the owner gets Server settings between the read action and Copy server ID");

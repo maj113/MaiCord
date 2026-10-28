@@ -394,81 +394,55 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
             application_forum_post_metrics().owner_bytes == owner.owner_bytes &&
             application_forum_post_metrics().owner_committed_bytes == owner.owner_committed_bytes &&
             application_forum_post_view().revision == view_revision;
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "sample", sample);
+        const char* const scope = media_probe ? "forum_media_warm" : "forum_post_warm";
+        const auto report = [scope](const char* name, u64 value) noexcept {
+            log_u64(LogLevel::info, scope, name, value);
+        };
+        report("sample", sample);
         if (media_probe) {
-            log_u64(LogLevel::info, "forum_media_warm", "preview_admission_delta",
-                    preview_after.admissions - preview_before.admissions);
-            log_u64(LogLevel::info, "forum_media_warm", "preview_committed_bytes",
-                    preview_before.committed_bytes);
-            log_u64(LogLevel::info, "forum_media_warm", "attachment_committed_bytes",
-                    files_before.committed_bytes);
-            log_u64(LogLevel::info, "forum_media_warm", "attachment_draft_bytes", files_before.draft_bytes);
+            report("preview_admission_delta", preview_after.admissions - preview_before.admissions);
+            report("preview_committed_bytes", preview_before.committed_bytes);
+            report("attachment_committed_bytes", files_before.committed_bytes);
+            report("attachment_draft_bytes", files_before.draft_bytes);
         }
         const char* source_labels[]{"message_rebuild_delta", "message_layout_delta",
                                     "composer_layout_delta", "rail_layout_delta",
                                     "sidebar_layout_delta",  "navigation_delta"};
         for (u32 item = 0; item < sizeof(source_before) / sizeof(source_before[0]); ++item)
-            log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                    source_labels[item], source_after[item] - source_before[item]);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "paint_build_delta",
-                after.builds - before.builds);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "text_build_delta",
-                after.text_rebuilds - before.text_rebuilds);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "glyph_build_delta",
-                after.glyph_builds - before.glyph_builds);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "paint_upload_delta",
-                after.paint_uploads - before.paint_uploads);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "text_upload_delta",
-                after.text_uploads - before.text_uploads);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "media_upload_delta",
-                after.media_uploads - before.media_uploads);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                "source_refresh_delta", after.source_refreshes - before.source_refreshes);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "shell_layout_delta",
-                external.ui_scene->layout_passes - shell);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "measure_delta",
-                measure.backend_calls - shapes);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "form_measure_delta",
-                after_costs.measure_calls - before_costs.measure_calls);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "scene_commit_delta",
-                after_costs.scene_commit_count - before_costs.scene_commit_count);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                "transport_submit_delta", forum_post_ui_adapter_submissions() - submits);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "painted_frame_delta",
-                external.painted_frames - painted);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "unchanged_skips",
-                external.unchanged_present_skips - skips);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "owner_bytes",
-                owner.owner_bytes);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                "owner_committed_bytes", owner.owner_committed_bytes);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "form_bytes",
-                before_costs.form_bytes);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                "form_committed_bytes", before_costs.form_committed_bytes);
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                "scene_committed_bytes", before_costs.scene_committed_bytes);
+            report(source_labels[item], source_after[item] - source_before[item]);
+        report("paint_build_delta", after.builds - before.builds);
+        report("text_build_delta", after.text_rebuilds - before.text_rebuilds);
+        report("glyph_build_delta", after.glyph_builds - before.glyph_builds);
+        report("paint_upload_delta", after.paint_uploads - before.paint_uploads);
+        report("text_upload_delta", after.text_uploads - before.text_uploads);
+        report("media_upload_delta", after.media_uploads - before.media_uploads);
+        report("source_refresh_delta", after.source_refreshes - before.source_refreshes);
+        report("shell_layout_delta", external.ui_scene->layout_passes - shell);
+        report("measure_delta", measure.backend_calls - shapes);
+        report("form_measure_delta", after_costs.measure_calls - before_costs.measure_calls);
+        report("scene_commit_delta", after_costs.scene_commit_count - before_costs.scene_commit_count);
+        report("transport_submit_delta", forum_post_ui_adapter_submissions() - submits);
+        report("painted_frame_delta", external.painted_frames - painted);
+        report("unchanged_skips", external.unchanged_present_skips - skips);
+        report("owner_bytes", owner.owner_bytes);
+        report("owner_committed_bytes", owner.owner_committed_bytes);
+        report("form_bytes", before_costs.form_bytes);
+        report("form_committed_bytes", before_costs.form_committed_bytes);
+        report("scene_committed_bytes", before_costs.scene_committed_bytes);
         for (u32 field = 0; field < 2; ++field) {
-            log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                    field ? "body_edit_committed_bytes" : "title_edit_committed_bytes",
-                    before_costs.edit_committed_bytes[field]);
-            log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                    field ? "body_history_owner_committed_bytes" : "title_history_owner_committed_bytes",
-                    before_costs.history_owner_committed_bytes[field]);
-            log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                    field ? "body_history_owner_bytes" : "title_history_owner_bytes",
-                    before_costs.history[field].owner_bytes);
-            log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                    field ? "body_history_payload_bytes" : "title_history_payload_bytes",
-                    before_costs.history[field].payload_bytes);
+            report(field ? "body_edit_committed_bytes" : "title_edit_committed_bytes",
+                   before_costs.edit_committed_bytes[field]);
+            report(field ? "body_history_owner_committed_bytes" : "title_history_owner_committed_bytes",
+                   before_costs.history_owner_committed_bytes[field]);
+            report(field ? "body_history_owner_bytes" : "title_history_owner_bytes",
+                   before_costs.history[field].owner_bytes);
+            report(field ? "body_history_payload_bytes" : "title_history_payload_bytes",
+                   before_costs.history[field].payload_bytes);
         }
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "request_bytes",
-                sizeof(ForumPostRequest));
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm",
-                "metadata_snapshot_bytes", sizeof(ForumParentSnapshot));
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "post_snapshot_bytes",
-                sizeof(ForumPostSnapshot));
-        log_u64(LogLevel::info, media_probe ? "forum_media_warm" : "forum_post_warm", "passed", passed);
+        report("request_bytes", sizeof(ForumPostRequest));
+        report("metadata_snapshot_bytes", sizeof(ForumParentSnapshot));
+        report("post_snapshot_bytes", sizeof(ForumPostSnapshot));
+        report("passed", passed);
         return passed;
     };
     const auto fade = [&](bool media) noexcept {

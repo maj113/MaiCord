@@ -2,7 +2,6 @@
 #include "maicord/text/sinhala_shape_run.hpp"
 #include "maicord/text/sinhala_run.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/text/use_plan.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "gsub_program_fixture.hpp"

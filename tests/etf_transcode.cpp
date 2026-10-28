@@ -40,13 +40,6 @@ void number(u64 v) noexcept {
         }                                                                                                              \
     } while (0)
 
-u32 length(const char* text) noexcept {
-    u32 n = 0;
-    while (text[n])
-        ++n;
-    return n;
-}
-
 // Builds terms the way Erlang's term_to_binary lays them out.
 struct Term {
     u8 data[4096];
@@ -65,15 +58,15 @@ struct Term {
     }
     Term& version() noexcept { return b(131); }
     Term& atom(const char* text) noexcept { // ATOM_EXT, as the Gateway sends keys
-        const u32 n = length(text);
+        const u32 n = c_string_length(text);
         return b(100).b(0).b(static_cast<u8>(n)).raw(text, n);
     }
     Term& small_atom(const char* text) noexcept {
-        const u32 n = length(text);
+        const u32 n = c_string_length(text);
         return b(115).b(static_cast<u8>(n)).raw(text, n);
     }
     Term& binary(const char* text, u32 n) noexcept { return b(109).be32(n).raw(text, n); }
-    Term& binary(const char* text) noexcept { return binary(text, length(text)); }
+    Term& binary(const char* text) noexcept { return binary(text, c_string_length(text)); }
     Term& map(u32 n) noexcept { return b(116).be32(n); }
     Term& list(u32 n) noexcept { return b(108).be32(n); }
     Term& nil() noexcept { return b(106); }
@@ -95,7 +88,7 @@ u8 json[8192];
 bool transcodes(const Term& term, const char* expected) noexcept {
     Slice<u8> output{json, sizeof(json)};
     const auto result = etf_to_json({term.data, term.used}, &output, sizeof(json), nullptr, nullptr);
-    const u32 n = length(expected);
+    const u32 n = c_string_length(expected);
     return result.ok() && result.bytes == n && bytes_equal(json, expected, n);
 }
 EtfError transcode_error(const Term& term) noexcept {
@@ -247,7 +240,7 @@ bool growth() noexcept {
 
 u8 etf[4096];
 bool encodes(const char* text, const Term& expected) noexcept {
-    const auto result = etf_from_json({text, length(text)}, {etf, sizeof(etf)});
+    const auto result = etf_from_json({text, c_string_length(text)}, {etf, sizeof(etf)});
     return result.ok() && result.bytes == expected.used && bytes_equal(etf, expected.data, expected.used);
 }
 
@@ -273,7 +266,7 @@ bool encoding() noexcept {
     // Fractions, exponents, unsafe integers and malformed JSON are refused.
     const char* refused[] = {"1.5", "1e3", "9007199254740992", "[1,]", "{\"a\" 1}", "01", "{} x", "nul", "\"open"};
     for (const char* text : refused)
-        CHECK(etf_from_json({text, length(text)}, {etf, sizeof(etf)}).error == EtfError::invalid_json);
+        CHECK(etf_from_json({text, c_string_length(text)}, {etf, sizeof(etf)}).error == EtfError::invalid_json);
     CHECK(etf_from_json({"[1,2,3]", 7}, {etf, 9}).error == EtfError::output_capacity);
     CHECK(etf_from_json({"[1,2,3]", 7}, {etf, 13}).ok());
 
@@ -281,11 +274,11 @@ bool encoding() noexcept {
     const char* command = R"({"op":2,"d":{"token":"t","capabilities":1734397,"properties":{"os":"Windows",)"
                           R"("client_build_number":627798,"client_event_source":null,"is_fast_connect":true},)"
                           R"("client_state":{"guild_versions":{}},"ids":["1097750000000000001"],"ranges":[[0,99]]}})";
-    const auto packed = etf_from_json({command, length(command)}, {etf, sizeof(etf)});
+    const auto packed = etf_from_json({command, c_string_length(command)}, {etf, sizeof(etf)});
     CHECK(packed.ok());
     Slice<u8> output{json, sizeof(json)};
     const auto unpacked = etf_to_json({etf, packed.bytes}, &output, sizeof(json), nullptr, nullptr);
-    CHECK(unpacked.ok() && unpacked.bytes == length(command) && bytes_equal(json, command, unpacked.bytes));
+    CHECK(unpacked.ok() && unpacked.bytes == c_string_length(command) && bytes_equal(json, command, unpacked.bytes));
     return true;
 }
 

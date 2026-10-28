@@ -36,9 +36,7 @@ void test_application_account_settings_connection_runtime(void (*check)(bool, co
     const auto saved_account = g_app.account;
     const u64 saved_self = ui->chat_state.self_user_id;
     const auto shows = [&](const char* label) noexcept {
-        u32 bytes = 0;
-        while (label[bytes])
-            ++bytes;
+        const u32 bytes = c_string_length(label);
         return labelled(content, {label, bytes}) != nullptr;
     };
     const auto card = [](UiSettingsControl* c, UiSettingsControlPresentation* p) noexcept {

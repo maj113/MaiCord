@@ -1,11 +1,9 @@
 #include "../src/render/glyph_effect_ordinals.hpp"
 #include "maicord/render/text_effect.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 namespace maicord {namespace {
 u32 checks=0;u64 color_calls=0;
-void print(const char* p) noexcept {u32 n=0;while(p[n])++n;DWORD wrote=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),p,n,&wrote,nullptr);}
-void number(u64 n) noexcept {char text[32];u32 count=0;do{text[count++]=static_cast<char>('0'+n%10);n/=10;}while(n);while(count){const char c=text[--count];DWORD wrote=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),&c,1,&wrote,nullptr);}}
-#define CHECK(x) do{++checks;if(!(x)){print("FAIL line ");number(__LINE__);print("\n");return false;}}while(0)
+#define CHECK(x) do{++checks;if(!(x)){test_write_text("FAIL line ");test_write_u64(__LINE__);test_write_text("\n");return false;}}while(0)
 bool colored(void*,u32 glyph) noexcept {++color_calls;return glyph%11==7;}
 // Independent transcription of the previous renderer, including its two loops.
 u32 reference(const ShapedText& text,Utf8View source,u32 glyph) noexcept {
@@ -59,7 +57,7 @@ bool run() noexcept {
     CHECK(color_calls==512);
     for(u32 glyph=0;glyph<512;++glyph)
         CHECK(large[glyph].reserved==reference(maximum,{source,512},glyph));
-    print("checks=");number(checks);print("\nPASS glyph effect ordinals\n");return true;
+    test_write_text("checks=");test_write_u64(checks);test_write_text("\nPASS glyph effect ordinals\n");return true;
 }
 }}
 extern "C" void maicord_glyph_effect_entry(){ExitProcess(maicord::run()?0:1);}

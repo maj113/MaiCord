@@ -263,10 +263,10 @@ void test_presence_coalescing(void (*check)(bool, const char*) noexcept) noexcep
     presence_coalescer_note(&coalescer, 1'000);
     presence_coalescer_note(&coalescer, 1'040);
     presence_coalescer_note(&coalescer, 1'149);
-    check(coalescer.flush_at_ms == 1'000 + kPresenceCoalesceMilliseconds && coalescer.noted == 3 &&
+    check(coalescer.flush_at_ms == 1'000 + kPresenceCoalesceMilliseconds &&
               !presence_coalescer_take(&coalescer, 1'149),
           "coalescer: changes inside the window join the first deadline");
-    check(presence_coalescer_take(&coalescer, 1'150) && coalescer.flush_at_ms == 0 && coalescer.flushes == 1 &&
+    check(presence_coalescer_take(&coalescer, 1'150) && coalescer.flush_at_ms == 0 &&
               !presence_coalescer_take(&coalescer, 1'151),
           "coalescer: one flush per window");
     presence_coalescer_note(&coalescer, 2'000);

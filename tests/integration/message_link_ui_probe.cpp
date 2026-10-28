@@ -955,7 +955,6 @@ void application_thread_browser_close() noexcept {
 }
 void application_read_state_activity() noexcept {
 }
-void application_read_state_log_guild_unread(u64) noexcept {}
 bool application_message_action_bar_activate(const MessageActionBarHit&, bool) noexcept {
     return false;
 }

@@ -5,9 +5,6 @@
 
 namespace maicord {
 namespace {
-bool same(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
 bool cleared(const SecureBuffer& value) noexcept {
     if (value.bytes) return false;
     for (u32 i = 0; i < value.capacity; ++i) if (value.data[i]) return false;
@@ -27,7 +24,7 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
     const auto inspect = [&](Utf8View link, Utf8View expected) noexcept {
         const auto result = login_verification_consume_link(link, &token);
         check(result.ok() && result.token_bytes == expected.bytes &&
-                  same({reinterpret_cast<const char*>(token.data), token.bytes}, expected),
+                  utf8_equal({reinterpret_cast<const char*>(token.data), token.bytes}, expected),
               "verification fragment/query link decodes directly into locked output");
     };
     inspect(utf8_literal("https://discord.com/verify?token=synthetic-query"), utf8_literal("synthetic-query"));
@@ -85,8 +82,8 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
     secure_clear_bytes(long_link, sizeof(long_link));
     u8 request[128]{};
     const auto written = login_verification_write_request(utf8_literal("a\"b\\c"), {request, sizeof(request)});
-    check(written.ok() && same({reinterpret_cast<const char*>(request), written.bytes},
-                               utf8_literal("{\"token\":\"a\\\"b\\\\c\"}")),
+    check(written.ok() && utf8_equal({reinterpret_cast<const char*>(request), written.bytes},
+                                     utf8_literal("{\"token\":\"a\\\"b\\\\c\"}")),
           "verification request uses exact observed token-only JSON contract");
     memset(request, 0x5A, sizeof(request));
     const auto undersized = login_verification_write_request(utf8_literal("synthetic"), {request, 2});
@@ -97,13 +94,13 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
     check(login_verification_write_request({reinterpret_cast<const char*>(request), 3},
                                           {request, sizeof(request)}).error == UserAuthWriteError::invalid_input,
           "verification request rejects aliasing source before writes");
-    check(same(user_auth_target(UserAuthOperation::verification), utf8_literal("/api/v9/auth/verify")),
+    check(utf8_equal(user_auth_target(UserAuthOperation::verification), utf8_literal("/api/v9/auth/verify")),
           "verification uses allowlisted API target");
     u8 head[1024]{};
     const auto head_written = user_auth_write_request_head(UserAuthOperation::verification, 20, {},
                                                           {head, sizeof(head)});
     constexpr Utf8View head_prefix = utf8_literal("POST /api/v9/auth/verify HTTP/1.1\r\n");
-    check(head_written.ok() && same({reinterpret_cast<const char*>(head), head_prefix.bytes}, head_prefix),
+    check(head_written.ok() && utf8_equal({reinterpret_cast<const char*>(head), head_prefix.bytes}, head_prefix),
           "verification transport emits the observed POST route");
     UserAuthState state{};
     user_auth_state_initialize(&state);

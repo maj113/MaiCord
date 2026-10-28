@@ -16,7 +16,7 @@ using Check = void (*)(bool, const char*) noexcept;
 using CE = PluginIndexCheckError;
 using Outcome = PluginIndexCheckOutcome;
 using plugin_index_fixture::kGenerator;
-constexpr char kGeneratorHex[] = "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5";
+using plugin_test_key::kGeneratorHex;
 constexpr u64 kNow = 1760400000;
 constexpr u64 kSequence = 1760227200, kExpires = 1762818600;
 
@@ -38,9 +38,8 @@ struct Fixture {
 };
 Fixture g;
 
-u32 length(const char* s) noexcept { u32 n = 0; while (s[n]) ++n; return n; }
 bool contains(const char* text, const char* needle) noexcept {
-    const u32 n = length(text), m = length(needle);
+    const u32 n = c_string_length(text), m = c_string_length(needle);
     for (u32 i = 0; i + m <= n; ++i) if (bytes_equal(text + i, needle, m)) return true;
     return false;
 }
@@ -60,7 +59,7 @@ bool sign(const char* document, u32 bytes, const P256Key& key, u8* signature) no
 }
 // g.document = text with its single occurrence of search replaced.
 bool rewrite(const char* text, u32 bytes, const char* search, const char* replacement) noexcept {
-    const u32 s = length(search), r = length(replacement);
+    const u32 s = c_string_length(search), r = c_string_length(replacement);
     for (u32 i = 0; i + s <= bytes; ++i) {
         if (!bytes_equal(text + i, search, s)) continue;
         if (bytes - s + r > sizeof(g.document)) return false;
@@ -232,7 +231,7 @@ void test_custom(Check check) noexcept {
     UpdateLocation location{};
     const PluginIndex& index = g.work.index;
     const auto target_is = [&](const char* expected) noexcept {
-        return location.target_bytes == length(expected) && bytes_equal(location.target, expected, location.target_bytes);
+        return location.target_bytes == c_string_length(expected) && bytes_equal(location.target, expected, location.target_bytes);
     };
     check(plugin_catalog_file_location(g.source, index, {g.custom, g.custom_bytes}, 0, 0, PluginIndexArch::x64, &location) &&
         location.host == UpdateHost::github && target_is("/example/plugins/releases/download/hello-v1.1.0/hello-1.1.0-x64.dll") &&
@@ -329,7 +328,7 @@ void test_plugin_index_client(Check check) noexcept {
         g_update_log_sink = previous;
         u32 clean = 0;
         for (u32 i = 0; i < g.line_count; ++i)
-            clean += g.categories[i] && length(g.categories[i]) == 7 && bytes_equal(g.categories[i], "plugins", 7) &&
+            clean += g.categories[i] && c_string_length(g.categories[i]) == 7 && bytes_equal(g.categories[i], "plugins", 7) &&
                 !contains(g.lines[i], "/v1") && !contains(g.lines[i], "index.json") && !contains(g.lines[i], "maicord-plugins") &&
                 !contains(g.lines[i], "Example");
         check(g.line_count > 20 && clean == g.line_count,

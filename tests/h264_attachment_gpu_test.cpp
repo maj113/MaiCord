@@ -242,19 +242,15 @@ void release_target(Target* t) noexcept {
     com_release(t->texture);
 }
 
-// Hash of the visible picture; also checks one pixel per macroblock against
-// the fixture's samples converted with the shader's integer math.
+// Checks one pixel per macroblock against the fixture's samples converted with
+// the shader's integer math.
 bool read_target(ID3D11DeviceContext1* context, Target* t, const GpuVideoFrame& frame, const Sps& sps,
-                 u32 pattern, bool compact, u64* hash) noexcept {
+                 u32 pattern, bool compact) noexcept {
     context->CopyResource(t->staging, t->texture);
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(context->Map(t->staging, 0, D3D11_MAP_READ, 0, &mapped)))
         return false;
     const auto* pixels = static_cast<const u8*>(mapped.pData);
-    u64 h = 1469598103934665603ull;
-    for (u32 y = 0; y < frame.height; ++y)
-        for (u32 x = 0; x < frame.width * 4u; ++x)
-            h = (h ^ pixels[u64{y} * mapped.RowPitch + x]) * 1099511628211ull;
     const auto c = yuv_rgb_coefficients(frame.bt709, frame.full_range);
     bool ok = true;
     for (u32 my = 0; my < sps.height_mbs && ok; ++my)
@@ -271,7 +267,6 @@ bool read_target(ID3D11DeviceContext1* context, Target* t, const GpuVideoFrame& 
                  actual[3] == 255;
         }
     context->Unmap(t->staging, 0);
-    *hash = h;
     return ok;
 }
 
@@ -293,10 +288,9 @@ int run_movie(ID3D11Device* device, ID3D11DeviceContext1* context, const Movie& 
             break;
         }
         const GpuVideoFrame& frame = *decoded.gpu;
-        u64 hash = 0;
         if (FAILED(video_frame_gpu_present(&converter, device, context, frame, target.view, 0, 0)))
             status = 64;
-        else if (!read_target(context, &target, frame, sps, 1u + index / gop, compact, &hash))
+        else if (!read_target(context, &target, frame, sps, 1u + index / gop, compact))
             status = 65;
         if (!mp4_decoder_acknowledge_frame(&decoder) && !status)
             status = 67;

@@ -9,7 +9,7 @@
 #include "maicord/ui/presence.hpp"
 #include "text_projection_observer.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
+#include "../test_output.hpp"
 
 namespace maicord {
 namespace text_projection_bench {
@@ -37,18 +37,11 @@ bool viewport(float height) noexcept {
             UiFriendsPhase::ready, {}, content->rectangle);
 }
 void write_number(const char* key, u64 value, const char* unit) noexcept {
-    char digits[24]{};
-    u32 count = 0;
-    do { digits[count++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
-    DWORD written = 0;
-    u32 bytes = 0; while (key[bytes]) ++bytes;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), key, bytes, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "=", 1, &written, nullptr);
-    while (count) WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), &digits[--count], 1, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), " ", 1, &written, nullptr);
-    bytes = 0; while (unit[bytes]) ++bytes;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), unit, bytes, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
+    test_write_text(key);
+    test_write_text("=");
+    test_write_u64(value);
+    test_write_text(" ");
+    test_write_line(unit);
 }
 bool validate(u32 height) noexcept {
     auto& f = fixture;
@@ -198,10 +191,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_text_projection_benchmark_en
     const bool valid = run();
     ui_friends_scene_release(&fixture.friends);
     ui_scene_release(&fixture.shell);
-    constexpr char pass[] = "PASS projection-only text emitter benchmark\n";
-    constexpr char fail[] = "FAIL projection-only text emitter benchmark\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), valid ? pass : fail, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(valid ? 0 : 1);
+    maicord::test_exit(!valid, "projection-only text emitter benchmark");
 }
 

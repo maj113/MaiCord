@@ -10,36 +10,31 @@ constexpr auto client = utf8_literal("0123456789abcdef0123456789abcdef");
 constexpr auto state = utf8_literal("0123456789012345678901234567890123456789012");
 constexpr auto verifier = utf8_literal("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
 constexpr auto challenge = utf8_literal("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
-bool contains(Utf8View text, Utf8View part) noexcept {
-    for (u32 i = 0; i + part.bytes <= text.bytes; ++i)
-        if (bytes_equal(text.data + i, part.data, part.bytes)) return true;
-    return false;
-}
 void requests() noexcept {
     u8 output[4096];
     const auto n = oauth_authorize(OAuthProvider::spotify, client, 49152, state, challenge, {output, sizeof(output)});
     const Utf8View url{reinterpret_cast<char*>(output), n};
     check(n && utf8_starts_with(url, utf8_literal("https://accounts.spotify.com/authorize?response_type=code&")) &&
-        contains(url, utf8_literal("redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Foauth2callback")) &&
-        contains(url, utf8_literal("scope=user-read-private")) &&
-        contains(url, utf8_literal("code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256")) &&
-        !contains(url, utf8_literal("access_type=offline")) && !contains(url, verifier) && !contains(url, utf8_literal("client_secret")),
+        test_contains(url, utf8_literal("redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Foauth2callback")) &&
+        test_contains(url, utf8_literal("scope=user-read-private")) &&
+        test_contains(url, utf8_literal("code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256")) &&
+        !test_contains(url, utf8_literal("access_type=offline")) && !test_contains(url, verifier) && !test_contains(url, utf8_literal("client_secret")),
         "authorization binds loopback, Spotify account scope and S256 without leaking verifier");
     output[0] = 42;
     check(!oauth_authorize(OAuthProvider::spotify, client, 49152, state, challenge, {output, 1}) && output[0] == 42 &&
           !oauth_authorize(OAuthProvider::spotify, client, 80, state, challenge, {output, sizeof(output)}) && output[0] == 42 &&
-          !oauth_client_valid(OAuthProvider::spotify, utf8_literal("123.apps.googleusercontent.com.evil.test")) &&
-          !oauth_client_valid(OAuthProvider::spotify, utf8_literal("a&b.apps.googleusercontent.com")),
+          !oauth_client_valid(OAuthProvider::spotify, utf8_literal("0123456789abcdef0123456789abcde")) &&
+          !oauth_client_valid(OAuthProvider::spotify, utf8_literal("0123456789abcdef0123456789abcdeg")),
           "invalid clients, ports and insufficient capacity preserve output");
     const auto exchanged = oauth_exchange_body(OAuthProvider::spotify, client, 49152, utf8_literal("code/+%=&"), verifier,
                                                       {output, sizeof(output)});
     const Utf8View body{reinterpret_cast<char*>(output), exchanged};
-    check(exchanged && contains(body, utf8_literal("grant_type=authorization_code&")) &&
-          contains(body, utf8_literal("&code=code%2F%2B%25%3D%26&code_verifier=")) &&
-          contains(body, verifier) && !contains(body, utf8_literal("client_secret")),
+    check(exchanged && test_contains(body, utf8_literal("grant_type=authorization_code&")) &&
+          test_contains(body, utf8_literal("&code=code%2F%2B%25%3D%26&code_verifier=")) &&
+          test_contains(body, verifier) && !test_contains(body, utf8_literal("client_secret")),
           "exchange encodes opaque code and binds the same redirect and PKCE verifier");
     const auto refreshed = oauth_refresh_body(OAuthProvider::spotify, client, utf8_literal("refresh/+="), {output, sizeof(output)});
-    check(refreshed && contains({reinterpret_cast<char*>(output), refreshed}, utf8_literal("&refresh_token=refresh%2F%2B%3D")),
+    check(refreshed && test_contains({reinterpret_cast<char*>(output), refreshed}, utf8_literal("&refresh_token=refresh%2F%2B%3D")),
           "refresh encodes opaque tokens without treating them as form syntax");
 
 }

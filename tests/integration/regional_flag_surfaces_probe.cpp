@@ -133,129 +133,6 @@ bool quad_at(const D3D11Renderer& renderer,u16 sequence,UiRect rectangle,UiRect 
     }
     return false;
 }
-void diagnostic_glyph_coverage(D3D11Renderer& renderer,const GlyphQuad& glyph,UiRect inner) noexcept {
-    auto* source=renderer.glyph_text.gpu.texture;
-    if (!source || glyph.u0<0 || glyph.u0>=1 || glyph.right<=glyph.left || glyph.bottom<=glyph.top) {
-        diagnostic("regional_flag_surfaces_ink_readback_not_monochrome");return;
-    }
-    D3D11_TEXTURE2D_DESC description{};source->GetDesc(&description);
-    if (description.Format!=DXGI_FORMAT_R8_UNORM) {diagnostic("regional_flag_surfaces_ink_readback_wrong_format");return;}
-    description.Usage=D3D11_USAGE_STAGING;description.BindFlags=description.MiscFlags=0;
-    description.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging=nullptr;
-    struct Release {ID3D11Texture2D*& staging;~Release() noexcept {com_release(staging);}} release{staging};
-    if (FAILED(renderer.graphics.device->CreateTexture2D(&description,nullptr,&staging))) {
-        diagnostic("regional_flag_surfaces_ink_staging_failed");return;
-    }
-    renderer.graphics.context->CopyResource(staging,source);D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(renderer.graphics.context->Map(staging,0,D3D11_MAP_READ,0,&mapped))) {
-        diagnostic("regional_flag_surfaces_ink_map_failed");return;
-    }
-    const auto overlap=ui_rect_intersection(inner,{glyph.left,glyph.top,glyph.right,glyph.bottom});
-    const float scale=renderer.dpi/96.f;u32 tested=0,covered=0,strong=0;float maximum_coverage=0;
-    for (i32 y=static_cast<i32>(overlap.top*scale);y<=static_cast<i32>(overlap.bottom*scale);++y)
-        for (i32 x=static_cast<i32>(overlap.left*scale);x<=static_cast<i32>(overlap.right*scale);++x) {
-            const float px=(x+.5f)/scale,py=(y+.5f)/scale;
-            if (px<overlap.left || px>=overlap.right || py<overlap.top || py>=overlap.bottom) continue;
-            const float tx=(glyph.u0+(px-glyph.left)/(glyph.right-glyph.left)*(glyph.u1-glyph.u0))*description.Width-.5f;
-            const float ty=(glyph.v0+(py-glyph.top)/(glyph.bottom-glyph.top)*(glyph.v1-glyph.v0))*description.Height-.5f;
-            const i32 ix=static_cast<i32>(maximum(0.f,tx)),iy=static_cast<i32>(maximum(0.f,ty));
-            if (ix<0 || iy<0 || static_cast<u32>(ix+1)>=description.Width || static_cast<u32>(iy+1)>=description.Height) continue;
-            const auto* pixels=static_cast<const u8*>(mapped.pData);
-            const float fx=tx-ix,fy=ty-iy;
-            const float a=pixels[iy*mapped.RowPitch+ix]*(1-fx)+pixels[iy*mapped.RowPitch+ix+1]*fx;
-            const float b=pixels[(iy+1)*mapped.RowPitch+ix]*(1-fx)+pixels[(iy+1)*mapped.RowPitch+ix+1]*fx;
-            const float coverage=a*(1-fy)+b*fy;
-            ++tested;covered+=coverage>1.f;strong+=coverage>16.f;maximum_coverage=maximum(maximum_coverage,coverage);
-        }
-    renderer.graphics.context->Unmap(staging,0);
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_inner_cell_glyph_samples",tested);
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_inner_cell_actual_ink_samples",covered);
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_inner_cell_strong_ink_samples",strong);
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_inner_cell_max_coverage_255",static_cast<u64>(maximum_coverage+.5f));
-}
-void diagnostic_glyph_source(RegionalFlagSurfacesProbeContext& c,const MessageTextSemantic& semantic,
-    const TextHitRegion& region,const GlyphQuad& glyph,UiRect inner) noexcept {
-    log_write(LogLevel::error,"probe","regional_flag_surfaces_conflicting_full_flag_region");
-    diagnostic_rectangle({region.left,region.top,region.right,region.bottom});
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_flag_source_byte",semantic.source_offset);
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_flag_source_bytes",semantic.source_bytes);
-    diagnostic_glyph_coverage(c.renderer,glyph,inner);
-    const auto& atlas=c.renderer.glyph_text;u64 key=0;
-    if (glyph.u0>=0 && glyph.u0<1) {
-        const auto x=static_cast<u32>(glyph.u0*atlas.gpu.width+.5f),y=static_cast<u32>(glyph.v0*atlas.gpu.height+.5f);
-        for (u32 i=0;i<atlas.allocator.entry_capacity;++i) {
-            const auto& entry=atlas.allocator.entries[i];
-            if (entry.occupied && entry.x==x && entry.y==y) {key=entry.key;break;}
-        }
-    }
-    const u32 face_id=static_cast<u32>(key>>48),glyph_id=static_cast<u32>(key&0xffffu);
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_glyph_atlas_key",key);
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_glyph_face_id",face_id);
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_glyph_id",glyph_id);
-    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_glyph_em_64",(key>>16)&0xffffu);
-    if (face_id && face_id<=atlas.font_face_count)
-        log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_glyph_face_flags",atlas.font_faces[face_id-1].flags);
-    for (u32 command_index=0;command_index<c.message_text.command_count;++command_index) {
-        const auto& command=c.message_text.commands[command_index];
-        if (command.message_id!=semantic.message_id) continue;
-        for (u32 j=0;j<command.semantics.count;++j) {
-            const auto& mapped=command.semantics[j];
-            if (mapped.kind!=semantic.kind || mapped.source_offset!=semantic.source_offset) continue;
-            log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_flag_display_byte",mapped.byte_offset);
-            wchar_t utf16[1024]{};TextGlyph glyphs[1024]{};TextRun runs[64]{};u16 clusters[1024]{};
-            TextHitRegion hits[16]{};TextDecoration decorations[128]{};ShapedText shaped{};
-            struct Release {ShapedText& text;~Release() noexcept {shaped_text_reset(&text);}} release{shaped};
-            auto system=c.renderer.glyph_text.system;
-            if (!shaped_text_initialize(&shaped,{glyphs,1024},{runs,64},{clusters,1024}) ||
-                !shaped_text_bind_hit_regions(&shaped,{hits,16}) ||
-                !shaped_text_bind_decorations(&shaped,{decorations,128})) {diagnostic("regional_flag_surfaces_reference_shape_initialization_failed");return;}
-            const TextHitSpan requested{mapped.byte_offset,mapped.byte_count,0,0};
-            const auto result=text_shape_utf8_interactive(&system,command.text,command.styles,{&requested,1},
-                ui_rect_width(command.rectangle),ui_rect_height(command.rectangle),{utf16,1024},&shaped,
-                command.wrapping==UiTextWrapping::wrap?TextWrapping::wrap:TextWrapping::no_wrap);
-            if (!result.ok()) {log_u64(LogLevel::error,"probe","regional_flag_surfaces_reference_shape_error",static_cast<u64>(result.error));return;}
-            for (u32 h=0;h<shaped.hit_region_count;++h) {
-                const auto& hit=shaped.hit_regions[h];
-                log_write(LogLevel::error,"probe","regional_flag_surfaces_independent_flag_range");
-                diagnostic_rectangle({command.rectangle.left+hit.left,command.rectangle.top+hit.top,
-                    command.rectangle.left+hit.right,command.rectangle.top+hit.bottom});
-            }
-            for (u32 r=0;r<shaped.run_count;++r) {
-                const auto& run=shaped.runs[r];
-                for (u32 g=0;g<run.glyph_count;++g) {
-                    const auto& emitted=shaped.glyphs[run.first_glyph+g];
-                    if (!key || emitted.index!=glyph_id) continue;
-                    u32 byte=0,last=0;
-                    utf8_byte_offset_for_utf16_position(command.text,run.text_position,&byte);
-                    utf8_byte_offset_for_utf16_position(command.text,run.text_position+run.text_length,&last);
-                    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_run_index",r);
-                    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_run_native_font",run.native_font);
-                    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_run_bidi_level",run.bidi_level);
-                    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_run_style",run.style_flags);
-                    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_run_display_first_byte",byte);
-                    log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_run_display_last_byte",last);
-                    for (u32 unit=run.text_position;unit<run.text_position+run.text_length;++unit) {
-                        if (shaped.clusters[unit]!=run.first_glyph+g) continue;
-                        u32 scalar_byte=0;
-                        if (utf8_byte_offset_for_utf16_position(command.text,unit,&scalar_byte) && scalar_byte<command.text.bytes) {
-                            const auto scalar=utf8_decode_one(command.text.data+scalar_byte,command.text.bytes-scalar_byte);
-                            if (scalar.valid) {
-                                log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_glyph_display_byte",scalar_byte);
-                                log_u64(LogLevel::error,"probe","regional_flag_surfaces_conflicting_glyph_unicode_scalar",scalar.codepoint);
-                            }
-                        }
-                        break;
-                    }
-                    dip("regional_flag_surfaces_conflicting_run_baseline_x_millidip",command.rectangle.left+run.baseline_x);
-                    dip("regional_flag_surfaces_conflicting_run_baseline_y_millidip",command.rectangle.top+run.baseline_y);
-                    dip("regional_flag_surfaces_conflicting_glyph_advance_millidip",emitted.advance);
-                }
-            }
-            return;
-        }
-    }
-}
 // Admitted cells have normal one-em advance and no native glyph ink. Other
 // commands still emit native text, so this also rejects blanket suppression.
 bool inline_cells(RegionalFlagSurfacesProbeContext& c,u64 id,u32 expected) noexcept {
@@ -329,7 +206,6 @@ bool inline_cells(RegionalFlagSurfacesProbeContext& c,u64 id,u32 expected) noexc
         for (u32 q=0;q<storage.quad_count;++q) {
             const auto& glyph=storage.quads[q];
             if (ui_rect_has_area(ui_rect_intersection(inner,{glyph.left,glyph.top,glyph.right,glyph.bottom}))) {
-                diagnostic_glyph_source(c,semantic,r,glyph,inner);
                 diagnostic_rectangle({glyph.left,glyph.top,glyph.right,glyph.bottom});
                 log_u64(LogLevel::error,"probe","regional_flag_surfaces_actual_overlapping_glyph_quad",q);
                 return diagnostic("regional_flag_surfaces_inline_native_ink_inside_admitted_cell",i);

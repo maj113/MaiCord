@@ -7,9 +7,6 @@ namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 #include "data/p256_vectors.hpp"
-bool filled(const u8* data, u32 n, u8 value) noexcept {
-    return test_filled(data, n, value);
-}
 void scalar_corpus(Check check) noexcept {
     constexpr P256Kind kinds[]{P256Kind::ecdh, P256Kind::ecdsa};
     for (auto kind : kinds) {
@@ -27,10 +24,10 @@ void scalar_corpus(Check check) noexcept {
             check(p256_import_private(&key, kind, {scalar, 32}).ok(),
                   "CNG derives P256 public point directly from scalar");
             if (key.handle) {
-                check(p256_export_public(key, {point, 80}).ok() && filled(point + 65, 15, 0xa5),
+                check(p256_export_public(key, {point, 80}).ok() && test_filled(point + 65, 15, 0xa5),
                       "P256 public export preserves tail");
                 check(p256_export_private(key, {exported, 48}).ok() && bytes_equal(scalar, exported, 32) &&
-                          filled(exported + 32, 16, 0xa5),
+                          test_filled(exported + 32, 16, 0xa5),
                       "P256 scalar import/export preserves exact full-width big-endian value");
                 check(BCryptHashData(hash, point, 65, 0) >= 0, "P256 public corpus aggregation");
             }
@@ -60,7 +57,7 @@ void vectors(Check check) noexcept {
               "P256 independent ECDH key imports");
         memset(output, 0xa5, sizeof(output));
         check(p256_ecdh(dh, other, {output, 80}).ok() && bytes_equal(output, shared, 32) &&
-                  filled(output + 32, 48, 0xa5),
+                  test_filled(output + 32, 48, 0xa5),
               "P256 raw ECDH matches OpenSSL including leading-zero big-endian shared secret");
         check(p256_import_private(&signing, P256Kind::ecdsa, {scalar, 32}).ok() &&
                   p256_import_public(&verifier, P256Kind::ecdsa, {point, 65}).ok(),
@@ -79,7 +76,7 @@ void vectors(Check check) noexcept {
               "P256 wrong digest has distinct authentication failure");
         digest[0] ^= 1;
         memset(output, 0xa5, sizeof(output));
-        check(p256_sign_digest(signing, {digest, 32}, {output, 80}).ok() && filled(output + 64, 16, 0xa5) &&
+        check(p256_sign_digest(signing, {digest, 32}, {output, 80}).ok() && test_filled(output + 64, 16, 0xa5) &&
                   p256_verify_digest(verifier, {digest, 32}, {output, 64}).ok(),
               "P256 native signature verifies and preserves tail");
         p256_release(&dh);
@@ -104,11 +101,11 @@ void boundaries(Check check) noexcept {
     memset(output, 0xa5, sizeof(output));
     for (u32 n = 0; n != 65; ++n)
         check(p256_export_public(key, {output, n}).error == P256Error::output_capacity &&
-                  filled(output, 80, 0xa5),
+                  test_filled(output, 80, 0xa5),
               "P256 short public output unchanged");
     for (u32 n = 0; n != 64; ++n)
         check(p256_sign_digest(key, {digest, 32}, {output, n}).error == P256Error::output_capacity &&
-                  filled(output, 80, 0xa5),
+                  test_filled(output, 80, 0xa5),
               "P256 short signature output unchanged");
     check(p256_export_private(pub, {output, 32}).error == P256Error::private_required &&
               p256_sign_digest(pub, {digest, 32}, {output, 64}).error == P256Error::private_required,
@@ -193,7 +190,7 @@ void guards(Check check) noexcept {
         for (u32 n = 0; n != 32; ++n)
             check(p256_ecdh(dh, peer, {unchanged, n}).error == P256Error::output_capacity &&
                       p256_export_private(signing, {unchanged, n}).error == P256Error::output_capacity &&
-                      filled(unchanged, 32, 0xa5),
+                      test_filled(unchanged, 32, 0xa5),
                   "P256 short private/shared-secret outputs remain untouched");
         check(p256_ecdh(dh, peer, {output + info.dwPageSize - 32, 32}).ok(),
               "P256 raw shared-secret output respects guard");

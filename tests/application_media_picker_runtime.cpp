@@ -28,7 +28,7 @@ struct AccountFixture {
     char query_text[kMediaCatalogMaximumQueryBytes];
     u8 target[kMediaCatalogMaximumTargetBytes];
     u32 target_bytes, submissions, cancellations;
-    u64 request_id, cancelled_id;
+    u64 cancelled_id;
     RestClientSubmitError admission;
 } account;
 u32 failures, text_builds;
@@ -43,7 +43,6 @@ u32 reaction_calls;
 u64 reaction_messages[4];
 Utf8View reaction_names[4];
 app_detail::ApplicationMessageReactionEnqueueResult reaction_next;
-Utf8View reaction_status;
 ApplicationSurfaceMotionOwner motion;
 u32 animation_starts;
 // application_surface_motion's gallery identity: the visible scene and its
@@ -123,9 +122,6 @@ u8 generated[65536];
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
-bool same(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
 RestClientSubmitResult WINAPI submit(void*, AccountMediaCatalogOperation operation,
                                      const MediaCatalogQuery* query, u64 id) noexcept {
     if (operation == AccountMediaCatalogOperation::cancel) {
@@ -137,7 +133,6 @@ RestClientSubmitResult WINAPI submit(void*, AccountMediaCatalogOperation operati
     if (!query || !id || query->query.bytes > sizeof(account.query_text))
         return {RestClientSubmitError::invalid_input};
     ++account.submissions;
-    account.request_id = id;
     account.query = *query;
     CopyMemory(account.query_text, query->query.data, query->query.bytes);
     account.query.query = {account.query_text, query->query.bytes};
@@ -332,7 +327,7 @@ void test_server_stickers(ApplicationMediaPicker& p) noexcept {
     }
     check(setup && query({}) && sticker_view(p) && p.guild && p.guild->count == 1 && p.section_count == 2 &&
               p.sections[0].visual == UiMediaPickerSectionVisual::guild && p.sections[0].guild_id == 7 &&
-              same(p.sections[0].label, utf8_literal("Fixture guild")) && item_at(p, 0)->sticker_id == 71 &&
+              utf8_equal(p.sections[0].label, utf8_literal("Fixture guild")) && item_at(p, 0)->sticker_id == 71 &&
               item_at(p, 0)->available,
           "picker stickers: this server's stickers lead under its name; other servers' stay hidden without "
           "Use External Stickers");
@@ -353,7 +348,7 @@ void test_server_stickers(ApplicationMediaPicker& p) noexcept {
     ui.chat_state.self_premium_type = 0;
     UiMediaPickerItem locked{};
     check(sticker_view(p) && p.guild && p.guild->count == 3 && p.section_count == 3 &&
-              p.sections[1].guild_id == 8 && same(p.sections[1].label, utf8_literal("Other guild")) &&
+              p.sections[1].guild_id == 8 && utf8_equal(p.sections[1].label, utf8_literal("Other guild")) &&
               resolve(&p, 0, &locked) && !locked.enabled,
           "picker stickers: without Nitro other servers' stickers are listed per server but locked");
     ui.chat_state.self_premium_type = 2;
@@ -371,7 +366,7 @@ void test_server_stickers(ApplicationMediaPicker& p) noexcept {
     UiMediaPickerRailMediaSlot rail{};
     check(ui_media_picker_scene_rail_media(p.scene, 2, &rail) && rail.asset_id == p.sections[2].asset_id &&
               application_media_picker_preview_request(p.scene.cell_count + 2, &cover) &&
-              same(cover.url, utf8_literal("https://cdn.discordapp.com/stickers/72.png")) &&
+              utf8_equal(cover.url, utf8_literal("https://cdn.discordapp.com/stickers/72.png")) &&
               cover.key.id == rail.asset_id && application_media_picker_preview_visible(cover.key),
           "picker stickers: the rail requests and resolves the pack cover's preview");
     const u32 stored = g_sticker_store.count, stored_bytes = g_sticker_store.bytes;
@@ -460,7 +455,7 @@ void run() noexcept {
         !application_media_picker_pending(due - 1) && application_media_picker_pending(due) &&
             application_media_picker_next_wake() == due && application_media_picker_submit(102, due) &&
             !account.query.limit &&
-            same({reinterpret_cast<const char*>(account.target), account.target_bytes},
+            utf8_equal({reinterpret_cast<const char*>(account.target), account.target_bytes},
                  utf8_literal("/api/v10/gifs/search?locale=en-US&q=hello%20%26%2B&media_format=tinywebp")),
         "picker runtime: content debounce gates the exact encoded search target with the server's page size");
     const auto admitted_generation = p.generation;
@@ -480,7 +475,7 @@ void run() noexcept {
     }
     for (u32 i = 0; i < gif_body.bytes; ++i)
         generated[i] = '?';
-    check(same(p.gif->items[0].send_url, utf8_literal("https://klipy.com/gifs/fixture-send")) &&
+    check(utf8_equal(p.gif->items[0].send_url, utf8_literal("https://klipy.com/gifs/fixture-send")) &&
               !byte_ranges_overlap({reinterpret_cast<const u8*>(p.gif->items[0].send_url.data),
                                     p.gif->items[0].send_url.bytes},
                                    {generated, gif_body.bytes}),
@@ -569,7 +564,7 @@ void run() noexcept {
           "picker runtime: stale scene target cannot queue a neighboring or replaced item");
     check(activate(p, send_target) && !application_media_picker_active() &&
               g_app.account_ui->message_composer_controller.request_count == requests_before + 1 &&
-              same(message_composer_text(g_app.message_composer), utf8_literal("Existing draft")),
+              utf8_equal(message_composer_text(g_app.message_composer), utf8_literal("Existing draft")),
           "picker runtime: ordinary GIF selection queues durable canonical URL while preserving existing "
           "draft");
     MessageComposerSubmit queued{};
@@ -577,7 +572,7 @@ void run() noexcept {
                                                      clock_monotonic_milliseconds(), &queued)
                   .ok() &&
               queued.channel_id == 80 && !queued.sticker_count &&
-              same(queued.content, utf8_literal("https://klipy.com/gifs/fixture-send")),
+              utf8_equal(queued.content, utf8_literal("https://klipy.com/gifs/fixture-send")),
           "picker runtime: primary-lane payload uses canonical send URL rather than thumbnail URL");
     // Guild and pack fixtures remain entirely local; selection queues but never submits.
     g_app.account_ui->active_channel_id = 70;
@@ -595,7 +590,7 @@ void run() noexcept {
     }
     check(query(utf8_literal("huh")) && p.phase == UiMediaPickerPhase::ready && p.source.count == 1 &&
               item_at(p, 0)->sticker_id == 72 &&
-              same(item_at(p, 0)->tags, utf8_literal("curious, ?\thuh, wave")) && query({}),
+              utf8_equal(item_at(p, 0)->tags, utf8_literal("curious, ?\thuh, wave")) && query({}),
           "picker runtime: official tab-separated sticker metadata loads and remains searchable locally");
     const auto sticker_submissions = account.submissions;
     check(capture_body_thumb() && query(utf8_literal("needle")) && !p.captured && !p.scrollbar_dragging &&
@@ -606,7 +601,7 @@ void run() noexcept {
           "final full-pack item without another request");
     check(application_media_picker_preview_request(0, &preview) &&
               preview.format == MediaAttachmentFormat::gif &&
-              same(preview.url, utf8_literal("https://media.discordapp.net/stickers/99.gif")) &&
+              utf8_equal(preview.url, utf8_literal("https://media.discordapp.net/stickers/99.gif")) &&
               application_media_picker_preview_owner_current(preview.key, preview.catalog_scope,
                                                              preview.catalog_generation),
           "picker runtime: GIF sticker preview resolves exact official path and typed current bank");
@@ -614,7 +609,7 @@ void run() noexcept {
     const auto stickers_before = g_app.account_ui->message_composer_controller.request_count;
     check(activate(p, sticker_target) && !application_media_picker_active() &&
               g_app.account_ui->message_composer_controller.request_count == stickers_before + 1 &&
-              same(message_composer_text(g_app.message_composer), utf8_literal("Existing draft")),
+              utf8_equal(message_composer_text(g_app.message_composer), utf8_literal("Existing draft")),
           "picker runtime: sticker selection queues copied ID without clearing conversation draft");
     const auto& controller = g_app.account_ui->message_composer_controller;
     bool found = false;
@@ -657,7 +652,7 @@ void run() noexcept {
         "picker runtime: provider Trending preview is an owned native WebP landing tile");
     UiMediaPickerItem trending{};
     check(resolve(&p, 0, &trending) && trending.kind == UiMediaPickerItemKind::category &&
-              same(trending.label, utf8_literal("Trending GIFs")) &&
+              utf8_equal(trending.label, utf8_literal("Trending GIFs")) &&
               application_media_picker_preview_request(1, &preview) &&
               preview.format == MediaAttachmentFormat::webp,
           "picker runtime: proxied category GIF filename uses explicit WebP output admission");
@@ -682,7 +677,7 @@ void run() noexcept {
     auto category_target = target(1);
     category_target.action = UiMediaPickerAction::category;
     check(activate(p, category_target) && p.operation == MediaCatalogOperation::gif_search &&
-              same(message_composer_text(p.edit), utf8_literal("Fixture category")) &&
+              utf8_equal(message_composer_text(p.edit), utf8_literal("Fixture category")) &&
               application_media_picker_pending(clock_monotonic_milliseconds()) && send_pending(114),
           "picker runtime: explicit category activation requests its query while preserving outbox");
     const auto retry_at = clock_monotonic_milliseconds() + 5000;
@@ -727,7 +722,7 @@ void run() noexcept {
     limited.rate.reset_after_ms = 8000;
     const u64 limited_at = clock_monotonic_milliseconds();
     check(application_media_picker_response(limited, {}) && p.wanted && p.due_at >= limited_at + 8000 &&
-              same(p.status, utf8_literal("Too many requests. Retrying…")),
+              utf8_equal(p.status, utf8_literal("Too many requests. Retrying…")),
           "picker requests: a 429 waits for the later of Retry-After and the bucket reset");
     bool rate_refusals = true;
     for (u64 id = 1904; id < 1906; ++id) {
@@ -743,7 +738,7 @@ void run() noexcept {
     exhausted.error = RestClientError::rate;
     check(rate_refusals && send_pending(1906) && application_media_picker_response(exhausted, {}) && !p.wanted &&
               p.phase == UiMediaPickerPhase::failed &&
-              same(p.status, utf8_literal("Too many requests. Try again in a moment.")),
+              utf8_equal(p.status, utf8_literal("Too many requests. Try again in a moment.")),
           "picker requests: local limiter refusals retry after a floor, then stop with a notice");
     focus(p, true);
     SetCapture(g_app.window);
@@ -815,10 +810,10 @@ void run() noexcept {
     application_media_picker_favorites_changed();
     star = target(0);
     star.action = UiMediaPickerAction::favorite;
-    check(activate(p, star) && favorite_toggles == 1 && same(toggled_url, saved_gifs[0].url) &&
-              same(toggled_src, saved_gifs[0].src) &&
+    check(activate(p, star) && favorite_toggles == 1 && utf8_equal(toggled_url, saved_gifs[0].url) &&
+              utf8_equal(toggled_src, saved_gifs[0].src) &&
               g_app.account_ui->message_composer_controller.queued == queued_before_favorites &&
-              same(message_composer_text(g_app.message_composer), utf8_literal("Existing draft")),
+              utf8_equal(message_composer_text(g_app.message_composer), utf8_literal("Existing draft")),
           "picker Favorites: star routes exact mutation source without sending or altering draft");
     favorites.failed = true;
     favorites.status =
@@ -827,7 +822,7 @@ void run() noexcept {
     ++favorites.revision;
     application_media_picker_favorites_changed();
     check(p.content.phase == UiMediaPickerPhase::ready && p.source.count == 1 && p.scene.cell_count == 1 &&
-              same(p.content.status, favorites.status) && resolve(&p, 0, &saved_item) &&
+              utf8_equal(p.content.status, favorites.status) && resolve(&p, 0, &saved_item) &&
               saved_item.favorite && saved_item.favorite_failed,
           "picker Favorites: conflict retains authoritative visible records and failure status instead of "
           "a blank retry trap");
@@ -837,7 +832,7 @@ void run() noexcept {
     application_media_picker_favorites_changed();
     check(query({}) && resolve(&p, 1, &saved_item) && saved_item.enabled && saved_item.asset_id &&
               application_media_picker_preview_request(1, &preview) &&
-              preview.format == MediaAttachmentFormat::mp4 && same(preview.url, saved_gifs[1].src) &&
+              preview.format == MediaAttachmentFormat::mp4 && utf8_equal(preview.url, saved_gifs[1].src) &&
               media_asset_catalog_format(preview.key) == MediaAttachmentFormat::mp4 &&
               (preview.key.flags & media_asset_flag_animated) != 0 && media_asset_key_valid(preview.key) &&
               saved_item.asset_id == preview.key.id && saved_item.asset_flags == preview.key.flags &&
@@ -848,7 +843,7 @@ void run() noexcept {
           "WebP sibling");
     star = target(1);
     star.action = UiMediaPickerAction::favorite;
-    check(activate(p, star) && favorite_toggles == 2 && same(toggled_src, saved_gifs[1].src) &&
+    check(activate(p, star) && favorite_toggles == 2 && utf8_equal(toggled_src, saved_gifs[1].src) &&
               toggled_format == GifFavoriteFormat::video,
           "picker Favorites: an MP4 favourite round-trips as FavoriteGIF.format VIDEO");
     {
@@ -896,7 +891,7 @@ void run() noexcept {
                   resolve(&p, 2, &shape) && shape.enabled && !shape.asset_id && !admitted[2],
               "picker Favorites: undecodable WebM and unsigned external sources keep the sendable fallback tile");
         check(resolve(&p, 1, &shape) && shape.asset_id && admitted[1] &&
-                  shaped[1].format == MediaAttachmentFormat::webp && same(shaped[1].url, shapes[1].src),
+                  shaped[1].format == MediaAttachmentFormat::webp && utf8_equal(shaped[1].url, shapes[1].src),
               "picker Favorites: an external animated WebP behind the signed proxy is an animated tile");
         check(admitted[3] && shaped[3].format == MediaAttachmentFormat::mp4 && admitted[4] &&
                   shaped[4].format == MediaAttachmentFormat::mp4 &&
@@ -913,7 +908,7 @@ void run() noexcept {
               !favorites_visible && !p.favorites_view && p.gif_favorites_view && send_pending(116) &&
               switch_tab(p, UiMediaPickerKind::gif) && response(116, guild_body) && p.favorites_view &&
               p.gif_favorites_view && !p.wanted && p.source.count == 1 &&
-              same(message_composer_text(p.edit), utf8_literal("legacy")),
+              utf8_equal(message_composer_text(p.edit), utf8_literal("legacy")),
           "picker Favorites: tab restoration fences cancelled sticker receipt and preserves local view and "
           "query");
     application_media_picker_close();
@@ -951,7 +946,7 @@ void run() noexcept {
     check(matches && resolve(&p, 0, &emoji_item) && emoji_item.kind == UiMediaPickerItemKind::emoji &&
               emoji_item.glyph.bytes && !emoji_item.asset_id && switch_tab(p, UiMediaPickerKind::sticker) &&
               switch_tab(p, UiMediaPickerKind::emoji) &&
-              same(message_composer_text(p.edit), utf8_literal("smile")) && p.source.count == matches &&
+              utf8_equal(message_composer_text(p.edit), utf8_literal("smile")) && p.source.count == matches &&
               !application_media_picker_preview_request(0, &preview),
           "common picker: per-tab query restores with real Unicode glyph and cannot enter catalog-preview "
           "domain");
@@ -1048,12 +1043,12 @@ void run() noexcept {
           "draft");
     MessageDraftSnapshot inserted_draft{};
     check(message_draft_store_snapshot(drafts, 70, &inserted_draft) &&
-              same(inserted_draft.text, message_composer_text(g_app.message_composer)) &&
+              utf8_equal(inserted_draft.text, message_composer_text(g_app.message_composer)) &&
               inserted_draft.anchor == g_app.message_composer.anchor &&
               inserted_draft.caret == g_app.message_composer.caret,
           "common picker: Unicode insertion commits the channel draft before the picker closes");
     check(!p.emoji.storage.base && application_media_picker_open(UiMediaPickerKind::emoji) &&
-              p.emoji.storage.base && same(message_composer_text(p.edit), utf8_literal("smile")) &&
+              p.emoji.storage.base && utf8_equal(message_composer_text(p.edit), utf8_literal("smile")) &&
               message_composer_enable_history(&p.edit, 2048) &&
               message_composer_insert_scalar(&p.edit, 's') == MessageComposerResult::changed &&
               application_media_picker_edit_changed(),
@@ -1064,11 +1059,11 @@ void run() noexcept {
     application_media_picker_close();
     check(!p.emoji.storage.base && p.edit.document_identity == edit_identity &&
               p.edit.history == edit_history && edit_history && p.edit.text == edit_text &&
-              same(message_composer_text(p.edit), utf8_literal("smiles")) &&
+              utf8_equal(message_composer_text(p.edit), utf8_literal("smiles")) &&
               message_composer_undo(&p.edit) == MessageComposerResult::changed &&
-              same(message_composer_text(p.edit), utf8_literal("smile")) &&
+              utf8_equal(message_composer_text(p.edit), utf8_literal("smile")) &&
               message_composer_redo(&p.edit) == MessageComposerResult::changed &&
-              same(message_composer_text(p.edit), utf8_literal("smiles")),
+              utf8_equal(message_composer_text(p.edit), utf8_literal("smiles")),
           "common picker: inactive Emoji frees its arena without retiring the borrowed edit or undo owner");
     check(application_media_picker_open(UiMediaPickerKind::emoji) && query({}) &&
               ui_media_picker_scene_scroll(&p.scene, 120),
@@ -1164,7 +1159,7 @@ void run() noexcept {
               p.scene.variant == UiMediaPickerVariant::reaction &&
               p.content.available_tabs == ui_media_picker_tab_bit(UiMediaPickerKind::emoji) &&
               !p.scene.tab_widgets[0].generation && !p.scene.tab_widgets[1].generation &&
-              !p.scene.tab_widgets[2].generation && same(p.content.placeholder, utf8_literal("Find the perfect reaction")) &&
+              !p.scene.tab_widgets[2].generation && utf8_equal(p.content.placeholder, utf8_literal("Find the perfect reaction")) &&
               ui_rect_width(p.scene.panel) == kUiMediaPickerReactionWidth &&
               ui_rect_height(p.scene.panel) == kUiMediaPickerReactionHeight &&
               p.scene.panel.right == add_reaction.left - 8 && p.scene.field.top == p.scene.panel.top + 16 &&
@@ -1201,13 +1196,12 @@ void run() noexcept {
     query({});
     reaction_calls = 0;
     reaction_next = ApplicationMessageReactionEnqueueResult::accepted;
-    reaction_status = {};
     SetKeyboardState(shift_keyboard);
     const bool kept = activate(p, target(0)) && activate(p, target(1));
     SetKeyboardState(react_keyboard);
     check(kept && p.active && reaction_calls == 2 && reaction_messages[0] == 9100 &&
               reaction_messages[1] == 9100 && !utf8_equal(reaction_names[0], reaction_names[1]) &&
-              same(p.status, utf8_literal("Shift-click to add more reactions")) && !p.reaction_error,
+              utf8_equal(p.status, utf8_literal("Shift-click to add more reactions")) && !p.reaction_error,
           "reaction popout: two Shift activations add distinct reactions and keep the popout open");
     const ApplicationMessageReactionEnqueueResult refusals[]{ApplicationMessageReactionEnqueueResult::capacity,
                                                             ApplicationMessageReactionEnqueueResult::permission,
@@ -1216,8 +1210,8 @@ void run() noexcept {
     for (const auto refusal : refusals) {
         reaction_next = refusal;
         refused = refused && activate(p, target(0)) && p.active && p.reaction_error &&
-                  same(p.status, application_message_reaction_admission_text(refusal)) &&
-                  application_media_picker_synchronize() && same(p.content.status, p.status);
+                  utf8_equal(p.status, application_message_reaction_admission_text(refusal)) &&
+                  application_media_picker_synchronize() && utf8_equal(p.content.status, p.status);
     }
     check(refused && reaction_calls == 5,
           "reaction popout: an owner refusal keeps the popout open with its reason in the footer");
@@ -1226,7 +1220,7 @@ void run() noexcept {
                        application_media_picker_synchronize() && !p.active;
     --g_app.plugin_account_scope_serial;
     check(stale && !p.reaction_message_id && p.kind == UiMediaPickerKind::emoji &&
-              same(message_composer_text(p.edit), utf8_literal("smile")),
+              utf8_equal(message_composer_text(p.edit), utf8_literal("smile")),
           "reaction popout: a retired account scope cannot react and closes back to the composer picker state");
     reaction_next = ApplicationMessageReactionEnqueueResult::accepted;
     check(application_media_picker_open_reaction(9100, add_reaction) && p.active &&
@@ -1240,8 +1234,8 @@ void run() noexcept {
           "reaction popout: a reopened popout animates in once and an ordinary pick closes it");
     check(application_media_picker_open(UiMediaPickerKind::emoji) && p.active && !p.reaction_message_id &&
               p.scene.variant == UiMediaPickerVariant::expression &&
-              same(message_composer_text(p.edit), utf8_literal("smile")) &&
-              same(p.content.placeholder, utf8_literal("Find the perfect emoji")),
+              utf8_equal(message_composer_text(p.edit), utf8_literal("smile")) &&
+              utf8_equal(p.content.placeholder, utf8_literal("Find the perfect emoji")),
           "reaction popout: the composer Emoji tab returns with its own query and selector");
     const auto saves_before_close = preference_saves;
     const float close_resize_y = (p.scene.panel.top + p.scene.panel.bottom) * .5f;
@@ -1332,7 +1326,7 @@ ApplicationMessageReactionEnqueueResult application_queue_message_reaction_emoji
 Utf8View application_message_reaction_status(u64, bool* error) noexcept {
     if (error)
         *error = false;
-    return media_picker_runtime_test::reaction_status;
+    return {};
 }
 Utf8View application_message_reaction_admission_text(ApplicationMessageReactionEnqueueResult admission) noexcept {
     switch (admission) {

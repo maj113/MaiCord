@@ -415,57 +415,88 @@ void release() noexcept {
     g_app.window = nullptr;
 }
 
-void run_search_video() noexcept {
-    const MessageViewRuntime prior_view = g_app.message_view;
-    const MessageRichStore prior_rich = g_app.account_ui->message_rich_store;
+// A Search-owned bank is the only playable source: the live message store is emptied and
+// the active channel changed until search_end restores them.
+struct SearchRun {
+    MessageViewRuntime prior_view, bank;
+    MessageRichStore prior_rich;
+    u64 prior_channel;
+    SceneFixture fixture;
+    UiSearchSource source;
+    UiSearchContent content;
+    UiSearchScene scene;
+    UiSearchTarget target;
+    bool ready;
+};
+void search_begin(SearchRun& run, Utf8View url, bool audio = false, bool voice = false,
+                  MediaAttachmentFormat format = MediaAttachmentFormat::ogg_opus) noexcept {
+    run.prior_view = g_app.message_view;
+    run.prior_rich = g_app.account_ui->message_rich_store;
     application_video_close();
     message_scene_release(&g_app.message_scene);
-    SceneFixture fixture{};
-    const bool initialized =
-        initialize_scene(fixture, utf8_literal("https://example.com/search-forward.mp4"), true);
-    MessageViewRuntime bank = g_app.message_view;
-    bank.timeline.store = &bank.store;
-    bank.timeline.list = &bank.list;
+    const bool initialized = initialize_scene(run.fixture, url, true, audio, voice, format);
+    run.bank = g_app.message_view;
+    run.bank.timeline.store = &run.bank.store;
+    run.bank.timeline.list = &run.bank.list;
     message_scene_release(&g_app.message_scene);
-    g_app.message_view = {}; // Accepted Search playback must not use the live message store.
-    const u64 prior_channel = g_app.account_ui->active_channel_id;
+    g_app.message_view = {};
+    run.prior_channel = g_app.account_ui->active_channel_id;
     g_app.account_ui->active_channel_id = 99;
     search_current = true;
     search_view = {};
-    search_view.ticket = {1, fixture.record[0].revision, 0};
-    search_view.message = &fixture.record[0];
-    search_view.store = &bank.store;
-    search_view.handle = message_store_ordered_handle(bank.store, 0);
+    search_view.ticket = {1, run.fixture.record[0].revision, 0};
+    search_view.message = &run.fixture.record[0];
+    search_view.store = &run.bank.store;
+    search_view.handle = message_store_ordered_handle(run.bank.store, 0);
     search_view.rich_store = &g_app.account_ui->message_rich_store;
-    UiSearchSource source{};
-    source.count = source.revision = 1;
-    source.rich_timeline = &bank.timeline;
-    source.current = +[](void*) noexcept { return search_current; };
-    source.resolve = +[](void*, u32 i, UiSearchRow* row) noexcept {
+    run.source.count = run.source.revision = 1;
+    run.source.rich_timeline = &run.bank.timeline;
+    run.source.current = +[](void*) noexcept { return search_current; };
+    run.source.resolve = +[](void*, u32 i, UiSearchRow* row) noexcept {
         if (i || !row)
             return false;
         *row = {7, 1, utf8_literal("Original author"), utf8_literal("#search"), {}, {}, true, true};
         return true;
     };
-    UiSearchContent content{};
-    content.edit.active = content.panel = true;
-    content.phase = UiSearchPhase::ready;
-    content.revision = 1;
-    UiSearchScene scene{};
-    const bool ready = initialized && ui_search_scene_update(&scene, &source, &content, {0, 0, 1400, 1200},
-                                                             {0, 0, 1400, 48});
-    mutable_search_scene = &scene;
-    g_app.renderer.search_scene = &scene;
-    UiSearchTarget target{};
-    target.action = UiSearchAction::rich_item;
-    target.channel_id = 7;
-    target.message_id = 1;
-    target.source_revision = source.revision;
-    target.source_index = 0;
-    target.rich_kind = MessageSceneRichItemKind::attachment;
-    target.snapshot = true;
+    run.content.edit.active = run.content.panel = true;
+    run.content.phase = UiSearchPhase::ready;
+    run.content.revision = 1;
+    run.ready = initialized && ui_search_scene_update(&run.scene, &run.source, &run.content,
+                                                      {0, 0, 1400, 1200}, {0, 0, 1400, 48});
+    mutable_search_scene = &run.scene;
+    g_app.renderer.search_scene = &run.scene;
+    run.target.action = UiSearchAction::rich_item;
+    run.target.channel_id = 7;
+    run.target.message_id = 1;
+    run.target.source_revision = 1;
+    run.target.source_index = 0;
+    run.target.rich_kind = MessageSceneRichItemKind::attachment;
+    run.target.snapshot = true;
+}
+void search_end(SearchRun& run) noexcept {
+    mutable_search_scene = nullptr;
+    g_app.renderer.search_scene = nullptr;
+    ui_search_scene_release(&run.scene);
+    search_current = false;
+    search_view = {};
+    g_app.message_view = run.prior_view;
+    g_app.message_view.timeline.store = &g_app.message_view.store;
+    g_app.message_view.timeline.list = &g_app.message_view.list;
+    g_app.account_ui->message_rich_store = run.prior_rich;
+    g_app.account_ui->active_channel_id = run.prior_channel;
+}
+
+void run_search_video() noexcept {
+    SearchRun run{};
+    search_begin(run, utf8_literal("https://example.com/search-forward.mp4"));
+    auto& fixture = run.fixture;
+    auto& bank = run.bank;
+    auto& source = run.source;
+    auto& content = run.content;
+    auto& scene = run.scene;
+    auto& target = run.target;
     const u32 selections = account.selections;
-    bool opened = ready && application_video_open_search(target) && pump();
+    bool opened = run.ready && application_video_open_search(target) && pump();
     check(opened && !g_app.message_view.store.count && application_video_search_active() &&
               account.selections == selections + 1 && media_asset_search_snapshot(account.status.key) &&
               account.status.key.id == 71 && account.status.playback.has_audio &&
@@ -662,70 +693,19 @@ void run_search_video() noexcept {
         application_video_close();
         selection_busy = false;
     }
-    mutable_search_scene = nullptr;
-    g_app.renderer.search_scene = nullptr;
-    ui_search_scene_release(&scene);
-    search_current = false;
-    search_view = {};
-    g_app.account_ui->message_rich_store = prior_rich;
-    g_app.message_view = prior_view;
-    g_app.message_view.timeline.store = &g_app.message_view.store;
-    g_app.message_view.timeline.list = &g_app.message_view.list;
-    g_app.account_ui->active_channel_id = prior_channel;
+    search_end(run);
 }
 
 void run_search_audio(MediaAttachmentFormat format = MediaAttachmentFormat::ogg_opus) noexcept {
-    const auto prior_view = g_app.message_view;
-    const auto prior_rich = g_app.account_ui->message_rich_store;
-    application_video_close();
-    message_scene_release(&g_app.message_scene);
-    SceneFixture fixture{};
-    const bool initialized =
-        initialize_scene(fixture, utf8_literal("https://example.com/forwarded-search.opus"), true, true,
-                         format == MediaAttachmentFormat::ogg_opus, format);
-    auto bank = g_app.message_view;
-    bank.timeline.store = &bank.store;
-    bank.timeline.list = &bank.list;
-    message_scene_release(&g_app.message_scene);
-    g_app.message_view = {};
-    const auto prior_channel = g_app.account_ui->active_channel_id;
-    g_app.account_ui->active_channel_id = 99;
-    search_current = true;
-    search_view = {};
-    search_view.ticket = {1, fixture.record[0].revision, 0};
-    search_view.message = &fixture.record[0];
-    search_view.store = &bank.store;
-    search_view.handle = message_store_ordered_handle(bank.store, 0);
-    search_view.rich_store = &g_app.account_ui->message_rich_store;
-    UiSearchSource source{};
-    source.count = source.revision = 1;
-    source.rich_timeline = &bank.timeline;
-    source.current = +[](void*) noexcept { return search_current; };
-    source.resolve = +[](void*, u32 i, UiSearchRow* row) noexcept {
-        if (i || !row)
-            return false;
-        *row = {7, 1, utf8_literal("Audio author"), utf8_literal("#source"), {}, {}, true, true};
-        return true;
-    };
-    UiSearchContent content{};
-    content.edit.active = content.panel = true;
-    content.phase = UiSearchPhase::ready;
-    content.revision = 1;
-    UiSearchScene scene{};
-    const bool ready = initialized && ui_search_scene_update(&scene, &source, &content, {0, 0, 1400, 1200},
-                                                             {0, 0, 1400, 48});
-    mutable_search_scene = &scene;
-    g_app.renderer.search_scene = &scene;
-    UiSearchTarget target{};
-    target.action = UiSearchAction::rich_item;
-    target.channel_id = 7;
-    target.message_id = 1;
-    target.source_revision = 1;
-    target.source_index = 0;
-    target.rich_kind = MessageSceneRichItemKind::attachment;
-    target.snapshot = true;
+    SearchRun run{};
+    search_begin(run, utf8_literal("https://example.com/forwarded-search.opus"), true,
+                 format == MediaAttachmentFormat::ogg_opus, format);
+    auto& source = run.source;
+    auto& content = run.content;
+    auto& scene = run.scene;
+    auto& target = run.target;
     const auto selections = account.selections;
-    const bool opened = ready && application_video_open_search(target) && pump() && pump();
+    const bool opened = run.ready && application_video_open_search(target) && pump() && pump();
     const auto* rich_scene = ui_search_scene_message_scene(scene);
     check(opened && g_app.renderer.audio_scene && rich_scene &&
               g_app.renderer.audio_scene->owner.manager == &rich_scene->widgets &&
@@ -764,16 +744,7 @@ void run_search_audio(MediaAttachmentFormat format = MediaAttachmentFormat::ogg_
               "released");
     }
     application_video_close();
-    mutable_search_scene = nullptr;
-    g_app.renderer.search_scene = nullptr;
-    ui_search_scene_release(&scene);
-    search_view = {};
-    search_current = false;
-    g_app.message_view = prior_view;
-    g_app.message_view.timeline.store = &g_app.message_view.store;
-    g_app.message_view.timeline.list = &g_app.message_view.list;
-    g_app.account_ui->message_rich_store = prior_rich;
-    g_app.account_ui->active_channel_id = prior_channel;
+    search_end(run);
     g_app.context_focus = nullptr;
 }
 void run_audio_format(MediaAttachmentFormat format) noexcept {
@@ -2055,11 +2026,5 @@ u64 application_call_next_wake() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_video_focus_runtime_entry() noexcept {
     maicord::video_focus_runtime_test::run();
-    const bool failed = maicord::video_focus_runtime_test::failures != 0;
-    constexpr char passed_text[] = "PASS video focus runtime\n";
-    constexpr char failed_text[] = "FAIL video focus runtime\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? failed_text : passed_text,
-              failed ? sizeof(failed_text) - 1 : sizeof(passed_text) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::video_focus_runtime_test::failures, "video focus runtime");
 }

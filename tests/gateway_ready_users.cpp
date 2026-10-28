@@ -1,5 +1,3 @@
-// Also built with MAICORD_READY_USERS_BENCHMARK=1 as the manual MaiCordReadyUsersBenchmark
-// (cmake/benchmarks.cmake).
 // Exercise READY's shipping private batching path without opening a connection.
 #include "../src/app/gateway_client.cpp"
 #include "maicord/model/user_profile.hpp"
@@ -902,45 +900,4 @@ void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcep
     check(!runtime.structural_scratch.arena.base && !runtime.structural_scratch.capacity &&
         !runtime.structural_scratch.reserved_capacity, "Gateway index teardown releases and clears the owner descriptor");
 }
-
-#if defined(MAICORD_READY_USERS_BENCHMARK)
-bool benchmark_ready_users() noexcept {
-    using namespace ready_probe;
-    if (!initialize()) return false;
-    const Clock clock = clock_initialize();
-    const Utf8View fixtures[]{basic, escaped, rich_user()};
-    for (u32 fixture = 0; fixture < 3; ++fixture) {
-        const JsonValue value{fixtures[fixture], 0, JsonValueKind::object};
-        constexpr u32 iterations = 200'000;
-        u64 checksum = 0;
-        u32 record_bytes = 0;
-        const i64 begin = clock_now();
-        for (u32 i = 0; i < iterations; ++i) {
-            GatewayPayloadWriter writer{{reinterpret_cast<char*>(output), sizeof(output)}, 0};
-            if (!gateway_append_user(value, main_index_view(&runtime), 64, &writer).ok()) return false;
-            checksum += writer.used + output[0];
-            record_bytes = writer.used;
-        }
-        const u64 elapsed = clock_microseconds(clock, begin, clock_now());
-        u64 digest = 14695981039346656037ull;
-        for (u32 i = 0; i < record_bytes; ++i) digest = (digest ^ output[i]) * 1099511628211ull;
-        TraceRecord line("ready_user_decode");
-        line.field("fixture", fixture); line.field("calls", iterations);
-        line.field("us", elapsed); line.field("checksum", checksum); line.field("digest", digest);
-        DWORD written = 0; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\r\n", 2, &written, nullptr);
-    }
-    const JsonValue records = array(basic, 64);
-    constexpr u32 iterations = 5000;
-    const i64 begin = clock_now();
-    for (u32 i = 0; i < iterations; ++i) if (!batch(records, 64)) return false;
-    TraceRecord line("ready_user_batch");
-    line.field("calls", iterations); line.field("users", 64);
-    line.field("us", clock_microseconds(clock, begin, clock_now()));
-    DWORD written = 0; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), line.text, line.used, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\r\n", 2, &written, nullptr);
-    release(); return true;
-}
-extern "C" void maicord_ready_users_entry() noexcept { ExitProcess(benchmark_ready_users() ? 0 : 1); }
-#endif
 } // namespace maicord

@@ -3,13 +3,12 @@
 
 #include "glyph_view_check.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 
 namespace maicord {namespace {
 #include "generated/context_fixture.inc"
 volatile u32 observations=0;
 void observe(SfntStatus s) noexcept {observations=observations+static_cast<u32>(s)+1;}
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
 bool units() noexcept {
     SfntGdef gdef{};if(sfnt_gdef_open({context_gdef_fixture,sizeof(context_gdef_fixture)},10,&gdef)!=SfntStatus::ok)return false;SfntLookupFilter filter{};if(sfnt_lookup_filter_prepare(gdef,8,0,&filter)!=SfntStatus::ok)return false;
@@ -94,8 +93,8 @@ bool corpus(const wchar_t* path) noexcept {
 }
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL context units\n"));return 1;}if(!guards()){print(utf8_literal("FAIL context guards\n"));return 2;}
-    const wchar_t* cmd=GetCommandLineW();bool quote=false;while(*cmd){if(*cmd=='"')quote=!quote;else if(!quote && (*cmd==' ' || *cmd=='\t'))break;++cmd;}while(*cmd==' ' || *cmd=='\t')++cmd;
-    if(*cmd){wchar_t path[32768];u32 n=0;quote=*cmd=='"';if(quote)++cmd;while(*cmd && !(quote?*cmd=='"':(*cmd==' ' || *cmd=='\t'))){if(n+1>=32768)return 3;path[n++]=*cmd++;}if(quote){if(*cmd!='"')return 3;++cmd;}while(*cmd==' ' || *cmd=='\t')++cmd;if(*cmd || !n)return 3;path[n]=0;if(!corpus(path))return 4;}
+    const wchar_t* cmd=test_arguments();
+    if(*cmd){wchar_t path[32768];if(!test_path_argument(cmd,path))return 3;if(!corpus(path))return 4;}
     print(utf8_literal("PASS native contextual matching\n"));return 0;
 }
 }}

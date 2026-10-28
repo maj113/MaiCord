@@ -1,23 +1,16 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 
-// Counts the bytes before the null terminator.
-inline u32 test_text_length(const char* text) noexcept {
-    u32 length = 0;
-    while (text[length] != 0) {
-        ++length;
-    }
-    return length;
-}
-
 // Writes text to standard output without a newline.
 inline void test_write_text(const char* text) noexcept {
     DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, test_text_length(text), &written, nullptr);
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, c_string_length(text), &written, nullptr);
 }
 
 // Writes an unsigned decimal number to standard output.
@@ -85,6 +78,17 @@ inline bool test_filled(const u8* bytes, u32 count, u8 value) noexcept {
         if (bytes[i] != value)
             return false;
     return true;
+}
+
+// Reports whether needle occurs in haystack; an empty needle never matches.
+inline bool test_contains(ConstSlice<u8> haystack, Utf8View needle) noexcept {
+    for (u32 i = 0; needle.bytes && needle.bytes <= haystack.count && i <= haystack.count - needle.bytes; ++i)
+        if (bytes_equal(haystack.data + i, needle.data, needle.bytes))
+            return true;
+    return false;
+}
+inline bool test_contains(Utf8View haystack, Utf8View needle) noexcept {
+    return test_contains(ConstSlice<u8>{reinterpret_cast<const u8*>(haystack.data), haystack.bytes}, needle);
 }
 
 // Decodes pairs of lowercase hexadecimal digits; returns the byte count.

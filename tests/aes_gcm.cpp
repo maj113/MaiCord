@@ -8,14 +8,6 @@ namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 
-
-bool equal(const u8* a, const u8* b, u32 count) noexcept {
-    for (u32 i = 0; i != count; ++i)
-        if (a[i] != b[i])
-            return false;
-    return true;
-}
-
 void known_answers(Check check) noexcept {
     // NIST AES_GCM.pdf, AES128/AES256 examples 1-5 (96-bit IV, 128-bit tag).
     // https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Standards-and-Guidelines/documents/examples/AES_GCM.pdf
@@ -54,14 +46,14 @@ void known_answers(Check check) noexcept {
             test_unhex(tags[k][v], tag_expected);
             const auto enc = aes_gcm_encrypt(key, {nonce, 12}, {aad, aad_sizes[v]}, {plain, sizes[v]},
                                              {encrypted, 80}, {tag, 16});
-            check(enc.ok() && enc.bytes == sizes[v] && equal(encrypted, expected, sizes[v]) &&
-                      equal(tag, tag_expected, 16) &&
+            check(enc.ok() && enc.bytes == sizes[v] && bytes_equal(encrypted, expected, sizes[v]) &&
+                      bytes_equal(tag, tag_expected, 16) &&
                       test_filled(encrypted + sizes[v], 80 - sizes[v], 0xa5) && tag[16] == 0xa5,
                   "AES matches NIST ciphertext/tag and preserves output tails");
             // Decrypt the independently published ciphertext/tag, not our encryption result.
             const auto dec = aes_gcm_decrypt(key, {nonce, 12}, {aad, aad_sizes[v]}, {expected, sizes[v]},
                                              {tag_expected, 16}, {decrypted, 80});
-            check(dec.ok() && dec.bytes == sizes[v] && equal(decrypted, plain, sizes[v]) &&
+            check(dec.ok() && dec.bytes == sizes[v] && bytes_equal(decrypted, plain, sizes[v]) &&
                       test_filled(decrypted + sizes[v], 80 - sizes[v], 0xa5),
                   "AES decrypts NIST known answer");
             tag_expected[0] ^= 1;
@@ -125,7 +117,7 @@ void matrix(Check check) noexcept {
                 check(BCryptHashData(hash, packet, size + 16, 0) >= 0, "AES matrix hash update");
                 const auto dec = aes_gcm_decrypt(key, {nonce, 12}, {aad, aad_size}, {packet, size},
                                                  {packet + size, 16}, {packet, sizeof(packet)});
-                check(dec.ok() && dec.bytes == size && equal(packet, plain, size) &&
+                check(dec.ok() && dec.bytes == size && bytes_equal(packet, plain, size) &&
                           packet[size + 16] == 0xa5,
                       "AES matrix in-place authenticated round trip");
                 check(key.handle == retained_handle && key.object.data == retained_object &&
@@ -135,7 +127,7 @@ void matrix(Check check) noexcept {
         }
         check(BCryptFinishHash(hash, digest, 32, 0) >= 0, "AES matrix hash finalization");
         test_unhex(digests[k], expected);
-        check(equal(digest, expected, 32), "AES ciphertexts and tags match independent OpenSSL matrix");
+        check(bytes_equal(digest, expected, 32), "AES ciphertexts and tags match independent OpenSSL matrix");
         BCryptDestroyHash(hash);
         aes_gcm_release(&key);
         check(!key.handle && !key.object.data && !key.object.locked && !key.object.capacity,
@@ -186,7 +178,7 @@ void boundaries(Check check) noexcept {
     copy_bytes(saved_tag, tag, 16);
     check(aes_gcm_encrypt(key, {nonce, 12}, {aad, 20}, {plain, 33}, {output, 32}, {tag, 16}).error ==
                   AeadError::output_too_small &&
-              test_filled(output, 64, 0xa5) && equal(tag, saved_tag, 16),
+              test_filled(output, 64, 0xa5) && bytes_equal(tag, saved_tag, 16),
           "AES short encryption output preserves ciphertext and tag");
     const auto truncated =
         aes_gcm_decrypt(key, {nonce, 12}, {aad, 20}, {ciphertext, 32}, {tag, 16}, {output, 64});

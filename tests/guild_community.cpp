@@ -26,12 +26,6 @@ void check(bool valid, const char* name) noexcept {
 bool text_is(const u8* data, u32 bytes, Utf8View expected) noexcept {
     return utf8_equal({reinterpret_cast<const char*>(data), bytes}, expected);
 }
-bool contains(Utf8View haystack, Utf8View needle) noexcept {
-    for (u32 i = 0; needle.bytes <= haystack.bytes && i + needle.bytes <= haystack.bytes; ++i)
-        if (bytes_equal(haystack.data + i, needle.data, needle.bytes))
-            return true;
-    return false;
-}
 u32 scratch[16384];
 // A baseline greyscale JPEG of a flat picture: one quantization table, a
 // one-code DC table (difference 0) and AC table (end of block), each block
@@ -71,11 +65,8 @@ Utf8View target_of(GuildCommunityOperation op, u64 guild, u64 event, const char*
     request.guild_id = guild;
     request.event_id = event;
     if (body) {
-        u32 bytes = 0;
-        while (body[bytes])
-            ++bytes;
         request.body = reinterpret_cast<const u8*>(body);
-        request.body_bytes = bytes;
+        request.body_bytes = c_string_length(body);
     }
     const auto written = guild_community_write_target(request, {storage, capacity});
     if (!written.ok())
@@ -193,11 +184,11 @@ void test_verification() noexcept {
     static u8 body[8192];
     const u32 bytes = guild_verification_write_submit(kForm, {answers, 3}, {scratch, 16384}, {body, sizeof(body)});
     const Utf8View text{reinterpret_cast<const char*>(body), bytes};
-    check(bytes && contains(text, utf8_literal(R"({"version":"2026-10-01T00:00:00.000000+00:00","form_fields":[)")) &&
-              contains(text, utf8_literal(R"("values":["Be kind","No spam"],"response":true})")) &&
-              contains(text, utf8_literal(R"("automations":null,)")) &&
-              contains(text, utf8_literal(R"("placeholder":"Tell us","response":"I like \"cats\""})")) &&
-              contains(text, utf8_literal(R"("choices":["13-17","18+"],"response":1}]})")),
+    check(bytes && test_contains(text, utf8_literal(R"({"version":"2026-10-01T00:00:00.000000+00:00","form_fields":[)")) &&
+              test_contains(text, utf8_literal(R"("values":["Be kind","No spam"],"response":true})")) &&
+              test_contains(text, utf8_literal(R"("automations":null,)")) &&
+              test_contains(text, utf8_literal(R"("placeholder":"Tell us","response":"I like \"cats\""})")) &&
+              test_contains(text, utf8_literal(R"("choices":["13-17","18+"],"response":1}]})")),
           "community: the submit echoes each original field with its response");
     check(guild_verification_decode_status(utf8_literal(R"({"application_status":"SUBMITTED","guild_id":"1"})"),
                                            {scratch, 16384}) == GuildApplicationStatus::submitted &&
@@ -238,7 +229,7 @@ void test_verification() noexcept {
     check(exact.bytes && guild_verification_decode(exact, {scratch, 16384}, &form) && !form.truncated &&
               form.text_used == kGuildVerificationTextBytes && form.fields[0].value_count == 11 &&
               form.fields[0].values[0].bytes == 1200 && form.fields[0].values[10].bytes == 288 &&
-              contains(guild_verification_text(form, form.fields[0].values[10]),
+              test_contains(guild_verification_text(form, form.fields[0].values[10]),
                        utf8_literal("\xF0\x9F\x98\x80")) &&
               guild_verification_supported(form) &&
               guild_verification_write_submit(exact, {&agreed, 1}, {scratch, 16384},
@@ -608,11 +599,8 @@ void test_guild_profile() noexcept {
               media_asset_key_valid(banner.key) && banner.key.kind == MediaAssetKind::profile_image &&
               media_asset_embed_format(banner.key) == MediaAttachmentFormat::jpeg,
           "guild profile: a discoverable profile's custom banner resolves the discovery-splash JPEG");
-    // The card asks for 512 * dpr like the official card, capped at the 512 px
-    // the CDN JPEG decoder takes. The CDN answers size=N with an N px wide
-    // rendition (a 16:9 splash: 512x288 at size=512, 1024x576 at the
-    // size=1024 a 150% display used to ask for, which the decoder refused for
-    // its dimensions and the card showed its default gradient).
+    // The card asks for 512 * dpr, capped at the 512 px the CDN JPEG decoder takes
+    // (a 16:9 splash is 512x288 at size=512; the decoder refuses 1024x576).
     UiGuildImageMedia scaled_banner{}, private_banner{};
     bool capped = true;
     constexpr u32 kScales[]{120, 144, 192, 288};

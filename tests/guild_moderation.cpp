@@ -339,9 +339,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_guild_moderation_entry() noe
     test_decoders();
     test_model();
     test_transport();
-    constexpr char pass[] = "PASS guild moderation\n";
-    constexpr char fail[] = "FAIL guild moderation\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "guild moderation");
 }

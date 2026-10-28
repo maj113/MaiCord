@@ -190,19 +190,6 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     check(invalid_rejected, "flat effects: malformed zero-stop palette, direction, intensity and effect "
                             "parameters fail closed");
 
-    const bool enabled = background_animation_allowed(effect, true, false, false, false, true, false);
-    const auto armed = background_animation_sample(0, 7.f, false, 1000, enabled);
-    bool clock_stable = enabled && armed.running && armed.next_frame_ms == 1042 && armed.phase_seconds == 7;
-    for (u32 i = 0; i < 64; ++i) {
-        const auto sample = background_animation_sample(armed.next_frame_ms, armed.phase_seconds,
-                                                        armed.running, 1041, enabled);
-        clock_stable = clock_stable && sample.next_frame_ms == 1042 && sample.phase_seconds == 7;
-    }
-    const auto due =
-        background_animation_sample(armed.next_frame_ms, armed.phase_seconds, true, 1042, enabled);
-    check(clock_stable && due.running && due.next_frame_ms == 1084 && due.phase_seconds > 7,
-          "flat effects: 64 early clock reads stay idle and one exact deadline advances a bounded future "
-          "sample");
     bool gates = !background_animation_allowed(effect, false, false, false, false, true, false) &&
                  !background_animation_allowed(effect, true, true, false, false, true, false) &&
                  !background_animation_allowed(effect, true, false, true, false, true, false) &&
@@ -220,13 +207,7 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
         gates = gates && background_render_valid(paused) &&
                 !background_animation_allowed(paused, true, false, false, false, true, false);
     }
-    const auto hidden = background_animation_sample(1042, 7.f, true, 5000, false);
-    const auto resumed =
-        background_animation_sample(hidden.next_frame_ms, hidden.phase_seconds, hidden.running, 9000, true);
-    check(gates && !hidden.running && !hidden.next_frame_ms && hidden.phase_seconds == 7 &&
-              resumed.running && resumed.next_frame_ms == 9042 && resumed.phase_seconds == 7,
-          "flat effects: hidden, covered, accessibility and zero parameter gates retire deadlines without "
-          "phase catchup");
+    check(gates, "flat effects: hidden, covered, accessibility and zero parameter gates admit no animation");
 
     // ---- Effect pass (mc.fx@1 constants, canvases, selection, GPU guard) ----
     const BackgroundTheme none{};

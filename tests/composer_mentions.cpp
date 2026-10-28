@@ -12,17 +12,11 @@
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/model/message_composer.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
-
-bool contains(Utf8View text, Utf8View expected) noexcept {
-    for (u32 i = 0; i + expected.bytes <= text.bytes; ++i)
-        if (bytes_equal(text.data + i, expected.data, expected.bytes))
-            return true;
-    return false;
-}
 
 Utf8View insertion(const ComposerAutocompleteSuggestion& suggestion) noexcept {
     return {suggestion.insertion, suggestion.insertion_bytes};
@@ -477,9 +471,9 @@ void test_silent_send(Check check) noexcept {
                                                    true, kMessageFlagSuppressNotifications);
     const Utf8View json{reinterpret_cast<const char*>(body), written.bytes};
     const auto plain = write_message_create_body(utf8_literal("x"), 6, {body + 256, 256});
-    check(written.ok() && contains(json, utf8_literal(R"("flags":4096)")) &&
-              contains(json, utf8_literal(R"({"content":"hello")")) && plain.ok() &&
-              contains({reinterpret_cast<const char*>(body + 256), plain.bytes}, utf8_literal(R"("flags":0,)")) &&
+    check(written.ok() && test_contains(json, utf8_literal(R"("flags":4096)")) &&
+              test_contains(json, utf8_literal(R"({"content":"hello")")) && plain.ok() &&
+              test_contains({reinterpret_cast<const char*>(body + 256), plain.bytes}, utf8_literal(R"("flags":0,)")) &&
               !write_message_create_body(utf8_literal("x"), 7, 0, 0, {}, {}, {body, sizeof(body)}, true, 1)
                    .ok(),
           "composer mentions: message body writes SUPPRESS_NOTIFICATIONS and rejects other flags");

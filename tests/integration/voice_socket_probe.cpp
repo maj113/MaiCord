@@ -5,7 +5,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/platform/network_worker.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
+#include "../test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -70,24 +70,6 @@ NetworkWorkerStep worker(void*, NetworkLoop* loop, const NetworkWorkerEvent& upd
     const auto deadline = voice_socket_deadline(g_socket);
     return {deadline ? wait_milliseconds_until(update.now_ms, deadline) : INFINITE, false};
 }
-void text(const char* value) noexcept {
-    u32 bytes = 0;
-    while (value[bytes])
-        ++bytes;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), value, bytes, &written, nullptr);
-}
-void number(u64 value) noexcept {
-    char reversed[24], output[24]{};
-    u32 count = 0;
-    do {
-        reversed[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    for (u32 i = 0; i < count; ++i)
-        output[i] = reversed[count - 1 - i];
-    text(output);
-}
 } // namespace
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_voice_socket_probe_entry() noexcept {
@@ -112,26 +94,26 @@ extern "C" __declspec(noreturn) void WINAPI maicord_voice_socket_probe_entry() n
                  g_socket.error == VoiceSocketError::none && !g_socket.storage.data &&
                  !g_socket.tls.outstanding_operations;
         }
-        text(ok ? "PASS" : "FAIL");
-        text(" voice_socket_public_gateway attempt=");
-        number(pass + 1);
-        text(" elapsed_ms=");
-        number(elapsed);
-        text(" events=");
-        number(received);
-        text(" close_code=");
-        number(g_socket.close_code);
-        text(" close_echo=");
-        number(close_submitted);
-        text(" peer_tls_closed=");
-        number(g_socket.peer_closed);
-        text(" error=");
-        number(static_cast<u64>(g_socket.error));
-        text(" tls_error=");
-        number(static_cast<u64>(g_socket.tls.error));
-        text(" native=");
-        number(g_socket.tls.native_error);
-        text("\r\n");
+        test_write_text(ok ? "PASS" : "FAIL");
+        test_write_text(" voice_socket_public_gateway attempt=");
+        test_write_u64(pass + 1);
+        test_write_text(" elapsed_ms=");
+        test_write_u64(elapsed);
+        test_write_text(" events=");
+        test_write_u64(received);
+        test_write_text(" close_code=");
+        test_write_u64(g_socket.close_code);
+        test_write_text(" close_echo=");
+        test_write_u64(close_submitted);
+        test_write_text(" peer_tls_closed=");
+        test_write_u64(g_socket.peer_closed);
+        test_write_text(" error=");
+        test_write_u64(static_cast<u64>(g_socket.error));
+        test_write_text(" tls_error=");
+        test_write_u64(static_cast<u64>(g_socket.tls.error));
+        test_write_text(" native=");
+        test_write_u64(g_socket.tls.native_error);
+        test_write_text("\r\n");
     }
     ExitProcess(ok ? 0 : 1);
 }

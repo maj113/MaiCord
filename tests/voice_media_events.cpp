@@ -1,4 +1,5 @@
 #include "maicord/app/voice_media_setup.hpp"
+#include "test_output.hpp"
 
 #include "maicord/sys/winsock.hpp"
 
@@ -8,10 +9,7 @@ JsonValue object(Utf8View input) noexcept {
     return {input, 0, JsonValueKind::object};
 }
 bool filled(ConstSlice<u8> bytes, u8 value) noexcept {
-    for (u32 i = 0; i < bytes.count; ++i)
-        if (bytes[i] != value)
-            return false;
-    return true;
+    return test_filled(bytes.data, bytes.count, value);
 }
 constexpr auto ready_json = utf8_literal(
     "{\"ssrc\":4294967295,\"ip\":\"2001:db8::1\",\"port\":65535,"

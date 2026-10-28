@@ -12,19 +12,13 @@ using Check = void (*)(bool, const char*) noexcept;
 bool formats(u64 elapsed_ms, const char* expected) noexcept {
     char text[kUiVoiceElapsedBytes];
     const u32 bytes = ui_voice_elapsed_format(elapsed_ms, text, sizeof(text));
-    u32 expected_bytes = 0;
-    while (expected[expected_bytes])
-        ++expected_bytes;
-    return bytes == expected_bytes && bytes_equal(text, expected, bytes);
+    return bytes == c_string_length(expected) && bytes_equal(text, expected, bytes);
 }
 bool label_is(const ChannelViewRow& row, const UiVoiceChannelExtras& extras,
               const char* expected) noexcept {
     char text[kUiVoiceElapsedBytes];
     const u32 bytes = ui_voice_timer_label(row, &extras, text, sizeof(text));
-    u32 expected_bytes = 0;
-    while (expected[expected_bytes])
-        ++expected_bytes;
-    return bytes == expected_bytes && bytes_equal(text, expected, bytes);
+    return bytes == c_string_length(expected) && bytes_equal(text, expected, bytes);
 }
 
 void format_cases(Check check) noexcept {

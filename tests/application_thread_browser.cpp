@@ -56,8 +56,8 @@ bool receipt(u64 id, u16 status, Utf8View payload = {}, u64 retry = 0, RestClien
 ChannelRecord* row(u64 id) noexcept {
     return const_cast<ChannelRecord*>(chat_state_store_find_channel(g_app.account_ui->chat_state, id));
 }
-void permit(bool allowed = true, bool manage = false) noexcept {
-    auto* parent = row(70);
+void permit(bool allowed = true, bool manage = false, u64 id = 70) noexcept {
+    auto* parent = row(id);
     parent->permissions_resolved = true;
     parent->effective_permissions = allowed ? kPermissionViewChannel | kPermissionReadMessageHistory |
         (manage ? kPermissionManageThreads : 0) : 0;
@@ -103,14 +103,6 @@ Utf8View active_page(u64 parent, u64 first, u32 count, bool more) noexcept {
     }
     append(more ? "],\"has_more\":true}" : "]}");
     return {body, body_bytes};
-}
-void permit_parent(u64 id) noexcept {
-    auto* parent = row(id);
-    parent->permissions_resolved = true;
-    parent->effective_permissions = kPermissionViewChannel | kPermissionReadMessageHistory;
-    parent->actions = channel_action_view | channel_action_read_history;
-    ++parent->revision;
-    ++g_app.account_ui->chat_state.permission_mutations;
 }
 // Forum fixtures: parent metadata requests and post pages with tags/starters.
 u32 forum_submissions{};
@@ -468,7 +460,7 @@ void run() noexcept {
     auto& state = g_app.account_ui->chat_state;
     check(chat_state_store_upsert_channel(&state, {71, 7, 0, utf8_literal("Quiet parent"), 1, 0, 0}).ok(),
         "browser: unsynced empty parent fixture");
-    permit_parent(71);
+    permit(true, false, 71);
     check(application_thread_browser_open(71) && browser_owner->tab == UiThreadBrowserTab::active &&
         browser_owner->view.loading && !browser_owner->view.inventory_synced && !browser_owner->row_count &&
         utf8_equal(browser_owner->view.status, utf8_literal("Loading threads…")) &&
@@ -525,7 +517,7 @@ void run() noexcept {
     g_app.account.api.forum_post = forum_submit;
     check(chat_state_store_upsert_channel(&state, {72, 7, 0, utf8_literal("Help forum"), 2, 0, 15}).ok(),
         "forum: parent fixture");
-    permit_parent(72);
+    permit(true, false, 72);
     check(application_thread_browser_open(72) && browser_owner->forum_mode && browser_owner->forum &&
         browser_owner->view.forum && browser_owner->view.forum->layout == UiForumLayout::list &&
         application_thread_browser_pending(now) && application_thread_browser_submit(300, now) && forum_submissions == 1 &&

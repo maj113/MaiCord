@@ -1,14 +1,8 @@
 #include "generated/bengali_input_fixture.inc"
 bool bengali_input_units() noexcept {
-    const auto bengali_input_fixture=indic_input_fixture(bengali_input_fixture_resource);
-    CHECK(bengali_input_fixture.count==bengali_input_fixture_words);
     constexpr auto profile=SfntIndicProfile::bengali;
-    u32 corpus[256]{};u8 boundaries[256]{};u32 first=0,count=0,cases=0;
-    for(u32 i=0;i<bengali_input_fixture.count;++i){const u32 entry=bengali_input_fixture[i];CHECK(count<256);corpus[count++]=entry&0x1fffffu;
-        if(entry&0x40000000u){CHECK(sfnt_indic_cluster_boundaries(profile,{corpus,count},{boundaries,count})==SfntStatus::ok);
-            for(u32 j=0;j<count;++j)if(boundaries[j]!=(bengali_input_fixture[first+j]>>31)){print("Bengali fixture case ");number(cases);print("\n");CHECK(false);}
-            ++cases;count=0;first=i+1;}}
-    CHECK(!count&&cases==bengali_input_fixture_cases);
+    CHECK(indic_input_corpus(profile,bengali_input_fixture_resource,bengali_input_fixture_words,bengali_input_fixture_cases,"Bengali"));
+    u8 boundaries[256]{};
     const u32 input[]{0x995,0x9cb,0x9cc,0x994,0x1f600,0x9cb,0xbca};
     const SfntIndicInputScalar expected[]{{0x995,0},{0x9c7,1},{0x9be,1},{0x9c7,2},{0x9d7,2},{0x994,3},{0x1f600,4},{0x9c7,6},{0x9be,6},{0xbca,7}};
     SfntIndicInputScalar output[10]{};SfntIndicInputResult result{};

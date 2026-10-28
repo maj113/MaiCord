@@ -461,10 +461,7 @@ constexpr Line kLines[]{
 constexpr u32 kLineCount = sizeof(kLines) / sizeof(kLines[0]);
 
 Utf8View text(const char* s) noexcept {
-    u32 n = 0;
-    while (s && s[n])
-        ++n;
-    return {s, n};
+    return {s, c_string_length(s)};
 }
 
 struct Fixture {
@@ -602,7 +599,7 @@ bool upload_png(D3D11Renderer& r, MediaAssetKey key, const u8* pixels, u32 w, u3
 }
 
 // A user's server tag (the global appearance record carries it).
-bool apply_tag(UserAppearance* a, const Tag& t) noexcept {
+void apply_tag(UserAppearance* a, const Tag& t) noexcept {
     const Utf8View tag = text(t.tag), badge = text(t.badge);
     a->user_id = t.user;
     a->fields |= appearance_guild_tag;
@@ -612,7 +609,6 @@ bool apply_tag(UserAppearance* a, const Tag& t) noexcept {
     a->primary_tag.bytes = static_cast<u16>(tag.bytes);
     copy_bytes(a->primary_badge.data, badge.data, badge.bytes);
     a->primary_badge.bytes = static_cast<u16>(badge.bytes);
-    return true;
 }
 
 struct GuildSeed {
@@ -745,7 +741,8 @@ bool build_people(Fixture& f, D3D11Renderer& r) noexcept {
         while (seed + 1 < kGuildSeedCount && kGuildSeeds[seed].id != t.guild)
             ++seed;
         UserAppearance tag{};
-        ok = ok && apply_tag(&tag, t) && user_appearance_upsert(&f.users.appearance, tag);
+        apply_tag(&tag, t);
+        ok = ok && user_appearance_upsert(&f.users.appearance, tag);
         ProfileMedia badge{};
         if (ok && user_guild_badge_media(tag, {}, {}, &badge))
             ok = upload_png(r, badge.key, g_badges[seed], 32, 32);

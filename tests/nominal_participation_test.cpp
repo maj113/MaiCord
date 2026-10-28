@@ -2,10 +2,9 @@
 #include "maicord/text/nominal_sources.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 namespace maicord {namespace {
 #include "generated/nominal_participation_fixture.inc"
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 u64 font_checks=0,glyph_checks=0,budget_checks=0,guards=0,lazy_built=0,lazy_skipped=0;
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
 bool boundaries() noexcept {
@@ -91,8 +90,8 @@ int font_bitmap(const wchar_t* path) noexcept {
     if(s==SfntStatus::ok)for(u32 i=0;i<(count+63u)/64;++i){if(i)print(utf8_literal(","));number(bits[i]);}print(utf8_literal("]}\n"));UnmapViewOfFile(bytes);CloseHandle(mapping);CloseHandle(file);return 0;
 }
 int run() noexcept {
-    const wchar_t* command=GetCommandLineW();bool quoted=false;while(*command){if(*command=='"')quoted=!quoted;else if(!quoted && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
-    if(*command){wchar_t path[32768];u32 n=0;quoted=*command=='"';if(quoted)++command;while(*command && !(quoted?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}if(quoted){if(*command!='"')return 2;++command;}while(*command==' ' || *command=='\t')++command;if(*command || !n)return 2;path[n]=0;return font_bitmap(path);}
+    const wchar_t* command=test_arguments();
+    if(*command){wchar_t path[32768];if(!test_path_argument(command,path))return 2;return font_bitmap(path);}
     const bool boundary_ok=boundaries();if(!boundary_ok)print(utf8_literal("FAIL participation boundaries\n"));const bool ok=boundary_ok && corpus();print(utf8_literal("fonts="));number(font_checks);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguards="));number(guards);print(utf8_literal("\nlazy_built="));number(lazy_built);print(utf8_literal("\nlazy_skipped="));number(lazy_skipped);print(ok?utf8_literal("\nPASS native nominal participation\n"):utf8_literal("\nFAIL native nominal participation\n"));return ok?0:1;
 }
 }}

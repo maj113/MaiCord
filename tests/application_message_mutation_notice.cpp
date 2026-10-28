@@ -46,9 +46,6 @@ RestClientSubmitResult WINAPI submit_reaction_api(void* instance, u64 channel_id
 void check(bool passed, const char* label) noexcept {
     test_check(&failures, passed, label);
 }
-bool same(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
 RestClientResponse response(u16 status,
                             RestClientError error = RestClientError::none) noexcept {
     RestClientResponse value{};
@@ -147,7 +144,7 @@ void notice_tests() noexcept {
         utf8_literal("Another message is opening."),       utf8_literal("Opening cancelled.")};
     for (u32 stage = 0; stage < 8; ++stage) {
         application_message_mutation_notice_navigation_pending(70, 900, pending_stages[stage]);
-        check(same(application_message_mutation_notice_text(), pending_labels[stage]) &&
+        check(utf8_equal(application_message_mutation_notice_text(), pending_labels[stage]) &&
                   !application_message_mutation_notice_is_error(),
               "mutation notice: compact native message-link phases preserve captured source owner");
     }
@@ -168,7 +165,7 @@ void notice_tests() noexcept {
           "mutation notice: preadmission permalink notice never appears in unrelated channel");
     g_app.account_ui->active_channel_id = 70;
     application_message_mutation_notice_navigation_failed(80, 900, Stage::permission_denied, forbidden);
-    check(same(application_message_mutation_notice_text(), utf8_literal("Loading channel… Esc to cancel")),
+    check(utf8_equal(application_message_mutation_notice_text(), utf8_literal("Loading channel… Esc to cancel")),
           "mutation notice: different-channel receipt cannot replace source navigation stage");
     application_message_mutation_notice_succeeded(Kind::navigate_message, 70, 900);
     check(!application_message_mutation_notice_text().bytes &&
@@ -182,7 +179,7 @@ void notice_tests() noexcept {
           "mutation notice: offselected manual read failure remains captured without appearing in another "
           "channel");
     g_app.account_ui->active_channel_id = 70;
-    check(same(application_message_mutation_notice_text(),
+    check(utf8_equal(application_message_mutation_notice_text(),
                utf8_literal("Couldn't mark as unread. Try again.")) &&
               application_message_mutation_notice_is_error(),
           "mutation notice: returning to captured channel reveals terminal manual failure");
@@ -195,7 +192,7 @@ void notice_tests() noexcept {
           "mutation notice: exact explicit manual retry dismisses retained failure");
     application_message_mutation_notice_begin(Kind::mark_unread, 70, 900);
     application_message_mutation_notice_failed(Kind::mark_unread, 70, 900, server);
-    check(same(application_message_mutation_notice_text(),
+    check(utf8_equal(application_message_mutation_notice_text(),
                utf8_literal("Couldn't mark as unread. Try again.")),
           "mutation notice: unknown manual transport result describes uncertainty and reachable retry");
     ++g_app.plugin_account_scope_serial;
@@ -207,32 +204,32 @@ void notice_tests() noexcept {
           "mutation notice: unsaved composer draft exists");
     application_message_mutation_notice_begin(Kind::edit, 70, 900);
     application_message_mutation_notice_failed(Kind::edit, 70, 900, forbidden);
-    check(same(application_message_mutation_notice_text(),
+    check(utf8_equal(application_message_mutation_notice_text(),
                utf8_literal("You can't edit this message.")) &&
               application_message_mutation_notice_is_error() &&
-              same(message_composer_text(g_app.message_composer), utf8_literal("Unsaved edited draft")),
+              utf8_equal(message_composer_text(g_app.message_composer), utf8_literal("Unsaved edited draft")),
           "mutation notice: edit403 tells the user permission failed and preserves the real draft");
     application_message_mutation_notice_begin(Kind::edit, 70, 900);
     application_message_mutation_notice_failed(Kind::edit, 70, 900, missing);
-    check(same(application_message_mutation_notice_text(),
+    check(utf8_equal(application_message_mutation_notice_text(),
                utf8_literal("This message was deleted.")),
           "mutation notice: missing edit target distinguishes unavailable message and retained draft");
     application_message_mutation_notice_begin(Kind::erase, 70, 900);
     application_message_mutation_notice_failed(Kind::erase, 70, 900,
                                                response(0, RestClientError::receive));
-    check(same(application_message_mutation_notice_text(),
+    check(utf8_equal(application_message_mutation_notice_text(),
                utf8_literal("Couldn't confirm the message was deleted.")),
           "mutation notice: delete transport failure communicates uncertainty rather than confirmed "
           "deletion");
     application_message_mutation_notice_begin(Kind::reaction, 70, 900);
     application_message_mutation_notice_failed(Kind::reaction, 70, 900, forbidden);
-    check(same(application_message_mutation_notice_text(),
+    check(utf8_equal(application_message_mutation_notice_text(),
                utf8_literal("You cannot change reactions on this message.")),
           "mutation notice: reaction denial is visible and action-specific");
 
     application_message_mutation_notice_begin(Kind::attachment_open, 70, 900);
     application_message_mutation_notice_pending(Kind::attachment_open, 70, 900);
-    check(same(application_message_mutation_notice_text(), utf8_literal("Opening attachment…")) &&
+    check(utf8_equal(application_message_mutation_notice_text(), utf8_literal("Opening attachment…")) &&
               !application_message_mutation_notice_is_error(),
           "mutation notice: attachment refresh has visible pending feedback without an error state");
     application_message_mutation_notice_succeeded(Kind::attachment_open, 70, 900);
@@ -243,7 +240,7 @@ void notice_tests() noexcept {
     application_message_mutation_notice_pending(Kind::attachment_open, 70, 900);
     application_message_mutation_notice_failed(Kind::attachment_open, 70, 900, server);
     check(
-        same(application_message_mutation_notice_text(),
+        utf8_equal(application_message_mutation_notice_text(),
              utf8_literal("Couldn't open the attachment. Try again.")) &&
             application_message_mutation_notice_is_error(),
         "mutation notice: failed attachment preparation replaces pending status with a retry instruction");
@@ -409,7 +406,7 @@ void delete_tests() noexcept {
     check(queue_message_delete(900) &&
               accept_message_delete_response(response(0, RestClientError::timeout)) &&
               message_store_find(g_app.message_view.store, 900).ok() &&
-              same(application_message_mutation_notice_text(),
+              utf8_equal(application_message_mutation_notice_text(),
                    utf8_literal("Couldn't confirm the message was deleted.")),
           "mutation delete: production uncertain transport receipt retains message and warns before retry");
     auto restricted = response(429);
@@ -418,7 +415,7 @@ void delete_tests() noexcept {
     restricted.rejection = {20026, true, false};
     check(queue_message_delete(900) && accept_message_delete_response(restricted) &&
               !g_app.message_delete.message_id && message_store_find(g_app.message_view.store, 900).ok() &&
-              same(application_message_mutation_notice_text(),
+              utf8_equal(application_message_mutation_notice_text(),
                    utf8_literal("Discord restricted this action. Check your account in Discord.")),
           "mutation delete: required-action429 is terminal and retains target instead of scheduling "
           "prohibited retry");
@@ -464,8 +461,8 @@ void delete_confirmation_tests() noexcept {
     check(model_reset(), "delete confirmation: fixture initializes");
     form_opens = 0;
     check(application_message_delete_request(900, false) && form_opens == 1 && !g_app.message_delete.message_id &&
-              form.confirmation_only && same(form.title, utf8_literal("Delete message?")) &&
-              same(form.accept, utf8_literal("Delete")) &&
+              form.confirmation_only && utf8_equal(form.title, utf8_literal("Delete message?")) &&
+              utf8_equal(form.accept, utf8_literal("Delete")) &&
               form_context_contains(utf8_literal("Authoritative message")) && form.valid(form.owner),
           "delete confirmation: opens a confirmation with a preview and queues nothing");
     check(form.save(form.owner, {}) && g_app.message_delete.message_id == 900,
@@ -525,7 +522,7 @@ void reaction_tests() noexcept {
           "mutation reaction: production400 is terminal and does not automatically repeat invalid action");
     check(queue_reaction() && reaction_response(response(404)) && !reacted() &&
               !g_app.message_reaction.message_id &&
-              same(application_message_mutation_notice_text(),
+              utf8_equal(application_message_mutation_notice_text(),
                    utf8_literal("This message is no longer available.")),
           "mutation reaction: production404 rolls back without retry and reports missing target");
     check(

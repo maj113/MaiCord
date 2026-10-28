@@ -50,6 +50,7 @@ u32 custom_theme_actions{};
 bool custom_theme_pointer_transition{};
 constexpr u64 fixture_owner = 0x4D43504649585432ull;
 using native_plugin_fixture::FixtureAudit;
+using native_plugin_fixture::Configure;
 struct Observations {
     UiRect viewport{0, 0, 1000, 700};
     u32 text_builds, layout_updates, account_text_updates, forced_account_text_updates, suspends,
@@ -62,13 +63,11 @@ struct Observations {
     FixtureAudit* audit;
     bool detached_live_code, detached_live_state, detached_active_scene, detached_live_menu_labels;
     u32 profile_opens;
-    u64 profile_user;
-    ProfileAnchor profile_anchor;
     u32 account_menu_opens;
     UiWidgetHandle account_menu_source;
     UiRect account_menu_anchor;
     bool friends_active, requests_active;
-    u32 requests_closed, popup_dismissals, opened_urls;
+    u32 opened_urls;
     u32 notifications_refreshes, notifications_setups;
     u32 content_hits, text_hits, profile_hits;
     bool detached_active_popup, detached_popup_labels;
@@ -125,11 +124,7 @@ void manual_failed_free() noexcept {
 }
 u32 failures = 0;
 void check(bool success, const char* name) noexcept {
-    if (success)
-        return;
-    ++failures;
-    test_write_text("FAIL ");
-    test_write_line(name);
+    test_check(&failures, success, name);
 }
 UiSettingsScene* scene() noexcept {
     return const_cast<UiSettingsScene*>(g_app.renderer.settings_scene);
@@ -334,9 +329,7 @@ void test_search_field() noexcept {
         return application_settings_input(UiInputKind::key_up, code, false) && down;
     };
     const auto query = [&](const char* expected) noexcept {
-        u32 bytes = 0;
-        while (expected[bytes])
-            ++bytes;
+        const u32 bytes = c_string_length(expected);
         return utf8_equal(current->search.view.text, {expected, bytes}) && current->search.view.caret <= bytes;
     };
     for (const char* c = "theme"; *c; ++c)
@@ -543,7 +536,7 @@ void test_menu_runtime(FixtureAudit& audit) noexcept {
               audit.last_menu_activation.user_id == 5678 && audit.last_menu_activation.channel_id == 9012 &&
               audit.last_menu_activation.message_id == 3456,
           "plugins menu: actual message dispatch delivers the copied author, channel and message IDs");
-    const auto configure = reinterpret_cast<native_plugin_fixture::Configure>(
+    const auto configure = reinterpret_cast<Configure>(
         GetProcAddress(GetModuleHandleW(L"MaiCordPluginFixture.dll"), "maicord_plugin_fixture_configure"));
     check(configure != nullptr, "plugins menu: actual loaded DLL exposes failure configuration");
     if (configure) {
@@ -581,7 +574,7 @@ void test_popup_unload(ConstSlice<wchar_t> dll_path) noexcept {
         application_settings_open();
         return;
     }
-    const auto configure = reinterpret_cast<native_plugin_fixture::Configure>(
+    const auto configure = reinterpret_cast<Configure>(
         GetProcAddress(pin, "maicord_plugin_fixture_configure"));
     if (configure)
         configure(0, fixture_owner, &audit);
@@ -1790,7 +1783,6 @@ void test_controller() noexcept {
                              LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     check(pin != nullptr, "plugins: actual fixture DLL loads beside settings runtime executable");
     if (pin) {
-        using Configure = void(WINAPI*)(u32, u64, void*) noexcept;
         auto configure =
             reinterpret_cast<Configure>(GetProcAddress(pin, "maicord_plugin_fixture_configure"));
         check(configure != nullptr, "plugins: fixture configure export has expected contract");
@@ -1868,7 +1860,6 @@ void test_controller() noexcept {
                              LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
         check(pin != nullptr, "plugins: failed-start picker fixture pins real DLL for configuration");
         if (pin) {
-            using Configure = void(WINAPI*)(u32, u64, void*) noexcept;
             auto configure =
                 reinterpret_cast<Configure>(GetProcAddress(pin, "maicord_plugin_fixture_configure"));
             check(configure != nullptr, "plugins: retry fixture exposes configuration export");
@@ -1935,7 +1926,6 @@ void test_controller() noexcept {
                              LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
         check(pin != nullptr, "plugins: abandoned picker fixture pins DLL for zero-load audit");
         if (pin) {
-            using Configure = void(WINAPI*)(u32, u64, void*) noexcept;
             auto configure =
                 reinterpret_cast<Configure>(GetProcAddress(pin, "maicord_plugin_fixture_configure"));
             check(configure != nullptr, "plugins: abandoned picker fixture exposes configuration export");
@@ -1978,7 +1968,7 @@ void test_controller() noexcept {
         HMODULE scope_pin = LoadLibraryExW(dll_path, nullptr,
                                            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
         const auto configure = scope_pin
-                                   ? reinterpret_cast<native_plugin_fixture::Configure>(
+                                   ? reinterpret_cast<Configure>(
                                          GetProcAddress(scope_pin, "maicord_plugin_fixture_configure"))
                                    : nullptr;
         check(configure != nullptr, "plugins: manual rollback fixture configures known native DLL");
@@ -2575,7 +2565,6 @@ void application_friends_close_requests() noexcept {
     if (!observed.requests_active)
         return;
     observed.requests_active = false;
-    ++observed.requests_closed;
     g_app.renderer.friends_requests_scene = nullptr;
     ui_friends_scene_release(&settings_runtime_test::menu_fixture.requests);
     g_app.context_focus = &settings_runtime_test::menu_fixture.friends.widgets;
@@ -2638,7 +2627,6 @@ bool application_message_action_bar_modifiers_changed() noexcept {
 bool dismiss_popup() noexcept {
     using namespace settings_runtime_test;
     if (g_app.popup_scene.active) {
-        ++observed.popup_dismissals;
         if (observed.detaching_module && observed.audit) {
             ++observed.audit->host_detaches;
             observed.detached_active_popup = true;
@@ -2667,14 +2655,8 @@ bool application_profile_close() noexcept {
 u16 application_message_action_bar_capabilities(u64) noexcept {
     return 0;
 }
-bool application_message_forward_available(u64) noexcept {
-    return false;
-}
-bool application_profile_open(u64 user, const UiRect&, ProfileAnchor anchor) noexcept {
-    auto& seen = settings_runtime_test::observed;
-    ++seen.profile_opens;
-    seen.profile_user = user;
-    seen.profile_anchor = anchor;
+bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
+    ++settings_runtime_test::observed.profile_opens;
     return true;
 }
 bool application_account_menu_open(UiWidgetHandle source, UiRect anchor) noexcept {

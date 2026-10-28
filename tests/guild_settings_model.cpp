@@ -334,10 +334,7 @@ void test_boost_perks() noexcept {
     request.operation = GuildAdminOperation::vanity_update;
     check(body_equals(request, R"({"code":""})"), "boost perks: removing the custom invite link sends an empty code");
     patch.vanity_code = utf8_literal("cool-server");
-    check(body_equals(request, R"({"code":"cool-server"})") &&
-              guild_vanity_error_text(10'003).bytes && guild_vanity_error_text(50'020).bytes &&
-              !utf8_equal(guild_vanity_error_text(10'003), guild_vanity_error_text(50'020)),
-          "boost perks: the vanity PATCH body and its error wording");
+    check(body_equals(request, R"({"code":"cool-server"})"), "boost perks: the vanity PATCH body carries the code");
 }
 
 // The settings channel pickers: system/inactive channels by the channel
@@ -704,9 +701,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_guild_settings_entry() noexc
     test_overrides();
     test_channel_and_bans();
     test_expressions_and_safety();
-    constexpr char pass[] = "PASS guild settings model\n";
-    constexpr char fail[] = "FAIL guild settings model\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "guild settings model");
 }

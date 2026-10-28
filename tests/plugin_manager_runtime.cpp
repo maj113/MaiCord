@@ -18,14 +18,8 @@ using namespace app_detail;
 using namespace plugin_manager_fixture;
 using Op = PluginJournalOperation;
 using Action = PluginRecoveryAction;
-constexpr u64 kNow = 1760400000;
 constexpr u64 kSequence = 1760227200;
-constexpr u64 kOwner = 0x0046495854555245ull;  // "FIXTURE"
-constexpr u64 kNotDll = 0x004e4f54444c4cull;   // "NOTDLL"
 constexpr u64 kManual = 0x004d414e55414cull;   // "MANUAL"
-constexpr u64 kCode[3]{1000000999, 1001000999, 1002000999}; // 1.0.0, 1.1.0, 1.2.0
-constexpr u64 kSettings = 1ull << 0;
-constexpr u32 kTimeoutMs = 5000;
 
 u32 g_failures;
 void check(bool passed, const char* name) noexcept { test_check(&g_failures, passed, name); }
@@ -89,11 +83,7 @@ struct Spec {
     bool block_manual;     // the official blocklist names the manual install's bytes
     bool v2_settings_only; // 1.2.0 asks for no more than 1.1.0
 };
-void plugin(Text& t, const char* slug, u64 owner, const char* name) noexcept {
-    t.add(R"({"slug":")"); t.add(slug); t.add(R"(","owner_id":)"); t.number(owner);
-    t.add(R"(,"name":")"); t.add(name); t.add(R"(","summary":"Test plugin.","publisher":"MaiCord","authors":[{"name":"Example Author"}],)");
-    t.add(R"("license":"MPL-2.0","homepage":"https://plugins.example.com/maicord/fixture","categories":["utility"],"disclosures":[],"versions":[)");
-}
+
 bool build_index(const Spec& spec) noexcept {
     Text t{g.index, sizeof(g.index), 0};
     t.add(R"({"format":1,"provider":{"id":"maicord","name":"MaiCord plugins","homepage":"https://plugins.example.com/maicord"},)");
@@ -124,9 +114,7 @@ bool build_index(const Spec& spec) noexcept {
     u8 hash[32]{};
     return t.used < t.capacity && sha256(g.workspace, {parts, 2}, {hash, 32}).ok() && p256_sign_digest(g.signer, {hash, 32}, {g.signature, 64}).ok();
 }
-constexpr const char* kTargets[3]{"/example/plugins/releases/download/fixture-v1.0.0/fixture-1.0.0-x64.dll",
-    "/example/plugins/releases/download/fixture-v1.1.0/fixture-1.1.0-x64.dll",
-    "/example/plugins/releases/download/fixture-v1.2.0/fixture-1.2.0-x64.dll"};
+
 void serve() noexcept {
     plugin_fake::reset(g.server, "example.github.io");
     plugin_fake::serve(g.server, UpdateHost::pages, "/plugins/v1/index.json", 200, g.index, g.index_bytes);
@@ -144,16 +132,8 @@ bool publish(const Spec& spec) noexcept {
 
 // ---- files and records -----------------------------------------------------------------------
 bool manifest_is(u32 v) noexcept {
-    wchar_t path[kPluginManagerPathCapacity]{};
-    char record[4096];
     NativePluginManifest m{};
-    if (!plugin_manager_id_path(g.paths.plugins, g.paths.plugins_count, kOwner, L".maicord-plugin.json", path)) return false;
-    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    DWORD got = 0;
-    const bool read = ReadFile(file, record, sizeof(record), &got, nullptr);
-    CloseHandle(file);
-    return read && native_plugin_manifest_parse({record, got}, &m).ok() && bytes_equal(m.sha256, g.sha[v], 32);
+    return read_manifest(g.paths.plugins, g.paths.plugins_count, kOwner, &m) && bytes_equal(m.sha256, g.sha[v], 32);
 }
 bool manifest_present(u64 owner) noexcept {
     wchar_t path[kPluginManagerPathCapacity]{};
@@ -502,15 +482,8 @@ void test_worker() noexcept {
 }
 
 bool setup() noexcept {
-    wchar_t temp[MAX_PATH]{};
-    const DWORD n = GetTempPathW(MAX_PATH, temp);
-    if (!n || n >= MAX_PATH - 64 || !GetTempFileNameW(temp, L"MPR", 0, g.root) || !DeleteFileW(g.root) || !CreateDirectoryW(g.root, nullptr))
-        return false;
-    u32 count = 0;
-    while (g.root[count]) { g.base[count] = g.root[count]; ++count; }
-    for (const wchar_t* leaf = L"\\MaiCord"; *leaf; ++leaf) g.base[count++] = *leaf;
-    g.base_count = count;
-    if (!CreateDirectoryW(g.base, nullptr) || !plugin_manager_paths_build({g.base, count}, &g.paths)) return false;
+    g.base_count = make_root(L"MPR", g.root, g.base);
+    if (!g.base_count || !plugin_manager_paths_build({g.base, g.base_count}, &g.paths)) return false;
     if (!read_dll(&g.dll, &g.dll_bytes, 1)) return false;
     // The signed custom fixture shared with tests/plugin_providers.cpp.
     wchar_t path[MAX_PATH]{};

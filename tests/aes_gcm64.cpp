@@ -8,12 +8,6 @@
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
-bool equal(const u8* a, const u8* b, u32 count) noexcept {
-    for (u32 i = 0; i != count; ++i)
-        if (a[i] != b[i])
-            return false;
-    return true;
-}
 void known_answers(Check check, Gcm64Backend backend) noexcept {
     // NIST zero-key/96-bit-IV GCM examples, with the specified MSB64 tag.
     constexpr u8 encrypted[]{0x03, 0x88, 0xda, 0xce, 0x60, 0xb6, 0xa3, 0x92,
@@ -55,12 +49,12 @@ void known_answers(Check check, Gcm64Backend backend) noexcept {
             u8 result[273];
             check(aes_gcm64_encrypt(key, {nonce, 12}, {aad, 31}, {plain, 273}, {result, 273}, {tag, 8})
                           .ok() &&
-                      equal(result, cipher, 273) && equal(tag, cipher + 273, 8),
+                      bytes_equal(result, cipher, 273) && bytes_equal(tag, cipher + 273, 8),
                   "GCM64 varied-key ciphertext and tag match native oracle");
             check(aes_gcm64_decrypt(key, {nonce, 12}, {aad, 31}, {cipher, 273}, {cipher + 273, 8},
                                     {result, 273})
                           .ok() &&
-                      equal(result, plain, 273),
+                      bytes_equal(result, plain, 273),
                   "GCM64 varied-key decryption matches native oracle");
         }
         aes_gcm64_release(&key);
@@ -114,33 +108,33 @@ void matrix(Check check, Gcm64Backend backend) noexcept {
             memset(packet + size, 0xa5, sizeof(packet) - size);
             const auto enc = aes_gcm64_encrypt(key, {nonce, 12}, {aad, aad_size}, {packet, size},
                                                {packet, sizeof(packet)}, {packet + size, 8});
-            check(enc.ok() && enc.bytes == size && equal(packet, oracle, size + 8) &&
+            check(enc.ok() && enc.bytes == size && bytes_equal(packet, oracle, size + 8) &&
                       test_filled(packet + size + 8, sizeof(packet) - size - 8, 0xa5),
                   "GCM64 matches native ciphertext and truncated tag with untouched tail");
             check(BCryptHashData(hash, packet, size + 8, 0) >= 0, "GCM64 matrix hash update");
             memset(packet, 0xa5, sizeof(packet));
             const auto disjoint = aes_gcm64_encrypt(key, {nonce, 12}, {aad, aad_size}, {plain, size},
                                                     {packet, sizeof(packet)}, {packet + size, 8});
-            check(disjoint.ok() && disjoint.bytes == size && equal(packet, oracle, size + 8) &&
+            check(disjoint.ok() && disjoint.bytes == size && bytes_equal(packet, oracle, size + 8) &&
                       test_filled(packet + size + 8, sizeof(packet) - size - 8, 0xa5),
                   "GCM64 disjoint encryption matches native oracle and preserves tails");
             // Decrypt the independent provider's ciphertext/tag, not our own result.
             const auto dec = aes_gcm64_decrypt(key, {nonce, 12}, {aad, aad_size}, {oracle, size},
                                                {oracle + size, 8}, {packet, sizeof(packet)});
-            check(dec.ok() && dec.bytes == size && equal(packet, plain, size),
+            check(dec.ok() && dec.bytes == size && bytes_equal(packet, plain, size),
                   "GCM64 decrypts independent provider ciphertext");
             copy_bytes(packet, oracle, size + 8);
             const auto in_place = aes_gcm64_decrypt(key, {nonce, 12}, {aad, aad_size}, {packet, size},
                                                     {packet + size, 8}, {packet, sizeof(packet)});
-            check(in_place.ok() && in_place.bytes == size && equal(packet, plain, size) &&
-                      equal(packet + size, oracle + size, 8),
+            check(in_place.ok() && in_place.bytes == size && bytes_equal(packet, plain, size) &&
+                      bytes_equal(packet + size, oracle + size, 8),
                   "GCM64 supports in-place authenticated decryption with adjacent tag");
             check(key.handle == retained_handle && key.storage.data == retained_storage &&
                       key.storage.locked,
                   "GCM64 operations retain the original locked owner without allocations");
         }
     }
-    check(BCryptFinishHash(hash, digest, 32, 0) >= 0 && equal(digest, expected_digest, 32),
+    check(BCryptFinishHash(hash, digest, 32, 0) >= 0 && bytes_equal(digest, expected_digest, 32),
           "GCM64 780-case ciphertext/tag digest matches independent OpenSSL oracle");
     BCryptDestroyHash(hash);
     aes_gcm64_release(&key);
@@ -205,12 +199,12 @@ void boundaries(Check check, Gcm64Backend backend) noexcept {
             continue;
         check(aes_gcm64_decrypt(key, {nonce, 12}, {}, {cipher, 16}, {tag, size}, {output, 160}).error ==
                       AeadError::invalid_input &&
-                  equal(output, original, 160),
+                  bytes_equal(output, original, 160),
               "GCM64 rejects every other tag length without writes");
     }
     check(aes_gcm64_encrypt(key, {nonce, 11}, {}, {cipher, 16}, {output, 160}, {tag, 8}).error ==
                   AeadError::invalid_input &&
-              equal(output, original, 160),
+              bytes_equal(output, original, 160),
           "GCM64 rejects wrong nonce length");
     check(aes_gcm64_encrypt(key, {nullptr, 12}, {}, {cipher, 16}, {output, 160}, {tag, 8}).error ==
               AeadError::invalid_input,
@@ -223,11 +217,11 @@ void boundaries(Check check, Gcm64Backend backend) noexcept {
     copy_bytes(saved_tag, tag, 8);
     check(aes_gcm64_encrypt(key, {nonce, 12}, {}, {cipher, 16}, {output, 15}, {tag, 8}).error ==
                   AeadError::output_too_small &&
-              equal(output, original, 160) && equal(tag, saved_tag, 8),
+              bytes_equal(output, original, 160) && bytes_equal(tag, saved_tag, 8),
           "GCM64 short encryption output preserves ciphertext and tag");
     check(aes_gcm64_encrypt(key, {nonce, 12}, {}, {output, 16}, {output + 1, 159}, {tag, 8}).error ==
                   AeadError::invalid_input &&
-              equal(output, original, 160),
+              bytes_equal(output, original, 160),
           "GCM64 rejects partial in-place alias");
     check(aes_gcm64_encrypt(key, {output, 12}, {}, {cipher, 16}, {output, 160}, {tag, 8}).error ==
               AeadError::invalid_input,
@@ -286,7 +280,7 @@ void boundaries(Check check, Gcm64Backend backend) noexcept {
                     check(aes_gcm64_encrypt(key, {nonce, 12}, {aad, 33}, {plain, size}, {tail, size},
                                             {tag, 8})
                                   .ok() &&
-                              equal(tail, expected, size) && equal(tag, expected + size, 8),
+                              bytes_equal(tail, expected, size) && bytes_equal(tag, expected + size, 8),
                           "GCM64 disjoint encryption writes exactly through the guard boundary");
                     check(
                         aes_gcm64_decrypt(key, {nonce, 12}, {aad, 33}, {tail, size}, {tag, 8}, {tail, size})

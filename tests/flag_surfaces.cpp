@@ -56,20 +56,20 @@ void scanner_cases(void (*check)(bool, const char*) noexcept) noexcept {
         "flag scanner refuses malformed UTF8 without publishing range");
 }
 void markdown_cases(void (*check)(bool, const char*) noexcept) noexcept {
-    char output[256]{}; u32 styles[256]{}, mapping[256]{};
+    char output[256]{}; u32 styles[256]{};
     TextStyleSpan spans[32]{}; MessageMarkdownSemantic semantics[16]{};
     const auto input = utf8_literal("a **\xF0\x9F\x87\xB9\xF0\x9F\x87\xAF** z");
     const auto result = message_markdown_parse(input, {output, 256}, {styles, 256}, {spans, 32},
-        {}, {semantics, 16}, {mapping, 256});
+        {}, {semantics, 16});
     const auto expected = utf8_literal("a \xF0\x9F\x87\xB9\xF0\x9F\x87\xAF z");
     bool valid = result.ok() && utf8_equal(result.text, expected) && result.semantic_count == 1 &&
         semantics[0].kind == MessageMarkdownSemanticKind::regional_flag && semantics[0].target == 504 &&
         semantics[0].byte_offset == 2 && semantics[0].byte_count == 8 &&
         semantics[0].source_offset == 4 && semantics[0].source_bytes == 8;
-    for (u32 i = 2; i < 10; ++i) valid = valid && mapping[i] == i + 2 &&
+    for (u32 i = 2; i < 10; ++i) valid = valid &&
         (styles[i] & (text_style_bold | text_style_custom_emoji)) ==
             (text_style_bold | text_style_custom_emoji);
-    check(valid, "flag markdown retains actual Unicode, source byte map and formatting");
+    check(valid, "flag markdown retains actual Unicode and formatting");
     const auto code = utf8_literal("`\xF0\x9F\x87\xB9\xF0\x9F\x87\xAF`");
     const auto code_result = message_markdown_parse(code, {output, 256}, {styles, 256}, {spans, 32}, {}, {semantics, 16});
     check(code_result.ok() && !code_result.semantic_count && !(styles[0] & text_style_custom_emoji),

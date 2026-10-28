@@ -12,11 +12,7 @@ namespace {
 
 u32 failures = 0;
 void check(bool ok, const char* what) noexcept {
-    if (ok)
-        return;
-    ++failures;
-    test_write_text("FAIL ");
-    test_write_line(what);
+    test_check(&failures, ok, what);
 }
 
 u8 unit_storage[kAv1FixtureFrames][2048];
@@ -266,7 +262,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_av1_tests_entry() noexcept {
     maicord::fixture_tests();
     maicord::unit_tests();
     maicord::fuzz_tests();
-    if (!maicord::failures)
-        maicord::test_write_line("PASS av1");
-    ExitProcess(maicord::failures);
+    maicord::test_exit(maicord::failures, "av1");
 }

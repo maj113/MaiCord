@@ -1,18 +1,14 @@
 #include "maicord/ui/text_form.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/ui/text_measure_cache.hpp"
+#include "fake_text_measure.hpp"
 
 namespace maicord {
 namespace {
 struct ConfirmationMeasure {u32 calls=0;};
 bool confirmation_measure(void* context,const UiTextMeasureRequest& request,UiTextMeasureValue* value) noexcept {
     ++static_cast<ConfirmationMeasure*>(context)->calls;
-    const auto valid=utf8_validate(request.text);if(!valid.valid||request.constraint.width<=0)return false;
-    const float natural=static_cast<float>(valid.codepoints)*8;
-    const u32 columns=maximum(1u,static_cast<u32>(request.constraint.width/8));
-    const u32 lines=request.no_wrap?1u:maximum(1u,(valid.codepoints+columns-1)/columns);
-    *value={{minimum(natural,request.constraint.width),static_cast<float>(lines)*20},16,lines};return true;
+    return fake_text_measure<true>(nullptr,request,value);
 }
 }
 void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexcept {

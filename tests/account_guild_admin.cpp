@@ -4,7 +4,6 @@
 #include "rest_submit_hook.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include "maicord/protocol/cdn_url.hpp"
 
 namespace maicord {
 namespace guild_admin_test {
@@ -699,9 +698,7 @@ void test_reason_and_head() noexcept {
     check(found && !write_rest_request_head(request, {head, sizeof(head)}).ok(),
           "request head: the encoded reason is emitted as one header line; raw values are refused");
     const auto has = [&](RestRequestWriteResult result, const char* text) noexcept {
-        u32 bytes = 0;
-        while (text[bytes])
-            ++bytes;
+        const u32 bytes = c_string_length(text);
         for (u32 i = 0; result.ok() && i + bytes <= result.bytes; ++i)
             if (bytes_equal(head + i, text, bytes))
                 return true;
@@ -932,14 +929,6 @@ void test_decoders() noexcept {
                       .error == GuildAdminError::duplicate,
           "guild admin decode: invites validate codes and nested channel/inviter identities");
 }
-
-// v122: every CDN URL entry is the module's copy of the protocol function, so
-// it returns exactly what this test's own (protocol library) copy returns.
-bool same_target(CdnTargetResult left, CdnTargetResult right, const u8* a, const u8* b) noexcept {
-    return left.bytes == right.bytes && left.host == right.host && left.error == right.error &&
-           bytes_equal(a, b, left.bytes);
-}
-
 
 // Server Profile, Boost Perks and the custom invite link at the transport.
 void test_profile_and_boost() noexcept {

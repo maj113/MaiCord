@@ -1,10 +1,9 @@
 #include "gsub_program_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 namespace maicord {namespace {
 #include "generated/cluster_execute_fixture.inc"
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 u64 bitmap[9000],snapshot[9000];u32 expected_first[262145],expected_end[262145],boundaries[9000];
 u64 model_queries=0,merge_plans=0,split_queries=0,split_operations=0,split_merges=0,execution_queries=0,glyph_checks=0,character_checks=0,start_checks=0,budget_checks=0;u32 failures=0;
 bool model() noexcept {
@@ -155,9 +154,9 @@ bool file_corpus(const wchar_t* path) noexcept {
 }
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL cluster units\n"));return 3;}if(!model()){print(utf8_literal("FAIL cluster model\n"));return 4;}if(!split_model()){print(utf8_literal("FAIL cluster split model\n"));return 6;}if(!guards()){print(utf8_literal("FAIL cluster guards\n"));return 5;}
-    const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
+    const wchar_t* command=test_arguments();
     bool ok=false;if(!*command)ok=corpus({cluster_execution_fixture,sizeof(cluster_execution_fixture)});
-    else {wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}if(quote){if(*command!='"')return 2;++command;}while(*command==' ' || *command=='\t')++command;if(*command || !n)return 2;path[n]=0;ok=file_corpus(path);}
+    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_corpus(path);}
     print(utf8_literal("model_queries="));number(model_queries);print(utf8_literal("\nmerge_plans="));number(merge_plans);print(utf8_literal("\nexecution_queries="));number(execution_queries);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\ncharacter_cluster_checks="));number(character_checks);print(utf8_literal("\ncluster_start_checks="));number(start_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
     print(utf8_literal("split_queries="));number(split_queries);print(utf8_literal("\nsplit_operations="));number(split_operations);print(utf8_literal("\nsplit_merges="));number(split_merges);print(utf8_literal("\n"));
     print(ok && !failures?utf8_literal("PASS native cluster updates\n"):utf8_literal("FAIL native cluster updates\n"));return ok && !failures?0:1;

@@ -1,5 +1,5 @@
 bool style_cluster_edit_transitions() noexcept;
-bool inspect_style_clusters(bool compare=false) noexcept {
+bool inspect_style_clusters() noexcept {
     const Utf8View texts[]{utf8_literal("ffi"),utf8_literal("office"),utf8_literal("Ae\xcc\x81V"),utf8_literal("A\xcc\x81\xcc\xa3V"),utf8_literal("A\xcc\x81\xcc\x81V"),utf8_literal("A\r\nV"),utf8_literal("A\xe2\x80\x8dV"),utf8_literal("e\xcc\x81"),utf8_literal("e\xcc\x81\xcc\x88")};
     const wchar_t* families[]{L"Segoe UI",L"Georgia",L"Consolas"};
     const u32 flags[]{text_style_link,text_style_syntax_keyword,text_style_underline,text_style_strikethrough,text_style_bold,text_style_italic,text_style_heading_1,text_style_monospace,text_style_spoiler,text_style_mention};
@@ -8,8 +8,8 @@ bool inspect_style_clusters(bool compare=false) noexcept {
         for(u32 sample=0;sample<9;++sample){const auto text=texts[sample];u32 offsets[32],count=0;
             for(u32 at=0;at<text.bytes;){offsets[count++]=at;const auto cp=utf8_decode_one(text.data+at,text.bytes-at);CHECK(cp.valid);at+=cp.width;}offsets[count]=text.bytes;
             for(u32 first=0;first<count;++first)for(u32 last=first+1;last<=count;++last)for(u32 flag=0;flag<10;++flag){++cases;const TextStyleSpan style{offsets[first],offsets[last]-offsets[first],flags[flag]};
-                CHECK(text_shape_utf8_styled(&reference,text,{&style,1},1000000,1000000,{utf16,256},&reference_output.text).ok());const auto& shaped=reference_output.text;
-                if(compare){auto system=reference;system.native_text=owner.native_text;shaped_text_reset(&native_output.text);
+                CHECK(text_shape_utf8_styled(&reference,text,{&style,1},1000000,1000000,{utf16,256},&reference_output.text).ok());
+                auto system=reference;system.native_text=owner.native_text;shaped_text_reset(&native_output.text);
                     const bool native=native_text_candidate_styled(system,text,{&style,1},1000000,1000000,&native_output.text,nullptr,TextWrapping::wrap);
                     // Some selected styles lack a ZWJ cmap entry; Windows then
                     // itemizes a separate fallback/control run. That existing
@@ -21,15 +21,10 @@ bool inspect_style_clusters(bool compare=false) noexcept {
                     if(!same(native_output,reference_output)){diagnose();CHECK(false);}
                     const auto a=text_measure_utf8_styled(&system,text,{&style,1},1000000,1000000,{utf16,256});TextMeasureResult b{};
                     CHECK(reference_shape_measure(reference,text,{&style,1},1000000,1000000,{utf16,256},TextWrapping::wrap,first==0||last==count,&b));
-                    CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count);continue;}
-                print("{\"family\":");number(family);print(",\"sample\":");number(sample);print(",\"first\":");number(first);print(",\"last\":");number(last);print(",\"flag\":");number(flag);print(",\"clusters\":[");
-                for(u32 i=0;i<shaped.cluster_count;++i){if(i)print(",");number(shaped.clusters[i]);}print("],\"glyphs\":[");
-                for(u32 i=0;i<shaped.glyph_count;++i){if(i)print(",");const auto& glyph=shaped.glyphs[i];print("[");number(glyph.index);print(",");real(glyph.advance);print(",");real(glyph.advance_offset);print(",");real(glyph.ascender_offset);print("]");}print("],\"runs\":[");
-                for(u32 i=0;i<shaped.run_count;++i){if(i)print(",");const auto& run=shaped.runs[i];print("[");number(run.text_position);print(",");number(run.text_length);print(",");number(run.first_glyph);print(",");number(run.glyph_count);print(",");number(run.style_flags);print(",");real(run.em_size);print(",");real(run.baseline_x);print(",");real(run.baseline_y);print("]");}
-                print("]}\n");
+                CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count);
             }
         }
-    }return !compare||style_cluster_edit_transitions();
+    }return style_cluster_edit_transitions();
 }
 bool style_cluster_corpus(DWriteTextSystem system,bool required_font) noexcept {
     const Utf8View texts[]{utf8_literal("ffi"),utf8_literal("office"),utf8_literal("Ae\xcc\x81V"),utf8_literal("A\xcc\x81\xcc\xa3V"),utf8_literal("A\xcc\x81\xcc\x81V"),utf8_literal("A\r\nV"),utf8_literal("A\xe2\x80\x8dV"),utf8_literal("e\xcc\x81"),utf8_literal("e\xcc\x81\xcc\x88"),

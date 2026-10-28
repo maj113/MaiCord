@@ -89,9 +89,7 @@ bool fake_message(void*, u64 channel, u64 message, mc_message_info* info, Utf8Vi
             info->flags = entry.author == kSelf ? MC_MESSAGE_OWN : 0u;
             info->revision = 3;
             info->author_name_bytes = fill_text(info->author_name, entry.author == kSelf ? "tester" : "Alice A");
-            u32 bytes = 0;
-            while (entry.text[bytes]) ++bytes;
-            *content = {entry.text, bytes};
+            *content = {entry.text, c_string_length(entry.text)};
             return true;
         }
     return false;
@@ -669,9 +667,7 @@ void publish_keybinds() noexcept {
         controls[i].id = 10 + i;
         controls[i].label = {"Shortcut", 8};
         controls[i].enabled = 1;
-        u32 bytes = 0;
-        while (chords[i][bytes]) ++bytes;
-        controls[i].text = {chords[i], bytes};
+        controls[i].text = {chords[i], c_string_length(chords[i])};
     }
     mc_settings_page page{sizeof(mc_settings_page), 4, {"Keys", 4}, {}, controls, sizeof(mc_setting), 0};
     g_settings3->set_keybind_handler(g_inproc.binding, g_inproc.generation, keybind_fired);
@@ -695,10 +691,10 @@ void test_keybinds() noexcept {
         native_plugin_settings_snapshot(descriptor->context, &snapshot) == NativePluginSettingsError::none &&
         native_plugin_settings_project(snapshot, {controls, 8}, &content) == NativePluginSettingsError::none &&
         content.controls.count == 4;
-    check(plugin.enabled && projected && contains(controls[0].description, utf8_literal("Conflicts with Search")) &&
-              !contains(controls[1].description, utf8_literal("Conflicts")) &&
-              contains(controls[2].description, utf8_literal("Conflicts with a shortcut that needs Ctrl or Alt")) &&
-              !contains(controls[3].description, utf8_literal("Conflicts")),
+    check(plugin.enabled && projected && test_contains(controls[0].description, utf8_literal("Conflicts with Search")) &&
+              !test_contains(controls[1].description, utf8_literal("Conflicts")) &&
+              test_contains(controls[2].description, utf8_literal("Conflicts with a shortcut that needs Ctrl or Alt")) &&
+              !test_contains(controls[3].description, utf8_literal("Conflicts")),
           "keybind rows say what a refused chord conflicts with");
     NativePluginSdkKeybindView views[8]{};
     check(native_plugin_sdk_keybinds(g_runtime, {views, 8}) == 2, "only usable chords are registered");
@@ -940,8 +936,8 @@ void test_showcase() noexcept {
     if (descriptor && native_plugin_settings_snapshot(descriptor->context, &snapshot) == NativePluginSettingsError::none &&
         native_plugin_settings_project(snapshot, {controls, 24}, &content) == NativePluginSettingsError::none)
         for (u32 i = 0; i < content.controls.count; ++i) {
-            logged_delete = logged_delete || contains(controls[i].label, utf8_literal("Deleted \xC2\xB7 Alice A: oops"));
-            logged_edit = logged_edit || contains(controls[i].label, utf8_literal("Edited \xC2\xB7 Alice A: first take"));
+            logged_delete = logged_delete || test_contains(controls[i].label, utf8_literal("Deleted \xC2\xB7 Alice A: oops"));
+            logged_edit = logged_edit || test_contains(controls[i].label, utf8_literal("Edited \xC2\xB7 Alice A: first take"));
         }
     check(logged_delete && logged_edit, "the settings page lists deleted and edited messages");
     // Quick reply from the message menu: modal, then a reply through mc.actions.

@@ -17,12 +17,6 @@ using namespace plugin_manager_fixture;
 using Op = PluginJournalOperation;
 using Ph = PluginJournalPhase;
 using Action = PluginRecoveryAction;
-constexpr u64 kNow = 1760400000;
-constexpr u64 kOwner = 0x0046495854555245ull;  // "FIXTURE"
-constexpr u64 kNotDll = 0x004e4f54444c4cull;   // "NOTDLL"
-constexpr u64 kCode[3]{1000000999, 1001000999, 1002000999}; // 1.0.0, 1.1.0, 1.2.0
-constexpr u64 kSettings = 1ull << 0;
-constexpr u32 kTimeoutMs = 5000;
 
 u32 g_failures;
 void check(bool passed, const char* name) noexcept { test_check(&g_failures, passed, name); }
@@ -37,7 +31,7 @@ struct Fixture {
     u8* dll;           // the fixture DLL followed by 64 zero bytes
     u8* bad;           // the same with one appended byte changed
     u32 dll_bytes;
-    u8 sha[3][32], bad_sha[32], blob_sha[32];
+    u8 sha[3][32], blob_sha[32];
     u8 blob[512];
     char index[8192];
     u32 index_bytes;
@@ -56,21 +50,16 @@ bool digest(const u8* data, u32 bytes, u8* out) noexcept {
     return sha256(g.workspace, {&part, 1}, {out, 32}).ok();
 }
 // ---- the signed official index -------------------------------------------------------------
-void plugin(Text& t, const char* slug, u64 owner) noexcept {
-    t.add(R"({"slug":")"); t.add(slug); t.add(R"(","owner_id":)"); t.number(owner);
-    t.add(R"(,"name":"Fixture","summary":"Test plugin.","publisher":"MaiCord","authors":[{"name":"Example Author"}],)");
-    t.add(R"("license":"MPL-2.0","homepage":"https://plugins.example.com/maicord/fixture","categories":["utility"],"disclosures":[],"versions":[)");
-}
 bool build_index() noexcept {
     Text t{g.index, sizeof(g.index), 0};
     t.add(R"({"format":1,"provider":{"id":"maicord","name":"MaiCord plugins","homepage":"https://plugins.example.com/maicord"},)");
     t.add(R"("sequence":1760227200,"issued":1760226600,"expires":1762818600,"plugins":[)");
-    plugin(t, "fixture", kOwner);
+    plugin(t, "fixture", kOwner, "Fixture");
     version(t, "1.2.0", kCode[2], R"("settings","menus")", g.sha[2], g.dll_bytes + 32, false);
     version(t, "1.1.0", kCode[1], R"("settings")", g.sha[1], g.dll_bytes + 16, false);
     version(t, "1.0.0", kCode[0], R"("settings")", g.sha[0], g.dll_bytes, true);
     t.add("]},");
-    plugin(t, "notdll", kNotDll);
+    plugin(t, "notdll", kNotDll, "Fixture");
     version(t, "1.0.0", kCode[0], "", g.blob_sha, sizeof(g.blob), true);
     t.add(R"(]}],"revoked":[]})");
     g.index_bytes = t.used;
@@ -79,9 +68,7 @@ bool build_index() noexcept {
     u8 hash[32]{};
     return t.used < t.capacity && sha256(g.workspace, {parts, 2}, {hash, 32}).ok() && p256_sign_digest(g.signer, {hash, 32}, {g.signature, 64}).ok();
 }
-constexpr const char* kTargets[3]{"/example/plugins/releases/download/fixture-v1.0.0/fixture-1.0.0-x64.dll",
-    "/example/plugins/releases/download/fixture-v1.1.0/fixture-1.1.0-x64.dll",
-    "/example/plugins/releases/download/fixture-v1.2.0/fixture-1.2.0-x64.dll"};
+
 void serve() noexcept {
     plugin_fake::reset(g.server, "example.github.io");
     plugin_fake::serve(g.server, UpdateHost::pages, "/plugins/v1/index.json", 200, g.index, g.index_bytes);
@@ -139,28 +126,15 @@ bool dll_present(u32 v) noexcept {
 }
 // The installed manifest's digest is version v's.
 bool manifest_is(u32 v) noexcept {
-    wchar_t path[kPluginManagerPathCapacity]{};
-    char record[4096];
     NativePluginManifest m{};
-    if (!plugin_manager_id_path(g.paths.plugins, g.paths.plugins_count, kOwner, L".maicord-plugin.json", path)) return false;
-    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    DWORD got = 0;
-    const bool read = ReadFile(file, record, sizeof(record), &got, nullptr);
-    CloseHandle(file);
-    return read && native_plugin_manifest_parse({record, got}, &m).ok() && bytes_equal(m.sha256, g.sha[v], 32);
+    return read_manifest(g.paths.plugins, g.paths.plugins_count, kOwner, &m) && bytes_equal(m.sha256, g.sha[v], 32);
 }
+// The rollback snapshot is version v's; ~0 means no snapshot.
 bool snapshot_is(u32 v) noexcept {
-    wchar_t path[kPluginManagerPathCapacity]{};
-    char record[4096];
     NativePluginManifest m{};
-    if (!plugin_manager_id_path(g.paths.rollback, g.paths.rollback_count, kOwner, L".maicord-plugin.json", path)) return false;
-    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return v == ~u32{0};
-    DWORD got = 0;
-    const bool read = ReadFile(file, record, sizeof(record), &got, nullptr);
-    CloseHandle(file);
-    return v != ~u32{0} && read && native_plugin_manifest_parse({record, got}, &m).ok() && bytes_equal(m.sha256, g.sha[v], 32);
+    bool present = false;
+    const bool parsed = read_manifest(g.paths.rollback, g.paths.rollback_count, kOwner, &m, &present);
+    return v == ~u32{0} ? !present : parsed && bytes_equal(m.sha256, g.sha[v], 32);
 }
 PluginManagerState g_state;
 NativePluginPreferences g_trust;
@@ -199,11 +173,14 @@ Op journal_operation() noexcept {
 bool settled_clean() noexcept { return journal_operation() == Op::none && staging_files() == 0; }
 
 // ---- driving one operation -------------------------------------------------------------------
-PluginManagerResult prepare(Op operation, u32 v, u64 approved, bool enable_after = false) noexcept {
-    serve();
-    PluginManagerRequest request{operation, kOwner, operation == Op::rollback ? 0 : kCode[v], approved, enable_after};
+// Routes: 0 index, 1 signature, 2-4 versions 1.0.0-1.2.0, 5 the non-DLL blob.
+PluginManagerResult prepare_served(const PluginManagerRequest& request) noexcept {
     return plugin_manager_prepare(g.paths, g.source, request, plugin_fake::transport(g.server), g.workspace, &g.index_work, nullptr, &g.work,
         kNow, &g.prepared);
+}
+PluginManagerResult prepare(Op operation, u32 v, u64 approved, bool enable_after = false) noexcept {
+    serve();
+    return prepare_served({operation, kOwner, operation == Op::rollback ? 0 : kCode[v], approved, enable_after});
 }
 // The installer handshake the UI performs; nothing is loaded, so it commits at prepared.
 NativePluginBundleInstallResult install(u32 fault = 0) noexcept {
@@ -286,11 +263,6 @@ void test_lifecycle() noexcept {
     RemoveDirectoryW(g.paths.data);
 }
 
-// Routes: 0 index, 1 signature, 2-4 versions 1.0.0-1.2.0, 5 the non-DLL blob.
-PluginManagerResult prepare_served(const PluginManagerRequest& request) noexcept {
-    return plugin_manager_prepare(g.paths, g.source, request, plugin_fake::transport(g.server), g.workspace, &g.index_work, nullptr, &g.work,
-        kNow, &g.prepared);
-}
 void test_download_failures() noexcept {
     const PluginManagerRequest request{Op::install, kOwner, kCode[1], kSettings, false};
     // Same size, another digest: nothing reaches plugins\.
@@ -427,14 +399,8 @@ void test_plan() noexcept {
 }
 
 bool setup() noexcept {
-    wchar_t temp[MAX_PATH]{};
-    const DWORD n = GetTempPathW(MAX_PATH, temp);
-    if (!n || n >= MAX_PATH - 64 || !GetTempFileNameW(temp, L"MPM", 0, g.root) || !DeleteFileW(g.root) || !CreateDirectoryW(g.root, nullptr))
-        return false;
-    u32 count = 0;
-    while (g.root[count]) { g.base[count] = g.root[count]; ++count; }
-    for (const wchar_t* leaf = L"\\MaiCord"; *leaf; ++leaf) g.base[count++] = *leaf;
-    if (!CreateDirectoryW(g.base, nullptr) || !plugin_manager_paths_build({g.base, count}, &g.paths) || !plugin_manager_paths_ensure(g.paths))
+    const u32 count = make_root(L"MPM", g.root, g.base);
+    if (!count || !plugin_manager_paths_build({g.base, count}, &g.paths) || !plugin_manager_paths_ensure(g.paths))
         return false;
     // The fixture DLL next to this executable.
     if (!read_dll(&g.dll, &g.dll_bytes, 2)) return false;
@@ -448,7 +414,7 @@ bool setup() noexcept {
     g.permissions_menus = 1ull << native_plugin_permission_bit(utf8_literal("menus"));
     return kdf_sha256_initialize(&g.workspace).ok() && p256_import_private(&g.signer, P256Kind::ecdsa, {scalar, 32}).ok() &&
         p256_import_public(&g.trusted, P256Kind::ecdsa, {kGenerator, 65}).ok() && digest(g.dll, g.dll_bytes, g.sha[0]) &&
-        digest(g.dll, g.dll_bytes + 16, g.sha[1]) && digest(g.dll, g.dll_bytes + 32, g.sha[2]) && digest(g.bad, g.dll_bytes + 16, g.bad_sha) &&
+        digest(g.dll, g.dll_bytes + 16, g.sha[1]) && digest(g.dll, g.dll_bytes + 32, g.sha[2]) &&
         digest(g.blob, sizeof(g.blob), g.blob_sha) && build_index() &&
         plugin_catalog_source_official(utf8_literal("example/plugins"), {keys, 1}, &g.source);
 }

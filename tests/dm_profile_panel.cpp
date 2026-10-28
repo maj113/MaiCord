@@ -26,6 +26,7 @@
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/typing_indicator.hpp"
 #include "../src/app/account_ui_runtime.hpp"
+#include "fake_text_measure.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
@@ -43,19 +44,6 @@ void check(bool passed, const char* label) noexcept {
 }
 bool near(float a, float b) noexcept {
     return a - b < .01f && b - a < .01f;
-}
-// 8 DIPs a code point, 20 a line.
-bool measure_text(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
-    const auto validation = utf8_validate(request.text);
-    if (!validation.valid || request.constraint.width <= 0)
-        return false;
-    const float natural = static_cast<float>(validation.codepoints) * 8;
-    const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
-    const u32 lines = request.no_wrap ? 1u : maximum(1u, (validation.codepoints + columns - 1) / columns);
-    *value = {{request.no_wrap ? natural : minimum(natural, request.constraint.width), static_cast<float>(lines) * 20},
-              16,
-              lines};
-    return true;
 }
 RestClientSubmitResult WINAPI read_profile(void*, u64 user, u64 guild, u64 id, u8 operation, Utf8View value) noexcept {
     if (admission == RestClientSubmitError::none) {
@@ -220,10 +208,10 @@ void typing_cases() noexcept {
     ui_typing_dot_pose(2, kUiTypingDotsRest, &scale, &opacity);
     check(rest && peak && lagged && near(scale, 1) && near(opacity, 1),
           "typing dots: 80%/30% at rest, full at the pulse's middle, 150 ms apart; held full at rest");
-    UiTypingDot dots[kUiTypingDotCount];
-    ui_typing_dots_geometry({10, 0, 40, 20}, kUiTypingDotsRest, dots);
-    check(near(dots[0].rectangle.left, 10) && near(ui_rect_width(dots[1].rectangle), 7) &&
-              near(dots[2].rectangle.left - dots[1].rectangle.left, 8.75f) && near(dots[2].rectangle.top, 6.5f) &&
+    PaintQuad dots[kUiTypingDotCount];
+    ui_typing_dots_quads({10, 0, 40, 20}, kDefaultTheme.text_primary, kUiTypingDotsRest, dots);
+    check(near(dots[0].left, 10) && near(dots[1].right - dots[1].left, 7) &&
+              near(dots[2].left - dots[1].left, 8.75f) && near(dots[2].top, 6.5f) &&
               near(kUiTypingLabelInset, 8 + 24.5f + 4),
           "typing dots: three 7 DIP dots 8.75 apart, the label 4 after them");
     PaintStream paint{};
@@ -307,7 +295,7 @@ bool fixture_setup() noexcept {
         !private_channel_store_replace(&private_store, {9998, 0, {peer, 1}, {}, true, false, false}) ||
         !private_channel_store_replace(&private_store, {9996, 0, {other, 1}, {}, true, false, false}) ||
         !relationship_store_initialize(&relations, {f.relation_records, 4}) ||
-        !ui_text_measure_cache_initialize(&ui.text_measure_cache, {f.measure_records, 128}, measure_text, nullptr))
+        !ui_text_measure_cache_initialize(&ui.text_measure_cache, {f.measure_records, 128}, fake_text_measure<>, nullptr))
         return false;
     RelationshipRecord friend_record{};
     friend_record.user_id = 123;
@@ -844,9 +832,5 @@ bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<Pop
 
 extern "C" __declspec(noreturn) void WINAPI maicord_dm_profile_tests_entry() noexcept {
     maicord::dm_profile_test::run();
-    const bool failed = maicord::dm_profile_test::failures != 0;
-    constexpr char pass[] = "PASS DM view chrome\n", fail[] = "FAIL DM view chrome\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::dm_profile_test::failures, "DM view chrome");
 }

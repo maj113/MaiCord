@@ -5,7 +5,6 @@
 // (MAICORD_ACCOUNT_VIDEO_GENERIC_PROBE=1 accepts any clip), so it is a manual run.
 #include "maicord/app/account_video_session.hpp"
 #include "maicord/render/video_frame_gpu.hpp"
-#include "maicord/platform/hevc_gpu_decoder.hpp"
 #include "maicord/media/encoded_audio.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/sys/d3d11.hpp"

@@ -36,12 +36,6 @@ bool headers_contain(Utf8View value) noexcept {
         if (bytes_equal(fixture.headers.data + i, value.data, value.bytes)) return true;
     return false;
 }
-bool contains(Utf8View text, Utf8View value) noexcept {
-    for (u32 i = 0; i + value.bytes <= text.bytes; ++i)
-        if (bytes_equal(text.data + i, value.data, value.bytes))
-            return true;
-    return false;
-}
 } // namespace maicord::captcha_login_test
 
 namespace maicord {
@@ -210,15 +204,15 @@ bool solve(AccountLoginRuntime* owner, u64 generation, Utf8View solution, u16* u
         static char answer[24 * 1024];
         int received = 0, total = 0;
         while (okay && (received = recv(handle, answer + total, static_cast<int>(sizeof(answer)) - total, 0)) > 0) total += received;
-        okay = okay && total > 12 && answer[9] == (round ? '2' : '2') && answer[10] == '0' && answer[11] == (round ? '4' : '0');
+        okay = okay && total > 12 && answer[9] == '2' && answer[10] == '0' && answer[11] == (round ? '4' : '0');
         if (okay && !round && enterprise) {
             const Utf8View page{answer, static_cast<u32>(total)};
-            okay = contains(page, utf8_literal("\"k\":\"6LeYqFcqAAAAAD6iZesmNgVulsO4PkpBdr6NVG6M\"")) &&
-                   contains(page, utf8_literal("enterprise.js?render=")) &&
-                   contains(page, utf8_literal("encodeURIComponent(c.k)")) &&
-                   contains(page, utf8_literal("\"a\":\"login/password\"")) &&
-                   !contains(page, utf8_literal("render=explicit")) &&
-                   !contains(page, utf8_literal("a.render("));
+            okay = test_contains(page, utf8_literal("\"k\":\"6LeYqFcqAAAAAD6iZesmNgVulsO4PkpBdr6NVG6M\"")) &&
+                   test_contains(page, utf8_literal("enterprise.js?render=")) &&
+                   test_contains(page, utf8_literal("encodeURIComponent(c.k)")) &&
+                   test_contains(page, utf8_literal("\"a\":\"login/password\"")) &&
+                   !test_contains(page, utf8_literal("render=explicit")) &&
+                   !test_contains(page, utf8_literal("a.render("));
         }
         SecureZeroMemory(wire, sizeof(wire)); SecureZeroMemory(answer, sizeof(answer)); SecureZeroMemory(body, sizeof(body));
         closesocket(handle);
@@ -408,6 +402,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_captcha_bridge_tests_entry()
     maicord::test_captcha_bridge_protocol(report);
     maicord::test_captcha_bridge_runtime(report);
     maicord::captcha_login_test::run();
-    if (!failures) maicord::test_write_line("PASS maicord_captcha_bridge");
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "maicord_captcha_bridge");
 }

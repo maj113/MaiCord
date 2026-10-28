@@ -255,39 +255,8 @@ void relative_uris() noexcept {
           selected.audio.uri.bytes && hls_master_playlist(master,720,&selected)==E::malformed,
           "relative master mode selects independent audio and video while default admission stays unchanged");
 }
-void capture(bool live = false) noexcept {
-    char path[1024]{}; wchar_t wide[1024]{};
-    const u32 length = GetEnvironmentVariableA(live ? "MAICORD_HLS_LIVE_PLAYLIST_PROBE" : "MAICORD_HLS_PLAYLIST_PROBE", path, sizeof(path));
-    if (!length) return;
-    if (length >= sizeof(path)) { check(false, "HLS capture path bound"); return; }
-    for (u32 i = 0; i < length; ++i) { if (static_cast<u8>(path[i]) >= 128) { check(false, "HLS capture ASCII path"); return; } wide[i] = path[i]; }
-    const HANDLE file = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) { check(false, "HLS capture opens"); return; }
-    static char bytes[256 * 1024]; Win32LargeInteger size{}; DWORD read{};
-    const bool loaded = GetFileSizeEx(file, size.native()) && size.QuadPart > 0 && static_cast<u64>(size.QuadPart) <= sizeof(bytes) &&
-        ReadFile(file, bytes, static_cast<DWORD>(size.QuadPart), &read, nullptr) && read == size.QuadPart;
-    CloseHandle(file);
-    HlsMediaPlaylist playlist{}; HlsMediaSegment current{};
-    const auto result = loaded ? hls_media_playlist({bytes, read}, &playlist,
-        live ? HlsPlaylistMode::sliding : HlsPlaylistMode::complete) : HlsPlaylistError::invalid_input;
-    test_write_metric("HLS real playlist error: ", static_cast<u32>(result));
-    bool valid = result == HlsPlaylistError::none && hls_media_segment(playlist, 0, &current);
-    u32 walked = 0;
-    for (u32 i = 0; valid && i < playlist.segments; ++i) {
-        HlsMediaSegment found{};
-        valid = current.index == i && hls_media_find(playlist, current.time_us + current.duration_us / 2, &found) &&
-            found.index == i && utf8_equal(found.uri, current.uri);
-        if (!valid) break;
-        ++walked;
-        if (i + 1 < playlist.segments) valid = hls_media_follow(playlist, current, &current);
-    }
-    check(valid && walked == (live ? 15u : 336u) && playlist.ended != live && current.time_us + current.duration_us == playlist.duration_us,
-        "real Twitch playlist walks and seeks all variable-duration media files without a URI index allocation");
-    test_write_metric("HLS real segments: ", walked);
-    test_write_metric("HLS real duration us: ", playlist.duration_us);
-}
 }
 }
 extern "C" __declspec(noreturn) void WINAPI maicord_hls_playlist_entry() noexcept {
-    maicord::run(); maicord::master(); maicord::sliding(); maicord::relative_uris(); maicord::capture(); maicord::capture(true); ExitProcess(maicord::failures ? 1 : 0);
+    maicord::run(); maicord::master(); maicord::sliding(); maicord::relative_uris(); ExitProcess(maicord::failures ? 1 : 0);
 }

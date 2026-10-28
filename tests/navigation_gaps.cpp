@@ -216,10 +216,7 @@ bool state(State& s, ConstSlice<u64> ids) noexcept {
         return false;
     const char* names[] = {"Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"};
     for (u32 i = 0; i < ids.count; ++i) {
-        u32 bytes = 0;
-        while (names[i][bytes])
-            ++bytes;
-        GuildInput input{ids[i], {names[i], bytes}, GuildMutationKind::create, 1};
+        GuildInput input{ids[i], {names[i], c_string_length(names[i])}, GuildMutationKind::create, 1};
         if (!chat_state_store_upsert_guild(&s.store, input).ok())
             return false;
     }

@@ -327,10 +327,5 @@ void run() noexcept {
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_gateway_self_status_runtime_entry() noexcept {
     maicord::run();
-    const bool failed = maicord::failures != 0;
-    constexpr char pass[] = "PASS gateway self status runtime\n",
-                   fail[] = "FAIL gateway self status runtime\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::failures, "gateway self status runtime");
 }

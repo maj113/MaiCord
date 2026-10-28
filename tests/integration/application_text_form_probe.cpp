@@ -28,9 +28,6 @@ bool probe_friends_requests_visible;
 bool application_friends_active() noexcept {
     return probe_friends_visible;
 }
-bool application_friends_requests_active() noexcept {
-    return probe_friends_requests_visible;
-}
 MessageComposer* application_friends_search_model() noexcept {
     return probe_friends_search;
 }

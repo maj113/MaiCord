@@ -14,9 +14,6 @@ JsonString text(Utf8View value) noexcept {
 bool equal(ConstSlice<u8> bytes, Utf8View expected) noexcept {
     return bytes.count == expected.bytes && bytes_equal(bytes.data, expected.data, bytes.count);
 }
-bool equal(Utf8View left, Utf8View right) noexcept {
-    return left.bytes == right.bytes && bytes_equal(left.data, right.data, left.bytes);
-}
 template <typename Writer> bool written(Writer write, Utf8View expected) noexcept {
     u8 output[256];
     const auto measured = write(Slice<u8>{});
@@ -46,9 +43,9 @@ void test_keys(Check check) noexcept {
     const GatewayStreamKey call = gateway_stream_key_for(0, 20, 300);
     char text_key[kGatewayStreamKeyMaximumBytes];
     u32 bytes = gateway_stream_key_write(guild, {text_key, sizeof(text_key)});
-    check(equal({text_key, bytes}, utf8_literal("guild:1:20:300")), "stream key: guild text");
+    check(utf8_equal({text_key, bytes}, utf8_literal("guild:1:20:300")), "stream key: guild text");
     bytes = gateway_stream_key_write(call, {text_key, sizeof(text_key)});
-    check(equal({text_key, bytes}, utf8_literal("call:20:300")), "stream key: call text");
+    check(utf8_equal({text_key, bytes}, utf8_literal("call:20:300")), "stream key: call text");
     const GatewayStreamKey widest = gateway_stream_key_for(~u64{0}, ~u64{0}, ~u64{0});
     bytes = gateway_stream_key_write(widest, {text_key, sizeof(text_key)});
     GatewayStreamKey parsed{};
@@ -94,7 +91,7 @@ void test_writers(Check check) noexcept {
     char url[256];
     const u32 url_bytes = gateway_stream_preview_url(
         utf8_literal("{\"url\":\"https:\\/\\/media.discordapp.net\\/preview.jpg?x=1\"}"), {scratch, 64}, {url, 256});
-    check(equal({url, url_bytes}, utf8_literal("https://media.discordapp.net/preview.jpg?x=1")),
+    check(utf8_equal({url, url_bytes}, utf8_literal("https://media.discordapp.net/preview.jpg?x=1")),
           "stream preview URL decodes escapes");
     check(!gateway_stream_preview_url(utf8_literal("{\"url\":\"http://x.test/a\"}"), {scratch, 64}, {url, 256}) &&
               !gateway_stream_preview_url(utf8_literal("{\"url\":null}"), {scratch, 64}, {url, 256}) &&
@@ -204,9 +201,9 @@ void test_control(Check check) noexcept {
     VoiceSetupCredentials credentials{};
     check(control.phase == GatewayStreamPhase::connecting && voice_setup_credentials(control.setup, &credentials) &&
               credentials.stream && credentials.server_id == 5000 && credentials.channel_id == 4321 &&
-              credentials.user_id == 42 && equal(credentials.session, utf8_literal("main-session")) &&
-              equal(credentials.token, utf8_literal("stream-token")) &&
-              equal(credentials.endpoint, utf8_literal("stream.example.test:443")) &&
+              credentials.user_id == 42 && utf8_equal(credentials.session, utf8_literal("main-session")) &&
+              utf8_equal(credentials.token, utf8_literal("stream-token")) &&
+              utf8_equal(credentials.endpoint, utf8_literal("stream.example.test:443")) &&
               credentials.generation != created_generation && !control.setup.state_deadline_ms,
           "STREAM_SERVER_UPDATE yields second-connection credentials (rtc server/channel, main session)");
     gateway_stream_dispatch(&control,

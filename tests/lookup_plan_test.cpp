@@ -1,18 +1,14 @@
-// Manual: --cost measures lookup planning; the registered run is the check.
 #include "maicord/text/lookup_plan.hpp"
 #include "maicord/text/nominal_participation.hpp"
 #include "maicord/text/nominal_sources.hpp"
 #include "gsub_program_fixture.hpp"
 #include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/text/font_store.hpp"
 #include "../src/text/lookup_plan_finish.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 namespace maicord {namespace {
 #include "generated/lookup_plan_fixture.inc"
 #include "generated/layout_directory_fixture.inc"
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 bool error(u32 font,u32 config,u32 code) noexcept {print(utf8_literal("FAIL font="));number(font);print(utf8_literal(" config="));number(config);print(utf8_literal(" code="));number(code);print(utf8_literal("\n"));return false;}
 struct Reader {ConstSlice<u8> data;u32 at=0;bool word(u32* value) noexcept {if(data.count-at<4)return false;*value=byte_load_le32(data.data+at);at+=4;return true;}bool take(u32 n,ConstSlice<u8>* v) noexcept {if(n>data.count-at)return false;*v={data.data+at,n};at+=n;return true;}};
 SfntGsubExecutableLookup gs_lookups[16];SfntGsubExecutableSubtable gs_subs[32];SfntCoverage cov[32];SfntClassDef classes[32];
@@ -144,13 +140,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         }
     }return r.at==bytes.count;
 }
-#include "lookup_plan_cost.inc"
 int run() noexcept {
-    const wchar_t* command=GetCommandLineW();bool quoted=false;
-    while(*command){if(*command=='"')quoted=!quoted;else if(!quoted&&(*command==' '||*command=='\t'))break;++command;}
-    while(*command==' '||*command=='\t')++command;
-    if(*command){const wchar_t argument[]=L"--cost";u32 i=0;while(argument[i]&&command[i]==argument[i])++i;
-        if(argument[i]||command[i])return 1;return lookup_cost()?0:1;}
     const bool boundary_ok=boundaries();if(!boundary_ok)print(utf8_literal("FAIL plan boundaries\n"));const bool ok=boundary_ok && corpus({plan_fixture,sizeof(plan_fixture)});print(utf8_literal("queries="));number(queries);print(utf8_literal("\nlookup_checks="));number(lookup_checks);print(utf8_literal("\nglyph_checks="));number(glyph_checks);print(utf8_literal("\nplacement_checks="));number(placement_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguard_checks="));number(guard_checks);print(utf8_literal("\napp_checks="));number(app_checks);print(ok?utf8_literal("\nPASS native lookup plan\n"):utf8_literal("\nFAIL native lookup plan\n"));return ok?0:1;}
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_lookup_plan_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

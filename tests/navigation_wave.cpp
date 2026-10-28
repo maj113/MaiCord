@@ -37,16 +37,11 @@ struct State {
     ChatStateStore store;
 };
 bool add_guild(State& s, u64 id, const char* name, u64 owner = 1) noexcept {
-    u32 bytes = 0;
-    while (name[bytes])
-        ++bytes;
-    return chat_state_store_upsert_guild(&s.store, {id, {name, bytes}, GuildMutationKind::create, owner}).ok();
+    return chat_state_store_upsert_guild(&s.store, {id, {name, c_string_length(name)}, GuildMutationKind::create, owner})
+        .ok();
 }
 bool add_channel(State& s, u64 id, u64 guild, u64 parent, u8 type, u32 position, const char* name) noexcept {
-    u32 bytes = 0;
-    while (name[bytes])
-        ++bytes;
-    ChannelInput input{id, guild, parent, {name, bytes}, position, 0, type};
+    ChannelInput input{id, guild, parent, {name, c_string_length(name)}, position, 0, type};
     input.name_known = true;
     return chat_state_store_upsert_channel(&s.store, input).ok();
 }
@@ -510,9 +505,24 @@ void server_menu() noexcept {
           "menu: developer ID for live servers; settings only with a settings permission");
 }
 
+struct List {
+    State s;
+    GuildViewRow guild_rows[4];
+    ChannelViewRow channel_rows[16];
+    u16 sorting[16];
+    u8 visible[16];
+    ChannelSortKey keys[16];
+    NavigationView view;
+};
+bool list_view_init(List& l) noexcept {
+    return navigation_view_initialize(&l.view, {l.guild_rows, 4}, {l.channel_rows, 16}, {l.sorting, 16},
+                                      {l.visible, 16}, {l.keys, 16});
+}
+
 // ---- hide muted channels ---------------------------------------------------------------
 void hide_muted() noexcept {
-    State s{};
+    List l{};
+    State& s = l.s;
     check(initialize(s) && add_guild(s, 1, "Lab") && add_channel(s, 10, 1, 0, 0, 0, "general") &&
               add_channel(s, 11, 1, 0, 0, 1, "noisy") && add_channel(s, 12, 1, 0, 4, 2, "Muted") &&
               add_channel(s, 13, 1, 12, 0, 0, "inside"),
@@ -520,18 +530,11 @@ void hide_muted() noexcept {
     constexpr u64 ids[]{10, 11, 12, 13};
     for (const u64 id : ids)
         grant(s, id, kPermissionViewChannel | kPermissionReadMessageHistory);
-    GuildViewRow guild_rows[4]{};
-    ChannelViewRow channel_rows[16]{};
-    u16 sorting[16]{};
-    u8 visible[16]{};
-    ChannelSortKey keys[16]{};
-    NavigationView view{};
     const auto shown = [&](u64 id) noexcept {
-        return navigation_view_rebuild(&view, s.store).ok() && navigation_view_find_channel(view, id) != nullptr;
+        return navigation_view_rebuild(&l.view, s.store).ok() && navigation_view_find_channel(l.view, id) != nullptr;
     };
     // A server-wide mute marks rows muted but not dimmed; it never hides them.
-    check(navigation_view_initialize(&view, {guild_rows, 4}, {channel_rows, 16}, {sorting, 16}, {visible, 16},
-                                     {keys, 16}) &&
+    check(list_view_init(l) &&
               chat_state_store_select_channel(&s.store, 10).ok() &&
               chat_state_store_set_channel_mute(&s.store, 10, true, false) &&
               chat_state_store_set_channel_mute(&s.store, 11, true, true) &&
@@ -550,7 +553,8 @@ void hide_muted() noexcept {
 
 // ---- channel opt-in ("Show all channels" off) ---------------------------------------
 void channel_opt_in() noexcept {
-    State s{};
+    List l{};
+    State& s = l.s;
     check(initialize(s) && add_guild(s, 1, "Lab") && add_channel(s, 10, 1, 0, 0, 0, "general") &&
               add_channel(s, 11, 1, 0, 0, 1, "other") && add_channel(s, 12, 1, 0, 4, 2, "Picked") &&
               add_channel(s, 13, 1, 12, 0, 0, "inside") && add_channel(s, 14, 1, 0, 4, 3, "Empty"),
@@ -559,17 +563,10 @@ void channel_opt_in() noexcept {
     for (const u64 id : ids)
         grant(s, id, kPermissionViewChannel | kPermissionReadMessageHistory);
     grant(s, 14, kPermissionViewChannel | kPermissionManageChannels); // an empty category stays for its managers
-    GuildViewRow guild_rows[4]{};
-    ChannelViewRow channel_rows[16]{};
-    u16 sorting[16]{};
-    u8 visible[16]{};
-    ChannelSortKey keys[16]{};
-    NavigationView view{};
     const auto shown = [&](u64 id) noexcept {
-        return navigation_view_rebuild(&view, s.store).ok() && navigation_view_find_channel(view, id) != nullptr;
+        return navigation_view_rebuild(&l.view, s.store).ok() && navigation_view_find_channel(l.view, id) != nullptr;
     };
-    check(navigation_view_initialize(&view, {guild_rows, 4}, {channel_rows, 16}, {sorting, 16}, {visible, 16},
-                                     {keys, 16}) &&
+    check(list_view_init(l) &&
               chat_state_store_select_channel(&s.store, 10).ok() &&
               chat_state_store_set_channel_opted_in(&s.store, 13, true) && shown(11) && shown(14),
           "channel opt-in: every channel is listed while opt-in is off");
@@ -583,19 +580,8 @@ void channel_opt_in() noexcept {
 }
 
 // ---- channel list order ------------------------------------------------------------
-struct List {
-    State s;
-    GuildViewRow guild_rows[4];
-    ChannelViewRow channel_rows[16];
-    u16 sorting[16];
-    u8 visible[16];
-    ChannelSortKey keys[16];
-    NavigationView view;
-};
 bool list_ready(List& l, u64 guild = 1) noexcept {
-    return navigation_view_initialize(&l.view, {l.guild_rows, 4}, {l.channel_rows, 16}, {l.sorting, 16},
-                                      {l.visible, 16}, {l.keys, 16}) &&
-           chat_state_store_select_guild(&l.s.store, guild).ok();
+    return list_view_init(l) && chat_state_store_select_guild(&l.s.store, guild).ok();
 }
 bool rows_are(const NavigationView& view, const u64* ids, u32 count) noexcept {
     if (view.channel_count != count)
@@ -902,35 +888,33 @@ struct Wire {
     u8 visible[16];
     ChannelSortKey keys[16];
     NavigationView view;
-    bool apply(Utf8View wire) noexcept {
+    // Decodes one dispatch and routes it as a state event or a THREAD_MEMBERS_UPDATE.
+    bool route(Utf8View wire, bool members, GatewayClientEvent* event, ConstSlice<u8>* output) noexcept {
         GatewayEnvelope envelope{};
+        bool handled = false;
+        event->kind = GatewayClientEventKind::dispatch;
+        if (!gateway_decode_envelope(wire, {structurals, 2048}, 32, &envelope).ok())
+            return false;
+        const auto routed =
+            members ? gateway_client_route_thread_member_dispatch(envelope, {structurals, 2048}, 32,
+                                                                  {payload, sizeof(payload)}, 1, event, output,
+                                                                  &handled)
+                    : gateway_client_route_state_dispatch(envelope, {structurals, 2048}, 32,
+                                                          {payload, sizeof(payload)}, 1, event, output, &handled);
+        return routed.ok() && handled;
+    }
+    bool apply(Utf8View wire) noexcept {
         GatewayClientEvent event{};
         ConstSlice<u8> output{};
-        bool handled = false;
-        event.kind = GatewayClientEventKind::dispatch;
-        if (!gateway_decode_envelope(wire, {structurals, 2048}, 32, &envelope).ok() ||
-            !gateway_client_route_state_dispatch(envelope, {structurals, 2048}, 32, {payload, sizeof(payload)}, 1,
-                                                 &event, &output, &handled)
-                 .ok() ||
-            !handled)
+        if (!route(wire, false, &event, &output))
             return false;
         event.dispatch_payload_bytes = output.count;
         return chat_state_apply_gateway_event(&store, event, output, {}).ok();
     }
-    // THREAD_MEMBERS_UPDATE routes beside the state events.
     bool apply_members(Utf8View wire) noexcept {
-        GatewayEnvelope envelope{};
         GatewayClientEvent event{};
         ConstSlice<u8> output{};
-        bool handled = false;
-        event.kind = GatewayClientEventKind::dispatch;
-        if (!gateway_decode_envelope(wire, {structurals, 2048}, 32, &envelope).ok() ||
-            !gateway_client_route_thread_member_dispatch(envelope, {structurals, 2048}, 32,
-                                                         {payload, sizeof(payload)}, 1, &event, &output, &handled)
-                 .ok() ||
-            !handled)
-            return false;
-        return chat_state_apply_thread_authority(event, output, &store).ok();
+        return route(wire, true, &event, &output) && chat_state_apply_thread_authority(event, output, &store).ok();
     }
     template <u32 N>
     bool listed(const u64 (&ids)[N]) noexcept {

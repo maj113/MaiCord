@@ -1,3 +1,4 @@
+#include "maicord/core/byte_order.hpp"
 #include "maicord/protocol/mls_objects.hpp"
 #include "mls_fixture_digest.hpp"
 #include "test_output.hpp"
@@ -30,9 +31,6 @@ T exercise(Check check, u8* data, u32 n) noexcept {
 }
 // MLSMessage envelope: version(2) wire_format(2), then the Welcome (3) or
 // GroupInfo (4) body.
-u16 be16(const u8* data) noexcept {
-    return static_cast<u16>(data[0] << 8 | data[1]);
-}
 void corpus(Check check, u8* data) noexcept {
     void* hash = nullptr;
     check(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) >= 0,
@@ -41,7 +39,7 @@ void corpus(Check check, u8* data) noexcept {
         return;
     for (const auto* hex : mls_join_message_vectors) {
         const u32 n = test_unhex(hex, data);
-        const u16 version = be16(data), format = be16(data + 2);
+        const u16 version = byte_load_be16(data), format = byte_load_be16(data + 2);
         check(n > 4 && version == 1 && (format == 3 || format == 4), "MLS join envelope is a Welcome or GroupInfo");
         MlsFixtureDigest digest{check, hash, {data, n},
             "MLS join fields borrow only supplied wire", "MLS join normalized field size", "MLS join normalized field payload"};

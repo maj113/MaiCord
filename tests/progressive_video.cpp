@@ -187,10 +187,7 @@ u32 put_number(char* out, u32 at, u64 value) noexcept {
     return at;
 }
 ConstSlice<u8> head(const char* text) noexcept {
-    u32 count = 0;
-    while (text[count])
-        ++count;
-    return {reinterpret_cast<const u8*>(text), count};
+    return {reinterpret_cast<const u8*>(text), c_string_length(text)};
 }
 
 // Fake CDN: answers one range with a 206 (or a configured failure mode),

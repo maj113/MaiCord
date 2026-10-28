@@ -89,14 +89,11 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         ui_scene_release(&shell);
     }
     {
-        char scratch[1024]{};
-        u32 flags[1024]{}, offsets[1024]{};
         TextStyleSpan spans[256]{};
         const auto source = utf8_literal(
             "**bold *both* end** __under__ ~~strike~~ `code <#42>`\n```cpp\nint x = 1;\n```\n<@&99> <#42> "
             "<:party:111> **after**\n- *item*\nhttps://discord.com/channels/1/2/3 **linkend**");
-        const u32 count = message_markdown_source_styles(source, {scratch, 1024}, {flags, 1024},
-                                                         {offsets, 1024}, {spans, 256});
+        const u32 count = message_markdown_source_styles(source, {spans, 256});
         const auto style_at = [&](Utf8View needle) noexcept {
             for (u32 i = 0; i + needle.bytes <= source.bytes; ++i) {
                 if (!utf8_equal({source.data + i, needle.bytes}, needle))

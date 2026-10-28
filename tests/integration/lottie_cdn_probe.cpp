@@ -81,68 +81,8 @@ Lifecycle lifecycle(u32 cycle) noexcept {
     valid=valid&&stopped&&!owned&&final_ok&&resources_ok&&ownership_released;
     return {baseline,final_handles,owned,valid};
 }
-u32 warm_cycles() noexcept {
-    char value[2]{};SetLastError(ERROR_SUCCESS);
-    const DWORD length=GetEnvironmentVariableA("MAICORD_RESOURCE_PROBE_WARM_CYCLES",value,sizeof(value));
-    if(!length&&GetLastError()==ERROR_ENVVAR_NOT_FOUND)return 1;
-    if(length==1&&value[0]>='1'&&value[0]<='8')return static_cast<u32>(value[0]-'0');
-    print("resource_warm_cycles_invalid_expected_one_character_1_to_8\n");return 0;
-}
-u32 control_samples() noexcept {
-    char value[3]{};SetLastError(ERROR_SUCCESS);
-    const DWORD length=GetEnvironmentVariableA("MAICORD_RESOURCE_PROBE_CONTROL_SAMPLES",value,sizeof(value));
-    if(!length&&GetLastError()==ERROR_ENVVAR_NOT_FOUND)return 0;
-    if(length==2&&value[0]=='1'&&value[1]=='6')return 16;
-    if(length==2&&value[0]=='3'&&value[1]=='0')return 30;
-    print("resource_control_samples_invalid_expected_16_or_30\n");return ~0u;
-}
-bool control_interval(u32* milliseconds) noexcept {
-    char value[5]{};SetLastError(ERROR_SUCCESS);
-    const DWORD length=GetEnvironmentVariableA("MAICORD_RESOURCE_PROBE_CONTROL_INTERVAL_MS",value,sizeof(value));
-    *milliseconds=0;
-    if(!length&&GetLastError()==ERROR_ENVVAR_NOT_FOUND)return true;
-    if(length==0||length>4)return false;
-    for(u32 i=0;i<length;++i){if(value[i]<'0'||value[i]>'9')return false;*milliseconds=*milliseconds*10+static_cast<u32>(value[i]-'0');}
-    return *milliseconds<=1000;
-}
-bool control_heap_summary(bool* enabled) noexcept {
-    char value[2]{};SetLastError(ERROR_SUCCESS);
-    const DWORD length=GetEnvironmentVariableA("MAICORD_RESOURCE_PROBE_CONTROL_HEAP_SUMMARY",value,sizeof(value));
-    *enabled=true;
-    if(!length&&GetLastError()==ERROR_ENVVAR_NOT_FOUND)return true;
-    if(length!=1||(value[0]!='0'&&value[0]!='1'))return false;
-    *enabled=value[0]=='1';return true;
-}
-bool control_arm(const char* phase,u32 count,u32 interval_ms) noexcept {
-    for(u32 i=0;i<count;++i){
-        print("resource_control_arm=");print(phase);print(" arm_index=");number(i);print("\n");
-        if(!resource_probe::sample(phase,i&1u,false))return false;
-        if(interval_ms&&i+1<count)Sleep(interval_ms);
-    }
-    return true;
-}
-bool run_control(u32 count) noexcept {
-    u32 interval_ms=0;
-    if(!control_interval(&interval_ms)){print("resource_control_interval_invalid_expected_0_to_1000_ms\n");return false;}
-    bool summarize_heap=true;
-    if(!control_heap_summary(&summarize_heap)){print("resource_control_heap_summary_invalid_expected_0_or_1\n");return false;}
-    print("resource_control_samples_per_arm=");number(count);print(" interval_ms=");number(interval_ms);print("\n");
-    resource_probe::initialize_control(summarize_heap);
-    if(!control_arm("control_before_client",count,interval_ms)){print("resource_control_pre_arm_failed\n");return false;}
-    const auto cold=lifecycle(1);
-    print("resource_control_cold_valid=");number(cold.valid?1:0);print(" cold_handles_before=");number(cold.before);
-    print(" cold_handles_after=");number(cold.after);print("\n");
-    const bool after=control_arm("control_after_cold_stop",count,interval_ms);
-    print("resource_control_summary samples_per_arm=");number(count);print(" observed_samples=");number(resource_probe::control_index);
-    print(" http_lifecycles=1 cold_valid=");number(cold.valid?1:0);print(" post_arm_ok=");number(after?1:0);
-    print(" callback_outstanding_requested=");number(resource_probe::callback_requested);
-    print(" callback_outstanding_commit=");number(resource_probe::callback_committed);print("\n");
-    print("resource_control_boundary=aggregate_observer_and_default_heap_evidence_does_not_identify_Schannel_allocations_or_prove_zero_leaks\n");
-    return cold.valid&&after;
-}
 bool run() noexcept {
-    const u32 controls=control_samples();if(controls==~0u)return false;if(controls)return run_control(controls);
-    const u32 count=warm_cycles();if(!count)return false;
+    constexpr u32 count=1;
     print("resource_warm_cycles=");number(count);print("\n");
     if(!resource_probe::initialize()){print("resource_instrumentation_failed\n");return false;}
     const auto cold=lifecycle(1);

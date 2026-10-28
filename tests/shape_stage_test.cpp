@@ -1,5 +1,4 @@
 #include "maicord/text/shape_run.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 void print(const char* text) noexcept {u32 size=0;while(text[size])++size;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,size,&written,nullptr);}

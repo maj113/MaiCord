@@ -1,13 +1,11 @@
 #include "maicord/text/glyph_buffer.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 
 namespace maicord {namespace {
 struct Record {SfntGsubGlyph glyph;u32 source,color,flags;u64 provenance;};
 static_assert(sizeof(Record)==24);
 u64 edit_checks=0,record_checks=0,boundary_checks=0,stream_moves=0,flat_moves=0;
 constexpr u32 inserted_origin=0xffffffffu;
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 u32 random(u32* state) noexcept {*state^=*state<<13;*state^=*state>>17;*state^=*state<<5;return *state;}
 Record make_record(u32 token) noexcept {return {{static_cast<u16>(token),static_cast<SfntGlyphClass>(token%5),static_cast<u8>(token>>16)},token,token^0xa63e12b7,token*17,0xaca17e0d00000000ull|token};}
 const Record& at(const SfntGlyphView& view,u32 i) noexcept {return *reinterpret_cast<const Record*>(&sfnt_glyph_at(view,i));}

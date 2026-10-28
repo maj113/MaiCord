@@ -24,17 +24,12 @@ struct Server {
     const char* origin; // the Pages or provider host this server answers for
 };
 
-inline u32 text_length(const char* s) noexcept {
-    u32 n = 0;
-    while (s && s[n]) ++n;
-    return n;
-}
 inline UpdateTransportError get(void* context, const UpdateHttpRequest& request, UpdateHttpResponse* response) noexcept {
     auto* server = static_cast<Server*>(context);
     ++server->requests;
     *response = {};
     const bool closed = request.host == UpdateHost::pages || request.host == UpdateHost::provider;
-    const Utf8View expected = closed ? Utf8View{server->origin, text_length(server->origin)} : update_host_name(request.host);
+    const Utf8View expected = closed ? Utf8View{server->origin, c_string_length(server->origin)} : update_host_name(request.host);
     if (!expected.bytes || request.host_name.bytes != expected.bytes || !bytes_equal(request.host_name.data, expected.data, expected.bytes)) {
         ++server->wrong_host;
         response->status = 404;
@@ -43,15 +38,15 @@ inline UpdateTransportError get(void* context, const UpdateHttpRequest& request,
     Route* route = nullptr;
     for (u32 i = 0; i < server->count; ++i) {
         Route& r = server->routes[i];
-        if (r.host == request.host && text_length(r.target) == request.target.count &&
+        if (r.host == request.host && c_string_length(r.target) == request.target.count &&
             bytes_equal(r.target, request.target.data, request.target.count)) route = &r;
     }
     if (!route) { response->status = 404; return UpdateTransportError::none; }
     ++route->hits;
     response->status = route->status;
     const auto field = [&](const char* name, const char* value) noexcept {
-        update_http_observe_field(response, {reinterpret_cast<const u8*>(name), text_length(name)},
-            {reinterpret_cast<const u8*>(value), text_length(value)});
+        update_http_observe_field(response, {reinterpret_cast<const u8*>(name), c_string_length(name)},
+            {reinterpret_cast<const u8*>(value), c_string_length(value)});
     };
     if (route->location) field("Location", route->location);
     if (route->retry_after) {

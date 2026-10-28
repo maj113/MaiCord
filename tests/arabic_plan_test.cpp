@@ -11,6 +11,7 @@
 #include "maicord/text/arabic_run.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "text_test_support.hpp"
 
 namespace maicord {namespace {
 #include "generated/arabic_plan_fixture.inc"
@@ -25,8 +26,6 @@ struct Reader {ConstSlice<u8> bytes;u32 at=0;
     bool word(u32* out) noexcept {if(at>bytes.count || bytes.count-at<4)return false;*out=byte_load_le32(bytes.data+at);at+=4;return true;}
     bool take(u32 count,ConstSlice<u8>* out) noexcept {if(at>bytes.count || count>bytes.count-at)return false;*out={bytes.data+at,count};at+=count;return true;}
 };
-void print(Utf8View text) noexcept {DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text.data,text.bytes,&done,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){char t=s[i];s[i]=s[n-i-1];s[n-i-1]=t;}print({s,n});}
 bool fail(u32 c,u32 code,u32 value=0) noexcept {print(utf8_literal("FAIL case="));number(c);print(utf8_literal(" code="));number(code);print(utf8_literal(" value="));number(value);print(utf8_literal("\n"));return false;}
 SfntGsubExecutableLookup gs_lookups[256];SfntGsubExecutableSubtable gs_subs[512];SfntCoverage gs_cov[4096];SfntClassDef gs_classes[512];
 SfntGposExecutableLookup gp_lookups[256];SfntGposSubtable gp_basic[512];SfntGposAttachment gp_attach[512];SfntContext gp_context[512];SfntCoverage gp_cov[4096];SfntClassDef gp_classes[512];
@@ -214,7 +213,7 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool force_arabic=false) noexcept {
     return r.at==r.bytes.count;
 }
 int run() noexcept {
-    const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
+    const wchar_t* command=test_arguments();
     {constexpr wchar_t flag[]=L"--run";u32 i=0;while(flag[i]&&command[i]==flag[i])++i;
         if(!flag[i]&&(!command[i]||command[i]==' '||command[i]=='\t')){run_mode=true;command+=i;while(*command==' ' || *command=='\t')++command;}}
     if(!run_mode && !component_transactions())return 2;

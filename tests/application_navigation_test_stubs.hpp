@@ -48,8 +48,6 @@ void application_composer_text_input_notify_layout() noexcept {
 bool application_composer_text_input_composing() noexcept {
     return false;
 }
-void application_sync_attachment_drop_target() noexcept {
-}
 void application_video_blur() noexcept {
 }
 bool synchronize_shell_layout() noexcept {
@@ -66,8 +64,6 @@ void application_account_menu_clear() noexcept {
 }
 void application_surface_motion_retire(RendererLayerSurface) noexcept {
 }
-void end_message_composer_pointer_selection() noexcept {
-}
 void end_message_text_selection() noexcept {
 }
 bool clear_message_text_selection(bool) noexcept {
@@ -78,8 +74,6 @@ bool dismiss_popup() noexcept {
     return true;
 }
 void application_media_picker_close() noexcept {
-}
-void application_settings_close(bool) noexcept {
 }
 bool application_profile_close() noexcept {
     return true;
@@ -104,9 +98,6 @@ bool application_theme_editor_active() noexcept {
     return navigation_runtime_test::theme_editor;
 }
 bool application_settings_input(UiInputKind, u32, bool) noexcept {
-    return navigation_runtime_test::settings;
-}
-bool application_settings_active() noexcept {
     return navigation_runtime_test::settings;
 }
 bool application_media_picker_input(UiInputKind, u32, bool) noexcept {
@@ -225,12 +216,6 @@ bool handle_message_key(WPARAM) noexcept {
 }
 bool copy_message_text_selection() noexcept {
     return false;
-}
-float client_dip_x(LPARAM v) noexcept {
-    return static_cast<i16>(LOWORD(v));
-}
-float client_dip_y(LPARAM v) noexcept {
-    return static_cast<i16>(HIWORD(v));
 }
 } // namespace app_detail
 } // namespace maicord

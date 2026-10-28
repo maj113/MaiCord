@@ -6,9 +6,6 @@
 
 namespace maicord {
 namespace {
-bool same_reset(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
 bool filled_reset(ConstSlice<u8> bytes, u8 value) noexcept {
     for (u32 i = 0; i < bytes.count; ++i) if (bytes.data[i] != value) return false;
     return true;
@@ -20,7 +17,7 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
     const auto measured = user_auth_measure_reset_password_request(request);
     const auto written = user_auth_write_reset_password_request(request, {body, sizeof(body)});
     check(measured.ok() && written.ok() && measured.bytes == written.bytes &&
-        same_reset({reinterpret_cast<const char*>(body), written.bytes},
+        utf8_equal({reinterpret_cast<const char*>(body), written.bytes},
             utf8_literal("{\"token\":\"link\\\"\\\\secret\",\"password\":\"new\\npassword\",\"source\":\"/reset\"}")) &&
         body[written.token_prefix_bytes] == ',',
         "reset initial JSON escapes secrets and fixes the observed reset source");
@@ -29,7 +26,7 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
     const auto tail = user_auth_write_reset_password_tail(utf8_literal("replacement"),
         {body + prefix, tail_measure.bytes});
     check(tail.ok() && tail.bytes == tail_measure.bytes &&
-        same_reset({reinterpret_cast<const char*>(body), prefix + tail.bytes},
+        utf8_equal({reinterpret_cast<const char*>(body), prefix + tail.bytes},
             utf8_literal("{\"token\":\"link\\\"\\\\secret\",\"password\":\"replacement\",\"source\":\"/reset\"}")),
         "password correction replaces only the retained password tail");
     constexpr UserAuthMfaType methods[] = {UserAuthMfaType::totp, UserAuthMfaType::sms, UserAuthMfaType::backup};
@@ -41,7 +38,7 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
         const auto size = user_auth_measure_reset_mfa_suffix(utf8_literal("123456"), utf8_literal("mfa-ticket"), methods[i]);
         const auto result = user_auth_write_reset_mfa_suffix(utf8_literal("123456"), utf8_literal("mfa-ticket"), methods[i],
             {body, size.bytes});
-        check(size.ok() && result.ok() && same_reset({reinterpret_cast<const char*>(body), result.bytes}, expected[i]),
+        check(size.ok() && result.ok() && utf8_equal({reinterpret_cast<const char*>(body), result.bytes}, expected[i]),
             "all text MFA methods append their own method at the reset endpoint");
     }
     constexpr Utf8View assertion = utf8_literal(
@@ -53,7 +50,7 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
         {body, sizeof(body)});
     constexpr Utf8View assertion_tail = utf8_literal(",\"method\":\"webauthn\"}");
     check(assertion_size.ok() && assertion_body.ok() && assertion_body.bytes == assertion_size.bytes &&
-        same_reset({reinterpret_cast<const char*>(body) + assertion_body.bytes - assertion_tail.bytes, assertion_tail.bytes},
+        utf8_equal({reinterpret_cast<const char*>(body) + assertion_body.bytes - assertion_tail.bytes, assertion_tail.bytes},
             assertion_tail),
         "WebAuthn reset accepts typed native assertion serialized as a JSON code string");
     constexpr Utf8View invalid_assertions[] = {
@@ -106,8 +103,8 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
     u8 head[1024]{};
     const auto initial_head = user_auth_write_request_head(UserAuthOperation::reset_password, 37, {}, {head, sizeof(head)});
     constexpr Utf8View head_prefix = utf8_literal("POST /api/v9/auth/reset HTTP/1.1\r\n");
-    check(initial_head.ok() && same_reset({reinterpret_cast<const char*>(head), head_prefix.bytes}, head_prefix) &&
-        same_reset(user_auth_target(UserAuthOperation::reset_mfa), kLoginResetTarget),
+    check(initial_head.ok() && utf8_equal({reinterpret_cast<const char*>(head), head_prefix.bytes}, head_prefix) &&
+        utf8_equal(user_auth_target(UserAuthOperation::reset_mfa), kLoginResetTarget),
         "initial and final reset use the same allowlisted API v9 POST route");
     u32 scratch[256]{};
     char token[64]{}, ticket[64]{}, challenge[128]{};
@@ -175,7 +172,7 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
     check(secure_buffer_initialize(&link_token, kLoginResetMaximumTokenBytes).ok(), "reset URI storage is locked");
     if (!link_token.data) return;
     const auto link = login_reset_consume_link(utf8_literal("https://discord.com/reset?token=query#%74oken=a%2Bb+c%F0%9F%98%80"), &link_token);
-    check(link.ok() && same_reset({reinterpret_cast<const char*>(link_token.data), link_token.bytes},
+    check(link.ok() && utf8_equal({reinterpret_cast<const char*>(link_token.data), link_token.bytes},
         utf8_literal("a+b c\xF0\x9F\x98\x80")), "reset URI uses percent UTF-8 decoding and fragment token precedence");
     constexpr Utf8View rejected_links[] = {
         utf8_literal("http://discord.com/reset?token=x"), utf8_literal("https://discord.com:443/reset?token=x"),

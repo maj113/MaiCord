@@ -1,6 +1,5 @@
 #include "maicord/protocol/user_auth.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 void test_phone_recovery(void (*check)(bool, const char*) noexcept) noexcept {

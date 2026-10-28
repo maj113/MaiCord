@@ -320,8 +320,6 @@ MessageReadBadge application_notifications_read_badge(void*, const GatewayClient
 void application_notifications_selection(Application*) noexcept {
     ++notification_callbacks;
 }
-void application_notifications_drain(Application*) noexcept {
-}
 void application_notifications_wake(Application*) noexcept {
 }
 u64 application_notifications_next_wake(const Application*) noexcept {
@@ -1577,9 +1575,8 @@ u32 run_account_pump_tests() noexcept {
     g_app.account.instance = reinterpret_cast<void*>(1);
     g_app.account.api.pump = pump;
     g_app.login.status = RendererLoginStatus::idle;
-    bool media_repaint = true;
+    bool media_repaint = false;
     browser_blocks_read = true;
-    media_repaint = false;
     check(application_pump_visible_static_media(&media_repaint) && media_repaint && !normal_media_pumps &&
               !forum_preview_pumps && covered_media_pumps == 1 && !refreshes && !history_calls,
           "browser-covered chrome animations pump without chat admission/text/history projection");

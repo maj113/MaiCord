@@ -3,7 +3,6 @@
 #include "maicord/app/cdn_client.hpp"
 #include "maicord/protocol/embed_provider.hpp"
 #include "maicord/protocol/writer.hpp"
-#include "maicord/core/time.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

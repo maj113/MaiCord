@@ -176,7 +176,6 @@ void test_forum_post_scene(void (*check)(bool, const char*) noexcept) noexcept {
                     true,
                     false,
                     true,
-                    false,
                     false};
     files[1].phase = UiAttachmentDraftPhase::failed;
     files[1].status = utf8_literal("Upload failed. Retry this file.");

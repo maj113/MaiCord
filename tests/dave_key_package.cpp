@@ -1,16 +1,13 @@
 #include "maicord/app/dave_key_package.hpp"
 #include "maicord/core/memory.hpp"
+#include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 bool zero(const void* value, u32 count) noexcept {
-    const auto* b = static_cast<const u8*>(value);
-    for (u32 i = 0; i != count; ++i)
-        if (b[i])
-            return false;
-    return true;
+    return test_filled(static_cast<const u8*>(value), count, 0);
 }
 void retained_key(Check check, const P256Key& private_key, ConstSlice<u8> point) noexcept {
     P256Key peer{}, public_key{};

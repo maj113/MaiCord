@@ -44,9 +44,6 @@ char draft[256];
 void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
-bool same(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
 void modifiers(bool control = false, bool alt = false, bool shift = false) noexcept {
     BYTE clean[256]{};
     clean[VK_CONTROL] = control ? 0x80 : 0;
@@ -188,7 +185,7 @@ void run() noexcept {
     underlying_input = 0;
     route_application_input(UiInputKind::system_character, 'x');
     check(!underlying_input &&
-              same(message_composer_text(g_app.message_composer), utf8_literal("Retained draft")),
+              utf8_equal(message_composer_text(g_app.message_composer), utf8_literal("Retained draft")),
           "Forward runtime modal never mutates the underlying draft");
     key(VK_RETURN, true);
     check(q->controller.committed && ui.message_composer_controller.request_count == 1 &&
@@ -203,7 +200,7 @@ void run() noexcept {
                   .ok() &&
               submit.channel_id == 102 && submit.forward_reference.message_id == 500 &&
               submit.forward_reference.channel_id == 101 && submit.forward_reference.guild_id == 10 &&
-              same(submit.content, utf8_literal("Caption")),
+              utf8_equal(submit.content, utf8_literal("Caption")),
           "Forward runtime owned network request carries exact origin and caption");
     const auto nonce = submit.nonce;
     application_message_forward_close();
@@ -316,14 +313,14 @@ void run() noexcept {
           "Forward runtime retained snapshot is admitted into the rich store");
     check(application_message_forward_open(501) && application_message_forward_active(),
           "Forward runtime empty outer snapshot source opens");
-    check(same({q->controller.source.preview, q->controller.source.preview_bytes},
-               utf8_literal("Forwarded message\n> Authorless retained child")),
+    check(utf8_equal({q->controller.source.preview, q->controller.source.preview_bytes},
+                     utf8_literal("Forwarded message\n> Authorless retained child")),
           "Forward runtime empty outer snapshot preview retains authorless child text");
     check(q->controller.source.reference.message_id == 501 &&
               q->controller.source.reference.channel_id == 101 &&
               q->controller.source.reference.guild_id == 10,
           "Forward runtime snapshot preview preserves the outer origin reference");
-    check(same({q->controller.source.author, q->controller.source.author_bytes}, utf8_literal("Alice")),
+    check(utf8_equal({q->controller.source.author, q->controller.source.author_bytes}, utf8_literal("Alice")),
           "Forward runtime snapshot preview preserves the outer author");
     const auto snapshot_document = application_message_forward_edit_target();
     check(message_store_delete(&g_app.message_view.store, 501) &&
@@ -366,19 +363,6 @@ void application_quick_switcher_close() noexcept {
 }
 bool application_quick_switcher_input(UiInputKind, u32, bool) noexcept {
     return false;
-}
-bool queue_private_conversation(PrivateConversationOperation, u64) noexcept {
-    return true;
-}
-bool application_navigate_notification(u64 channel_id, u64) noexcept {
-    auto& state = g_app.account_ui->chat_state;
-    const auto* c = chat_state_store_find_channel(state, channel_id);
-    if (!c)
-        return false;
-    state.selected_channel_id = channel_id;
-    state.selected_guild_id = c->guild_id;
-    ++state.selection_revision;
-    return true;
 }
 bool application_message_navigation_cancel() noexcept {
     return false;

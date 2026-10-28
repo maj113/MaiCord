@@ -1,174 +1,200 @@
-#include "maicord/core/base.hpp"
 #include "test_output.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
-void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept;
-void test_desktop_integration(void (*check)(bool, const char*) noexcept) noexcept;
-void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noexcept;
-void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexcept;
-void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexcept;
-void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept;
-void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept;
-void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_poll_actions(void (*check)(bool, const char*) noexcept) noexcept;
-void test_poll_controller(void (*check)(bool, const char*) noexcept) noexcept;
-void test_poll_controls(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_poll_presentation(void (*check)(bool, const char*) noexcept) noexcept;
-void test_spinner(void (*check)(bool, const char*) noexcept) noexcept;
-void test_ui_transition(void (*check)(bool, const char*) noexcept) noexcept;
-void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept;
-void test_account_menu(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_search(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_pins(void (*check)(bool, const char*) noexcept) noexcept;
-void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept) noexcept;
-void test_forwarded_message_pages(void (*check)(bool, const char*) noexcept) noexcept;
-void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept;
-void test_channel_overview(void (*check)(bool, const char*) noexcept) noexcept;
-void test_channel_content_policy(void (*check)(bool, const char*) noexcept) noexcept;
-void test_channel_overview_controller(void (*check)(bool, const char*) noexcept) noexcept;
-void test_pinned_message_controller(void (*check)(bool, const char*) noexcept) noexcept;
-void test_quick_switcher_controller(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_forward_controller(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_forward_source_flags(void (*check)(bool, const char*) noexcept) noexcept;
-void test_bounded_edit(void (*check)(bool, const char*) noexcept) noexcept;
-void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept;
-void test_emoji_preferences(void (*check)(bool, const char*) noexcept) noexcept;
-void test_thread_starter(void (*check)(bool, const char*) noexcept) noexcept;
-void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_create_stickers(void (*check)(bool, const char*) noexcept) noexcept;
-void test_poll_draft(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_composer_stickers(void (*check)(bool, const char*) noexcept) noexcept;
-void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_inbox_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_thread_browser_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_forum_post_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_quick_switcher_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_forward_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_download_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_http_response_stream(void (*check)(bool, const char*) noexcept) noexcept;
-void test_attachment_download(void (*check)(bool, const char*) noexcept) noexcept;
-void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcept;
-void test_staged_file(void (*check)(bool, const char*) noexcept) noexcept;
-void test_search_query(void (*check)(bool, const char*) noexcept) noexcept;
-void test_search_filter_context(void (*check)(bool, const char*) noexcept) noexcept;
-void test_search_recent(void (*check)(bool, const char*) noexcept) noexcept;
-void test_link_trust(void (*check)(bool, const char*) noexcept) noexcept;
-void test_application_video_request(void (*check)(bool, const char*) noexcept) noexcept;
-void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept;
-void test_icon_pack(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_manifest(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_acceptance(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_prepare(void (*check)(bool, const char*) noexcept) noexcept;
-void test_update_package(void (*check)(bool, const char*) noexcept) noexcept;
-void test_regional_flag_media(void (*check)(bool, const char*) noexcept) noexcept;
-void test_flag_surfaces(void (*check)(bool, const char*) noexcept) noexcept;
-void test_composer_source_spans(void (*check)(bool, const char*) noexcept) noexcept;
-void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_reaction_controller(void (*check)(bool, const char*) noexcept) noexcept;
-void test_application_login_geometry(void (*check)(bool, const char*) noexcept) noexcept;
-void test_tsf_end_edit(void (*check)(bool, const char*) noexcept) noexcept;
-void test_member_list_sparse_model(void (*check)(bool, const char*) noexcept) noexcept;
-void test_member_list_sparse_wire(void (*check)(bool, const char*) noexcept) noexcept;
-void test_member_list_visible_users(void (*check)(bool, const char*) noexcept) noexcept;
-void test_member_user_perf(void (*check)(bool, const char*) noexcept) noexcept;
-void test_member_paging_pump(void (*check)(bool, const char*) noexcept) noexcept;
-void test_thread_members(void (*check)(bool, const char*) noexcept) noexcept;
-void test_thread_authority_model(void (*check)(bool, const char*) noexcept) noexcept;
-void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept;
-void test_application_thread_header_activation(void (*check)(bool, const char*) noexcept) noexcept;
-void test_thread_archive(void (*check)(bool, const char*) noexcept) noexcept;
-void test_thread_storage(void (*check)(bool, const char*) noexcept) noexcept;
-void test_read_state_model(void (*check)(bool, const char*) noexcept) noexcept;
-void test_read_state_wire(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_ack(void (*check)(bool, const char*) noexcept) noexcept;
-void test_bulk_message_ack(void (*check)(bool, const char*) noexcept) noexcept;
-void test_read_scope(void (*check)(bool, const char*) noexcept) noexcept;
-void test_bulk_read_ack_controller(void (*check)(bool, const char*) noexcept) noexcept;
-void test_read_ack_controller(void (*check)(bool, const char*) noexcept) noexcept;
-void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noexcept;
-void test_guild_context_policy(void (*check)(bool, const char*) noexcept) noexcept;
-void test_user_context_menu(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_context_extras(void (*check)(bool, const char*) noexcept) noexcept;
-void test_user_note_store(void (*check)(bool, const char*) noexcept) noexcept;
-void test_active_now(void (*check)(bool, const char*) noexcept) noexcept;
-void test_friends_active_now(void (*check)(bool, const char*) noexcept) noexcept;
-void test_unread_context(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_unread_context_menu(void (*check)(bool, const char*) noexcept) noexcept;
-void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept;
-void test_read_ack_visibility(void (*check)(bool, const char*) noexcept) noexcept;
-void test_mention_badge_text(void (*check)(bool, const char*) noexcept) noexcept;
-void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) noexcept;
-void test_text_emitter(void (*check)(bool, const char*) noexcept) noexcept;
-void test_widget_builder(void (*check)(bool, const char*) noexcept) noexcept;
-u32 test_thread_member_viewport() noexcept;
-void test_thread_member_pump(void (*check)(bool, const char*) noexcept) noexcept;
-void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexcept;
-void test_role_lookup_performance(void (*check)(bool, const char*) noexcept) noexcept;
-void test_role_order(void (*check)(bool, const char*) noexcept) noexcept;
-void test_guild_role_replacement(void (*check)(bool, const char*) noexcept) noexcept;
-void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept;
-void test_guild_channel_validation(void (*check)(bool, const char*) noexcept) noexcept;
+// One list serves the prototypes and the table, in execution order: sharding indexes it.
+#define MAICORD_NATIVE_EXTENSION_FIXTURES(X) \
+    X(test_update_manifest) \
+    X(test_update_artifact) \
+    X(test_update_acceptance) \
+    X(test_update_prepare) \
+    X(test_update_package) \
+    X(test_desktop_integration) \
+    X(test_regional_flag_media) \
+    X(test_flag_surfaces) \
+    X(test_composer_source_spans) \
+    X(test_reaction_sections) \
+    X(test_message_reaction_controller) \
+    X(test_gateway_message_poll) \
+    X(test_message_poll_store) \
+    X(test_message_poll_actions) \
+    X(test_poll_controller) \
+    X(test_poll_controls) \
+    X(test_message_poll_presentation) \
+    X(test_application_login_geometry) \
+    X(test_tsf_end_edit) \
+    X(test_member_list_sparse_model) \
+    X(test_member_list_sparse_wire) \
+    X(test_member_list_visible_users) \
+    X(test_member_user_perf) \
+    X(test_member_paging_pump) \
+    X(test_thread_members) \
+    X(test_thread_authority_model) \
+    X(test_thread_header) \
+    X(test_application_thread_header_activation) \
+    X(test_thread_archive) \
+    X(test_thread_storage) \
+    X(test_read_state_model) \
+    X(test_read_state_wire) \
+    X(test_message_ack) \
+    X(test_bulk_message_ack) \
+    X(test_read_scope) \
+    X(test_bulk_read_ack_controller) \
+    X(test_read_ack_controller) \
+    X(test_channel_context_policy) \
+    X(test_guild_context_policy) \
+    X(test_user_context_menu) \
+    X(test_message_context_extras) \
+    X(test_user_note_store) \
+    X(test_active_now) \
+    X(test_friends_active_now) \
+    X(test_unread_context) \
+    X(test_message_unread_context_menu) \
+    X(test_read_state_pump) \
+    X(test_read_ack_visibility) \
+    X(test_mention_badge_text) \
+    X(test_gateway_ready_projection) \
+    X(test_text_emitter) \
+    X(test_widget_builder) \
+    X(thread_member_viewport_fixture) \
+    X(test_thread_member_pump) \
+    X(test_thread_subscriptions) \
+    X(test_role_lookup_performance) \
+    X(test_role_order) \
+    X(test_guild_role_replacement) \
+    X(test_permission_prefix) \
+    X(test_guild_channel_validation) \
+    X(name_admission_fixture) \
+    X(member_viewport_fixture) \
+    X(member_avatar_fixture) \
+    X(member_media_fixture) \
+    X(test_ui_page_registry) \
+    X(test_plugin_host) \
+    X(test_message_context_controller_extensions) \
+    X(test_settings_scene) \
+    X(test_profile_editor_layout) \
+    X(test_settings_choice) \
+    X(test_password_recovery) \
+    X(test_password_reset_ui) \
+    X(test_phone_recovery) \
+    X(test_password_phone_ui) \
+    X(test_friends_scene) \
+    X(test_friends_media) \
+    X(test_text_form_confirmation) \
+    X(test_friend_search) \
+    X(test_relationship_sync) \
+    X(test_client_preferences) \
+    X(test_visible_author_hydration) \
+    X(test_scroll_host_preferences) \
+    X(test_menu_rail_smooth_scroll) \
+    X(test_background_theme) \
+    X(test_background_effect_policy) \
+    X(test_background_color_math) \
+    X(test_theme_editor) \
+    X(test_theme_styles) \
+    X(test_theme_style_projection) \
+    X(test_client_theme_storage) \
+    X(test_client_theme_document) \
+    X(test_theme_tokens) \
+    X(test_surface_elevation) \
+    X(test_login_continuations) \
+    X(test_menu_row) \
+    X(test_icon_pack) \
+    X(test_client_preferences_writer) \
+    X(test_plugin_module_loader) \
+    X(test_plugin_catalog) \
+    X(test_plugin_bundle_install) \
+    X(test_video_controls) \
+    X(test_audio_controls) \
+    X(test_ui_cursor) \
+    X(test_audio_presentation) \
+    X(test_ogg_opus) \
+    X(test_opus_decoder) \
+    X(test_wave_pcm) \
+    X(test_mp3_stream) \
+    X(test_video_scene) \
+    X(test_spinner) \
+    X(test_ui_transition) \
+    X(test_tooltip) \
+    X(test_account_menu) \
+    X(test_message_search) \
+    X(test_message_rich_store_sparse) \
+    X(test_message_pins) \
+    X(test_forwarded_message_snapshots) \
+    X(test_forwarded_message_pages) \
+    X(test_search_scene) \
+    X(test_pinned_messages_scene) \
+    X(test_inbox_scene) \
+    X(test_thread_browser_scene) \
+    X(test_forum_post_scene) \
+    X(test_quick_switcher_scene) \
+    X(test_message_forward_scene) \
+    X(test_download_scene) \
+    X(test_http_response_stream) \
+    X(test_attachment_download) \
+    X(test_https_file_download) \
+    X(test_staged_file) \
+    X(test_media_picker) \
+    X(test_channel_overview) \
+    X(test_channel_content_policy) \
+    X(test_channel_overview_controller) \
+    X(test_pinned_message_controller) \
+    X(test_quick_switcher_controller) \
+    X(test_message_forward_controller) \
+    X(test_message_forward_source_flags) \
+    X(test_bounded_edit) \
+    X(test_gif_favorites) \
+    X(test_emoji_preferences) \
+    X(test_thread_starter) \
+    X(test_media_catalog) \
+    X(test_message_create_stickers) \
+    X(test_poll_draft) \
+    X(test_message_composer_stickers) \
+    X(test_search_query) \
+    X(test_search_filter_context) \
+    X(test_search_recent) \
+    X(test_link_trust) \
+    X(test_application_video_request) \
+    X(test_account_video_session) \
+    X(test_hevc) \
+    X(test_video_frame_bounds) \
+    X(test_account_video_commands) \
+    X(test_account_media_video_dispatch) \
+    X(test_local_draft_preview) \
+    X(test_aac_decoder) \
+    X(test_media_audio) \
+    X(test_browser_sign_in) \
+    X(test_browser_sign_in_receiver) \
+    X(test_browser_login_ui) \
+    X(test_gateway_self_status) \
+    X(test_application_plugin_settings_projection) \
+    X(test_plugin_preferences)
+#define MAICORD_DECLARE_FIXTURE(name) void name(void (*check)(bool, const char*) noexcept) noexcept;
+MAICORD_NATIVE_EXTENSION_FIXTURES(MAICORD_DECLARE_FIXTURE)
+#undef MAICORD_DECLARE_FIXTURE
 void test_channel_name_preflight(void (*check)(bool, const char*) noexcept) noexcept;
 void test_chat_state_backing(void (*check)(bool, const char*) noexcept) noexcept;
+u32 test_thread_member_viewport() noexcept;
 u32 test_member_viewport_ranges_and_sparse_scene() noexcept;
 u32 test_member_visible_avatar_requests() noexcept;
 u32 test_member_media_cache_scroll() noexcept;
-void test_ui_page_registry(void (*check)(bool, const char*) noexcept) noexcept;
-void test_plugin_host(void (*check)(bool, const char*) noexcept) noexcept;
-void test_message_context_controller_extensions(void (*check)(bool, const char*) noexcept) noexcept;
-void test_settings_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_profile_editor_layout(void (*check)(bool, const char*) noexcept) noexcept;
-void test_settings_choice(void (*check)(bool, const char*) noexcept) noexcept;
-void test_password_recovery(void (*check)(bool, const char*) noexcept) noexcept;
-void test_password_reset_ui(void (*check)(bool, const char*) noexcept) noexcept;
-void test_phone_recovery(void (*check)(bool, const char*) noexcept) noexcept;
-void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept;
-void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_friends_media(void (*check)(bool, const char*) noexcept) noexcept;
-void test_text_form_confirmation(void (*check)(bool, const char*) noexcept) noexcept;
-void test_friend_search(void (*check)(bool, const char*) noexcept) noexcept;
-void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept;
-void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept;
-void test_visible_author_hydration(void (*check)(bool, const char*) noexcept) noexcept;
-void test_scroll_host_preferences(void (*check)(bool, const char*) noexcept) noexcept;
-void test_menu_rail_smooth_scroll(void (*check)(bool, const char*) noexcept) noexcept;
-void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept;
-void test_background_effect_policy(void (*check)(bool, const char*) noexcept) noexcept;
-void test_background_color_math(void (*check)(bool, const char*) noexcept) noexcept;
-void test_theme_editor(void (*check)(bool, const char*) noexcept) noexcept;
-void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcept;
-void test_client_preferences_writer(void (*check)(bool, const char*) noexcept) noexcept;
-void test_plugin_module_loader(void (*check)(bool, const char*) noexcept) noexcept;
-void test_plugin_catalog(void (*check)(bool, const char*) noexcept) noexcept;
-void test_plugin_bundle_install(void (*check)(bool, const char*) noexcept) noexcept;
-void test_video_controls(void (*check)(bool, const char*) noexcept) noexcept;
-void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept;
-void test_ui_cursor(void (*check)(bool, const char*) noexcept) noexcept;
-void test_audio_presentation(void (*check)(bool, const char*) noexcept) noexcept;
-void test_ogg_opus(void (*check)(bool, const char*) noexcept) noexcept;
-void test_opus_decoder(void (*check)(bool, const char*) noexcept) noexcept;
-void test_wave_pcm(void (*check)(bool, const char*) noexcept) noexcept;
-void test_mp3_stream(void (*check)(bool, const char*) noexcept) noexcept;
-void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept;
-void test_account_video_session(void (*check)(bool, const char*) noexcept) noexcept;
-void test_account_video_commands(void (*check)(bool, const char*) noexcept) noexcept;
-void test_account_media_video_dispatch(void (*check)(bool, const char*) noexcept) noexcept;
-void test_local_draft_preview(void (*check)(bool, const char*) noexcept) noexcept;
-void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept;
-void test_hevc(void (*check)(bool, const char*) noexcept) noexcept;
-void test_video_frame_bounds(void (*check)(bool, const char*) noexcept) noexcept;
-void test_media_audio(void (*check)(bool, const char*) noexcept) noexcept;
-void test_browser_sign_in(void (*check)(bool, const char*) noexcept) noexcept;
-void test_browser_sign_in_receiver(void (*check)(bool, const char*) noexcept) noexcept;
-void test_browser_login_ui(void (*check)(bool, const char*) noexcept) noexcept;
-void test_gateway_self_status(void (*check)(bool, const char*) noexcept) noexcept;
-void test_application_plugin_settings_projection(void (*check)(bool, const char*) noexcept) noexcept;
-void test_plugin_preferences(void (*check)(bool, const char*) noexcept) noexcept;
+void thread_member_viewport_fixture(void (*verify)(bool, const char*) noexcept) noexcept {
+    verify(test_thread_member_viewport() == 0, "thread member viewport and scene regressions");
+}
+// Name admission and the demand backing it relies on share a fixture slot.
+void name_admission_fixture(void (*verify)(bool, const char*) noexcept) noexcept {
+    test_channel_name_preflight(verify);
+    test_chat_state_backing(verify);
+}
+void member_viewport_fixture(void (*verify)(bool, const char*) noexcept) noexcept {
+    verify(test_member_viewport_ranges_and_sparse_scene() == 0, "member viewport planner and sparse scene regressions");
+}
+void member_avatar_fixture(void (*verify)(bool, const char*) noexcept) noexcept {
+    verify(test_member_visible_avatar_requests() == 0, "member list: only on-screen rows request shared avatars; guild avatars keep their own identity");
+}
+void member_media_fixture(void (*verify)(bool, const char*) noexcept) noexcept {
+    verify(test_member_media_cache_scroll() == 0, "member list media resolve once per user: unchanged frames 0, scroll only entering rows");
+}
 namespace {
 u32 failures = 0;
 void check(bool success, const char* name) noexcept {
@@ -184,183 +210,9 @@ using ExtensionFixture = void (*)(ExtensionCheck) noexcept;
 // durable staging/extraction work stays serial; the remaining fixtures run
 // round-robin with one process/profile per shard and no shared mutable globals.
 constexpr ExtensionFixture extension_fixtures[]{
-    test_update_manifest,
-    test_update_artifact,
-    test_update_acceptance,
-    test_update_prepare,
-    test_update_package,
-    test_desktop_integration,
-    test_regional_flag_media,
-    test_flag_surfaces,
-    test_composer_source_spans,
-    test_reaction_sections,
-    test_message_reaction_controller,
-    test_gateway_message_poll,
-    test_message_poll_store,
-    test_message_poll_actions,
-    test_poll_controller,
-    test_poll_controls,
-    test_message_poll_presentation,
-    test_application_login_geometry,
-    test_tsf_end_edit,
-    test_member_list_sparse_model,
-    test_member_list_sparse_wire,
-    test_member_list_visible_users,
-    test_member_user_perf,
-    test_member_paging_pump,
-    test_thread_members,
-    test_thread_authority_model,
-    test_thread_header,
-    test_application_thread_header_activation,
-    test_thread_archive,
-    test_thread_storage,
-    test_read_state_model,
-    test_read_state_wire,
-    test_message_ack,
-    test_bulk_message_ack,
-    test_read_scope,
-    test_bulk_read_ack_controller,
-    test_read_ack_controller,
-    test_channel_context_policy,
-    test_guild_context_policy,
-    test_user_context_menu,
-    test_message_context_extras,
-    test_user_note_store,
-    test_active_now,
-    test_friends_active_now,
-    test_unread_context,
-    test_message_unread_context_menu,
-    test_read_state_pump,
-    test_read_ack_visibility,
-    test_mention_badge_text,
-    test_gateway_ready_projection,
-    test_text_emitter,
-    test_widget_builder,
-    [](ExtensionCheck verify) noexcept {
-        verify(test_thread_member_viewport() == 0, "thread member viewport and scene regressions");
-    },
-    test_thread_member_pump,
-    test_thread_subscriptions,
-    test_role_lookup_performance,
-    test_role_order,
-    test_guild_role_replacement,
-    test_permission_prefix,
-    test_guild_channel_validation,
-    // Name admission and the demand backing it relies on share a fixture slot.
-    [](ExtensionCheck verify) noexcept {
-        test_channel_name_preflight(verify);
-        test_chat_state_backing(verify);
-    },
-    [](ExtensionCheck verify) noexcept {
-        verify(test_member_viewport_ranges_and_sparse_scene() == 0, "member viewport planner and sparse scene regressions");
-    },
-    [](ExtensionCheck verify) noexcept {
-        verify(test_member_visible_avatar_requests() == 0, "member list: only on-screen rows request shared avatars; guild avatars keep their own identity");
-    },
-    [](ExtensionCheck verify) noexcept {
-        verify(test_member_media_cache_scroll() == 0, "member list media resolve once per user: unchanged frames 0, scroll only entering rows");
-    },
-    test_ui_page_registry,
-    test_plugin_host,
-    test_message_context_controller_extensions,
-    test_settings_scene,
-    test_profile_editor_layout,
-    test_settings_choice,
-    test_password_recovery,
-    test_password_reset_ui,
-    test_phone_recovery,
-    test_password_phone_ui,
-    test_friends_scene,
-    test_friends_media,
-    test_text_form_confirmation,
-    test_friend_search,
-    test_relationship_sync,
-    test_client_preferences,
-    test_visible_author_hydration,
-    test_scroll_host_preferences,
-    test_menu_rail_smooth_scroll,
-    test_background_theme,
-    test_background_effect_policy,
-    test_background_color_math,
-    test_theme_editor,
-    test_theme_styles,
-    test_theme_style_projection,
-    test_client_theme_storage,
-    test_client_theme_document,
-    test_theme_tokens,
-    test_surface_elevation,
-    test_login_continuations,
-    test_menu_row,
-    test_icon_pack,
-    test_client_preferences_writer,
-    test_plugin_module_loader,
-    test_plugin_catalog,
-    test_plugin_bundle_install,
-    test_video_controls,
-    test_audio_controls,
-    test_ui_cursor,
-    test_audio_presentation,
-    test_ogg_opus,
-    test_opus_decoder,
-    test_wave_pcm,
-    test_mp3_stream,
-    test_video_scene,
-    test_spinner,
-    test_ui_transition,
-    test_tooltip,
-    test_account_menu,
-    test_message_search,
-    test_message_rich_store_sparse,
-    test_message_pins,
-    test_forwarded_message_snapshots,
-    test_forwarded_message_pages,
-    test_search_scene,
-    test_pinned_messages_scene,
-    test_inbox_scene,
-    test_thread_browser_scene,
-    test_forum_post_scene,
-    test_quick_switcher_scene,
-    test_message_forward_scene,
-    test_download_scene,
-    test_http_response_stream,
-    test_attachment_download,
-    test_https_file_download,
-    test_staged_file,
-    test_media_picker,
-    test_channel_overview,
-    test_channel_content_policy,
-    test_channel_overview_controller,
-    test_pinned_message_controller,
-    test_quick_switcher_controller,
-    test_message_forward_controller,
-    test_message_forward_source_flags,
-    test_bounded_edit,
-    test_gif_favorites,
-    test_emoji_preferences,
-    test_thread_starter,
-    test_media_catalog,
-    test_message_create_stickers,
-    test_poll_draft,
-    test_message_composer_stickers,
-    test_search_query,
-    test_search_filter_context,
-    test_search_recent,
-    test_link_trust,
-    test_application_video_request,
-    test_account_video_session,
-    test_hevc,
-    test_video_frame_bounds,
-    test_account_video_commands,
-    test_account_media_video_dispatch,
-    test_local_draft_preview,
-    test_aac_decoder,
-    test_media_audio,
-    test_browser_sign_in,
-    test_browser_sign_in_receiver,
-    test_browser_login_ui,
-    test_gateway_self_status,
-    test_application_plugin_settings_projection,
-    test_plugin_preferences,
+#define MAICORD_FIXTURE_ENTRY(name) name,
+    MAICORD_NATIVE_EXTENSION_FIXTURES(MAICORD_FIXTURE_ENTRY)
+#undef MAICORD_FIXTURE_ENTRY
 };
 constexpr u32 kExtensionFixtureCount = sizeof(extension_fixtures) / sizeof(extension_fixtures[0]);
 constexpr u32 kExtensionShardCount = 4;

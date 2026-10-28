@@ -2,6 +2,7 @@
 #include "maicord/text/detail/bidi_internal.hpp"
 #include "maicord/text/bidi_ltr.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "text_test_support.hpp"
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
@@ -9,8 +10,6 @@ namespace {
 using B=UnicodeBidiClass;
 constexpr u32 capacity=512;
 UnicodeBidiCell cells[capacity];u32 scratch[capacity],visual[capacity];u8 levels[capacity],expected_levels[capacity];
-void print(Utf8View value) noexcept {DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),value.data,value.bytes,&written,nullptr);}
-void number(u32 value) noexcept {char text[16];u32 n=0;do{text[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){const char c=text[i];text[i]=text[n-i-1];text[n-i-1]=c;}print({text,n});}
 bool unit_cases() noexcept {
     const u32 text[]{0x202b,0x5d0,0x20,0x5d1,0x202c};UnicodeBidiParagraph paragraph{};
     if(unicode_bidi_classify({text,5},{cells,5})!=UnicodeBidiStatus::ok ||
@@ -218,14 +217,11 @@ int run() noexcept {
     if(!tailored_cases()){print(utf8_literal("FAIL tailored weak cases\n"));return 7;}
     if(!long_cases()){print(utf8_literal("FAIL bidi long cases\n"));return 2;}
     if(!random_cases()){print(utf8_literal("FAIL bidi invariants\n"));return 5;}
-    const wchar_t* command=GetCommandLineW();bool quote=false;
-    while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}
-    while(*command==' ' || *command=='\t')++command;
+    const wchar_t* command=test_arguments();
     if(*command) {
-        wchar_t path[32768];u32 count=0;quote=*command=='"';if(quote)++command;
-        while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))) {if(count+1>=32768)return 3;path[count++]=*command++;}
-        if(quote){if(*command!='"')return 3;++command;}while(*command==' ' || *command=='\t')++command;
-        if(*command || !count)return 3;path[count]=0;if(!corpus(path))return 4;
+        wchar_t path[32768];
+        if(!test_path_argument(command,path))return 3;
+        if(!corpus(path))return 4;
     }
     print(utf8_literal("PASS bidi tests\n"));return 0;
 }

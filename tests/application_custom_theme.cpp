@@ -95,7 +95,6 @@ struct Transport {
     bool ready{}, picker_ready{}, publication_failed{}, stop_failed{}, blocked{};
     bool settings_active{true};
     u64 settings_lifetime{1};
-    ClientThemeDocument published{};
     bool custom_published{};
 } transport;
 UiPage pages[2]{};
@@ -246,8 +245,6 @@ bool custom_fixture_publish(const ClientThemeDocument* document) noexcept {
         return false;
     ++t.publications;
     t.custom_published = document != nullptr;
-    if (document)
-        t.published = *document;
     return true;
 }
 } // namespace app_detail

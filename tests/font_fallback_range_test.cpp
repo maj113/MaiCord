@@ -23,7 +23,7 @@ bool routing_guards() noexcept {
         {"a\xf3\xa0\x84\x80" "x",5,3,0,0},{"?\xef\xb8\x8f\xef\xb8\x8f" "a",1,1,native_fallback_missing,0},
         {"\xef\xb8\x8f\xe1\xa0\x8b",6,2,0,0} };
     NativeFallbackRangeResult result{};u32 used=0;
-    for(const auto& c:cases){u32 n=0;while(c.text[n])++n;RoutingMock mock{};
+    for(const auto& c:cases){const u32 n=c_string_length(c.text);RoutingMock mock{};
         CHECK(native_font_fallback_routed_range({c.text,n},route_index,font_index,routed_coverage,&mock,&result,100,&used)==SfntStatus::ok);
         CHECK(result.bytes==c.bytes&&result.units==c.units&&result.choice.font==c.font&&!result.choice.policy&&mock.font.probes==c.probes);
         const u32 required=used;for(u32 budget=0;budget<required;++budget){mock={};CHECK(native_font_fallback_routed_range({c.text,n},route_index,font_index,routed_coverage,&mock,&result,budget,&used)==SfntStatus::resource_limit&&empty(result)&&used==budget);}
@@ -51,7 +51,7 @@ bool guards() noexcept {
         {"b\xe2\x80\x8d\xcc\x81" "a",6,3,1,2,2},{"aaaa",4,4,0,4,0},
         {"b\xf0\x93\x90\xb0" "a",1,1,1,2,0},{"\xf0\x93\x90\xb0" "b",5,3,0,1,1} };
     NativeFallbackRangeResult result{};u32 used=0;
-    for(const auto& c:cases){u32 n=0;while(c.text[n])++n;Mock mock{};
+    for(const auto& c:cases){const u32 n=c_string_length(c.text);Mock mock{};
         CHECK(native_font_fallback_range({c.text,n},select,coverage,&mock,&result,100,&used)==SfntStatus::ok);
         CHECK(result.bytes==c.bytes&&result.units==c.units&&result.choice.font==c.font&&!result.choice.policy&&mock.selects==c.selects&&mock.probes==c.probes);
         const u32 required=used;for(u32 budget=0;budget<required;++budget){mock={};CHECK(native_font_fallback_range({c.text,n},select,coverage,&mock,&result,budget,&used)==SfntStatus::resource_limit&&empty(result)&&used==budget);}

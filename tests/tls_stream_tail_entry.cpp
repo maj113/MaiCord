@@ -1,6 +1,7 @@
 #include "maicord/platform/tls_stream.hpp"
 
 #include "maicord/sys/winsock.hpp"
+#include "test_output.hpp"
 
 // Dedicated executable: production tls_stream.cpp links to these synthetic
 // Schannel-result boundary fixtures. No certificate exception, live TLS, or
@@ -27,11 +28,7 @@ TlsDecryptResult tls_client_decrypt(TlsClient*, Slice<u8> bytes) noexcept {
 namespace {
 u32 failures;
 void check(bool ok, const char* label) noexcept {
-    char output[256]{}; u32 n = 0; const char* prefix = ok ? "PASS " : "FAIL ";
-    while (*prefix) output[n++] = *prefix++;
-    while (*label && n < 254) output[n++] = *label++;
-    output[n++] = '\n'; DWORD written = 0; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), output, n, &written, nullptr);
-    if (!ok) ++failures;
+    test_check(&failures, ok, label);
 }
 struct Reader { u32 calls; bool pause; };
 TlsStreamReadAction reader(void* context, ConstSlice<u8>, bool) noexcept {
@@ -126,5 +123,6 @@ void tests() noexcept {
 } // namespace
 } // namespace maicord
 extern "C" void maicord_tls_stream_tail_entry() {
-    maicord::tests(); ExitProcess(maicord::failures ? 1 : 0);
+    maicord::tests();
+    maicord::test_exit(maicord::failures, "tls stream tail");
 }

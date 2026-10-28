@@ -11,6 +11,7 @@
 #include "maicord/ui/message_system_text.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/core/memory.hpp"
+#include "test_output.hpp"
 #include "maicord/ui/navigation_view.hpp"
 
 // Message content wave: system rows, received spoilers and explicit media,
@@ -20,12 +21,6 @@ namespace {
 
 using Check = void (*)(bool, const char*) noexcept;
 
-bool contains(Utf8View text, Utf8View part) noexcept {
-    for (u32 i = 0; part.bytes <= text.bytes && i + part.bytes <= text.bytes; ++i)
-        if (bytes_equal(text.data + i, part.data, part.bytes))
-            return true;
-    return false;
-}
 Utf8View span_text(const MessageSystemText& text, MessageSystemSpanKind kind) noexcept {
     for (u32 i = 0; i < text.span_count; ++i)
         if (text.spans[i].kind == kind)
@@ -585,8 +580,8 @@ void test_interactions(Check check) noexcept {
     ApiRejection automod{200000, true, false}, dm{50007, true, false}, other{50013, true, false};
     const auto notice = message_send_rejection_notice_input(7, message_send_rejection_system_notice(automod),
                                                             1'800'000'000'000ull, 1);
-    check(contains(message_send_rejection_system_notice(automod), utf8_literal("AutoMod")) &&
-              contains(message_send_rejection_system_notice(dm), utf8_literal("couldn't be delivered")) &&
+    check(test_contains(message_send_rejection_system_notice(automod), utf8_literal("AutoMod")) &&
+              test_contains(message_send_rejection_system_notice(dm), utf8_literal("couldn't be delivered")) &&
               !message_send_rejection_system_notice(other).bytes && notice.type == kMessageTypeLocalNotice &&
               (notice.flags & kMessageFlagEphemeral) && notice.delivery == MessageDeliveryState::pending &&
               snowflake_timestamp_ms(notice.id) == 1'800'000'000'000ull,
@@ -693,7 +688,7 @@ bool command_text(const SceneFixture& f, u64 message_id, Utf8View part,
                   MessageTextMeasurementKind kind = MessageTextMeasurementKind::none, bool any_kind = true) noexcept {
     for (u32 i = 0; i < f.presentation.command_count; ++i)
         if (f.commands[i].message_id == message_id && (any_kind || f.commands[i].measurement_kind == kind) &&
-            contains(f.commands[i].text, part))
+            test_contains(f.commands[i].text, part))
             return true;
     return false;
 }
@@ -811,7 +806,7 @@ bool render_query(u64 id, u32, UiPluginRenderDecoration* output) noexcept {
 }
 const MessageTextCommand* find_command(const SceneFixture& f, u64 message_id, Utf8View part) noexcept {
     for (u32 i = 0; i < f.presentation.command_count; ++i)
-        if (f.commands[i].message_id == message_id && contains(f.commands[i].text, part))
+        if (f.commands[i].message_id == message_id && test_contains(f.commands[i].text, part))
             return &f.commands[i];
     return nullptr;
 }
@@ -930,7 +925,7 @@ void test_plugin_decorations(Check check) noexcept {
               utf8_equal(body_source, utf8_literal("**replaced** text")),
           "plugin_render_replacement_has_its_own_source");
     const auto* folded = find_command(f, collapsed.id, utf8_literal("Message hidden by a plugin"));
-    check(folded && contains(folded->text, utf8_literal("Show")) && has_target(folded, kUiPluginRenderShowTarget) &&
+    check(folded && test_contains(folded->text, utf8_literal("Show")) && has_target(folded, kUiPluginRenderShowTarget) &&
               !find_command(f, collapsed.id, utf8_literal("collapsed secret")),
           "plugin_render_collapsed_label_and_show_link");
     // Cozy header: the suffix follows the name and the badge follows it.

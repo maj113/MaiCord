@@ -20,22 +20,6 @@ bool write_fixture(const wchar_t* path, const u8* data, u32 bytes, u32 repetitio
     }
     return CloseHandle(file) && ok;
 }
-
-bool write_million_a(const wchar_t* path) noexcept {
-    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    u8 block[kUpdateArtifactReadBufferBytes];
-    for (auto& value : block) value = 'a';
-    u32 remaining = 1000000;
-    bool ok = true;
-    while (ok && remaining) {
-        const DWORD wanted = minimum(remaining, static_cast<u32>(sizeof(block)));
-        DWORD written = 0;
-        ok = WriteFile(file, block, wanted, &written, nullptr) && written == wanted;
-        remaining -= written;
-    }
-    return CloseHandle(file) && ok;
-}
 } // namespace
 
 void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept {
@@ -161,7 +145,9 @@ void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept {
         UpdateArtifactError::invalid_input && bytes_equal(&artifact, &sentinel, sizeof(artifact)),
         "update artifact: output cannot alias a borrowed path");
 
-    check(write_million_a(path), "update artifact: million-byte known-answer fixture is written with bounded storage");
+    u8 block[1000];
+    for (auto& value : block) value = 'a';
+    check(write_fixture(path, block, sizeof(block), 1000), "update artifact: million-byte known-answer fixture is written with bounded storage");
     approved.artifact_bytes = 1000000;
     copy_bytes(approved.artifact_sha256, kMillionASha256, sizeof(kMillionASha256));
     check(update_artifact_verify(file_path, approved, &artifact).ok() && artifact.bytes == 1000000 &&

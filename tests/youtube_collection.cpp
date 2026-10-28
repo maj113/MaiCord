@@ -1,13 +1,12 @@
 #include "maicord/app/embed_resolver.hpp"
 #include "maicord/protocol/embed_provider.hpp"
-#include "maicord/core/win32_kernel.hpp"
 #include "test_output.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/ascii.hpp"
 namespace maicord {
 namespace {
 u32 failures{};
-void check(bool ok, const char* name) noexcept { if (!ok) { ++failures; test_write_text(name); test_write_text("\n"); } }
+void check(bool ok, const char* name) noexcept { test_check(&failures, ok, name); }
 constexpr auto url = utf8_literal("https://music.youtube.com/watch?v=CZQdi1sxd30&list=RDAMVMCZQdi1sxd30");
 constexpr auto list = utf8_literal("RDAMVMCZQdi1sxd30");
 constexpr auto json = utf8_literal(R"({"continuationContents":{"playlistPanelContinuation":{"playlistId":"RDAMVMCZQdi1sxd30","contents":[{"playlistPanelVideoRenderer":{"videoId":"CZQdi1sxd30","selected":true,"title":{"runs":[{"text":"First song"}]}}},{"playlistPanelVideoRenderer":{"videoId":"zlQ0Lfpq078"}},{"automixPreviewVideoRenderer":{}}],"continuations":[{"nextRadioContinuationData":{"continuation":"next+/=%"}}]}}})");

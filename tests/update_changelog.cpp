@@ -10,7 +10,7 @@ namespace {
 u32 failures;
 void check(bool success, const char* name) noexcept { test_check(&failures, success, name); }
 bool same(Utf8View a, const char* b) noexcept {
-    const u32 n = test_text_length(b);
+    const u32 n = c_string_length(b);
     return a.bytes == n && bytes_equal(a.data, b, n);
 }
 
@@ -45,7 +45,7 @@ UpdateChangelogError verify(Utf8View document) noexcept {
 // The accepted document with one substring replaced.
 Utf8View edited(const char* find, const char* replace) noexcept {
     const Utf8View base{kAccepted, sizeof(kAccepted) - 1};
-    const u32 f = test_text_length(find), r = test_text_length(replace);
+    const u32 f = c_string_length(find), r = c_string_length(replace);
     for (u32 i = 0; i + f <= base.bytes; ++i)
         if (bytes_equal(base.data + i, find, f)) {
             copy_bytes(g->document, base.data, i);
@@ -58,7 +58,7 @@ Utf8View edited(const char* find, const char* replace) noexcept {
 // A document with count entries of text_bytes 'x' each.
 Utf8View crowded(u32 count, u32 text_bytes) noexcept {
     u32 n = 0;
-    const auto add = [&](const char* s) noexcept { const u32 b = test_text_length(s); copy_bytes(g->document + n, s, b); n += b; };
+    const auto add = [&](const char* s) noexcept { const u32 b = c_string_length(s); copy_bytes(g->document + n, s, b); n += b; };
     add("{\"format\":1,\"product\":\"MaiCord\",\"channel\":\"stable\",\"version\":9,\"base\":0,\"entries\":[");
     for (u32 i = 0; i < count && n + text_bytes + 64 < sizeof(g->document); ++i) {
         if (i) add(",");

@@ -1,7 +1,6 @@
 #include "maicord/ui/login_view.hpp"
 #include "maicord/ui/login_text_presentation.hpp"
 #include "maicord/ui/login_presentation.hpp"
-#include "maicord/core/utf.hpp"
 
 namespace maicord {
 void test_password_reset_ui(void (*check)(bool, const char*) noexcept) noexcept {

@@ -310,9 +310,7 @@ void tile_fallback_log_case(Check check) noexcept {
     for (const auto& c : cases) {
         char text[128]{};
         const u32 bytes = media_url_log_fields(c.url, {text, sizeof(text)});
-        u32 expected = 0;
-        while (c.fields[expected])
-            ++expected;
+        const u32 expected = c_string_length(c.fields);
         exact = exact && bytes == expected && bytes_equal(text, c.fields, bytes);
     }
     char small[8]{};
@@ -411,9 +409,7 @@ void klipy_video_favourite_case(Check check) noexcept {
                                                       {target, mapped.target_bytes}, {}, {head, sizeof(head)});
     const Utf8View written{reinterpret_cast<const char*>(head), request.bytes};
     const auto has = [&](const char* text) noexcept {
-        u32 bytes = 0;
-        while (text[bytes])
-            ++bytes;
+        const u32 bytes = c_string_length(text);
         for (u32 i = 0; i + bytes <= written.bytes; ++i)
             if (bytes_equal(written.data + i, text, bytes))
                 return true;
@@ -641,8 +637,7 @@ void run_catalog_media_tests(void (*check)(bool, const char*) noexcept) noexcept
     bool providers = true;
     for (const auto& favourite : favourites) {
         const auto mapped = parse_catalog_preview_url(favourite.src, {target, sizeof(target)});
-        u32 length = 0;
-        while (favourite.target[length]) ++length;
+        const u32 length = c_string_length(favourite.target);
         u8 head[kCdnMaximumRequestHeadBytes]{};
         const auto fetch = mapped.ok() ? write_static_cdn_get_request(CdnImageType::webp, mapped.host,
                                                                              {target, mapped.target_bytes}, {}, {head, sizeof(head)})
@@ -656,8 +651,7 @@ void run_catalog_media_tests(void (*check)(bool, const char*) noexcept) noexcept
         {target, sizeof(target)}, MediaAttachmentFormat::webp, 498, 280);
     const ConstSlice<u8> written{target, attachment.target_bytes};
     const auto contains = [&](const char* text) noexcept {
-        u32 length = 0;
-        while (text[length]) ++length;
+        const u32 length = c_string_length(text);
         for (u32 i = 0; i + length <= written.count; ++i)
             if (bytes_equal(written.data + i, text, length)) return true;
         return false;
@@ -753,8 +747,7 @@ void run_catalog_media_tests(void (*check)(bool, const char*) noexcept) noexcept
     for (const auto& favourite : klipy) {
         const auto format = catalog_favorite_format(favourite.src);
         const auto mapped = parse_catalog_preview_url(favourite.src, {target, sizeof(target)}, format, 498, 280);
-        u32 length = 0;
-        while (favourite.target[length]) ++length;
+        const u32 length = c_string_length(favourite.target);
         const auto type = format == MediaAttachmentFormat::gif   ? CdnImageType::gif
                           : format == MediaAttachmentFormat::mp4 ? CdnImageType::mp4
                                                                  : CdnImageType::webp;

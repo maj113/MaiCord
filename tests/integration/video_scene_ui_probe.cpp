@@ -436,8 +436,7 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
                  renderer.interaction_text_video_revision == ui_video_scene_text_paint_revision(scene) &&
                  (renderer.interaction_text_active_mask & (1u << 9));
     if (valid) {
-        if (valid)
-            stage = __LINE__;
+        stage = __LINE__;
         const u64 text = scene.text_revision;
         const u32 text_builds = renderer.content_text->rebuilds;
         const u32 paint_builds = renderer.paint_stream_builds;
@@ -461,8 +460,7 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
                 d3d11_renderer_interaction_text_state_current(renderer);
     }
     if (valid) {
-        if (valid)
-            stage = __LINE__;
+        stage = __LINE__;
         const auto original = state;
         const auto prefix = renderer.content_text_prefix;
         valid = semantic_command && prefix.storage == renderer.content_text && prefix.quads != 0 &&
@@ -588,8 +586,7 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
                 renderer.content_text_prefix.overlay_builds);
     }
     if (valid) {
-        if (valid)
-            stage = __LINE__;
+        stage = __LINE__;
         valid = project(256) && scene.projection.compact;
         const auto seek = scene.projection.controls[1].bounds;
         const auto down =
@@ -615,8 +612,7 @@ bool video_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t
                 probe_present(&renderer, kDefaultTheme);
     }
     if (valid) {
-        if (valid)
-            stage = __LINE__;
+        stage = __LINE__;
         UiVideoPlayAffordanceStyle affordance{};
         state.error = false;
         ++state.revision;

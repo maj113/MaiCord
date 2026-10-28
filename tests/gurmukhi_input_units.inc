@@ -1,14 +1,8 @@
 #include "generated/gurmukhi_input_fixture.inc"
 bool gurmukhi_input_units() noexcept {
-    const auto gurmukhi_input_fixture=indic_input_fixture(gurmukhi_input_fixture_resource);
-    CHECK(gurmukhi_input_fixture.count==gurmukhi_input_fixture_words);
     constexpr auto profile=SfntIndicProfile::gurmukhi;
-    u32 scalars[256]{};u8 boundaries[256]{};u32 first=0,count=0,cases=0;
-    for(u32 i=0;i<gurmukhi_input_fixture.count;++i){const u32 entry=gurmukhi_input_fixture[i];CHECK(count<256);scalars[count++]=entry&0x1fffffu;
-        if(entry&0x40000000u){CHECK(sfnt_indic_cluster_boundaries(profile,{scalars,count},{boundaries,count})==SfntStatus::ok);
-            for(u32 j=0;j<count;++j)if(boundaries[j]!=(gurmukhi_input_fixture[first+j]>>31)){print("Gurmukhi fixture case ");number(cases);print("\n");CHECK(false);}
-            ++cases;count=0;first=i+1;}}
-    CHECK(!count&&cases==gurmukhi_input_fixture_cases);
+    CHECK(indic_input_corpus(profile,gurmukhi_input_fixture_resource,gurmukhi_input_fixture_words,gurmukhi_input_fixture_cases,"Gurmukhi"));
+    u8 boundaries[256]{};
     // Gurmukhi carriers/signs remain nominal, preserving their source identity.
     // Adjacent Bengali/Tamil signs must not borrow those profiles' expansion.
     const u32 input[]{0xa15,0xa72,0xa73,0xa75,0x1f600,0x9cb,0xbca};

@@ -1,6 +1,5 @@
 #include "profile_positioning_storage.inc"
 #include "script_shape_owner.inc"
-#include "maicord/core/win32_kernel.hpp"
 bool owned_units(ScriptShapeOwner& owner,Arena& state,SfntShapeStorage s) noexcept {
     auto& scratch=owner.scratch;arena_reset(&scratch);auto* sentinel=arena_allocate<u32>(&scratch);CHECK(sentinel);*sentinel=0x12345678;
     const auto before_state=arena_mark(&state),before_scratch=arena_mark(&scratch);const u32 refs=owner.plans[0].references;NativeKhmerPlan prepared{};
@@ -68,23 +67,4 @@ bool owned_units(ScriptShapeOwner& owner,Arena& state,SfntShapeStorage s) noexce
         CHECK(s.glyphs[i].glyph.glyph==expected&&s.placements[i].advance>0);}
     CHECK(fallback.close());
     print("PASS Khmer owned units; assertions=");number(checks);print(" retained_root_bytes_both_modes=");number(retained);print(" retained_profile_bytes_both_modes=");number(total_retained);print(" profile_bytes=");number(sizeof(NativeKhmerPlan));print("\n");return true;
-}
-bool owned_stream(const wchar_t* path,Arena& a,SfntShapeStorage s,bool units_only) noexcept {
-    ScriptShapeOwner owner;CHECK(owner.open(path));if(units_only)return owned_units(owner,a,s);
-    NativeKhmerPlan prepared{};CHECK(native_khmer_plan_prepare(owner.store,owner.run,flag(L"MAICORD_KHMER_INDEPENDENT"),&a,&owner.scratch,&prepared)==SfntStatus::ok);
-    const bool rtl=flag(L"MAICORD_KHMER_RTL"),compact=flag(L"MAICORD_KHMER_COMPACT");
-    u8 header[12];CHECK(read(header,12)&&bytes_equal(header,"MDSHP1\0\0",8));const u32 cases=byte_load_le32(header+8);CHECK(cases&&cases<=100000&&write(header,12));
-    for(u32 row=0;row<cases;++row){u32 n=0,input[256],sources[256];u16 glyphs[512];char text[1024];SfntShapeRunResult result{};
-        CHECK(read(&n,4)&&n&&n<=256&&read(input,n*4));u32 bytes=0;
-        for(u32 i=0;i<n;++i){const u8 width=utf8_encode(input[i],text+bytes);CHECK(width);bytes+=width;}
-        SfntStatus status;
-        if(compact){NativeAsciiStorage target{{},s,{reinterpret_cast<u16*>(s.glyphs.data),s.glyphs.count},s.placements,s.character_glyphs};NativeAsciiResult output{};
-            status=native_khmer_run(owner.store,prepared,{text,bytes},1000,target,&output,{},rtl);
-            result.glyph_count=output.glyph_count;result.source_units=output.source_units;copy_bytes(glyphs,target.glyphs.data,result.glyph_count*2);
-        }else{status=native_khmer_run(owner.store,prepared,{text,bytes},1000,s,&result,{},rtl);
-            for(u32 i=0;i<result.glyph_count;++i)glyphs[i]=s.glyphs[i].glyph.glyph;}
-        CHECK(result.glyph_count<=512);const u32 code=static_cast<u32>(status);u32 units=0;
-        for(u32 i=0;i<n;++i){sources[i]=status==SfntStatus::ok?s.character_glyphs[units]:0;units+=input[i]>0xffff?2u:1u;}
-        CHECK(write(&code,4)&&write(&result.glyph_count,4)&&write(glyphs,result.glyph_count*2)&&write(sources,n*4)&&write(s.placements.data,result.glyph_count*sizeof(SfntPlacement)));
-    }return owner.close();
 }

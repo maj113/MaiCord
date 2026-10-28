@@ -28,6 +28,7 @@ inline bool upload(D3D11Renderer& renderer, const MessageRichStore& store,
                    const MessageRichRecord& rich, const MessageSceneRowWidget& row) noexcept {
     // Original opaque color bands make the independent media owners visible.
     u8 pixels[32 * 16 * 4]{};
+#pragma clang loop unroll(disable)
     for (u32 y = 0; y < 16; ++y) for (u32 x = 0; x < 32; ++x) {
         const u32 at = (y * 32 + x) * 4;
         pixels[at] = static_cast<u8>((rich.forwarded_snapshot_child ? 175 : 35) + x * 2);
@@ -166,8 +167,8 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
         fixture.scene.owned_rows.capacity == ordinary_rows &&
         fixture.scene.owned_measurements.capacity == ordinary_metrics, 3)) return false;
     // Header paint and profile hit testing must use the existing native cache
-    // even when the member pane is absent. The old byte-count estimate clipped
-    // the real "Mai" fixture to "M..." despite hundreds of available DIPs.
+    // even when the member pane is absent, so the real "Mai" fixture is not
+    // clipped to "M..." despite hundreds of available DIPs.
     const MessageTextCommand* author_command = nullptr;
     const auto& author_row = fixture.scene.rows[0];
     for (u32 i = 0; i < fixture.presentation.command_count; ++i) {

@@ -2,8 +2,6 @@
 #include "generated/latin_compat_fixture.inc"
 #include "hebrew_compatibility_units.inc"
 #include "text_variation_units.inc"
-#include "maicord/core/win32_kernel.hpp"
-#include "maicord/core/win32_types.hpp"
 bool profile_guards(NativeAsciiStorage alias) noexcept {
     NativeAsciiResult result{};const u32 tags[]{sfnt_tag('l','a','t','n'),sfnt_tag('g','r','e','k'),sfnt_tag('c','y','r','l'),sfnt_tag('h','e','b','r'),sfnt_tag('h','a','n','i'),sfnt_tag('k','a','n','a'),0};
     for(u32 tag:tags)for(u32 mode=0;mode<2;++mode){bool prepared=false;

@@ -2,9 +2,9 @@
 // rectangles stay concentric, highlights stay inside their clips and each
 // component type keeps one padding. Synthetic fixtures only.
 #include "layout_consistency.hpp"
+#include "fake_text_measure.hpp"
 #include "../src/app/application_plugin_browser_projection.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/user_profile.hpp"
 #include "maicord/ui/background_theme.hpp"
@@ -52,17 +52,6 @@ void finish(const char* scene, const UiLayoutEngine* layout = nullptr) noexcept 
         layout_consistency_record_layout(*layout, scene, &g.padding);
     check(!g.paint.rejected && g.paint.clip_depth == 1, scene);
     ++g.scenes;
-}
-
-bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
-    const auto valid = utf8_validate(request.text);
-    if (!valid.valid || request.constraint.width <= 0)
-        return false;
-    const float natural = static_cast<float>(valid.codepoints) * 8;
-    const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
-    const u32 lines = request.no_wrap ? 1u : maximum(1u, (valid.codepoints + columns - 1) / columns);
-    *value = {{minimum(natural, request.constraint.width), static_cast<float>(lines) * 20}, 16, lines};
-    return true;
 }
 
 void media_viewer() noexcept {
@@ -182,7 +171,7 @@ void tooltip() noexcept {
     const UiRect viewport{0, 0, 640, 480};
     ok = button.ok() && ui_widget_manager_layout_rectangle(&manager, viewport).ok() &&
          ui_tooltip_bind_text_owner(&scene, {&manager, root.handle}) &&
-         ui_text_measure_cache_initialize(&cache, {records, 4}, measure, nullptr) &&
+         ui_text_measure_cache_initialize(&cache, {records, 4}, fake_text_measure<true>, nullptr) &&
          ui_tooltip_offer(&scene, {{{&manager, button.handle}, 7, 1, 2, 3}, {200, 200, 232, 232},
                                    utf8_literal("Notification settings")},
                           viewport, UiTooltipTrigger::pointer, 100) &&
@@ -204,7 +193,7 @@ void dialogs() noexcept {
     content.accept = utf8_literal("Visit site");
     content.option = utf8_literal("Trust example.com links from now on");
     content.can_accept = content.can_cancel = content.confirmation_only = content.focus_visible = true;
-    bool ok = ui_text_measure_cache_initialize(&cache, {records, 32}, measure, nullptr) &&
+    bool ok = ui_text_measure_cache_initialize(&cache, {records, 32}, fake_text_measure<true>, nullptr) &&
               text_form_update(&form, content, {0, 0, 1280, 800}, &cache) && form.active &&
               text_form_focus(&form, TextFormElement::accept) && begin(1280, 800) &&
               text_form_paint(form, {}, kDefaultTheme, &g.paint);

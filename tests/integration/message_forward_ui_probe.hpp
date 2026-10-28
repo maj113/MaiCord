@@ -185,7 +185,7 @@ inline bool message_forward_ui_probe(D3D11Renderer& renderer,
         }
     const auto* source_message = source_row ? message_store_resolve(*messages->timeline->store, source_row->message) : nullptr;
     if (!source_message || !message_action_bar_open(&launcher, *messages,
-        {source_row->message_id, source_row->widget, source_row->source_index}, *source_message, nullptr, true).ok() ||
+        {source_row->message_id, source_row->widget, source_row->source_index}, *source_message, nullptr, MessageActionBarOptions{message_action_bar_forward}).ok() ||
         launcher.item_count != kMessageActionBarMaximumItems) return false;
     renderer.message_forward_scene = nullptr;
     renderer.message_action_bar = &launcher;

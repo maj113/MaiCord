@@ -176,11 +176,6 @@ inline bool upload_media(D3D11Renderer& renderer,Fixture& f) noexcept {
             ui_rect_width(rectangle),ui_rect_height(rectangle),renderer.dpi,media_preview_extent_cap(format)) : MediaResolutionTier::original;
         const auto key = media_asset_search_attachment(attachment.id,format,tier,owner->revision,target.snapshot);
         const auto color = media_color(attachment.id,owner->revision);
-        if (format == MediaAttachmentFormat::mp4) {
-            log_u64(LogLevel::info,"probe","rich_search_video_seed_format",static_cast<u64>(format));
-            log_u64(LogLevel::info,"probe","rich_search_video_seed_tier",static_cast<u64>(media_asset_resolution_tier(key)));
-            log_u64(LogLevel::info,"probe","rich_search_video_seed_publication",media_asset_search_revision(key));
-        }
         u8 pixels[16 * 16 * 4]{};
         for (u32 y = 0; y < 16; ++y) for (u32 x = 0; x < 16; ++x) {
             const float shade = x < 8 ? 1.f : .65f; const u32 at = (y * 16 + x) * 4;

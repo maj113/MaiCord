@@ -38,9 +38,6 @@ u64 text_fingerprint(const MessagePollStore& store, const MessagePollRecord& rec
     }
     return hash;
 }
-bool same_text(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
 } // namespace
 void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept {
     MessagePollStore store{};
@@ -73,7 +70,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     question[0] = '!';
     const auto* poll = message_poll_store_find(store, 10);
     check(poll &&
-              same_text(message_poll_store_string(store, poll->question), utf8_literal("Choose color")) &&
+              utf8_equal(message_poll_store_string(store, poll->question), utf8_literal("Choose color")) &&
               poll->answers[1].emoji_id == 777 && poll->answers[1].emoji_animated &&
               poll->answers[0].count_known && poll->answers[0].count == 5 && poll->answers[1].me_known &&
               poll->answers[1].me_voted,
@@ -167,7 +164,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     check(message_poll_store_apply(&store, 10, 20, input, 0, &ticket).error ==
                   MessagePollStoreError::stale &&
               poll->content_revision == fresh_content &&
-              same_text(message_poll_store_string(store, poll->question), changed_question.question),
+              utf8_equal(message_poll_store_string(store, poll->question), changed_question.question),
           "poll model: stale HTTP content ticket rejects the whole old question/answers snapshot");
     ticket = message_poll_store_result_ticket(store, 10, 18);
     check(message_poll_store_apply(&store, 10, 20, results, 0, &ticket).changed && poll->results_known &&
@@ -335,7 +332,7 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     replace.question = {longer_question, sizeof(longer_question)};
     check(message_poll_store_apply(&bounded, 1, 2, replace).error == MessagePollStoreError::capacity &&
               bounded.text_used == 64 &&
-              same_text(message_poll_store_string(bounded, message_poll_store_find(bounded, 3)->question),
+              utf8_equal(message_poll_store_string(bounded, message_poll_store_find(bounded, 3)->question),
                         compact.question) &&
               message_poll_store_metrics(bounded).commit_count == before_failure.commit_count,
           "poll model: full text preflight rejects atomically without copying or committing another bank");
@@ -343,9 +340,9 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     applied = message_poll_store_apply(&bounded, 1, 2, replace);
     poll = message_poll_store_find(bounded, 1);
     check(applied.ok() && applied.changed && bounded.compactions == 1 && !bounded.text_wasted && poll &&
-              same_text(message_poll_store_string(bounded, poll->question), replace.question) &&
-              same_text(message_poll_store_string(bounded, poll->answers[0].text), utf8_literal("A")) &&
-              same_text(message_poll_store_string(bounded, message_poll_store_find(bounded, 3)->question),
+              utf8_equal(message_poll_store_string(bounded, poll->question), replace.question) &&
+              utf8_equal(message_poll_store_string(bounded, poll->answers[0].text), utf8_literal("A")) &&
+              utf8_equal(message_poll_store_string(bounded, message_poll_store_find(bounded, 3)->question),
                         compact.question),
           "poll model: real bank compaction preserves retained answer aliases and other poll text");
 

@@ -2,6 +2,7 @@
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/model/user_store.hpp"
+#include "test_output.hpp"
 #include "maicord/ui/navigation_view.hpp"
 
 namespace maicord {
@@ -72,13 +73,6 @@ Utf8View content(u32 index) noexcept {
     out[bytes++] = static_cast<char>('a' + index / 10);
     out[bytes++] = static_cast<char>('0' + index % 10);
     return Utf8View{out, bytes};
-}
-
-bool contains(Utf8View text, Utf8View needle) noexcept {
-    for (u32 i = 0; needle.bytes && i + needle.bytes <= text.bytes; ++i)
-        if (utf8_equal(Utf8View{text.data + i, needle.bytes}, needle))
-            return true;
-    return false;
 }
 
 bool resolves_entities(const MessageTextCommand& command) noexcept {
@@ -216,7 +210,7 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
                          build(&presentation, kNow);
     bool rename_projected = false;
     for (u32 i = 0; renamed && i < presentation.command_count; ++i)
-        rename_projected |= contains(presentation.commands[i].text, utf8_literal("@Renamed"));
+        rename_projected |= test_contains(presentation.commands[i].text, utf8_literal("@Renamed"));
     check(renamed && entity_sources > 0 && rename_projected &&
               presentation.markdown_parses - before == entity_sources,
           "markdown_cache_entity_rename_reparses_resolving_sources_and_projects_the_new_name");

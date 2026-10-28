@@ -1,14 +1,8 @@
 #include "generated/gujarati_input_fixture.inc"
 bool gujarati_input_units() noexcept {
-    const auto gujarati_input_fixture=indic_input_fixture(gujarati_input_fixture_resource);
-    CHECK(gujarati_input_fixture.count==gujarati_input_fixture_words);
     constexpr auto profile=SfntIndicProfile::gujarati;
-    u32 scalars[256]{};u8 boundaries[256]{};u32 first=0,count=0,cases=0;
-    for(u32 i=0;i<gujarati_input_fixture.count;++i){const u32 entry=gujarati_input_fixture[i];CHECK(count<256);scalars[count++]=entry&0x1fffffu;
-        if(entry&0x40000000u){CHECK(sfnt_indic_cluster_boundaries(profile,{scalars,count},{boundaries,count})==SfntStatus::ok);
-            for(u32 j=0;j<count;++j)if(boundaries[j]!=(gujarati_input_fixture[first+j]>>31)){print("Gujarati fixture case ");number(cases);print("\n");CHECK(false);}
-            ++cases;count=0;first=i+1;}}
-    CHECK(!count&&cases==gujarati_input_fixture_cases);
+    CHECK(indic_input_corpus(profile,gujarati_input_fixture_resource,gujarati_input_fixture_words,gujarati_input_fixture_cases,"Gujarati"));
+    u8 boundaries[256]{};
     // Gujarati signs stay nominal, including the top/right candra-O sign.
     // Adjacent Bengali/Tamil signs must not borrow those profiles' expansion.
     const u32 input[]{0xa95,0xac9,0xacb,0xacc,0x1f600,0x9cb,0xbca};

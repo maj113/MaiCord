@@ -147,9 +147,7 @@ AccountInventoryEntry entry(u64 user, u32 slot, u64 used, const char* name) noex
     value.user_id = user;
     value.slot = static_cast<u8>(slot);
     value.last_used_unix_ms = used;
-    u32 bytes = 0;
-    while (name[bytes])
-        ++bytes;
+    const u32 bytes = c_string_length(name);
     account_inventory_set_identity(&value, {name, bytes}, {name, bytes}, utf8_literal("a_0123456789abcdef"));
     return value;
 }
@@ -327,9 +325,7 @@ struct FakeIo {
             trace[used++] = c;
     }
     bool is(const char* expected) const noexcept {
-        u32 bytes = 0;
-        while (expected[bytes])
-            ++bytes;
+        const u32 bytes = c_string_length(expected);
         return bytes == used && bytes_equal(trace, expected, bytes);
     }
 };

@@ -19,6 +19,7 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/sys/dwrite.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -67,12 +68,6 @@ void probe_system_coverage() noexcept {
     factory->Release();
 }
 
-bool contains(Utf8View text, Utf8View part) noexcept {
-    for (u32 i = 0; part.bytes <= text.bytes && i <= text.bytes - part.bytes; ++i)
-        if (bytes_equal(text.data + i, part.data, part.bytes))
-            return true;
-    return false;
-}
 bool close_to(float a, float b) noexcept {
     return a > b - .01f && a < b + .01f;
 }
@@ -103,20 +98,28 @@ u32 encode(u32 cp, char* out) noexcept {
     return 4;
 }
 
-struct Shape {
+struct Shaped {
     bool ok;
     u32 notdef;
+    u32 lines;
     float width;
+    float advance;
+    float height;
 };
-Shape shape(Utf8View text) noexcept {
+Shaped shape_styled(Utf8View text, ConstSlice<TextStyleSpan> styles = {}, float width = 1000) noexcept {
     ShapedText output{};
-    Shape result{};
-    if (!shaped_text_initialize(&output, {glyphs, 1024}, {runs, 256}, {clusters, 1024}))
+    Shaped result{};
+    if (!shaped_text_initialize(&output, {glyphs, 1024}, {runs, 256}, {clusters, 1024}) ||
+        !shaped_text_bind_decorations(&output, {decorations, 64}))
         return result;
-    result.ok = text_shape_utf8_styled(&text_system, text, {}, 1000, 1000, {utf16, 1024}, &output).ok();
-    for (u32 i = 0; i < output.glyph_count; ++i)
+    result.ok = text_shape_utf8_styled(&text_system, text, styles, width, 4096, {utf16, 1024}, &output).ok();
+    for (u32 i = 0; i < output.glyph_count; ++i) {
         result.notdef += output.glyphs[i].index == 0 ? 1u : 0u;
+        result.advance += output.glyphs[i].advance;
+    }
+    result.lines = output.line_count;
     result.width = output.width;
+    result.height = output.height;
     shaped_text_reset(&output);
     return result;
 }
@@ -127,8 +130,8 @@ Shape shape(Utf8View text) noexcept {
 void test_default_ignorables(Check check) noexcept {
     const u32 hidden[]{0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180E, 0x200B, 0x200C, 0x200D,
                        0x2062, 0x2064, 0x2065, 0x3164, 0xFE0E, 0xFE0F, 0xFFA0, 0xFFF0, 0xE0001, 0xE0020};
-    const Shape plain = shape(utf8_literal("abcd"));
-    const Shape line = shape(utf8_literal("Hello"));
+    const Shaped plain = shape_styled(utf8_literal("abcd"));
+    const Shaped line = shape_styled(utf8_literal("Hello"));
     bool invisible = plain.ok && line.ok && plain.notdef == 0;
     for (u32 cp : hidden) {
         for (u32 form = 0; form < 2; ++form) {
@@ -144,17 +147,17 @@ void test_default_ignorables(Check check) noexcept {
             const char* tail = form ? "Hello" : "cd";
             for (u32 i = 0; tail[i]; ++i)
                 text[n++] = tail[i];
-            const Shape s = shape(Utf8View{text, n});
+            const Shaped s = shape_styled(Utf8View{text, n});
             const float expected = form ? line.width : plain.width;
             invisible = invisible && s.ok && s.notdef == 0 && s.width > expected - 0.5f && s.width < expected + 0.5f;
         }
     }
     check(invisible, "default_ignorables_shape_without_tofu_or_advance");
-    const Shape braille = shape(utf8_literal("\xE2\xA0\x80Hi"));
-    check(braille.ok && braille.notdef == 0 && braille.width > shape(utf8_literal("Hi")).width,
+    const Shaped braille = shape_styled(utf8_literal("\xE2\xA0\x80Hi"));
+    check(braille.ok && braille.notdef == 0 && braille.width > shape_styled(utf8_literal("Hi")).width,
           "braille_blank_is_a_visible_blank_not_tofu");
     // Emoji presentation sequences keep their selector.
-    const Shape heart = shape(utf8_literal("\xE2\x9D\xA4\xEF\xB8\x8F"));
+    const Shaped heart = shape_styled(utf8_literal("\xE2\x9D\xA4\xEF\xB8\x8F"));
     check(heart.ok && heart.notdef == 0 && heart.width > 8.0f, "emoji_variation_sequence_still_renders");
 
     char out[32]{};
@@ -169,31 +172,9 @@ void test_default_ignorables(Check check) noexcept {
           "orphan_selectors_become_same_length_invisible_scalars");
 }
 
-struct Glyphs {
-    bool ok;
-    u32 notdef;
-    u32 lines;
-    float width;
-    float advance;
-};
-Glyphs shape_glyphs(Utf8View text, float width = 1000) noexcept {
-    ShapedText output{};
-    Glyphs result{};
-    if (!shaped_text_initialize(&output, {glyphs, 1024}, {runs, 256}, {clusters, 1024}))
-        return result;
-    result.ok = text_shape_utf8_styled(&text_system, text, {}, width, 4096, {utf16, 1024}, &output).ok();
-    for (u32 i = 0; i < output.glyph_count; ++i) {
-        result.notdef += output.glyphs[i].index == 0 ? 1u : 0u;
-        result.advance += output.glyphs[i].advance;
-    }
-    result.lines = output.line_count;
-    result.width = output.width;
-    shaped_text_reset(&output);
-    return result;
-}
 // No missing glyph, no advance and no measured width.
 bool draws_nothing(Utf8View text) noexcept {
-    const Glyphs g = shape_glyphs(text);
+    const Shaped g = shape_styled(text);
     const auto m = text_measure_utf8_styled(&text_system, text, {}, 1000, 1000, {utf16, 1024});
     return g.ok && g.notdef == 0 && close_to(g.width, 0) && close_to(g.advance, 0) && m.ok() && close_to(m.width, 0);
 }
@@ -220,23 +201,23 @@ void test_baseless_ignorables(Check check) noexcept {
     const auto measured = text_measure_utf8_styled(&text_system, {text, n}, {}, 1000, 1000, {utf16, 1024});
     check(n == 68 && measured.utf16_units == 34 && draws_nothing({text, n}), "hidden_tag_bio_draws_nothing");
 
-    const float hello = shape_glyphs(utf8_literal("Hello")).width;
+    const float hello = shape_styled(utf8_literal("Hello")).width;
     n = append(text, append_hidden_colors(text, append(text, 0, "hi ")), " x");
-    const Glyphs inside = shape_glyphs({text, n});
-    const Glyphs plain = shape_glyphs(utf8_literal("hi  x"));
+    const Shaped inside = shape_styled({text, n});
+    const Shaped plain = shape_styled(utf8_literal("hi  x"));
     n = append_hidden_colors(text, append(text, 0, "Hello\n"));
-    const Glyphs after_break = shape_glyphs({text, n});
+    const Shaped after_break = shape_styled({text, n});
     check(inside.ok && inside.notdef == 0 && close_to(inside.width, plain.width) && after_break.ok &&
               after_break.notdef == 0 && after_break.lines == 2 && close_to(after_break.width, hello),
           "hidden_tags_inside_text_take_no_width");
 
     // Lines holding only ignorables, and ignorables ending wrapped lines.
     n = append(text, append_hidden_colors(text, 0), "\n\xCD\x8F\n\xE2\x80\x8C\xE2\x81\xA0");
-    const Glyphs only = shape_glyphs({text, n});
+    const Shaped only = shape_styled({text, n});
     const float narrow = hello + 4;
-    const Glyphs wrapped_plain = shape_glyphs(utf8_literal("Hello world"), narrow);
+    const Shaped wrapped_plain = shape_styled(utf8_literal("Hello world"), {}, narrow);
     n = append_hidden_colors(text, append(text, append_hidden_colors(text, append(text, 0, "Hello")), " world"));
-    const Glyphs wrapped = shape_glyphs({text, n}, narrow);
+    const Shaped wrapped = shape_styled({text, n}, {}, narrow);
     check(only.ok && only.notdef == 0 && only.lines == 3 && close_to(only.width, 0) && wrapped_plain.lines == 2 &&
               wrapped.ok && wrapped.notdef == 0 && wrapped.lines == 2 && close_to(wrapped.width, wrapped_plain.width),
           "ignorable_only_lines_and_wrapped_line_ends_take_no_width");
@@ -254,7 +235,7 @@ void test_baseless_ignorables(Check check) noexcept {
         n += encode(cp, text + n);
         alone = alone && draws_nothing({text, n});
         n = append(text, encode(cp, text), "Hello");
-        const Glyphs word = shape_glyphs({text, n});
+        const Shaped word = shape_styled({text, n});
         leading = leading && word.ok && word.notdef == 0 && close_to(word.width, hello);
     }
     check(alone, "each_ignorable_alone_draws_nothing");
@@ -263,11 +244,11 @@ void test_baseless_ignorables(Check check) noexcept {
     // Subdivision flags keep their tags; hidden tags beside a flag add nothing.
     const auto england = utf8_literal("\xF0\x9F\x8F\xB4\xF3\xA0\x81\xA7\xF3\xA0\x81\xA2\xF3\xA0\x81\xA5"
                                       "\xF3\xA0\x81\xAE\xF3\xA0\x81\xA7\xF3\xA0\x81\xBF");
-    const Glyphs flag = shape_glyphs(england);
+    const Shaped flag = shape_styled(england);
     n = append_hidden_colors(text, 0);
     copy_bytes(text + n, england.data, england.bytes);
     n = append_hidden_colors(text, n + england.bytes);
-    const Glyphs flanked = shape_glyphs({text, n});
+    const Shaped flanked = shape_styled({text, n});
     check(flag.ok && flag.notdef == 0 && flag.width > 8 && flanked.ok && flanked.notdef == 0 &&
               close_to(flanked.width, flag.width),
           "subdivision_flag_keeps_tags_beside_hidden_tags");
@@ -427,8 +408,8 @@ void test_calendar(Check check) noexcept {
     check(utf8_starts_with(at(stamp, stamp + 86'400), utf8_literal("Yesterday at ")) &&
               utf8_starts_with(at(stamp, stamp), utf8_literal("Today at ")) &&
               utf8_starts_with(at(stamp + 86'400, stamp), utf8_literal("Tomorrow at ")) &&
-              !contains(at(stamp + 5 * 86'400, stamp), utf8_literal(":")) &&
-              contains(at(stamp, stamp + 10 * 86'400), utf8_literal(":")),
+              !test_contains(at(stamp + 5 * 86'400, stamp), utf8_literal(":")) &&
+              test_contains(at(stamp, stamp + 10 * 86'400), utf8_literal(":")),
           "embed_footer_calendar_today_yesterday_tomorrow_and_dates");
 }
 
@@ -648,8 +629,8 @@ void test_fxtwitter_embed(Check check) noexcept {
               ends_with(description->text, utf8_literal(" Comet...\n")) &&
               utf8_equal(quote->text, utf8_literal("quoted tweet line\nsecond line")) &&
               utf8_starts_with(tail->text, utf8_literal("\n")) &&
-              contains(tail->text, utf8_literal("PREVIEW... IT SHIPS NOW! ")) &&
-              !contains(tail->text, utf8_literal("\\")) &&
+              test_contains(tail->text, utf8_literal("PREVIEW... IT SHIPS NOW! ")) &&
+              !test_contains(tail->text, utf8_literal("\\")) &&
               has_style(quote, utf8_literal("quoted tweet line"), text_style_quote) &&
               has_style(quote, utf8_literal("second"), text_style_quote) &&
               !has_style(tail, utf8_literal("PREVIEW"), text_style_quote) &&
@@ -658,7 +639,7 @@ void test_fxtwitter_embed(Check check) noexcept {
     check(footer && utf8_starts_with(footer->text, utf8_literal("EmbedX \xE2\x80\xA2 Yesterday at ")) &&
               has_style(footer, utf8_literal("EmbedX"), text_style_subtext),
           "embed_footer_shows_text_bullet_and_calendar_timestamp");
-    check(description && shape(description->text).notdef == 0, "embed_description_invisible_separators_draw_nothing");
+    check(description && shape_styled(description->text).notdef == 0, "embed_description_invisible_separators_draw_nothing");
     // The official client's embed type scale: provider/footer text-xs (12), author and
     // description text-sm (14), each run shaped at that em.
     check(sized_throughout(provider, text_size_xs) && sized_throughout(author, text_size_sm) &&
@@ -1175,27 +1156,6 @@ void test_quote_blocks(Check check) noexcept {
 // U+2063 blanked the message list behind the shell fallback, and the full
 // rebuild re-ran every 1.6 s, locking the UI up. These run on that engine.
 
-struct Shaped {
-    bool ok;
-    u32 notdef;
-    float width;
-    float height;
-};
-Shaped shape_styled(Utf8View text, ConstSlice<TextStyleSpan> styles, float width = 1000) noexcept {
-    ShapedText output{};
-    Shaped result{};
-    if (!shaped_text_initialize(&output, {glyphs, 1024}, {runs, 256}, {clusters, 1024}) ||
-        !shaped_text_bind_decorations(&output, {decorations, 64}))
-        return result;
-    result.ok = text_shape_utf8_styled(&text_system, text, styles, width, 4096, {utf16, 1024}, &output).ok();
-    for (u32 i = 0; i < output.glyph_count; ++i)
-        result.notdef += output.glyphs[i].index == 0 ? 1u : 0u;
-    result.width = output.width;
-    result.height = output.height;
-    shaped_text_reset(&output);
-    return result;
-}
-
 // Every scalar shapes and measures, plain and styled, in a line of text.
 void test_native_text_never_fails(Check check) noexcept {
     bool shaped = true, measured = true;
@@ -1402,7 +1362,7 @@ void test_vxtwitter_embeds(Check check) noexcept {
         check(author && utf8_equal(author->text, utf8_literal("rowan \xF0\x96\xA7\xA7 (@rowan_example)")) &&
                   author->measured_height > 0,
               "vxtwitter_decorated_author_is_measured");
-        check(description && contains(description->text, utf8_literal("Gardener tours")) &&
+        check(description && test_contains(description->text, utf8_literal("Gardener tours")) &&
                   description->measured_height > 0,
               "vxtwitter_description_text_is_shown");
         bool drawn = true;
@@ -1702,8 +1662,8 @@ void test_reply_previews(Check check) noexcept {
     put(R"(\n```"}}})");
     row = converge_message({long_payload, at});
     line = row ? owned_command(f.presentation, row->reply) : nullptr;
-    bool clean = line && utf8_starts_with(line->text, utf8_literal("Alice WWWW")) && !contains(line->text, utf8_literal("`")) &&
-                 !contains(line->text, utf8_literal("\x1b")) && !contains(line->text, utf8_literal("[38;"));
+    bool clean = line && utf8_starts_with(line->text, utf8_literal("Alice WWWW")) && !test_contains(line->text, utf8_literal("`")) &&
+                 !test_contains(line->text, utf8_literal("\x1b")) && !test_contains(line->text, utf8_literal("[38;"));
     check(clean, "reply preview: a long truecolor ```ansi message shows its text without escapes or fences");
     if (row)
         message_scene_release(&f.scene);
@@ -1786,7 +1746,7 @@ AnsiPaint ansi_paint(const MessageTextCommand* command) noexcept {
 }
 const MessageTextCommand* command_containing(const MessageTextPresentation& p, Utf8View part) noexcept {
     for (u32 i = 0; i < p.command_count; ++i)
-        if (contains(p.commands[i].text, part))
+        if (test_contains(p.commands[i].text, part))
             return &p.commands[i];
     return nullptr;
 }
@@ -1809,9 +1769,9 @@ void test_component_embed(Check check) noexcept {
     const MessageTextCommand *title = nullptr, *code = nullptr;
     for (u32 i = 0; row && i < f.presentation.command_count; ++i) {
         const auto& c = f.presentation.commands[i];
-        if (contains(c.text, utf8_literal("Example ANSI Colored Text Preview Tool")))
+        if (test_contains(c.text, utf8_literal("Example ANSI Colored Text Preview Tool")))
             title = &c;
-        if (contains(c.text, utf8_literal("Small tool to make")))
+        if (test_contains(c.text, utf8_literal("Small tool to make")))
             code = &c;
     }
     bool colored = false, background = false, underline = false, block = false;
@@ -1824,8 +1784,8 @@ void test_component_embed(Check check) noexcept {
     }
     const float height = row ? row->rich_item_layout.heights[kMessageSceneEmbedItemOffset] : 0.0f;
     check(title && code && has_style(title, utf8_literal("Example"), text_style_link) && colored && background &&
-              underline && block && !contains(code->text, utf8_literal("\x1b")) &&
-              !contains(code->text, utf8_literal("```")) && height > 52.0f,
+              underline && block && !test_contains(code->text, utf8_literal("\x1b")) &&
+              !test_contains(code->text, utf8_literal("```")) && height > 52.0f,
           "component embed: the heading link and the ```ansi block render with colours, background and "
           "underline inside a non-empty card");
     // "\e[2;4;2m\e[38;2;...mlike that" opens <u> before the colour span; the
@@ -1870,7 +1830,7 @@ void test_component_embed(Check check) noexcept {
     const Utf8View text = card ? message_rich_store_string(f.rich, card->description) : Utf8View{};
     const MessageTextCommand* body = nullptr;
     for (u32 i = 0; row && i < f.presentation.command_count; ++i)
-        if (contains(f.presentation.commands[i].text, utf8_literal("Card text")))
+        if (test_contains(f.presentation.commands[i].text, utf8_literal("Card text")))
             body = &f.presentation.commands[i];
     check(card && utf8_equal(text, utf8_literal("**Card** text\n\nsecond")) && card->thumbnail.url.bytes &&
               body && has_style(body, utf8_literal("Card"), text_style_bold),

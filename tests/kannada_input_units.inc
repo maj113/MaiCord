@@ -1,15 +1,9 @@
 #include "generated/kannada_input_fixture.inc"
 bool kannada_input_units() noexcept {
-    const auto kannada_input_fixture=indic_input_fixture(kannada_input_fixture_resource);
-    CHECK(kannada_input_fixture.count==kannada_input_fixture_words);
     constexpr auto profile=SfntIndicProfile::kannada;
     const ConstSlice<u8> forms{kannada_input_forms,128};
-    u32 scalars[256]{};u8 boundaries[256]{};u32 first=0,count=0,cases=0;
-    for(u32 i=0;i<kannada_input_fixture.count;++i){const u32 entry=kannada_input_fixture[i];CHECK(count<256);scalars[count++]=entry&0x1fffffu;
-        if(entry&0x40000000u){CHECK(sfnt_indic_cluster_boundaries(profile,{scalars,count},{boundaries,count},1000000,forms)==SfntStatus::ok);
-            for(u32 j=0;j<count;++j)if(boundaries[j]!=(kannada_input_fixture[first+j]>>31)){print("Kannada fixture case ");number(cases);print("\n");CHECK(false);}
-            ++cases;count=0;first=i+1;}}
-    CHECK(!count&&cases==kannada_input_fixture_cases);
+    CHECK(indic_input_corpus(profile,kannada_input_fixture_resource,kannada_input_fixture_words,kannada_input_fixture_cases,"Kannada",forms));
+    u32 scalars[256]{};u8 boundaries[256]{};
     // Independent Windows observations with feature-disabled font fixtures.
     const u32 vowel_subscript[]{0xc92,0xccd,0xc95,0xccc},reph_vowel[]{0xcb0,0xccd,0xc85};
     const u8 vowel_normal[]{1,0,0,1},vowel_no_below[]{1,0,0,0},reph_normal[]{1,0,0},reph_absent[]{1,0,1};

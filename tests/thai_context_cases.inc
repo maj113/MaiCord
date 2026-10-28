@@ -22,7 +22,7 @@
 bool native_thai_primitive_cases() noexcept {
     u32 scalars[32]{};
     const auto decode=[&](const char* value) noexcept {
-        u32 count=0,bytes=0;while(value[bytes])++bytes;
+        u32 count=0;const u32 bytes=c_string_length(value);
         for(u32 at=0;at<bytes&&count<32;){const auto d=utf8_decode_one(value+at,bytes-at);if(!d.valid)return 0u;scalars[count++]=d.codepoint;at+=d.width;}
         return count;
     };
@@ -114,7 +114,7 @@ bool native_thai_context_cases() noexcept {
     };
     u32 failures=0,agreeing=0;
     for(const auto& sample:samples){
-        ++cases;u32 count=0,bytes=0;while(sample.segmented[bytes])++bytes;
+        ++cases;u32 count=0;const u32 bytes=c_string_length(sample.segmented);
         u32 scalars[256]{};wchar_t text[256]{};u8 expected[257]{};
         for(u32 at=0;at<bytes;){
             if(sample.segmented[at]=='|'){expected[count]=1;++at;continue;}

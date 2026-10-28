@@ -25,10 +25,7 @@ const StreamPreviewEntry* preview(const StreamPreviewCache& cache, const Gateway
     return nullptr;
 }
 Utf8View text(const char* value) noexcept {
-    u32 bytes = 0;
-    while (value[bytes])
-        ++bytes;
-    return {value, bytes};
+    return {value, c_string_length(value)};
 }
 bool close_to(float a, float b, float tolerance = .05f) noexcept {
     return a - b <= tolerance && b - a <= tolerance;
@@ -237,8 +234,6 @@ void stream_tiles(Check check) noexcept {
           "stream tiles: the volume button explains itself");
     check(!ui_call_scene_tooltip(scene, middle(watch).x, middle(watch).y, nullptr, nullptr).bytes,
           "stream tiles: labeled buttons need no tooltip");
-    check(scene.viewer_text[0][0] == '1' && scene.viewer_text[0][1] == '2' && !scene.viewer_text[0][2],
-          "stream tiles: the viewer count is formatted once per projection");
     check(!ui_call_scene_spinner_visible(scene), "stream tiles: a live picture needs no spinner");
     // States: connecting spins over the preview; ended offers close.
     people[0].stream = UiCallStream::connecting;

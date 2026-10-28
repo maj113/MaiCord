@@ -1,6 +1,7 @@
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord { namespace {
 u32 failures;
@@ -10,16 +11,6 @@ void check(bool ok, Utf8View name) noexcept {
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), name.data, name.bytes, &written, nullptr);
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-}
-bool equal(Utf8View a, Utf8View b) noexcept {
-    if (a.bytes != b.bytes) return false;
-    for (u32 i = 0; i < a.bytes; ++i) if (a.data[i] != b.data[i]) return false;
-    return true;
-}
-bool contains(Utf8View a, Utf8View b) noexcept {
-    for (u32 i = 0; b.bytes <= a.bytes && i <= a.bytes - b.bytes; ++i)
-        if (equal({a.data + i, b.bytes}, b)) return true;
-    return false;
 }
 MessageRecord records[2]; u32 order[2]; u8 text[2048];
 MessageRichRecord rich_records[8]; u16 rich_order[8]; u8 rich_text[32768];
@@ -91,10 +82,10 @@ void run() noexcept {
     const auto body_link = hit(body, MessageMarkdownSemanticKind::link);
     const auto embed_link = hit(inner_embed, MessageMarkdownSemanticKind::link);
     check(body && body->message_id == 91 && body->message_revision == revision &&
-          contains(body->text, utf8_literal("frozen \xC5\xBE")), utf8_literal("forwarded_text_utf8_body_identity"));
-    check(equal(message_text_presentation_hit_source(store, &rich, body_link), utf8_literal("https://snapshot.example/x")) &&
-          equal(message_text_presentation_hit_source(store, &rich, embed_link), utf8_literal("https://snapshot-embed.example")) &&
-          equal(message_text_presentation_hit_source(store, &rich, hit(outer_embed, MessageMarkdownSemanticKind::link)),
+          test_contains(body->text, utf8_literal("frozen \xC5\xBE")), utf8_literal("forwarded_text_utf8_body_identity"));
+    check(utf8_equal(message_text_presentation_hit_source(store, &rich, body_link), utf8_literal("https://snapshot.example/x")) &&
+          utf8_equal(message_text_presentation_hit_source(store, &rich, embed_link), utf8_literal("https://snapshot-embed.example")) &&
+          utf8_equal(message_text_presentation_hit_source(store, &rich, hit(outer_embed, MessageMarkdownSemanticKind::link)),
                 utf8_literal("https://outer-embed.example")), utf8_literal("forwarded_text_exact_link_sources"));
     check(message_text_presentation_hit_source(store, body_link).bytes == 0,
           utf8_literal("forwarded_text_no_outer_fallback"));
@@ -109,8 +100,8 @@ void run() noexcept {
     if (body) {
         const auto copy = message_text_project_selection_for_copy(*body,
             message_text_presentation_command_source(store, &rich, *body), 0, body->text.bytes, {copied, 1024});
-        check(copy.ok && copy.transformed && contains({copied, copy.bytes}, utf8_literal("<:inner:23>")) &&
-              !contains({copied, copy.bytes}, utf8_literal("<:outer:22>")), utf8_literal("forwarded_text_copy_emoji_source"));
+        check(copy.ok && copy.transformed && test_contains({copied, copy.bytes}, utf8_literal("<:inner:23>")) &&
+              !test_contains({copied, copy.bytes}, utf8_literal("<:outer:22>")), utf8_literal("forwarded_text_copy_emoji_source"));
     }
     bool changed = false; const auto spoiler = hit(body, MessageMarkdownSemanticKind::spoiler);
     check(hidden(body) && hidden(inner_embed) && message_text_presentation_toggle_spoiler(&p, store, &rich, spoiler, &changed) &&
@@ -125,7 +116,7 @@ void run() noexcept {
           message_text_presentation_hit_source(store, &rich, body_link).bytes == 0,
           utf8_literal("forwarded_text_stale_revision_guard"));
     auto current = body_link; current.message_revision = next;
-    check(equal(message_text_presentation_hit_source(store, &rich, current), utf8_literal("https://snapshot.example/x")),
+    check(utf8_equal(message_text_presentation_hit_source(store, &rich, current), utf8_literal("https://snapshot.example/x")),
           utf8_literal("forwarded_text_immutable_omission"));
     omitted.fields = gateway_message_field_message_snapshots;
     check(message_rich_store_apply(&rich, 91, next, omitted).ok() &&

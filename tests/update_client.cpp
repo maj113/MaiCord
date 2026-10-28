@@ -26,18 +26,13 @@ void check(bool success, const char* name) noexcept {
     test_check(&failures, success, name);
 }
 template <u32 N> ConstSlice<char> text(const char (&s)[N]) noexcept { return {s, N - 1}; }
-bool same(Utf8View a, const char* b) noexcept { u32 n = 0; while (b[n]) ++n; return a.bytes == n && bytes_equal(a.data, b, n); }
-bool contains(Utf8View a, const char* b) noexcept {
-    u32 n = 0; while (b[n]) ++n;
-    for (u32 i = 0; i + n <= a.bytes; ++i) if (bytes_equal(a.data + i, b, n)) return true;
-    return false;
-}
-u32 length8(const char* s) noexcept { u32 n = 0; while (s[n]) ++n; return n; }
-bool contains(const char* a, const char* b) noexcept { return contains(Utf8View{a, length8(a)}, b); }
+bool same(Utf8View a, const char* b) noexcept { const u32 n = c_string_length(b); return a.bytes == n && bytes_equal(a.data, b, n); }
+bool contains(Utf8View a, const char* b) noexcept { return test_contains(a, Utf8View{b, c_string_length(b)}); }
+bool contains(const char* a, const char* b) noexcept { return contains(Utf8View{a, c_string_length(a)}, b); }
 UpdateLocation at(UpdateHost host, const char* target, const char* origin = nullptr) noexcept {
-    UpdateLocation l{}; l.host = host; l.target_bytes = length8(target); copy_bytes(l.target, target, l.target_bytes);
+    UpdateLocation l{}; l.host = host; l.target_bytes = c_string_length(target); copy_bytes(l.target, target, l.target_bytes);
     if (!origin) origin = host == UpdateHost::provider ? "plugins.example.net" : "o.github.io";
-    if (host == UpdateHost::pages || host == UpdateHost::provider) { l.origin_bytes = length8(origin); copy_bytes(l.origin, origin, l.origin_bytes); }
+    if (host == UpdateHost::pages || host == UpdateHost::provider) { l.origin_bytes = c_string_length(origin); copy_bytes(l.origin, origin, l.origin_bytes); }
     return l;
 }
 bool same_location(const UpdateLocation& l, UpdateHost host, const char* host_name, const char* target) noexcept {
@@ -55,7 +50,7 @@ void capture(LogLevel, const char* category, const char* line) noexcept {
     g_lines[g_line_count++][n] = 0;
 }
 bool all_categories(const char* expected) noexcept {
-    for (u32 i = 0; i < g_line_count; ++i) if (!g_categories[i] || !same({g_categories[i], length8(g_categories[i])}, expected)) return false;
+    for (u32 i = 0; i < g_line_count; ++i) if (!g_categories[i] || !same({g_categories[i], c_string_length(g_categories[i])}, expected)) return false;
     return g_line_count != 0;
 }
 bool logged(const char* needle) noexcept {
@@ -88,21 +83,21 @@ UpdateTransportError fake_get(void* context, const UpdateHttpRequest& request, U
     ++fake->requests;
     *response = {};
     const bool closed = request.host == UpdateHost::pages || request.host == UpdateHost::provider;
-    const Utf8View expected = closed ? Utf8View{fake->origin, fake->origin ? length8(fake->origin) : 0} : update_host_name(request.host);
+    const Utf8View expected = closed ? Utf8View{fake->origin, c_string_length(fake->origin)} : update_host_name(request.host);
     if (!expected.bytes || request.host_name.bytes != expected.bytes || !bytes_equal(request.host_name.data, expected.data, expected.bytes)) {
         ++fake->wrong_host; response->status = 404; return UpdateTransportError::none;
     }
     Route* route = nullptr;
     for (u32 i = 0; i < fake->count; ++i) {
         auto& r = fake->routes[i];
-        if (r.host == request.host && length8(r.target) == request.target.count && bytes_equal(r.target, request.target.data, request.target.count))
+        if (r.host == request.host && c_string_length(r.target) == request.target.count && bytes_equal(r.target, request.target.data, request.target.count))
             route = &r;
     }
     if (!route) { response->status = 404; return UpdateTransportError::none; }
     ++route->hits;
     response->status = route->status;
     const auto field = [&](const char* name, const char* value) noexcept {
-        update_http_observe_field(response, {reinterpret_cast<const u8*>(name), length8(name)}, {reinterpret_cast<const u8*>(value), length8(value)});
+        update_http_observe_field(response, {reinterpret_cast<const u8*>(name), c_string_length(name)}, {reinterpret_cast<const u8*>(value), c_string_length(value)});
     };
     if (route->location) field("Location", route->location);
     char number[24]{};
@@ -218,7 +213,7 @@ void test_redirects_and_schedule() noexcept {
     UpdateLocation next{};
     const auto parse = [&](UpdateHost from, const char* location) noexcept {
         next = {};
-        return update_redirect_target(at(from, "/start"), {reinterpret_cast<const u8*>(location), length8(location)}, &next);
+        return update_redirect_target(at(from, "/start"), {reinterpret_cast<const u8*>(location), c_string_length(location)}, &next);
     };
     check(parse(UpdateHost::github, "https://objects.githubusercontent.com/github-production-release-asset/1?X-Amz-Signature=ab%2F&x=1") &&
         next.host == UpdateHost::objects && next.target[0] == '/' &&
@@ -357,7 +352,7 @@ void test_redirects_and_schedule() noexcept {
 // update_http_read; these drive the same reader with awkward splits.
 u8 g_stream[420 * 1024];
 u32 g_stream_bytes;
-void stream_add(const char* s) noexcept { const u32 n = length8(s); copy_bytes(g_stream + g_stream_bytes, s, n); g_stream_bytes += n; }
+void stream_add(const char* s) noexcept { const u32 n = c_string_length(s); copy_bytes(g_stream + g_stream_bytes, s, n); g_stream_bytes += n; }
 u8 pattern(u64 i) noexcept { return static_cast<u8>(i * 31 + 7 + (i >> 9)); }
 void stream_body(u64 offset, u32 bytes) noexcept { for (u32 i = 0; i < bytes; ++i) g_stream[g_stream_bytes++] = pattern(offset + i); }
 void stream_hex(u32 value) noexcept {
@@ -494,7 +489,7 @@ void log_entry(u64 version, u64 date, const char* text, const char* commit = nul
     auto& e = g_log.entries[g_log.count++];
     e = {};
     e.version = version; e.date_unix_seconds = date;
-    e.text_offset = g_log.text_bytes; e.text_bytes = length8(text);
+    e.text_offset = g_log.text_bytes; e.text_bytes = c_string_length(text);
     copy_bytes(g_log.text + g_log.text_bytes, text, e.text_bytes);
     g_log.text_bytes += e.text_bytes;
     if (commit) { copy_bytes(e.commit, commit, 40); e.has_commit = true; }
@@ -766,7 +761,7 @@ bool holds(const wchar_t* path, const char* text) noexcept {
     const HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
     if (h == INVALID_HANDLE_VALUE) return false;
     char buffer[64]{}; DWORD got = 0;
-    const bool ok = ReadFile(h, buffer, sizeof(buffer), &got, nullptr) && got == length8(text) && bytes_equal(buffer, text, got);
+    const bool ok = ReadFile(h, buffer, sizeof(buffer), &got, nullptr) && got == c_string_length(text) && bytes_equal(buffer, text, got);
     CloseHandle(h);
     return ok;
 }
@@ -1071,7 +1066,7 @@ bool read_small(const wchar_t* dir, const wchar_t* name, u8* out, u32 capacity, 
     CloseHandle(h); *bytes = got; return ok;
 }
 u64 json_number(Utf8View document, const char* key) noexcept {
-    const u32 n = length8(key);
+    const u32 n = c_string_length(key);
     for (u32 i = 0; i + n < document.bytes; ++i) if (bytes_equal(document.data + i, key, n)) {
         u64 value = 0;
         for (u32 j = i + n; j < document.bytes && document.data[j] >= '0' && document.data[j] <= '9'; ++j) value = value * 10 + (document.data[j] - '0');
@@ -1085,6 +1080,10 @@ void replay_offered(void* context, const UpdateManifest& manifest, const UpdateC
     offer->version = manifest.version;
     offer->changelog = changelog != nullptr;
     offer->entries = changelog ? changelog->count : 0;
+}
+u64 unix_now() noexcept {
+    FILETIME ft{}; GetSystemTimeAsFileTime(&ft);
+    return ((static_cast<u64>(ft.dwHighDateTime) << 32 | ft.dwLowDateTime) / 10000000ull) - 11644473600ull;
 }
 // Runs the published files in dir through the real pipeline, staging beside a
 // temporary executable: the channel's manifest and signature, its changelog
@@ -1159,17 +1158,12 @@ UpdateCheckResult replay(const wchar_t* dir, u64 own, ReplayOffer* offer) noexce
     } else
         fake.routes[fake.count] = route(package_at.host, package_target, 200);
     fake.routes[fake.count].file = zip; fake.routes[fake.count++].body_bytes = static_cast<u64>(zip_size.QuadPart);
-    FILETIME ft{}; GetSystemTimeAsFileTime(&ft);
-    const u64 now = ((static_cast<u64>(ft.dwHighDateTime) << 32 | ft.dwLowDateTime) / 10000000ull) - 11644473600ull;
+    const u64 now = unix_now();
     g_update_log_sink = capture; g_line_count = 0;
     const auto r = update_service_check(&service, {&fake, fake_get}, channel, now);
     g_update_log_sink = nullptr;
     check(!fake.wrong_host, "update replay: every request names its route's host");
     return r;
-}
-u64 unix_now() noexcept {
-    FILETIME ft{}; GetSystemTimeAsFileTime(&ft);
-    return ((static_cast<u64>(ft.dwHighDateTime) << 32 | ft.dwLowDateTime) / 10000000ull) - 11644473600ull;
 }
 bool write_file(const wchar_t* dir, const wchar_t* name, const void* data, u32 bytes) noexcept {
     wchar_t path[MAX_PATH]{}; child(dir, name, path);
@@ -1214,7 +1208,7 @@ void test_preview_replay() noexcept {
     char document[512]{}; u8 signature[64]{}, changelog_signature[64]{};
     const Utf8View manifest_text = preview_manifest(document, package_bytes, digest, version, unix_now() - 600);
     static char changelog[1024];
-    u32 cn = 0; auto add = [&](const char* text) noexcept { const u32 b = length8(text); copy_bytes(changelog + cn, text, b); cn += b; };
+    u32 cn = 0; auto add = [&](const char* text) noexcept { const u32 b = c_string_length(text); copy_bytes(changelog + cn, text, b); cn += b; };
     add(R"({"format":1,"product":"MaiCord","channel":"preview","version":2003,"base":1999,"entries":[)");
     add(R"({"version":2003,"date":1760000100,"commit":"1111111111111111111111111111111111111111","text":"Polish the updater page"},)");
     add(R"({"version":2002,"date":1760000050,"commit":"2222222222222222222222222222222222222222","text":"Fix a crash"},)");

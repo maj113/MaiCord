@@ -32,9 +32,8 @@ struct Fixture {
 };
 Fixture g;
 
-u32 length(const char* s) noexcept { u32 n = 0; while (s[n]) ++n; return n; }
-Utf8View view(const char* s) noexcept { return {s, length(s)}; }
-bool same(const char* data, u32 bytes, const char* expected) noexcept { return bytes == length(expected) && bytes_equal(data, expected, bytes); }
+Utf8View view(const char* s) noexcept { return {s, c_string_length(s)}; }
+bool same(const char* data, u32 bytes, const char* expected) noexcept { return bytes == c_string_length(expected) && bytes_equal(data, expected, bytes); }
 using plugin_index_fixture::read_fixture;
 bool hex_bytes(const char* hex, u8* out, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes * 2; ++i) {
@@ -53,7 +52,7 @@ bool sign(Utf8View document, const P256Key& key, u8* signature) noexcept {
 }
 // The custom fixture without its provider.key member.
 bool unsigned_document() noexcept {
-    const u32 key_bytes = length(kKeyMember);
+    const u32 key_bytes = c_string_length(kKeyMember);
     for (u32 i = 0; i + key_bytes <= g.custom_bytes; ++i) {
         if (!bytes_equal(g.custom + i, kKeyMember, key_bytes)) continue;
         copy_bytes(g.document, g.custom, i);

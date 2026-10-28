@@ -1,11 +1,9 @@
 #include "maicord/text/layout_tables.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 
 namespace maicord {namespace {
 u32 expected[65536];u8 seen[65536];
-void print(Utf8View text) noexcept {DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text.data,text.bytes,&done,nullptr);}
-void number(u64 value) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);for(u32 i=0;i<n/2;++i){char t=s[i];s[i]=s[n-i-1];s[n-i-1]=t;}print({s,n});}
 void put(u8* bytes,u32 at,u16 value) noexcept {bytes[at]=static_cast<u8>(value>>8);bytes[at+1]=static_cast<u8>(value);}
 bool units() noexcept {
     u8 data[40]{};SfntCoverage coverage{};SfntClassDef classes{};SfntDevice device{};u16 glyph=0;i16 delta=0;u32 index=0;
@@ -109,10 +107,8 @@ bool corpus(const wchar_t* path) noexcept {
 }
 int run() noexcept {
     if(!units()){print(utf8_literal("FAIL layout units\n"));return 1;}if(!guards()){print(utf8_literal("FAIL layout guards\n"));return 2;}
-    const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}
-    while(*command==' ' || *command=='\t')++command;
-    if(*command){wchar_t path[32768];u32 count=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(count+1>=32768)return 3;path[count++]=*command++;}
-        if(quote){if(*command!='"')return 3;++command;}while(*command==' ' || *command=='\t')++command;if(*command || !count)return 3;path[count]=0;if(!corpus(path))return 4;}
+    const wchar_t* command=test_arguments();
+    if(*command){wchar_t path[32768];if(!test_path_argument(command,path))return 3;if(!corpus(path))return 4;}
     print(utf8_literal("PASS native layout common tables\n"));return 0;
 }
 }}

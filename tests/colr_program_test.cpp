@@ -327,12 +327,12 @@ bool outline_capacity_cases() noexcept {
 }
 bool colr_program_tests() noexcept {
     constexpr auto vector=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":4,"ks":{"o":{"k":100}},"shapes":[{"ty":"gr","it":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[160,160]},"r":{"k":12}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}},{"ty":"tr","o":{"k":100}}]}]}]})");
-    ColrPaintProgram vector_program{};float vector_extent=0;LottieTiming timing{};
-    const auto compile=[&](auto json,u32 frame_index,float* extent=nullptr) noexcept {
+    ColrPaintProgram vector_program{};LottieTiming timing{};
+    const auto compile=[&](auto json,u32 frame_index) noexcept {
         return lottie_program_compile_frame({reinterpret_cast<const u8*>(json.data),json.bytes},frame_index,128,&timing,
-            +[](void* program) noexcept {return static_cast<ColrPaintProgram*>(program);},&vector_program,extent);
+            +[](void* program) noexcept {return static_cast<ColrPaintProgram*>(program);},&vector_program);
     };
-    bool vector_ok=compile(vector,0,&vector_extent) && vector_extent==1 && vector_program.mask_count==1 &&
+    bool vector_ok=compile(vector,0) && vector_program.mask_count==1 &&
         vector_program.bounds.has_bounds && vector_program.bounds.maximum_x==1;
     constexpr auto moving=utf8_literal(R"({"w":320,"h":320,"fr":60,"ip":0,"op":11,"layers":[{"ty":4,"shapes":[{"ty":"rc","p":{"a":1,"k":[{"t":0,"s":[64,160],"e":[256,160],"o":{"x":0.333333,"y":0.333333},"i":{"x":0.666667,"y":0.666667}},{"t":10,"s":[256,160]}]},"s":{"k":[64,64]}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
     i32 positions[3]{};

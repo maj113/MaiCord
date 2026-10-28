@@ -384,7 +384,6 @@ struct Collector {
     u32 delivered_count, count, keyframes, references_lost;
     u32 sizes[64];
     bool match;
-    bool keep_sizes;
 };
 void collect(void* context, const VideoRtpFrame& frame) noexcept {
     auto& c = *static_cast<Collector*>(context);

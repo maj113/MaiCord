@@ -4,9 +4,6 @@
 
 namespace maicord {
 namespace {
-bool same(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && (!a.bytes || bytes_equal(a.data, b.data, a.bytes));
-}
 bool temporary_path(wchar_t* path, u32 capacity) noexcept {
     const DWORD length = GetTempPathW(capacity, path);
     constexpr wchar_t name[] = L"maicord-link-trust-test.bin";
@@ -23,13 +20,13 @@ u8 record[kLinkTrustFileBytes];
 void test_link_trust(void (*check)(bool, const char*) noexcept) noexcept {
     LinkTarget target{};
     check(link_target_parse(utf8_literal("HTTPS://User:Pw@Sub.Example.COM.:8443/Path?q#f"), &target) && target.web &&
-              same(link_target_host(target), utf8_literal("sub.example.com")) &&
-              same(link_target_protocol(target), utf8_literal("https:")),
+              utf8_equal(link_target_host(target), utf8_literal("sub.example.com")) &&
+              utf8_equal(link_target_protocol(target), utf8_literal("https:")),
           "link_target_lowercases_host_without_user_info_port_or_root_dot");
     check(link_target_parse(utf8_literal("http://[::1]:80/"), &target) &&
-              same(link_target_host(target), utf8_literal("[::1]")) &&
+              utf8_equal(link_target_host(target), utf8_literal("[::1]")) &&
               link_target_parse(utf8_literal("discord://-/channels/1/2"), &target) && !target.web &&
-              same(link_target_protocol(target), utf8_literal("discord:")),
+              utf8_equal(link_target_protocol(target), utf8_literal("discord:")),
           "link_target_parses_ipv6_hosts_and_application_protocols");
     check(!link_target_parse(utf8_literal("https:///path"), &target) &&
               !link_target_parse(utf8_literal("https://a b.test/"), &target) &&
@@ -83,7 +80,7 @@ void test_link_trust(void (*check)(bool, const char*) noexcept) noexcept {
 
     char display[128]{};
     const u32 shown = link_display_url(utf8_literal("https://user:secret@example.com/a@b?c"), {display, 128});
-    check(same({display, shown}, utf8_literal("https://example.com/a@b?c")) &&
+    check(utf8_equal({display, shown}, utf8_literal("https://example.com/a@b?c")) &&
               link_display_url(utf8_literal("https://example.com/x"), {display, 4}) == 0,
           "link_display_url_hides_credentials_only");
 

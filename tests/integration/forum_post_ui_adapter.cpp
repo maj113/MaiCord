@@ -285,6 +285,18 @@ bool forum_post_ui_adapter_input(UiInputKind kind, u32 code, bool repeated, bool
         },
         &input);
 }
+namespace {
+const UiLayoutNode* forum_target_node(ForumPostScene& scene, const ForumPostTarget& target) noexcept {
+    return target.element == ForumPostElement::attachments
+               ? ui_widget_manager_layout_node(
+                     scene.widgets,
+                     ui_attachment_draft_list_handle(scene.attachment_list, target.attachment_id,
+                                                     target.attachment_action))
+           : target.element == ForumPostElement::tags && target.tag < scene.content.tags.count
+               ? ui_widget_manager_layout_node(scene.widgets, scene.tags[target.tag])
+               : forum_post_node(scene, target.element);
+}
+} // namespace
 bool forum_post_ui_adapter_pointer_down(ForumPostTarget target) noexcept {
     return call(
         +[](void* opaque) noexcept {
@@ -292,15 +304,7 @@ bool forum_post_ui_adapter_pointer_down(ForumPostTarget target) noexcept {
             auto* scene = application_forum_form_scene();
             if (!scene)
                 return false;
-            const UiLayoutNode* node =
-                target.element == ForumPostElement::attachments
-                    ? ui_widget_manager_layout_node(
-                          scene->widgets,
-                          ui_attachment_draft_list_handle(scene->attachment_list, target.attachment_id,
-                                                          target.attachment_action))
-                : target.element == ForumPostElement::tags && target.tag < scene->content.tags.count
-                    ? ui_widget_manager_layout_node(scene->widgets, scene->tags[target.tag])
-                    : forum_post_node(*scene, target.element);
+            const UiLayoutNode* node = forum_target_node(*scene, target);
             if (!node)
                 return false;
             auto rect = ui_rect_intersection(node->rectangle, node->clip_rectangle);
@@ -323,14 +327,7 @@ bool forum_post_ui_adapter_pointer_down(ForumPostTarget target) noexcept {
                 }
                 if (!revealed)
                     return false;
-                node = target.element == ForumPostElement::attachments
-                           ? ui_widget_manager_layout_node(
-                                 scene->widgets, ui_attachment_draft_list_handle(scene->attachment_list,
-                                                                                 target.attachment_id,
-                                                                                 target.attachment_action))
-                       : target.element == ForumPostElement::tags && target.tag < scene->content.tags.count
-                           ? ui_widget_manager_layout_node(scene->widgets, scene->tags[target.tag])
-                           : forum_post_node(*scene, target.element);
+                node = forum_target_node(*scene, target);
                 if (!node)
                     return false;
                 rect = ui_rect_intersection(node->rectangle, node->clip_rectangle);

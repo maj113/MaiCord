@@ -476,7 +476,6 @@ void scene_cases() noexcept {
               (click({UiPollControl::retry}), owner && owner->card.active) && application_poll_submit(330, now) &&
               submitted.operation == PollOperation::refresh,
           "poll unknown results: Retry opens the card and reads the message before voting");
-    // Ended: answers open the voter list instead of voting.
     // Ended: the first click reads the final tally, then answers open the voters.
     reset();
     message_store_upsert(&g_app.message_view.store, {900, 70, 3, 100, 0, utf8_literal("")});

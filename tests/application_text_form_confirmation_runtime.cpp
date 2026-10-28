@@ -2,6 +2,7 @@
 #include "application_text_form_state.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "../src/app/account_ui_runtime.hpp"
+#include "fake_text_measure.hpp"
 #include "test_output.hpp"
 
 #include "maicord/core/win32_user.hpp"
@@ -28,16 +29,6 @@ void closed(TextFormOwnerKey key) noexcept {
     check(key.scope == 7 && key.collection == 2 && key.item == 90 && !g_app.text_form &&
               !g_app.renderer.text_form,
           "async form: closed callback receives exact owner after renderer and native form detach");
-}
-bool measure_label(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* output) noexcept {
-    const auto valid_text = utf8_validate(request.text);
-    if (!output || !valid_text.valid || request.constraint.width <= 0)
-        return false;
-    const float natural = static_cast<float>(valid_text.codepoints) * 8;
-    const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
-    const u32 lines = request.no_wrap ? 1u : maximum(1u, (valid_text.codepoints + columns - 1) / columns);
-    *output = {{minimum(natural, request.constraint.width), static_cast<float>(lines) * 20}, 16, lines};
-    return true;
 }
 void check(bool valid, const char* label) noexcept {
     test_check(&seen.failures, valid, label);
@@ -396,7 +387,7 @@ void run() noexcept {
     if (!g_app.account_ui)
         return;
     check(ui_text_measure_cache_initialize(&g_app.account_ui->text_measure_cache, {measure_records, 32},
-                                           measure_label, nullptr),
+                                           fake_text_measure<true>, nullptr),
           "confirmation: bounded native label measurement cache initializes independently of editor "
           "measurement");
     g_app.renderer_ready = true;
@@ -547,7 +538,7 @@ void renderer_release_login_form_text(D3D11Renderer* renderer) noexcept {
 }
 bool renderer_text_measure_backend(void*, const UiTextMeasureRequest& request,
                                    UiTextMeasureValue* output) noexcept {
-    return confirmation_runtime_test::measure_label(nullptr, request, output);
+    return fake_text_measure<true>(nullptr, request, output);
 }
 // Every editor/native-store boundary is instrumented and fails if entered.
 // A normal-form negative control proves these counters observe allocation work.
@@ -741,12 +732,8 @@ void run(void (*check)(bool, const char*) noexcept, UiTextMeasureBackend measure
 extern "C" __declspec(noreturn) void WINAPI maicord_text_form_confirmation_entry() noexcept {
     maicord::confirmation_runtime_test::run();
     maicord::link_trust_runtime_test::run(maicord::confirmation_runtime_test::check,
-                                          maicord::confirmation_runtime_test::measure_label);
-    const bool failed = maicord::confirmation_runtime_test::seen.failures != 0;
-    constexpr char pass[] = "PASS confirmation runtime\n", fail[] = "FAIL confirmation runtime\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+                                          maicord::fake_text_measure<true>);
+    maicord::test_exit(maicord::confirmation_runtime_test::seen.failures, "confirmation runtime");
 }
 
 namespace maicord::app_detail {

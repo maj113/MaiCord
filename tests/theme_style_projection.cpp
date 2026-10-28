@@ -9,23 +9,9 @@
 #include "maicord/ui/poll_controls.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/forum_post_scene.hpp"
+#include "fake_text_measure.hpp"
 
 namespace maicord {
-namespace {
-bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
-    const auto validation = utf8_validate(request.text);
-    if (!validation.valid || request.constraint.width <= 0)
-        return false;
-    const float width = static_cast<float>(validation.codepoints) * 8;
-    const u32 columns = maximum(1u, static_cast<u32>(request.constraint.width / 8));
-    const u32 lines = request.no_wrap ? 1u : maximum(1u, (validation.codepoints + columns - 1) / columns);
-    *value = {{request.no_wrap ? width : minimum(width, request.constraint.width),
-               static_cast<float>(lines) * 20},
-              16,
-              lines};
-    return true;
-}
-} // namespace
 void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noexcept {
     UiResolvedThemeStyles bank{};
     check(ui_theme_styles_apply(&bank, {}, {}).ok(), "Theme component bank resolves defaults");
@@ -91,7 +77,7 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
                             true,
                             true};
     const UiRect viewport{0, 0, 800, 600};
-    bool valid = ui_text_measure_cache_initialize(&cache, {records, 64}, measure, nullptr) &&
+    bool valid = ui_text_measure_cache_initialize(&cache, {records, 64}, fake_text_measure<>, nullptr) &&
                  text_form_update(&scene, content, viewport, &cache) &&
                  text_form_focus(&scene, TextFormElement::edit);
     const auto edit = scene.elements[static_cast<u32>(TextFormElement::edit)];

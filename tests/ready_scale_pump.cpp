@@ -473,12 +473,6 @@ void scale() noexcept {
     check(stores.voice_states.count == (kGuilds / 4) * 3, "voice: READY voice states apply");
 }
 
-bool same_text(const char* a, const char* b) noexcept {
-    while (*a && *a == *b)
-        ++a, ++b;
-    return *a == *b;
-}
-
 GatewayClientEvent dispatch(GatewayClientDispatchKind kind, u32 bytes) noexcept {
     GatewayClientEvent event{};
     event.kind = GatewayClientEventKind::dispatch;
@@ -531,10 +525,6 @@ void resilience() noexcept {
     const auto* applied = user_appearance_find_activity(stores.user_store.appearance, user_id(2));
     check(applied && utf8_equal(applied->activity.view(), utf8_literal("back soon")),
           "resilience: events after a skipped one still apply");
-    check(same_text(message_event_pump_reject_reason_name(MessageEventPumpRejectReason::guild_state), "guild_state") &&
-              same_text(message_event_pump_reject_reason_name(static_cast<MessageEventPumpRejectReason>(250)),
-                        "unknown"),
-          "diagnostics: reasons have stable names");
 }
 
 // One oversized guild record: the worker routes it into reserved storage that

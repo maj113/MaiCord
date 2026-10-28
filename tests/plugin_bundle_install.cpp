@@ -1,5 +1,4 @@
 #include "maicord/app/plugin_bundle_install.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"
 
@@ -8,9 +7,6 @@ namespace bundle_install_test {
 using Owner=NativePluginBundleInstall;
 using Phase=NativePluginBundleInstallPhase;
 using Error=NativePluginBundleInstallError;
-void measurement(const char* key,u64 value) noexcept {
-    test_write_metric(key, value);
-}
 struct Fixture {
     wchar_t root[1024]{},source[1024]{},destination[1024]{},parent[1024]{},input[3][1024]{};
     wchar_t created[16][1024]{};u32 created_count{};
@@ -272,11 +268,11 @@ void test_plugin_bundle_install(void (*check)(bool,const char*) noexcept) noexce
     check(start(f,f.owner,1)&&await(f.owner,Phase::prepared)&&native_plugin_bundle_install_commit(&f.owner)==Error::none&&await(f.owner,Phase::complete),
         "bundle update: host extended-rename operation reaches bounded completion");
     const auto update=native_plugin_bundle_install_status(&f.owner);
-    measurement("plugin_install_update_error=",static_cast<u32>(update.error));
-    measurement("plugin_install_update_filesystem_error=",static_cast<u32>(update.filesystem.error));
-    measurement("plugin_install_update_native_error=",update.filesystem.win32_error);
-    measurement("plugin_install_update_committed=",update.committed);
-    measurement("plugin_install_update_cleanup_pending=",update.cleanup_pending);
+    test_write_metric("plugin_install_update_error=",static_cast<u32>(update.error));
+    test_write_metric("plugin_install_update_filesystem_error=",static_cast<u32>(update.filesystem.error));
+    test_write_metric("plugin_install_update_native_error=",update.filesystem.win32_error);
+    test_write_metric("plugin_install_update_committed=",update.committed);
+    test_write_metric("plugin_install_update_cleanup_pending=",update.cleanup_pending);
     check(update.committed&&update.ok()&&release(f.owner)&&installed(f,1)&&managed_count(f,&disk)==1,
         "bundle update: supported host replacement retires only authenticated prior managed DLL after publication");
     if(!update.committed){release(f.owner);return;}

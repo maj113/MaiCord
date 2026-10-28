@@ -20,24 +20,6 @@ HpkeResult setup_recipient(HpkeContext* context, KdfSha256Workspace& workspace, 
     const ConstSlice<u8> parts[]{info};
     return hpke_setup_recipient_parts(context, workspace, recipient, encapsulated, {parts, 1});
 }
-void record(Check check, HANDLE file, ConstSlice<u8> enc, ConstSlice<u8> seq, ConstSlice<u8> info,
-            ConstSlice<u8> aad, ConstSlice<u8> pt, ConstSlice<u8> ct) noexcept {
-    if (file == INVALID_HANDLE_VALUE)
-        return;
-    u8 header[93];
-    copy_bytes(header, enc.data, 65);
-    copy_bytes(header + 65, seq.data, 12);
-    const u32 lengths[]{info.count, aad.count, pt.count, ct.count};
-    for (u32 i = 0; i != 4; ++i)
-        for (u32 j = 0; j != 4; ++j)
-            header[77 + i * 4 + j] = static_cast<u8>(lengths[i] >> (j * 8));
-    const ConstSlice<u8> spans[]{{header, 93}, info, aad, pt, ct};
-    for (auto span : spans) {
-        DWORD written = 0;
-        check(WriteFile(file, span.data, span.count, &written, nullptr) && written == span.count,
-              "HPKE native sender public QA record");
-    }
-}
 void published(Check check, KdfSha256Workspace& workspace) noexcept {
     u8 scalar[32], enc[65], info[128];
     test_unhex(hpke_kems[0].recipient, scalar);
@@ -80,7 +62,7 @@ void published(Check check, KdfSha256Workspace& workspace) noexcept {
     check(filled(&context, sizeof(context), 0), "HPKE release clears complete owner");
     SecureZeroMemory(scalar, 32);
 }
-void sender(Check check, KdfSha256Workspace& workspace, HANDLE file, u8* buffer) noexcept {
+void sender(Check check, KdfSha256Workspace& workspace, u8* buffer) noexcept {
     auto* plain = buffer;
     auto* cipher = buffer + 65536;
     auto* output = cipher + 65552;
@@ -117,8 +99,6 @@ void sender(Check check, KdfSha256Workspace& workspace, HANDLE file, u8* buffer)
         const auto sealed = hpke_seal(send, {aad, 17}, {plain, n}, {cipher, 65552});
         check(sealed.ok() && sealed.bytes == n + 16 && filled(cipher + n + 16, 65552 - n - 16),
               "HPKE native sender lengths/tail");
-        if (sealed.ok())
-            record(check, file, {enc, 65}, {seq, 12}, {info, ni}, {aad, 17}, {plain, n}, {cipher, n + 16});
         if (n)
             check(hpke_open(receive, {aad, 17}, {cipher, n + 16}, {output, n - 1}).error ==
                           HpkeError::output_capacity &&
@@ -138,12 +118,9 @@ void sender(Check check, KdfSha256Workspace& workspace, HANDLE file, u8* buffer)
     for (auto hex : counters) {
         test_unhex(hex, send.sequence);
         copy_bytes(receive.sequence, send.sequence, 12);
-        u8 seq[12];
-        copy_bytes(seq, send.sequence, 12);
         copy_bytes(cipher, plain, 33);
         check(hpke_seal(send, {aad, 17}, {cipher, 33}, {cipher, 65552}).ok(),
               "HPKE exact in-place seal across counter carries");
-        record(check, file, {enc, 65}, {seq, 12}, {info, ni}, {aad, 17}, {plain, 33}, {cipher, 49});
         check(hpke_open(receive, {aad, 17}, {cipher, 49}, {cipher, 65552}).ok() &&
                   bytes_equal(cipher, plain, 33) && bytes_equal(send.sequence, receive.sequence, 12),
               "HPKE exact in-place open across counter carries");
@@ -290,19 +267,10 @@ void test_hpke_context(Check check) noexcept {
     auto* buffers = static_cast<u8*>(
         VirtualAlloc(nullptr, 65536 + 65552 * 2, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(buffers != nullptr, "HPKE sender fixture buffers");
-    wchar_t path[1024];
-    const DWORD n = GetEnvironmentVariableW(L"MAICORD_HPKE_CONTEXT_OUTPUT", path, 1024);
-    HANDLE file = INVALID_HANDLE_VALUE;
-    if (n && n < 1024) {
-        file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        check(file != INVALID_HANDLE_VALUE, "HPKE context QA file");
-    }
     if (buffers) {
-        sender(check, workspace, file, buffers);
+        sender(check, workspace, buffers);
         VirtualFree(buffers, 0, MEM_RELEASE);
     }
-    if (file != INVALID_HANDLE_VALUE)
-        CloseHandle(file);
     kdf_sha256_release(&workspace);
 }
 } // namespace maicord

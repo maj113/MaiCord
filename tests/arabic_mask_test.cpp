@@ -2,14 +2,13 @@
 #include "gsub_program_fixture.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 
 namespace maicord {namespace {
 struct ArabicMaskCase {ConstSlice<u8> gsub,gdef;ConstSlice<u32> scalars;ConstSlice<u16> expected;u8 mask;};
 #include "generated/arabic_mask_fixture.inc"
 SfntGsubExecutableLookup lookups[16];SfntGsubExecutableSubtable subtables[32];SfntCoverage coverages[128];SfntClassDef classes[32];
 SfntGsubExecutionFrame frames[16];u32 positions[128],rebased[128],consumed[32];SfntGsubGlyph replacements[32],glyphs[64];
-void print(Utf8View text) noexcept {DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text.data,text.bytes,&done,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){char t=s[i];s[i]=s[n-i-1];s[n-i-1]=t;}print({s,n});}
 bool vectors() noexcept {
     u32 case_index=0,queries=0,checks=0;
     for(const auto& c:arabic_mask_cases) {

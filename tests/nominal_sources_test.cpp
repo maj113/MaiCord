@@ -1,10 +1,9 @@
 #include "maicord/text/nominal_sources.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "text_test_support.hpp"
 namespace maicord {namespace {
 #include "generated/nominal_scalar_fixture.inc"
-void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
-void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 u64 scalar_checks=0,map_checks=0,budget_checks=0,guard_checks=0;volatile u64 observation=0;
 void p16(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
 u8 file[2048];
@@ -75,11 +74,9 @@ bool file_check(const wchar_t* path) noexcept {
     if(bytes)UnmapViewOfFile(bytes);CloseHandle(mapping);CloseHandle(handle);return ok;
 }
 int run() noexcept {
-    const wchar_t* command=GetCommandLineW();bool quoted=false;while(*command){if(*command=='"')quoted=!quoted;else if(!quoted&&(*command==' '||*command=='\t'))break;++command;}while(*command==' '||*command=='\t')++command;
+    const wchar_t* command=test_arguments();
     bool ok=false;if(!*command)ok=units();
-    else {wchar_t path[32768];u32 n=0;quoted=*command=='"';if(quoted)++command;
-        while(*command&&!(quoted?*command=='"':(*command==' '||*command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}
-        if(quoted){if(*command!='"')return 2;++command;}while(*command==' '||*command=='\t')++command;if(*command||!n)return 2;path[n]=0;ok=file_check(path);}
+    else {wchar_t path[32768];if(!test_path_argument(command,path))return 2;ok=file_check(path);}
 print(utf8_literal("scalar_checks="));number(scalar_checks);print(utf8_literal("\nmap_checks="));number(map_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nguards="));number(guard_checks);print(ok?utf8_literal("\nPASS native nominal sources\n"):utf8_literal("\nFAIL native nominal sources\n"));return ok?0:1;}
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_nominal_sources_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

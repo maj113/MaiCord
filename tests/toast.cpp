@@ -6,7 +6,6 @@
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::toast_test {
 namespace {
@@ -267,9 +266,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_toast_tests_entry() noexcept
     test_timing();
     test_order();
     test_presentation();
-    const bool failed = failures != 0;
-    constexpr char pass[] = "PASS toast\n", fail[] = "FAIL toast\n";
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failed ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(failures, "toast");
 }

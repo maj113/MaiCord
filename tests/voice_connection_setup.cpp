@@ -1,5 +1,6 @@
 #include "maicord/app/voice_connection_setup.hpp"
 #include "maicord/core/memory.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -7,10 +8,7 @@ JsonString text(Utf8View value, bool escaped = false) noexcept {
     return {value, 0, escaped};
 }
 bool zero(const SecureBuffer& buffer) noexcept {
-    for (u32 i = 0; i < buffer.capacity; ++i)
-        if (buffer.data[i])
-            return false;
-    return !buffer.bytes;
+    return test_filled(buffer.data, buffer.capacity, 0) && !buffer.bytes;
 }
 } // namespace
 

@@ -67,7 +67,7 @@ struct Fixture {
     GatewayMemberRequestOwner member_requests;
     u32 member_calls, member_cancels;
     bool commands_handled;
-    bool ready, context_rows, refresh_ok, token_check;
+    bool ready, refresh_ok;
     float expected_width;
 };
 Fixture* fixture;
@@ -876,21 +876,26 @@ bool warm(u32 sample) noexcept {
     auto& r = g_app.renderer;
     auto& scene = g_app.message_composer_scene;
     auto& controller = g_app.account_ui->message_composer_controller;
-    const u32 before[]{scene.projection_passes,
-                       scene.layout_passes,
-                       g_app.shell_scene.layout_passes,
-                       r.composer_layout.builds,
-                       r.content_text->rebuilds,
-                       r.glyph_text.cache_builds,
-                       r.paint_stream_builds,
-                       r.paint_instance_uploads,
-                       r.text_instance_uploads,
-                       r.media_instance_uploads,
-                       r.painted_frames,
-                       g_app.account_ui->text_measure_cache.backend_calls,
-                       controller.draft_commits,
-                       controller.queued,
-                       fixture->frame_requests};
+    const auto counters = [&](u32 (&out)[15]) noexcept {
+        const u32 values[]{scene.projection_passes,
+                           scene.layout_passes,
+                           g_app.shell_scene.layout_passes,
+                           r.composer_layout.builds,
+                           r.content_text->rebuilds,
+                           r.glyph_text.cache_builds,
+                           r.paint_stream_builds,
+                           r.paint_instance_uploads,
+                           r.text_instance_uploads,
+                           r.media_instance_uploads,
+                           r.painted_frames,
+                           g_app.account_ui->text_measure_cache.backend_calls,
+                           controller.draft_commits,
+                           controller.queued,
+                           fixture->frame_requests};
+        copy_bytes(out, values, sizeof(values));
+    };
+    u32 before[15];
+    counters(before);
     const u32 skips = r.unchanged_present_skips;
     const u64 signature = scene.display_signature;
     const auto arena = scene.owned_storage.committed;
@@ -900,21 +905,8 @@ bool warm(u32 sample) noexcept {
         if (!project() || !probe_present(&r, fixture->theme))
             return false;
     }
-    const u32 after[]{scene.projection_passes,
-                      scene.layout_passes,
-                      g_app.shell_scene.layout_passes,
-                      r.composer_layout.builds,
-                      r.content_text->rebuilds,
-                      r.glyph_text.cache_builds,
-                      r.paint_stream_builds,
-                      r.paint_instance_uploads,
-                      r.text_instance_uploads,
-                      r.media_instance_uploads,
-                      r.painted_frames,
-                      g_app.account_ui->text_measure_cache.backend_calls,
-                      controller.draft_commits,
-                      controller.queued,
-                      fixture->frame_requests};
+    u32 after[15];
+    counters(after);
     constexpr const char* names[]{"projection_delta",   "composer_layout_delta", "shell_layout_delta",
                                   "edit_shape_delta",   "text_build_delta",      "glyph_cache_delta",
                                   "paint_build_delta",  "paint_upload_delta",    "text_upload_delta",
@@ -1347,9 +1339,6 @@ bool application_request_frame() noexcept {
     ++fixture->frame_requests;
     return true;
 }
-const Theme& application_theme() noexcept {
-    return fixture->theme;
-}
 UiRect application_viewport_dips() noexcept {
     return {0, 0, g_app.renderer.width * 96.f / g_app.renderer.dpi,
             g_app.renderer.height * 96.f / g_app.renderer.dpi};
@@ -1381,12 +1370,6 @@ void application_composer_note_sent(u64) noexcept {}
 bool application_clear_channel_attachments() noexcept {
     return false;
 }
-u64 application_message_edit_latest_own() noexcept {
-    return 0;
-}
-bool begin_message_edit(u64) noexcept {
-    return false;
-}
 bool application_mention_confirmation_request(bool* opened) noexcept {
     *opened = false;
     return true;
@@ -1414,12 +1397,6 @@ void application_composer_text_input_suspend() noexcept {
 bool application_pick_attachments() noexcept {
     ++fixture->picks;
     return true;
-}
-bool application_plugins_slot_action(u64, NativePluginSdkSlotTarget, u64) noexcept {
-    return false;
-}
-bool application_plugins_render_click(const MessageTextHit&, UiRect) noexcept {
-    return false;
 }
 bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRect) noexcept {
     return false;

@@ -282,11 +282,11 @@ bool exact_rounding_cases() noexcept {
 
 bool color_precision_cases() noexcept {
     fixture();SfntTrueType font{};if(open(&font)!=SfntStatus::ok)return false;
-    auto s=scratch();auto out=outline();u32 bits=0;
+    auto s=scratch();auto out=outline();
     if(sfnt_truetype_outline(font,5,&s,&out)!=SfntStatus::ok)return false;
-    copy_bytes(&bits,&out.commands[1].x1,4);if(bits!=0x3d088888)return false;
+    if(float_bits(out.commands[1].x1)!=0x3d088888)return false;
     if(sfnt_truetype_outline(font,5,&s,&out,SfntOutlineMode::colr)!=SfntStatus::ok)return false;
-    copy_bytes(&bits,&out.commands[1].x1,4);if(bits!=0x3d088889)return false;
+    if(float_bits(out.commands[1].x1)!=0x3d088889)return false;
     if(sfnt_truetype_outline(font,6,&s,&out)!=SfntStatus::ok || out.count!=0)return false;
     if(sfnt_truetype_outline(font,6,&s,&out,SfntOutlineMode::colr)!=SfntStatus::ok || out.count!=2 ||
        out.commands[0].kind!=GlyphPathCommandKind::begin_filled || out.commands[1].kind!=GlyphPathCommandKind::end_closed)return false;

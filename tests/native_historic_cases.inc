@@ -65,7 +65,7 @@ bool old_turkic_name() noexcept {
         ++found;CHECK((run.bidi_level&1)&&run.glyph_count==1);IDWriteFontFace* face=nullptr;CHECK(native_run_reference(owner.factory,shaped,run,&face));
         IDWriteFontFace3* named=nullptr;IDWriteLocalizedStrings* names=nullptr;wchar_t family[64]{};u16 glyph=0;const u32 scalar=0x10c01;
         const bool ok=SUCCEEDED(face->QueryInterface(__uuidof(IDWriteFontFace3),reinterpret_cast<void**>(&named)))&&SUCCEEDED(named->GetFamilyNames(&names))&&
-            SUCCEEDED(names->GetString(0,family,64))&&SUCCEEDED(face->GetGlyphIndices(&scalar,1,&glyph));
+            SUCCEEDED(names->GetString(0,family,64))&&SUCCEEDED(face->GetGlyphIndicesW(&scalar,1,&glyph));
         com_release(names);com_release(named);com_release(face);
         CHECK(ok&&lstrcmpW(family,L"Segoe UI Historic")==0&&glyph&&shaped.glyphs[run.first_glyph].index==glyph&&shaped.glyphs[run.first_glyph].advance>0);
         CHECK(!native_empty_glyph(shaped,run.first_glyph));}

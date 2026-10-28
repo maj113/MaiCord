@@ -10,7 +10,7 @@
 namespace maicord::gif_favorites_runtime_test {
 using namespace app_detail;
 u32 failures, submits, cancels, callbacks;
-u64 submitted_id, cancelled_id;
+u64 cancelled_id;
 AccountGifFavoritesOperation submitted_operation;
 RestClientSubmitError admission;
 u8 captured_patch[kGifFavoritesMaximumPatchBytes];
@@ -139,7 +139,6 @@ RestClientSubmitResult WINAPI submit(void*, AccountGifFavoritesOperation operati
     if (admission != RestClientSubmitError::none)
         return {admission};
     ++submits;
-    submitted_id = id;
     submitted_operation = operation;
     captured_bytes = patch.count;
     check(patch.count <= sizeof(captured_patch),

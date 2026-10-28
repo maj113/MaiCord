@@ -149,10 +149,9 @@ struct ResultFixture {
 };
 bool contains_text(const MessageTextPresentation& text, Utf8View value) noexcept {
     for (u32 i = 0; i < text.command_count; ++i)
-        if (text.commands[i].text.bytes >= value.bytes)
-            for (u32 at = 0; at + value.bytes <= text.commands[i].text.bytes; ++at)
-                if (bytes_equal(text.commands[i].text.data + at, value.data, value.bytes))
-                    return true;
+        for (u32 at = 0; at + value.bytes <= text.commands[i].text.bytes; ++at)
+            if (bytes_equal(text.commands[i].text.data + at, value.data, value.bytes))
+                return true;
     return false;
 }
 // Builds the row for the given result fields; false on any setup failure.

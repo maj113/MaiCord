@@ -24,7 +24,7 @@ constexpr PatternSource pattern_source[]{
     {"extra thin",100},{"ext thin",100},{"ultra thin",100},{"extra light",200},{"ext light",200},{"ultra light",200},{"semi bold",600},{"demi bold",600},{"extra bold",800},{"ext bold",800},{"ultra bold",800},{"extra black",950},{"ext black",950},{"ultra black",950},{"bold",700},{"thin",100},{"light",300},{"medium",500},{"black",900},{"heavy",900},{"nord",900},{"demi",600},{"ultra",800},
 };
 constexpr u32 pattern_count=sizeof(pattern_source)/sizeof(pattern_source[0]);
-constexpr u32 pattern_bytes() noexcept {u32 bytes=0;for(const auto& pattern:pattern_source){u32 n=0;while(pattern.text[n])++n;bytes+=n+1;}return bytes;}
+constexpr u32 pattern_bytes() noexcept {u32 bytes=0;for(const auto& pattern:pattern_source)bytes+=c_string_length(pattern.text)+1;return bytes;}
 static_assert(pattern_bytes()<65536);
 struct PatternTable {Pattern records[pattern_count];char text[pattern_bytes()];};
 constexpr PatternTable pack_patterns() noexcept {

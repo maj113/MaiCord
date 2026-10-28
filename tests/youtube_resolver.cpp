@@ -33,9 +33,9 @@ struct Owners {
     }
 };
 void paired_ranges() noexcept {
-    auto* media = static_cast<AccountMedia*>(VirtualAlloc(nullptr, sizeof(AccountMedia), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    auto* video = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    auto* audio = static_cast<ProgressiveVideoFetch*>(VirtualAlloc(nullptr, sizeof(ProgressiveVideoFetch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* media = allocate<AccountMedia>();
+    auto* video = allocate<ProgressiveVideoFetch>();
+    auto* audio = allocate<ProgressiveVideoFetch>();
     check(media && video && audio, "paired range fixture allocations");
     if (media && video && audio) {
         media->progressive = video; media->progressive_audio = audio;
@@ -113,7 +113,7 @@ void youtube_live_resolver_test() noexcept {
 }
 void vimeo_resolver_test() noexcept {
     struct Fixture { EmbedResolver resolver; ProgressiveVideoFetch video, audio; u32 calls; bool deny, shared; };
-    auto* f = static_cast<Fixture*>(VirtualAlloc(nullptr, sizeof(Fixture), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* f = allocate<Fixture>();
     check(f != nullptr, "Vimeo resolver fixture"); if (!f) return;
     const auto exchange = +[](void* context, const UpdateHttpRequest& request, const HttpsExchangeOptions& options,
                              UpdateHttpResponse* response) noexcept {
@@ -443,7 +443,7 @@ void resident_selection() noexcept {
     media = {};
 }
 void resolver() noexcept {
-    auto* r = static_cast<EmbedResolver*>(VirtualAlloc(nullptr, sizeof(EmbedResolver), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* r = allocate<EmbedResolver>();
     check(r != nullptr, "resolver allocation");
     if (!r) return;
     Fake f{};

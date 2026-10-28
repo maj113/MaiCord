@@ -1,7 +1,7 @@
 // Native text engine against DirectWrite (MaiCordNativeAppLineTests). The modes
 // registered in cmake/test_registry.cmake are the suite. Manual modes, not run by it:
 //   benchmarks  --devanagari-bench (tools/benchmark_devanagari.py)
-//   dumps for external comparison  --inspect, --inspect-style-clusters (the registered
+//   dumps for external comparison  --inspect (the registered
 //     --bidi-range-check is the quiet form of the bidi range dump)
 //   exhaustive variants  --matrix-batch (the union of the registered --matrix-profile 0-4, which
 //     run --ellipsis-hit-profile, the quick --multiline-hit-profile, --style-profile and
@@ -35,7 +35,6 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/sys/dwrite.hpp"
 #include "maicord/sys/simd.hpp"
-#include "maicord/sys/process_info.hpp"
 #include "maicord/core/win32_exception.hpp"
 namespace maicord {namespace {
 u32 checks=0,cases=0,native_cases=0,simulated_cases=0;bool print_ok=true;
@@ -290,7 +289,7 @@ bool same(Output& a,Output& b,bool mixed=false,bool blank_offsets=false) noexcep
             auto adjusted=a_g;adjusted.advance_offset=b_g.advance_offset;adjusted.ascender_offset=b_g.ascender_offset;
             if(bytes_equal(&adjusted,&b_g,sizeof(adjusted))){u32 run=0;while(run<y.run_count&&y.runs[run].first_glyph+y.runs[run].glyph_count<=i)++run;
                 CHECK(run<y.run_count);DWRITE_GLYPH_METRICS metric{};u16 space=0;const u32 scalar=32;
-                CHECK(SUCCEEDED(reference_run_face(y.runs[run])->GetGlyphIndices(&scalar,1,&space))&&SUCCEEDED(reference_run_face(y.runs[run])->GetDesignGlyphMetrics(&b_g.index,1,&metric)));
+                CHECK(SUCCEEDED(reference_run_face(y.runs[run])->GetGlyphIndicesW(&scalar,1,&space))&&SUCCEEDED(reference_run_face(y.runs[run])->GetDesignGlyphMetrics(&b_g.index,1,&metric)));
                 if(b_g.index==space&&static_cast<i64>(metric.advanceWidth)==static_cast<i64>(metric.leftSideBearing)+metric.rightSideBearing&&
                     static_cast<i64>(metric.advanceHeight)==static_cast<i64>(metric.topSideBearing)+metric.bottomSideBearing){
                     // Offsets cannot affect an empty outline with zero advance.
@@ -1011,8 +1010,7 @@ bool run() noexcept {
     static const wchar_t tracking_option[]=L"--tracking-profile";u32 tracking_match=0;while(tracking_option[tracking_match]&&p[tracking_match]==tracking_option[tracking_match])++tracking_match;
     if(tracking_match==18&&p[18]==' '){tracking_profiles=true;p+=18;while(*p==' '||*p=='\t')++p;}
     static const wchar_t native_formats[]=L"--native-formats";u32 format_option=0;while(native_formats[format_option]&&p[format_option]==native_formats[format_option])++format_option;if(format_option==16&&!p[16])return native_format_corpus();
-    static const wchar_t cluster_probe[]=L"--inspect-style-clusters";u32 matched_hits=0;while(cluster_probe[matched_hits]&&p[matched_hits]==cluster_probe[matched_hits])++matched_hits;if(matched_hits==24&&!p[24])return inspect_style_clusters();
-    static const wchar_t cluster_cases[]=L"--style-clusters";matched_hits=0;while(cluster_cases[matched_hits]&&p[matched_hits]==cluster_cases[matched_hits])++matched_hits;if(matched_hits==16&&!p[16])return inspect_style_clusters(true);
+    static const wchar_t cluster_cases[]=L"--style-clusters";u32 matched_hits=0;while(cluster_cases[matched_hits]&&p[matched_hits]==cluster_cases[matched_hits])++matched_hits;if(matched_hits==16&&!p[16])return inspect_style_clusters();
     static const wchar_t cluster_profile[]=L"--style-cluster-profile";matched_hits=0;while(cluster_profile[matched_hits]&&p[matched_hits]==cluster_profile[matched_hits])++matched_hits;if(matched_hits==23&&p[23]==' '){style_cluster_profiles=true;p+=23;while(*p==' '||*p=='\t')++p;}
     static const wchar_t continuity_profile[]=L"--continuity-profile";matched_hits=0;while(continuity_profile[matched_hits]&&p[matched_hits]==continuity_profile[matched_hits])++matched_hits;if(matched_hits==20&&p[20]==' '){style_continuity_profiles=true;p+=20;while(*p==' '||*p=='\t')++p;}
     static const wchar_t hit_tests[]=L"--paragraph-hits";matched_hits=0;while(hit_tests[matched_hits]&&p[matched_hits]==hit_tests[matched_hits])++matched_hits;if(matched_hits==16&&!p[16])return paragraph_hits();

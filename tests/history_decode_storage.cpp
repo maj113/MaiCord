@@ -280,15 +280,6 @@ void history(AccountUiRuntime& ui) noexcept {
         scratch.messages[0].stickers.count == 1 && scratch.messages[0].components.count == 1 &&
         ui.history_decode_storage.arena.base == base && ui.history_decode_storage.arena.commit_count == 1;
     check(integrated, "history actual catchup retries admission and preserves all decoded rich output at stable bank address");
-    if (!integrated) {
-        measurement("DIAGNOSTIC history_rest_error=", static_cast<usize>(accepted.error));
-        measurement("DIAGNOSTIC history_decode_error=", static_cast<usize>(accepted.decode.error));
-        measurement("DIAGNOSTIC history_message_error=", static_cast<usize>(accepted.decode.message_error));
-        measurement("DIAGNOSTIC history_apply_error=", static_cast<usize>(accepted.apply.error));
-        measurement("DIAGNOSTIC history_catchup_state=", static_cast<usize>(catchup.state));
-        measurement("DIAGNOSTIC history_page_count=", accepted.decode.page.count);
-        measurement("DIAGNOSTIC history_store_count=", g_app.message_view.store.count);
-    }
     const auto* rich = message_rich_store_find(ui.message_rich_store, 500);
     memset(ui.event_payload_scratch, 0xa5, sizeof(ui.event_payload_scratch));
     check(rich && rich->attachment_count == 1 && rich->embed_count == 1 && rich->sticker_count == 1 &&
@@ -538,22 +529,6 @@ void caption_edit(AccountUiRuntime& ui) noexcept {
     check(sendable, "caption fixture actual scoped actor and role-derived channel can send");
     check(available, "caption fixture actual authoritative rich source is editable");
     check(began, "caption fixture production begin_message_edit admits source and saved draft");
-    if (!sendable || !available || !began) {
-        measurement("DIAG caption_actor_running=", g_app.account.status.running);
-        measurement("DIAG caption_actor_instance=", g_app.account.instance != nullptr);
-        measurement("DIAG caption_actor_profile=", g_app.account.status.profile_id);
-        measurement("DIAG caption_actor_scope=", g_app.plugin_account_scope_serial);
-        measurement("DIAG caption_actor_self=", ui.chat_state.self_user_id);
-        measurement("DIAG caption_active_channel=", ui.active_channel_id);
-        measurement("DIAG caption_composer_channel=", composer.channel_id);
-        measurement("DIAG caption_edit_message=", edit.message_id);
-        const auto* channel = chat_state_store_find_channel(ui.chat_state, 7);
-        measurement("DIAG caption_channel_actions=", channel ? channel->actions : 0);
-        measurement("DIAG caption_channel_resolved=", channel && channel->permissions_resolved);
-        measurement("DIAG caption_source_author=", record ? record->author_id : 0);
-        measurement("DIAG caption_source_delivery=", record ? static_cast<u32>(record->delivery) : ~0u);
-        measurement("DIAG caption_source_content=", record ? static_cast<u32>(record->content_availability) : ~0u);
-    }
     check(available && began && edit.editor_active &&
         !composer.bytes && application_reply_draft().message_id == 800 &&
         !application_reply_draft().mention_reply_author &&

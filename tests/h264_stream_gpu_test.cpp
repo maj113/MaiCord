@@ -7,6 +7,7 @@
 #include "h264_stream_fixture.hpp"
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/crt.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 int h264_attachment_gpu_test(ID3D11Device* device, ID3D11DeviceContext* context, h264_fixture::Bits bits,
@@ -16,28 +17,6 @@ int hevc_stream_gpu_test(ID3D11Device* device, ID3D11DeviceContext* context, h26
 int av1_stream_gpu_test(ID3D11Device* device, ID3D11DeviceContext* context) noexcept;
 namespace {
 using namespace h264_fixture;
-
-void say(const char* text) noexcept {
-    u32 count = 0;
-    while (text[count]) ++count;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), text, count, &written, nullptr);
-}
-
-void say_number(const char* label, i64 value) noexcept {
-    say(label);
-    char digits[24]{};
-    u32 n = 0;
-    const bool negative = value < 0;
-    u64 v = negative ? static_cast<u64>(-value) : static_cast<u64>(value);
-    do { digits[n++] = static_cast<char>('0' + v % 10u); v /= 10u; } while (v && n < 20);
-    char text[26]{};
-    u32 count = 0;
-    if (negative) text[count++] = '-';
-    while (n) text[count++] = digits[--n];
-    text[count++] = '\n';
-    say(text);
-}
 
 struct Capture {
     ID3D11Device* device;
@@ -268,7 +247,7 @@ bool frame_ownership(ID3D11Device* device, ID3D11DeviceContext* context, Buffers
         expect(&capture, changed, 10);
         verify(&capture, {&replacement.gpu, 902, replacement.display_width, replacement.display_height, true});
         ok = !capture.mismatches && owned_views_valid(first.gpu) && owned_views_valid(replacement.gpu);
-        say_number("h264 stream owned plane views ", first.gpu.luma && replacement.gpu.luma ? 4 : 0);
+        test_write_metric("h264 stream owned plane views ", first.gpu.luma && replacement.gpu.luma ? 4 : 0);
     }
     release_frame(&absent);
     release_frame(&first);
@@ -312,7 +291,7 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
         }
         const auto stats = gpu_stream_decoder_stats(decoder);
         if (stats.unsupported || stats.reinitializations == 0) {
-            say("h264 stream gpu: DXVA H.264 short-slice decoding unavailable; skipped\n");
+            test_write_text("h264 stream gpu: DXVA H.264 short-slice decoding unavailable; skipped\n");
             gpu_stream_decoder_destroy(decoder);
             com_release(capture.staging);
             VirtualFree(memory, 0, MEM_RELEASE);
@@ -373,20 +352,20 @@ int run(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
         push(decoder, &b, 500 + i);
         const auto stats = gpu_stream_decoder_stats(decoder);
         if (i == 2 && stats.unsupported) {
-            say("h264 stream gpu: this GPU does not decode 4K H.264; 4K case skipped\n");
+            test_write_text("h264 stream gpu: this GPU does not decode 4K H.264; 4K case skipped\n");
             break;
         }
         if (capture.frames != before + 2 || capture.mismatches || stats.unsupported || stats.gpu_failures) {
-            say_number("frames ", capture.frames - before);
-            say_number("mismatches ", capture.mismatches);
-            say_number("unsupported ", stats.unsupported);
-            say_number("gpu_failures ", stats.gpu_failures);
-            say_number("last_status ", stats.last_status);
-            say_number("damaged ", stats.damaged);
-            say_number("dropped ", stats.dropped);
-            say_number("reinitializations ", stats.reinitializations);
-            say_number("coded_width ", stats.coded_width);
-            say_number("surfaces ", stats.surfaces);
+            test_write_metric("frames ", capture.frames - before);
+            test_write_metric("mismatches ", capture.mismatches);
+            test_write_metric("unsupported ", stats.unsupported);
+            test_write_metric("gpu_failures ", stats.gpu_failures);
+            test_write_metric("last_status ", static_cast<u32>(stats.last_status));
+            test_write_metric("damaged ", stats.damaged);
+            test_write_metric("dropped ", stats.dropped);
+            test_write_metric("reinitializations ", stats.reinitializations);
+            test_write_metric("coded_width ", stats.coded_width);
+            test_write_metric("surfaces ", stats.surfaces);
             finish(20 + static_cast<int>(i));
         }
     }
@@ -458,7 +437,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_h264_stream_gpu_tests_entry(
                                        D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels,
                                        2, D3D11_SDK_VERSION, &device, nullptr, &context);
     if (FAILED(status)) {
-        say("h264 stream gpu: no hardware D3D11 video device; skipped\n");
+        test_write_text("h264 stream gpu: no hardware D3D11 video device; skipped\n");
         ExitProcess(0);
     }
     ID3D11Multithread* multithread = nullptr;
@@ -471,7 +450,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_h264_stream_gpu_tests_entry(
         char text[] = "h264 stream gpu failed: 00\n";
         text[24] = static_cast<char>('0' + result / 10 % 10);
         text[25] = static_cast<char>('0' + result % 10);
-        say(text);
+        test_write_text(text);
     }
     const int av1 = av1_stream_gpu_test(device, context); // Reports its own failure.
     context->Release();

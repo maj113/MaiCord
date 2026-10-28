@@ -3,7 +3,6 @@
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
-#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace text_pointer_selection_test {
@@ -190,10 +189,5 @@ void run() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_text_pointer_selection_entry() noexcept {
     maicord::text_pointer_selection_test::run();
-    const bool failed = maicord::text_pointer_selection_test::failures != 0;
-    const auto result = failed ? maicord::utf8_literal("FAIL text pointer selection\n")
-                               : maicord::utf8_literal("PASS text pointer selection\n");
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), result.data, result.bytes, &written, nullptr);
-    ExitProcess(failed ? 1 : 0);
+    maicord::test_exit(maicord::text_pointer_selection_test::failures, "text pointer selection");
 }

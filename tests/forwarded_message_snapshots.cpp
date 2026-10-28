@@ -78,27 +78,31 @@ void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept)
     char mailbox[16384]{};
     u8 envelope_text[4096]{};
     ProtocolWriter envelope_writer{{envelope_text, 4096}, 0};
-    const bool envelope_written =
-        protocol_writer_append_literal(&envelope_writer,
-                                       "{\"op\":0,\"s\":1,\"t\":\"MESSAGE_CREATE\",\"d\":") &&
-        protocol_writer_append_bytes(&envelope_writer,
-                                     {reinterpret_cast<const u8*>(forward.data), forward.bytes}) &&
-        protocol_writer_append_byte(&envelope_writer, '}');
     GatewayEnvelope envelope{};
     GatewayClientEvent routed{};
     ConstSlice<u8> payload{};
     u64 ids[100]{};
-    bool transported =
-        envelope_written &&
-        gateway_decode_envelope({reinterpret_cast<const char*>(envelope_text), envelope_writer.used},
-                                {fixture.structurals, 4096}, 32, &envelope)
-            .ok() &&
-        gateway_client_route_dispatch(envelope, {fixture.structurals, 4096}, 32, {mailbox, 16384},
-                                      {ids, 100}, 7, &routed, &payload)
-            .ok();
-    for (auto& byte : envelope_text)
-        byte = 0xa5;
-    transported = transported && gateway_client_event_as_message(routed, payload, rich_scratch(), &event);
+    // Wraps the body in a MESSAGE_CREATE envelope, routes it into the pointer-free mailbox, poisons the
+    // source and rebuilds the event from the mailbox alone.
+    const auto transport = [&](Utf8View body, u64 sequence) noexcept {
+        envelope_writer.used = 0;
+        const bool routed_ok =
+            protocol_writer_append_literal(&envelope_writer, "{\"op\":0,\"s\":") &&
+            protocol_writer_append_u64(&envelope_writer, sequence) &&
+            protocol_writer_append_literal(&envelope_writer, ",\"t\":\"MESSAGE_CREATE\",\"d\":") &&
+            protocol_writer_append_bytes(&envelope_writer, {reinterpret_cast<const u8*>(body.data), body.bytes}) &&
+            protocol_writer_append_byte(&envelope_writer, '}') &&
+            gateway_decode_envelope({reinterpret_cast<const char*>(envelope_text), envelope_writer.used},
+                                    {fixture.structurals, 4096}, 32, &envelope)
+                .ok() &&
+            gateway_client_route_dispatch(envelope, {fixture.structurals, 4096}, 32, {mailbox, 16384},
+                                          {ids, 100}, 7, &routed, &payload)
+                .ok();
+        for (auto& byte : envelope_text)
+            byte = 0xa5;
+        return routed_ok && gateway_client_event_as_message(routed, payload, rich_scratch(), &event);
+    };
+    bool transported = transport(forward, 1);
     check(transported && event.snapshot.present && event.snapshot.attachments.count == 1 &&
               event.snapshot.embeds.count == 1 && event.snapshot.mention_users.count == 1 &&
               utf8_equal(event.snapshot.content, utf8_literal("**snapshot** <@7>")) &&
@@ -263,22 +267,7 @@ void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept)
               utf8_equal(event.attachments[0].waveform, utf8_literal("AP+A")) &&
               event.snapshot.attachments[0].has_duration && event.snapshot.attachments[0].duration_ms == 1,
           "audio attachment decimal duration and waveform retain independent forwarded voice metadata");
-    envelope_writer.used = 0;
-    transported =
-        protocol_writer_append_literal(&envelope_writer,
-                                       "{\"op\":0,\"s\":2,\"t\":\"MESSAGE_CREATE\",\"d\":") &&
-        protocol_writer_append_bytes(&envelope_writer,
-                                     {reinterpret_cast<const u8*>(audio.data), audio.bytes}) &&
-        protocol_writer_append_byte(&envelope_writer, '}') &&
-        gateway_decode_envelope({reinterpret_cast<const char*>(envelope_text), envelope_writer.used},
-                                {fixture.structurals, 4096}, 32, &envelope)
-            .ok() &&
-        gateway_client_route_dispatch(envelope, {fixture.structurals, 4096}, 32, {mailbox, 16384},
-                                      {ids, 100}, 7, &routed, &payload)
-            .ok();
-    for (auto& byte : envelope_text)
-        byte = 0xa5;
-    transported = transported && gateway_client_event_as_message(routed, payload, rich_scratch(), &event);
+    transported = transport(audio, 2);
     check(transported && event.attachments[0].duration_ms == 1234 && event.attachments[0].has_duration &&
               utf8_equal(event.attachments[0].waveform, utf8_literal("AP+A")) &&
               utf8_equal(event.snapshot.attachments[0].waveform, utf8_literal("AA==")),

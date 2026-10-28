@@ -1,7 +1,6 @@
 // No argument runs the registered checks. Manual: MAICORD_MYANMAR_INPUT_STREAM=1|2 answers cluster
 // queries from stdin for the Python oracles (QA only).
 #include "maicord/text/myanmar_input.hpp"
-#include "maicord/core/byte_order.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;

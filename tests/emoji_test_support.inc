@@ -34,3 +34,16 @@ bool acquire(const wchar_t* path,NativeRunPlanHandle* run,bool reject,u32 weight
     const auto result=native_run_plan_acquire(&store,instance,&scratch,run,1000000,16*1024*1024,0,kind);
     if(reject&&result.font_status!=SfntStatus::malformed){print("reject_status=");number(static_cast<u32>(result.font_status));print(" error=");number(static_cast<u32>(result.error));print(" slot=");number(run->slot);print("\n");}
     CHECK(reject?result.font_status==SfntStatus::malformed&&!run->slot:result.ok());CHECK(native_font_instance_release(&font_instances,instance));CHECK(native_font_release(&fonts,face));return true;}
+// Releases every test-owned resource; false when a file, handle or DirectWrite module leaked.
+bool emoji_cleanup(bool ok) noexcept {
+    while(plans[0].references)native_run_plan_release(&store,{1,plans[0].generation});
+    while(instances[0].references)native_font_instance_release(&font_instances,{1,instances[0].generation});while(faces[0].references)native_font_release(&fonts,{1,faces[0].generation});
+    arena_release(&scratch);arena_release(&state);if(input_file)VirtualFree(input_file,0,MEM_RELEASE);if(temporary[0]&&!DeleteFileW(temporary))ok=false;
+    if(GetModuleHandleW(L"dwrite.dll")||GetModuleHandleW(L"DWriteCore.dll"))ok=false;
+    return ok;
+}
+// Reads the whole file named by font_path (at most 32 MiB) into input_file.
+bool load_input(ConstSlice<u8>* data) noexcept {
+    HANDLE file=CreateFileW(font_path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);const DWORD size=GetFileSize(file,nullptr);CHECK(size<=32*1024*1024);
+    input_file=static_cast<u8*>(VirtualAlloc(nullptr,size,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));DWORD read=0;const bool loaded=input_file&&ReadFile(file,input_file,size,&read,nullptr)&&read==size;CloseHandle(file);CHECK(loaded);*data={input_file,size};return true;
+}

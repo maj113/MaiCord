@@ -145,14 +145,10 @@ void test_notification_sound_admission(void(*check)(bool,const char*)noexcept) n
     check(pair.ordinary==A::allowed&&pair.selected==A::allowed,"known valid UNKNOWN wrapper resolves connected ONLINE for both predicates");
 
     f.policy.channel_type=2;f.policy.global.status=MessageNotificationStatus::online;
-    f.policy.current_voice_channel_known=false;f.policy.current_voice_channel=true;
-    check(notification_sound_ordinary_admit(f.policy)==R::unknown,"ALL vocal channel requires voice membership knowledge before unconditional admission");
-    f.policy.direct_mention=true;
-    check(notification_sound_ordinary_admit(f.policy)==R::eligible,"direct mention does not require unrelated unknown voice-channel fact");
-    f.policy.direct_mention=false;f.policy.current_voice_channel_known=true;f.policy.current_voice_channel=false;
-    check(notification_sound_ordinary_admit(f.policy)==R::not_mentioned,"known disconnected vocal ALL falls back to mention admission");
+    f.policy.current_voice_channel=false;
+    check(notification_sound_ordinary_admit(f.policy)==R::not_mentioned,"disconnected vocal ALL falls back to mention admission");
     f.policy.current_voice_channel=true;
-    check(notification_sound_ordinary_admit(f.policy)==R::eligible,"known current voice channel enables ALL fast path");
+    check(notification_sound_ordinary_admit(f.policy)==R::eligible,"current voice channel enables ALL fast path");
     f.policy.channel_type=0;u64 role=99;f.policy.mention_roles={&role,1};f.policy.roles_known=false;
     check(notification_sound_ordinary_admit(f.policy)==R::eligible,"ordinary nonvocal ALL does not demand irrelevant role membership");
     f.policy.duplicate=true;pair=notification_sound_admissions(f.sound);

@@ -47,17 +47,12 @@ void persistence() noexcept {
           "sign-out removes persisted authorization and is idempotent");
 }
 struct Fake { u32 calls; u16 status; bool cancel; OAuthAuthorization* owner; };
-bool contains(ConstSlice<u8> data, Utf8View part) noexcept {
-    for (u32 i = 0; i + part.bytes <= data.count; ++i)
-        if (bytes_equal(data.data + i, part.data, part.bytes)) return true;
-    return false;
-}
 UpdateTransportError exchange(void* context, const UpdateHttpRequest& request, const HttpsExchangeOptions& options,
                              UpdateHttpResponse* response) noexcept {
     auto& fake = *static_cast<Fake*>(context); ++fake.calls;
-    check(contains(options.body, utf8_literal("grant_type=refresh_token&")) &&
-          contains(options.body, utf8_literal("refresh_token=first-refresh%2F%2B%3D")) &&
-          !contains(options.body, utf8_literal("client_secret")),
+    check(test_contains(options.body, utf8_literal("grant_type=refresh_token&")) &&
+          test_contains(options.body, utf8_literal("refresh_token=first-refresh%2F%2B%3D")) &&
+          !test_contains(options.body, utf8_literal("client_secret")),
           "demand-driven refresh reads the saved grant without a client secret");
     const auto json = fake.status == 200 ? utf8_literal(R"({"access_token":"access","refresh_token":"rotated","expires_in":3600,"token_type":"Bearer"})")
                                         : utf8_literal(R"({"error":"invalid_grant"})");

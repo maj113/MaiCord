@@ -16,7 +16,8 @@ DWORD WINAPI held_authenticated_worker(void* opaque) noexcept {
     WaitForSingleObject(owner->release, INFINITE);
     return 0;
 }
-bool prepare_remote(RemoteAuthClient* client, HANDLE* release) noexcept {
+// The synthetic runtime, its events and the protected credential both fixtures hold.
+bool prepare_runtime(RemoteAuthClient* client) noexcept {
     auto* runtime = static_cast<RemoteAuthClientRuntime*>(VirtualAlloc(nullptr,
         sizeof(RemoteAuthClientRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!runtime || !remote_auth_ticket_exchange_initialize(&runtime->ticket_exchange).ok()) return false;
@@ -25,11 +26,14 @@ bool prepare_remote(RemoteAuthClient* client, HANDLE* release) noexcept {
     client->notification_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     client->cancel_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     client->captcha_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    *release = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     constexpr auto token = utf8_literal("synthetic-session");
-    if (!client->ready_event || !client->notification_event || !client->cancel_event ||
-        !client->captcha_event || !*release || !secure_buffer_assign(&runtime->ticket_exchange.credential,
-            {reinterpret_cast<const u8*>(token.data), token.bytes}).ok()) return false;
+    return client->ready_event && client->notification_event && client->cancel_event &&
+        client->captcha_event && secure_buffer_assign(&runtime->ticket_exchange.credential,
+            {reinterpret_cast<const u8*>(token.data), token.bytes}).ok();
+}
+bool prepare_remote(RemoteAuthClient* client, HANDLE* release) noexcept {
+    *release = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!prepare_runtime(client) || !*release) return false;
     store_user(client, utf8_literal("42:0:0:synthetic"));
     held = {client, *release};
     client->thread = CreateThread(nullptr, 0, held_authenticated_worker, &held, 0, nullptr);
@@ -62,18 +66,7 @@ DWORD WINAPI publish_limited_during_stop(void* opaque) noexcept {
     return 0;
 }
 bool prepare_remote_stop_limit(RemoteAuthClient* client) noexcept {
-    auto* runtime = static_cast<RemoteAuthClientRuntime*>(VirtualAlloc(nullptr,
-        sizeof(RemoteAuthClientRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!runtime || !remote_auth_ticket_exchange_initialize(&runtime->ticket_exchange).ok()) return false;
-    client->runtime = runtime;
-    client->ready_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    client->notification_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    client->cancel_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    client->captcha_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    constexpr auto token = utf8_literal("synthetic-session");
-    if (!client->ready_event || !client->notification_event || !client->cancel_event ||
-        !client->captcha_event || !secure_buffer_assign(&runtime->ticket_exchange.credential,
-            {reinterpret_cast<const u8*>(token.data), token.bytes}).ok()) return false;
+    if (!prepare_runtime(client)) return false;
     publish_phase(client, RemoteAuthClientPhase::qr_ready);
     client->thread = CreateThread(nullptr, 0, publish_limited_during_stop, client, 0, nullptr);
     return client->thread && WaitForSingleObject(client->ready_event, 3000) == WAIT_OBJECT_0;

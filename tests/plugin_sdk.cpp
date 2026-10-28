@@ -3,7 +3,6 @@
 #include "maicord/app/plugin_preferences.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/icon.hpp"
 #include "../src/app/application_plugin_settings_projection.hpp"
 #include "test_output.hpp"
@@ -17,14 +16,6 @@ void check(bool value, const char* label) noexcept {
     ++failures;
     test_write_text("FAIL plugin_sdk: ");
     test_write_line(label);
-}
-bool starts_with(Utf8View text, Utf8View prefix) noexcept {
-    return text.bytes >= prefix.bytes && bytes_equal(text.data, prefix.data, prefix.bytes);
-}
-bool contains(Utf8View text, Utf8View part) noexcept {
-    for (u32 i = 0; i + part.bytes <= text.bytes; ++i)
-        if (bytes_equal(text.data + i, part.data, part.bytes)) return true;
-    return false;
 }
 
 NativePluginSdkRuntime g_runtime;
@@ -167,7 +158,7 @@ void test_interfaces() noexcept {
 
 // ---- Size-prefix growth -------------------------------------------------------------
 
-bool g_page_ok, g_old_option_ok, g_menu_targets_checked, g_late_page;
+bool g_page_ok, g_old_option_ok, g_menu_targets_checked;
 void register_old_structs() noexcept {
     const auto* pages = table<mc_pages_v1>("mc.ui.pages", 1);
     const auto* settings = table<mc_settings_v3>("mc.settings", 3);
@@ -389,7 +380,7 @@ void test_full_fixture() noexcept {
               controls[3].kind == UiSettingsControlKind::action && controls[4].kind == UiSettingsControlKind::action &&
               controls[5].kind == UiSettingsControlKind::slider && controls[5].choices.count == 21 &&
               controls[5].selected_choice == 10 && utf8_equal(controls[5].choices[10], utf8_literal("50")) &&
-              controls[6].kind == UiSettingsControlKind::action && contains(controls[6].description, utf8_literal("#5865F2")) &&
+              controls[6].kind == UiSettingsControlKind::action && test_contains(controls[6].description, utf8_literal("#5865F2")) &&
               controls[7].kind == UiSettingsControlKind::action && controls[8].kind == UiSettingsControlKind::notice &&
               utf8_equal(controls[8].action_label, utf8_literal("Test")),
           "every control kind projects into the native settings vocabulary");
@@ -458,7 +449,7 @@ void test_full_fixture() noexcept {
           "only an exact /name prefix matches a local command");
     auto result = native_plugin_sdk_run_command(&g_runtime, {10, 0, 5, utf8_literal("/roll 2d6")});
     bool total_ok = false;
-    if (result.action == NativePluginSdkComposeAction::send && starts_with(result.text, utf8_literal("rolled 2d6: "))) {
+    if (result.action == NativePluginSdkComposeAction::send && utf8_starts_with(result.text, utf8_literal("rolled 2d6: "))) {
         u32 at = result.text.bytes, total = 0, scale = 1;
         while (at && result.text.data[at - 1] >= '0' && result.text.data[at - 1] <= '9') {
             total += static_cast<u32>(result.text.data[at - 1] - '0') * scale;
@@ -651,7 +642,7 @@ void test_marker(const wchar_t* marker) noexcept {
     check(native_plugin_preferences_enable(&preferences, manifest, MC_PERM_COMMANDS | MC_PERM_STORE).ok() &&
               native_plugin_preferences_restorable(preferences, manifest),
           "an approved ABI-4 plugin restores at startup");
-    check(native_plugin_preferences_set_flags(&preferences, leftover.owner_id ? leftover.owner_id : 0x7777,
+    check(native_plugin_preferences_set_flags(&preferences, 0x7777,
                                               native_plugin_preference_crashed) &&
               !native_plugin_preferences_restorable(preferences, manifest) &&
               native_plugin_preferences_find(preferences, manifest),
@@ -799,8 +790,8 @@ void test_developer_gate() noexcept {
           "without Developer Mode the manifest-less DLL loader is not offered");
     const auto& row = controls[4];
     check(row.id == kApplicationPluginCatalogActionFirst &&
-              contains(row.description, utf8_literal("Turned off because MaiCord closed while it was running.")) &&
-              contains(row.description, utf8_literal("Permissions: commands, store.")),
+              test_contains(row.description, utf8_literal("Turned off because MaiCord closed while it was running.")) &&
+              test_contains(row.description, utf8_literal("Permissions: commands, store.")),
           "catalog rows show the crash notice and requested permissions");
     state.developer_mode = true;
     count = application_plugins_settings_project(state, {controls, 21}, {text, 8});

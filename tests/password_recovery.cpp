@@ -1,6 +1,5 @@
 #include "maicord/protocol/user_auth.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/utf.hpp"
 #include "maicord/ui/login_view.hpp"
 #include "maicord/ui/login_text_presentation.hpp"
 

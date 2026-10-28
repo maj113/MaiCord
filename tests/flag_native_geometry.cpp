@@ -3,7 +3,7 @@
 #include "maicord/text/paragraph_hits.hpp"
 #include "maicord/core/win32_kernel.hpp"
 namespace maicord { namespace {
-void print(const char* text) noexcept { u32 n=0; while(text[n])++n; DWORD done=0; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,n,&done,nullptr); }
+void print(const char* text) noexcept { DWORD done=0; WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,c_string_length(text),&done,nullptr); }
 #define CHECK(x) do { if (!(x)) { print("FAIL flag native geometry: " #x "\n"); return false; } } while (0)
 NativeParagraphHitCluster clusters[256]; NativeParagraphHitLine lines[257]; float advances[1280];
 SfntFontLineParts parts[256]; NativeParagraphHitRun runs[256];

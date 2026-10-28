@@ -9,11 +9,6 @@ u32 failures;
 void check(bool value, const char* label) noexcept { test_check(&failures, value, label); }
 constexpr auto client = utf8_literal("0123456789abcdef0123456789abcdef");
 constexpr auto verifier = utf8_literal("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk");
-bool contains(ConstSlice<u8> text, Utf8View part) noexcept {
-    for (u32 i = 0; i + part.bytes <= text.count; ++i)
-        if (bytes_equal(text.data + i, part.data, part.bytes)) return true;
-    return false;
-}
 void proof() noexcept {
     SecureBuffer first{}, second{};
     const bool created = oauth_authorization_proof(&first) && oauth_authorization_proof(&second);
@@ -51,12 +46,12 @@ UpdateTransportError exchange(void* context, const UpdateHttpRequest& request,
           utf8_equal({request.target.data, request.target.count}, utf8_literal("/api/token")) &&
           request.maximum_body_bytes == 16384 && options.headers.count == 2 && options.read_error_body &&
           utf8_equal(options.headers[0].value, utf8_literal("application/x-www-form-urlencoded")) &&
-          !contains(options.body, utf8_literal("client_secret")), "token exchange is a bounded form POST to Spotify's fixed TLS origin");
-    check(f.refresh ? contains(options.body, utf8_literal("grant_type=refresh_token&")) &&
-                         contains(options.body, utf8_literal("refresh_token=previous%2F%2B%3D"))
-                    : contains(options.body, utf8_literal("grant_type=authorization_code&")) &&
-                         contains(options.body, utf8_literal("code=one-use%2F%2B%3D&code_verifier=")) &&
-                         contains(options.body, verifier), "native exchange selects the correct grant and preserves escaped credentials");
+          !test_contains(options.body, utf8_literal("client_secret")), "token exchange is a bounded form POST to Spotify's fixed TLS origin");
+    check(f.refresh ? test_contains(options.body, utf8_literal("grant_type=refresh_token&")) &&
+                         test_contains(options.body, utf8_literal("refresh_token=previous%2F%2B%3D"))
+                    : test_contains(options.body, utf8_literal("grant_type=authorization_code&")) &&
+                         test_contains(options.body, utf8_literal("code=one-use%2F%2B%3D&code_verifier=")) &&
+                         test_contains(options.body, verifier), "native exchange selects the correct grant and preserves escaped credentials");
     *response = {};
     response->status = f.status;
     response->retry_after_seconds = 7;

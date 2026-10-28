@@ -72,9 +72,6 @@ inline bool centered_pages(const UiSearchScene& scene, const D3D11Renderer& rend
         if (!command || command->horizontal_alignment != UiTextAlignment::center ||
             command->vertical_alignment != UiTextAlignment::center)
             return false;
-        const u8 ink[]{static_cast<u8>(command->color.blue * 255.f + .5f),
-                       static_cast<u8>(command->color.green * 255.f + .5f),
-                       static_cast<u8>(command->color.red * 255.f + .5f)};
         // Uncut labels may share a viewport batch; validate their visible glyphs.
         bool native_color = false;
         if (renderer.content_text)
@@ -100,14 +97,11 @@ inline bool centered_pages(const UiSearchScene& scene, const D3D11Renderer& rend
         }
         const auto clip = raster_clip_rectangle(node->rectangle, scale, rb.width, rb.height);
         i32 left = clip.right, right = clip.left, top = clip.bottom, bottom = clip.top;
-        u32 pixels = 0, pixels30 = 0, pixels45 = 0;
+        u32 pixels = 0;
         for (i32 y = maximum(clip.top, 0); y < clip.bottom; ++y)
             for (i32 x = maximum(clip.left, 0); x < clip.right; ++x) {
                 const auto* p = rb.images + (y * rb.width + x) * 4;
                 const auto* underlay = rb.images + 2 * rb.bytes + (y * rb.width + x) * 4;
-                const u32 distance = surface_motion_probe_detail::distance(p, ink);
-                pixels30 += distance <= 30;
-                pixels45 += distance <= 45;
                 // Thin antialiased digits need not have six fully covered
                 // foreground pixels. Compare against identical native paint
                 // with only page glyphs omitted, including the gradient.
@@ -127,37 +121,6 @@ inline bool centered_pages(const UiSearchScene& scene, const D3D11Renderer& rend
             vertical_delta > 6.f * scale) {
             log_u64(LogLevel::error, "probe", "search_center_page_slot", i);
             log_u64(LogLevel::error, "probe", "search_center_ink_pixels", pixels);
-            log_u64(LogLevel::error, "probe", "search_center_ink_pixels30", pixels30);
-            log_u64(LogLevel::error, "probe", "search_center_ink_pixels45", pixels45);
-            for (u32 channel = 0; channel < 3; ++channel) {
-                log_u64(LogLevel::error, "probe", "search_center_color_channel", channel);
-                log_u64(LogLevel::error, "probe", "search_center_color", ink[channel]);
-            }
-            if (renderer.content_text)
-                for (u32 b = 0; b < renderer.content_text->batch_count; ++b) {
-                    const auto& batch = renderer.content_text->batches[b];
-                    if (!ui_rect_equal(batch.clip, command->clip))
-                        continue;
-                    log_u64(LogLevel::error, "probe", "search_center_glyph_quads", batch.quad_count);
-                    if (batch.quad_count) {
-                        const auto& quad = renderer.content_text->quads[batch.first_quad];
-                        log_u64(LogLevel::error, "probe", "search_center_quad_red",
-                                static_cast<u32>(quad.color.red * 255.f + .5f));
-                        log_u64(LogLevel::error, "probe", "search_center_quad_green",
-                                static_cast<u32>(quad.color.green * 255.f + .5f));
-                        log_u64(LogLevel::error, "probe", "search_center_quad_blue",
-                                static_cast<u32>(quad.color.blue * 255.f + .5f));
-                    }
-                    break;
-                }
-            log_u64(LogLevel::error, "probe", "search_center_ink_left", static_cast<u32>(left));
-            log_u64(LogLevel::error, "probe", "search_center_ink_right", static_cast<u32>(right));
-            log_u64(LogLevel::error, "probe", "search_center_ink_top", static_cast<u32>(top));
-            log_u64(LogLevel::error, "probe", "search_center_ink_bottom", static_cast<u32>(bottom));
-            log_u64(LogLevel::error, "probe", "search_center_button_left", static_cast<u32>(clip.left));
-            log_u64(LogLevel::error, "probe", "search_center_button_right", static_cast<u32>(clip.right));
-            log_u64(LogLevel::error, "probe", "search_center_button_top", static_cast<u32>(clip.top));
-            log_u64(LogLevel::error, "probe", "search_center_button_bottom", static_cast<u32>(clip.bottom));
             return false;
         }
     }

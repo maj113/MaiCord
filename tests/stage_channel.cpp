@@ -365,7 +365,7 @@ void dave_cases(Check check) noexcept {
     }
     stage->dave_optional = true;
     stage->media.dave_protocol_version = 0;
-    check(voice_connection_dave_description(stage, 100) && stage->dave_session.initialized &&
+    check(voice_connection_dave_description(stage) && stage->dave_session.initialized &&
               !stage->dave_session.protocol_version && !stage->dave_outbox_count && voice_connection_dave_ready(*stage),
           "stage DAVE: a stage may negotiate version 0 and sends media at once (no key package)");
     u8 opus[24]{1, 2, 3}, sealed[96], work[96], opened[96];
@@ -402,13 +402,13 @@ void dave_cases(Check check) noexcept {
     check(during.ok() && during.passthrough && !after.ok(),
           "stage DAVE: unencrypted frames pass only within the upgrade's transition expiry");
     voice->media.dave_protocol_version = 0;
-    check(voice_connection_dave_description(voice, 100) && !voice->dave_session.initialized &&
+    check(voice_connection_dave_description(voice) && !voice->dave_session.initialized &&
               voice->dave_close_code == kVoiceCloseDaveDowngradeRefused && voice->dave_reconnect_requested,
           "stage DAVE: a voice channel refuses version 0 at Session Description (close 4804, reconnect)");
     voice->dave_close_code = 0;
     voice->dave_reconnect_requested = false;
     voice->media.dave_protocol_version = 1;
-    check(voice_connection_dave_description(voice, 100) && voice->dave_session.protocol_version == 1 &&
+    check(voice_connection_dave_description(voice) && voice->dave_session.protocol_version == 1 &&
               voice->dave_outbox_count == 1 && !voice_connection_dave_ready(*voice) &&
               json(voice, VoiceDaveOpcode::prepare_transition,
                    utf8_literal(R"({"transition_id":5,"protocol_version":0})")) &&

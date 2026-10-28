@@ -470,11 +470,7 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
 namespace {
 maicord::u32 failures = 0;
 void check(bool success, const char* name) noexcept {
-    if (success)
-        return;
-    ++failures;
-    maicord::test_write_text("FAIL ");
-    maicord::test_write_line(name);
+    maicord::test_check(&failures, success, name);
 }
 } // namespace
 
@@ -482,9 +478,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_user_settings_tests_entry() 
     maicord::test_user_settings_proto(check);
     maicord::test_user_settings_guild_lists(check);
     maicord::test_account_settings_rest(check);
-    constexpr char pass[] = "PASS user settings\n";
-    constexpr char fail[] = "FAIL user settings\n";
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
-    ExitProcess(failures ? 1 : 0);
+    maicord::test_exit(failures, "user settings");
 }

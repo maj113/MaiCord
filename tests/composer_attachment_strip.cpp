@@ -1,6 +1,7 @@
 #include "maicord/app/attachment_media_probe.hpp"
 #include "maicord/app/local_preview_thumbnail.hpp"
 #include "maicord/app/message_attachment_drafts.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/jpeg.hpp"
 #include "jpeg_progressive_fixture.hpp"
@@ -16,18 +17,12 @@
 namespace maicord {
 namespace {
 bool text_equal(Slice<char> storage, u32 bytes, const char* expected) noexcept {
-    u32 length = 0;
-    while (expected[length])
-        ++length;
-    return utf8_equal({storage.data, bytes}, {expected, length});
+    return utf8_equal({storage.data, bytes}, {expected, c_string_length(expected)});
 }
 UiComposerAttachmentTile make_tile(u64 id, const char* name, UiComposerAttachmentPhase phase) noexcept {
     UiComposerAttachmentTile tile{};
     tile.id = id;
-    u32 bytes = 0;
-    while (name[bytes])
-        ++bytes;
-    tile.filename = {name, bytes};
+    tile.filename = {name, c_string_length(name)};
     tile.bytes = 2048;
     tile.phase = phase;
     tile.kind = ui_attachment_file_kind(tile.filename);
@@ -383,12 +378,6 @@ bool read_memory(void* context, u64 offset, Slice<u8> output) noexcept {
     copy_bytes(output.data, file->data + offset, output.count);
     return true;
 }
-void put32(u8* p, u32 v) noexcept {
-    p[0] = static_cast<u8>(v >> 24);
-    p[1] = static_cast<u8>(v >> 16);
-    p[2] = static_cast<u8>(v >> 8);
-    p[3] = static_cast<u8>(v);
-}
 u32 rgba_at(const u8* rgba, u32 width, u32 x, u32 y) noexcept {
     const u8* p = rgba + (y * width + x) * 4u;
     return static_cast<u32>(p[0]) | static_cast<u32>(p[1]) << 8 | static_cast<u32>(p[2]) << 16 |
@@ -567,33 +556,33 @@ void test_local_preview_thumbnail(void (*check)(bool, const char*) noexcept) noe
     // (non-faststart) and in a 64-bit version-1 header, reading headers only.
     static u8 movie[4096]{};
     u32 at = 0;
-    put32(movie + at, 16);
+    byte_store_be32(movie + at, 16);
     copy_bytes(movie + at + 4, "ftypisom\0\0\0\0", 12);
     at += 16;
-    put32(movie + at, 1);
+    byte_store_be32(movie + at, 1);
     copy_bytes(movie + at + 4, "mdat", 4);
-    put32(movie + at + 8, 0);
-    put32(movie + at + 12, 3000);
+    byte_store_be32(movie + at + 8, 0);
+    byte_store_be32(movie + at + 12, 3000);
     at += 3000;
     const u32 moov = at;
-    put32(movie + at, 8 + 8 + 100);
+    byte_store_be32(movie + at, 8 + 8 + 100);
     copy_bytes(movie + at + 4, "moov", 4);
     at += 8;
-    put32(movie + at, 8 + 100);
+    byte_store_be32(movie + at, 8 + 100);
     copy_bytes(movie + at + 4, "mvhd", 4);
-    put32(movie + at + 8 + 12, 600);
-    put32(movie + at + 8 + 16, 600u * 65u + 300u);
+    byte_store_be32(movie + at + 8 + 12, 600);
+    byte_store_be32(movie + at + 8 + 16, 600u * 65u + 300u);
     at += 108;
     MemoryFile file{movie, at, 0};
     u32 duration = 0;
     const bool v0 = attachment_mp4_duration(at, read_memory, &file, &duration) && duration == 65'500 && file.reads < 10;
     movie[moov + 16] = 1; // version 1: 64-bit times
-    put32(movie + moov + 16 + 20, 1000);
-    put32(movie + moov + 16 + 24, 0);
-    put32(movie + moov + 16 + 28, 7'250);
+    byte_store_be32(movie + moov + 16 + 20, 1000);
+    byte_store_be32(movie + moov + 16 + 24, 0);
+    byte_store_be32(movie + moov + 16 + 28, 7'250);
     const bool v1 = attachment_mp4_duration(at, read_memory, &file, &duration) && duration == 7'250;
-    put32(movie + moov + 16 + 24, 0xffffffffu);
-    put32(movie + moov + 16 + 28, 0xffffffffu);
+    byte_store_be32(movie + moov + 16 + 24, 0xffffffffu);
+    byte_store_be32(movie + moov + 16 + 28, 0xffffffffu);
     const bool unknown = !attachment_mp4_duration(at, read_memory, &file, &duration);
     file.bytes = moov + 20;
     const bool truncated = !attachment_mp4_duration(moov + 20, read_memory, &file, &duration);

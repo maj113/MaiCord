@@ -21,7 +21,6 @@
 #include "maicord/protocol/writer.hpp"
 #include "standalone_title_geometry.hpp"
 #include "regional_flag_surfaces_probe.hpp"
-#include "media_picker_ui_adapter.hpp"
 #include "inline_flags_probe.hpp"
 #include "guild_rail_icon_probe.hpp"
 #include "background_theme_probe.hpp"
@@ -402,9 +401,6 @@ bool probe_has_role_mention_colors(u32 packed) noexcept {
 }
 
 void probe_hash_u32(u64* hash, u32 value) noexcept {
-    if (!hash) {
-        return;
-    }
     *hash ^= value;
     *hash *= 1'099'511'628'211ull;
 }
@@ -976,64 +972,87 @@ bool rgba_pixels_exact(ProbeTargetReadback& readback, u32 left, u32 top,
     return exact;
 }
 
-bool apng_atlas_pixels_exact(const MediaAtlasResult& allocation,u32 presented_frame,bool preview=false) noexcept {
+// Reads the width x height atlas region back from the main or preview media texture.
+template<class Expected>
+bool atlas_pixels_exact(const MediaAtlasResult& allocation, bool preview, u32 width, u32 height,
+                        Expected expected) noexcept {
     ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, 4, 4))
+    if (!readback.initialize_rgba(g_probe.renderer, width, height))
         return false;
-    auto* staging = readback.staging;
-    const D3D11_BOX box{allocation.x,allocation.y,0,allocation.x+4u,allocation.y+4u,1};
-    g_probe.renderer.graphics.context->CopySubresourceRegion(staging,0,0,0,0,
-        preview?g_probe.renderer.media_gpu.preview_texture:g_probe.renderer.media_gpu.texture,0,&box);
-    return rgba_pixels_exact(readback, 0, 0, 4, 4,
-        [presented_frame](u32 x, u32 y) noexcept { return apng_fixture_canvas_rgba(presented_frame, x, y); });
+    const D3D11_BOX box{allocation.x, allocation.y, 0, allocation.x + width, allocation.y + height, 1};
+    g_probe.renderer.graphics.context->CopySubresourceRegion(
+        readback.staging, 0, 0, 0, 0,
+        preview ? g_probe.renderer.media_gpu.preview_texture : g_probe.renderer.media_gpu.texture, 0, &box);
+    return rgba_pixels_exact(readback, 0, 0, width, height, expected);
+}
+
+bool apng_atlas_pixels_exact(const MediaAtlasResult& allocation, u32 presented_frame, bool preview = false) noexcept {
+    return atlas_pixels_exact(allocation, preview, 4, 4, [presented_frame](u32 x, u32 y) noexcept {
+        return apng_fixture_canvas_rgba(presented_frame, x, y);
+    });
 }
 
 bool gif_atlas_pixels_exact(const MediaAtlasResult& allocation, u32 presented_frame) noexcept {
-    ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
-        return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopySubresourceRegion(
-        staging, 0, 0, 0, 0, g_probe.renderer.media_gpu.texture, 0, nullptr);
-    return rgba_pixels_exact(readback, allocation.x, allocation.y, 4, 4,
-        [presented_frame](u32 x, u32 y) noexcept { return gif_fixture_canvas_rgba(presented_frame, x, y); });
+    return atlas_pixels_exact(allocation, false, 4, 4, [presented_frame](u32 x, u32 y) noexcept {
+        return gif_fixture_canvas_rgba(presented_frame, x, y);
+    });
 }
 
 bool animated_webp_atlas_pixels_exact(const MediaAtlasResult& allocation, u32 presented_frame,
                                       bool preview = false) noexcept {
-    ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer,
-            preview ? g_probe.renderer.media_gpu.preview_width : kProbeMediaExtent,
-            preview ? g_probe.renderer.media_gpu.preview_height : kProbeMediaExtent))
-        return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(
-        staging, preview ? g_probe.renderer.media_gpu.preview_texture : g_probe.renderer.media_gpu.texture);
-    return rgba_pixels_exact(readback, allocation.x, allocation.y, 4, 4,
-        [presented_frame](u32 x, u32 y) noexcept { return animated_webp_fixture_canvas_rgba(presented_frame, x, y); });
+    return atlas_pixels_exact(allocation, preview, 4, 4, [presented_frame](u32 x, u32 y) noexcept {
+        return animated_webp_fixture_canvas_rgba(presented_frame, x, y);
+    });
 }
 
 bool mixed_animated_webp_atlas_pixels_exact(const MediaAtlasResult& allocation,
                                             u32 presented_frame) noexcept {
-    ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
-        return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    return rgba_pixels_exact(readback, allocation.x, allocation.y, 4, 4,
-        [presented_frame](u32 x, u32 y) noexcept { return mixed_animated_webp_fixture_canvas_rgba(presented_frame, x, y); });
+    return atlas_pixels_exact(allocation, false, 4, 4, [presented_frame](u32 x, u32 y) noexcept {
+        return mixed_animated_webp_fixture_canvas_rgba(presented_frame, x, y);
+    });
 }
 
 bool jpeg_atlas_pixels_exact(const MediaAtlasResult& allocation, u16 width, u16 height,
                              bool preview = false) noexcept {
-    ProbeTargetReadback readback;
+    return atlas_pixels_exact(allocation, preview, width, height,
+                              [](u32, u32) noexcept { return jpeg_fixture_rgba(); });
+}
+
+// Copies a media atlas texture into a mapped staging readback.
+bool read_media_texture(ProbeTargetReadback& readback, ID3D11Texture2D* texture) noexcept {
     if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
         return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(
-        staging, preview ? g_probe.renderer.media_gpu.preview_texture : g_probe.renderer.media_gpu.texture);
-    return rgba_pixels_exact(readback, allocation.x, allocation.y, width, height,
-        [](u32, u32) noexcept { return jpeg_fixture_rgba(); });
+    g_probe.renderer.graphics.context->CopyResource(readback.staging, texture);
+    return SUCCEEDED(readback.map());
+}
+
+const u8* atlas_row(const ProbeTargetReadback& readback, const MediaAtlasResult& allocation, u32 y) noexcept {
+    return static_cast<const u8*>(readback.mapped.pData) + (allocation.y + y) * readback.mapped.RowPitch +
+           allocation.x * 4u;
+}
+
+// Largest RGB channel error of the allocation against expected(x, y, channel);
+// false unless the read succeeds and every alpha is 255.
+template<class Expected>
+bool atlas_rgb_error(const MediaAtlasResult& allocation, u32 width, u32 height, Expected expected,
+                     u32* maximum_error) noexcept {
+    ProbeTargetReadback readback;
+    if (!read_media_texture(readback, g_probe.renderer.media_gpu.texture))
+        return false;
+    bool opaque = true;
+    *maximum_error = 0;
+    for (u32 y = 0; y < height; ++y) {
+        const u8* row = atlas_row(readback, allocation, y);
+        for (u32 x = 0; x < width; ++x) {
+            for (u32 channel = 0; channel < 3; ++channel) {
+                const u8 actual = row[x * 4u + channel];
+                const u8 wanted = expected(x, y, channel);
+                *maximum_error = maximum<u32>(*maximum_error, actual > wanted ? actual - wanted : wanted - actual);
+            }
+            opaque = opaque && row[x * 4u + 3u] == 255;
+        }
+    }
+    return opaque;
 }
 
 bool jpeg_atlas_pixels_reference_tolerance(const MediaAtlasResult& allocation, u16 width, u16 height,
@@ -1050,69 +1069,46 @@ bool jpeg_atlas_pixels_reference_tolerance(const MediaAtlasResult& allocation, u
     if (allocation.width != output_width || allocation.height != output_height) {
         return false;
     }
-    ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
-        return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    const HRESULT result = readback.map();
-    const auto& mapped = readback.mapped;
     u32 maximum_error = 0;
-    bool alpha_exact = SUCCEEDED(result);
-    if (SUCCEEDED(result)) {
-        for (u32 y = 0; y < output_height; ++y) {
-            const u8* row = static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch +
-                            allocation.x * 4u;
-            for (u32 x = 0; x < output_width; ++x) {
-                u32 source_x = x;
-                u32 source_y = y;
-                switch (orientation) {
-                case JpegOrientation::top_right:
-                    source_x = width - 1u - x;
-                    break;
-                case JpegOrientation::bottom_right:
-                    source_x = width - 1u - x;
-                    source_y = height - 1u - y;
-                    break;
-                case JpegOrientation::bottom_left:
-                    source_y = height - 1u - y;
-                    break;
-                case JpegOrientation::left_top:
-                    source_x = y;
-                    source_y = x;
-                    break;
-                case JpegOrientation::right_top:
-                    source_x = y;
-                    source_y = height - 1u - x;
-                    break;
-                case JpegOrientation::right_bottom:
-                    source_x = width - 1u - y;
-                    source_y = height - 1u - x;
-                    break;
-                case JpegOrientation::left_bottom:
-                    source_x = width - 1u - y;
-                    source_y = x;
-                    break;
-                case JpegOrientation::top_left:
-                    break;
-                }
-                for (u32 channel = 0; channel < 4; ++channel) {
-                    const u8 actual = row[x * 4u + channel];
-                    if (channel < 3) {
-                        const u32 reference_channel =
-                            swap_red_blue && channel != 1 ? 2u - channel : channel;
-                        const u8 expected =
-                            reference_rgb[(source_y * width + source_x) * 3u + reference_channel];
-                        const u32 error = actual > expected ? actual - expected : expected - actual;
-                        maximum_error = maximum<u32>(maximum_error, error);
-                    } else {
-                        alpha_exact = alpha_exact && actual == 255;
-                    }
-                }
-            }
-        }
-    }
-    return SUCCEEDED(result) && alpha_exact && maximum_error <= 2;
+    return atlas_rgb_error(allocation, output_width, output_height,
+                           [&](u32 x, u32 y, u32 channel) noexcept {
+                               u32 source_x = x;
+                               u32 source_y = y;
+                               switch (orientation) {
+                               case JpegOrientation::top_right:
+                                   source_x = width - 1u - x;
+                                   break;
+                               case JpegOrientation::bottom_right:
+                                   source_x = width - 1u - x;
+                                   source_y = height - 1u - y;
+                                   break;
+                               case JpegOrientation::bottom_left:
+                                   source_y = height - 1u - y;
+                                   break;
+                               case JpegOrientation::left_top:
+                                   source_x = y;
+                                   source_y = x;
+                                   break;
+                               case JpegOrientation::right_top:
+                                   source_x = y;
+                                   source_y = height - 1u - x;
+                                   break;
+                               case JpegOrientation::right_bottom:
+                                   source_x = width - 1u - y;
+                                   source_y = height - 1u - x;
+                                   break;
+                               case JpegOrientation::left_bottom:
+                                   source_x = width - 1u - y;
+                                   source_y = x;
+                                   break;
+                               case JpegOrientation::top_left:
+                                   break;
+                               }
+                               const u32 reference_channel = swap_red_blue && channel != 1 ? 2u - channel : channel;
+                               return reference_rgb[(source_y * width + source_x) * 3u + reference_channel];
+                           },
+                           &maximum_error) &&
+           maximum_error <= 2;
 }
 
 float probe_clamp_unit(float value) noexcept {
@@ -1181,35 +1177,17 @@ bool jpeg_icc_rgb_lut_pixels_tolerance(const MediaAtlasResult& allocation,
         allocation.height != 16) {
         return false;
     }
-    ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
-        return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    const HRESULT result = readback.map();
-    const auto& mapped = readback.mapped;
     u32 maximum_error = 0;
-    bool alpha_exact = SUCCEEDED(result);
-    if (SUCCEEDED(result)) {
-        for (u32 y = 0; y < 16; ++y) {
-            const u8* row = static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch +
-                            allocation.x * 4u;
-            for (u32 x = 0; x < 16; ++x) {
-                u8 expected[3]{};
-                probe_icc_rgb_lut_expected(reference_rgb.data + (y * 16u + x) * 3u, expected);
-                for (u32 channel = 0; channel < 3; ++channel) {
-                    const u8 actual = row[x * 4u + channel];
-                    const u32 error = actual > expected[channel] ? actual - expected[channel]
-                                                                 : expected[channel] - actual;
-                    maximum_error = maximum(maximum_error, error);
-                }
-                alpha_exact = alpha_exact && row[x * 4u + 3u] == 255;
-            }
-        }
-    }
     // D3D11 shader interpolation/rounding differs slightly across drivers.
     // The current hardware reaches 8/255; larger errors still fail the probe.
-    return SUCCEEDED(result) && alpha_exact && maximum_error <= 8;
+    return atlas_rgb_error(allocation, 16, 16,
+                           [&](u32 x, u32 y, u32 channel) noexcept {
+                               u8 expected[3]{};
+                               probe_icc_rgb_lut_expected(reference_rgb.data + (y * 16u + x) * 3u, expected);
+                               return expected[channel];
+                           },
+                           &maximum_error) &&
+           maximum_error <= 8;
 }
 
 bool jpeg_atlas_uniform_rgb_tolerance(const MediaAtlasResult& allocation, u16 width, u16 height,
@@ -1217,30 +1195,10 @@ bool jpeg_atlas_uniform_rgb_tolerance(const MediaAtlasResult& allocation, u16 wi
     if (!expected || allocation.width != width || allocation.height != height) {
         return false;
     }
-    ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
-        return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    const HRESULT result = readback.map();
-    const auto& mapped = readback.mapped;
-    bool matches = SUCCEEDED(result);
-    if (SUCCEEDED(result)) {
-        for (u32 y = 0; y < height && matches; ++y) {
-            const u8* row = static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch +
-                            allocation.x * 4u;
-            for (u32 x = 0; x < width; ++x) {
-                for (u32 channel = 0; channel < 3; ++channel) {
-                    const u8 actual = row[x * 4u + channel];
-                    const u32 error = actual > expected[channel] ? actual - expected[channel]
-                                                                 : expected[channel] - actual;
-                    matches = matches && error <= tolerance;
-                }
-                matches = matches && row[x * 4u + 3u] == 255;
-            }
-        }
-    }
-    return matches;
+    u32 maximum_error = 0;
+    return atlas_rgb_error(allocation, width, height, [&](u32, u32, u32 channel) noexcept { return expected[channel]; },
+                           &maximum_error) &&
+           maximum_error <= tolerance;
 }
 
 bool jpeg_atlas_differs_from_reference(const MediaAtlasResult& allocation, u16 width, u16 height,
@@ -1249,58 +1207,68 @@ bool jpeg_atlas_differs_from_reference(const MediaAtlasResult& allocation, u16 w
         allocation.width != width || allocation.height != height) {
         return false;
     }
-    ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
-        return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    const HRESULT result = readback.map();
-    const auto& mapped = readback.mapped;
     u32 maximum_error = 0;
-    bool alpha_exact = SUCCEEDED(result);
-    if (SUCCEEDED(result)) {
-        for (u32 y = 0; y < height; ++y) {
-            const u8* row = static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch +
-                            allocation.x * 4u;
-            for (u32 x = 0; x < width; ++x) {
-                for (u32 channel = 0; channel < 3; ++channel) {
-                    const u8 actual = row[x * 4u + channel];
-                    const u8 expected = reference_rgb[(y * width + x) * 3u + channel];
-                    const u32 error = actual > expected ? actual - expected : expected - actual;
-                    maximum_error = maximum(maximum_error, error);
-                }
-                alpha_exact = alpha_exact && row[x * 4u + 3u] == 255;
-            }
-        }
-    }
-    return SUCCEEDED(result) && alpha_exact && maximum_error >= minimum_error;
+    return atlas_rgb_error(allocation, width, height,
+                           [&](u32 x, u32 y, u32 channel) noexcept { return reference_rgb[(y * width + x) * 3u + channel]; },
+                           &maximum_error) &&
+           maximum_error >= minimum_error;
 }
 
-void reset_vp8_gpu_probe(Vp8IntraMode luma, Vp8IntraMode chroma) noexcept {
-    g_probe.vp8_modes.columns = 1;
-    g_probe.vp8_modes.rows = 1;
-    g_probe.vp8_modes.macroblock_count = 1;
-    Vp8MacroblockMode& mode = g_probe.vp8_modes.macroblocks[0];
-    for (u32 block = 0; block < 16; ++block) {
-        mode.luma_subblock[block] = Vp8SubblockMode::dc;
-    }
+void set_vp8_probe_grid(u32 columns, u32 rows) noexcept {
+    g_probe.vp8_modes.columns = g_probe.vp8_coefficients.columns = columns;
+    g_probe.vp8_modes.rows = g_probe.vp8_coefficients.rows = rows;
+    g_probe.vp8_modes.macroblock_count = g_probe.vp8_coefficients.macroblock_count = columns * rows;
+}
+
+// Makes macroblock `index` coefficient-free with the given prediction modes.
+void reset_vp8_probe_macroblock(u32 index, Vp8IntraMode luma, Vp8IntraMode chroma,
+                                Vp8SubblockMode subblock = Vp8SubblockMode::dc) noexcept {
+    Vp8MacroblockMode& mode = g_probe.vp8_modes.macroblocks[index];
+    for (auto& value : mode.luma_subblock)
+        value = subblock;
     mode.luma = luma;
     mode.chroma = chroma;
     mode.segment_id = 0;
     mode.skip_coefficients = 0;
-
-    g_probe.vp8_coefficients.columns = 1;
-    g_probe.vp8_coefficients.rows = 1;
-    g_probe.vp8_coefficients.macroblock_count = 1;
-    Vp8MacroblockCoefficients& coefficient = g_probe.vp8_coefficients.macroblocks[0];
-    for (u32 block = 0; block < 24; ++block) {
-        for (u32 index = 0; index < 16; ++index) {
-            coefficient.values[block][index] = 0;
-        }
-    }
+    Vp8MacroblockCoefficients& coefficient = g_probe.vp8_coefficients.macroblocks[index];
+    for (auto& block : coefficient.values)
+        for (auto& value : block)
+            value = 0;
     coefficient.has_coefficients = 0;
     coefficient.reserved = 0;
 }
+
+void reset_vp8_gpu_probe(Vp8IntraMode luma, Vp8IntraMode chroma) noexcept {
+    set_vp8_probe_grid(1, 1);
+    reset_vp8_probe_macroblock(0, luma, chroma);
+}
+
+// A CPU copy of the VP8 YUV sample buffer (one u32 per sample), mapped for the object's lifetime.
+struct Vp8YuvReadback {
+    ID3D11Buffer* staging = nullptr;
+    const u32* samples = nullptr;
+    Vp8YuvReadback() noexcept {
+        const MediaAtlasGpu& gpu = g_probe.renderer.media_gpu;
+        auto* context = g_probe.renderer.graphics.context;
+        D3D11_BUFFER_DESC description{};
+        description.ByteWidth = gpu.vp8_yuv_capacity;
+        description.Usage = D3D11_USAGE_STAGING;
+        description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (FAILED(g_probe.renderer.graphics.device->CreateBuffer(&description, nullptr, &staging)))
+            return;
+        context->CopyResource(staging, gpu.vp8_yuv_buffer);
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (SUCCEEDED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)))
+            samples = static_cast<const u32*>(mapped.pData);
+    }
+    Vp8YuvReadback(const Vp8YuvReadback&) = delete;
+    Vp8YuvReadback& operator=(const Vp8YuvReadback&) = delete;
+    ~Vp8YuvReadback() noexcept {
+        if (samples)
+            g_probe.renderer.graphics.context->Unmap(staging, 0);
+        com_release(staging);
+    }
+};
 
 bool vp8_gpu_first_block_exact(const u8 expected_luma[16], u8 expected_chroma) noexcept {
     const MediaAtlasGpu& gpu = g_probe.renderer.media_gpu;
@@ -1308,110 +1276,50 @@ bool vp8_gpu_first_block_exact(const u8 expected_luma[16], u8 expected_chroma) n
         gpu.vp8_luma_rows != 16 || gpu.vp8_chroma_stride != 8 || gpu.vp8_chroma_rows != 8) {
         return false;
     }
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = gpu.vp8_yuv_capacity;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Buffer* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateBuffer(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    const Vp8YuvReadback yuv;
+    if (!yuv.samples)
         return false;
-    }
-    g_probe.renderer.graphics.context->CopyResource(staging, gpu.vp8_yuv_buffer);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool exact = SUCCEEDED(result);
-    if (exact) {
-        const u32* samples = static_cast<const u32*>(mapped.pData);
-        for (u32 y = 0; y < 4 && exact; ++y) {
-            for (u32 x = 0; x < 4; ++x) {
-                exact = samples[y * 16u + x] == expected_luma[y * 4u + x];
-                if (!exact) {
-                    break;
-                }
-            }
-        }
-        constexpr u32 u_offset = 16u * 16u;
-        constexpr u32 v_offset = u_offset + 8u * 8u;
-        for (u32 y = 0; y < 8 && exact; ++y) {
-            for (u32 x = 0; x < 8; ++x) {
-                exact = samples[u_offset + y * 8u + x] == expected_chroma &&
-                        samples[v_offset + y * 8u + x] == expected_chroma;
-                if (!exact) {
-                    break;
-                }
-            }
-        }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
-    }
-    com_release(staging);
-    return exact;
+    for (u32 y = 0; y < 4; ++y)
+        for (u32 x = 0; x < 4; ++x)
+            if (yuv.samples[y * 16u + x] != expected_luma[y * 4u + x])
+                return false;
+    constexpr u32 u_offset = 16u * 16u;
+    constexpr u32 v_offset = u_offset + 8u * 8u;
+    for (u32 index = 0; index < 8u * 8u; ++index)
+        if (yuv.samples[u_offset + index] != expected_chroma || yuv.samples[v_offset + index] != expected_chroma)
+            return false;
+    return true;
 }
 
 bool vp8_gpu_luma_block_exact(u32 origin_x, u32 origin_y, const u8 expected[16]) noexcept {
-    const MediaAtlasGpu& gpu = g_probe.renderer.media_gpu;
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = gpu.vp8_yuv_capacity;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Buffer* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateBuffer(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    const u32 stride = g_probe.renderer.media_gpu.vp8_luma_stride;
+    const Vp8YuvReadback yuv;
+    if (!yuv.samples)
         return false;
-    }
-    g_probe.renderer.graphics.context->CopyResource(staging, gpu.vp8_yuv_buffer);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool exact = SUCCEEDED(result);
-    if (exact) {
-        const u32* samples = static_cast<const u32*>(mapped.pData);
-        for (u32 y = 0; y < 4 && exact; ++y) {
-            for (u32 x = 0; x < 4; ++x) {
-                exact =
-                    samples[(origin_y + y) * gpu.vp8_luma_stride + origin_x + x] == expected[y * 4u + x];
-                if (!exact) {
-                    log_u64(LogLevel::error, "probe", "vp8_block_mismatch_x", origin_x + x);
-                    log_u64(LogLevel::error, "probe", "vp8_block_mismatch_y", origin_y + y);
-                    log_u64(LogLevel::error, "probe", "vp8_block_actual",
-                            samples[(origin_y + y) * gpu.vp8_luma_stride + origin_x + x]);
-                    log_u64(LogLevel::error, "probe", "vp8_block_expected", expected[y * 4u + x]);
-                    break;
-                }
+    for (u32 y = 0; y < 4; ++y) {
+        for (u32 x = 0; x < 4; ++x) {
+            const u32 actual = yuv.samples[(origin_y + y) * stride + origin_x + x];
+            if (actual != expected[y * 4u + x]) {
+                log_u64(LogLevel::error, "probe", "vp8_block_mismatch_x", origin_x + x);
+                log_u64(LogLevel::error, "probe", "vp8_block_mismatch_y", origin_y + y);
+                log_u64(LogLevel::error, "probe", "vp8_block_actual", actual);
+                log_u64(LogLevel::error, "probe", "vp8_block_expected", expected[y * 4u + x]);
+                return false;
             }
         }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
     }
-    com_release(staging);
-    return exact;
+    return true;
 }
 
 bool vp8_gpu_luma_row_exact(u32 origin_x, u32 y, const u8* expected, u32 count) noexcept {
-    const MediaAtlasGpu& gpu = g_probe.renderer.media_gpu;
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = gpu.vp8_yuv_capacity;
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Buffer* staging = nullptr;
-    HRESULT result = g_probe.renderer.graphics.device->CreateBuffer(&description, nullptr, &staging);
-    if (FAILED(result)) {
+    const u32 stride = g_probe.renderer.media_gpu.vp8_luma_stride;
+    const Vp8YuvReadback yuv;
+    if (!yuv.samples)
         return false;
-    }
-    g_probe.renderer.graphics.context->CopyResource(staging, gpu.vp8_yuv_buffer);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool exact = SUCCEEDED(result);
-    if (exact) {
-        const u32* samples = static_cast<const u32*>(mapped.pData);
-        for (u32 index = 0; index < count; ++index) {
-            if (samples[y * gpu.vp8_luma_stride + origin_x + index] != expected[index]) {
-                exact = false;
-                break;
-            }
-        }
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
-    }
-    com_release(staging);
-    return exact;
+    for (u32 index = 0; index < count; ++index)
+        if (yuv.samples[y * stride + origin_x + index] != expected[index])
+            return false;
+    return true;
 }
 
 u8 vp8_test_clip_rgb(i32 value) noexcept {
@@ -1429,26 +1337,16 @@ void vp8_test_rgb(u8 y, u8 u, u8 v, u8 output[3]) noexcept {
 bool vp8_atlas_row_exact(const MediaAtlasResult& allocation, u32 origin_x, const u8* expected_gray,
                          u32 count) noexcept {
     ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
+    if (!read_media_texture(readback, g_probe.renderer.media_gpu.texture))
         return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    const HRESULT result = readback.map();
-    const auto& mapped = readback.mapped;
-    bool exact = SUCCEEDED(result);
-    if (exact) {
-        const u8* row = static_cast<const u8*>(mapped.pData) + allocation.y * mapped.RowPitch +
-                        (allocation.x + origin_x) * 4u;
-        for (u32 x = 0; x < count; ++x) {
-            const u8* pixel = row + x * 4u;
-            if (pixel[0] != expected_gray[x] || pixel[1] != expected_gray[x] ||
-                pixel[2] != expected_gray[x] || pixel[3] != 255) {
-                exact = false;
-                break;
-            }
-        }
+    const u8* row = atlas_row(readback, allocation, 0) + origin_x * 4u;
+    for (u32 x = 0; x < count; ++x) {
+        const u8* pixel = row + x * 4u;
+        if (pixel[0] != expected_gray[x] || pixel[1] != expected_gray[x] || pixel[2] != expected_gray[x] ||
+            pixel[3] != 255)
+            return false;
     }
-    return exact;
+    return true;
 }
 
 bool vp8_alpha_atlas_exact(const MediaAtlasResult& allocation) noexcept {
@@ -1457,31 +1355,24 @@ bool vp8_alpha_atlas_exact(const MediaAtlasResult& allocation) noexcept {
     };
     constexpr u8 expected_u[7] = {124, 126, 130, 127, 133, 128, 126};
     ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
+    if (!read_media_texture(readback, g_probe.renderer.media_gpu.texture))
         return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    const HRESULT result = readback.map();
-    const auto& mapped = readback.mapped;
-    bool exact = SUCCEEDED(result);
-    if (exact) {
-        for (u32 index = 0; index < 7 && exact; ++index) {
-            const u32 x = positions[index][0];
-            const u32 y = positions[index][1];
-            const u8* pixel = static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch +
-                              (allocation.x + x) * 4u;
-            u8 rgb[3]{};
-            vp8_test_rgb(128, expected_u[index], 128, rgb);
-            const u8 alpha = g_probe.png_scanlines[y * 16u + x];
-            for (u32 channel = 0; channel < 3; ++channel) {
-                const u8 premultiplied =
-                    static_cast<u8>((static_cast<u32>(rgb[channel]) * alpha + 127u) / 255u);
-                exact = exact && pixel[channel] == premultiplied;
-            }
-            exact = exact && pixel[3] == alpha;
+    for (u32 index = 0; index < 7; ++index) {
+        const u32 x = positions[index][0];
+        const u32 y = positions[index][1];
+        const u8* pixel = atlas_row(readback, allocation, y) + x * 4u;
+        u8 rgb[3]{};
+        vp8_test_rgb(128, expected_u[index], 128, rgb);
+        const u8 alpha = g_probe.png_scanlines[y * 16u + x];
+        for (u32 channel = 0; channel < 3; ++channel) {
+            const u8 premultiplied = static_cast<u8>((static_cast<u32>(rgb[channel]) * alpha + 127u) / 255u);
+            if (pixel[channel] != premultiplied)
+                return false;
         }
+        if (pixel[3] != alpha)
+            return false;
     }
-    return exact;
+    return true;
 }
 
 bool media_surface_rgba_exact(ID3D11Texture2D* texture, const MediaAtlasResult& allocation,
@@ -1490,31 +1381,16 @@ bool media_surface_rgba_exact(ID3D11Texture2D* texture, const MediaAtlasResult& 
         return false;
     }
     ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
+    if (!read_media_texture(readback, texture))
         return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(staging, texture);
-    const HRESULT result = readback.map();
-    const auto& mapped = readback.mapped;
-    bool exact = SUCCEEDED(result);
-    if (exact) {
-        const u32 pixel_count = expected_rgba.count / 4u;
-        const u32 width = allocation.width;
-        const u32 height = width != 0 ? pixel_count / width : 0;
-        exact = width != 0 && pixel_count % width == 0 && height == allocation.height;
-        for (u32 y = 0; y < height && exact; ++y) {
-            const u8* actual = static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch +
-                               allocation.x * 4u;
-            const u8* expected = expected_rgba.data + y * width * 4u;
-            for (u32 byte = 0; byte < width * 4u; ++byte) {
-                if (actual[byte] != expected[byte]) {
-                    exact = false;
-                    break;
-                }
-            }
-        }
-    }
-    return exact;
+    const u32 pixel_count = expected_rgba.count / 4u;
+    const u32 width = allocation.width;
+    if (width == 0 || pixel_count % width != 0 || pixel_count / width != allocation.height)
+        return false;
+    for (u32 y = 0; y < allocation.height; ++y)
+        if (!bytes_equal(atlas_row(readback, allocation, y), expected_rgba.data + y * width * 4u, width * 4u))
+            return false;
+    return true;
 }
 
 bool vp8_atlas_rgba_exact(const MediaAtlasResult& allocation, ConstSlice<u8> expected_rgba) noexcept {
@@ -1526,24 +1402,13 @@ bool vp8_atlas_rgba_hash(const MediaAtlasResult& allocation, u64* output) noexce
         return false;
     }
     ProbeTargetReadback readback;
-    if (!readback.initialize_rgba(g_probe.renderer, kProbeMediaExtent, kProbeMediaExtent))
+    if (!read_media_texture(readback, g_probe.renderer.media_gpu.texture))
         return false;
-    auto* staging = readback.staging;
-    g_probe.renderer.graphics.context->CopyResource(staging, g_probe.renderer.media_gpu.texture);
-    const HRESULT result = readback.map();
-    const auto& mapped = readback.mapped;
     u64 hash = 1'469'598'103'934'665'603ull;
-    if (SUCCEEDED(result)) {
-        for (u32 y = 0; y < allocation.height; ++y) {
-            const u8* row = static_cast<const u8*>(mapped.pData) + (allocation.y + y) * mapped.RowPitch +
-                            allocation.x * 4u;
-            for (u32 byte = 0; byte < allocation.width * 4u; ++byte) {
-                hash = (hash ^ row[byte]) * 1'099'511'628'211ull;
-            }
-        }
-    }
-    if (FAILED(result)) {
-        return false;
+    for (u32 y = 0; y < allocation.height; ++y) {
+        const u8* row = atlas_row(readback, allocation, y);
+        for (u32 byte = 0; byte < allocation.width * 4u; ++byte)
+            hash = (hash ^ row[byte]) * 1'099'511'628'211ull;
     }
     *output = hash;
     return true;
@@ -1568,32 +1433,15 @@ void setup_vp8_inner_filter_probe(bool high_edge_variance) noexcept {
 }
 
 void setup_vp8_outer_filter_probe() noexcept {
-    g_probe.vp8_modes.columns = 2;
-    g_probe.vp8_modes.rows = 1;
-    g_probe.vp8_modes.macroblock_count = 2;
-    g_probe.vp8_coefficients.columns = 2;
-    g_probe.vp8_coefficients.rows = 1;
-    g_probe.vp8_coefficients.macroblock_count = 2;
+    set_vp8_probe_grid(2, 1);
     for (u32 macroblock = 0; macroblock < 2; ++macroblock) {
-        Vp8MacroblockMode& mode = g_probe.vp8_modes.macroblocks[macroblock];
-        for (u32 block = 0; block < 16; ++block) {
-            mode.luma_subblock[block] = Vp8SubblockMode::dc;
-        }
-        mode.luma = macroblock == 0 ? Vp8IntraMode::dc : Vp8IntraMode::horizontal;
-        mode.chroma = Vp8IntraMode::dc;
-        mode.segment_id = 0;
-        mode.skip_coefficients = 0;
+        reset_vp8_probe_macroblock(macroblock, macroblock == 0 ? Vp8IntraMode::dc : Vp8IntraMode::horizontal,
+                                   Vp8IntraMode::dc);
         Vp8MacroblockCoefficients& coefficient = g_probe.vp8_coefficients.macroblocks[macroblock];
-        for (u32 block = 0; block < 24; ++block) {
-            for (u32 index = 0; index < 16; ++index) {
-                coefficient.values[block][index] = 0;
-            }
-        }
         for (u32 block = 0; block < 16; ++block) {
             coefficient.values[block][0] = macroblock == 0 ? -32 : 64;
         }
         coefficient.has_coefficients = 1;
-        coefficient.reserved = 0;
     }
 }
 
@@ -1679,30 +1527,9 @@ bool vp8_gpu_reconstruction_exact() noexcept {
         return false;
     }
 
-    g_probe.vp8_modes.columns = 2;
-    g_probe.vp8_modes.rows = 2;
-    g_probe.vp8_modes.macroblock_count = 4;
-    g_probe.vp8_coefficients.columns = 2;
-    g_probe.vp8_coefficients.rows = 2;
-    g_probe.vp8_coefficients.macroblock_count = 4;
-    for (u32 macroblock = 0; macroblock < 4; ++macroblock) {
-        Vp8MacroblockMode& mode = g_probe.vp8_modes.macroblocks[macroblock];
-        for (u32 block = 0; block < 16; ++block) {
-            mode.luma_subblock[block] = Vp8SubblockMode::vertical_edge;
-        }
-        mode.luma = Vp8IntraMode::dc;
-        mode.chroma = Vp8IntraMode::dc;
-        mode.segment_id = 0;
-        mode.skip_coefficients = 0;
-        Vp8MacroblockCoefficients& coefficient = g_probe.vp8_coefficients.macroblocks[macroblock];
-        for (u32 block = 0; block < 24; ++block) {
-            for (u32 index = 0; index < 16; ++index) {
-                coefficient.values[block][index] = 0;
-            }
-        }
-        coefficient.has_coefficients = 0;
-        coefficient.reserved = 0;
-    }
+    set_vp8_probe_grid(2, 2);
+    for (u32 macroblock = 0; macroblock < 4; ++macroblock)
+        reset_vp8_probe_macroblock(macroblock, Vp8IntraMode::dc, Vp8IntraMode::dc, Vp8SubblockMode::vertical_edge);
     g_probe.vp8_modes.macroblocks[0].luma = Vp8IntraMode::vertical;
     g_probe.vp8_modes.macroblocks[2].luma = Vp8IntraMode::subblocks;
     g_probe.vp8_coefficients.macroblocks[1].values[12][1] = 16;
@@ -2019,6 +1846,19 @@ bool vp8_real_fixture_gpu_exact() noexcept {
     return alpha_uploaded.ok() &&
            vp8_atlas_rgba_exact(alpha_uploaded.allocation,
                                 ConstSlice<u8>{expected_premultiplied, sizeof(expected_premultiplied)});
+}
+
+// Decodes `bytes` into `image` and uploads it as attachment `id`; `decoded` reports the decode.
+MediaAtlasGpuResult probe_upload_jpeg(ConstSlice<u8> bytes, u64 id, JpegImage* image,
+                                      JpegDecodeResult* decoded) noexcept {
+    *decoded = jpeg_decode_coefficients(bytes, image, &g_probe.jpeg_workspace);
+    return decoded->ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(id), *image,
+                                                g_probe.jpeg_workspace.coefficients)
+                         : MediaAtlasGpuResult{};
+}
+
+bool jpeg_icc_applied(const JpegImage& image) noexcept {
+    return image.tables && image.tables->icc && image.tables->icc->profile.disposition == JpegIccDisposition::applied;
 }
 
 bool apply_probe_permissions() noexcept {
@@ -2772,13 +2612,9 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     }
     g_probe.failure_stage = 31;
     JpegImage jpeg_420_image{};
-    const JpegDecodeResult jpeg_420_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
-                                 &jpeg_420_image, &g_probe.jpeg_workspace);
-    const MediaAtlasGpuResult jpeg_420_uploaded =
-        jpeg_420_decoded.ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(109),
-                                                     jpeg_420_image, g_probe.jpeg_workspace.coefficients)
-                              : MediaAtlasGpuResult{};
+    JpegDecodeResult jpeg_420_decoded{};
+    const MediaAtlasGpuResult jpeg_420_uploaded = probe_upload_jpeg(
+        ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)}, 109, &jpeg_420_image, &jpeg_420_decoded);
     if (!jpeg_420_decoded.ok() || !jpeg_420_uploaded.ok() ||
         !jpeg_atlas_pixels_reference_tolerance(
             jpeg_420_uploaded.allocation, 16, 16,
@@ -2788,15 +2624,11 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     }
     g_probe.failure_stage = 32;
     JpegImage progressive_jpeg_image{};
-    const JpegDecodeResult progressive_jpeg_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{reinterpret_cast<const u8*>(kJpegProgressive420Reference),
-                                                kJpegProgressive420ReferenceBytes},
-                                 &progressive_jpeg_image, &g_probe.jpeg_workspace);
+    JpegDecodeResult progressive_jpeg_decoded{};
     const MediaAtlasGpuResult progressive_jpeg_uploaded =
-        progressive_jpeg_decoded.ok()
-            ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(111), progressive_jpeg_image,
-                                   g_probe.jpeg_workspace.coefficients)
-            : MediaAtlasGpuResult{};
+        probe_upload_jpeg(ConstSlice<u8>{reinterpret_cast<const u8*>(kJpegProgressive420Reference),
+                                         kJpegProgressive420ReferenceBytes},
+                          111, &progressive_jpeg_image, &progressive_jpeg_decoded);
     if (!progressive_jpeg_decoded.ok() || progressive_jpeg_decoded.decoded_scans != 10 ||
         !progressive_jpeg_uploaded.ok() ||
         !jpeg_atlas_pixels_reference_tolerance(
@@ -2807,13 +2639,10 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     }
     g_probe.failure_stage = 33;
     JpegImage cmyk_jpeg_image{};
-    const JpegDecodeResult cmyk_jpeg_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{kJpegCmykAdobeReference, sizeof(kJpegCmykAdobeReference)},
-                                 &cmyk_jpeg_image, &g_probe.jpeg_workspace);
+    JpegDecodeResult cmyk_jpeg_decoded{};
     const MediaAtlasGpuResult cmyk_jpeg_uploaded =
-        cmyk_jpeg_decoded.ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(112),
-                                                      cmyk_jpeg_image, g_probe.jpeg_workspace.coefficients)
-                               : MediaAtlasGpuResult{};
+        probe_upload_jpeg(ConstSlice<u8>{kJpegCmykAdobeReference, sizeof(kJpegCmykAdobeReference)}, 112,
+                          &cmyk_jpeg_image, &cmyk_jpeg_decoded);
     if (!cmyk_jpeg_decoded.ok() || !cmyk_jpeg_uploaded.ok() ||
         !jpeg_atlas_pixels_reference_tolerance(
             cmyk_jpeg_uploaded.allocation, 16, 16,
@@ -2822,13 +2651,10 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     }
     g_probe.failure_stage = 34;
     JpegImage ycck_jpeg_image{};
-    const JpegDecodeResult ycck_jpeg_decoded = jpeg_decode_coefficients(
-        ConstSlice<u8>{kJpegYcckProgressiveReference, sizeof(kJpegYcckProgressiveReference)},
-        &ycck_jpeg_image, &g_probe.jpeg_workspace);
+    JpegDecodeResult ycck_jpeg_decoded{};
     const MediaAtlasGpuResult ycck_jpeg_uploaded =
-        ycck_jpeg_decoded.ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(113),
-                                                      ycck_jpeg_image, g_probe.jpeg_workspace.coefficients)
-                               : MediaAtlasGpuResult{};
+        probe_upload_jpeg(ConstSlice<u8>{kJpegYcckProgressiveReference, sizeof(kJpegYcckProgressiveReference)},
+                          113, &ycck_jpeg_image, &ycck_jpeg_decoded);
     if (!ycck_jpeg_decoded.ok() || ycck_jpeg_decoded.decoded_scans <= 1 || !ycck_jpeg_uploaded.ok() ||
         !jpeg_atlas_pixels_reference_tolerance(
             ycck_jpeg_uploaded.allocation, 16, 16,
@@ -2845,13 +2671,10 @@ bool initialize_fixture(bool focused_text = false) noexcept {
             return false;
         }
         JpegImage oriented_image{};
-        const JpegDecodeResult oriented_decoded = jpeg_decode_coefficients(
-            ConstSlice<u8>{g_probe.png_encoded, oriented_bytes}, &oriented_image, &g_probe.jpeg_workspace);
+        JpegDecodeResult oriented_decoded{};
         const MediaAtlasGpuResult oriented_uploaded =
-            oriented_decoded.ok()
-                ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(114 + orientation_value),
-                                       oriented_image, g_probe.jpeg_workspace.coefficients)
-                : MediaAtlasGpuResult{};
+            probe_upload_jpeg(ConstSlice<u8>{g_probe.png_encoded, oriented_bytes}, 114 + orientation_value,
+                              &oriented_image, &oriented_decoded);
         const JpegOrientation orientation = static_cast<JpegOrientation>(orientation_value);
         if (!oriented_decoded.ok() || oriented_image.orientation != orientation ||
             !oriented_uploaded.ok() ||
@@ -2877,14 +2700,10 @@ bool initialize_fixture(bool focused_text = false) noexcept {
             static_cast<u8>(JpegOrientation::right_top), false, &rectangular_oriented_bytes)) {
         return false;
     }
-    const JpegDecodeResult rectangular_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{rectangular_oriented, rectangular_oriented_bytes},
-                                 &rectangular_image, &g_probe.jpeg_workspace);
+    JpegDecodeResult rectangular_decoded{};
     const MediaAtlasGpuResult rectangular_uploaded =
-        rectangular_decoded.ok()
-            ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(123), rectangular_image,
-                                   g_probe.jpeg_workspace.coefficients)
-            : MediaAtlasGpuResult{};
+        probe_upload_jpeg(ConstSlice<u8>{rectangular_oriented, rectangular_oriented_bytes}, 123,
+                          &rectangular_image, &rectangular_decoded);
     if (!rectangular_decoded.ok() || rectangular_image.width != 16 || rectangular_image.height != 8 ||
         rectangular_image.orientation != JpegOrientation::right_top || !rectangular_uploaded.ok() ||
         rectangular_uploaded.allocation.width != 8 || rectangular_uploaded.allocation.height != 16 ||
@@ -2894,21 +2713,17 @@ bool initialize_fixture(bool focused_text = false) noexcept {
     g_probe.failure_stage = 37;
     JpegIccFixtureResult icc_fixture{};
     JpegImage icc_image{};
+    JpegDecodeResult icc_decoded{};
     if (!build_jpeg_icc_matrix_trc_fixture(ConstSlice<u8>{kJpeg420Reference, sizeof(kJpeg420Reference)},
                                            Slice<u8>{g_probe.png_encoded, sizeof(g_probe.png_encoded)},
                                            JpegIccFixtureCurve::parametric_srgb, true, true,
                                            &icc_fixture)) {
         return false;
     }
-    const JpegDecodeResult icc_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, &icc_image,
-                                 &g_probe.jpeg_workspace);
     const MediaAtlasGpuResult icc_uploaded =
-        icc_decoded.ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(124), icc_image,
-                                                g_probe.jpeg_workspace.coefficients)
-                         : MediaAtlasGpuResult{};
-    if (!icc_decoded.ok() || !icc_image.tables || !icc_image.tables->icc ||
-        icc_image.tables->icc->profile.disposition != JpegIccDisposition::applied || !icc_uploaded.ok()) {
+        probe_upload_jpeg(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, 124, &icc_image,
+                          &icc_decoded);
+    if (!icc_decoded.ok() || !jpeg_icc_applied(icc_image) || !icc_uploaded.ok()) {
         return false;
     }
     g_probe.failure_stage = 39;
@@ -2924,15 +2739,10 @@ bool initialize_fixture(bool focused_text = false) noexcept {
                                            JpegIccFixtureCurve::sampled_srgb, false, false, &icc_fixture)) {
         return false;
     }
-    const JpegDecodeResult icc_table_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, &icc_image,
-                                 &g_probe.jpeg_workspace);
     const MediaAtlasGpuResult icc_table_uploaded =
-        icc_table_decoded.ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(125),
-                                                      icc_image, g_probe.jpeg_workspace.coefficients)
-                               : MediaAtlasGpuResult{};
-    if (!icc_table_decoded.ok() || !icc_image.tables || !icc_image.tables->icc ||
-        icc_image.tables->icc->profile.disposition != JpegIccDisposition::applied ||
+        probe_upload_jpeg(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, 125, &icc_image,
+                          &icc_decoded);
+    if (!icc_decoded.ok() || !jpeg_icc_applied(icc_image) ||
         icc_image.tables->icc->profile.entry_count != 195 || !icc_table_uploaded.ok() ||
         !jpeg_atlas_pixels_reference_tolerance(
             icc_table_uploaded.allocation, 16, 16,
@@ -2947,15 +2757,10 @@ bool initialize_fixture(bool focused_text = false) noexcept {
                                     &icc_fixture)) {
         return false;
     }
-    const JpegDecodeResult icc_lut_rgb_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, &icc_image,
-                                 &g_probe.jpeg_workspace);
     const MediaAtlasGpuResult icc_lut_rgb_uploaded =
-        icc_lut_rgb_decoded.ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(126),
-                                                        icc_image, g_probe.jpeg_workspace.coefficients)
-                                 : MediaAtlasGpuResult{};
-    if (!icc_lut_rgb_decoded.ok() || !icc_image.tables || !icc_image.tables->icc ||
-        icc_image.tables->icc->profile.disposition != JpegIccDisposition::applied ||
+        probe_upload_jpeg(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, 126, &icc_image,
+                          &icc_decoded);
+    if (!icc_decoded.ok() || !jpeg_icc_applied(icc_image) ||
         icc_image.tables->icc->profile.transform_kind != JpegIccTransformKind::lut ||
         icc_image.tables->icc->profile.entry_count != 36 || !icc_lut_rgb_uploaded.ok() ||
         !jpeg_icc_rgb_lut_pixels_tolerance(icc_lut_rgb_uploaded.allocation,
@@ -2970,15 +2775,10 @@ bool initialize_fixture(bool focused_text = false) noexcept {
             JpegIccLutFixturePrecision::mft2, true, &icc_fixture)) {
         return false;
     }
-    const JpegDecodeResult icc_lut_cmyk_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, &icc_image,
-                                 &g_probe.jpeg_workspace);
     const MediaAtlasGpuResult icc_lut_cmyk_uploaded =
-        icc_lut_cmyk_decoded.ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(127),
-                                                         icc_image, g_probe.jpeg_workspace.coefficients)
-                                  : MediaAtlasGpuResult{};
-    if (!icc_lut_cmyk_decoded.ok() || !icc_image.tables || !icc_image.tables->icc ||
-        icc_image.tables->icc->profile.disposition != JpegIccDisposition::applied ||
+        probe_upload_jpeg(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, 127, &icc_image,
+                          &icc_decoded);
+    if (!icc_decoded.ok() || !jpeg_icc_applied(icc_image) ||
         icc_image.tables->icc->profile.data_color_space != JpegIccDataColorSpace::cmyk ||
         icc_image.tables->icc->profile.entry_count != 62 || !icc_lut_cmyk_uploaded.ok() ||
         !jpeg_atlas_differs_from_reference(
@@ -2993,17 +2793,11 @@ bool initialize_fixture(bool focused_text = false) noexcept {
             JpegIccLutFixturePrecision::mft2, false, &icc_fixture)) {
         return false;
     }
-    const JpegDecodeResult icc_lut_ycck_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, &icc_image,
-                                 &g_probe.jpeg_workspace);
     const MediaAtlasGpuResult icc_lut_ycck_uploaded =
-        icc_lut_ycck_decoded.ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(128),
-                                                         icc_image, g_probe.jpeg_workspace.coefficients)
-                                  : MediaAtlasGpuResult{};
-    if (!icc_lut_ycck_decoded.ok() || icc_image.color_transform != JpegColorTransform::ycck ||
-        !icc_image.tables || !icc_image.tables->icc ||
-        icc_image.tables->icc->profile.disposition != JpegIccDisposition::applied ||
-        !icc_lut_ycck_uploaded.ok() ||
+        probe_upload_jpeg(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, 128, &icc_image,
+                          &icc_decoded);
+    if (!icc_decoded.ok() || icc_image.color_transform != JpegColorTransform::ycck ||
+        !jpeg_icc_applied(icc_image) || !icc_lut_ycck_uploaded.ok() ||
         !jpeg_atlas_differs_from_reference(
             icc_lut_ycck_uploaded.allocation, 16, 16,
             ConstSlice<u8>{kJpegYcckProgressiveReferenceRgb, sizeof(kJpegYcckProgressiveReferenceRgb)},
@@ -3019,17 +2813,12 @@ bool initialize_fixture(bool focused_text = false) noexcept {
                                          true, &icc_fixture)) {
         return false;
     }
-    const JpegDecodeResult icc_gray_decoded =
-        jpeg_decode_coefficients(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, &icc_image,
-                                 &g_probe.jpeg_workspace);
     const MediaAtlasGpuResult icc_gray_uploaded =
-        icc_gray_decoded.ok() ? renderer_upload_jpeg(&g_probe.renderer, media_asset_attachment(129),
-                                                     icc_image, g_probe.jpeg_workspace.coefficients)
-                              : MediaAtlasGpuResult{};
+        probe_upload_jpeg(ConstSlice<u8>{g_probe.png_encoded, icc_fixture.encoded_bytes}, 129, &icc_image,
+                          &icc_decoded);
     u8 gray_expected[3]{};
     probe_icc_lab_to_srgb(128.0f / 255.0f, 128.0f / 255.0f, 128.0f / 255.0f, gray_expected);
-    if (!icc_gray_decoded.ok() || !icc_image.tables || !icc_image.tables->icc ||
-        icc_image.tables->icc->profile.disposition != JpegIccDisposition::applied ||
+    if (!icc_decoded.ok() || !jpeg_icc_applied(icc_image) ||
         icc_image.tables->icc->profile.transform_kind != JpegIccTransformKind::gray_trc ||
         !icc_gray_uploaded.ok() ||
         !jpeg_atlas_uniform_rgb_tolerance(icc_gray_uploaded.allocation, 8, 8, gray_expected, 2)) {
@@ -3424,38 +3213,22 @@ bool probe_color_foreground_cache(bool native = false) noexcept {
             quads[3].v1 != quads[4].v1)
             return false;
     }
-    ID3D11Resource* resource = nullptr;
-    ID3D11Texture2D* source = nullptr;
-    ID3D11Texture2D* staging = nullptr;
-    struct Release {
-        ID3D11Resource*& r;
-        ID3D11Texture2D*& s;
-        ID3D11Texture2D*& t;
-        ~Release() noexcept {
-            com_release(t);
-            com_release(s);
-            com_release(r);
-        }
-    } release{resource, source, staging};
     auto* view = d3d11_glyph_text_color_view(owner);
     if (!view)
         return false;
+    ID3D11Resource* resource = nullptr;
+    ID3D11Texture2D* source = nullptr;
     view->GetResource(&resource);
-    if (FAILED(resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source))))
-        return false;
+    const bool texture =
+        SUCCEEDED(resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source)));
+    com_release(resource);
+    ProbeTargetReadback readback;
     D3D11_TEXTURE2D_DESC desc{};
-    source->GetDesc(&desc);
-    if (desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM)
+    const u32 read_state = texture ? readback.read(renderer, source, desc) : 1;
+    com_release(source);
+    if (read_state || desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM)
         return false;
-    desc.Usage = D3D11_USAGE_STAGING;
-    desc.BindFlags = desc.MiscFlags = 0;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    if (FAILED(renderer.graphics.device->CreateTexture2D(&desc, nullptr, &staging)))
-        return false;
-    renderer.graphics.context->CopyResource(staging, source);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)))
-        return false;
+    const auto& mapped = readback.mapped;
     bool valid = true;
     for (u32 i = 0; i < 2; ++i) {
         const auto& q = quads[i];
@@ -3484,10 +3257,8 @@ bool probe_color_foreground_cache(bool native = false) noexcept {
                 a.v1 >= a.v0 && b.v1 >= b.v0 && a.v1 <= 1 && b.v1 <= 1 &&
                 bytes_equal(&a.left, &b.left, 4 * sizeof(float)) &&
                 bytes_equal(&a.color, &b.color, sizeof(Color));
-        if (!valid) {
-            renderer.graphics.context->Unmap(staging, 0);
+        if (!valid)
             return false;
-        }
         const u32 ax = static_cast<u32>((a.u0 - 2) * desc.Width), ay = static_cast<u32>(a.v0 * desc.Height),
                   bx = static_cast<u32>((b.u0 - 2) * desc.Width), by = static_cast<u32>(b.v0 * desc.Height);
         const u32 aw = static_cast<u32>((a.u1 - 2) * desc.Width) - ax,
@@ -3504,7 +3275,6 @@ bool probe_color_foreground_cache(bool native = false) noexcept {
                                 static_cast<const u8*>(mapped.pData) + (by + y) * mapped.RowPitch + bx * 4,
                                 aw * 4);
     }
-    renderer.graphics.context->Unmap(staging, 0);
     if (valid)
         log_write(LogLevel::info, "probe",
                   native ? "native_colr_run_pixels_and_cache_reuse_passed"
@@ -3618,58 +3388,34 @@ bool probe_capture_frame(const wchar_t* filename, const Theme& theme) noexcept {
     directory[end++] = L'/';
     for (u32 i = 0; filename[i]; ++i)
         directory[end++] = filename[i];
-    ID3D11Resource* resource = nullptr;
-    g_probe.renderer.graphics.target->GetResource(&resource);
-    ID3D11Texture2D* source = nullptr;
-    HRESULT result = resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source));
-    resource->Release();
-    if (FAILED(result))
-        return false;
     D3D11_TEXTURE2D_DESC desc{};
-    source->GetDesc(&desc);
-    desc.Usage = D3D11_USAGE_STAGING;
-    desc.BindFlags = 0;
-    desc.MiscFlags = 0;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* staging = nullptr;
-    result = g_probe.renderer.graphics.device->CreateTexture2D(&desc, nullptr, &staging);
-    if (SUCCEEDED(result))
-        g_probe.renderer.graphics.context->CopyResource(staging, source);
-    source->Release();
-    if (FAILED(result))
+    ProbeTargetReadback readback;
+    if (readback.read_target(g_probe.renderer, desc))
         return false;
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    result = g_probe.renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped);
-    bool ok = SUCCEEDED(result);
-    if (ok) {
-        HANDLE file = CreateFileW(directory, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                                  FILE_ATTRIBUTE_NORMAL, nullptr);
-        BITMAPFILEHEADER header{};
-        const u32 capture_width = minimum(desc.Width, g_probe.renderer.width);
-        const u32 capture_height = minimum(desc.Height, g_probe.renderer.height);
-        header.bfType = 0x4D42;
-        header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
-        header.bfSize = header.bfOffBits + capture_width * capture_height * 4;
-        BITMAPINFOHEADER info{};
-        info.biSize = sizeof(info);
-        info.biWidth = capture_width;
-        info.biHeight = -static_cast<LONG>(capture_height);
-        info.biPlanes = 1;
-        info.biBitCount = 32;
-        info.biCompression = BI_RGB;
-        DWORD written = 0;
-        ok = file != INVALID_HANDLE_VALUE && WriteFile(file, &header, sizeof(header), &written, nullptr) &&
-             written == sizeof(header) && WriteFile(file, &info, sizeof(info), &written, nullptr) &&
-             written == sizeof(info);
-        for (u32 y = 0; ok && y < capture_height; ++y)
-            ok = WriteFile(file, static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch,
-                           capture_width * 4, &written, nullptr) &&
-                 written == capture_width * 4;
-        if (file != INVALID_HANDLE_VALUE)
-            CloseHandle(file);
-        g_probe.renderer.graphics.context->Unmap(staging, 0);
-    }
-    staging->Release();
+    HANDLE file = CreateFileW(directory, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    BITMAPFILEHEADER header{};
+    const u32 capture_width = minimum(desc.Width, g_probe.renderer.width);
+    const u32 capture_height = minimum(desc.Height, g_probe.renderer.height);
+    header.bfType = 0x4D42;
+    header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
+    header.bfSize = header.bfOffBits + capture_width * capture_height * 4;
+    BITMAPINFOHEADER info{};
+    info.biSize = sizeof(info);
+    info.biWidth = capture_width;
+    info.biHeight = -static_cast<LONG>(capture_height);
+    info.biPlanes = 1;
+    info.biBitCount = 32;
+    info.biCompression = BI_RGB;
+    DWORD written = 0;
+    bool ok = file != INVALID_HANDLE_VALUE && WriteFile(file, &header, sizeof(header), &written, nullptr) &&
+              written == sizeof(header) && WriteFile(file, &info, sizeof(info), &written, nullptr) &&
+              written == sizeof(info);
+    for (u32 y = 0; ok && y < capture_height; ++y)
+        ok = WriteFile(file, static_cast<const u8*>(readback.mapped.pData) + y * readback.mapped.RowPitch,
+                       capture_width * 4, &written, nullptr) &&
+             written == capture_width * 4;
+    if (file != INVALID_HANDLE_VALUE)
+        CloseHandle(file);
     return ok;
 }
 
@@ -4539,8 +4285,6 @@ bool probe_media_gallery(bool favorites = false) noexcept {
                             gallery.storage.arena.committed <= 128 * 1024;
             valid = valid && require(stale_favorite && scene_bounded, 117);
         }
-        const u32 favorite_cells = gallery.cell_count, favorite_widgets = gallery.widgets.count;
-        const u32 favorite_scene_bytes = static_cast<u32>(gallery.storage.arena.committed);
         renderer.media_picker_scene = previous_gallery;
         renderer_bind_focus_owner(&renderer, previous_focus);
         renderer.retained_presentation.valid = false;
@@ -4548,41 +4292,6 @@ bool probe_media_gallery(bool favorites = false) noexcept {
         valid = valid && layers && confirmed_hover && keyboard_favorite && pending_no_send &&
                 failed_confirmed && neutral_source && disabled_source && clipped_star && stale_favorite &&
                 scene_bounded;
-        wchar_t directory[1024]{};
-        const DWORD chars = GetEnvironmentVariableW(L"MAICORD_UI_PROBE_CAPTURE_DIR", directory, 900);
-        if (chars && chars < 900) {
-            constexpr wchar_t filename[] = L"/media-favorites-20261003-quality.json";
-            CopyMemory(directory + chars, filename, sizeof(filename));
-            char report[1024]{};
-            const auto yes = [](bool value) noexcept { return value ? "true" : "false"; };
-            const int bytes = wsprintfA(
-                report,
-                "{\"fixture\":\"native-media-favorites\",\"network\":false,\"pass\":%s,\"layer_order\":%s,"
-                "\"confirmed_hover\":%s,\"keyboard_favorite\":%s,\"pending_no_send\":%s,\"failed_retains_"
-                "confirmed\":%s,"
-                "\"neutral_missing_source\":%s,\"disabled_source\":%s,\"clipped_star_geometry\":%s,\"stale_"
-                "favorite_guard\":%s,"
-                "\"scene_bounded\":%s,\"cells\":%u,\"widgets\":%u,\"scene_bytes\":%u,"
-                "\"star_clip_dip16\":[%d,%d,%d,%d],\"star_full_dip16\":[%d,%d,%d,%d],"
-                "\"captures\":%u,\"failure_stage\":%u}",
-                yes(valid), yes(layers), yes(confirmed_hover), yes(keyboard_favorite), yes(pending_no_send),
-                yes(failed_confirmed), yes(neutral_source), yes(disabled_source), yes(clipped_star),
-                yes(stale_favorite), yes(scene_bounded), favorite_cells, favorite_widgets,
-                favorite_scene_bytes, static_cast<i32>(button.left * 16), static_cast<i32>(button.top * 16),
-                static_cast<i32>(button.right * 16), static_cast<i32>(button.bottom * 16),
-                static_cast<i32>(full_button.left * 16), static_cast<i32>(full_button.top * 16),
-                static_cast<i32>(full_button.right * 16), static_cast<i32>(full_button.bottom * 16), stage,
-                failure);
-            const HANDLE file = CreateFileW(directory, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
-                                            FILE_ATTRIBUTE_NORMAL, nullptr);
-            DWORD written = 0;
-            const bool saved = file != INVALID_HANDLE_VALUE && bytes > 0 &&
-                               WriteFile(file, report, static_cast<DWORD>(bytes), &written, nullptr) &&
-                               written == static_cast<DWORD>(bytes);
-            if (file != INVALID_HANDLE_VALUE)
-                CloseHandle(file);
-            valid = valid && saved;
-        }
         log_u64(valid ? LogLevel::info : LogLevel::error, "probe", "media_favorites_native_failure_stage",
                 failure);
         return valid;
@@ -4737,35 +4446,48 @@ bool probe_media_gallery(bool favorites = false) noexcept {
     ui_media_picker_scene_release(&gallery);
     valid = valid && restored && layers && resident && animated && missing && stale && outline && search &&
             disabled && bounded && narrow;
-    wchar_t directory[1024]{};
-    const DWORD chars = GetEnvironmentVariableW(L"MAICORD_UI_PROBE_CAPTURE_DIR", directory, 900);
-    if (chars && chars < 900) {
-        constexpr wchar_t filename[] = L"/media-gallery-20261003-quality.json";
-        CopyMemory(directory + chars, filename, sizeof(filename));
-        char report[1024]{};
-        const auto yes = [](bool value) noexcept { return value ? "true" : "false"; };
-        const int bytes = wsprintfA(
-            report,
-            "{\"fixture\":\"native-media-gallery\",\"network\":false,\"pass\":%s,\"layer_order\":%s,"
-            "\"resident_preview\":%s,\"animated_webp\":%s,\"missing_preview\":%s,\"stale_scope_guard\":%s,"
-            "\"foreground_outline\":%s,\"search_selection\":%s,\"vector_item_disabled\":%s,\"visible_only_"
-            "resolution\":%s,\"narrow_125_clipped\":%s,\"failure_stage\":%u}",
-            yes(valid), yes(layers), yes(resident), yes(animated), yes(missing), yes(stale), yes(outline),
-            yes(search), yes(disabled), yes(bounded), yes(narrow), failure);
-        const HANDLE file =
-            CreateFileW(directory, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-        DWORD written = 0;
-        const bool saved = file != INVALID_HANDLE_VALUE && bytes > 0 &&
-                           WriteFile(file, report, static_cast<DWORD>(bytes), &written, nullptr) &&
-                           written == static_cast<DWORD>(bytes);
-        if (file != INVALID_HANDLE_VALUE)
-            CloseHandle(file);
-        valid = valid && saved;
-    }
     log_u64(valid ? LogLevel::info : LogLevel::error, "probe", "media_gallery_native_failure_stage",
             failure);
     log_u64(LogLevel::info, "probe", "media_gallery_visible_source_resolutions", fixture.calls);
     return valid;
+}
+
+// The chat selection and renderer size a Friends probe starts from.
+struct ProbeSelectionSnapshot {
+    u32 width = g_probe.renderer.width, height = g_probe.renderer.height;
+    u32 selection_revision = g_probe.chat_state.selection_revision,
+        navigation_intent_revision = g_probe.chat_state.navigation_intent_revision;
+    u64 guild = g_probe.chat_state.selected_guild_id, channel = g_probe.chat_state.selected_channel_id,
+        last_private = g_probe.chat_state.last_private_channel_id,
+        restore_channel = g_probe.chat_state.restore_channel_id,
+        restore_guild = g_probe.chat_state.restore_guild_id,
+        restore_deadline = g_probe.chat_state.restore_deadline_ms;
+    bool home = g_probe.chat_state.home_selected;
+    // Reinstates the selection, then redraws the shell at the saved size.
+    bool restore() const noexcept {
+        g_probe.chat_state.home_selected = home;
+        g_probe.chat_state.selected_guild_id = guild;
+        g_probe.chat_state.selected_channel_id = channel;
+        g_probe.chat_state.selection_revision = selection_revision;
+        g_probe.chat_state.navigation_intent_revision = navigation_intent_revision;
+        g_probe.chat_state.last_private_channel_id = last_private;
+        g_probe.chat_state.restore_channel_id = restore_channel;
+        g_probe.chat_state.restore_guild_id = restore_guild;
+        g_probe.chat_state.restore_deadline_ms = restore_deadline;
+        return renderer_resize(&g_probe.renderer, width, height) &&
+               navigation_view_rebuild(&g_probe.navigation, g_probe.chat_state).ok() &&
+               synchronize_probe_shell_layout() && rebuild_probe_content_text() &&
+               probe_present(&g_probe.renderer, kDefaultTheme);
+    }
+};
+
+// Selects Home without a channel so the shell shows Friends.
+bool probe_select_friends_home() noexcept {
+    if (!chat_state_store_select_home(&g_probe.chat_state).ok())
+        return false;
+    g_probe.chat_state.selected_channel_id = 0;
+    return navigation_view_rebuild(&g_probe.navigation, g_probe.chat_state).ok() &&
+           synchronize_probe_shell_layout();
 }
 
 bool probe_friends_scene() noexcept {
@@ -4782,9 +4504,7 @@ bool probe_friends_scene() noexcept {
         const UiFriendsScene* previous_friends;
         TextFormSurface* previous_form;
         const UiSettingsScene* previous_settings;
-        u32 width, height, selection_revision, navigation_intent_revision;
-        u64 guild, channel, last_private, restore_channel, restore_guild, restore_deadline;
-        bool home;
+        ProbeSelectionSnapshot saved;
         bool restored = false;
         bool restore() noexcept {
             if (restored)
@@ -4793,51 +4513,19 @@ bool probe_friends_scene() noexcept {
             renderer_bind_friends_scene(&g_probe.renderer, previous_friends);
             renderer_bind_text_form(&g_probe.renderer, previous_form);
             renderer_bind_settings_scene(&g_probe.renderer, previous_settings);
-            g_probe.chat_state.home_selected = home;
-            g_probe.chat_state.selected_guild_id = guild;
-            g_probe.chat_state.selected_channel_id = channel;
-            g_probe.chat_state.selection_revision = selection_revision;
-            g_probe.chat_state.navigation_intent_revision = navigation_intent_revision;
-            g_probe.chat_state.last_private_channel_id = last_private;
-            g_probe.chat_state.restore_channel_id = restore_channel;
-            g_probe.chat_state.restore_guild_id = restore_guild;
-            g_probe.chat_state.restore_deadline_ms = restore_deadline;
             ui_friends_scene_release(&friends);
             text_form_surface_release(&surface);
             text_form_release(&form);
             ui_settings_scene_release(&settings);
-            return renderer_resize(&g_probe.renderer, width, height) &&
-                   navigation_view_rebuild(&g_probe.navigation, g_probe.chat_state).ok() &&
-                   synchronize_probe_shell_layout() && rebuild_probe_content_text() &&
-                   probe_present(&g_probe.renderer, kDefaultTheme);
+            return saved.restore();
         }
         ~RestoreFriendsProbe() noexcept {
             if (!restored)
                 restore();
         }
-    } restore{friends,
-              form,
-              surface,
-              settings,
-              g_probe.renderer.friends_scene,
-              g_probe.renderer.text_form,
-              g_probe.renderer.settings_scene,
-              g_probe.renderer.width,
-              g_probe.renderer.height,
-              g_probe.chat_state.selection_revision,
-              g_probe.chat_state.navigation_intent_revision,
-              g_probe.chat_state.selected_guild_id,
-              g_probe.chat_state.selected_channel_id,
-              g_probe.chat_state.last_private_channel_id,
-              g_probe.chat_state.restore_channel_id,
-              g_probe.chat_state.restore_guild_id,
-              g_probe.chat_state.restore_deadline_ms,
-              g_probe.chat_state.home_selected};
-    if (!chat_state_store_select_home(&g_probe.chat_state).ok())
-        return false;
-    g_probe.chat_state.selected_channel_id = 0;
-    if (!navigation_view_rebuild(&g_probe.navigation, g_probe.chat_state).ok() ||
-        !synchronize_probe_shell_layout())
+    } restore{friends, form, surface, settings, g_probe.renderer.friends_scene, g_probe.renderer.text_form,
+              g_probe.renderer.settings_scene};
+    if (!probe_select_friends_home())
         return false;
     struct Fixture {
         UiFriendsTab tab;
@@ -5125,7 +4813,7 @@ bool probe_friends_scene() noexcept {
         !probe_capture_frame(L"friends-compact.bmp"))
         return false;
     // Restore a roomy center for an actual native editor above the base list.
-    if (!renderer_resize(&g_probe.renderer, restore.width, restore.height) ||
+    if (!renderer_resize(&g_probe.renderer, restore.saved.width, restore.saved.height) ||
         !synchronize_probe_shell_layout() ||
         !ui_friends_scene_update(&friends, &source, fixture.tab, UiFriendsPhase::ready, {}, center()))
         return false;
@@ -5263,7 +4951,7 @@ bool probe_friends_scene() noexcept {
         !probe_present(&g_probe.renderer, kDefaultTheme) ||
         !probe_capture_frame(L"friends-search-compact-scroll.bmp"))
         return false;
-    if (!renderer_resize(&g_probe.renderer, restore.width, restore.height) ||
+    if (!renderer_resize(&g_probe.renderer, restore.saved.width, restore.saved.height) ||
         !synchronize_probe_shell_layout())
         return false;
     fixture.count = 0;
@@ -5439,9 +5127,7 @@ bool probe_friends_requests_scene() noexcept {
         TextFormSurface* old_form;
         ProfileScene* old_profile;
         const UiWidgetManager* old_focus;
-        u32 width, height, selection, navigation;
-        u64 guild, channel, last_private, restore_channel, restore_guild, deadline;
-        bool home;
+        ProbeSelectionSnapshot saved;
         bool restored = false;
         bool finish() noexcept {
             if (restored)
@@ -5452,24 +5138,12 @@ bool probe_friends_requests_scene() noexcept {
             renderer_bind_text_form(&g_probe.renderer, old_form);
             g_probe.renderer.profile_scene = old_profile;
             g_probe.renderer.focus_owner = old_focus;
-            g_probe.chat_state.home_selected = home;
-            g_probe.chat_state.selected_guild_id = guild;
-            g_probe.chat_state.selected_channel_id = channel;
-            g_probe.chat_state.selection_revision = selection;
-            g_probe.chat_state.navigation_intent_revision = navigation;
-            g_probe.chat_state.last_private_channel_id = last_private;
-            g_probe.chat_state.restore_channel_id = restore_channel;
-            g_probe.chat_state.restore_guild_id = restore_guild;
-            g_probe.chat_state.restore_deadline_ms = deadline;
             ui_friends_scene_release(&requests);
             ui_friends_scene_release(&main);
             text_form_surface_release(&surface);
             text_form_release(&form);
             profile_scene_release(&profile);
-            return renderer_resize(&g_probe.renderer, width, height) &&
-                   navigation_view_rebuild(&g_probe.navigation, g_probe.chat_state).ok() &&
-                   synchronize_probe_shell_layout() && rebuild_probe_content_text() &&
-                   probe_present(&g_probe.renderer, kDefaultTheme);
+            return saved.restore();
         }
         ~Restore() noexcept {
             if (!restored)
@@ -5484,27 +5158,12 @@ bool probe_friends_requests_scene() noexcept {
               g_probe.renderer.friends_requests_scene,
               g_probe.renderer.text_form,
               g_probe.renderer.profile_scene,
-              g_probe.renderer.focus_owner,
-              g_probe.renderer.width,
-              g_probe.renderer.height,
-              g_probe.chat_state.selection_revision,
-              g_probe.chat_state.navigation_intent_revision,
-              g_probe.chat_state.selected_guild_id,
-              g_probe.chat_state.selected_channel_id,
-              g_probe.chat_state.last_private_channel_id,
-              g_probe.chat_state.restore_channel_id,
-              g_probe.chat_state.restore_guild_id,
-              g_probe.chat_state.restore_deadline_ms,
-              g_probe.chat_state.home_selected};
+              g_probe.renderer.focus_owner};
     const float normal_scale = g_probe.renderer.dpi / 96.f;
     if (!renderer_resize(&g_probe.renderer, static_cast<u32>(1200 * normal_scale + .999f),
                          static_cast<u32>(970 * normal_scale + .999f)))
         return false;
-    if (!chat_state_store_select_home(&g_probe.chat_state).ok())
-        return false;
-    g_probe.chat_state.selected_channel_id = 0;
-    if (!navigation_view_rebuild(&g_probe.navigation, g_probe.chat_state).ok() ||
-        !synchronize_probe_shell_layout())
+    if (!probe_select_friends_home())
         return false;
     const auto center = []() noexcept {
         const auto* node = ui_scene_resolve(g_probe.shell_scene,
@@ -7851,114 +7510,49 @@ bool probe_profile_card() noexcept {
             probe_capture_frame(L"mixed-bidi-profile.bmp");
     valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
                          mixed_before.paragraphs_shaped;
-    const auto decorated_bio = utf8_literal(
-        "Hello **\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d** *world* __\xd7\x90\xd7\x91__ ~~xyz~~ `\xd7\x90 abc` ");
-    data->bio.bytes = 0;
-    for (u32 repeat = 0; repeat < 2; ++repeat) {
-        copy_bytes(data->bio.data + data->bio.bytes, decorated_bio.data, decorated_bio.bytes);
-        data->bio.bytes += static_cast<u16>(decorated_bio.bytes);
-    }
-    valid = valid && profile_scene_layout(&scene, viewport, true) && scene.bio_style_count >= 5;
-    valid = valid && native_bio_command();
-    const auto decorated_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
-    valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
-            probe_capture_frame(L"mixed-bidi-styles-profile.bmp");
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         decorated_before.paragraphs_shaped;
-    const Utf8View script_bios[]{
-        utf8_literal(
-            "(**\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7) 12 \\[\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85\\]**"),
-        utf8_literal("`(\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7) 12 [\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85]`"),
-        utf8_literal("\x2a\x2a\xe4\xb8\xad\xe6\x96\x87\x2a\x2a\x20\xe3\x82\xab\xe3\x82\x99\x20\xef\xbd\xb6"
-                     "\xef\xbe\x9e"),
-        utf8_literal("\x2a\x2a\xe4\xb8\xad\xf0\xa0\x80\x80\xe6\x96\x87\x2a\x2a\x20\xf0\x9f\x98\x80"),
-        utf8_literal("\x2a\x2a\xe3\x82\xab\xe2\x80\x8d\xe3\x82\x99\x20\xe3\x82\xab\xe2\x80\x8c\xe3\x82\x99"
-                     "\x20\xe3\x82\xab\xcd\x8f\xe3\x82\x99\x2a\x2a\x20\xef\xbd\xb6\xef\xbe\x9e"),
-        utf8_literal("\x2a\x2a\xe4\xb8\xad\xe6\x96\x87\x2a\x2a")};
-    const wchar_t* script_captures[]{L"arabic-bracket-styles-profile.bmp",
-                                     L"arabic-bracket-mono-profile.bmp",
-                                     L"cjk-styles-profile.bmp",
-                                     L"cjk-supplementary-profile.bmp",
-                                     L"cjk-controls-profile.bmp",
-                                     L"height-overflow-profile.bmp"};
-    for (u32 i = 0; valid && i < sizeof(script_bios) / sizeof(script_bios[0]); ++i) {
-        const auto text = script_bios[i];
+    struct BioCase {
+        Utf8View text;
+        u32 repeats, styles;
+        bool lines, trim;
+        const wchar_t* capture;
+    };
+    const BioCase bio_cases[]{
+        {utf8_literal("Hello **\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d** *world* __\xd7\x90\xd7\x91__ ~~xyz~~ `\xd7\x90 abc` "), 2, 5, false, false, L"mixed-bidi-styles-profile.bmp"},
+        {utf8_literal("(**\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7) 12 \\[\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85\\]**"), 2, 1, true, false, L"arabic-bracket-styles-profile.bmp"},
+        {utf8_literal("`(\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7) 12 [\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85]`"), 2, 1, true, false, L"arabic-bracket-mono-profile.bmp"},
+        {utf8_literal("\x2a\x2a\xe4\xb8\xad\xe6\x96\x87\x2a\x2a\x20\xe3\x82\xab\xe3\x82\x99\x20\xef\xbd\xb6"
+                      "\xef\xbe\x9e"), 2, 1, true, false, L"cjk-styles-profile.bmp"},
+        {utf8_literal("\x2a\x2a\xe4\xb8\xad\xf0\xa0\x80\x80\xe6\x96\x87\x2a\x2a\x20\xf0\x9f\x98\x80"), 2, 1, true, false, L"cjk-supplementary-profile.bmp"},
+        {utf8_literal("\x2a\x2a\xe3\x82\xab\xe2\x80\x8d\xe3\x82\x99\x20\xe3\x82\xab\xe2\x80\x8c\xe3\x82\x99"
+                      "\x20\xe3\x82\xab\xcd\x8f\xe3\x82\x99\x2a\x2a\x20\xef\xbd\xb6\xef\xbe\x9e"), 2, 1, true, false, L"cjk-controls-profile.bmp"},
+        {utf8_literal("\x2a\x2a\xe4\xb8\xad\xe6\x96\x87\x2a\x2a"), 8, 1, true, true, L"height-overflow-profile.bmp"},
+        {utf8_literal("A **\xd7\x90\xe2\x80\x8d\xd7\x91** __\xd7\x90\xcd\x8f \xd7\x91__ "
+                      "*world* `\xd7\x90\xe2\x80\x8d \xd7\x91` "), 3, 4, false, false, L"mixed-join-styles-profile.bmp"},
+        {utf8_literal("A **\xd7\x90 \xf0\x9f\x98\x80\xf0\x9f\x98\x83 \xd7\x91** __\xd7\x90 "
+                      "\xe2\x9d\xa4\xef\xb8\x8f \xd7\x91__ `\xd7\x90 1\xef\xb8\x8f\xe2\x83\xa3 \xd7\x91` "), 2, 3, false, false, L"mixed-bidi-emoji-profile.bmp"},
+        {utf8_literal("A **\xe2\x9d\xa4\xef\xb8\x8e** __\xce\xb1 \xe2\x9d\xa4\xef\xb8\x8e \xd0\x91__ "
+                      "`\xe2\x99\xa5\xef\xb8\x8e \xe2\x99\xa6\xef\xb8\x8e` \xe2\x88\xab x \xe2\x89\xa4 y "
+                      "\xc2\xa9\xef\xb8\x8e A \xef\xb8\x8f B "), 2, 3, false, false, L"symbols-profile.bmp"},
+        {utf8_literal("Text **\xe2\x9d\xa4\xef\xb8\x8e** *\xe2\x9d\xa4\xef\xb8\x8e* ***\xe2\x9d\xa4\xef\xb8\x8e*** "
+                      "__\xe2\x98\x80\xef\xb8\x8e \xe2\x98\x82\xef\xb8\x8e__ "), 3, 4, false, false, L"simulated-color-symbols-profile.bmp"}};
+    for (const auto& bio : bio_cases) {
+        if (!valid)
+            break;
         data->bio.bytes = 0;
-        for (u32 repeat = 0; repeat < (i == 5 ? 8u : 2u); ++repeat) {
-            if (repeat)
+        for (u32 repeat = 0; repeat < bio.repeats; ++repeat) {
+            if (bio.lines && repeat)
                 data->bio.data[data->bio.bytes++] = '\n';
-            copy_bytes(data->bio.data + data->bio.bytes, text.data, text.bytes);
-            data->bio.bytes += static_cast<u16>(text.bytes);
+            copy_bytes(data->bio.data + data->bio.bytes, bio.text.data, bio.text.bytes);
+            data->bio.bytes += static_cast<u16>(bio.text.bytes);
         }
-        valid = profile_scene_layout(&scene, viewport, true) && scene.bio_style_count >= 1;
-        valid = valid && native_bio_command(i == 5);
+        valid = profile_scene_layout(&scene, viewport, true) && scene.bio_style_count >= bio.styles &&
+                native_bio_command(bio.trim);
         const auto before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
         valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
-                probe_capture_frame(script_captures[i]);
-        valid =
-            valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         before.paragraphs_shaped;
+                probe_capture_frame(bio.capture);
+        valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
+                             before.paragraphs_shaped;
     }
-    const auto joined_bio = utf8_literal("A **\xd7\x90\xe2\x80\x8d\xd7\x91** __\xd7\x90\xcd\x8f \xd7\x91__ "
-                                         "*world* `\xd7\x90\xe2\x80\x8d \xd7\x91` ");
-    data->bio.bytes = 0;
-    for (u32 repeat = 0; repeat < 3; ++repeat) {
-        copy_bytes(data->bio.data + data->bio.bytes, joined_bio.data, joined_bio.bytes);
-        data->bio.bytes += static_cast<u16>(joined_bio.bytes);
-    }
-    valid = valid && profile_scene_layout(&scene, viewport, true) && scene.bio_style_count >= 4;
-    valid = valid && native_bio_command();
-    const auto joined_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
-    valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
-            probe_capture_frame(L"mixed-join-styles-profile.bmp");
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         joined_before.paragraphs_shaped;
-    const auto emoji_bio =
-        utf8_literal("A **\xd7\x90 \xf0\x9f\x98\x80\xf0\x9f\x98\x83 \xd7\x91** __\xd7\x90 "
-                     "\xe2\x9d\xa4\xef\xb8\x8f \xd7\x91__ `\xd7\x90 1\xef\xb8\x8f\xe2\x83\xa3 \xd7\x91` ");
-    data->bio.bytes = 0;
-    for (u32 repeat = 0; repeat < 2; ++repeat) {
-        copy_bytes(data->bio.data + data->bio.bytes, emoji_bio.data, emoji_bio.bytes);
-        data->bio.bytes += static_cast<u16>(emoji_bio.bytes);
-    }
-    valid = valid && profile_scene_layout(&scene, viewport, true) && scene.bio_style_count >= 3;
-    valid = valid && native_bio_command();
-    const auto emoji_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
-    valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
-            probe_capture_frame(L"mixed-bidi-emoji-profile.bmp");
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         emoji_before.paragraphs_shaped;
-    const auto symbol_bio =
-        utf8_literal("A **\xe2\x9d\xa4\xef\xb8\x8e** __\xce\xb1 \xe2\x9d\xa4\xef\xb8\x8e \xd0\x91__ "
-                     "`\xe2\x99\xa5\xef\xb8\x8e \xe2\x99\xa6\xef\xb8\x8e` \xe2\x88\xab x \xe2\x89\xa4 y "
-                     "\xc2\xa9\xef\xb8\x8e A \xef\xb8\x8f B ");
-    data->bio.bytes = 0;
-    for (u32 repeat = 0; repeat < 2; ++repeat) {
-        copy_bytes(data->bio.data + data->bio.bytes, symbol_bio.data, symbol_bio.bytes);
-        data->bio.bytes += static_cast<u16>(symbol_bio.bytes);
-    }
-    valid = valid && profile_scene_layout(&scene, viewport, true) && scene.bio_style_count >= 3;
-    valid = valid && native_bio_command();
-    const auto symbol_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
-    valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
-            probe_capture_frame(L"symbols-profile.bmp");
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         symbol_before.paragraphs_shaped;
-    const auto simulated_color_bio = utf8_literal(
-        "Text **\xe2\x9d\xa4\xef\xb8\x8e** *\xe2\x9d\xa4\xef\xb8\x8e* ***\xe2\x9d\xa4\xef\xb8\x8e*** "
-        "__\xe2\x98\x80\xef\xb8\x8e \xe2\x98\x82\xef\xb8\x8e__ ");
-    data->bio.bytes = 0;
-    for (u32 repeat = 0; repeat < 3; ++repeat) {
-        copy_bytes(data->bio.data + data->bio.bytes, simulated_color_bio.data, simulated_color_bio.bytes);
-        data->bio.bytes += static_cast<u16>(simulated_color_bio.bytes);
-    }
-    valid = valid && profile_scene_layout(&scene, viewport, true) && scene.bio_style_count >= 4;
-    valid = valid && native_bio_command();
-    const auto simulated_color_before = native_text_candidate_counts(g_probe.renderer.glyph_text.system);
-    valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
-            probe_capture_frame(L"simulated-color-symbols-profile.bmp");
-    valid = valid && native_text_candidate_counts(g_probe.renderer.glyph_text.system).paragraphs_shaped >
-                         simulated_color_before.paragraphs_shaped;
     const auto interactive_bio =
         utf8_literal("A [\xd7\x90 abc \xe2\x9d\xa4\xef\xb8\x8f \xd7\x91](https://example.com/native-text) "
                      "**[\xd7\xa9\xd7\x9c\xd7\x95\xd7\x9d](https://example.com/native-bold)**\n");

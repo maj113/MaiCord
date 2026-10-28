@@ -1,7 +1,6 @@
 #include "maicord/app/private_channel_actions.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/app/rest_client.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/user_store.hpp"

@@ -136,9 +136,7 @@ void test_slider_input(Check check, const UiSettingsTokens& tokens, PaintStream*
 void test_color_hex(Check check) noexcept {
     u32 rgba = 0;
     const auto parse = [&](const char* text, bool alpha) noexcept {
-        u32 bytes = 0;
-        while (text[bytes])
-            ++bytes;
+        const u32 bytes = c_string_length(text);
         rgba = 0x12345678;
         return color_hex_parse({text, bytes}, alpha, &rgba);
     };

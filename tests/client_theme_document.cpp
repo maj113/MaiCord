@@ -115,36 +115,8 @@ void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexc
               refused(utf8_literal("{\"version\":\"2.0\",\"name\":\"\"}"), defaults) &&
               refused(utf8_literal("{\"version\":\"2.0\"} trailing"), defaults),
           "theme document: empty control invalid Unicode names and incomplete documents preserve output");
-    const char bad_utf8[]{'{',
-                          '"',
-                          'v',
-                          'e',
-                          'r',
-                          's',
-                          'i',
-                          'o',
-                          'n',
-                          '"',
-                          ':',
-                          '"',
-                          '2',
-                          '.',
-                          '0',
-                          '"',
-                          ',',
-                          '"',
-                          'n',
-                          'a',
-                          'm',
-                          'e',
-                          '"',
-                          ':',
-                          '"',
-                          static_cast<char>(0xc0),
-                          static_cast<char>(0xaf),
-                          '"',
-                          '}'};
-    check(refused({bad_utf8, sizeof(bad_utf8)}, defaults),
+    constexpr auto bad_utf8 = utf8_literal("{\"version\":\"2.0\",\"name\":\"\xc0\xaf\"}");
+    check(refused(bad_utf8, defaults),
           "theme document: raw invalid UTF8 is rejected before owned name publication");
     check(parse(utf8_literal("{\"version\":\"2.0\",\"background\":{\"colors\":[1122867,4478310],"
                              "\"angle_degrees\":360,\"intensity\":80,\"effect\":\"stars_and_comets\","

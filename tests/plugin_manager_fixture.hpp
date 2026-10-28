@@ -1,17 +1,15 @@
 #pragma once
 
 #include "maicord/app/plugin_manager_state.hpp"
+#include "maicord/app/plugin_manifest.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+#include "plugin_test_key.hpp"
 
 namespace maicord::plugin_manager_fixture {
 
-inline constexpr u8 kGenerator[65]{4,
-    0x6b,0x17,0xd1,0xf2,0xe1,0x2c,0x42,0x47,0xf8,0xbc,0xe6,0xe5,0x63,0xa4,0x40,0xf2,
-    0x77,0x03,0x7d,0x81,0x2d,0xeb,0x33,0xa0,0xf4,0xa1,0x39,0x45,0xd8,0x98,0xc2,0x96,
-    0x4f,0xe3,0x42,0xe2,0xfe,0x1a,0x7f,0x9b,0x8e,0xe7,0xeb,0x4a,0x7c,0x0f,0x9e,0x16,
-    0x2b,0xce,0x33,0x57,0x6b,0x31,0x5e,0xce,0xcb,0xb6,0x40,0x68,0x37,0xbf,0x51,0xf5};
+using plugin_test_key::kGenerator;
 
 struct Text {
     char* out;
@@ -24,12 +22,57 @@ struct Text {
     }
 };
 
+inline constexpr u64 kNow = 1760400000;
+inline constexpr u64 kOwner = 0x0046495854555245ull;  // "FIXTURE"
+inline constexpr u64 kNotDll = 0x004e4f54444c4cull;   // "NOTDLL"
+inline constexpr u64 kCode[3]{1000000999, 1001000999, 1002000999}; // 1.0.0, 1.1.0, 1.2.0
+inline constexpr u64 kSettings = 1ull << 0;
+inline constexpr u32 kTimeoutMs = 5000;
+inline constexpr const char* kTargets[3]{"/example/plugins/releases/download/fixture-v1.0.0/fixture-1.0.0-x64.dll",
+    "/example/plugins/releases/download/fixture-v1.1.0/fixture-1.1.0-x64.dll",
+    "/example/plugins/releases/download/fixture-v1.2.0/fixture-1.2.0-x64.dll"};
+
+inline void plugin(Text& t, const char* slug, u64 owner, const char* name) noexcept {
+    t.add(R"({"slug":")"); t.add(slug); t.add(R"(","owner_id":)"); t.number(owner);
+    t.add(R"(,"name":")"); t.add(name); t.add(R"(","summary":"Test plugin.","publisher":"MaiCord","authors":[{"name":"Example Author"}],)");
+    t.add(R"("license":"MPL-2.0","homepage":"https://plugins.example.com/maicord/fixture","categories":["utility"],"disclosures":[],"versions":[)");
+}
+
 inline void version(Text& t, const char* text, u64 code, const char* permissions, const u8* sha, u64 bytes, bool last) noexcept {
     t.add(R"({"version":")"); t.add(text); t.add(R"(","version_code":)"); t.number(code);
     t.add(R"(,"abi":5,"min_host_abi":5,"max_host_abi":0,"permissions":[)"); t.add(permissions);
     t.add(R"(],"files":[{"arch":"x64","sha256":")"); t.hex(sha, 32); t.add(R"(","bytes":)"); t.number(bytes);
     t.add(R"(}],"released":1760200000,"commit":"1493b21a36e1b26cbecd6f3996cbd20080b48123","changelog":"Test build."})");
     if (!last) t.add(",");
+}
+
+// Parses `owner`'s manifest in `directory`; `present` tells a missing file from a bad one.
+inline bool read_manifest(const wchar_t* directory, u32 count, u64 owner, NativePluginManifest* manifest,
+                          bool* present = nullptr) noexcept {
+    wchar_t path[kPluginManagerPathCapacity]{};
+    char record[4096];
+    if (present) *present = false;
+    if (!plugin_manager_id_path(directory, count, owner, L".maicord-plugin.json", path)) return false;
+    const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    if (present) *present = true;
+    DWORD got = 0;
+    const bool read = ReadFile(file, record, sizeof(record), &got, nullptr);
+    CloseHandle(file);
+    return read && native_plugin_manifest_parse({record, got}, manifest).ok();
+}
+
+// A fresh temp root with a MaiCord base below it; returns the base length, 0 on failure.
+inline u32 make_root(const wchar_t* prefix, wchar_t (&root)[MAX_PATH], wchar_t (&base)[MAX_PATH]) noexcept {
+    wchar_t temp[MAX_PATH]{};
+    const DWORD n = GetTempPathW(MAX_PATH, temp);
+    if (!n || n >= MAX_PATH - 64 || !GetTempFileNameW(temp, prefix, 0, root) || !DeleteFileW(root) || !CreateDirectoryW(root, nullptr))
+        return 0;
+    u32 count = 0;
+    while (root[count]) { base[count] = root[count]; ++count; }
+    for (const wchar_t* leaf = L"\\MaiCord"; *leaf; ++leaf) base[count++] = *leaf;
+    base[count] = 0;
+    return CreateDirectoryW(base, nullptr) ? count : 0;
 }
 
 inline bool read_dll(u8** dll, u32* dll_bytes, u32 copies) noexcept {

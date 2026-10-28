@@ -39,7 +39,6 @@ struct Fixture {
 };
 Fixture g;
 
-u32 length(const char* s) noexcept { u32 n = 0; while (s[n]) ++n; return n; }
 using plugin_index_fixture::read_fixture;
 u32 find(const char* text, u32 bytes, const char* needle, u32 needle_bytes, u32 from = 0) noexcept {
     for (u32 i = from; needle_bytes <= bytes && i + needle_bytes <= bytes; ++i)
@@ -96,7 +95,7 @@ Utf8View custom() noexcept { return {g.custom, g.custom_bytes}; }
 bool text_is(Utf8View document, PluginIndexText text, const char* expected) noexcept {
     char decoded[600];
     const auto result = plugin_index_text_decode(document, text, {decoded, sizeof(decoded)});
-    return result.ok() && result.bytes == length(expected) && bytes_equal(decoded, expected, result.bytes);
+    return result.ok() && result.bytes == c_string_length(expected) && bytes_equal(decoded, expected, result.bytes);
 }
 bool zeroed() noexcept {
     const auto* bytes = reinterpret_cast<const u8*>(&g.index);
@@ -213,13 +212,13 @@ void test_vectors(Check check) noexcept {
         const Utf8View document = is_custom ? custom() : official();
         u32 error = ~u32{0};
         for (u32 i = 0; i < sizeof(kErrorNames) / sizeof(kErrorNames[0]); ++i)
-            if (utf8_equal(expected, {kErrorNames[i], length(kErrorNames[i])})) error = i;
+            if (utf8_equal(expected, {kErrorNames[i], c_string_length(kErrorNames[i])})) error = i;
         const bool built = (is_custom || utf8_equal(base, utf8_literal("official"))) && error != ~u32{0} &&
             replace_once(document.data, document.bytes, line + tabs[1] + 1, tabs[2] - tabs[1] - 1, line + tabs[2] + 1, bytes - tabs[2] - 1);
         const E result = built ? signed_verify(work(), is_custom) : E::invalid_input;
         if (built && static_cast<u32>(result) == error && zeroed()) { ++passed; continue; }
         char message[160]{"plugin vectors: row failed with "};
-        u32 n = length(message);
+        u32 n = c_string_length(message);
         const char* got = built ? kErrorNames[static_cast<u32>(result)] : "an unusable row";
         while (*got && n < 120) message[n++] = *got++;
         message[n++] = ':'; message[n++] = ' ';
@@ -231,7 +230,7 @@ void test_vectors(Check check) noexcept {
 
 void test_limits(Check check) noexcept {
     const Utf8View doc = official();
-    const auto at = [&](const char* text) noexcept { return find(doc.data, doc.bytes, text, length(text)); };
+    const auto at = [&](const char* text) noexcept { return find(doc.data, doc.bytes, text, c_string_length(text)); };
     // 128 and 129 copies of Showcase with unique slugs and owners.
     const u32 start = at("{\"slug\":\"showcase\""), end = at(",{\"slug\":\"quiet-hours\"");
     const u32 list = at("\"plugins\":[") + 11, rest = at("],\"revoked\"");

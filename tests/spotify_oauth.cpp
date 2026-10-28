@@ -10,21 +10,16 @@ void check(bool value, const char* name) noexcept { test_check(&failures, value,
 constexpr auto provider = OAuthProvider::spotify;
 constexpr auto client = utf8_literal("0123456789abcdef0123456789abcdef");
 constexpr auto proof = utf8_literal("0123456789012345678901234567890123456789012");
-bool contains(Utf8View text, Utf8View part) noexcept {
-    for (u32 i = 0; i + part.bytes <= text.bytes; ++i)
-        if (bytes_equal(text.data + i, part.data, part.bytes)) return true;
-    return false;
-}
 void protocol() noexcept {
     u8 output[4096];
     const auto n = oauth_authorize(provider, client, 49152, proof, proof, {output, sizeof(output)});
     const Utf8View url{reinterpret_cast<char*>(output), n};
     check(n && utf8_starts_with(url, utf8_literal("https://accounts.spotify.com/authorize?response_type=code&")) &&
-        contains(url, utf8_literal("redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Foauth2callback")) &&
-        contains(url, utf8_literal("scope=user-read-private&")) &&
-        contains(url, utf8_literal("code_challenge_method=S256")) &&
-        !contains(url, utf8_literal("access_type")) && !contains(url, utf8_literal("prompt=")) &&
-        !contains(url, utf8_literal("code_verifier")) && !contains(url, utf8_literal("client_secret")),
+        test_contains(url, utf8_literal("redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Foauth2callback")) &&
+        test_contains(url, utf8_literal("scope=user-read-private&")) &&
+        test_contains(url, utf8_literal("code_challenge_method=S256")) &&
+        !test_contains(url, utf8_literal("access_type")) && !test_contains(url, utf8_literal("prompt=")) &&
+        !test_contains(url, utf8_literal("code_verifier")) && !test_contains(url, utf8_literal("client_secret")),
         "Spotify uses its own public client, account scope, loopback and PKCE authorization parameters");
     output[0] = 77;
     check(!oauth_authorize(provider, client, 49152, proof, proof, {output, 1}) && output[0] == 77 &&
@@ -63,7 +58,7 @@ UpdateTransportError exchange(void* context, const UpdateHttpRequest& request, c
     check(utf8_equal(request.host_name, utf8_literal("accounts.spotify.com")) &&
         utf8_equal({request.target.data, request.target.count}, utf8_literal("/api/token")) &&
         options.headers.count == 2 && request.maximum_body_bytes == 16384 &&
-        !contains(body, utf8_literal("client_secret")) && contains(body, client),
+        !test_contains(body, utf8_literal("client_secret")) && test_contains(body, client),
         "Spotify credentials are sent only to its fixed TLS token endpoint without Basic authentication");
     *response = {}; response->status = f.status;
     return request.sink(request.sink_context, {reinterpret_cast<const u8*>(f.json.data), f.json.bytes}) ?

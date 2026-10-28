@@ -289,30 +289,25 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
         const auto& scene = context.native.scene;
         const auto& state = *thread_membership_ui_adapter_state();
         const auto& popup = *thread_membership_ui_adapter_popup();
-        const u32 before[]{scene.rebuilds, scene.layout_passes, scene.preparation_passes,
-            r.ui_scene->layout_passes, r.ui_scene->layout_rebuilds,
-            r.guild_rail_scene->layout_passes, r.guild_rail_scene->rebuilds,
-            r.shell_navigation_scene->layout_passes, r.shell_navigation_scene->rebuilds,
-            r.message_composer_scene->layout_passes, header().revision, header().projections,
-            context.navigation.revision, measure.backend_calls, r.glyph_text.cache_builds,
-            r.content_text->rebuilds, r.paint_instance_uploads, r.text_instance_uploads,
-            r.media_instance_uploads, r.painted_frames, r.unchanged_present_skips,
-            state.guild_mutations, state.channel_mutations, state.selection_revision,
-            thread_membership_ui_adapter_rich_store()->updated, popup.revision, popup.widgets.layout.revision};
+        struct Counters { u32 values[27]; };
+        const auto counters = [&]() noexcept {
+            return Counters{{scene.rebuilds, scene.layout_passes, scene.preparation_passes,
+                r.ui_scene->layout_passes, r.ui_scene->layout_rebuilds,
+                r.guild_rail_scene->layout_passes, r.guild_rail_scene->rebuilds,
+                r.shell_navigation_scene->layout_passes, r.shell_navigation_scene->rebuilds,
+                r.message_composer_scene->layout_passes, header().revision, header().projections,
+                context.navigation.revision, measure.backend_calls, r.glyph_text.cache_builds,
+                r.content_text->rebuilds, r.paint_instance_uploads, r.text_instance_uploads,
+                r.media_instance_uploads, r.painted_frames, r.unchanged_present_skips,
+                state.guild_mutations, state.channel_mutations, state.selection_revision,
+                thread_membership_ui_adapter_rich_store()->updated, popup.revision, popup.widgets.layout.revision}};
+        };
+        const Counters before = counters();
         const auto owner = thread_membership_ui_adapter_metrics();
         for (u32 index = 0; index < 64; ++index)
             if (!thread_membership_ui_adapter_synchronize() || !context.project() ||
                 !probe_present(&renderer, context.theme)) return false;
-        const u32 after[]{scene.rebuilds, scene.layout_passes, scene.preparation_passes,
-            r.ui_scene->layout_passes, r.ui_scene->layout_rebuilds,
-            r.guild_rail_scene->layout_passes, r.guild_rail_scene->rebuilds,
-            r.shell_navigation_scene->layout_passes, r.shell_navigation_scene->rebuilds,
-            r.message_composer_scene->layout_passes, header().revision, header().projections,
-            context.navigation.revision, measure.backend_calls, r.glyph_text.cache_builds,
-            r.content_text->rebuilds, r.paint_instance_uploads, r.text_instance_uploads,
-            r.media_instance_uploads, r.painted_frames, r.unchanged_present_skips,
-            state.guild_mutations, state.channel_mutations, state.selection_revision,
-            thread_membership_ui_adapter_rich_store()->updated, popup.revision, popup.widgets.layout.revision};
+        const Counters after = counters();
         const char* names[]{"resolve", "layout", "preparation", "shell_layout", "shell_rebuild",
             "rail_layout", "rail_rebuild", "sidebar_layout", "sidebar_rebuild", "composer_layout",
             "header_revision", "header_projection", "navigation", "shape", "raster", "text_build",
@@ -321,7 +316,7 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
         log_u64(LogLevel::info, "thread_membership_warm", "case", case_index);
         bool valid = true;
         for (u32 index = 0; index < 27; ++index) {
-            const u32 delta = after[index] - before[index];
+            const u32 delta = after.values[index] - before.values[index];
             log_u64(LogLevel::info, "thread_membership_warm", names[index], delta);
             valid &= delta == (index == 20 ? 64u : 0u);
         }

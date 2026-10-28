@@ -8,7 +8,7 @@
 #include "maicord/media/jpeg.hpp"
 #include "../src/media/png_common.hpp"
 
-#include "maicord/core/win32_kernel.hpp"
+#include "test_output.hpp"
 
 namespace maicord {
 namespace {
@@ -427,10 +427,8 @@ struct ReferenceReader {
 };
 
 bool entropy_load_byte(ReferenceReader* reader) noexcept {
-    if (!reader || reader->offset >= reader->bytes.count) {
-        if (reader) {
-            reader->error = JpegError::truncated;
-        }
+    if (reader->offset >= reader->bytes.count) {
+        reader->error = JpegError::truncated;
         return false;
     }
     u8 value = reader->bytes[reader->offset++];
@@ -451,7 +449,7 @@ bool entropy_load_byte(ReferenceReader* reader) noexcept {
 }
 
 u32 entropy_read_bit(ReferenceReader* reader) noexcept {
-    if (!reader || reader->error != JpegError::none) {
+    if (reader->error != JpegError::none) {
         return 0;
     }
     if (reader->bits == 0 && !entropy_load_byte(reader)) {
@@ -462,10 +460,6 @@ u32 entropy_read_bit(ReferenceReader* reader) noexcept {
 }
 
 u32 entropy_read_bits(ReferenceReader* reader, u32 count) noexcept {
-    if (count > 16) {
-        reader->error = JpegError::entropy;
-        return 0;
-    }
     u32 value = 0;
     for (u32 index = 0; index < count; ++index) {
         value = value << 1 | entropy_read_bit(reader);
@@ -474,7 +468,7 @@ u32 entropy_read_bits(ReferenceReader* reader, u32 count) noexcept {
 }
 
 bool entropy_align(ReferenceReader* reader) noexcept {
-    if (!reader || reader->error != JpegError::none) {
+    if (reader->error != JpegError::none) {
         return false;
     }
     if (reader->bits != 0) {
@@ -491,7 +485,7 @@ bool entropy_align(ReferenceReader* reader) noexcept {
 bool entropy_consume_restart(ReferenceReader* reader, u8 expected) noexcept {
     if (!entropy_align(reader) || reader->offset >= reader->bytes.count ||
         reader->bytes[reader->offset] != 0xFF) {
-        if (reader && reader->error == JpegError::none) {
+        if (reader->error == JpegError::none) {
             reader->error = JpegError::restart;
         }
         return false;
@@ -508,10 +502,8 @@ bool entropy_consume_restart(ReferenceReader* reader, u8 expected) noexcept {
 }
 
 bool decode_huffman_symbol(ReferenceReader* reader, const JpegHuffmanTable& table, u8* symbol) noexcept {
-    if (!reader || !symbol || !table.present) {
-        if (reader) {
-            reader->error = JpegError::huffman;
-        }
+    if (!table.present) {
+        reader->error = JpegError::huffman;
         return false;
     }
     i32 code = 0;
@@ -548,9 +540,6 @@ i32 receive_extend(ReferenceReader* reader, u32 bits) noexcept {
 bool decode_block(ReferenceReader* reader, const JpegHuffmanTable& dc_table,
                   const JpegHuffmanTable& ac_table, i32* predictor, JpegCoefficientBlock* block,
                   u32* huffman_symbols) noexcept {
-    if (!reader || !predictor || !block || !huffman_symbols) {
-        return false;
-    }
     for (u32 index = 0; index < 64; ++index) {
         block->values[index] = 0;
     }
@@ -753,22 +742,12 @@ namespace maicord {
 namespace {
 u32 g_failures;
 void report(bool passed, const char* message) noexcept {
-    if (passed) {
-        return;
-    }
-    ++g_failures;
-    u32 length = 0;
-    while (message[length]) {
-        ++length;
-    }
-    DWORD written{};
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), message, length, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\r\n", 2, &written, nullptr);
+    test_check(&g_failures, passed, message);
 }
 } // namespace
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_media_decode_reference_tests_entry() noexcept {
     maicord::test_media_decode_reference(maicord::report);
-    ExitProcess(maicord::g_failures ? 1 : 0);
+    maicord::test_exit(maicord::g_failures, "media decode reference");
 }
