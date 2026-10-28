@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/protocol/http1.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -175,21 +176,11 @@ bool parse_date(Utf8View text, i64* unix_ms) noexcept {
         year += 2000;
     else if (have_year && year >= 70 && year <= 99)
         year += 1900;
-    static constexpr u8 month_days[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     if (!have_time || !have_day || !have_month || !have_year || year < 1601 || year > 9999 || day < 1 ||
-        day > month_days[month - 1] || (month == 2 && day == 29 && !leap) || hour > 23 || minute > 59 ||
-        second > 59)
+        day > civil_month_days(year, month) || hour > 23 || minute > 59 || second > 59)
         return false;
-    // Days from civil (proleptic Gregorian) to 1970-01-01.
-    const i64 y = static_cast<i64>(year) - (month <= 2 ? 1 : 0);
-    const i64 era = y / 400;
-    const i64 yoe = y - era * 400;
-    const i64 mp = (static_cast<i64>(month) + 9) % 12;
-    const i64 doy = (153 * mp + 2) / 5 + day - 1;
-    const i64 doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    const i64 days = era * 146097 + doe - 719468;
-    *unix_ms = ((days * 24 + hour) * 60 + minute) * 60'000 + static_cast<i64>(second) * 1000;
+    *unix_ms = ((civil_days_from_date(year, month, day) * 24 + hour) * 60 + minute) * 60'000 +
+               static_cast<i64>(second) * 1000;
     return true;
 }
 

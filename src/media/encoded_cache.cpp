@@ -1,4 +1,5 @@
 #include "maicord/media/encoded_cache.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 
@@ -11,18 +12,6 @@ namespace {
 constexpr u32 kInvalidIndex = 0xFFFFFFFFu;
 constexpr u32 kIndexTombstone = 0xFFFFFFFFu;
 volatile LONG64 next_content_identity = 0;
-
-bool etag_valid(ConstSlice<u8> etag) noexcept {
-    if ((!etag.data && etag.count != 0) || etag.count > kEncodedMediaCacheMaximumEtagBytes) {
-        return false;
-    }
-    for (u32 index = 0; index < etag.count; ++index) {
-        if (etag[index] < 0x21 || etag[index] > 0x7E) {
-            return false;
-        }
-    }
-    return true;
-}
 
 bool power_of_two(u32 value) noexcept {
     return value != 0 && (value & (value - 1)) == 0;
@@ -332,7 +321,8 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
     const MediaAssetKey key = key_view; // the cache is rewritten while the source is read
     const ConstSlice<u8> encoded = encoded_view;
     if (!cache || !cache->entries || !cache->page_owners || !cache->storage ||
-        !media_asset_key_valid(key) || !encoded.data || encoded.count == 0 || !etag_valid(policy.etag)) {
+        !media_asset_key_valid(key) || !encoded.data || encoded.count == 0 ||
+        !ascii_graphic_string(policy.etag, kEncodedMediaCacheMaximumEtagBytes)) {
         return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::invalid, 0};
     }
     if (!policy.store_allowed) {
@@ -445,7 +435,8 @@ bool encoded_media_cache_refresh(EncodedMediaCache* cache, const MediaAssetKey& 
                                  u16 expected_generation) noexcept {
     const MediaAssetKey key = key_view; // the cache is rewritten below
     const ConstSlice<u8> etag = etag_view;
-    if (!cache || !cache->entries || !media_asset_key_valid(key) || !etag_valid(etag)) {
+    if (!cache || !cache->entries || !media_asset_key_valid(key) ||
+        !ascii_graphic_string(etag, kEncodedMediaCacheMaximumEtagBytes)) {
         return false;
     }
     AcquireSRWLockExclusive(cache->lock.native());

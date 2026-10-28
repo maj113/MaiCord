@@ -1,5 +1,6 @@
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/base64.hpp"
+#include "maicord/core/time.hpp"
 
 // Message validators the client's mailbox readers and stores call on every
 // record, and the account module's decoders call before publishing one.
@@ -22,20 +23,6 @@ bool parse_four_digits(const char* data, u32* value) noexcept {
     }
     *value = high * 100u + low;
     return true;
-}
-
-bool leap_year(u32 year) noexcept {
-    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-}
-
-i64 civil_days(u32 year, u32 month, u32 day) noexcept {
-    i64 adjusted_year = static_cast<i64>(year) - (month <= 2 ? 1 : 0);
-    const i64 era = adjusted_year / 400;
-    const u32 year_of_era = static_cast<u32>(adjusted_year - era * 400);
-    const u32 adjusted_month = month > 2 ? month - 3 : month + 9;
-    const u32 day_of_year = (153 * adjusted_month + 2) / 5 + day - 1;
-    const u32 day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    return era * 146'097 + static_cast<i64>(day_of_era) - 719'468;
 }
 
 } // namespace
@@ -130,12 +117,7 @@ bool parse_iso_timestamp(const JsonString& value, u64* timestamp_ms) noexcept {
         month == 0 || month > 12 || hour > 23 || minute > 59 || second > 59) {
         return false;
     }
-    static constexpr u8 month_days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    u32 maximum_day = month_days[month - 1];
-    if (month == 2 && leap_year(year)) {
-        ++maximum_day;
-    }
-    if (day == 0 || day > maximum_day) {
+    if (day == 0 || day > civil_month_days(year, month)) {
         return false;
     }
 
@@ -185,7 +167,7 @@ bool parse_iso_timestamp(const JsonString& value, u64* timestamp_ms) noexcept {
         return false;
     }
 
-    const i64 days = civil_days(year, month, day);
+    const i64 days = civil_days_from_date(year, month, day);
     i64 milliseconds = days * 86'400'000ll + static_cast<i64>(hour) * 3'600'000ll +
                        static_cast<i64>(minute) * 60'000ll + static_cast<i64>(second) * 1'000ll +
                        fraction_ms;

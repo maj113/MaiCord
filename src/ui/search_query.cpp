@@ -1,6 +1,7 @@
 #include "maicord/ui/search_query.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -107,18 +108,10 @@ bool date(Utf8View value, u64* day) noexcept {
         else
             d = d * 10 + c - '0';
     }
-    const bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    const u8 days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    if (year < 2015 || year > 2100 || !month || month > 12 || !d ||
-        d > static_cast<u32>(days[month - 1]) + (month == 2 && leap ? 1u : 0u))
+    if (year < 2015 || year > 2100 || !month || month > 12 || !d || d > civil_month_days(year, month))
         return false;
-    u64 count = 0;
-    for (u32 y = 2015; y < year; ++y)
-        count += 365 + (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
-    for (u32 m = 1; m < month; ++m)
-        count += days[m - 1] + (m == 2 && leap ? 1 : 0);
-    count += d - 1;
-    *day = count * 86400000ull;
+    constexpr i64 epoch_days = static_cast<i64>(kSnowflakeEpochMilliseconds / 86'400'000ull);
+    *day = static_cast<u64>(civil_days_from_date(year, month, d) - epoch_days) * 86400000ull;
     return true;
 }
 u32 has(Utf8View value) noexcept {

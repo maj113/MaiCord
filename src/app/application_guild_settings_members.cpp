@@ -76,33 +76,16 @@ u64 preset_after(u64 now, const DatePreset& preset) noexcept {
     default: break;
     }
     const u64 days = now / kDayMs, rest = now % kDayMs;
-    // Civil date of `days` (proleptic Gregorian), then back N months.
-    const u64 z = days + 719'468, era = z / 146'097;
-    const u32 doe = static_cast<u32>(z - era * 146'097);
-    const u32 yoe = (doe - doe / 1'460 + doe / 36'524 - doe / 146'096) / 365;
-    const u32 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    const u32 mp = (5 * doy + 2) / 153;
-    u32 day = doy - (153 * mp + 2) / 5 + 1;
-    i64 month = mp < 10 ? mp + 3 : static_cast<i64>(mp) - 9;
-    i64 year = static_cast<i64>(yoe + era * 400) + (month <= 2 ? 1 : 0);
-    month -= preset.amount;
+    // Civil date of `days`, then back N months.
+    const CivilDate civil = civil_date_from_days(static_cast<i64>(days));
+    i64 month = civil.month - static_cast<i64>(preset.amount), year = civil.year;
     while (month < 1) {
         month += 12;
         --year;
     }
-    static constexpr u32 lengths[]{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    const u32 length = lengths[month - 1] + (month == 2 && leap ? 1 : 0);
-    if (day > length)
-        day = length;
-    // Days from civil.
-    const i64 y = year - (month <= 2 ? 1 : 0);
-    const i64 e = (y >= 0 ? y : y - 399) / 400;
-    const u32 yoe2 = static_cast<u32>(y - e * 400);
-    const u32 doy2 = (153 * static_cast<u32>(month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;
-    const u32 doe2 = yoe2 * 365 + yoe2 / 4 - yoe2 / 100 + doy2;
-    const i64 result = e * 146'097 + doe2 - 719'468;
-    return static_cast<u64>(result) * kDayMs + rest;
+    const u32 length = civil_month_days(year, static_cast<u32>(month));
+    const u32 day = civil.day > length ? length : civil.day;
+    return static_cast<u64>(civil_days_from_date(year, static_cast<u32>(month), day)) * kDayMs + rest;
 }
 
 // "3 days ago" as the members table's columns word it.

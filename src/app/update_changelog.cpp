@@ -1,6 +1,7 @@
 #include "maicord/app/update_changelog.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/time.hpp"
 #include "../protocol/json_field_lists.hpp"
 
 namespace maicord {
@@ -228,16 +229,9 @@ u32 update_changelog_display_text(Utf8View text, Slice<char> output) noexcept {
 }
 
 u32 update_changelog_date_text(u64 unix_seconds, bool year, Slice<char> output) noexcept {
-    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
-    const i64 days = static_cast<i64>(unix_seconds / 86400) + 719468;
-    const i64 era = days / 146097;
-    const i64 day_of_era = days - era * 146097;
-    const i64 year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
-    const i64 day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    const i64 month_index = (5 * day_of_year + 2) / 153;
-    const u32 day = static_cast<u32>(day_of_year - (153 * month_index + 2) / 5 + 1);
-    const u32 month = static_cast<u32>(month_index < 10 ? month_index + 3 : month_index - 9);
-    const u64 civil_year = static_cast<u64>(year_of_era + era * 400 + (month <= 2 ? 1 : 0));
+    const CivilDate civil = civil_date_from_days(static_cast<i64>(unix_seconds / 86400));
+    const u32 day = civil.day, month = civil.month;
+    const u64 civil_year = static_cast<u64>(civil.year);
     static constexpr char names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
     char text[24];
     copy_bytes(text, names + (month - 1) * 3, 3);

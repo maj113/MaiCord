@@ -1,6 +1,7 @@
 #include "application_plugin_browser_projection.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/time.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -107,11 +108,8 @@ void relative_time(PluginBrowserBank& bank, u64 now, u64 then) noexcept {
 }
 // YYYY-MM-DD (UTC) of a unix time.
 void date(PluginBrowserBank& bank, u64 unix) noexcept {
-    i64 days = static_cast<i64>(unix / 86400) + 719468;
-    const i64 era = days / 146097, doe = days - era * 146097, yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    const i64 doy = doe - (365 * yoe + yoe / 4 - yoe / 100), mp = (5 * doy + 2) / 153;
-    const u64 day = static_cast<u64>(doy - (153 * mp + 2) / 5 + 1), month = static_cast<u64>(mp < 10 ? mp + 3 : mp - 9);
-    const u64 year = static_cast<u64>(yoe + era * 400 + (month <= 2 ? 1 : 0));
+    const CivilDate civil = civil_date_from_days(static_cast<i64>(unix / 86400));
+    const u64 year = static_cast<u64>(civil.year), month = civil.month, day = civil.day;
     number(bank, year);
     add(bank, month < 10 ? utf8_literal("-0") : utf8_literal("-")); number(bank, month);
     add(bank, day < 10 ? utf8_literal("-0") : utf8_literal("-")); number(bank, day);

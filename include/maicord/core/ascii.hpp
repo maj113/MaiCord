@@ -92,4 +92,9 @@ constexpr bool ascii_graphic_string(const Utf8View& value, u32 maximum_bytes,
     return true;
 }
 
+inline bool ascii_graphic_string(ConstSlice<u8> value, u32 maximum_bytes, bool require_nonempty = false) noexcept {
+    return ascii_graphic_string(Utf8View{reinterpret_cast<const char*>(value.data), value.count}, maximum_bytes,
+                                require_nonempty);
+}
+
 } // namespace maicord
