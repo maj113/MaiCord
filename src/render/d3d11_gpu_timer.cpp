@@ -25,15 +25,6 @@ void release_queries(D3D11GpuTimerOwner* owner) noexcept {
     }
 }
 
-bool owns_frame(const D3D11GpuTimerOwner& owner, const D3D11GpuTimerFrame* frame) noexcept {
-    for (u32 index = 0; index < kD3D11GpuTimerFrameCount; ++index) {
-        if (frame == &owner.frames[index]) {
-            return true;
-        }
-    }
-    return false;
-}
-
 } // namespace
 
 D3D11GpuTimerResult d3d11_gpu_timer_initialize(D3D11GpuTimerOwner* owner, ID3D11Device* device,
@@ -141,7 +132,7 @@ D3D11GpuTimerFrame* d3d11_gpu_timer_begin(D3D11GpuTimerOwner* owner,
 
 void d3d11_gpu_timer_end(D3D11GpuTimerOwner* owner, ID3D11DeviceContext* context,
                          D3D11GpuTimerFrame* frame) noexcept {
-    if (!owner || !owner->enabled || !context || !frame || !owns_frame(*owner, frame) || frame->pending) {
+    if (!owner || !owner->enabled || !context || !frame || frame->pending) {
         return;
     }
     context->End(frame->end);

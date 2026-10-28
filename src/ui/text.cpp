@@ -32,6 +32,7 @@ struct TextHitEndpoint {
     u16 hit_index;
     bool end;
 };
+
 } // namespace
 
 TextShapeResult validate_text_input(Utf8View input, Slice<wchar_t> output) noexcept {
@@ -61,7 +62,7 @@ bool resolve_text_hits(Utf8View input, ConstSlice<TextHitSpan> hits, TextHitRang
         return false;
     }
     if (!hits.count) return true;
-    TextHitEndpoint endpoints[kTextHitSpanMaximum * 2]{};
+    TextHitEndpoint endpoints[kTextHitSpanMaximum * 2];
     for (u32 index = 0; index < hits.count; ++index) {
         const TextHitSpan& hit = hits[index];
         if (hit.byte_count == 0 || hit.byte_offset > input.bytes ||
@@ -280,18 +281,15 @@ namespace {
 // offsets are unchanged, so styles, hit spans and cluster maps stay valid. The
 // bare engine (policy off) keeps rejecting such input.
 bool native_fallback_scalar(u32 cp) noexcept {return cp>126||(cp<32&&cp!=9&&cp!=10&&cp!=13);}
-bool native_scalar_shapes(const TextSystem& system,u32 cp) noexcept {
-    char text[6];u32 n=0;text[n++]='a';n+=utf8_encode(cp,text+n);text[n++]='a';
-    TextMeasureResult measured{};
-    const bool ok=native_text_candidate_line(system,{text,n},1048576.0f,1048576.0f,nullptr,&measured,TextWrapping::no_wrap);
-    (void)native_text_candidate_take_output_failure(system);
-    return ok;
-}
 bool native_chunk_shapes(const TextSystem& system,Utf8View text) noexcept {
     TextMeasureResult measured{};
     const bool ok=native_text_candidate_line(system,text,1048576.0f,1048576.0f,nullptr,&measured,TextWrapping::no_wrap);
     (void)native_text_candidate_take_output_failure(system);
     return ok;
+}
+bool native_scalar_shapes(const TextSystem& system,u32 cp) noexcept {
+    char text[6];u32 n=0;text[n++]='a';n+=utf8_encode(cp,text+n);text[n++]='a';
+    return native_chunk_shapes(system,{text,n});
 }
 // Marks, format controls and emoji modifiers only shape after their base; a
 // probe after 'a' says nothing about them (U+FE0F after an emoji is fine).

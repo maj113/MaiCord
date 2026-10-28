@@ -17,8 +17,6 @@ inline Color background_color_rgb24(u32 rgb) noexcept {
 // Fixed, local arithmetic avoids a CRT math import or lookup-table owner. All
 // callers use the closed unit interval; bisection has a fixed iteration bound.
 inline double background_color_root(double value, u32 degree) noexcept {
-    if (degree < 2 || degree > 12)
-        return 0;
     if (value <= 0)
         return 0;
     if (value >= 1)
@@ -185,8 +183,6 @@ inline u32 background_color_pack(Color color) noexcept {
 }
 inline u32 background_color_rotate_hue(u32 rgb, float degrees) noexcept {
     auto hsl = background_color_hsl(background_color_rgb24(rgb));
-    if (!(degrees >= -360 && degrees <= 360))
-        return rgb & 0xffffff;
     hsl.hue += degrees;
     if (hsl.hue >= 360)
         hsl.hue -= 360;

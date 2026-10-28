@@ -11,12 +11,13 @@ bool guild_context_target_current(const ChatStateStore& state, u64 guild_id, u16
                                   u32 revision) noexcept {
     const auto* guild = chat_state_store_find_guild(state, guild_id);
     return guild && guild->generation == generation && guild->revision == revision &&
-           guild_context_target_valid(state, guild_id);
+           !guild->unavailable;
 }
 u32 guild_context_policy_build(const ChatStateStore& state, u64 guild_id, u32 copy_id_action,
                                Slice<PopupItem> output, UiScopedReadMenuState scoped,
                                u32 settings_action, bool developer_mode) noexcept {
-    if (!copy_id_action || !output.data || !output.count || !guild_context_target_valid(state, guild_id) ||
+    const auto* guild = chat_state_store_find_guild(state, guild_id);
+    if (!copy_id_action || !output.data || !output.count || !guild || guild->unavailable ||
         (settings_action && (settings_action == copy_id_action || settings_action == scoped.mark_action ||
                              settings_action == scoped.retry_action)))
         return 0;
@@ -26,7 +27,6 @@ u32 guild_context_policy_build(const ChatStateStore& state, u64 guild_id, u32 co
         (scoped.available && !scoped.mark_action) ||
         (scoped.available && scoped.retry_available && !scoped.retry_action))
         return 0;
-    const auto* guild = chat_state_store_find_guild(state, guild_id);
     const bool mark = scoped.available && guild->permissions_resolved;
     const bool retry = mark && scoped.retry_available && !scoped.pending;
     // Server Settings is offered only with a permission one of its pages uses.
@@ -164,9 +164,6 @@ u32 guild_context_create_channel_items(const ChatStateStore& state, u64 guild_id
     }
     return voice ? 2 : 1;
 }
-} // namespace maicord
-
-namespace maicord {
 u32 guild_context_create_category_item(const ChatStateStore& state, u64 guild_id, u32 action,
                                        Slice<PopupItem> output) noexcept {
     if (!action || !output.data || !output.count || !guild_context_can_create_channel(state, guild_id, 0))

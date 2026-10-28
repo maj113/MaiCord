@@ -78,9 +78,6 @@ struct ReactionViewer {
     u32 hovered_user;
     u32 hovered_aggregate;
     u32 revision;
-    u32 opens;
-    u32 closes;
-    u32 rejected;
     u8 aggregate_count;
     bool active;
     bool loading;

@@ -498,8 +498,6 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, UiRect v
         p.name = {s->names[i], bytes};
         p.effect = {s->effects[i], copy_text(s->effects[i], kUiCallEffectBytes, p.effect)};
         s->participants[i] = p;
-        // Viewer counts are formatted once per projection, not per paint.
-        s->viewer_text[i][decimal_write(s->viewer_text[i], p.viewers)] = 0;
     }
     s->title_bytes = copy_text(s->title, kUiCallTitleBytes, content.title);
     s->focus_user = content.focus_user;
@@ -1264,10 +1262,8 @@ bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextO
         const auto viewers = viewer_pill(tile, *p);
         if (ok && ui_rect_has_area(viewers)) {
             const UiRect count{viewers.left + 24, viewers.top, viewers.right - 4, viewers.bottom};
-            const char* digits = s.viewer_text[tile.participant];
-            u32 bytes = 0;
-            while (bytes < sizeof(s.viewer_text[0]) && digits[bytes])
-                ++bytes;
+            char digits[12];
+            const u32 bytes = decimal_write(digits, p->viewers);
             ok = push_text(text, s, {digits, bytes}, count, ui_rect_intersection(clip, viewers), light,
                            text_style_subtext | text_style_bold);
         }

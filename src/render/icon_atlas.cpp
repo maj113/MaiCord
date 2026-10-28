@@ -49,7 +49,7 @@ u64 cell_key(u32 icon, bool solid, u16 size, float half_width) noexcept {
 bool place_bounds(const IconPack& pack, u32 index, UiRect box, float pixel_scale, float weight,
                   IconPlacement* placement) noexcept {
     const float extent = minimum(ui_rect_width(box), ui_rect_height(box));
-    if (!placement || index >= pack.icon_count || !(pixel_scale > 0 && pixel_scale <= 8) || !(extent > 0))
+    if (index >= pack.icon_count || !(pixel_scale > 0 && pixel_scale <= 8) || !(extent > 0))
         return false;
     const i32 size = round_i32(extent * pixel_scale);
     if (size < 4 || size > static_cast<i32>(kIconAtlasMaximumPixels))

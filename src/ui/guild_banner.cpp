@@ -143,7 +143,7 @@ UiGuildBannerGeometry ui_guild_banner_geometry(const UiRect& sidebar, const UiRe
     const float strip = maximum(0.f, kUiGuildBannerScrollRange - scroll);
     g.hover = {sidebar.left, header.bottom, sidebar.right, header.bottom + strip};
     g.opacity = g.value;
-    g.scrim = g.visible ? g.value : 0.f;
+    g.scrim = g.value;
     g.glass = !g.visible ? 0.f : header_hovered ? 1.f : clamp01((1 - g.value) * 6);
     return g;
 }

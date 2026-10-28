@@ -195,6 +195,12 @@ void set_geometry(UiLayoutNode* node, UiRect rectangle, UiRect inherited_clip) n
     node->visible = has_flag(node->spec.style, ui_layout_node_visible);
 }
 
+UiRect children_clip(const UiLayoutNode& parent) noexcept {
+    return has_flag(parent.spec.style, ui_layout_node_clip_children)
+               ? ui_rect_intersection(parent.clip_rectangle, parent.content_rectangle)
+               : parent.clip_rectangle;
+}
+
 float child_main_minimum(const UiLayoutNode& child, bool horizontal) noexcept {
     return horizontal ? child.spec.style.minimum_size.width : child.spec.style.minimum_size.height;
 }
@@ -288,11 +294,7 @@ inline UiRect overlay_child_rectangle(const UiLayoutNode& parent, const UiLayout
 }
 
 void arrange_overlay_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
-    const UiRect available = parent.content_rectangle;
-    UiRect inherited_clip = parent.clip_rectangle;
-    if (has_flag(parent.spec.style, ui_layout_node_clip_children)) {
-        inherited_clip = ui_rect_intersection(inherited_clip, available);
-    }
+    const UiRect inherited_clip = children_clip(parent);
     for (u16 child_slot = parent.first_child; child_slot != kInvalidUiLayoutSlot;
          child_slot = engine->storage[child_slot].next_sibling) {
         UiLayoutNode& child = engine->storage[child_slot];
@@ -340,10 +342,7 @@ void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool h
                    (fill_weight == 0.0f ? justify_offset(parent.spec.style.justification, free_space,
                                                          child_count, &extra_gap)
                                         : 0.0f);
-    UiRect inherited_clip = parent.clip_rectangle;
-    if (has_flag(parent.spec.style, ui_layout_node_clip_children)) {
-        inherited_clip = ui_rect_intersection(inherited_clip, available);
-    }
+    const UiRect inherited_clip = children_clip(parent);
     const float scroll_main = horizontal ? parent.scroll_offset.x : parent.scroll_offset.y;
     const float scroll_cross = horizontal ? parent.scroll_offset.y : parent.scroll_offset.x;
     u32 arranged_index = 0;
@@ -435,25 +434,16 @@ WrapRowMetrics measure_wrap_row(const UiLayoutEngine& engine, u16 first, float a
     return row;
 }
 
-void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
+// Rectangles of a wrapping parent's visible children, row by row. place(slot,
+// rectangle) returns true to stop.
+template <typename Place>
+void place_wrap_children(const UiLayoutEngine& engine, const UiLayoutNode& parent, Place place) noexcept {
     const UiRect available = parent.content_rectangle;
     const float available_width = ui_rect_width(available);
-    UiRect inherited_clip = parent.clip_rectangle;
-    if (has_flag(parent.spec.style, ui_layout_node_clip_children)) {
-        inherited_clip = ui_rect_intersection(inherited_clip, available);
-    }
-    for (u16 slot = parent.first_child; slot != kInvalidUiLayoutSlot;
-         slot = engine->storage[slot].next_sibling) {
-        if (!has_flag(engine->storage[slot].spec.style, ui_layout_node_visible)) {
-            engine->storage[slot].visible = false;
-        }
-    }
-
     float row_top = available.top;
     u16 row_first = parent.first_child;
     while (row_first != kInvalidUiLayoutSlot) {
-        const WrapRowMetrics row =
-            measure_wrap_row(*engine, row_first, available_width, parent.spec.style.gap);
+        const WrapRowMetrics row = measure_wrap_row(engine, row_first, available_width, parent.spec.style.gap);
         if (row.count == 0) {
             break;
         }
@@ -462,8 +452,8 @@ void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcep
         float cursor = available.left +
                        justify_offset(parent.spec.style.justification, free_space, row.count, &extra_gap);
         u32 arranged_index = 0;
-        for (u16 slot = row_first; slot != row.next; slot = engine->storage[slot].next_sibling) {
-            UiLayoutNode& child = engine->storage[slot];
+        for (u16 slot = row_first; slot != row.next; slot = engine.storage[slot].next_sibling) {
+            const UiLayoutNode& child = engine.storage[slot];
             if (!has_flag(child.spec.style, ui_layout_node_visible)) {
                 continue;
             }
@@ -479,10 +469,11 @@ void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcep
                 top = aligned_position(row_top, row.height, height, style.margin.top, style.margin.bottom,
                                        style.vertical_alignment);
             }
-            const UiRect rectangle{cursor - parent.scroll_offset.x, top - parent.scroll_offset.y,
+            if (place(slot, UiRect{cursor - parent.scroll_offset.x, top - parent.scroll_offset.y,
                                    cursor - parent.scroll_offset.x + width,
-                                   top - parent.scroll_offset.y + height};
-            set_geometry(&child, rectangle, inherited_clip);
+                                   top - parent.scroll_offset.y + height})) {
+                return;
+            }
             cursor += width + style.margin.right;
             if (++arranged_index < row.count) {
                 cursor += parent.spec.style.gap + extra_gap;
@@ -494,6 +485,20 @@ void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcep
             row_top += parent.spec.style.gap;
         }
     }
+}
+
+void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
+    const UiRect inherited_clip = children_clip(parent);
+    for (u16 slot = parent.first_child; slot != kInvalidUiLayoutSlot;
+         slot = engine->storage[slot].next_sibling) {
+        if (!has_flag(engine->storage[slot].spec.style, ui_layout_node_visible)) {
+            engine->storage[slot].visible = false;
+        }
+    }
+    place_wrap_children(*engine, parent, [&](u16 slot, const UiRect& rectangle) noexcept {
+        set_geometry(&engine->storage[slot], rectangle, inherited_clip);
+        return false;
+    });
 }
 
 void arrange_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
@@ -586,55 +591,15 @@ bool rectangles_match(const UiRect& left, const UiRect& right) noexcept {
 
 UiRect expected_wrap_rectangle(const UiLayoutEngine& engine, const UiLayoutNode& parent,
                                const UiLayoutNode& target) noexcept {
-    const UiRect available = parent.content_rectangle;
-    const float available_width = ui_rect_width(available);
-    float row_top = available.top;
-    u16 row_first = parent.first_child;
-    while (row_first != kInvalidUiLayoutSlot) {
-        const WrapRowMetrics row =
-            measure_wrap_row(engine, row_first, available_width, parent.spec.style.gap);
-        if (row.count == 0) {
-            break;
+    UiRect expected = target.rectangle;
+    place_wrap_children(engine, parent, [&](u16 slot, const UiRect& rectangle) noexcept {
+        if (&engine.storage[slot] != &target) {
+            return false;
         }
-        const float free_space = maximum(0.0f, available_width - row.width);
-        float extra_gap = 0.0f;
-        float cursor = available.left +
-                       justify_offset(parent.spec.style.justification, free_space, row.count, &extra_gap);
-        u32 arranged_index = 0;
-        for (u16 slot = row_first; slot != row.next; slot = engine.storage[slot].next_sibling) {
-            const UiLayoutNode& child = engine.storage[slot];
-            if (!has_flag(child.spec.style, ui_layout_node_visible)) {
-                continue;
-            }
-            const UiLayoutStyle& style = child.spec.style;
-            const float width =
-                clamp_extent(child.measured_size.width, style.minimum_size.width, style.maximum_size.width);
-            const float height = arranged_cross_extent(child, true, row.height);
-            cursor += style.margin.left;
-            float top = 0.0f;
-            if (style.vertical_alignment == UiLayoutAlignment::baseline) {
-                top = row_top + row.maximum_baseline - child.measured_baseline;
-            } else {
-                top = aligned_position(row_top, row.height, height, style.margin.top, style.margin.bottom,
-                                       style.vertical_alignment);
-            }
-            if (&child == &target) {
-                return UiRect{cursor - parent.scroll_offset.x, top - parent.scroll_offset.y,
-                              cursor - parent.scroll_offset.x + width,
-                              top - parent.scroll_offset.y + height};
-            }
-            cursor += width + style.margin.right;
-            if (++arranged_index < row.count) {
-                cursor += parent.spec.style.gap + extra_gap;
-            }
-        }
-        row_top += row.height;
-        row_first = row.next;
-        if (row_first != kInvalidUiLayoutSlot) {
-            row_top += parent.spec.style.gap;
-        }
-    }
-    return target.rectangle;
+        expected = rectangle;
+        return true;
+    });
+    return expected;
 }
 
 UiRect expected_alignment_rectangle(const UiLayoutEngine& engine, const UiLayoutNode& parent,

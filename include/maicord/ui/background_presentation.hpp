@@ -77,8 +77,7 @@ inline bool ui_background_palette(const Theme& theme, Color* colors) noexcept {
     if (!colors || !ui_background_active(theme))
         return false;
     for (u32 i = 0; i < theme.background.color_count; ++i) {
-        const u32 value = theme.background.colors[i];
-        colors[i] = {((value >> 16) & 255) / 255.f, ((value >> 8) & 255) / 255.f, (value & 255) / 255.f, 1};
+        colors[i] = color_from_rgb24(theme.background.colors[i]);
     }
     for (u32 i = theme.background.color_count; i < 5; ++i)
         reset_value(&colors[i]);

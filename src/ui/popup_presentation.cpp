@@ -113,12 +113,11 @@ bool paint_menu_row_icon(const PopupScene& scene, u32 index, const Theme& theme,
                                     UiLayoutContentKind::icon, ui_layout_content_bounds_allow_overlap);
     return paint_stream_pop_clip(paint) && painted;
 }
-} // namespace
-
 UiRect popup_avatar_rectangle(const UiLayoutNode& row) noexcept {
     const float y = (row.rectangle.top + row.rectangle.bottom) * .5f - 12;
     return {row.rectangle.left + 8, y, row.rectangle.left + 32, y + 24};
 }
+} // namespace
 
 bool popup_presentation_build(const PopupScene& scene, const Theme& theme, PaintStream* paint) noexcept {
     if (!paint || !scene.active || scene.item_count == 0 || scene.item_count > scene.items.count ||

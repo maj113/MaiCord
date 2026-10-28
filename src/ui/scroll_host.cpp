@@ -88,30 +88,13 @@ UiScrollDispatch queue_scroll(UiScrollEntry* entry, const UiScrollRange& range, 
 UiWidgetHandle widget_handle(u64 key) noexcept {
     return UiWidgetHandle{static_cast<u16>(key), static_cast<u16>(key >> 16)};
 }
-bool widget_scroll_input_allowed(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
-    // Scroll owners need not be buttons with ui_widget_enabled. Explicit modal
-    // blocks and stale/hidden ancestor chains still exclude their whole subtree.
-    for (u32 depth = 0; depth < kMaximumUiLayoutDepth; ++depth) {
-        const auto* widget = ui_widget_manager_resolve(manager, handle);
-        const auto* node = ui_widget_manager_layout_node(manager, handle);
-        if (!widget || !node || !node->visible || !(node->spec.style.flags & ui_layout_node_visible) ||
-            (widget->flags & ui_widget_block_input)) return false;
-        if (!widget->parent.generation)
-            return handle.slot == 0 && widget->parent.slot == kInvalidUiWidgetSlot &&
-                   node->parent == kInvalidUiLayoutSlot;
-        const auto* parent = ui_widget_manager_resolve(manager, widget->parent);
-        if (!parent || widget->parent.slot >= handle.slot || node->parent != parent->layout.slot) return false;
-        handle = widget->parent;
-    }
-    return false;
-}
 bool widget_read(void* context, u64 key, UiScrollRange* range) noexcept {
     auto& manager = *static_cast<UiWidgetManager*>(context);
     const UiWidget* widget = ui_widget_manager_resolve(manager, widget_handle(key));
     const UiLayoutNode* node =
         widget ? ui_widget_manager_layout_node(manager, widget_handle(key)) : nullptr;
     if (!node || !node->visible || widget->kind != UiWidgetKind::scroll_view ||
-        !widget_scroll_input_allowed(manager, widget_handle(key)) ||
+        !ui_widget_manager_input_reachable(manager, widget_handle(key)) ||
         !(node->spec.style.flags & ui_layout_node_scroll_vertical))
         return false;
     UiWidgetScrollGeometry geometry{};

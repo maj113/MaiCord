@@ -14,11 +14,6 @@ constexpr Utf8View kEmpty = utf8_literal("No reactions");
 constexpr Utf8View kTruncated = utf8_literal("Some reactions aren't shown");
 constexpr Utf8View kApp = utf8_literal("APP");
 
-bool push(PaintStream* paint, UiRect rectangle, const Color& fill, const Color& border, float radius,
-          float border_width) noexcept {
-    return paint_stream_push_rounded_border(paint, rectangle, fill, border, radius, border_width);
-}
-
 bool text_command(const ReactionViewer& viewer, UiTextOutput* text, Utf8View value, UiRect rectangle,
                   UiRect clip, const Color& color, u32 style = text_style_none,
                   UiTextAlignment horizontal = UiTextAlignment::start) noexcept {
@@ -60,7 +55,7 @@ bool reaction_viewer_presentation_build(const ReactionViewer& viewer, const Them
             break;
         }
         if ((index == viewer.selected_aggregate || index == viewer.hovered_aggregate) &&
-            !push(paint, row, hover, hover, 4.0f, 0.0f)) {
+            !paint_stream_push_rounded_border(paint, row, hover, hover, 4.0f, 0.0f)) {
             success = false;
         }
     }
@@ -69,21 +64,23 @@ bool reaction_viewer_presentation_build(const ReactionViewer& viewer, const Them
         if (!ui_rect_has_area(row)) {
             break;
         }
-        if (index == viewer.hovered_user && !push(paint, row, hover, hover, 4.0f, 0.0f)) {
+        if (index == viewer.hovered_user && !paint_stream_push_rounded_border(paint, row, hover, hover, 4.0f, 0.0f)) {
             success = false;
             break;
         }
         const float avatar_extent = 32.0f;
         const float avatar_top = (row.top + row.bottom - avatar_extent) * 0.5f;
         const UiRect avatar{row.left, avatar_top, row.left + avatar_extent, avatar_top + avatar_extent};
-        if (!push(paint, avatar, theme.interactive, theme.interactive, avatar_extent * 0.5f, 0.0f)) {
+        if (!paint_stream_push_rounded_border(paint, avatar, theme.interactive, theme.interactive, avatar_extent * 0.5f,
+                                              0.0f)) {
             success = false;
             break;
         }
         if ((viewer.users[index].flags & reaction_viewer_user_bot) != 0) {
             const UiRect badge{row.right - 42.0f, (row.top + row.bottom - 18.0f) * 0.5f, row.right,
                                (row.top + row.bottom + 18.0f) * 0.5f};
-            if (!push(paint, badge, theme.tokens.emphasis.fill, theme.tokens.emphasis.fill, 3.0f, 0.0f)) {
+            if (!paint_stream_push_rounded_border(paint, badge, theme.tokens.emphasis.fill, theme.tokens.emphasis.fill,
+                                                  3.0f, 0.0f)) {
                 success = false;
             }
         }

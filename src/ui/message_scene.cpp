@@ -2240,41 +2240,33 @@ const MessageSceneRowWidget* message_scene_resolve(const MessageScene& scene,
     if (!ui_widget_manager_resolve(scene.widgets, widget)) {
         return nullptr;
     }
+    const auto same = [&](UiWidgetHandle handle) noexcept {
+        return handle.slot == widget.slot && handle.generation == widget.generation;
+    };
     for (u32 index = 0; index < scene.count; ++index) {
         const MessageSceneRowWidget& row = scene.rows[index];
         const UiWidgetHandle handles[] = {row.widget,   row.avatar,     row.body,        row.reply,
                                           row.author,   row.content,    row.attachments, row.embeds,
                                           row.stickers, row.components, row.reactions,   row.notice,
                                           row.poll,     row.thread};
-        for (u32 handle_index = 0; handle_index < static_cast<u32>(sizeof(handles) / sizeof(handles[0]));
-             ++handle_index) {
-            if (handles[handle_index].slot == widget.slot &&
-                handles[handle_index].generation == widget.generation) {
+        for (const auto handle : handles)
+            if (same(handle))
                 return &row;
-            }
-        }
-        for (u32 reaction = 0; reaction < row.reaction_button_count; ++reaction) {
-            if (row.reaction_buttons[reaction].slot == widget.slot &&
-                row.reaction_buttons[reaction].generation == widget.generation) {
+        for (u32 reaction = 0; reaction < row.reaction_button_count; ++reaction)
+            if (same(row.reaction_buttons[reaction]))
                 return &row;
-            }
-        }
-        for (u32 rich_item = 0; rich_item < kMessageSceneRichItemMaximum; ++rich_item) {
-            if (row.rich_items[rich_item].slot == widget.slot &&
-                row.rich_items[rich_item].generation == widget.generation) {
+        for (const auto handle : row.rich_items)
+            if (same(handle))
                 return &row;
-            }
-        }
-        const auto* child = message_scene_snapshot_row(scene, row);
-        if (child) {
+        if (const auto* child = message_scene_snapshot_row(scene, row)) {
             const UiWidgetHandle child_handles[]{child->widget,      child->reply,  child->content,
                                                  child->attachments, child->embeds, child->stickers,
                                                  child->components,  child->notice};
             for (const auto handle : child_handles)
-                if (handle.slot == widget.slot && handle.generation == widget.generation)
+                if (same(handle))
                     return &row;
             for (const auto handle : child->rich_items)
-                if (handle.slot == widget.slot && handle.generation == widget.generation)
+                if (same(handle))
                     return &row;
         }
     }

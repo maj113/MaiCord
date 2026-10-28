@@ -30,7 +30,7 @@ inline bool inbox_avatar_media_resolve(const UiInboxScene& scene, u32 slot, Inbo
 }
 
 inline bool inbox_avatar_media_current(const UiInboxScene& scene, MediaAssetKey key) noexcept {
-    for (u32 i = 0; i < scene.count && i < kUiInboxVisibleRows; ++i) {
+    for (u32 i = 0; i < scene.count; ++i) {
         InboxAvatarMedia media{};
         if (inbox_avatar_media_resolve(scene, i, &media) && media_asset_key_equal(media.key, key))
             return true;

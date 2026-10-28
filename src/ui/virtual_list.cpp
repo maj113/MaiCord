@@ -171,20 +171,11 @@ bool ui_variable_list_set_height(UiVariableList* list, u32 index,
         return true;
     }
     list->item_units[index] = item_units;
-    if (item_units > previous) {
-        const u64 increase = static_cast<u64>(item_units - previous);
-        list->total_units += increase;
-        for (u32 position = index + 1; position <= list->count;
-             position += position & (~position + 1)) {
-            list->fenwick[position - 1] += increase;
-        }
-    } else {
-        const u64 decrease = static_cast<u64>(previous - item_units);
-        list->total_units -= decrease;
-        for (u32 position = index + 1; position <= list->count;
-             position += position & (~position + 1)) {
-            list->fenwick[position - 1] -= decrease;
-        }
+    // Unsigned wraparound turns a decrease into a subtraction.
+    const u64 delta = static_cast<u64>(item_units) - previous;
+    list->total_units += delta;
+    for (u32 position = index + 1; position <= list->count; position += position & (~position + 1)) {
+        list->fenwick[position - 1] += delta;
     }
     ++list->height_updates;
     return true;

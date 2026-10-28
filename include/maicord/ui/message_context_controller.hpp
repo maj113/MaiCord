@@ -33,7 +33,6 @@ struct MessageContextController {
     MessageContextMenuModel menu;
     u64 message_id;
     u32 opens;
-    u32 rejected;
     bool active;
 };
 

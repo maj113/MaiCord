@@ -83,7 +83,6 @@ struct UiSettingsStyleTokens : UiSettingsLayoutTokens {
 // opened: a spring (tension 1000, friction 48) over modal_enter_ms, so Settings
 // and each dialog open on one timeline.
 float ui_settings_modal_entrance(const UiSettingsDurations& duration, u64 elapsed_ms) noexcept;
-Color ui_settings_color_unpack(u32 rgba) noexcept;
 Color ui_settings_color_mix(const Color& a, const Color& b, float t) noexcept;
 Color ui_settings_color_alpha(const Color& color, float alpha) noexcept;
 

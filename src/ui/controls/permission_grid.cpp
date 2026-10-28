@@ -7,6 +7,10 @@ namespace {
 float pitch(const UiSettingsLayoutTokens& tokens) noexcept {
     return tokens.metric.color_cell + tokens.metric.color_gap;
 }
+// Room around the outer cells for the selection ring.
+float ring_room(const UiSettingsLayoutTokens& tokens) noexcept {
+    return tokens.metric.ring_gap + tokens.metric.ring_width;
+}
 } // namespace
 
 float ui_segments_width(const UiSettingsLayoutTokens& tokens, u32 count) noexcept {
@@ -128,13 +132,6 @@ bool ui_tristate_paint(PaintStream* paint, const UiSettingsTokens& tokens, const
 u32 ui_color_grid_columns(const UiSettingsLayoutTokens& tokens, float width) noexcept {
     return maximum(1u, static_cast<u32>((width + tokens.metric.color_gap) / pitch(tokens)));
 }
-
-namespace {
-// Room around the outer cells for the selection ring.
-float ring_room(const UiSettingsLayoutTokens& tokens) noexcept {
-    return tokens.metric.ring_gap + tokens.metric.ring_width;
-}
-} // namespace
 
 float ui_color_grid_height(const UiSettingsLayoutTokens& tokens, u32 count, float width) noexcept {
     const u32 columns = ui_color_grid_columns(tokens, width);

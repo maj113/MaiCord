@@ -245,11 +245,15 @@ MediaAtlasResult allocate_and_clear(MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D1
                                       height);
 }
 
+// A non-empty frame rectangle inside the canvas.
+static bool frame_fits_canvas(u32 x_offset, u32 y_offset, u32 width, u32 height, u32 canvas_width,
+                              u32 canvas_height) noexcept {
+    return width != 0 && height != 0 && x_offset <= canvas_width && y_offset <= canvas_height &&
+           width <= canvas_width - x_offset && height <= canvas_height - y_offset;
+}
+
 bool apng_control_valid(const ApngFrame& frame, u16 canvas_width, u16 canvas_height) noexcept {
-    return frame.width != 0 && frame.height != 0 && frame.x_offset <= canvas_width &&
-           frame.y_offset <= canvas_height &&
-           frame.width <= static_cast<u32>(canvas_width) - frame.x_offset &&
-           frame.height <= static_cast<u32>(canvas_height) - frame.y_offset &&
+    return frame_fits_canvas(frame.x_offset, frame.y_offset, frame.width, frame.height, canvas_width, canvas_height) &&
            static_cast<u8>(frame.dispose) <= static_cast<u8>(ApngDispose::previous) &&
            static_cast<u8>(frame.blend) <= static_cast<u8>(ApngBlend::over);
 }
@@ -261,11 +265,8 @@ bool apng_frame_valid(const ApngFrame& frame, u16 canvas_width, u16 canvas_heigh
 }
 
 bool gif_control_valid(const GifFrame& frame, u16 canvas_width, u16 canvas_height) noexcept {
-    return frame.width != 0 && frame.height != 0 && frame.width <= kGifDimensionMaximum &&
-           frame.height <= kGifDimensionMaximum && frame.x_offset <= canvas_width &&
-           frame.y_offset <= canvas_height &&
-           frame.width <= static_cast<u32>(canvas_width) - frame.x_offset &&
-           frame.height <= static_cast<u32>(canvas_height) - frame.y_offset &&
+    return frame_fits_canvas(frame.x_offset, frame.y_offset, frame.width, frame.height, canvas_width, canvas_height) &&
+           frame.width <= kGifDimensionMaximum && frame.height <= kGifDimensionMaximum &&
            static_cast<u8>(frame.dispose) <= static_cast<u8>(GifDispose::previous);
 }
 
@@ -283,11 +284,8 @@ bool gif_frame_valid(const GifFrame& frame, u16 canvas_width, u16 canvas_height,
 
 bool animated_webp_control_valid(const AnimatedWebpFrame& frame, u16 canvas_width,
                                  u16 canvas_height) noexcept {
-    return frame.width != 0 && frame.height != 0 && frame.width <= kWebpDimensionMaximum &&
-           frame.height <= kWebpDimensionMaximum && frame.x_offset <= canvas_width &&
-           frame.y_offset <= canvas_height &&
-           frame.width <= static_cast<u32>(canvas_width) - frame.x_offset &&
-           frame.height <= static_cast<u32>(canvas_height) - frame.y_offset &&
+    return frame_fits_canvas(frame.x_offset, frame.y_offset, frame.width, frame.height, canvas_width, canvas_height) &&
+           frame.width <= kWebpDimensionMaximum && frame.height <= kWebpDimensionMaximum &&
            static_cast<u8>(frame.blend) <= static_cast<u8>(AnimatedWebpBlend::source) &&
            static_cast<u8>(frame.dispose) <= static_cast<u8>(AnimatedWebpDispose::background);
 }

@@ -825,6 +825,7 @@ bool message_media_command_stream_initialize(MessageMediaCommandStream* stream,
     return true;
 }
 
+namespace {
 // The box of every visible framed code block (its text draws in the text pass).
 bool append_code_blocks(const MessageScene& scene, const MessageTextPresentation& text, const Theme& theme,
                         PaintStream* paint) noexcept {
@@ -841,6 +842,7 @@ bool append_code_blocks(const MessageScene& scene, const MessageTextPresentation
     }
     return true;
 }
+} // namespace
 
 bool message_presentation_build(const MessageScene& scene, const Theme& theme, PaintStream* paint,
                                 MessageMediaCommandStream* media, MessagePresentationResult* result,

@@ -137,8 +137,7 @@ bool resolve_color(const UiSettingsScene& scene, u64 control_id, u32 choice, Col
     if (!scene.palette.resolve || !scene.palette.resolve(scene.palette.context, control_id, choice, &theme) ||
         !theme.color_count)
         return false;
-    const u32 rgb = theme.colors[0];
-    *color = {((rgb >> 16) & 255) / 255.f, ((rgb >> 8) & 255) / 255.f, (rgb & 255) / 255.f, 1};
+    *color = color_from_rgb24(theme.colors[0]);
     return true;
 }
 // A styled list entry that fits its control: rows and cards on action rows,
@@ -482,8 +481,6 @@ RowLayout row_layout(const UiSettingsLayoutTokens& t, const UiSettingsStyle& sty
         float height = maximum(m.control_height, style.single_height);
         if (c.kind == UiSettingsControlKind::multiline)
             height = multiline_height(style, c, width);
-        else if (c.kind == UiSettingsControlKind::edit)
-            height = maximum(m.control_height, style.single_height);
         else if (c.kind == UiSettingsControlKind::radio)
             height = ui_radio_group_height(t, c.choices.count);
         else if (c.kind == UiSettingsControlKind::slider)
@@ -615,10 +612,11 @@ float nav_height(const UiSettingsMetrics& m, UiSettingsNavKind kind, u32 index) 
 }
 float nav_extent(const UiSettingsScene& scene, const UiSettingsMetrics& m) noexcept {
     float extent = 0;
-    NavRow row{};
-    for (u32 i = 0; i < nav_count(scene); ++i)
-        if (nav_row(scene, i, &row))
-            extent += nav_height(m, row.kind, i);
+    u32 index = 0;
+    visit_nav(scene, [&](const NavRow& row) noexcept {
+        extent += nav_height(m, row.kind, index++);
+        return true;
+    });
     return extent;
 }
 
@@ -1003,21 +1001,22 @@ bool build(UiSettingsScene* scene) noexcept {
     scene->sidebar = add(scene, root, UiWidgetKind::scroll_view, utf8_literal("Pages"), style);
     if (!scene->sidebar.generation)
         return false;
-    NavRow row{};
-    for (u32 i = 0; i < navs; ++i) {
-        if (!nav_row(*scene, i, &row))
-            continue;
-        auto item = sized(-1, row.kind == UiSettingsNavKind::page || row.kind == UiSettingsNavKind::action
-                                  ? m.nav_item_height
-                                  : nav_height(m, row.kind, i));
-        if (row.kind == UiSettingsNavKind::page || row.kind == UiSettingsNavKind::action)
+    bool nav_ok = true;
+    u32 nav_index = 0;
+    visit_nav(*scene, [&](const NavRow& row) noexcept {
+        const u32 i = nav_index++;
+        const bool button = row.kind == UiSettingsNavKind::page || row.kind == UiSettingsNavKind::action;
+        auto item = sized(-1, button ? m.nav_item_height : nav_height(m, row.kind, i));
+        if (button)
             item.margin.bottom = m.nav_item_gap;
-        if (!add(scene, scene->sidebar,
-                 row.target.kind != UiSettingsTargetKind::none ? UiWidgetKind::button : UiWidgetKind::container,
-                 utf8_literal("Navigation"), item, row.target, i, true, EntryRole::nav)
-                 .generation)
-            return false;
-    }
+        nav_ok = add(scene, scene->sidebar,
+                     row.target.kind != UiSettingsTargetKind::none ? UiWidgetKind::button : UiWidgetKind::container,
+                     utf8_literal("Navigation"), item, row.target, i, true, EntryRole::nav)
+                     .generation != 0;
+        return nav_ok;
+    });
+    if (!nav_ok)
+        return false;
     scene->title = add(scene, root, UiWidgetKind::text, utf8_literal("Page title"), placed(f.title, viewport));
     scene->description =
         add(scene, root, UiWidgetKind::text, utf8_literal("Page description"), placed(f.description, viewport));
@@ -1256,12 +1255,12 @@ UiControlState widget_state(const UiSettingsScene& scene, UiWidgetHandle handle,
     return {enabled, hovered, pressed, scene.focus_visible && ui_settings_target_equal(scene.focus, target)};
 }
 float toggle_motion(const UiSettingsScene& scene, const UiSettingsTarget& target, const UiSettingsLayoutTokens& t,
-                    bool* checked) noexcept {
+                    bool checked) noexcept {
     for (const auto& animation : scene.animations) {
         if (!animation.started_ms || animation.control_id != target.control_id)
             continue;
         const u32 duration = scene.reduced_motion ? t.duration.switch_reduced_ms : t.duration.switch_ms;
-        if (checked && animation.checked != *checked)
+        if (animation.checked != checked)
             return 1;
         const float elapsed = scene.clock_ms > animation.started_ms
                                   ? static_cast<float>(scene.clock_ms - animation.started_ms)
@@ -1283,19 +1282,18 @@ void reveal_range(UiSettingsScene* scene, bool sidebar, float first, float last,
 float nav_offset_of(const UiSettingsScene& scene, const UiSettingsMetrics& m, const UiSettingsTarget& target,
                     float* height) noexcept {
     float offset = 0;
-    NavRow row{};
-    for (u32 i = 0; i < nav_count(scene); ++i) {
-        if (!nav_row(scene, i, &row))
-            continue;
-        const float h = nav_height(m, row.kind, i);
-        if (ui_settings_target_equal(row.target, target)) {
+    u32 index = 0;
+    bool found = false;
+    visit_nav(scene, [&](const NavRow& row) noexcept {
+        const float h = nav_height(m, row.kind, index++);
+        found = ui_settings_target_equal(row.target, target);
+        if (found)
             *height = h;
-            return offset;
-        }
-        offset += h;
-    }
-    *height = 0;
-    return -1;
+        else
+            offset += h;
+        return !found;
+    });
+    return found ? offset : -1;
 }
 bool apply_scroll(UiSettingsScene* scene, bool sidebar, float previous) noexcept {
     const float offset = sidebar ? scene->sidebar_offset : scene->content_offset;
@@ -1319,11 +1317,12 @@ bool visit_targets(const UiSettingsScene& scene, UiSettingsFocusZone zone,
     if (zone == UiSettingsFocusZone::close)
         return visit(UiSettingsTarget{UiSettingsTargetKind::close, {}, 0});
     if (zone == UiSettingsFocusZone::sidebar) {
-        NavRow row{};
-        for (u32 i = 0; i < nav_count(scene); ++i)
-            if (nav_row(scene, i, &row) && row.target.kind != UiSettingsTargetKind::none && visit(row.target))
-                return true;
-        return false;
+        bool visited = false;
+        visit_nav(scene, [&](const NavRow& row) noexcept {
+            visited = row.target.kind != UiSettingsTargetKind::none && visit(row.target);
+            return !visited;
+        });
+        return visited;
     }
     for (u32 i = 0; i < scene.content.controls.count; ++i)
         if (focusable_control(scene, i) &&
@@ -2595,8 +2594,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         return false;
     switch (c.kind) {
     case UiSettingsControlKind::toggle: {
-        bool checked = c.checked;
-        const float motion = toggle_motion(scene, entry.target, t, &checked);
+        const float motion = toggle_motion(scene, entry.target, t, c.checked);
         return ui_switch_paint(paint, t, r.control, c.checked, motion, scene.reduced_motion, state);
     }
     case UiSettingsControlKind::segments:
@@ -2737,8 +2735,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             Color fill = theme.base_lowest;
             if (resolved && background_theme_valid(colors) && colors.color_count >= 2 &&
                 colors.colors[0] == colors.colors[1])
-                fill = {((colors.colors[0] >> 16) & 255) / 255.f, ((colors.colors[0] >> 8) & 255) / 255.f,
-                        (colors.colors[0] & 255) / 255.f, 1};
+                fill = color_from_rgb24(colors.colors[0]);
             const bool gradient = resolved && background_theme_valid(colors) && colors.colors[0] != colors.colors[1];
             if (!ui_swatch_paint(paint, t, swatch, fill, gradient ? &colors : nullptr, c.selected_choice == i,
                                  option_state))

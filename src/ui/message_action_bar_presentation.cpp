@@ -22,18 +22,12 @@ bool paint_shared_icon(PaintStream* paint, const MessageActionBar& bar, UiRect c
            paint_stream_record_content(paint, bar.owner, slot, UiLayoutContentKind::icon,
                                        ui_layout_content_bounds_allow_overlap);
 }
-bool paint_add_reaction(PaintStream* paint, const MessageActionBar& bar, UiRect cell,
-                        const Color& color) noexcept {
-    return paint_shared_icon(paint, bar, cell, color, UiIcon::add_reaction);
-}
-bool paint_reply(PaintStream* paint, const MessageActionBar& bar, UiRect cell,
-                 const Color& color) noexcept {
-    return paint_shared_icon(paint, bar, cell, color, UiIcon::reply);
-}
-
-bool paint_more(PaintStream* paint, const MessageActionBar& bar, UiRect cell, const Color& color) noexcept {
-    return paint_shared_icon(paint, bar, cell, color, UiIcon::ellipsis);
-}
+// Indexed by MessageActionBarItemKind; quick reactions paint text and plugins their slot icon.
+constexpr UiIcon kKindIcons[] = {UiIcon::count,   UiIcon::add_reaction, UiIcon::reply,    UiIcon::ellipsis,
+                                 UiIcon::forwarded, UiIcon::edit,         UiIcon::link,     UiIcon::eye_off,
+                                 UiIcon::pin,     UiIcon::unpin,        UiIcon::trash,    UiIcon::identifier,
+                                 UiIcon::retry};
+static_assert(sizeof(kKindIcons) / sizeof(kKindIcons[0]) == static_cast<u32>(MessageActionBarItemKind::plugin));
 
 } // namespace
 
@@ -68,53 +62,18 @@ bool message_action_bar_presentation_build(const MessageActionBar& bar, const Th
         if (!success) {
             break;
         }
-        switch (item.kind) {
-        case MessageActionBarItemKind::quick_reaction:
-            break;
-        case MessageActionBarItemKind::add_reaction:
-            success = paint_add_reaction(paint, bar, item.rectangle, theme.text_primary);
-            break;
-        case MessageActionBarItemKind::reply:
-            success = paint_reply(paint, bar, item.rectangle, theme.text_primary);
-            break;
-        case MessageActionBarItemKind::forward:
-            success = paint_shared_icon(paint, bar, item.rectangle, theme.text_primary, UiIcon::forwarded);
-            break;
-        case MessageActionBarItemKind::more:
-            success = paint_more(paint, bar, item.rectangle, theme.text_primary);
-            break;
-        case MessageActionBarItemKind::edit:
-            success = paint_shared_icon(paint, bar, item.rectangle, theme.text_primary, UiIcon::edit);
-            break;
-        case MessageActionBarItemKind::copy_link:
-            success = paint_shared_icon(paint, bar, item.rectangle, theme.text_primary, UiIcon::link);
-            break;
-        case MessageActionBarItemKind::mark_unread:
-            success = paint_shared_icon(paint, bar, item.rectangle, theme.text_primary, UiIcon::eye_off);
-            break;
-        case MessageActionBarItemKind::pin:
-            success = paint_shared_icon(paint, bar, item.rectangle, theme.text_primary, UiIcon::pin);
-            break;
-        case MessageActionBarItemKind::unpin:
-            success = paint_shared_icon(paint, bar, item.rectangle, theme.text_primary, UiIcon::unpin);
-            break;
-        case MessageActionBarItemKind::delete_message:
-            success = paint_shared_icon(paint, bar, item.rectangle, theme.notification, UiIcon::trash);
-            break;
-        case MessageActionBarItemKind::copy_id:
-            success = paint_shared_icon(paint, bar, item.rectangle, theme.text_primary, UiIcon::identifier);
-            break;
-        case MessageActionBarItemKind::retry:
-            success = paint_shared_icon(paint, bar, item.rectangle, theme.text_primary, UiIcon::retry);
-            break;
-        case MessageActionBarItemKind::plugin:
+        if (item.kind == MessageActionBarItemKind::plugin) {
             // A slot change since the bar opened leaves the cell blank until it reconfigures.
             if (item.catalog_index < plugin_count)
                 success = paint_shared_icon(paint, bar, item.rectangle,
                                             ui_plugin_slot_ink(theme, plugins[item.catalog_index].tone,
                                                                theme.text_primary),
                                             ui_plugin_slot_icon(plugins[item.catalog_index]));
-            break;
+        } else if (item.kind != MessageActionBarItemKind::quick_reaction) {
+            success = paint_shared_icon(paint, bar, item.rectangle,
+                                        item.kind == MessageActionBarItemKind::delete_message ? theme.notification
+                                                                                              : theme.text_primary,
+                                        kKindIcons[static_cast<u32>(item.kind)]);
         }
     }
     return paint_stream_pop_clip(paint) && success;

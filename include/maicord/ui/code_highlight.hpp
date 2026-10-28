@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/core/utf.hpp"
-#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 

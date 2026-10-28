@@ -125,10 +125,21 @@ bool enabled(const UiProfileDialogScene& s, const UiProfileDialogPart& part) noe
         return !c.busy || part.role == role_cancel || part.role == role_close;
     }
 }
-// Tiles of the current picker in display order (None first).
 u32 grid_columns(float width) noexcept {
     const u32 columns = static_cast<u32>((width + kTileGap) / (kTile + kTileGap));
     return columns < 1 ? 1 : columns > 3 ? 3 : columns;
+}
+// Apply and Cancel, right-aligned on the footer row at top.
+bool add_buttons(UiProfileDialogScene* s, UiWidgetHandle root, const UiRect& viewport, float right, float top) noexcept {
+    const UiSettingsStyleTokens t(kDefaultTheme.styles);
+    const float apply_w = ui_settings_button_width(
+        t, UiSettingsButtonSize::regular, ui_settings_text_width(s->content.apply_label, kUiSettingsDescriptionEm) * 1.08f);
+    const float cancel_w = ui_settings_button_width(
+        t, UiSettingsButtonSize::regular, ui_settings_text_width(utf8_literal("Cancel"), kUiSettingsDescriptionEm) * 1.08f);
+    return add(s, root, viewport, {right - apply_w, top, right, top + kFooterButton}, role_apply,
+               UiProfileDialogAction::apply, s->content.apply_label, 0, text_style_subtext | text_style_bold) &&
+           add(s, root, viewport, {right - apply_w - kFooterGap - cancel_w, top, right - apply_w - kFooterGap, top + kFooterButton},
+               role_cancel, UiProfileDialogAction::cancel, utf8_literal("Cancel"), 0, text_style_subtext | text_style_bold);
 }
 bool build_crop(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) noexcept {
     const auto panel = panel_rect(UiProfileDialogKind::crop, viewport, crop_height(viewport));
@@ -159,18 +170,10 @@ bool build_crop(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) n
         !add(s, root, viewport, {editor.right - kRotateBox, middle - kRotateBox * .5f, editor.right, middle + kRotateBox * .5f},
              role_rotate, UiProfileDialogAction::rotate))
         return false;
-    const UiSettingsStyleTokens t(kDefaultTheme.styles);
-    const float apply_w = ui_settings_button_width(t, UiSettingsButtonSize::regular,
-                                                   ui_settings_text_width(s->content.apply_label, kUiSettingsDescriptionEm) * 1.08f);
-    const float cancel_w = ui_settings_button_width(t, UiSettingsButtonSize::regular,
-                                                    ui_settings_text_width(utf8_literal("Cancel"), kUiSettingsDescriptionEm) * 1.08f);
     const float top = tools_top + kTool + kToolsPad + kFooterPad;
     return add(s, root, viewport, {left, top, left + 64, top + kFooterButton}, role_reset, UiProfileDialogAction::reset,
                utf8_literal("Reset"), 0, text_style_subtext | text_style_bold) &&
-           add(s, root, viewport, {right - apply_w, top, right, top + kFooterButton}, role_apply,
-               UiProfileDialogAction::apply, s->content.apply_label, 0, text_style_subtext | text_style_bold) &&
-           add(s, root, viewport, {right - apply_w - kFooterGap - cancel_w, top, right - apply_w - kFooterGap, top + kFooterButton},
-               role_cancel, UiProfileDialogAction::cancel, utf8_literal("Cancel"), 0, text_style_subtext | text_style_bold);
+           add_buttons(s, root, viewport, right, top);
 }
 bool build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) noexcept {
     const float height = minimum(kTop + kTitleLine + 16 + kPickerHeight + kFooterButton + kFooterPad * 2,
@@ -237,17 +240,7 @@ bool build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport)
         !add(s, root, viewport, {left, footer_top, right - 200, footer_top + kFooterButton}, role_status,
              UiProfileDialogAction::none, s->content.status, 0, text_style_subtext))
         return false;
-    const UiSettingsStyleTokens t(kDefaultTheme.styles);
-    const float apply_w = ui_settings_button_width(
-        t, UiSettingsButtonSize::regular, ui_settings_text_width(s->content.apply_label, kUiSettingsDescriptionEm) * 1.08f);
-    const float cancel_w = ui_settings_button_width(
-        t, UiSettingsButtonSize::regular, ui_settings_text_width(utf8_literal("Cancel"), kUiSettingsDescriptionEm) * 1.08f);
-    return add(s, root, viewport, {right - apply_w, footer_top, right, footer_top + kFooterButton}, role_apply,
-               UiProfileDialogAction::apply, s->content.apply_label, 0, text_style_subtext | text_style_bold) &&
-           add(s, root, viewport,
-               {right - apply_w - kFooterGap - cancel_w, footer_top, right - apply_w - kFooterGap,
-                footer_top + kFooterButton},
-               role_cancel, UiProfileDialogAction::cancel, utf8_literal("Cancel"), 0, text_style_subtext | text_style_bold);
+    return add_buttons(s, root, viewport, right, footer_top);
 }
 const UiProfileDialogPart* find(const UiProfileDialogScene& s, Role role, u32 source = 0) noexcept {
     for (u32 i = 0; i < s.part_count; ++i)
@@ -341,7 +334,7 @@ UiProfileDialogAction ui_profile_dialog_action(const UiProfileDialogScene& s, Ui
                                                u32* source) noexcept {
     for (u32 i = 0; i < s.part_count; ++i) {
         const auto& part = s.parts[i];
-        if (part.widget.slot != widget.slot || part.widget.generation != widget.generation)
+        if (!ui_widget_handle_equal(part.widget, widget))
             continue;
         if (source)
             *source = part.source;
@@ -536,10 +529,7 @@ bool ui_profile_dialog_paint(const UiProfileDialogScene& s, const Theme& theme, 
             break;
         }
         case role_preview:
-        case role_small_preview:
-            if (part.role == role_preview)
-                ok = paint_stream_push_rounded(paint, r, theme.base_lowest,
-                                               theme.scale.radius_sm);
+            ok = paint_stream_push_rounded(paint, r, theme.base_lowest, theme.scale.radius_sm);
             break;
         default:
             break;

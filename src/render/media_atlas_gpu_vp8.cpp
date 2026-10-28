@@ -12,6 +12,8 @@ namespace {
 struct Vp8TileWaveConstants { u32 diagonal, first_row, rank_span, reserved; u32 padding[60]; };
 static_assert(sizeof(Vp8TileWaveConstants) == 256);
 static_assert(kVp8MacroblockDimensionMaximum <= 32);
+// Waves: ceil((columns + 2 * rows - 2) / 8) + ceil(rows / 2) - 1 diagonals at most.
+static_assert((kVp8MacroblockDimensionMaximum * 3 + 5) / 8 + (kVp8MacroblockDimensionMaximum + 1) / 2 <= 32);
 HRESULT prepare_vp8_tiles(MediaAtlasGpu* gpu, ID3D11Device* device,
                           ID3D11DeviceContext1* context, u32 columns, u32 rows) noexcept {
     if (gpu->vp8_tile_constants && gpu->vp8_tile_columns == columns && gpu->vp8_tile_rows == rows)
@@ -32,13 +34,11 @@ HRESULT prepare_vp8_tiles(MediaAtlasGpu* gpu, ID3D11Device* device,
             intersects = intersects || (r0 < columns + 2 * (y1 - 1) && r0 + span > 2 * y0);
         }
         if (!intersects) continue;
-        if (count == 32) return E_INVALIDARG;
         constants[count].diagonal = diagonal;
         constants[count].first_row = first;
         constants[count].rank_span = span;
         gpu->vp8_tile_groups[count++] = last - first + 1;
     }
-    if (!count) return E_INVALIDARG;
     if (!gpu->vp8_tile_constants) {
         D3D11_BUFFER_DESC desc{};
         desc.ByteWidth = sizeof(constants);

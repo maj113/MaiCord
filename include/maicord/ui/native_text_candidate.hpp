@@ -56,7 +56,7 @@ u64 native_text_format_identity(const TextSystem&) noexcept;
 bool native_text_register_font_path(NativeTextContext*,const wchar_t*,u32* scope) noexcept;
 struct NativeTextCandidateCounts {u64 shaped,measured,arabic_shaped,arabic_measured,paragraphs_shaped,paragraphs_measured,latin_shaped,latin_measured;};
 NativeTextCandidateCounts native_text_candidate_counts(const TextSystem&) noexcept;
-struct NativeTextStorageCounts {u64 reserved,committed,peak,retries,catalog_build_ticks;};
+struct NativeTextStorageCounts {u64 reserved,committed,peak,retries;};
 NativeTextStorageCounts native_text_candidate_storage_counts(const TextSystem&) noexcept;
 // Read-only diagnostic view, invalidated by the next native text operation.
 ConstSlice<NativeParagraphCluster> native_text_candidate_prepared_clusters(const TextSystem&) noexcept;

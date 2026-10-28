@@ -24,10 +24,6 @@ UiCaptionPart button_part(u32 index) noexcept {
     return static_cast<UiCaptionPart>(static_cast<u32>(UiCaptionPart::minimize) + index);
 }
 
-bool push_box(PaintStream* paint, float left, float top, float right, float bottom, Color color) noexcept {
-    return paint_stream_push(paint, left, top, right, bottom, color);
-}
-
 // Glyphs on the device grid: `extent` and `stroke` are whole pixels.
 bool paint_glyph(PaintStream* paint, UiCaptionPart part, bool maximized, const UiRect& button, float extent,
                  float stroke, Color color, float scale) noexcept {
@@ -37,7 +33,7 @@ bool paint_glyph(PaintStream* paint, UiCaptionPart part, bool maximized, const U
     switch (part) {
     case UiCaptionPart::minimize: {
         const float y = snap((y0 + y1 - stroke) * .5f, scale);
-        return push_box(paint, x0, y, x1, y + stroke, color);
+        return paint_stream_push(paint, x0, y, x1, y + stroke, color);
     }
     case UiCaptionPart::maximize: {
         if (!maximized)
@@ -46,8 +42,8 @@ bool paint_glyph(PaintStream* paint, UiCaptionPart part, bool maximized, const U
         const float offset = snap(extent * .2f, scale);
         return paint_stream_push_rounded_border(paint, x0, y0 + offset, x1 - offset, y1, {}, color, 0,
                                                 stroke) &&
-               push_box(paint, x0 + offset, y0, x1, y0 + stroke, color) &&
-               push_box(paint, x1 - stroke, y0, x1, y1 - offset, color);
+               paint_stream_push(paint, x0 + offset, y0, x1, y0 + stroke, color) &&
+               paint_stream_push(paint, x1 - stroke, y0, x1, y1 - offset, color);
     }
     case UiCaptionPart::close: {
         const float inset = stroke * .5f;

@@ -1,5 +1,6 @@
 #include "maicord/ui/code_highlight.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 namespace {
@@ -246,24 +247,18 @@ LanguageLexicon language_lexicon(CodeLanguage language) noexcept {
 }
 
 bool token_in_words(Utf8View token, const char* words, bool ignore_case) noexcept {
+    const auto fold = [ignore_case](char c) noexcept { return ignore_case ? ascii_lower(c) : c; };
     u32 offset = 0;
     while (words[offset]) {
         const u32 bytes = static_cast<u8>(words[offset++]);
         const u32 begin = offset;
         offset += bytes;
         if (bytes == token.bytes) {
-            bool equal = true;
-            for (u32 index = 0; index < bytes; ++index) {
-                const char left = ignore_case ? ascii_lower(token.data[index]) : token.data[index];
-                const char right = ignore_case ? ascii_lower(words[begin + index]) : words[begin + index];
-                if (left != right) {
-                    equal = false;
-                    break;
-                }
-            }
-            if (equal) {
+            u32 index = 0;
+            while (index < bytes && fold(token.data[index]) == fold(words[begin + index]))
+                ++index;
+            if (index == bytes)
                 return true;
-            }
         }
     }
     return false;
@@ -298,7 +293,7 @@ struct Highlighter {
 };
 
 bool mark(Highlighter* highlighter, u32 begin, u32 end, u32 style) noexcept {
-    if (style == 0 || begin >= end || end > highlighter->code.bytes) {
+    if (style == 0) {
         return true;
     }
     if (highlighter->tokens >= highlighter->capacity) {
@@ -390,55 +385,38 @@ bool operator_character(char value) noexcept {
 }
 
 CodeHighlightResult highlight_markup(Highlighter* highlighter) noexcept {
+    const Utf8View code = highlighter->code;
     u32 offset = 0;
-    while (offset < highlighter->code.bytes && !highlighter->truncated) {
-        if (offset + 4 <= highlighter->code.bytes && highlighter->code.data[offset] == '<' &&
-            highlighter->code.data[offset + 1] == '!' && highlighter->code.data[offset + 2] == '-' &&
-            highlighter->code.data[offset + 3] == '-') {
-            u32 end = offset + 4;
-            while (end + 2 < highlighter->code.bytes &&
-                   !(highlighter->code.data[end] == '-' && highlighter->code.data[end + 1] == '-' &&
-                     highlighter->code.data[end + 2] == '>')) {
+    while (offset < code.bytes && !highlighter->truncated) {
+        const char value = code.data[offset];
+        u32 end = offset + 1, style = text_style_syntax_operator;
+        if (offset + 4 <= code.bytes && value == '<' && code.data[offset + 1] == '!' &&
+            code.data[offset + 2] == '-' && code.data[offset + 3] == '-') {
+            end = offset + 4;
+            while (end + 2 < code.bytes &&
+                   !(code.data[end] == '-' && code.data[end + 1] == '-' && code.data[end + 2] == '>')) {
                 ++end;
             }
-            end = end + 2 < highlighter->code.bytes ? end + 3 : highlighter->code.bytes;
-            if (!mark(highlighter, offset, end, text_style_syntax_comment)) {
-                break;
+            end = end + 2 < code.bytes ? end + 3 : code.bytes;
+            style = text_style_syntax_comment;
+        } else if (value == '"' || value == '\'') {
+            end = quoted_end(code, offset, value);
+            style = text_style_syntax_string;
+        } else if (value == '<' || value == '>' || value == '/' || value == '=') {
+            // One-byte operator: end and style already hold.
+        } else if (identifier_begin(value)) {
+            while (end < code.bytes && (identifier_continue(code.data[end]) || code.data[end] == '-')) {
+                ++end;
             }
-            offset = end;
-            continue;
-        }
-        const char value = highlighter->code.data[offset];
-        if (value == '"' || value == '\'') {
-            const u32 end = quoted_end(highlighter->code, offset, value);
-            if (!mark(highlighter, offset, end, text_style_syntax_string)) {
-                break;
-            }
-            offset = end;
-            continue;
-        }
-        if (value == '<' || value == '>' || value == '/' || value == '=') {
-            if (!mark(highlighter, offset, offset + 1, text_style_syntax_operator)) {
-                break;
-            }
+            style = keyword_style(CodeLanguage::markup, Utf8View{code.data + offset, end - offset});
+        } else {
             ++offset;
             continue;
         }
-        if (identifier_begin(value)) {
-            const u32 begin = offset++;
-            while (offset < highlighter->code.bytes &&
-                   (identifier_continue(highlighter->code.data[offset]) ||
-                    highlighter->code.data[offset] == '-')) {
-                ++offset;
-            }
-            const u32 style = keyword_style(CodeLanguage::markup,
-                                            Utf8View{highlighter->code.data + begin, offset - begin});
-            if (style != 0 && !mark(highlighter, begin, offset, style)) {
-                break;
-            }
-            continue;
+        if (!mark(highlighter, offset, end, style)) {
+            break;
         }
-        ++offset;
+        offset = end;
     }
     return CodeHighlightResult{highlighter->tokens, highlighter->styled_bytes, highlighter->truncated};
 }
@@ -531,95 +509,52 @@ CodeHighlightResult code_highlight_ranges(Utf8View code, CodeLanguage language,
             ++offset;
             continue;
         }
-        if (preprocessor_language(language) && line_start && value == '#') {
-            const u32 end = line_end(code, offset);
-            if (!mark(&highlighter, offset, end, text_style_syntax_preprocessor)) {
-                break;
-            }
-            offset = end;
-            continue;
-        }
+        const bool at_line_start = line_start;
         line_start = false;
-        if (c_family(language) && offset + 1 < code.bytes && value == '/' && code.data[offset + 1] == '/') {
-            const u32 end = line_end(code, offset);
-            if (!mark(&highlighter, offset, end, text_style_syntax_comment)) {
-                break;
-            }
-            offset = end;
-            continue;
-        }
-        if ((c_family(language) || language == CodeLanguage::sql) && offset + 1 < code.bytes &&
-            value == '/' && code.data[offset + 1] == '*') {
-            const u32 end = block_end(code, offset + 2, '*', '/');
-            if (!mark(&highlighter, offset, end, text_style_syntax_comment)) {
-                break;
-            }
-            offset = end;
-            continue;
-        }
-        if (hash_comment_language(language) && value == '#') {
-            const u32 end = line_end(code, offset);
-            if (!mark(&highlighter, offset, end, text_style_syntax_comment)) {
-                break;
-            }
-            offset = end;
-            continue;
-        }
-        if (dash_comment_language(language) && offset + 1 < code.bytes && value == '-' &&
-            code.data[offset + 1] == '-') {
-            const u32 end = line_end(code, offset);
-            if (!mark(&highlighter, offset, end, text_style_syntax_comment)) {
-                break;
-            }
-            offset = end;
-            continue;
-        }
-        if (value == '"' || value == '\'' ||
-            (value == '`' &&
-             (language == CodeLanguage::javascript || language == CodeLanguage::typescript ||
-              language == CodeLanguage::shell || language == CodeLanguage::powershell))) {
-            const u32 end = quoted_end(code, offset, value);
-            if (!mark(&highlighter, offset, end, text_style_syntax_string)) {
-                break;
-            }
-            offset = end;
-            continue;
-        }
-        if (ascii_is_digit(value) ||
-            (value == '.' && offset + 1 < code.bytes && ascii_is_digit(code.data[offset + 1]))) {
-            const u32 end = number_end(code, offset);
-            if (!mark(&highlighter, offset, end, text_style_syntax_number)) {
-                break;
-            }
-            offset = end;
-            continue;
-        }
-        if (identifier_begin(value)) {
-            const u32 begin = offset++;
-            while (offset < code.bytes &&
-                   (identifier_continue(code.data[offset]) ||
-                    (code.data[offset] == '-' &&
+        const bool has_next = offset + 1 < code.bytes;
+        u32 end = offset + 1, style = text_style_syntax_comment;
+        if (preprocessor_language(language) && at_line_start && value == '#') {
+            end = line_end(code, offset);
+            style = text_style_syntax_preprocessor;
+        } else if (c_family(language) && has_next && value == '/' && code.data[offset + 1] == '/') {
+            end = line_end(code, offset);
+        } else if ((c_family(language) || language == CodeLanguage::sql) && has_next && value == '/' &&
+                   code.data[offset + 1] == '*') {
+            end = block_end(code, offset + 2, '*', '/');
+        } else if (hash_comment_language(language) && value == '#') {
+            end = line_end(code, offset);
+        } else if (dash_comment_language(language) && has_next && value == '-' && code.data[offset + 1] == '-') {
+            end = line_end(code, offset);
+        } else if (value == '"' || value == '\'' ||
+                   (value == '`' &&
+                    (language == CodeLanguage::javascript || language == CodeLanguage::typescript ||
+                     language == CodeLanguage::shell || language == CodeLanguage::powershell))) {
+            end = quoted_end(code, offset, value);
+            style = text_style_syntax_string;
+        } else if (ascii_is_digit(value) || (value == '.' && has_next && ascii_is_digit(code.data[offset + 1]))) {
+            end = number_end(code, offset);
+            style = text_style_syntax_number;
+        } else if (identifier_begin(value)) {
+            while (end < code.bytes &&
+                   (identifier_continue(code.data[end]) ||
+                    (code.data[end] == '-' &&
                      (language == CodeLanguage::powershell || language == CodeLanguage::css)))) {
-                ++offset;
+                ++end;
             }
-            const u32 style = keyword_style(language, Utf8View{code.data + begin, offset - begin});
-            if (style != 0 && !mark(&highlighter, begin, offset, style)) {
-                break;
-            }
-            continue;
-        }
-        if (operator_character(value)) {
-            u32 end = offset + 1;
+            style = keyword_style(language, Utf8View{code.data + offset, end - offset});
+        } else if (operator_character(value)) {
             if (end < code.bytes && operator_character(code.data[end])) {
                 ++end;
             }
-            if (!mark(&highlighter, offset, end, text_style_syntax_operator)) {
-                break;
-            }
-            offset = end;
+            style = text_style_syntax_operator;
+        } else {
+            ++offset;
             continue;
         }
-        ++offset;
+        if (!mark(&highlighter, offset, end, style)) {
+            break;
+        }
+        offset = end;
     }
     return CodeHighlightResult{highlighter.tokens, highlighter.styled_bytes, highlighter.truncated};
 }

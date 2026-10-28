@@ -11,7 +11,9 @@
 namespace maicord {
 namespace {
 __declspec(noinline) bool measure_text(TextEditLayoutOwner* owner, TextEditMetric* selections,
-                                       const UiEditView& edit, const UiRect& r, const TextSystem& text) noexcept {
+                                       const UiEditView& edit, const UiRect& r, const TextSystem& text,
+                                       u8 options = text_edit_layout_center_vertically |
+                                                    text_edit_layout_scroll_to_caret) noexcept {
     u32 anchor = 0, caret = 0;
     if (!utf8_utf16_position_for_byte_offset(edit.text, edit.anchor, &anchor) ||
         !utf8_utf16_position_for_byte_offset(edit.text, edit.caret, &caret))
@@ -21,8 +23,7 @@ __declspec(noinline) bool measure_text(TextEditLayoutOwner* owner, TextEditMetri
     return text_edit_layout_measure(
         owner,
         {edit.text, text_edit_signature(edit.text), anchor, caret, r.left, r.top, ui_rect_width(r),
-         ui_rect_height(r), kMaximumUiCoordinate,
-         text_edit_layout_center_vertically | text_edit_layout_scroll_to_caret},
+         ui_rect_height(r), kMaximumUiCoordinate, options},
         text);
 }
 // Fills a cleared `geometry` from an active layout.
@@ -104,17 +105,12 @@ bool d3d11_renderer_measure_settings_edit(D3D11Renderer* renderer) noexcept {
         d3d11_renderer_active(renderer->popup_scene)) {
         text_edit_layout_invalidate(&renderer->media_picker_layout); return true;
     }
-    const auto& edit=editor->view;
-    u32 anchor=0,caret=0;
-    if (!utf8_utf16_position_for_byte_offset(edit.text,edit.anchor,&anchor) ||
-        !utf8_utf16_position_for_byte_offset(edit.text,edit.caret,&caret)) return false;
-    auto& layout=renderer->media_picker_layout;
-    layout.selections=renderer->media_picker_edit_selections;
-    layout.selection_capacity=kTextEditSelectionCapacity;
-    const auto r=geometry.text;
-    const u8 options=text_edit_layout_scroll_to_caret | (geometry.multiline ? text_edit_layout_wrap : text_edit_layout_center_vertically);
-    if (!text_edit_layout_measure(&layout,{edit.text,text_edit_signature(edit.text),anchor,caret,
-        r.left,r.top,ui_rect_width(r),ui_rect_height(r),kMaximumUiCoordinate,options},renderer->glyph_text.system)) return false;
+    auto& layout = renderer->media_picker_layout;
+    const u8 options =
+        text_edit_layout_scroll_to_caret | (geometry.multiline ? text_edit_layout_wrap : text_edit_layout_center_vertically);
+    if (!measure_text(&layout, renderer->media_picker_edit_selections, editor->view, geometry.text,
+                      renderer->glyph_text.system, options))
+        return false;
     fill_geometry(layout, &renderer->media_picker_edit_geometry);
     return true;
 }

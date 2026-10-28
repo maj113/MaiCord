@@ -608,10 +608,10 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (!get_geometry(&geometry)) {
             return TS_E_NOLAYOUT;
         }
-        if (!point_in_rectangle(*point, *geometry.text_screen.native()) && (flags & GXFPF_NEAREST) == 0) {
+        const bool visible = point_in_rectangle(*point, *geometry.text_screen.native());
+        if (!visible && (flags & GXFPF_NEAREST) == 0) {
             return TS_E_INVALIDPOINT;
         }
-        const bool visible = point_in_rectangle(*point, *geometry.text_screen.native());
         u32 hit = 0;
         bool inside = false;
         if (!config.point || !config.point(config.context, *point,
@@ -865,9 +865,6 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         if (thread_manager) {
             return true;
         }
-        if (!edit || !config.window || !IsWindow(config.window)) {
-            return false;
-        }
         CallbackScope cleanup(this, true);
         msctf_module = LoadLibraryExW(L"msctf.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         if (!msctf_module) {
@@ -960,10 +957,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         application_change_pending = false;
         observe();
         if (deferred) return true;
-        if (thread_manager && !rebuild_context()) {
-            return false;
-        }
-        return true;
+        return !thread_manager || rebuild_context();
     }
 
     void unbind() noexcept {
@@ -972,9 +966,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         }
         const bool deferred = unsafe_teardown() || deferred_queued;
         if (deferred) queue_deferred(deferred_reset);
-        if (edit) {
-            text_input_cancel(edit);
-        }
+        text_input_cancel(edit);
         clear_composition();
         reset_value(&edit);
         application_change_pending = false;
@@ -1042,9 +1034,6 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     }
 
     bool range_extent(ITfRange* range, u32* start, u32* end, const TextInputTarget& target) const noexcept {
-        if (!range || !start || !end) {
-            return false;
-        }
         ITfRangeACP* acp = nullptr;
         LONG anchor = 0;
         LONG length = 0;
@@ -1090,9 +1079,6 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     bool apply_display_attribute(ITfReadOnlyProperty* property, ITfRange* range,
                                  TextCompositionSpan* span, TfEditCookie read_cookie,
                                  ITfContext* read_context, const TextInputTarget& target) noexcept {
-        if (!property || !range || !span) {
-            return false;
-        }
         VARIANT value{};
         if (property->GetValue(read_cookie, range, &value) != S_OK || value.vt != VT_I4) {
             return value.vt == VT_EMPTY;
@@ -1140,7 +1126,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     bool collect_display_spans(ITfRange* composition_range,
                                SecureTextComposition* next, TfEditCookie read_cookie,
                                ITfContext* read_context, const TextInputTarget& target) noexcept {
-        if (!read_context || !composition_range || !next) {
+        if (!read_context) {
             return false;
         }
         ITfProperty* property = nullptr;
@@ -1349,7 +1335,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     }
 
     bool get_geometry(SecureTextStoreGeometry* geometry) const noexcept {
-        return geometry && config.geometry && config.geometry(config.context, geometry);
+        return config.geometry && config.geometry(config.context, geometry);
     }
 
     void clear_sink() noexcept {

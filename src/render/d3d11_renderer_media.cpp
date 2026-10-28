@@ -19,20 +19,16 @@ void log_media_upload_failure(const MediaAtlasGpuResult& result, const char* eve
     log_write(LogLevel::error, "render", event);
 }
 
-void note_media_mutation(D3D11Renderer* renderer, const MediaAtlasGpuResult& result,
-                         u8 domain = 0) noexcept {
-    if (renderer && result.ok() &&
-        !presentation_damage_note_media(&renderer->presentation_damage, result.allocation.handle, domain)) {
-        presentation_damage_invalidate_full(&renderer->presentation_damage);
-        log_write(LogLevel::warning, "render", "media_damage_handle_out_of_range");
-    }
-}
-
 void note_media_mutation(D3D11Renderer* renderer, MediaAtlasHandle handle, u8 domain = 0) noexcept {
     if (renderer && !presentation_damage_note_media(&renderer->presentation_damage, handle, domain)) {
         presentation_damage_invalidate_full(&renderer->presentation_damage);
         log_write(LogLevel::warning, "render", "media_damage_handle_out_of_range");
     }
+}
+
+void note_media_mutation(D3D11Renderer* renderer, const MediaAtlasGpuResult& result, u8 domain = 0) noexcept {
+    if (result.ok())
+        note_media_mutation(renderer, result.allocation.handle, domain);
 }
 
 MediaAtlasGpuResult reject_media_request(D3D11Renderer* renderer) noexcept {
@@ -114,7 +110,6 @@ MediaAtlasGpuResult prepare_media_surface(D3D11Renderer* renderer, MediaAtlas* a
         log_write(LogLevel::warning, "render", "media_atlas_growth_failed");
         return resized;
     }
-    ++renderer->media_atlas_resizes;
     return ready;
 }
 
@@ -218,15 +213,17 @@ MediaAtlasGpuResult run_animation_upload(D3D11Renderer* renderer, const MediaAss
 }
 
 template <class Upload>
-MediaAtlasGpuResult upload_to_atlas(D3D11Renderer* renderer, const MediaAssetKey& key, bool preview, MediaAtlas* atlas,
-                                    u32 width, u32 height, const char* failure_event, Upload&& upload) noexcept {
+__forceinline MediaAtlasGpuResult upload_to_atlas(D3D11Renderer* renderer, const MediaAssetKey& key, bool preview,
+                                                  MediaAtlas* atlas, u32 width, u32 height,
+                                                  const char* failure_event, Upload&& upload) noexcept {
     auto run = [&](MediaAtlas*) noexcept { return upload(); };
     return run_atlas_upload(renderer, key, preview, atlas, width, height, failure_event, atlas_upload(&run));
 }
 
 template <class Upload>
-MediaAtlasGpuResult upload_animation(D3D11Renderer* renderer, const MediaAssetKey& key, u32 canvas_width,
-                                     u32 canvas_height, const char* failure_event, Upload&& upload) noexcept {
+__forceinline MediaAtlasGpuResult upload_animation(D3D11Renderer* renderer, const MediaAssetKey& key,
+                                                   u32 canvas_width, u32 canvas_height, const char* failure_event,
+                                                   Upload&& upload) noexcept {
     return run_animation_upload(renderer, key, canvas_width, canvas_height, failure_event, atlas_upload(&upload));
 }
 
@@ -386,38 +383,55 @@ bool renderer_materialize_animation_frame(D3D11Renderer* renderer, MediaAssetKey
                                                  renderer->media_atlas, renderer->media_gpu.texture, key);
 }
 
+// A (possibly pitched) RGBA image that lies within the bytes given and fits the atlas.
+static bool rgba_image_valid(const MediaAtlas& atlas, u32 width, u32 height, u32 row_pitch,
+                             ConstSlice<u8> rows) noexcept {
+    const u64 minimum_pitch = static_cast<u64>(width) * 4;
+    const u64 required = height == 0 ? 0 : static_cast<u64>(height - 1) * row_pitch + minimum_pitch;
+    return width != 0 && height != 0 && row_pitch >= minimum_pitch && required <= rows.count &&
+           (rows.data || rows.count == 0) && width + atlas.allocations.padding * 2u <= atlas.allocations.width &&
+           height + atlas.allocations.padding * 2u <= media_atlas_capacity_height(atlas);
+}
+
 MediaAtlasGpuResult renderer_upload_media_rgba8(D3D11Renderer* renderer, MediaAssetKey key, u16 width,
                                                 u16 height, u32 row_pitch,
                                                 ConstSlice<u8> premultiplied_rgba8) noexcept {
-    const u64 minimum_pitch = static_cast<u64>(width) * 4;
-    const u64 required = height == 0 ? 0 : static_cast<u64>(height - 1) * row_pitch + minimum_pitch;
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !renderer->media_atlas ||
-        !media_asset_key_valid(key) || width == 0 || height == 0 || row_pitch < minimum_pitch ||
-        required > premultiplied_rgba8.count ||
-        (!premultiplied_rgba8.data && premultiplied_rgba8.count != 0) ||
-        static_cast<u32>(width) + renderer->media_atlas->allocations.padding * 2u >
-            renderer->media_atlas->allocations.width ||
-        static_cast<u32>(height) + renderer->media_atlas->allocations.padding * 2u >
-            media_atlas_capacity_height(*renderer->media_atlas)) {
+        !media_asset_key_valid(key) ||
+        !rgba_image_valid(*renderer->media_atlas, width, height, row_pitch, premultiplied_rgba8)) {
         return reject_media_request(renderer);
     }
-    const MediaAtlasGpuResult initialized = ensure_primary_media_gpu(renderer);
-    if (!initialized.ok()) {
-        return initialized;
+    return upload_to_atlas(renderer, key, false, renderer->media_atlas, width, height, "media_atlas_upload_failed",
+        [&]() noexcept {
+            return media_atlas_gpu_upload_rgba8(&renderer->media_gpu, renderer->media_atlas,
+                                                renderer->graphics.context1, key, width, height, row_pitch,
+                                                premultiplied_rgba8);
+        });
+}
+
+using ProgramRasterizer = bool (*)(D3D11GlyphTextOwner*, ID3D11DeviceContext*, const ColrPaintProgram&,
+                                   const GlyphAtlasAllocation&, u16, u16, u16, ID3D11UnorderedAccessView*) noexcept;
+
+// Rasterizes a compiled program into its own extent-square atlas tile; a failed raster drops the atlas.
+static MediaAtlasGpuResult bake_program(D3D11Renderer* renderer, MediaAtlas* atlas, const MediaAssetKey& key,
+                                        u16 extent, bool preview, const ColrPaintProgram& program,
+                                        ProgramRasterizer rasterize) noexcept {
+    const auto allocation = media_atlas_allocate(atlas, key, extent, extent);
+    if (!allocation.ok())
+        return {allocation, E_FAIL, MediaAtlasGpuError::atlas_failure};
+    GlyphAtlasAllocation target{};
+    target.x = allocation.x;
+    target.y = allocation.y;
+    target.width = target.height = extent;
+    target.error = GlyphAtlasError::none;
+    if (!rasterize(&renderer->glyph_text, renderer->graphics.context, program, target, atlas->allocations.width,
+                   atlas->allocations.height, atlas->allocations.padding, renderer->media_gpu.texture_uav)) {
+        media_atlas_reset(atlas);
+        presentation_damage_invalidate_full(&renderer->presentation_damage);
+        return {allocation, E_FAIL, MediaAtlasGpuError::device_failure};
     }
-    const MediaAtlasGpuResult prepared =
-        prepare_media_surface(renderer, renderer->media_atlas, false, key, width, height);
-    if (!prepared.ok()) {
-        return prepared;
-    }
-    const MediaAtlasGpuResult uploaded = media_atlas_gpu_upload_rgba8(
-        &renderer->media_gpu, renderer->media_atlas, renderer->graphics.context1, key, width, height,
-        row_pitch, premultiplied_rgba8);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_media_upload_failure(uploaded, "media_atlas_upload_failed");
-    }
-    note_media_mutation(renderer, uploaded);
+    const MediaAtlasGpuResult uploaded{allocation, S_OK, MediaAtlasGpuError::none};
+    note_media_mutation(renderer, uploaded, preview ? 1 : 0);
     return uploaded;
 }
 
@@ -432,18 +446,8 @@ MediaAtlasGpuResult renderer_upload_regional_flag(D3D11Renderer* renderer, Media
     const auto initialized = ensure_primary_media_gpu(renderer);if (!initialized.ok()) return initialized;
     const auto prepared = prepare_media_surface(renderer, renderer->media_atlas, false, key, 64, 64);
     if (!prepared.ok()) return prepared;
-    const auto allocation = media_atlas_allocate(renderer->media_atlas,key,64,64);
-    if (!allocation.ok()) return {allocation,E_FAIL,MediaAtlasGpuError::atlas_failure};
-    GlyphAtlasAllocation target{};target.x=allocation.x;target.y=allocation.y;target.width=target.height=64;
-    target.error=GlyphAtlasError::none;
-    if (!d3d11_glyph_text_rasterize_flag_program(&renderer->glyph_text,renderer->graphics.context,program,target,
-        renderer->media_atlas->allocations.width,renderer->media_atlas->allocations.height,
-        renderer->media_atlas->allocations.padding,renderer->media_gpu.texture_uav)) {
-        media_atlas_reset(renderer->media_atlas);presentation_damage_invalidate_full(&renderer->presentation_damage);
-        return {allocation,E_FAIL,MediaAtlasGpuError::device_failure};
-    }
-    const MediaAtlasGpuResult uploaded{allocation,S_OK,MediaAtlasGpuError::none};
-    note_media_mutation(renderer,uploaded);return uploaded;
+    return bake_program(renderer, renderer->media_atlas, key, 64, false, program,
+                        d3d11_glyph_text_rasterize_flag_program);
 }
 
 MediaAtlasGpuResult renderer_upload_lottie_program(D3D11Renderer* renderer, MediaAssetKey key,
@@ -455,34 +459,16 @@ MediaAtlasGpuResult renderer_upload_lottie_program(D3D11Renderer* renderer, Medi
         !program.storage.base || !program.storage.offset) return reject_media_request(renderer);
     AnimationAtlasTarget surface(renderer, key, 128, 128);
     if (!surface.initialized.ok()) return surface.initialized;
-    const auto allocation = media_atlas_allocate(surface.atlas, key, 128, 128);
-    if (!allocation.ok()) return {allocation, E_FAIL, MediaAtlasGpuError::atlas_failure};
-    GlyphAtlasAllocation target{};
-    target.x=allocation.x; target.y=allocation.y; target.width=target.height=128;
-    target.error=GlyphAtlasError::none;
-    if (!d3d11_glyph_text_rasterize_lottie_program(&renderer->glyph_text, renderer->graphics.context, program, target,
-        surface.atlas->allocations.width, surface.atlas->allocations.height,
-        surface.atlas->allocations.padding, renderer->media_gpu.texture_uav)) {
-        media_atlas_reset(surface.atlas);
-        presentation_damage_invalidate_full(&renderer->presentation_damage);
-        return {allocation, E_FAIL, MediaAtlasGpuError::device_failure};
-    }
-    const MediaAtlasGpuResult uploaded{allocation, S_OK, MediaAtlasGpuError::none};
-    note_media_mutation(renderer, uploaded,surface.preview ? 1 : 0);
-    return uploaded;
+    return bake_program(renderer, surface.atlas, key, 128, surface.preview, program,
+                        d3d11_glyph_text_rasterize_lottie_program);
 }
 MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer, MediaAssetKey key,
                                                          u16 width, u16 height, u32 row_pitch,
                                                          ConstSlice<u8> straight_rgba8) noexcept {
     const bool preview = uses_preview_atlas(renderer, key);
     MediaAtlas* atlas = upload_atlas(renderer, preview);
-    const u64 minimum_pitch = static_cast<u64>(width) * 4;
-    const u64 required = height == 0 ? 0 : static_cast<u64>(height - 1) * row_pitch + minimum_pitch;
     if (!renderer || !renderer->graphics.device || !renderer->graphics.context1 || !atlas ||
-        !media_asset_key_valid(key) || width == 0 || height == 0 || row_pitch < minimum_pitch ||
-        required > straight_rgba8.count || (!straight_rgba8.data && straight_rgba8.count != 0) ||
-        static_cast<u32>(width) + atlas->allocations.padding * 2u > atlas->allocations.width ||
-        static_cast<u32>(height) + atlas->allocations.padding * 2u > media_atlas_capacity_height(*atlas)) {
+        !media_asset_key_valid(key) || !rgba_image_valid(*atlas, width, height, row_pitch, straight_rgba8)) {
         return reject_media_request(renderer);
     }
     return upload_to_atlas(renderer, key, preview, atlas, width, height, "straight_rgba8_atlas_upload_failed",
@@ -651,6 +637,14 @@ MediaAtlasGpuResult renderer_filter_vp8_keyframe(D3D11Renderer* renderer, const 
     return filtered;
 }
 
+static MediaAtlasGpuResult reconstruct_and_filter_vp8(D3D11Renderer* renderer, const Vp8Keyframe& frame,
+                                                      const Vp8ControlHeader& header, const Vp8ModeWorkspace& modes,
+                                                      const Vp8CoefficientWorkspace& coefficients) noexcept {
+    const MediaAtlasGpuResult reconstructed = renderer_reconstruct_vp8_keyframe(renderer, frame, modes, coefficients);
+    return reconstructed.ok() ? renderer_filter_vp8_keyframe(renderer, frame, header, modes, coefficients)
+                              : reconstructed;
+}
+
 MediaAtlasGpuResult renderer_upload_vp8_keyframe(D3D11Renderer* renderer, MediaAssetKey key,
                                                  const Vp8Keyframe& frame, const Vp8ControlHeader& header,
                                                  const Vp8ModeWorkspace& modes,
@@ -662,13 +656,9 @@ MediaAtlasGpuResult renderer_upload_vp8_keyframe(D3D11Renderer* renderer, MediaA
         !media_asset_key_valid(key)) {
         return reject_media_request(renderer);
     }
-    MediaAtlasGpuResult result = renderer_reconstruct_vp8_keyframe(renderer, frame, modes, coefficients);
-    if (!result.ok()) {
-        return result;
-    }
-    result = renderer_filter_vp8_keyframe(renderer, frame, header, modes, coefficients);
-    if (!result.ok()) {
-        return result;
+    const MediaAtlasGpuResult decoded = reconstruct_and_filter_vp8(renderer, frame, header, modes, coefficients);
+    if (!decoded.ok()) {
+        return decoded;
     }
     return upload_to_atlas(renderer, key, preview, atlas, frame.width, frame.height, "vp8_atlas_upload_failed",
         [&]() noexcept {
@@ -685,14 +675,10 @@ MediaAtlasGpuResult renderer_begin_animated_webp_vp8(
     if (!renderer || !media_asset_key_valid(key)) {
         return reject_media_request(renderer);
     }
-    MediaAtlasGpuResult result =
-        renderer_reconstruct_vp8_keyframe(renderer, vp8_frame, modes, coefficients);
-    if (!result.ok()) {
-        return result;
-    }
-    result = renderer_filter_vp8_keyframe(renderer, vp8_frame, header, modes, coefficients);
-    if (!result.ok()) {
-        return result;
+    const MediaAtlasGpuResult decoded =
+        reconstruct_and_filter_vp8(renderer, vp8_frame, header, modes, coefficients);
+    if (!decoded.ok()) {
+        return decoded;
     }
     return upload_animation(renderer, key, canvas_width, canvas_height, "animated_webp_vp8_atlas_begin_failed",
         [&](MediaAtlas* atlas) noexcept {
@@ -710,14 +696,10 @@ MediaAtlasGpuResult renderer_advance_animated_webp_vp8(
     if (!renderer || !media_asset_key_valid(key)) {
         return reject_media_request(renderer);
     }
-    MediaAtlasGpuResult result =
-        renderer_reconstruct_vp8_keyframe(renderer, vp8_frame, modes, coefficients);
-    if (!result.ok()) {
-        return result;
-    }
-    result = renderer_filter_vp8_keyframe(renderer, vp8_frame, header, modes, coefficients);
-    if (!result.ok()) {
-        return result;
+    const MediaAtlasGpuResult decoded =
+        reconstruct_and_filter_vp8(renderer, vp8_frame, header, modes, coefficients);
+    if (!decoded.ok()) {
+        return decoded;
     }
     return upload_animation(renderer, key, 0, 0, "animated_webp_vp8_atlas_advance_failed",
         [&](MediaAtlas* atlas) noexcept {
@@ -863,9 +845,6 @@ bool renderer_media_maintain(D3D11Renderer* renderer, u64 now_ms) noexcept {
     changed = animation_frame_cache_gpu_trim(&renderer->preview_animation_gpu, now_ms) || changed;
     changed = trim_media_atlas(renderer, renderer->media_atlas, false, now_ms) || changed;
     changed = trim_media_atlas(renderer, renderer->preview_media_atlas, true, now_ms) || changed;
-    if (changed) {
-        ++renderer->media_atlas_trims;
-    }
     return changed;
 }
 

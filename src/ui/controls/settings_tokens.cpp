@@ -15,7 +15,7 @@ Color scaled(const Color& color, float factor) noexcept {
     return {color.red * factor, color.green * factor, color.blue * factor, color.alpha};
 }
 Color pick(u32 packed, const Color& fallback) noexcept {
-    return packed ? ui_settings_color_unpack(packed) : fallback;
+    return packed ? color_from_rgba(packed) : fallback;
 }
 const UiThemeSettings& settings_style(const UiResolvedThemeStyles* styles) noexcept {
     return styles && styles->ready ? styles->settings : kUiThemeSettingsDefault;
@@ -89,10 +89,6 @@ void set_layout_tokens(UiSettingsLayoutTokens& t, const UiThemeSettings& s, floa
 }
 } // namespace
 
-Color ui_settings_color_unpack(u32 rgba) noexcept {
-    return {((rgba >> 24) & 255) / 255.f, ((rgba >> 16) & 255) / 255.f, ((rgba >> 8) & 255) / 255.f,
-            (rgba & 255) / 255.f};
-}
 Color ui_settings_color_mix(const Color& a, const Color& b, float t) noexcept {
     t = t < 0 ? 0 : t > 1 ? 1 : t;
     return {a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t,

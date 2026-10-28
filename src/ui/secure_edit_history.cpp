@@ -23,7 +23,7 @@ void secure_edit_reset_history(SecureEdit* edit) noexcept {
     if (!edit) return; auto state = project(*edit); text_edit_reset_history(&state);
 }
 void secure_edit_history_release(SecureEdit* edit) noexcept {
-    if (!edit) return; auto state = project(*edit); text_edit_history_release(&state); edit->history = nullptr;
+    auto state = project(*edit); text_edit_history_release(&state); edit->history = nullptr;
 }
 bool secure_edit_begin_history_group(SecureEdit* edit) noexcept {
     if (!valid(edit)) return false; auto state = project(*edit); return text_edit_begin_history_group(&state);

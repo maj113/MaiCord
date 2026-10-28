@@ -25,12 +25,6 @@ bool bounded_float(float value, float limit) noexcept {
     return value == value && value >= -limit && value <= limit;
 }
 
-void copy_commands(GlyphPathCommand* destination, const GlyphPathCommand* source,
-                   u32 count) noexcept {
-    CopyMemory(destination, source,
-               static_cast<usize>(count) * sizeof(GlyphPathCommand));
-}
-
 HRESULT reserve_commands(GlyphAtlasGpu* gpu,ID3D11Device* device,u32 required) noexcept {
     if(required<=gpu->command_committed)return S_OK;
     const u32 capacity=minimum<u32>(gpu->command_capacity,maximum(required,maximum<u32>(128,static_cast<u32>(gpu->command_committed)*2)));
@@ -151,7 +145,8 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
         if(FAILED(result)){++gpu->rejected;failed=true;return gpu_error(GlyphAtlasGpuError::upload,result);}
         mapped=static_cast<u8*>(upload.pData);
     }
-    copy_commands(reinterpret_cast<GlyphPathCommand*>(mapped+glyph_raster_header_bytes)+cursor,outline.commands,outline.count);
+    CopyMemory(mapped+glyph_raster_header_bytes+static_cast<usize>(cursor)*sizeof(GlyphPathCommand),outline.commands,
+               static_cast<usize>(outline.count)*sizeof(GlyphPathCommand));
     const GlyphRasterJob constants{
         x|(y<<16),width|(height<<16),outline.count|(outline.fill_rule==GlyphFillRule::winding?1u<<16:0)|
             (static_cast<u32>(stroke_half_width*256.0f+0.5f)<<17),

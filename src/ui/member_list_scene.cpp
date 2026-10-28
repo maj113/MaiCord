@@ -380,9 +380,6 @@ bool member_list_scene_focus_user(MemberListScene* scene, u64 user_id) noexcept 
     return true;
 }
 
-} // namespace maicord
-
-namespace maicord {
 bool member_list_row_status(const MemberListScene& s, u32 index, Slice<char> storage,
                             UiActivityStatus* output) noexcept {
     if (!output)

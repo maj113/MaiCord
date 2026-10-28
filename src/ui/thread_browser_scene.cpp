@@ -11,14 +11,6 @@
 
 namespace maicord {
 namespace {
-bool style_equal(const UiThreadBrowserStyle& a, const UiThreadBrowserStyle& b) noexcept {
-    return a.header_height == b.header_height && a.tabs_height == b.tabs_height &&
-        a.status_height == b.status_height &&
-        a.footer_height == b.footer_height && a.row_height == b.row_height &&
-        a.inset == b.inset && a.gap == b.gap && a.button_height == b.button_height &&
-        a.radius == b.radius && a.title_flags == b.title_flags && a.name_flags == b.name_flags &&
-        a.detail_flags == b.detail_flags && a.create_button_width == b.create_button_width;
-}
 bool current(const UiThreadBrowserScene& s) noexcept {
     return s.active && s.backing && s.view && s.view->source_publication == s.source_publication &&
         s.view->revision == s.content_revision && s.view->rows.data == s.observed_rows &&
@@ -102,9 +94,8 @@ void append(UiThreadBrowserScene& s, Utf8View text) noexcept {
     s.page_bytes = static_cast<u8>(s.page_bytes + text.bytes);
 }
 void number(UiThreadBrowserScene& s, u64 value) noexcept {
-    char digits[20];
-    const u32 bytes = decimal_write(digits, value);
-    for (u32 i = 0; i < bytes && s.page_bytes < sizeof(s.page_text); ++i) s.page_text[s.page_bytes++] = digits[i];
+    // Page labels stay far below the 64-byte buffer (u32 page and total, fixed text).
+    s.page_bytes = static_cast<u8>(s.page_bytes + decimal_write(s.page_text + s.page_bytes, value));
 }
 bool rebuild(UiThreadBrowserScene& s) noexcept {
     ui_widget_manager_reset(&s.widgets);
@@ -249,7 +240,7 @@ bool ui_thread_browser_scene_update(UiThreadBrowserScene* s, const UiThreadBrows
         ui_rect_width(viewport) < 180 || ui_rect_height(viewport) < appearance.header_height +
             appearance.tabs_height + appearance.status_height + appearance.footer_height + 24) return false;
     if (current(*s) && s->view == view && ui_rect_equal(s->viewport, viewport) &&
-        style_equal(s->style, appearance)) return true;
+        bytes_equal(&s->style, &appearance, sizeof(appearance))) return true;
     for (u32 i = 0; i < view->rows.count; ++i) {
         const auto& row = view->rows[i];
         if (!row.thread_id || !utf8_validate(row.name).valid || (row.type != 10 && row.type != 11 && row.type != 12))

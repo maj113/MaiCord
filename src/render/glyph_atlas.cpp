@@ -353,9 +353,6 @@ static GlyphAtlasAllocation glyph_atlas_allocate_internal(
     GlyphAtlasAllocator* atlas, u64 key, u16 width, u16 height,
     bool check_cached) noexcept {
     if (!atlas || !atlas->entries || !atlas->rows || width == 0 || height == 0) {
-        if (atlas) {
-            ++atlas->rejected;
-        }
         return GlyphAtlasAllocation{{}, 0, 0, width, height, 0,
                                     GlyphAtlasError::invalid_input, false, false};
     }
@@ -363,7 +360,6 @@ static GlyphAtlasAllocation glyph_atlas_allocate_internal(
         GlyphAtlasAllocation cached = glyph_atlas_find(atlas, key);
         if (cached.ok()) {
             if (cached.width != width || cached.height != height) {
-                ++atlas->rejected;
                 cached.error = GlyphAtlasError::invalid_input;
             }
             return cached;
@@ -373,7 +369,6 @@ static GlyphAtlasAllocation glyph_atlas_allocate_internal(
     const u32 padded_width = static_cast<u32>(width) + static_cast<u32>(atlas->padding) * 2;
     const u32 padded_height = static_cast<u32>(height) + static_cast<u32>(atlas->padding) * 2;
     if (padded_width > atlas->width || padded_height > atlas->height) {
-        ++atlas->rejected;
         return GlyphAtlasAllocation{{}, 0, 0, width, height, 0, GlyphAtlasError::too_large,
                                     false, false};
     }
@@ -423,7 +418,6 @@ static GlyphAtlasAllocation glyph_atlas_allocate_internal(
         // size class. The caller may retry after the next visibility epoch,
         // when off-screen rows become evictable.
         if (atlas_has_pinned_entry(*atlas)) {
-            ++atlas->rejected;
             return GlyphAtlasAllocation{{}, 0, 0, width, height,
                                         atlas->evicted_entries - evicted_before,
                                         GlyphAtlasError::no_capacity, false,
@@ -440,7 +434,6 @@ static GlyphAtlasAllocation glyph_atlas_allocate_internal(
         slot = find_empty_entry(atlas);
     }
     if (slot == atlas->entry_capacity) {
-        ++atlas->rejected;
         return GlyphAtlasAllocation{{}, 0, 0, width, height, evicted,
                                     GlyphAtlasError::no_capacity, false, atlas_reset};
     }
@@ -593,7 +586,6 @@ GlyphAtlasAllocation glyph_atlas_allocate_indexed(GlyphAtlasAllocator* atlas, Gl
         GlyphAtlasAllocation cached = glyph_atlas_find_indexed(atlas, index, key);
         if (cached.ok()) {
             if (cached.width != width || cached.height != height) {
-                ++atlas->rejected;
                 cached.error = GlyphAtlasError::invalid_input;
             }
             return cached;
@@ -796,7 +788,6 @@ u32 glyph_atlas_growth_trim(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas
         minimum<u16>(atlas->height, maximum<u16>(growth->minimum_height, round_up_step(atlas->next_y, growth->step)));
     if (target_height < atlas->height) {
         atlas->height = target_height;
-        ++growth->shrinks;
         if (resized) {
             *resized = true;
         }

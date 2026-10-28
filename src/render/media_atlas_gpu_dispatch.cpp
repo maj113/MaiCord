@@ -18,7 +18,8 @@ HRESULT upload_png_shader_inputs(MediaAtlasGpu* gpu, ID3D11Device* device,
                                  u32 source_bytes, const u32* palette, u32 palette_count) noexcept {
     HRESULT result = create_png_resources(gpu, device);
     if (SUCCEEDED(result)) {
-        result = create_png_scanline_buffer(gpu, device, source_bytes);
+        result = ensure_dynamic_raw_buffer(device, source_bytes, &gpu->png_scanline_buffer,
+                                           &gpu->png_scanline_view, &gpu->png_scanline_capacity);
     }
     if (FAILED(result)) {
         return result;
@@ -135,7 +136,6 @@ void dispatch_animated_webp(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,
 HRESULT ensure_apng_backup(MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceContext1* context,
                            MediaAtlas* atlas, u32 required_bottom) noexcept {
     if (atlas) {
-        ++atlas->disposal_backup_frames;
         atlas->disposal_backup_used_ms = atlas->growth.now_ms;
     }
     D3D11_TEXTURE2D_DESC description{};
@@ -273,11 +273,11 @@ HRESULT upload_vp8_alpha(MediaAtlasGpu* gpu, ID3D11Device* device, ID3D11DeviceC
                          ConstSlice<u8> alpha) noexcept {
     HRESULT result = create_vp8_atlas_resources(gpu, device);
     if (SUCCEEDED(result) && alpha.count != 0) {
-        result = create_png_scanline_buffer(gpu, device, static_cast<u32>(alpha.count));
-    }
-    if (SUCCEEDED(result) && alpha.count != 0) {
-        result = upload_discard(context, gpu->png_scanline_buffer, alpha.data,
-                                static_cast<u32>(alpha.count));
+        result = ensure_dynamic_raw_buffer(device, static_cast<u32>(alpha.count), &gpu->png_scanline_buffer,
+                                           &gpu->png_scanline_view, &gpu->png_scanline_capacity);
+        if (SUCCEEDED(result)) {
+            result = upload_discard(context, gpu->png_scanline_buffer, alpha.data, static_cast<u32>(alpha.count));
+        }
     }
     return result;
 }
@@ -302,8 +302,7 @@ void dispatch_vp8_atlas(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context, const
         {0, 0, 0, 0, 0},
     };
     context->UpdateSubresource(gpu->vp8_atlas_constants, 0, nullptr, &constants, 0, 0);
-    ID3D11ShaderResourceView* null_pixel_view = nullptr;
-    context->PSSetShaderResources(0, 1, &null_pixel_view);
+    unbind_media_pixel_resources(context);
     bind_compute_2srv(context, gpu->vp8_atlas_shader, gpu->vp8_atlas_constants,
                       gpu->vp8_yuv_view, alpha.count != 0 ? gpu->png_scanline_view : nullptr,
                       texture_uav);

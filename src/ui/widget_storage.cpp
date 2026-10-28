@@ -7,20 +7,8 @@ namespace {
 static_assert(sizeof(UiWidget) == 16);
 static_assert(sizeof(UiLayoutNode) == 216);
 
-bool append_storage_bytes(usize* cursor, usize bytes, usize alignment) noexcept {
-    if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
-        return false;
-    }
-    const usize mask = alignment - 1;
-    if (*cursor > ~usize{0} - mask) {
-        return false;
-    }
-    const usize aligned = (*cursor + mask) & ~mask;
-    if (bytes > ~usize{0} - aligned) {
-        return false;
-    }
-    *cursor = aligned + bytes;
-    return true;
+void append_storage_bytes(usize* cursor, usize bytes, usize alignment) noexcept {
+    *cursor = ((*cursor + alignment - 1) & ~(alignment - 1)) + bytes;
 }
 
 } // namespace
@@ -112,18 +100,15 @@ void ui_virtual_row_storage_release(UiVirtualRowStorageOwner* storage) noexcept 
 
 bool ui_fixed_widget_storage_initialize(UiFixedWidgetStorageOwner* storage, u32 capacity, u32 sidecar_bytes,
                                         u32 sidecar_alignment) noexcept {
-    if (!storage || storage->arena.base || capacity == 0 ||
-        static_cast<usize>(capacity) > ~usize{0} / sizeof(UiWidget) ||
-        static_cast<usize>(capacity) > ~usize{0} / sizeof(UiLayoutNode)) {
+    if (!storage || storage->arena.base || capacity == 0) {
         return false;
     }
     usize reserve_bytes = 0;
-    if (!append_storage_bytes(&reserve_bytes, static_cast<usize>(capacity) * sizeof(UiWidget),
-                              alignof(UiWidget)) ||
-        !append_storage_bytes(&reserve_bytes, static_cast<usize>(capacity) * sizeof(UiLayoutNode),
-                              alignof(UiLayoutNode)) ||
-        (sidecar_bytes != 0 && !append_storage_bytes(&reserve_bytes, sidecar_bytes, sidecar_alignment))) {
-        return false;
+    append_storage_bytes(&reserve_bytes, static_cast<usize>(capacity) * sizeof(UiWidget), alignof(UiWidget));
+    append_storage_bytes(&reserve_bytes, static_cast<usize>(capacity) * sizeof(UiLayoutNode),
+                         alignof(UiLayoutNode));
+    if (sidecar_bytes != 0) {
+        append_storage_bytes(&reserve_bytes, sidecar_bytes, sidecar_alignment);
     }
     reset_value<UiFixedWidgetStorageOwner>(storage);
     if (!arena_initialize(&storage->arena, reserve_bytes, 0, 4 * 1024)) {

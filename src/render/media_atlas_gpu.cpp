@@ -25,7 +25,7 @@ bool dimensions_valid(u16 width, u16 height) noexcept {
 
 // Upload resources grow geometrically: exact-size growth would allocate a new
 // D3D resource for every image in a sequence of gradually larger ones.
-u32 retained_upload_capacity(u32 current, u32 required) noexcept {
+static u32 retained_upload_capacity(u32 current, u32 required) noexcept {
     if (required == 0 || required > 0xFFFFFFFCu) {
         return 0;
     }
@@ -90,50 +90,97 @@ bool png_scanlines_reconstructed(const PngImage& image, ConstSlice<u8> scanlines
     return true;
 }
 
-HRESULT create_png_scanline_buffer(MediaAtlasGpu* gpu, ID3D11Device* device, u32 required_bytes) noexcept {
-    return ensure_dynamic_raw_buffer(device, required_bytes, &gpu->png_scanline_buffer,
-                                     &gpu->png_scanline_view, &gpu->png_scanline_capacity);
+// A constant buffer and the compute shader that reads it, created together
+// unless both already exist.
+static HRESULT ensure_constants_and_shader(ID3D11Device* device, u32 constant_bytes, ShaderId shader_id,
+                                           ID3D11Buffer** constants, ID3D11ComputeShader** shader) noexcept {
+    if (*constants && *shader) {
+        return S_OK;
+    }
+    ID3D11Buffer* replacement_constants = nullptr;
+    ID3D11ComputeShader* replacement_shader = nullptr;
+    D3D11_BUFFER_DESC constant_description{};
+    constant_description.ByteWidth = constant_bytes;
+    constant_description.Usage = D3D11_USAGE_DEFAULT;
+    constant_description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    HRESULT result = device->CreateBuffer(&constant_description, nullptr, &replacement_constants);
+    if (SUCCEEDED(result)) {
+        result = shader_create_compute(device, shader_id, &replacement_shader);
+    }
+    if (FAILED(result)) {
+        com_release(replacement_shader);
+        com_release(replacement_constants);
+        return result;
+    }
+    com_release(*shader);
+    com_release(*constants);
+    *constants = replacement_constants;
+    *shader = replacement_shader;
+    return S_OK;
 }
 
 HRESULT create_png_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {
-    if (gpu->png_palette_buffer && gpu->png_palette_view && gpu->png_constants && gpu->png_shader) {
-        return S_OK;
-    }
-    com_release(gpu->png_shader);
-    com_release(gpu->png_constants);
-    com_release(gpu->png_palette_view);
-    com_release(gpu->png_palette_buffer);
-
-    D3D11_BUFFER_DESC palette_description{};
-    palette_description.ByteWidth = kPngPaletteCapacity * sizeof(u32);
-    palette_description.Usage = D3D11_USAGE_DYNAMIC;
-    palette_description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    palette_description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    HRESULT result = device->CreateBuffer(&palette_description, nullptr, &gpu->png_palette_buffer);
-    if (SUCCEEDED(result)) {
-        D3D11_SHADER_RESOURCE_VIEW_DESC palette_view{};
-        palette_view.Format = DXGI_FORMAT_R32_UINT;
-        palette_view.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-        palette_view.Buffer.NumElements = kPngPaletteCapacity;
-        result = device->CreateShaderResourceView(gpu->png_palette_buffer, &palette_view,
-                                                  &gpu->png_palette_view);
-    }
-
-    D3D11_BUFFER_DESC constant_description{};
-    constant_description.ByteWidth = sizeof(PngAtlasConstants);
-    constant_description.Usage = D3D11_USAGE_DEFAULT;
-    constant_description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    if (SUCCEEDED(result)) {
-        result = device->CreateBuffer(&constant_description, nullptr, &gpu->png_constants);
-    }
-    if (SUCCEEDED(result)) {
-        result = shader_create_compute(device, ShaderId::png_compute, &gpu->png_shader);
-    }
-    if (FAILED(result)) {
-        com_release(gpu->png_shader);
-        com_release(gpu->png_constants);
+    if (!gpu->png_palette_buffer || !gpu->png_palette_view) {
         com_release(gpu->png_palette_view);
         com_release(gpu->png_palette_buffer);
+        D3D11_BUFFER_DESC palette_description{};
+        palette_description.ByteWidth = kPngPaletteCapacity * sizeof(u32);
+        palette_description.Usage = D3D11_USAGE_DYNAMIC;
+        palette_description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        palette_description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        HRESULT result = device->CreateBuffer(&palette_description, nullptr, &gpu->png_palette_buffer);
+        if (SUCCEEDED(result)) {
+            D3D11_SHADER_RESOURCE_VIEW_DESC palette_view{};
+            palette_view.Format = DXGI_FORMAT_R32_UINT;
+            palette_view.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+            palette_view.Buffer.NumElements = kPngPaletteCapacity;
+            result = device->CreateShaderResourceView(gpu->png_palette_buffer, &palette_view,
+                                                      &gpu->png_palette_view);
+        }
+        if (FAILED(result)) {
+            com_release(gpu->png_palette_view);
+            com_release(gpu->png_palette_buffer);
+            return result;
+        }
+    }
+    return ensure_constants_and_shader(device, sizeof(PngAtlasConstants), ShaderId::png_compute,
+                                       &gpu->png_constants, &gpu->png_shader);
+}
+
+// A raw (byte-address) buffer and its view: CPU-writable and read-only for the
+// upload buffers, GPU-writable with a UAV when `uav` is given. Nothing is left
+// behind on failure.
+static HRESULT create_raw_buffer(ID3D11Device* device, u32 bytes, ID3D11Buffer** buffer,
+                                 ID3D11ShaderResourceView** view, ID3D11UnorderedAccessView** uav) noexcept {
+    D3D11_BUFFER_DESC description{};
+    description.ByteWidth = bytes;
+    description.Usage = uav ? D3D11_USAGE_DEFAULT : D3D11_USAGE_DYNAMIC;
+    description.BindFlags = D3D11_BIND_SHADER_RESOURCE | (uav ? D3D11_BIND_UNORDERED_ACCESS : 0);
+    description.CPUAccessFlags = uav ? 0 : D3D11_CPU_ACCESS_WRITE;
+    description.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+    HRESULT result = device->CreateBuffer(&description, nullptr, buffer);
+    if (SUCCEEDED(result)) {
+        D3D11_SHADER_RESOURCE_VIEW_DESC view_description{};
+        view_description.Format = DXGI_FORMAT_R32_TYPELESS;
+        view_description.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+        view_description.BufferEx.NumElements = bytes / 4u;
+        view_description.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
+        result = device->CreateShaderResourceView(*buffer, &view_description, view);
+    }
+    if (SUCCEEDED(result) && uav) {
+        D3D11_UNORDERED_ACCESS_VIEW_DESC uav_description{};
+        uav_description.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav_description.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+        uav_description.Buffer.NumElements = bytes / 4u;
+        uav_description.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
+        result = device->CreateUnorderedAccessView(*buffer, &uav_description, uav);
+    }
+    if (FAILED(result)) {
+        if (uav) {
+            com_release(*uav);
+        }
+        com_release(*view);
+        com_release(*buffer);
     }
     return result;
 }
@@ -154,24 +201,8 @@ HRESULT ensure_dynamic_raw_buffer(ID3D11Device* device, u32 required_bytes, ID3D
     }
     ID3D11Buffer* replacement_buffer = nullptr;
     ID3D11ShaderResourceView* replacement_view = nullptr;
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = aligned;
-    description.Usage = D3D11_USAGE_DYNAMIC;
-    description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    description.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-    HRESULT result = device->CreateBuffer(&description, nullptr, &replacement_buffer);
-    if (SUCCEEDED(result)) {
-        D3D11_SHADER_RESOURCE_VIEW_DESC view_description{};
-        view_description.Format = DXGI_FORMAT_R32_TYPELESS;
-        view_description.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
-        view_description.BufferEx.NumElements = aligned / 4u;
-        view_description.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
-        result = device->CreateShaderResourceView(replacement_buffer, &view_description, &replacement_view);
-    }
+    const HRESULT result = create_raw_buffer(device, aligned, &replacement_buffer, &replacement_view, nullptr);
     if (FAILED(result)) {
-        com_release(replacement_view);
-        com_release(replacement_buffer);
         // A failed shrink keeps the larger buffer.
         return shrink && *buffer && *view ? S_OK : result;
     }
@@ -195,32 +226,9 @@ HRESULT ensure_vp8_yuv_buffer(MediaAtlasGpu* gpu, ID3D11Device* device, u32 requ
     ID3D11Buffer* replacement_buffer = nullptr;
     ID3D11ShaderResourceView* replacement_view = nullptr;
     ID3D11UnorderedAccessView* replacement_uav = nullptr;
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = aligned;
-    description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-    description.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-    HRESULT result = device->CreateBuffer(&description, nullptr, &replacement_buffer);
-    if (SUCCEEDED(result)) {
-        D3D11_SHADER_RESOURCE_VIEW_DESC view_description{};
-        view_description.Format = DXGI_FORMAT_R32_TYPELESS;
-        view_description.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
-        view_description.BufferEx.NumElements = aligned / 4u;
-        view_description.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
-        result = device->CreateShaderResourceView(replacement_buffer, &view_description, &replacement_view);
-    }
-    if (SUCCEEDED(result)) {
-        D3D11_UNORDERED_ACCESS_VIEW_DESC uav_description{};
-        uav_description.Format = DXGI_FORMAT_R32_TYPELESS;
-        uav_description.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-        uav_description.Buffer.NumElements = aligned / 4u;
-        uav_description.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
-        result = device->CreateUnorderedAccessView(replacement_buffer, &uav_description, &replacement_uav);
-    }
+    const HRESULT result =
+        create_raw_buffer(device, aligned, &replacement_buffer, &replacement_view, &replacement_uav);
     if (FAILED(result)) {
-        com_release(replacement_uav);
-        com_release(replacement_view);
-        com_release(replacement_buffer);
         return result;
     }
     com_release(gpu->vp8_yuv_uav);
@@ -234,118 +242,30 @@ HRESULT ensure_vp8_yuv_buffer(MediaAtlasGpu* gpu, ID3D11Device* device, u32 requ
 }
 
 HRESULT create_vp8_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {
-    if (gpu->vp8_constants && gpu->vp8_reconstruct_shader && gpu->vp8_idct_shader) {
-        return S_OK;
-    }
-    ID3D11Buffer* replacement_constants = nullptr;
-    ID3D11ComputeShader* replacement_shader = nullptr;
-    ID3D11ComputeShader* replacement_idct = nullptr;
-    D3D11_BUFFER_DESC constant_description{};
-    constant_description.ByteWidth = sizeof(Vp8ReconstructionConstants);
-    constant_description.Usage = D3D11_USAGE_DEFAULT;
-    constant_description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    HRESULT result = device->CreateBuffer(&constant_description, nullptr, &replacement_constants);
-    if (SUCCEEDED(result)) {
-        result = shader_create_compute(device, ShaderId::vp8_reconstruct, &replacement_shader);
-    }
-    if (SUCCEEDED(result)) result = shader_create_compute(device, ShaderId::vp8_idct, &replacement_idct);
-    if (FAILED(result)) {
-        com_release(replacement_idct);
-        com_release(replacement_shader);
-        com_release(replacement_constants);
-        return result;
-    }
-    com_release(gpu->vp8_idct_shader);
-    gpu->vp8_idct_shader = replacement_idct;
-    com_release(gpu->vp8_reconstruct_shader);
-    com_release(gpu->vp8_constants);
-    gpu->vp8_constants = replacement_constants;
-    gpu->vp8_reconstruct_shader = replacement_shader;
-    return S_OK;
-}
-
-// A constant buffer and the compute shader that reads it, replaced together.
-static HRESULT replace_constants_and_shader(ID3D11Device* device, u32 constant_bytes,
-                                            ShaderId shader_id, ID3D11Buffer** constants,
-                                            ID3D11ComputeShader** shader) noexcept {
-    ID3D11Buffer* replacement_constants = nullptr;
-    ID3D11ComputeShader* replacement_shader = nullptr;
-    D3D11_BUFFER_DESC constant_description{};
-    constant_description.ByteWidth = constant_bytes;
-    constant_description.Usage = D3D11_USAGE_DEFAULT;
-    constant_description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    HRESULT result = device->CreateBuffer(&constant_description, nullptr, &replacement_constants);
-    if (SUCCEEDED(result)) {
-        result = shader_create_compute(device, shader_id, &replacement_shader);
-    }
-    if (FAILED(result)) {
-        com_release(replacement_shader);
-        com_release(replacement_constants);
-        return result;
-    }
-    com_release(*shader);
-    com_release(*constants);
-    *constants = replacement_constants;
-    *shader = replacement_shader;
-    return S_OK;
+    const HRESULT result = ensure_constants_and_shader(device, sizeof(Vp8ReconstructionConstants),
+                                                       ShaderId::vp8_reconstruct, &gpu->vp8_constants,
+                                                       &gpu->vp8_reconstruct_shader);
+    return SUCCEEDED(result) && !gpu->vp8_idct_shader
+               ? shader_create_compute(device, ShaderId::vp8_idct, &gpu->vp8_idct_shader)
+               : result;
 }
 
 HRESULT create_vp8_filter_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {
-    if (gpu->vp8_filter_constants && gpu->vp8_filter_shader) {
-        return S_OK;
-    }
-    return replace_constants_and_shader(device, sizeof(Vp8FilterConstants), ShaderId::vp8_filter,
-                                        &gpu->vp8_filter_constants, &gpu->vp8_filter_shader);
+    return ensure_constants_and_shader(device, sizeof(Vp8FilterConstants), ShaderId::vp8_filter,
+                                       &gpu->vp8_filter_constants, &gpu->vp8_filter_shader);
 }
 
 HRESULT create_vp8_atlas_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {
-    if (gpu->vp8_atlas_constants && gpu->vp8_atlas_shader) {
-        return S_OK;
-    }
-    return replace_constants_and_shader(device, sizeof(Vp8AtlasConstants), ShaderId::vp8_atlas,
-                                        &gpu->vp8_atlas_constants, &gpu->vp8_atlas_shader);
+    return ensure_constants_and_shader(device, sizeof(Vp8AtlasConstants), ShaderId::vp8_atlas,
+                                       &gpu->vp8_atlas_constants, &gpu->vp8_atlas_shader);
 }
 
 HRESULT create_jpeg_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {
-    if (gpu->jpeg_idct_constants && gpu->jpeg_idct_shader && gpu->jpeg_atlas_constants &&
-        gpu->jpeg_atlas_shader) {
-        return S_OK;
-    }
-    ID3D11Buffer* idct_constants = nullptr;
-    ID3D11ComputeShader* idct_shader = nullptr;
-    ID3D11Buffer* atlas_constants = nullptr;
-    ID3D11ComputeShader* atlas_shader = nullptr;
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = sizeof(JpegIdctConstants);
-    description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    HRESULT result = device->CreateBuffer(&description, nullptr, &idct_constants);
-    if (SUCCEEDED(result)) {
-        result = shader_create_compute(device, ShaderId::jpeg_idct, &idct_shader);
-    }
-    description.ByteWidth = sizeof(JpegAtlasConstants);
-    if (SUCCEEDED(result)) {
-        result = device->CreateBuffer(&description, nullptr, &atlas_constants);
-    }
-    if (SUCCEEDED(result)) {
-        result = shader_create_compute(device, ShaderId::jpeg_atlas, &atlas_shader);
-    }
-    if (FAILED(result)) {
-        com_release(atlas_shader);
-        com_release(atlas_constants);
-        com_release(idct_shader);
-        com_release(idct_constants);
-        return result;
-    }
-    com_release(gpu->jpeg_atlas_shader);
-    com_release(gpu->jpeg_atlas_constants);
-    com_release(gpu->jpeg_idct_shader);
-    com_release(gpu->jpeg_idct_constants);
-    gpu->jpeg_idct_constants = idct_constants;
-    gpu->jpeg_idct_shader = idct_shader;
-    gpu->jpeg_atlas_constants = atlas_constants;
-    gpu->jpeg_atlas_shader = atlas_shader;
-    return S_OK;
+    const HRESULT result = ensure_constants_and_shader(device, sizeof(JpegIdctConstants), ShaderId::jpeg_idct,
+                                                       &gpu->jpeg_idct_constants, &gpu->jpeg_idct_shader);
+    return FAILED(result) ? result
+                          : ensure_constants_and_shader(device, sizeof(JpegAtlasConstants), ShaderId::jpeg_atlas,
+                                                        &gpu->jpeg_atlas_constants, &gpu->jpeg_atlas_shader);
 }
 
 

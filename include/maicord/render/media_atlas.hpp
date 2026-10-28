@@ -31,16 +31,14 @@ struct MediaAtlas {
     u32 entry_count;
     u32 free_cursor;
     u32 insertions;
-    u32 reuse_requests;
     u32 stale_entries;
     u32 rejected;
     u64 next_allocation_key;
     // Height growth/idle trim (zero maximum: fixed size). The renderer resizes
     // the GPU surface whenever allocations.height changes.
     GlyphAtlasGrowth growth;
-    // Frames that needed the previous-disposal backup and the last such use;
-    // the backup texture is released once unused for kMediaAtlasIdleTrimMs.
-    u32 disposal_backup_frames;
+    // The last use of the previous-disposal backup; the backup texture is
+    // released once unused for kMediaAtlasIdleTrimMs.
     u64 disposal_backup_used_ms;
 };
 

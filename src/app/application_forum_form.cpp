@@ -178,7 +178,7 @@ bool project(ApplicationForumForm* f) noexcept {
                              row.description, row.bytes,     row.uploaded_bytes,
                              preview.key,     phase,         row.spoiler,
                              row.can_remove,  row.can_retry, v.can_edit && row.can_remove,
-                             preview.ready,   preview.failed};
+                             preview.ready};
     }
     c.attachments = {f->attachments, files.rows.count};
     c.add_files = utf8_literal("Add files");
@@ -554,8 +554,6 @@ bool application_forum_form_open(const ApplicationForumPostTicket& ticket) noexc
         return false;
     f->ticket = ticket;
     f->surface_serial = ++next_surface_serial;
-    if (!f->surface_serial)
-        f->surface_serial = ++next_surface_serial;
     f->blink_ms = GetCaretBlinkTime();
     if (!f->blink_ms)
         f->blink_ms = 500;

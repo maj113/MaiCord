@@ -4,42 +4,13 @@
 #include "maicord/ui/text_style.hpp"
 namespace maicord {
 inline UiTextFace profile_name_face(u16 id) noexcept {
-    switch (id) {
-    case 1:
-        return UiTextFace::bangers;
-    case 2:
-        return UiTextFace::biorhyme;
-    case 3:
-        return UiTextFace::cherry_bomb;
-    case 4:
-        return UiTextFace::chicle;
-    case 5:
-        return UiTextFace::compagnon;
-    case 6:
-        return UiTextFace::museo;
-    case 7:
-        return UiTextFace::medieval;
-    case 8:
-        return UiTextFace::pixelify;
-    case 9:
-        return UiTextFace::ribes;
-    case 10:
-        return UiTextFace::sinistre;
-    case 11:
-        return UiTextFace::normal;
-    case 12:
-        return UiTextFace::zilla;
-    case 13:
-        return UiTextFace::playpen;
-    case 14:
-        return UiTextFace::techno;
-    case 15:
-        return UiTextFace::new_rocker;
-    case 16:
-        return UiTextFace::kalam;
-    default:
-        return UiTextFace::normal;
-    }
+    static constexpr UiTextFace faces[] = {
+        UiTextFace::normal,     UiTextFace::bangers,  UiTextFace::biorhyme, UiTextFace::cherry_bomb,
+        UiTextFace::chicle,     UiTextFace::compagnon, UiTextFace::museo,    UiTextFace::medieval,
+        UiTextFace::pixelify,   UiTextFace::ribes,    UiTextFace::sinistre, UiTextFace::normal,
+        UiTextFace::zilla,      UiTextFace::playpen,  UiTextFace::techno,   UiTextFace::new_rocker,
+        UiTextFace::kalam};
+    return id < sizeof(faces) / sizeof(faces[0]) ? faces[id] : UiTextFace::normal;
 }
 inline UiTextEffect profile_name_effect(const NameStyle& style, bool animate,
                                         u64 started_ms = 0) noexcept {

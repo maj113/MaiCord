@@ -171,13 +171,9 @@ inline bool animation_canvas_fits(const MediaAtlas& atlas, u16 canvas_width, u16
            static_cast<u32>(canvas_height) + atlas.allocations.padding * 2u <= atlas.allocations.height;
 }
 
-u32 retained_upload_capacity(u32 current, u32 required) noexcept;
-
 bool png_format_valid(const PngImage& image) noexcept;
 
 bool png_scanlines_reconstructed(const PngImage& image, ConstSlice<u8> scanlines) noexcept;
-
-HRESULT create_png_scanline_buffer(MediaAtlasGpu* gpu, ID3D11Device* device, u32 required_bytes) noexcept;
 
 HRESULT create_png_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept;
 

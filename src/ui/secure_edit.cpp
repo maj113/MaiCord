@@ -167,24 +167,8 @@ u32 byte_for_units(const SecureEdit& edit, u32 target, bool utf16) noexcept {
     return units == target ? offset : ~0u;
 }
 
-u32 codepoint_position(const SecureEdit& edit, u32 byte_position) noexcept {
-    return units_before(edit, byte_position, false);
-}
-
-u32 byte_position(const SecureEdit& edit, u32 codepoint) noexcept {
-    return byte_for_units(edit, codepoint, false);
-}
-
-u32 utf16_position(const SecureEdit& edit, u32 byte_position) noexcept {
-    return units_before(edit, byte_position, true);
-}
-
-u32 byte_position_for_utf16(const SecureEdit& edit, u32 target) noexcept {
-    return byte_for_units(edit, target, true);
-}
-
 bool decode_utf16_one(ConstSlice<u16> input, u32 offset, u32* codepoint, u32* width) noexcept {
-    if (offset >= input.count || !input.data) {
+    if (offset >= input.count) {
         return false;
     }
     const u32 first = input[offset];
@@ -206,6 +190,17 @@ bool decode_utf16_one(ConstSlice<u16> input, u32 offset, u32* codepoint, u32* wi
     *codepoint = first;
     *width = 1;
     return true;
+}
+SecureEditResult select_range(SecureEdit* edit, u32 position,
+                              bool (*range)(const Utf8View&, u32, u32*, u32*) noexcept) noexcept {
+    if (!ready(edit)) return SecureEditResult::invalid_input;
+    u32 first = 0, last = 0;
+    if (!range({reinterpret_cast<const char*>(edit->storage.data), edit->storage.bytes}, position, &first, &last))
+        return SecureEditResult::invalid_input;
+    secure_edit_break_history_run(edit);
+    const bool changed = edit->anchor != first || edit->caret != last;
+    edit->anchor = first; edit->caret = last; edit->pending_high_surrogate = 0;
+    return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
 }
 
 } // namespace
@@ -372,7 +367,7 @@ SecureEditResult secure_edit_move(SecureEdit* edit, SecureEditMove movement,
         position = line_boundary(*edit, position, movement == SecureEditMove::line_home);
     } else if (!extend_selection && edit->anchor != edit->caret &&
                (movement == SecureEditMove::previous || movement == SecureEditMove::next)) {
-        position = movement == SecureEditMove::previous || movement == SecureEditMove::home
+        position = movement == SecureEditMove::previous
                        ? selection_begin(*edit)
                        : selection_end(*edit);
     } else {
@@ -408,7 +403,7 @@ SecureEditResult secure_edit_set_codepoint(SecureEdit* edit, u32 codepoint,
     if (!ready(edit)) {
         return SecureEditResult::invalid_input;
     }
-    const u32 position = byte_position(*edit, codepoint);
+    const u32 position = byte_for_units(*edit, codepoint, false);
     if (position == ~0u) {
         return SecureEditResult::invalid_input;
     }
@@ -435,25 +430,11 @@ SecureEditResult secure_edit_select_all(SecureEdit* edit) noexcept {
 }
 
 SecureEditResult secure_edit_select_word(SecureEdit* edit, u32 position) noexcept {
-    if (!ready(edit)) return SecureEditResult::invalid_input;
-    u32 first = 0, last = 0;
-    if (!utf8_word_range_near({reinterpret_cast<const char*>(edit->storage.data), edit->storage.bytes}, position, &first, &last))
-        return SecureEditResult::invalid_input;
-    secure_edit_break_history_run(edit);
-    const bool changed = edit->anchor != first || edit->caret != last;
-    edit->anchor = first; edit->caret = last; edit->pending_high_surrogate = 0;
-    return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
+    return select_range(edit, position, utf8_word_range_near);
 }
 
 SecureEditResult secure_edit_select_line(SecureEdit* edit, u32 position) noexcept {
-    if (!ready(edit)) return SecureEditResult::invalid_input;
-    u32 first = 0, last = 0;
-    if (!utf8_line_range({reinterpret_cast<const char*>(edit->storage.data), edit->storage.bytes}, position, &first, &last))
-        return SecureEditResult::invalid_input;
-    secure_edit_break_history_run(edit);
-    const bool changed = edit->anchor != first || edit->caret != last;
-    edit->anchor = first; edit->caret = last; edit->pending_high_surrogate = 0;
-    return changed ? SecureEditResult::changed : SecureEditResult::unchanged;
+    return select_range(edit, position, utf8_line_range);
 }
 
 void secure_edit_cancel_composition(SecureEdit* edit) noexcept {
@@ -470,7 +451,7 @@ SecureEditResult secure_edit_utf16_length(const SecureEdit& edit, u32* units) no
     if (!units || !ready(&edit)) {
         return SecureEditResult::invalid_input;
     }
-    const u32 result = utf16_position(edit, edit.storage.bytes);
+    const u32 result = units_before(edit, edit.storage.bytes, true);
     if (result == ~0u) {
         return SecureEditResult::invalid_utf8;
     }
@@ -483,8 +464,8 @@ SecureEditResult secure_edit_utf16_selection(const SecureEdit& edit,
     if (!selection || !ready(&edit)) {
         return SecureEditResult::invalid_input;
     }
-    const u32 anchor = utf16_position(edit, edit.anchor);
-    const u32 caret = utf16_position(edit, edit.caret);
+    const u32 anchor = units_before(edit, edit.anchor, true);
+    const u32 caret = units_before(edit, edit.caret, true);
     if (anchor == ~0u || caret == ~0u) {
         return SecureEditResult::invalid_utf8;
     }
@@ -497,11 +478,11 @@ SecureEditResult secure_edit_codepoint_from_utf16(const SecureEdit& edit, u32 po
     if (!codepoint || !ready(&edit)) {
         return SecureEditResult::invalid_input;
     }
-    const u32 byte = byte_position_for_utf16(edit, position);
+    const u32 byte = byte_for_units(edit, position, true);
     if (byte == ~0u) {
         return SecureEditResult::invalid_utf16;
     }
-    const u32 value = codepoint_position(edit, byte);
+    const u32 value = units_before(edit, byte, false);
     if (value == ~0u) {
         return SecureEditResult::invalid_utf8;
     }
@@ -514,8 +495,8 @@ SecureEditResult secure_edit_set_utf16_selection(SecureEdit* edit,
     if (!ready(edit)) {
         return SecureEditResult::invalid_input;
     }
-    const u32 anchor = byte_position_for_utf16(*edit, selection.anchor);
-    const u32 caret = byte_position_for_utf16(*edit, selection.caret);
+    const u32 anchor = byte_for_units(*edit, selection.anchor, true);
+    const u32 caret = byte_for_units(*edit, selection.caret, true);
     if (anchor == ~0u || caret == ~0u) {
         return SecureEditResult::invalid_utf16;
     }
@@ -542,8 +523,8 @@ SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end,
     if (input.count > edit->storage.capacity * 2u) {
         return SecureEditResult::capacity;
     }
-    const u32 begin_byte = byte_position_for_utf16(*edit, start);
-    const u32 end_byte = byte_position_for_utf16(*edit, end);
+    const u32 begin_byte = byte_for_units(*edit, start, true);
+    const u32 end_byte = byte_for_units(*edit, end, true);
     if (begin_byte == ~0u || end_byte == ~0u) {
         return SecureEditResult::invalid_utf16;
     }
@@ -620,8 +601,8 @@ SecureEditResult secure_edit_render_window(const SecureEdit& edit, u32 maximum_c
     if (!validation.valid) {
         return SecureEditResult::invalid_utf8;
     }
-    const u32 anchor = codepoint_position(edit, edit.anchor);
-    const u32 caret = codepoint_position(edit, edit.caret);
+    const u32 anchor = units_before(edit, edit.anchor, false);
+    const u32 caret = units_before(edit, edit.caret, false);
     if (anchor == ~0u || caret == ~0u) {
         return SecureEditResult::invalid_utf8;
     }
@@ -639,8 +620,8 @@ SecureEditResult secure_edit_render_window(const SecureEdit& edit, u32 maximum_c
     }
     const u32 visible = minimum(maximum_codepoints, validation.codepoints - first);
     const u32 last = first + visible;
-    const u32 begin_byte = byte_position(edit, first);
-    const u32 end_byte = byte_position(edit, last);
+    const u32 begin_byte = byte_for_units(edit, first, false);
+    const u32 end_byte = byte_for_units(edit, last, false);
     if (begin_byte == ~0u || end_byte == ~0u) {
         return SecureEditResult::invalid_utf8;
     }

@@ -22,10 +22,6 @@ inline constexpr float kUiTypingDotSize = 7.f, kUiTypingDotPitch = 8.75f;
 inline constexpr float kUiTypingDotsInset = 8.f, kUiTypingDotsGap = 4.f;
 inline constexpr float kUiTypingDotsWidth = kUiTypingDotSize + (kUiTypingDotCount - 1) * kUiTypingDotPitch;
 inline constexpr float kUiTypingLabelInset = kUiTypingDotsInset + kUiTypingDotsWidth + kUiTypingDotsGap;
-struct UiTypingDot {
-    UiRect rectangle;
-    float opacity;
-};
 // Phase at now, or kUiTypingDotsRest when not animating.
 u16 ui_typing_dots_phase(u64 now_ms, bool animate) noexcept;
 // The next step while the dots animate; zero otherwise.
@@ -34,8 +30,6 @@ u64 ui_typing_dots_next_wake(u64 now_ms, bool animate) noexcept;
 void ui_typing_dot_pose(u32 index, u16 phase, float* scale, float* opacity) noexcept;
 // The dots' box in a typing row.
 UiRect ui_typing_dots_row(UiRect row) noexcept;
-// The dots left-aligned in `row`, vertically centred.
-void ui_typing_dots_geometry(UiRect row, u16 phase, UiTypingDot output[kUiTypingDotCount]) noexcept;
 // The dots' paint quads, as ui_typing_dots_paint pushes them.
 void ui_typing_dots_quads(const UiRect& row, const Color&, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept;
 // Always kUiTypingDotCount quads, whatever the phase.

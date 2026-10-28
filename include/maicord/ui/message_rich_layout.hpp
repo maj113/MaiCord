@@ -307,7 +307,6 @@ bool message_rich_embed_media_extent(const MessageRichEmbedMediaSelection& selec
                                      float* width, float* height) noexcept;
 float message_rich_embed_visual_height(const MessageRichStore& store, const MessageRichRecord& rich,
                                        const MessageRichEmbed& embed) noexcept;
-float message_rich_component_visual_height(const MessageRichComponent& component) noexcept;
 float message_rich_reaction_button_width(const MessageRichReaction& reaction) noexcept;
 float message_rich_reaction_layout_height(const MessageRichRecord& rich, float available_width,
                                           ConstSlice<float> intrinsic_widths = {}) noexcept;

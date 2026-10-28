@@ -622,15 +622,9 @@ bool shell_backdrop_media_changed(const D3D11Renderer& renderer) noexcept {
     return false;
 }
 void release_backdrop_target(D3D11Renderer* renderer) noexcept {
-    if (renderer->settings_backdrop_target)
-        renderer->settings_backdrop_target->Release();
-    if (renderer->settings_backdrop_view)
-        renderer->settings_backdrop_view->Release();
-    if (renderer->settings_backdrop)
-        renderer->settings_backdrop->Release();
-    renderer->settings_backdrop_target = nullptr;
-    renderer->settings_backdrop_view = nullptr;
-    renderer->settings_backdrop = nullptr;
+    com_release(renderer->settings_backdrop_target);
+    com_release(renderer->settings_backdrop_view);
+    com_release(renderer->settings_backdrop);
     renderer->settings_backdrop_valid = false;
 }
 // Clearing the swap chain target also wipes the caption; it redraws after
@@ -1262,6 +1256,23 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         {renderer->inline_media_layer_first[static_cast<u32>(RendererInlineMediaLayer::form)],
          renderer->inline_media_layer_end[static_cast<u32>(RendererInlineMediaLayer::form)], 1}};
     float current_opacity = 1;
+    // Restores the identity layer and releases the stream's bindings; a failed
+    // surface draw must not leave its factor bound for the next frame.
+    const auto finish = [&, renderer](bool drawn) noexcept {
+        if ((current_opacity != 1 || renderer->draw_layer_scale != 1) &&
+            !d3d11_draw_pipeline_update_opacity(renderer->pipeline, renderer->graphics.context, renderer->width,
+                                                renderer->height, renderer->dpi, 1))
+            drawn = false;
+        renderer->draw_layer_scale = 1;
+        release_stream_views(renderer, submission);
+        if (drawn)
+            saturating_accumulate(renderer->media_draws_total, renderer->media_draws_last_frame);
+        d3d11_background_fx_end_frame(&renderer->background_fx, renderer->graphics.context);
+        d3d11_gpu_timer_end(&renderer->gpu_timer, renderer->graphics.context, gpu_timestamp);
+        if (drawn)
+            renderer->draw_calls_max = maximum(renderer->draw_calls_max, renderer->draw_calls_last_frame);
+        return drawn;
+    };
     const auto paint = [&, renderer](u32 first, u32 end) noexcept {
         auto draw = [&, renderer](u32 begin, u32 limit) noexcept {
             return draw_paint_batches(renderer, &submission, begin, limit, pixel_scale, damage);
@@ -1408,28 +1419,10 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             !draw_gpu_text(renderer, &submission, theme, visible_text_end, stream_text_end, false, damage))
             goto draw_failed;
     }
-    if ((current_opacity != 1 || renderer->draw_layer_scale != 1) &&
-        !d3d11_draw_pipeline_update_opacity(renderer->pipeline, renderer->graphics.context, renderer->width,
-                                            renderer->height, renderer->dpi, 1))
-        goto draw_failed;
-    renderer->draw_layer_scale = 1;
-    release_stream_views(renderer, submission);
-    saturating_accumulate(renderer->media_draws_total, renderer->media_draws_last_frame);
-    d3d11_background_fx_end_frame(&renderer->background_fx, renderer->graphics.context);
-    d3d11_gpu_timer_end(&renderer->gpu_timer, renderer->graphics.context, gpu_timestamp);
-    renderer->draw_calls_max = maximum(renderer->draw_calls_max, renderer->draw_calls_last_frame);
-    return true;
+    return finish(true);
 
 draw_failed:
-    // A failed surface draw must not leave its factor bound for the next frame.
-    if (current_opacity != 1 || renderer->draw_layer_scale != 1)
-        d3d11_draw_pipeline_update_opacity(renderer->pipeline, renderer->graphics.context, renderer->width,
-                                           renderer->height, renderer->dpi, 1);
-    renderer->draw_layer_scale = 1;
-    release_stream_views(renderer, submission);
-    d3d11_background_fx_end_frame(&renderer->background_fx, renderer->graphics.context);
-    d3d11_gpu_timer_end(&renderer->gpu_timer, renderer->graphics.context, gpu_timestamp);
-    return false;
+    return finish(false);
 }
 
 } // namespace maicord

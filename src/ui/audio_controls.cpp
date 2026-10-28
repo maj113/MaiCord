@@ -225,9 +225,7 @@ const UiAudioControlDescriptor* ui_audio_controls_find(const UiAudioControlsProj
 }
 Utf8View ui_audio_controls_label(const UiAudioControlsProjection& projection, UiAudioControl id) noexcept {
     if (id == UiAudioControl::time)
-        return projection.time_bytes <= sizeof(projection.time_text)
-                   ? Utf8View{projection.time_text, projection.time_bytes}
-                   : Utf8View{};
+        return {projection.time_text, projection.time_bytes};
     const auto* descriptor = ui_audio_controls_find(projection, id);
     return descriptor ? descriptor->label : Utf8View{};
 }

@@ -152,25 +152,20 @@ struct MessageActionBar {
 
 static_assert(sizeof(MessageActionBarItem) == 40);
 static_assert(sizeof(MessageActionBar) == 576);
-using MessageActionBarForwardPolicy = bool (*)(void*, u64 message_id) noexcept;
 using MessageActionBarPolicy = u16 (*)(void*, u64 message_id) noexcept;
 
 // Pending sends never get a bar; failed sends show only Retry and Delete.
 MessageActionBarResult message_action_bar_open(
     MessageActionBar* bar, const MessageScene& scene, MessageSceneHit hit, const MessageRecord& message,
-    const ReactionPreferenceStore* preferences, MessageActionBarOptions options) noexcept;
+    const ReactionPreferenceStore* preferences = nullptr, MessageActionBarOptions options = {}) noexcept;
 MessageActionBarPointerResult message_action_bar_track_pointer(
-    MessageActionBar* bar, MessageScene* scene, float x, float y, const ReactionPreferenceStore* preferences,
-    MessageActionBarPolicy policy, void* policy_context = nullptr) noexcept;
+    MessageActionBar* bar, MessageScene* scene, float x, float y, const ReactionPreferenceStore* preferences = nullptr,
+    MessageActionBarPolicy policy = nullptr, void* policy_context = nullptr) noexcept;
 // Reopens the current bar with new capabilities (for example a Shift change).
 bool message_action_bar_reconfigure(MessageActionBar* bar, const MessageScene& scene,
                                     const ReactionPreferenceStore* preferences,
                                     MessageActionBarOptions options, bool* changed = nullptr) noexcept;
 
-MessageActionBarResult message_action_bar_open(
-    MessageActionBar* bar, const MessageScene& scene,
-    MessageSceneHit hit, const MessageRecord& message,
-    const ReactionPreferenceStore* preferences = nullptr, bool can_forward = false) noexcept;
 bool message_action_bar_synchronize(MessageActionBar* bar,
                                     const MessageScene& scene,
                                     bool* changed = nullptr) noexcept;
@@ -203,9 +198,4 @@ bool message_hover_scroll_gate_observe(MessageHoverScrollGate* gate, u32 generat
 bool message_hover_scroll_gate_pointer(MessageHoverScrollGate* gate, float x, float y) noexcept;
 bool message_action_bar_set_hover(MessageActionBar* bar, float x, float y,
                                   bool* changed) noexcept;
-MessageActionBarPointerResult message_action_bar_track_pointer(
-    MessageActionBar* bar, MessageScene* scene, float x, float y,
-    const ReactionPreferenceStore* preferences = nullptr,
-    MessageActionBarForwardPolicy forward_policy = nullptr, void* policy_context = nullptr) noexcept;
-
 } // namespace maicord

@@ -81,50 +81,25 @@ bool append_time(Slice<char> output, u32* used, const SYSTEMTIME& time, bool sec
 TimestampFormatResult format_relative(u64 timestamp, u64 now, Slice<char> output) noexcept {
     const bool future = timestamp > now;
     const u64 difference = future ? timestamp - now : now - timestamp;
-    const char* unit = "second";
-    u32 unit_bytes = 6;
-    u64 divisor = 1;
-    u64 refresh = 1;
-    if (difference >= 31'536'000) {
-        unit = "year";
-        unit_bytes = 4;
-        divisor = 31'536'000;
-        refresh = 86'400;
-    } else if (difference >= 2'592'000) {
-        unit = "month";
-        unit_bytes = 5;
-        divisor = 2'592'000;
-        refresh = 86'400;
-    } else if (difference >= 604'800) {
-        unit = "week";
-        unit_bytes = 4;
-        divisor = 604'800;
-        refresh = 3'600;
-    } else if (difference >= 86'400) {
-        unit = "day";
-        unit_bytes = 3;
-        divisor = 86'400;
-        refresh = 3'600;
-    } else if (difference >= 3'600) {
-        unit = "hour";
-        unit_bytes = 4;
-        divisor = 3'600;
-        refresh = 60;
-    } else if (difference >= 60) {
-        unit = "minute";
-        unit_bytes = 6;
-        divisor = 60;
-        refresh = 1;
-    }
-    const u64 amount = maximum<u64>(1, difference / divisor);
+    static constexpr struct {
+        u64 seconds, refresh;
+        const char* name;
+        u32 bytes;
+    } units[] = {{31'536'000, 86'400, "year", 4}, {2'592'000, 86'400, "month", 5}, {604'800, 3'600, "week", 4},
+                 {86'400, 3'600, "day", 3},       {3'600, 60, "hour", 4},          {60, 1, "minute", 6},
+                 {1, 1, "second", 6}};
+    const auto* unit = units;
+    while (unit->seconds > 1 && difference < unit->seconds)
+        ++unit;
+    const u64 amount = maximum<u64>(1, difference / unit->seconds);
     u32 used = 0;
     const bool written = (!future || append_ascii(output, &used, "in ", 3)) &&
                          append_u64(output, &used, amount) && append_ascii(output, &used, " ", 1) &&
-                         append_ascii(output, &used, unit, unit_bytes) &&
+                         append_ascii(output, &used, unit->name, unit->bytes) &&
                          (amount == 1 || append_ascii(output, &used, "s", 1)) &&
                          (future || append_ascii(output, &used, " ago", 4));
-    return TimestampFormatResult{written && now <= ~0ull - refresh ? now + refresh : 0,
-                                        written ? used : 0, written};
+    return TimestampFormatResult{written && now <= ~0ull - unit->refresh ? now + unit->refresh : 0,
+                                 written ? used : 0, written};
 }
 
 } // namespace

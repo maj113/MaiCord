@@ -6,9 +6,7 @@
 namespace maicord {
 namespace {
 
-MessageContextControllerResult reject(MessageContextController* controller,
-                                      MessageContextControllerError error) noexcept {
-    if (controller) saturating_increment(controller->rejected);
+MessageContextControllerResult reject(MessageContextControllerError error) noexcept {
     return MessageContextControllerResult{error, false};
 }
 
@@ -91,12 +89,12 @@ MessageContextControllerResult message_context_controller_open(
     bool developer_mode, MessageContextMenuExtras extras, ConstSlice<PopupItem> media_items) noexcept {
     if (!controller || !popup || message.id == 0 || !valid_extras(extra_items) ||
         !valid_extras(media_items, kMessageContextMaximumMediaItems)) {
-        return reject(controller, MessageContextControllerError::invalid_input);
+        return reject(MessageContextControllerError::invalid_input);
     }
     for (u32 media = 0; media < media_items.count; ++media)
         for (u32 extra = 0; extra < extra_items.count; ++extra)
             if (media_items[media].action == extra_items[extra].action)
-                return reject(controller, MessageContextControllerError::invalid_input);
+                return reject(MessageContextControllerError::invalid_input);
     MessageContextMenuModel menu{};
     const MessageContextMenuResult built = message_context_menu_build(
         &menu, message, can_edit_authoritative, can_delete_authoritative, has_reactions, preferences,
@@ -104,7 +102,7 @@ MessageContextControllerResult message_context_controller_open(
         can_mark_unread_authoritative, reply_target_deleted, can_create_thread_authoritative, developer_mode,
         extras);
     if (!built.ok()) {
-        return reject(controller, MessageContextControllerError::menu);
+        return reject(MessageContextControllerError::menu);
     }
     PopupItem combined[kMessageContextMaximumPopupItems];
     // Media groups precede the developer-mode Copy ID, which stays last of
@@ -136,7 +134,7 @@ MessageContextControllerResult message_context_controller_open(
                          anchor, viewport, kMessageContextPreferredWidth);
     if (!opened.ok()) {
         rollback.restore(popup);
-        return reject(controller, MessageContextControllerError::popup);
+        return reject(MessageContextControllerError::popup);
     }
     controller->menu = menu;
     controller->message_id = message.id;

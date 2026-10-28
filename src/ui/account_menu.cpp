@@ -39,7 +39,7 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
     // Labels are staged in `names` before *model is reset, so identity may point
     // into the old model. A status longer than the row keeps a valid UTF-8 prefix.
     const u32 status_bytes = utf8_truncated_length(identity.custom_status, kUiAccountMenuIdentityBytes);
-    char names[kUiAccountMenuIdentityBytes * 3]{};
+    char names[kUiAccountMenuIdentityBytes * 3];
     copy_bytes(names, name.data, name.bytes);
     if (identity.username.bytes)
         copy_bytes(names + kUiAccountMenuIdentityBytes, identity.username.data, identity.username.bytes);

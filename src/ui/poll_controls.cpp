@@ -180,7 +180,7 @@ template <u32 N> void votes_label(char (&text)[N], u8& count, u64 votes) noexcep
     number(text, count, votes, true);
     literal(text, count, votes == 1 ? " vote" : " votes");
 }
-void labels(UiPollProjection& projection, const UiPollStyle& style) noexcept {
+void labels(UiPollProjection& projection) noexcept {
     const auto& state = projection.state;
     u32 top{};
     for (u32 i = 0; i < state.answers.count; ++i)
@@ -233,7 +233,6 @@ void labels(UiPollProjection& projection, const UiPollStyle& style) noexcept {
              ++i)
             projection.summary_text[projection.summary_bytes++] = projection.expiry_text[i];
     }
-    (void)style;
 }
 const UiPollAnswer* find_answer(const UiPollState& state, u32 id, u32* index = nullptr) noexcept {
     for (u32 i = 0; i < state.answers.count; ++i)
@@ -519,7 +518,7 @@ bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, c
     projection.remove_enabled = mutable_poll && state.can_remove_vote && own_vote(state);
     projection.results_enabled = state.can_view_results && !state.loading;
     projection.retry_enabled = state.can_retry && !state.loading;
-    labels(projection, style);
+    labels(projection);
     *out = projection;
     return true;
 }
@@ -559,8 +558,6 @@ UiRect ui_poll_target_rectangle(const UiPollProjection& projection, UiPollTarget
     }
 }
 bool ui_poll_target_enabled(const UiPollProjection& projection, UiPollTarget target) noexcept {
-    if (target.control != UiPollControl::answer && target.answer_id)
-        return false;
     if (!ui_poll_target_visible(projection, target))
         return false;
     switch (target.control) {

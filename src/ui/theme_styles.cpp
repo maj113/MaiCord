@@ -1,6 +1,7 @@
 #include "maicord/ui/theme_styles.hpp"
 #include "maicord/ui/theme.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/slice.hpp"
 #include <stddef.h>
 #include "maicord/ui/background_color_math.hpp"
 #include "maicord/ui/background_presentation.hpp"
@@ -99,9 +100,7 @@ consteval NamePool build_name_pool() noexcept {
     NamePool pool{};
     for (u32 i = 0; i < kNameCount; ++i) {
         const char* name = kNameSource[i];
-        u32 length{};
-        while (name[length])
-            ++length;
+        u32 length = c_string_length(name);
         if (length && name[length - 1] == '_')
             --length;
         bool shared{};
@@ -270,9 +269,7 @@ u32 advance(u32 value) noexcept {
 } // namespace
 Utf8View ui_theme_name(u16 offset) noexcept {
     const char* data = kNames.text + offset;
-    u32 bytes{};
-    while (data[bytes])
-        ++bytes;
+    const u32 bytes = c_string_length(data);
     return {data, bytes};
 }
 Utf8View ui_theme_token_group_name(u8 group) noexcept {

@@ -327,10 +327,7 @@ bool ui_widget_manager_hover(UiWidgetManager* manager, UiWidgetHandle handle) no
     return true;
 }
 
-bool ui_widget_manager_input_enabled(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
-    const auto* target = ui_widget_manager_resolve(manager, handle);
-    if (!target || !(target->flags & ui_widget_enabled))
-        return false;
+bool ui_widget_manager_input_reachable(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
     for (u32 depth = 0; depth < kMaximumUiLayoutDepth; ++depth) {
         const auto* widget = ui_widget_manager_resolve(manager, handle);
         if (!widget || (widget->flags & ui_widget_block_input))
@@ -347,6 +344,11 @@ bool ui_widget_manager_input_enabled(const UiWidgetManager& manager, UiWidgetHan
         handle = widget->parent;
     }
     return false;
+}
+
+bool ui_widget_manager_input_enabled(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
+    const auto* target = ui_widget_manager_resolve(manager, handle);
+    return target && (target->flags & ui_widget_enabled) && ui_widget_manager_input_reachable(manager, handle);
 }
 
 bool ui_widget_manager_reconcile_input(UiWidgetManager* manager) noexcept {

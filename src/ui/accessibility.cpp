@@ -40,9 +40,8 @@ constexpr u32 kContainerRoles =
     ui_access_role_bit(UiAccessRole::tree) | ui_access_role_bit(UiAccessRole::menu) |
     ui_access_role_bit(UiAccessRole::tab_list) | ui_access_role_bit(UiAccessRole::document);
 // Nodes that get a humanized debug name when nothing better is known.
-constexpr u32 kFallbackNameRoles =
-    kCompositeRoles | kLabelledRoles | kContainerRoles | ui_access_role_bit(UiAccessRole::edit) |
-    ui_access_role_bit(UiAccessRole::scroll_bar);
+constexpr u32 kFallbackNameRoles = kCompositeRoles | kLabelledRoles | kContainerRoles |
+                                   ui_access_role_bit(UiAccessRole::scroll_bar);
 
 constexpr bool has_role(u32 mask, UiAccessRole role) noexcept {
     return (mask & ui_access_role_bit(role)) != 0;

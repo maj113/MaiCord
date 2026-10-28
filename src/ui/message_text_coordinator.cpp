@@ -29,6 +29,15 @@ MessageTextCoordinatorResult message_text_coordinator_converge(
     u32 previous_first = 0;
     u32 previous_count = 0;
     bool have_previous_projection = false;
+    // The projection reached its fixed point: refuse overflow, then finalize.
+    const auto finish = [&](u8 passes) noexcept {
+        if (request.presentation->rich.flow_overflow_regions != 0)
+            return result(MessageTextCoordinatorError::overflow, passes);
+        if (!request.finalize(request.finalize_context, *request.theme))
+            return result(MessageTextCoordinatorError::finalization, passes);
+        return result(MessageTextCoordinatorError::none, passes, MessageSceneError::none,
+                      MessageTextPresentationError::none, true);
+    };
     for (u32 pass = 0; pass < kMaximumMessageTextConvergencePasses; ++pass) {
         const u8 passes = static_cast<u8>(pass + 1u);
         const MessageSceneResult scene = message_scene_update(request.scene, request.scene->viewport);
@@ -128,33 +137,12 @@ MessageTextCoordinatorResult message_text_coordinator_converge(
                 }
                 const u64 reprojected_signature =
                     request.presentation->projection_signature;
-                if (reprojected_signature == projection) {
-                    if (request.presentation->rich.flow_overflow_regions !=
-                        0) {
-                        return result(MessageTextCoordinatorError::overflow,
-                                      passes);
-                    }
-                    if (!request.finalize(request.finalize_context,
-                                          *request.theme)) {
-                        return result(
-                            MessageTextCoordinatorError::finalization,
-                            passes);
-                    }
-                    return result(MessageTextCoordinatorError::none, passes,
-                                  MessageSceneError::none,
-                                  MessageTextPresentationError::none, true);
-                }
+                if (reprojected_signature == projection)
+                    return finish(passes);
             }
             continue;
         }
-        if (request.presentation->rich.flow_overflow_regions != 0) {
-            return result(MessageTextCoordinatorError::overflow, passes);
-        }
-        if (!request.finalize(request.finalize_context, *request.theme)) {
-            return result(MessageTextCoordinatorError::finalization, passes);
-        }
-        return result(MessageTextCoordinatorError::none, passes, MessageSceneError::none,
-                      MessageTextPresentationError::none, true);
+        return finish(passes);
     }
     return result(MessageTextCoordinatorError::non_convergent,
                   static_cast<u8>(kMaximumMessageTextConvergencePasses));

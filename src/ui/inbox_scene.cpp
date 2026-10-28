@@ -213,7 +213,7 @@ bool ui_inbox_scene_current(const UiInboxScene& s) noexcept {
     return current(s);
 }
 bool ui_inbox_scene_avatar(const UiInboxScene& s, u32 slot, UiRect* rectangle, UiRect* clip) noexcept {
-    if (!rectangle || !clip || !current(s) || slot >= s.count || slot >= kUiInboxVisibleRows ||
+    if (!rectangle || !clip || !current(s) || slot >= s.count ||
         s.visible[slot].kind != UiInboxRowKind::mention)
         return false;
     *rectangle = mention_avatar(s.row_rectangles[slot]);

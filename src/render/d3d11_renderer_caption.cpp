@@ -84,6 +84,11 @@ float dips(u32 pixels, u32 dpi) noexcept {
     return static_cast<float>(pixels) * 96.0f / static_cast<float>(maximum<u32>(dpi, 1));
 }
 
+// Whole device pixels, in DIPs.
+float snap_pixel(float dip, float scale) noexcept {
+    return static_cast<float>(static_cast<i32>(dip * scale + .5f)) / scale;
+}
+
 u64 appearance_stamp(const D3D11Renderer& renderer, const RendererCaption& caption,
                      const Theme& theme) noexcept {
     const UiCaptionBarState& s = caption.state;
@@ -201,11 +206,8 @@ bool upload_icon_quad(D3D11Renderer* renderer, RendererCaption* caption,
         return false;
     const float scale = static_cast<float>(renderer->dpi) / 96.0f;
     const float extent = static_cast<float>(caption->icon_extent) / scale;
-    const auto pixel = [&](float dip) noexcept {
-        return static_cast<float>(static_cast<i32>(dip * scale + .5f)) / scale;
-    };
-    const float left = pixel((layout.icon.left + layout.icon.right - extent) * .5f);
-    const float top = pixel((layout.icon.top + layout.icon.bottom - extent) * .5f);
+    const float left = snap_pixel((layout.icon.left + layout.icon.right - extent) * .5f, scale);
+    const float top = snap_pixel((layout.icon.top + layout.icon.bottom - extent) * .5f, scale);
     const UiRect box{left, top, left + extent, top + extent};
     const MediaQuad quad{box.left, box.top, box.right, box.bottom, 0, 0, 1, 1, 1, 0, 0, 0, box};
     return upload(renderer->graphics.context, caption->icon_quad, &quad, static_cast<u32>(sizeof(quad)));
@@ -310,10 +312,8 @@ bool upload_image_quad(D3D11Renderer* renderer, RendererCaption* caption, UiRect
     if (!create_buffer(renderer->graphics.device, static_cast<u32>(sizeof(MediaQuad)), &caption->image_quad))
         return false;
     const float scale = static_cast<float>(renderer->dpi) / 96.0f;
-    const auto pixel = [&](float dip) noexcept {
-        return static_cast<float>(static_cast<i32>(dip * scale + .5f)) / scale;
-    };
-    box = {pixel(box.left), pixel(box.top), pixel(box.right), pixel(box.bottom)};
+    box = {snap_pixel(box.left, scale), snap_pixel(box.top, scale), snap_pixel(box.right, scale),
+           snap_pixel(box.bottom, scale)};
     const float width = 1.0f / static_cast<float>(maximum<u32>(renderer->media_gpu.width, 1));
     const float height = 1.0f / static_cast<float>(maximum<u32>(renderer->media_gpu.height, 1));
     const MediaQuad quad{box.left,
@@ -647,28 +647,22 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         context->DrawInstanced(4, buttons - first, 0, first);
         ++renderer->draw_calls_last_frame;
     }
-    if (caption->icon_view) {
+    // The app icon and a resident server icon: one media quad each.
+    const auto draw_media_quad = [&](ID3D11Buffer* quad, ID3D11ShaderResourceView* view) noexcept {
         const UINT media_stride = sizeof(MediaQuad);
         context->IASetInputLayout(pipeline.media_input_layout);
-        context->IASetVertexBuffers(0, 1, &caption->icon_quad, &media_stride, &offset);
+        context->IASetVertexBuffers(0, 1, &quad, &media_stride, &offset);
         context->VSSetShader(pipeline.media_vertex_shader, nullptr, 0);
         context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
-        ID3D11ShaderResourceView* media_views[3]{caption->icon_view, nullptr, nullptr};
+        ID3D11ShaderResourceView* media_views[3]{view, nullptr, nullptr};
         context->PSSetShaderResources(0, 3, media_views);
         context->DrawInstanced(4, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
-    }
-    if (caption->image_drawn && renderer->media_gpu.texture_view) {
-        const UINT media_stride = sizeof(MediaQuad);
-        context->IASetInputLayout(pipeline.media_input_layout);
-        context->IASetVertexBuffers(0, 1, &caption->image_quad, &media_stride, &offset);
-        context->VSSetShader(pipeline.media_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
-        ID3D11ShaderResourceView* media_views[3]{renderer->media_gpu.texture_view, nullptr, nullptr};
-        context->PSSetShaderResources(0, 3, media_views);
-        context->DrawInstanced(4, 1, 0, 0);
-        ++renderer->draw_calls_last_frame;
-    }
+    };
+    if (caption->icon_view)
+        draw_media_quad(caption->icon_quad, caption->icon_view);
+    if (caption->image_drawn && renderer->media_gpu.texture_view)
+        draw_media_quad(caption->image_quad, renderer->media_gpu.texture_view);
     const UINT glyph_stride = sizeof(GlyphQuad);
     ID3D11ShaderResourceView* glyph_views[]{renderer->glyph_text.gpu.texture_view,
                                             d3d11_glyph_text_color_view(renderer->glyph_text)};

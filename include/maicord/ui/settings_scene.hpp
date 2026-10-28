@@ -96,7 +96,6 @@ enum class UiSettingsVariant : u8 {
     positive
 };
 enum UiSettingsPresentationFlag : u8 {
-    ui_settings_presentation_none = 0,
     // Sliders show every choice label as a mark above the bar.
     ui_settings_presentation_marks = 1u << 0,
     // Category rows activate as navigation links (search result groups).

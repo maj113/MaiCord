@@ -34,25 +34,18 @@ UiRect ui_typing_dots_row(UiRect row) noexcept {
     const float left = row.left + kUiTypingDotsInset;
     return {left, row.top, left + kUiTypingDotsWidth, row.bottom};
 }
-void ui_typing_dots_geometry(UiRect row, u16 phase, UiTypingDot output[kUiTypingDotCount]) noexcept {
+void ui_typing_dots_quads(const UiRect& row_view, const Color& color_view, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept {
+    const UiRect row = row_view; // the quads are written below
+    const Color color = color_view;
     const float middle = (row.top + row.bottom) * .5f;
     for (u32 i = 0; i < kUiTypingDotCount; ++i) {
         float scale = 1, opacity = 1;
         ui_typing_dot_pose(i, phase, &scale, &opacity);
         const float cx = row.left + kUiTypingDotSize * .5f + static_cast<float>(i) * kUiTypingDotPitch;
         const float half = kUiTypingDotSize * .5f * scale;
-        output[i] = {{cx - half, middle - half, cx + half, middle + half}, opacity};
-    }
-}
-void ui_typing_dots_quads(const UiRect& row_view, const Color& color_view, u16 phase, PaintQuad output[kUiTypingDotCount]) noexcept {
-    const UiRect row = row_view; // the quads are written below
-    const Color color = color_view;
-    UiTypingDot dots[kUiTypingDotCount];
-    ui_typing_dots_geometry(row, phase, dots);
-    for (u32 i = 0; i < kUiTypingDotCount; ++i) {
+        const UiRect r{cx - half, middle - half, cx + half, middle + half};
         Color ink = color;
-        ink.alpha *= dots[i].opacity;
-        const UiRect& r = dots[i].rectangle;
+        ink.alpha *= opacity;
         // As paint_stream_push_rounded stores it.
         const float radius = minimum(r.right - r.left, r.bottom - r.top) * .5f;
         output[i] = {r.left, r.top, r.right, r.bottom, ink, ink, radius, 0, 0, 0};

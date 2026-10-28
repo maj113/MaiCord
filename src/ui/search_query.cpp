@@ -1,33 +1,17 @@
 #include "maicord/ui/search_query.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
-#include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
-bool equal(const Utf8View& a, const Utf8View& b) noexcept {
-    return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-}
-// Filter keys are camelCase in the query syntax but match case-insensitively.
-bool key_equal(const Utf8View& key, const Utf8View& name) noexcept {
-    if (key.bytes != name.bytes)
-        return false;
-    for (u32 i = 0; i < key.bytes; ++i) {
-        char a = key.data[i], b = name.data[i];
-        a = a >= 'A' && a <= 'Z' ? static_cast<char>(a + 32) : a;
-        b = b >= 'A' && b <= 'Z' ? static_cast<char>(b + 32) : b;
-        if (a != b)
-            return false;
-    }
-    return true;
-}
-u8 author_type(Utf8View value) noexcept {
+u32 author_type(Utf8View value) noexcept {
     const Utf8View labels[] = {utf8_literal("user"), utf8_literal("bot"), utf8_literal("webhook")};
     for (u32 i = 0; i < 3; ++i)
-        if (equal(value, labels[i]))
-            return static_cast<u8>(1u << i);
+        if (utf8_equal(value, labels[i]))
+            return 1u << i;
     return 0;
 }
 // A negated value ("-link") moves the flag to the excluded set.
@@ -50,7 +34,7 @@ bool term(Utf8View value, char* output, u8* bytes, u32 capacity, bool hostname, 
         if ((hostname && !alnum && c != '.' && c != '-') || (extension && !alnum))
             return false;
         if (hostname || extension)
-            c = c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c;
+            c = ascii_lower(c);
         output[i] = c;
     }
     *bytes = static_cast<u8>(value.bytes);
@@ -76,35 +60,23 @@ bool quoted_value(Utf8View value, Slice<char> storage, Utf8View* out) noexcept {
     return true;
 }
 bool number(Utf8View t, u64* out) noexcept {
-    if (!t.bytes || t.bytes > 20)
-        return false;
-    u64 value = 0;
-    for (u32 i = 0; i < t.bytes; ++i) {
-        const char c = t.data[i];
-        if (c < '0' || c > '9' || value > (~0ull - static_cast<u64>(c - '0')) / 10)
-            return false;
-        value = value * 10 + c - '0';
-    }
-    *out = value;
-    return value != 0;
+    return decimal_parse(t, out) && *out != 0;
 }
 bool append_id(Utf8View value, u64* ids, u8* count, const UiSearchQueryContext* context,
                bool channel) noexcept {
     if (!value.bytes) return false;
     // Native mentions carry a type. A channel mention must not silently become
     // a user filter (or vice versa) just because both contain a snowflake.
-    if (value.bytes >= 2 && value.data[0] == '<' &&
-        (value.data[1] == '@' || value.data[1] == '#')) {
+    const bool mention = value.bytes >= 2 && value.data[0] == '<' && (value.data[1] == '@' || value.data[1] == '#');
+    if (mention) {
         if (value.bytes < 4 || value.data[value.bytes - 1] != '>' ||
             value.data[1] != (channel ? '#' : '@')) return false;
         const u32 prefix = !channel && value.data[2] == '!' ? 3 : 2;
         value = {value.data + prefix, value.bytes - prefix - 1};
-        u64 mention_id = 0;
-        if (!number(value, &mention_id)) return false;
     }
     u64 id = 0;
     if (!number(value, &id)) {
-        if (!context)
+        if (mention || !context)
             return false;
         const auto resolve = channel ? context->channel : context->user;
         if (!resolve || !resolve(context->context, value, &id) || !id)
@@ -149,16 +121,16 @@ bool date(Utf8View value, u64* day) noexcept {
     *day = count * 86400000ull;
     return true;
 }
-u16 has(Utf8View value) noexcept {
+u32 has(Utf8View value) noexcept {
     // The search UI calls forwarded-message snapshots "Forward"; the
     // REST search parameter retains its snapshot spelling.
-    if (equal(value, utf8_literal("forward"))) return search_has_snapshot;
+    if (utf8_equal(value, utf8_literal("forward"))) return search_has_snapshot;
     const Utf8View labels[] = {utf8_literal("link"),    utf8_literal("embed"), utf8_literal("file"),
                                utf8_literal("video"),   utf8_literal("image"), utf8_literal("sound"),
                                utf8_literal("sticker"), utf8_literal("poll"),  utf8_literal("snapshot")};
     for (u32 i = 0; i < 9; ++i)
-        if (equal(value, labels[i]))
-            return static_cast<u16>(1u << i);
+        if (utf8_equal(value, labels[i]))
+            return 1u << i;
     return 0;
 }
 } // namespace
@@ -221,7 +193,7 @@ UiSearchQueryResult ui_search_query_parse(Utf8View text, MessageSearchScope scop
             utf8_literal("linkFrom"),  utf8_literal("fileType"), utf8_literal("fileName"),
             utf8_literal("authorType")};
         u32 kind = 0;
-        while (filter && kind < 13 && !key_equal(key, keys[kind]))
+        while (filter && kind < 13 && !ascii_equal_ignore_case(key, keys[kind]))
             ++kind;
         const bool recognized = filter && kind < 13;
         const bool dated = kind >= 5 && kind <= 8;
@@ -241,13 +213,13 @@ UiSearchQueryResult ui_search_query_parse(Utf8View text, MessageSearchScope scop
             ok = append_id(value, q.channel_ids, &q.channel_count, context, true);
         else if (kind == 3) {
             u32 included = q.has, excluded = q.has_excluded;
-            ok = negatable(value, +[](Utf8View v) noexcept -> u32 { return has(v); }, &included, &excluded);
+            ok = negatable(value, has, &included, &excluded);
             q.has = static_cast<u16>(included);
             q.has_excluded = static_cast<u16>(excluded);
         } else if (kind == 4) {
-            ok = equal(value, utf8_literal("true")) || equal(value, utf8_literal("false"));
-            q.pinned = equal(value, utf8_literal("true")) ? MessageSearchPinned::pinned
-                                                          : MessageSearchPinned::unpinned;
+            ok = utf8_equal(value, utf8_literal("true")) || utf8_equal(value, utf8_literal("false"));
+            q.pinned = utf8_equal(value, utf8_literal("true")) ? MessageSearchPinned::pinned
+                                                               : MessageSearchPinned::unpinned;
         } else if (kind == 9)
             ok = term(value, q.link_hostname, &q.hostname_bytes, kMessageSearchHostnameBytes, true,
                       false);
@@ -259,8 +231,7 @@ UiSearchQueryResult ui_search_query_parse(Utf8View text, MessageSearchScope scop
                       false, false);
         else if (kind == 12) {
             u32 included = q.author_types, excluded = q.author_types_excluded;
-            ok = negatable(
-                value, +[](Utf8View v) noexcept -> u32 { return author_type(v); }, &included, &excluded);
+            ok = negatable(value, author_type, &included, &excluded);
             q.author_types = static_cast<u8>(included);
             q.author_types_excluded = static_cast<u8>(excluded);
         } else if (dated) {

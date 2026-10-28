@@ -1398,9 +1398,6 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
     }
     return true;
 }
-} // namespace maicord
-
-namespace maicord {
 u32 ui_friends_scene_active_avatar_count(const UiFriendsScene& s) noexcept {
     if (!current(s))
         return 0;

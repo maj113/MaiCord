@@ -27,6 +27,13 @@ void unbind_media_resources(ID3D11DeviceContext1* context) noexcept {
     context->CSSetUnorderedAccessViews(0, 1, &null_uav, nullptr);
 }
 
+void copy_tile(ID3D11DeviceContext1* context, ID3D11Texture2D* to, u32 to_x, u32 to_y, ID3D11Texture2D* from,
+               u32 x, u32 y, u32 width, u32 height, UINT padding) noexcept {
+    unbind_media_resources(context);
+    const D3D11_BOX box{x - padding, y - padding, 0, x + width + padding, y + height + padding, 1};
+    context->CopySubresourceRegion(to, 0, to_x - padding, to_y - padding, 0, from, 0, &box);
+}
+
 bool ensure_texture(AnimationFrameCacheGpu* gpu, ID3D11Device* device) noexcept {
     if (gpu->texture && gpu->texture_view) {
         return true;
@@ -196,7 +203,6 @@ bool animation_frame_cache_gpu_trim(AnimationFrameCacheGpu* gpu, u64 now_ms) noe
     animation_frame_cache_gpu_reset(gpu);
     gpu->cache.allocations.height = gpu->growth.minimum_height;
     gpu->growth.trim_pending = false;
-    ++gpu->growth.shrinks;
     return true;
 }
 
@@ -232,13 +238,12 @@ bool animation_frame_cache_gpu_reserve(AnimationFrameCacheGpu* gpu, u32 required
         gpu->storage.presentations.capacity = previous_capacity;
         return false;
     }
-    const bool cache_grown = animation_frame_cache_grow_storage(
+    return animation_frame_cache_grow_storage(
         &gpu->cache,
         Slice<AnimationFrameCacheEntry>{stable_storage_data<AnimationFrameCacheEntry>(gpu->storage.entries),
                                         capacity},
         Slice<u32>{stable_storage_data<u32>(gpu->storage.buckets), capacity * 2u},
         Slice<GlyphAtlasEntry>{stable_storage_data<GlyphAtlasEntry>(gpu->storage.allocations), capacity});
-    return cache_grown;
 }
 
 void animation_frame_cache_gpu_reset(AnimationFrameCacheGpu* gpu) noexcept {
@@ -309,22 +314,12 @@ bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, ID3D11Device
         return false;
     }
     if (!destination.cached) {
-        unbind_media_resources(context);
-        // Copy the atlas's padding texel, when it has one, so linear filtering
-        // never samples a neighbouring animation tile.
-        const UINT padding = media_atlas->allocations.padding != 0 ? 1u : 0u;
-        const D3D11_BOX source_box{static_cast<UINT>(source.x - padding),
-                                   static_cast<UINT>(source.y - padding),
-                                   0,
-                                   static_cast<UINT>(source.x + source.width + padding),
-                                   static_cast<UINT>(source.y + source.height + padding),
-                                   1};
-        context->CopySubresourceRegion(gpu->texture, 0, destination.allocation.x - padding,
-                                       destination.allocation.y - padding, 0, media_texture, 0,
-                                       &source_box);
+        // Includes the atlas's padding texel, so linear filtering never samples a neighbouring tile.
+        copy_tile(context, gpu->texture, destination.allocation.x, destination.allocation.y, media_texture,
+                  source.x, source.y, source.width, source.height,
+                  media_atlas->allocations.padding != 0 ? 1u : 0u);
         ++gpu->captures;
-        const u64 pixels = static_cast<u64>(source.width) * source.height;
-        saturating_accumulate(gpu->copied_pixels, pixels);
+        saturating_accumulate(gpu->copied_pixels, u64{source.width} * source.height);
     }
     if (!publish_presentation(gpu, source, destination.allocation.handle, true)) {
         ++gpu->failures;
@@ -405,10 +400,7 @@ bool animation_frame_cache_gpu_materialize(AnimationFrameCacheGpu* gpu, ID3D11De
         return false;
     }
     AnimationFramePresentation& presentation = presentations(gpu)[destination.handle.slot];
-    if (presentation.media_generation != destination.handle.generation) {
-        return true;
-    }
-    if (presentation.materialized) {
+    if (presentation.media_generation != destination.handle.generation || presentation.materialized) {
         return true;
     }
     GlyphAtlasAllocation source{};
@@ -417,20 +409,11 @@ bool animation_frame_cache_gpu_materialize(AnimationFrameCacheGpu* gpu, ID3D11De
         ++gpu->failures;
         return false;
     }
-    unbind_media_resources(context);
-    const UINT padding = media_atlas->allocations.padding != 0 ? 1u : 0u;
-    const D3D11_BOX source_box{static_cast<UINT>(source.x - padding),
-                               static_cast<UINT>(source.y - padding),
-                               0,
-                               static_cast<UINT>(source.x + source.width + padding),
-                               static_cast<UINT>(source.y + source.height + padding),
-                               1};
-    context->CopySubresourceRegion(media_texture, 0, destination.x - padding, destination.y - padding, 0, gpu->texture, 0,
-                                   &source_box);
+    // Includes the atlas's padding texel, so linear filtering never samples a neighbouring tile.
+    copy_tile(context, media_texture, destination.x, destination.y, gpu->texture, source.x, source.y,
+              source.width, source.height, media_atlas->allocations.padding != 0 ? 1u : 0u);
     presentation.materialized = true;
-    ++gpu->materializations;
-    const u64 pixels = static_cast<u64>(source.width) * source.height;
-    saturating_accumulate(gpu->copied_pixels, pixels);
+    saturating_accumulate(gpu->copied_pixels, u64{source.width} * source.height);
     return true;
 }
 

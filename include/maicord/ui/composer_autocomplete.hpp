@@ -41,7 +41,6 @@ struct ComposerAutocompleteSuggestion {
     char label_storage[kComposerAutocompleteLabelBytes];
     char insertion[kComposerAutocompleteInsertionBytes];
     u16 insertion_bytes;
-    u16 label_bytes;
     // member, channel, emoji, role or global_mention (@everyone / @here).
     ComposerAutocompleteKind item_kind;
     // 0xRRGGBB role colour; zero uses the theme.

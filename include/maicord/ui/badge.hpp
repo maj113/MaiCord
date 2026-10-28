@@ -50,9 +50,6 @@ UiBadgeLayout ui_badge_geometry(const UiBadgeWidget&, const UiWidgetManager&) no
 bool ui_badge_paint(const UiBadgeWidget&, const UiWidgetManager&, const Theme&, PaintStream*) noexcept;
 bool ui_badge_text(const UiBadgeWidget&, const UiWidgetManager&, const Theme&,
                    UiTextCommandStream*) noexcept;
-} // namespace maicord
-
-namespace maicord {
 bool ui_badge_text_output(const UiBadgeWidget& b, const UiWidgetManager& manager, const Theme& theme,
                    UiTextOutput* text) noexcept;
 } // namespace maicord

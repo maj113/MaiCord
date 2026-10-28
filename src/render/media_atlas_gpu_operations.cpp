@@ -145,8 +145,6 @@ MediaAtlasGpuResult media_atlas_gpu_upload_straight_rgba8(
 
     ++gpu->straight_rgba8_uploads;
     saturating_accumulate(gpu->straight_rgba8_uploaded_bytes, required);
-    const u64 pixels = static_cast<u64>(width) * height;
-    saturating_accumulate(gpu->straight_rgba8_dispatched_pixels, pixels);
     return MediaAtlasGpuResult{allocation, S_OK, MediaAtlasGpuError::none};
 }
 
@@ -215,27 +213,32 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
-    u32 sample_offsets[kJpegComponentMaximum]{};
-    u32 sample_strides[kJpegComponentMaximum]{};
-    u32 sample_widths[kJpegComponentMaximum]{};
-    u32 sample_heights[kJpegComponentMaximum]{};
+    JpegIdctConstants idct_constants{};
+    idct_constants.coefficient_block_count = image.coefficient_blocks;
+    idct_constants.component_count = image.component_count;
+    JpegAtlasConstants atlas_constants{};
     u32 sample_count = 0;
     for (u32 index = 0; index < image.component_count; ++index) {
         const JpegComponent& component = image.components[index];
         const u32 stride = component.block_columns * 8u;
-        const u32 rows = component.block_rows * 8u;
-        const u32 count = stride * rows;
-        sample_offsets[index] = sample_count;
-        sample_strides[index] = stride;
-        sample_widths[index] = (static_cast<u32>(image.width) * component.horizontal_sampling +
-                                image.maximum_horizontal_sampling - 1u) /
-                               image.maximum_horizontal_sampling;
-        sample_heights[index] = (static_cast<u32>(image.height) * component.vertical_sampling +
-                                 image.maximum_vertical_sampling - 1u) /
-                                image.maximum_vertical_sampling;
+        const u32 count = stride * component.block_rows * 8u;
         if (count > ~0u - sample_count) {
             return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
         }
+        idct_constants.components[index] = JpegIdctComponentConstants{
+            component.block_offset, component.block_count, component.block_columns,
+            sample_count,           stride,                component.quantization_table,
+        };
+        atlas_constants.components[index] = JpegAtlasComponentConstants{
+            sample_count,
+            stride,
+            (static_cast<u32>(image.width) * component.horizontal_sampling + image.maximum_horizontal_sampling - 1u) /
+                image.maximum_horizontal_sampling,
+            (static_cast<u32>(image.height) * component.vertical_sampling + image.maximum_vertical_sampling - 1u) /
+                image.maximum_vertical_sampling,
+            component.horizontal_sampling,
+            component.vertical_sampling,
+        };
         sample_count += count;
     }
     const u32 coefficient_bytes = image.coefficient_blocks * sizeof(JpegCoefficientBlock);
@@ -298,25 +301,13 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
         return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
 
-    JpegIdctConstants idct_constants{};
-    idct_constants.coefficient_block_count = image.coefficient_blocks;
-    idct_constants.component_count = image.component_count;
-    for (u32 index = 0; index < image.component_count; ++index) {
-        const JpegComponent& component = image.components[index];
-        idct_constants.components[index] = JpegIdctComponentConstants{
-            component.block_offset, component.block_count, component.block_columns,
-            sample_offsets[index],  sample_strides[index], component.quantization_table,
-        };
-    }
     context->UpdateSubresource(gpu->jpeg_idct_constants, 0, nullptr, &idct_constants, 0, 0);
-    ID3D11ShaderResourceView* null_pixel_view = nullptr;
-    context->PSSetShaderResources(0, 1, &null_pixel_view);
+    unbind_media_pixel_resources(context);
     bind_compute_2srv(context, gpu->jpeg_idct_shader, gpu->jpeg_idct_constants,
                       gpu->vp8_coefficient_view, gpu->vp8_mode_view, gpu->vp8_yuv_uav);
     context->Dispatch(image.coefficient_blocks, 1, 1);
     unbind_compute_resources(context);
 
-    JpegAtlasConstants atlas_constants{};
     atlas_constants.image_width = image.width;
     atlas_constants.image_height = image.height;
     atlas_constants.destination_x = allocation.x;
@@ -326,13 +317,6 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     atlas_constants.maximum_horizontal_sampling = image.maximum_horizontal_sampling;
     atlas_constants.maximum_vertical_sampling = image.maximum_vertical_sampling;
     atlas_constants.component_count = image.component_count;
-    for (u32 index = 0; index < image.component_count; ++index) {
-        const JpegComponent& component = image.components[index];
-        atlas_constants.components[index] = JpegAtlasComponentConstants{
-            sample_offsets[index], sample_strides[index],         sample_widths[index],
-            sample_heights[index], component.horizontal_sampling, component.vertical_sampling,
-        };
-    }
     if (icc_profile) {
         const u32 curve_base = quantization_bytes / sizeof(u16);
         atlas_constants.icc_transform_kind = static_cast<u8>(icc_profile->transform_kind);

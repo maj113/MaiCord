@@ -11,9 +11,7 @@ namespace maicord {
 namespace {
 
 bool has_extension(Utf8View path, const char* extension) noexcept {
-    u32 bytes = 0;
-    while (extension[bytes])
-        ++bytes;
+    const u32 bytes = c_string_length(extension);
     if (path.bytes < bytes)
         return false;
     for (u32 i = 0; i < bytes; ++i)

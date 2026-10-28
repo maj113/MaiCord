@@ -82,21 +82,22 @@ u32 decimal_u64(u64 value, Slice<char> output) noexcept {
     return digits > output.count ? 0 : decimal_write(output.data, value);
 }
 
-bool set_snowflake_insertion(ComposerAutocompleteSuggestion* suggestion, char marker, u64 id) noexcept {
+// "<marker id> " with the marker "@", "@&" or "#".
+bool set_snowflake_insertion(ComposerAutocompleteSuggestion* suggestion, Utf8View marker, u64 id) noexcept {
     if (id == 0) {
         return false;
     }
-    char digits[20]{};
+    char digits[20];
     const u32 digit_count = decimal_u64(id, Slice<char>{digits, 20});
-    if (digit_count == 0 || digit_count + 4u > sizeof(suggestion->insertion)) {
+    if (digit_count == 0 || marker.bytes + digit_count + 3u > sizeof(suggestion->insertion)) {
         return false;
     }
     u32 cursor = 0;
     suggestion->insertion[cursor++] = '<';
-    suggestion->insertion[cursor++] = marker;
-    for (u32 digit = 0; digit < digit_count; ++digit) {
-        suggestion->insertion[cursor++] = digits[digit];
-    }
+    copy_bytes(suggestion->insertion + cursor, marker.data, marker.bytes);
+    cursor += marker.bytes;
+    copy_bytes(suggestion->insertion + cursor, digits, digit_count);
+    cursor += digit_count;
     suggestion->insertion[cursor++] = '>';
     suggestion->insertion[cursor++] = ' ';
     suggestion->insertion_bytes = static_cast<u16>(cursor);
@@ -133,7 +134,6 @@ bool set_emoji_label(ComposerAutocompleteSuggestion* suggestion, Utf8View name, 
     cursor += name.bytes;
     suggestion->label_storage[cursor++] = ':';
     suggestion->label = Utf8View{suggestion->label_storage, cursor};
-    suggestion->label_bytes = static_cast<u16>(cursor);
     return true;
 }
 
@@ -234,17 +234,14 @@ bool role_before(const RoleCandidate& left, const RoleCandidate& right) noexcept
 }
 
 ComposerAutocompleteSuggestion* append(ComposerAutocomplete* autocomplete, Utf8View label) noexcept {
-    if (autocomplete->count >= kComposerAutocompleteCapacity || !label.data ||
-        label.bytes == 0) {
+    if (autocomplete->count >= kComposerAutocompleteCapacity || !label.data || label.bytes == 0 ||
+        label.bytes > kComposerAutocompleteLabelBytes) {
         return nullptr;
     }
     ComposerAutocompleteSuggestion* suggestion = &autocomplete->suggestions[autocomplete->count++];
     reset_value(suggestion);
-    if (label.bytes > sizeof(suggestion->label_storage)) { --autocomplete->count; return nullptr; }
     copy_bytes(suggestion->label_storage, label.data, label.bytes);
     suggestion->label = {suggestion->label_storage, label.bytes};
-    suggestion->insertion_bytes = 0;
-    suggestion->label_bytes = 0;
     suggestion->item_kind = autocomplete->kind;
     return suggestion;
 }
@@ -281,21 +278,10 @@ bool append_role(ComposerAutocomplete* autocomplete, const RoleCandidate& candid
     suggestion->role_color = candidate.role->color & 0xFFFFFFu;
     suggestion->description =
         utf8_literal("Notify users with this role who have permission to view this channel.");
-    char digits[20]{};
-    const u32 digit_count = decimal_u64(candidate.role->id, Slice<char>{digits, 20});
-    if (!digit_count || digit_count + 5u > sizeof(suggestion->insertion)) {
+    if (!set_snowflake_insertion(suggestion, utf8_literal("@&"), candidate.role->id)) {
         --autocomplete->count;
         return false;
     }
-    u32 cursor = 0;
-    suggestion->insertion[cursor++] = '<';
-    suggestion->insertion[cursor++] = '@';
-    suggestion->insertion[cursor++] = '&';
-    copy_bytes(suggestion->insertion + cursor, digits, digit_count);
-    cursor += digit_count;
-    suggestion->insertion[cursor++] = '>';
-    suggestion->insertion[cursor++] = ' ';
-    suggestion->insertion_bytes = static_cast<u16>(cursor);
     return true;
 }
 
@@ -440,7 +426,7 @@ bool append_user(ComposerAutocomplete* autocomplete, const UserStore& users, con
     const auto hash = user_store_avatar_hash(*user);
     suggestion->avatar_variant = user_avatar_variant(hash);
     suggestion->animated_avatar = hash.bytes == 34;
-    if (!set_snowflake_insertion(suggestion, '@', candidate.user_id)) {
+    if (!set_snowflake_insertion(suggestion, utf8_literal("@"), candidate.user_id)) {
         --autocomplete->count;
         return false;
     }
@@ -631,7 +617,7 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
             if (!suggestion) {
                 continue;
             }
-            if (!set_snowflake_insertion(suggestion, '#', row.id)) {
+            if (!set_snowflake_insertion(suggestion, utf8_literal("#"), row.id)) {
                 --autocomplete->count;
             }
         }

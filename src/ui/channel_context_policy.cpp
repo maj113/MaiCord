@@ -3,16 +3,19 @@
 #include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
+namespace {
+bool context_eligible(const ChatStateStore& state, const ChannelRecord* channel) noexcept {
+    return channel && !(channel->flags & kChannelObfuscatedFlag) && chat_state_store_channel_visible(state, *channel);
+}
+} // namespace
 bool channel_context_target_valid(const ChatStateStore& state, u64 channel_id) noexcept {
-    const auto* channel = chat_state_store_find_channel(state, channel_id);
-    return channel && !(channel->flags & kChannelObfuscatedFlag) &&
-           chat_state_store_channel_visible(state, *channel);
+    return context_eligible(state, chat_state_store_find_channel(state, channel_id));
 }
 bool channel_context_target_current(const ChatStateStore& state, u64 channel_id, u16 generation,
                                     u32 revision) noexcept {
     const auto* channel = chat_state_store_find_channel(state, channel_id);
     return channel && channel->generation == generation && channel->revision == revision &&
-           channel_context_target_valid(state, channel_id);
+           context_eligible(state, channel);
 }
 u32 channel_context_policy_build(const ChatStateStore& state, u64 channel_id, u32 mark_read_action,
                                  u32 close_dm_action, Slice<PopupItem> output, u32 edit_action,
@@ -28,7 +31,7 @@ u32 channel_context_policy_build(const ChatStateStore& state, u64 channel_id, u3
         (retry_unread_action &&
          (retry_unread_action == mark_read_action || retry_unread_action == close_dm_action ||
           retry_unread_action == edit_action || retry_unread_action == mark_unread_action)) ||
-        !channel_context_target_valid(state, channel_id))
+        !context_eligible(state, channel))
         return 0;
     const u32 existing_actions[]{mark_read_action, close_dm_action, edit_action, mark_unread_action,
                                  retry_unread_action};

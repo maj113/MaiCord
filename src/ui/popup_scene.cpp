@@ -119,8 +119,7 @@ float context_item_top(ConstSlice<PopupItem> items, u32 target) noexcept {
             top += kPopupContextSeparatorGap;
         }
     }
-    if (target >= kPopupQuickReactionCount && (items[target].flags & popup_item_separator_before) != 0 &&
-        target == kPopupQuickReactionCount) {
+    if (target == kPopupQuickReactionCount && (items[target].flags & popup_item_separator_before) != 0) {
         top += kPopupContextSeparatorGap;
     }
     return top;
@@ -553,7 +552,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
             (item.status && !(item.flags & popup_item_avatar) &&
              (!popup_item_menu_row(item) || !item.presentation.icon_plus_one)) ||
             ((item.flags & popup_item_avatar) &&
-             (!item.media_id || item.status > 4 ||
+             (!item.media_id ||
               (item.flags & (popup_item_emoji | popup_item_custom_emoji | popup_item_quick_reaction)))) ||
             ((item.flags & popup_item_custom_emoji) != 0 &&
              ((item.flags & popup_item_emoji) == 0 || item.media_id == 0))) {

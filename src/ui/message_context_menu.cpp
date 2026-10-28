@@ -21,75 +21,22 @@ constexpr u32 action(MessageContextAction value) noexcept {
 }
 
 void decorate_context_actions(MessageContextMenuModel* model) noexcept {
+    // Indexed by MessageContextAction; UiIcon::count keeps the row's own presentation.
+    static constexpr UiIcon icons[] = {
+        UiIcon::count,        UiIcon::count,   UiIcon::count,       UiIcon::count,  UiIcon::count,
+        UiIcon::add_reaction, UiIcon::emoji,   UiIcon::edit,        UiIcon::reply,  UiIcon::copy,
+        UiIcon::link,         UiIcon::trash,   UiIcon::identifier,  UiIcon::retry,  UiIcon::trash,
+        UiIcon::user,         UiIcon::pin,     UiIcon::unpin,       UiIcon::forwarded,
+        UiIcon::direct_message, // mark unread: every row of the menu keeps an icon
+        UiIcon::thread,       UiIcon::count,   UiIcon::eye_off,     UiIcon::speaker, UiIcon::flags};
+    static_assert(sizeof(icons) / sizeof(icons[0]) == static_cast<u32>(kMessageContextLastAction) + 1);
     for (u32 index = 0; index < model->count; ++index) {
         auto& item = model->items[index];
-        UiIcon icon = UiIcon::count;
-        switch (static_cast<MessageContextAction>(item.action)) {
-        case MessageContextAction::add_reaction:
-            icon = UiIcon::add_reaction;
-            break;
-        case MessageContextAction::view_reactions:
-            icon = UiIcon::emoji;
-            break;
-        case MessageContextAction::edit_message:
-            icon = UiIcon::edit;
-            break;
-        case MessageContextAction::reply:
-            icon = UiIcon::reply;
-            break;
-        case MessageContextAction::forward_message:
-            icon = UiIcon::forwarded;
-            break;
-        case MessageContextAction::create_thread:
-            icon = UiIcon::thread;
-            break;
-        case MessageContextAction::pin_message:
-            icon = UiIcon::pin;
-            break;
-        case MessageContextAction::unpin_message:
-            icon = UiIcon::unpin;
-            break;
-        case MessageContextAction::mark_unread:
-            // Every row of the menu keeps an icon; mark unread uses the chat bubble.
-            icon = UiIcon::direct_message;
-            break;
-        case MessageContextAction::copy_text:
-            icon = UiIcon::copy;
-            break;
-        case MessageContextAction::copy_id:
-            icon = UiIcon::identifier;
-            break;
-        case MessageContextAction::copy_message_link:
-            icon = UiIcon::link;
-            break;
-        case MessageContextAction::delete_message:
-        case MessageContextAction::discard_failed:
-            icon = UiIcon::trash;
-            break;
-        case MessageContextAction::retry_send:
-            icon = UiIcon::retry;
-            break;
-        case MessageContextAction::message_author:
-            icon = UiIcon::user;
-            break;
-        case MessageContextAction::remove_embeds:
-            icon = UiIcon::eye_off;
-            break;
-        case MessageContextAction::speak_message:
-            icon = UiIcon::speaker;
-            break;
-        case MessageContextAction::report_message:
-            icon = UiIcon::flags;
-            break;
-        case MessageContextAction::apps_menu:
+        if (item.action < sizeof(icons) / sizeof(icons[0]) && icons[item.action] != UiIcon::count)
+            item.presentation = ui_menu_row_presentation(icons[item.action]);
+        else if (item.action == action(MessageContextAction::apps_menu))
             item.presentation =
                 ui_menu_row_presentation(UiIcon::chevron_right, false, UiMenuIconPlacement::trailing);
-            break;
-        default:
-            break;
-        }
-        if (icon != UiIcon::count)
-            item.presentation = ui_menu_row_presentation(icon);
     }
 }
 
@@ -174,11 +121,7 @@ MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* mod
     MessageContextMenuModel candidate{};
     const bool failed = message.delivery == MessageDeliveryState::failed;
     const bool pending = message.delivery == MessageDeliveryState::pending;
-    can_message_author = can_message_author && message.author_id != 0 && !failed && !pending;
-    can_pin_authoritative = can_pin_authoritative && !failed && !pending;
-    can_forward_authoritative = can_forward_authoritative && !failed && !pending;
-    can_mark_unread_authoritative = can_mark_unread_authoritative && !failed && !pending;
-    can_create_thread_authoritative = can_create_thread_authoritative && !failed && !pending;
+    can_message_author = can_message_author && message.author_id != 0;
     const bool can_reply = message.type == 0 || message.type == 19 || message.type == 20 || message.type == 23;
     const u32 required = failed ? 3u
                          : pending

@@ -44,7 +44,6 @@ struct AnimationFrameCacheGpu {
     GlyphAtlasRow rows[kAnimationFrameCacheGpuRowCapacity];
     u64 captures;
     u64 restores;
-    u64 materializations;
     u64 copied_pixels;
     u32 failures;
     u16 maximum_frame_extent;

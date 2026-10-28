@@ -58,11 +58,7 @@ struct AnimationFrameCacheEntry {
 };
 
 struct AnimationFrameCacheCounters {
-    u64 captures;
-    u64 hits;
-    u64 misses;
     u64 evictions;
-    u64 rejected;
 };
 
 struct AnimationFrameCache {
@@ -135,7 +131,7 @@ static_assert(offsetof(AnimationFrameCacheEntry, home_bucket) == 80);
 static_assert(offsetof(AnimationFrameCacheEntry, kind) == 84);
 static_assert(offsetof(AnimationFrameCacheEntry, occupied) == 85);
 static_assert(offsetof(AnimationFrameCacheEntry, reserved) == 86);
-static_assert(sizeof(AnimationFrameCacheCounters) == 40);
-static_assert(sizeof(AnimationFrameCache) == 160);
+static_assert(sizeof(AnimationFrameCacheCounters) == 8);
+static_assert(sizeof(AnimationFrameCache) == 128);
 
 } // namespace maicord

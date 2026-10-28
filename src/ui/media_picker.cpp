@@ -23,10 +23,9 @@ constexpr float kGifMinimumAspect = .25f, kGifMaximumAspect = 4, kGifDefaultAspe
 float clamped(float value, float low, float high) noexcept {
     return maximum(low, minimum(value, high));
 }
+// Range comparisons also reject NaN and infinities: every bound is finite.
 bool bounded(float value, float low, float high) noexcept {
-    u32 bits = 0;
-    CopyMemory(&bits, &value, sizeof(bits));
-    return (bits & 0x7f800000u) != 0x7f800000u && value >= low && value <= high;
+    return value >= low && value <= high;
 }
 bool finite_rectangle(UiRect r) noexcept {
     return bounded(r.left, -kMaximumUiCoordinate, kMaximumUiCoordinate) &&
@@ -530,7 +529,7 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
     scene.footer_title_bytes = 0;
     ui_widget_manager_reset(&scene.widgets);
     ZeroMemory(scene.projection, sizeof(*scene.projection));
-    scene.cell_count = scene.header_count = scene.rail_count = scene.media_count = 0;
+    scene.cell_count = scene.header_count = scene.rail_count = 0;
     scene.pinned_bottom = scene.body.top;
     if (++scene.generation == 0)
         ++scene.generation;
@@ -1019,7 +1018,7 @@ void ui_media_picker_scene_close(UiMediaPickerScene* scene) noexcept {
     scene->active = false;
     scene->body_scrollbar_state = scene->rail_scrollbar_state = UiScrollbarVisualState::normal;
     scene->favorite_hovered = false;
-    scene->cell_count = scene->header_count = scene->rail_count = scene->media_count = 0;
+    scene->cell_count = scene->header_count = scene->rail_count = 0;
     scene->source = nullptr;
     scene->content = nullptr;
     scene->tile_count = 0;
@@ -1099,7 +1098,7 @@ UiMediaPickerTarget ui_media_picker_scene_pointer_up(UiMediaPickerScene* scene, 
     return valid ? hit : UiMediaPickerTarget{};
 }
 bool ui_media_picker_scene_scroll(UiMediaPickerScene* scene, float delta, bool rail) noexcept {
-    if (!scene || !ui_media_picker_scene_current(*scene) || !scene->content ||
+    if (!scene || !ui_media_picker_scene_current(*scene) ||
         scene->content->phase != UiMediaPickerPhase::ready ||
         !bounded(delta, -kMaximumPaintCoordinate, kMaximumPaintCoordinate))
         return false;

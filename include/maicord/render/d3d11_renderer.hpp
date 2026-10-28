@@ -176,7 +176,7 @@ struct RendererTextShellPrefix {
     u32 projection_count;
     u32 quads, batches, semantics, hits, effects, inline_flags;
     u32 dpi, atlas_evicted_entries, atlas_full_resets;
-    u32 build_serial, retention_generation, reuses, projections_skipped;
+    u32 build_serial, retention_generation, reuses;
     bool animated;
     // Set by the host around a rebuild in which only the message viewport
     // moved: an unchanged scene stamp then skips projecting the shell at all.
@@ -190,7 +190,7 @@ struct RendererTextShellPrefix {
         static_inline_flags, static_last_batch_quads, static_serial;
     bool static_animated, static_valid;
 };
-static_assert(sizeof(RendererTextShellPrefix) == 160);
+static_assert(sizeof(RendererTextShellPrefix) == 152);
 struct RendererTextPrefix {
     RendererTextStorage* storage;
     UiWidgetReference message_root;
@@ -199,7 +199,7 @@ struct RendererTextPrefix {
     bool animated;
     RendererTextShellPrefix shell;
 };
-static_assert(sizeof(RendererTextPrefix) == 224);
+static_assert(sizeof(RendererTextPrefix) == 216);
 
 enum class RendererNavigationHitKind : u8 {
     none,
@@ -467,8 +467,6 @@ struct D3D11Renderer {
     Win32Rect previous_buffer_damage_rect;
     Win32Rect present_logical_damage_rect;
     i64 performance_frequency;
-    u64 paint_cpu_us_total;
-    u64 paint_cpu_us_max;
     u64 first_frame_cpu_us;
     // renderer_initialize adopted the prestarted device (bit 0), draw
     // pipeline (bit 1) and glyph atlas (bit 2) instead of creating them on the
@@ -483,8 +481,6 @@ struct D3D11Renderer {
     u64 preview_media_uploaded_pixels;
     u32 preview_media_uploads;
     u32 media_rejected;
-    u32 media_atlas_resizes; // Atlas growth steps (texture recreated, rows copied).
-    u32 media_atlas_trims;   // Idle trims that shrank, compacted or released media surfaces.
     u32 media_instance_uploads;
     u32 text_instance_uploads;
     u32 paint_instance_uploads;
@@ -641,7 +637,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120744);
+static_assert(sizeof(D3D11Renderer) == 120608);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

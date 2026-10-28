@@ -284,14 +284,10 @@ void animation_frame_cache_begin_visibility(
 AnimationFrameCacheResult animation_frame_cache_find(
     AnimationFrameCache* cache, const AnimationFrameCacheKey& key) noexcept {
     if (!cache || !cache->entries || !cache->buckets || !key_valid(key)) {
-        if (cache) {
-            ++cache->counters.rejected;
-        }
         return failure(AnimationFrameCacheError::invalid_input);
     }
     const u32 bucket = find_bucket(cache, key);
     if (bucket == 0xFFFFFFFFu) {
-        ++cache->counters.misses;
         return failure(AnimationFrameCacheError::not_found);
     }
     const u32 slot = cache->buckets[bucket] - 1;
@@ -301,10 +297,8 @@ AnimationFrameCacheResult animation_frame_cache_find(
                               &allocation) ||
         !glyph_atlas_pin(&cache->allocations, entry.allocation)) {
         erase_entry(cache, slot, bucket);
-        ++cache->counters.misses;
         return failure(AnimationFrameCacheError::not_found);
     }
-    ++cache->counters.hits;
     return result_from(entry, allocation, true);
 }
 
@@ -315,9 +309,6 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
         !key_valid(descriptor.key) || descriptor.width == 0 ||
         descriptor.height == 0 || descriptor.duration_us == 0 ||
         descriptor.kind == AnimationFrameCacheKind::none) {
-        if (cache) {
-            ++cache->counters.rejected;
-        }
         return failure(AnimationFrameCacheError::invalid_input);
     }
     AnimationFrameCacheResult cached =
@@ -327,7 +318,6 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
             cached.allocation.height != descriptor.height ||
             cached.duration_us != descriptor.duration_us ||
             cached.kind != descriptor.kind) {
-            ++cache->counters.rejected;
             return failure(AnimationFrameCacheError::invalid_input);
         }
         return cached;
@@ -344,7 +334,6 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
         &cache->allocations, allocation_key, descriptor.width,
         descriptor.height);
     if (!allocation.ok()) {
-        ++cache->counters.rejected;
         return failure(translate_error(allocation.error));
     }
     if (allocation.evicted_entries != 0 || allocation.atlas_reset ||
@@ -355,7 +344,6 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
     u32 home_bucket = 0;
     if (slot == 0xFFFFFFFFu ||
         !insert_bucket(cache, descriptor.key, slot, &home_bucket)) {
-        ++cache->counters.rejected;
         return failure(AnimationFrameCacheError::no_capacity);
     }
 
@@ -375,11 +363,9 @@ AnimationFrameCacheResult animation_frame_cache_allocate(
             erase_bucket(cache, bucket);
         }
         reset_value<AnimationFrameCacheEntry>(&entry);
-        ++cache->counters.rejected;
         return failure(AnimationFrameCacheError::corrupt_state);
     }
     ++cache->entry_count;
-    ++cache->counters.captures;
     return result_from(entry, allocation, false);
 }
 

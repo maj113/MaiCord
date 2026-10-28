@@ -208,8 +208,7 @@ bool ui_unread_banner_update(UiUnreadBannerScene* scene, const UiUnreadBannerVie
     const UiWidgetReference stored_owner = usable ? text_owner : UiWidgetReference{};
     changed = changed || !ui_rect_equal(scene->viewport, stored_viewport) ||
               scene->text_owner.manager != stored_owner.manager ||
-              scene->text_owner.handle.slot != stored_owner.handle.slot ||
-              scene->text_owner.handle.generation != stored_owner.handle.generation ||
+              !ui_widget_handle_equal(scene->text_owner.handle, stored_owner.handle) ||
               scene->view.channel_id != next.channel_id || scene->view.since_unix_ms != next.since_unix_ms ||
               scene->view.count != next.count || scene->view.count_estimated != next.count_estimated ||
               scene->view.banner != next.banner || scene->view.jump != next.jump;

@@ -42,7 +42,6 @@ struct GlyphAtlasAllocator {
     u32 evicted_entries;
     u32 evicted_rows;
     u32 full_resets;
-    u32 rejected;
     u32 free_cursor;
     u16 visibility_epoch;
     u16 visibility_rebases;
@@ -127,7 +126,6 @@ struct GlyphAtlasGrowth {
     u32 sample_head;
     u32 protect_ms;
     u32 growths;
-    u32 shrinks;
     u16 minimum_height;
     u16 maximum_height; // zero: fixed-size atlas
     u16 step;

@@ -49,7 +49,6 @@ inline constexpr u32 kTextCompositionSpanCapacity = 48;
 struct TextCompositionMark { UiRect rectangle; TextCompositionSpan attributes; };
 
 struct PaintStream;
-struct UiRect;
 struct Color;
 bool text_composition_paint_line(PaintStream* stream, const UiRect& rectangle,
     const TextCompositionSpan& span, const Color& fallback) noexcept;

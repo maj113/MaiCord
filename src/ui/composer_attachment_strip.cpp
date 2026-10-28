@@ -55,10 +55,6 @@ u32 append_unsigned(Slice<char> output, u32 used, u64 value, u32 minimum_digits 
     return used;
 }
 
-bool clip_push(PaintStream* paint, UiRect clip) noexcept {
-    return paint_stream_push_clip(paint, clip);
-}
-
 UiRect centered(UiRect area, float extent) noexcept {
     extent = minimum(extent, minimum(ui_rect_width(area), ui_rect_height(area)));
     const float x = (area.left + area.right - extent) * .5f;
@@ -407,7 +403,7 @@ bool ui_composer_attachment_strip_paint_base(const UiComposerAttachmentStripView
         return false;
     if (!view.tiles.count || !ui_rect_has_area(view.strip))
         return true;
-    if (!clip_push(paint, view.strip))
+    if (!paint_stream_push_clip(paint, view.strip))
         return false;
     bool ok = true;
     for (u32 i = 0; ok && i < view.tiles.count; ++i) {
@@ -441,7 +437,7 @@ bool ui_composer_attachment_strip_paint_overlay(const UiComposerAttachmentStripV
         return false;
     if (!view.tiles.count || !ui_rect_has_area(view.strip))
         return true;
-    if (!clip_push(paint, view.strip))
+    if (!paint_stream_push_clip(paint, view.strip))
         return false;
     bool ok = true;
     for (u32 i = 0; ok && i < view.tiles.count; ++i) {

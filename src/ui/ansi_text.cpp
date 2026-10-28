@@ -182,7 +182,7 @@ u32 digit_run(Utf8View input, u32 at) noexcept {
 }
 
 bool literal(Utf8View input, u32 at, const char* text, u32 bytes) noexcept {
-    if (at > input.bytes || bytes > input.bytes - at)
+    if (bytes > input.bytes - at)
         return false;
     for (u32 i = 0; i < bytes; ++i)
         if (input.data[at + i] != text[i])

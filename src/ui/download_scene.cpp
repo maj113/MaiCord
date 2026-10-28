@@ -105,8 +105,7 @@ void progress_label(UiDownloadScene& s, u32 slot, const UiDownloadRow& r) noexce
     auto* out = s.progress[slot]; append_number(out, used, r.bytes);
     if (r.total) { append(out, used, " / "); append_number(out, used, r.total); }
     append(out, used, " bytes");
-    if (r.indeterminate || !r.total) {}
-    else {
+    if (!r.indeterminate && r.total) {
         append(out, used, " • ");
         const auto percentage = static_cast<u32>(minimum(100., static_cast<double>(r.bytes) * 100. / static_cast<double>(r.total)));
         append_number(out, used, percentage); append(out, used, "%");

@@ -27,7 +27,7 @@ struct UiAttachmentDraftView {
     u64 bytes, uploaded_bytes;
     MediaAssetKey preview;
     UiAttachmentDraftPhase phase;
-    bool spoiler, can_remove, can_retry, can_describe, preview_ready, preview_failed;
+    bool spoiler, can_remove, can_retry, can_describe, preview_ready;
 };
 constexpr bool ui_attachment_draft_progress_visible(const UiAttachmentDraftView& view) noexcept {
     return view.phase == UiAttachmentDraftPhase::uploading || view.phase == UiAttachmentDraftPhase::waiting;

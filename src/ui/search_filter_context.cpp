@@ -9,18 +9,12 @@ bool boundary(Utf8View text, u32 at) noexcept {
     return at <= text.bytes && (!at || at == text.bytes ||
                                (static_cast<u8>(text.data[at]) & 0xc0u) != 0x80u);
 }
-bool key_equal(Utf8View key, Utf8View name) noexcept {
-    if (key.bytes != name.bytes) return false;
-    for (u32 i = 0; i < key.bytes; ++i)
-        if (ascii_lower(key.data[i]) != ascii_lower(name.data[i])) return false;
-    return true;
-}
 UiSearchFilterKind filter_kind(Utf8View key) noexcept {
     const Utf8View names[]{utf8_literal("from"),       utf8_literal("in"),       utf8_literal("mentions"),
                            utf8_literal("has"),        utf8_literal("pinned"),   utf8_literal("authorType"),
                            utf8_literal("fileType"),   utf8_literal("linkFrom"), utf8_literal("fileName")};
     for (u32 i = 0; i < 9; ++i)
-        if (key_equal(key, names[i])) return static_cast<UiSearchFilterKind>(i + 1);
+        if (ascii_equal_ignore_case(key, names[i])) return static_cast<UiSearchFilterKind>(i + 1);
     return UiSearchFilterKind::none;
 }
 bool decode(Utf8View query, u32 caret, UiSearchFilterContext& out) noexcept {

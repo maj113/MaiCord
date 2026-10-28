@@ -363,7 +363,6 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
         : view.sms_sending                       ? utf8_literal("Sending code…")
         : view.status == LoginStatus::submitting ? utf8_literal("Signing in…")
         : backup_acknowledgement ? backup_acknowledgement_action(view.backup_acknowledgement_seconds)
-        : login_requires_back(view.status, view.remote_status) ? utf8_literal("Verification required")
         : view.status == LoginStatus::profile_save_failed      ? utf8_literal("Try again")
         : webauthn                                             ? utf8_literal("Continue with security key")
         : mfa                                                  ? utf8_literal("Verify")
@@ -498,11 +497,10 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                          !webauthn && password.bytes != 0 ? Role::field : Role::field_hint)) ||
         ((!mfa || reset) &&
          !append_command(out, LoginElement::forgot_password,
-                         (reset || recovery || login_requires_back(view.status, view.remote_status))
+                         (reset || recovery || blocked)
                              ? utf8_literal("Back to sign in")
                              : utf8_literal("Forgot your password?"),
-                         (reset || recovery || login_requires_back(view.status, view.remote_status) ||
-                          !login_view_recovery_disabled(view))
+                         (reset || recovery || blocked || !login_view_recovery_disabled(view))
                              ? Role::link_accent
                              : Role::link_muted)) ||
         !append_command(out, LoginElement::submit, action, Role::submit) ||

@@ -27,7 +27,6 @@ struct PopupMediaCommand {
 using PopupEditGeometry = UiEditGeometry;
 
 bool popup_presentation_build(const PopupScene& scene, const Theme& theme, PaintStream* paint) noexcept;
-UiRect popup_avatar_rectangle(const UiLayoutNode& row) noexcept;
 PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& scene, u32 index,
                                                               PopupMediaCommand* command) noexcept;
 bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& theme,

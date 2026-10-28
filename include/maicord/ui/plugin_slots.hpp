@@ -171,10 +171,6 @@ struct UiPluginSlotCorner {
     u8 tone;
 };
 inline constexpr float kUiPluginSlotCornerExtent = 16;
-inline UiRect ui_plugin_slot_corner_rectangle(UiRect icon) noexcept {
-    return {icon.right + 2 - kUiPluginSlotCornerExtent, icon.top - 2, icon.right + 2,
-            icon.top - 2 + kUiPluginSlotCornerExtent};
-}
 inline bool ui_plugin_slot_corner(u32 surface, u64 guild_id, UiRect icon, UiPluginSlotCorner* out) noexcept {
     reset_value(out);
     if (!guild_id || !ui_rect_has_area(icon)) return false;
@@ -183,7 +179,8 @@ inline bool ui_plugin_slot_corner(u32 surface, u64 guild_id, UiRect icon, UiPlug
     for (u32 i = 0; i < count; ++i) {
         const auto& node = nodes[i];
         if (node.kind == ui_plugin_node_separator || node.kind == ui_plugin_node_link) continue;
-        out->rectangle = ui_plugin_slot_corner_rectangle(icon);
+        out->rectangle = {icon.right + 2 - kUiPluginSlotCornerExtent, icon.top - 2, icon.right + 2,
+                          icon.top - 2 + kUiPluginSlotCornerExtent};
         out->label = ui_plugin_slot_label(node);
         out->owner_id = node.owner_id;
         out->action_id = node.kind == ui_plugin_node_button ? node.action_id : 0;

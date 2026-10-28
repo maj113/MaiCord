@@ -319,8 +319,7 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
         presentation = hash64_mix(presentation, static_cast<u64>(row.spoiler) |
                                                     (static_cast<u64>(row.can_remove) << 1) |
                                                     (static_cast<u64>(row.can_describe) << 2) |
-                                                    (static_cast<u64>(row.preview_ready) << 3) |
-                                                    (static_cast<u64>(row.preview_failed) << 4));
+                                                    (static_cast<u64>(row.preview_ready) << 3));
     }
     presentation = hash64_mix(presentation, c.can_add_files);
     layout = hash64_mix(layout, tree);
@@ -665,7 +664,7 @@ bool forum_post_text_output(const ForumPostScene& s, const TextFormEditGeometry 
                  {&s.widgets, h},
                  edit(e) ? geometry[field_index(e)].text_rectangle : node->content_rectangle,
                  clip,
-                 !enabled ? theme.text_secondary : (secondary ? theme.text_secondary : theme.text_primary),
+                 !enabled || secondary ? theme.text_secondary : theme.text_primary,
                  text_style_none,
                  action ? UiTextAlignment::center : UiTextAlignment::start,
                  UiTextAlignment::start,

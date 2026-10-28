@@ -55,41 +55,41 @@ bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, Slice<u8> o
             output.data[kShaderPatchOffsets[i]] = kShaderPatchValues[i];
     return true;
 }
+
+// Inflates the shader onto this frame and runs `create` on it before the bytes
+// go out of scope; the D3D11 Create* call copies the bytecode.
+template <typename Create>
+HRESULT create_from_bytes(ShaderId id, Create create) noexcept {
+    const PackedShader* entry = packed_shader(id);
+    if (!entry) return E_FAIL;
+    DeflateWorkspace workspace;
+    auto* bytes = static_cast<u8*>(_alloca(entry->raw_bytes));
+    return inflate(*entry, &workspace, {bytes, entry->raw_bytes}) ? create(bytes, entry->raw_bytes) : E_FAIL;
+}
 } // namespace
 
-// Each factory owns its stack bytes through the final D3D call.
 HRESULT shader_create_compute(ID3D11Device* device, ShaderId id, ID3D11ComputeShader** shader) noexcept {
-    const PackedShader* entry = packed_shader(id);
-    if (!entry) return E_FAIL;
-    DeflateWorkspace workspace;
-    auto* bytes = static_cast<u8*>(_alloca(entry->raw_bytes));
-    return inflate(*entry, &workspace, {bytes, entry->raw_bytes})
-        ? device->CreateComputeShader(bytes, entry->raw_bytes, nullptr, shader) : E_FAIL;
+    return create_from_bytes(id, [&](const u8* bytes, u32 count) noexcept {
+        return device->CreateComputeShader(bytes, count, nullptr, shader);
+    });
 }
 HRESULT shader_create_pixel(ID3D11Device* device, ShaderId id, ID3D11PixelShader** shader) noexcept {
-    const PackedShader* entry = packed_shader(id);
-    if (!entry) return E_FAIL;
-    DeflateWorkspace workspace;
-    auto* bytes = static_cast<u8*>(_alloca(entry->raw_bytes));
-    return inflate(*entry, &workspace, {bytes, entry->raw_bytes})
-        ? device->CreatePixelShader(bytes, entry->raw_bytes, nullptr, shader) : E_FAIL;
+    return create_from_bytes(id, [&](const u8* bytes, u32 count) noexcept {
+        return device->CreatePixelShader(bytes, count, nullptr, shader);
+    });
 }
 HRESULT shader_create_vertex(ID3D11Device* device, ShaderId id, ConstSlice<D3D11_INPUT_ELEMENT_DESC> elements,
                              ID3D11VertexShader** shader, ID3D11InputLayout** layout,
                              bool* layout_failed) noexcept {
     *layout_failed = false;
-    const PackedShader* entry = packed_shader(id);
-    if (!entry) return E_FAIL;
-    DeflateWorkspace workspace;
-    auto* bytes = static_cast<u8*>(_alloca(entry->raw_bytes));
-    if (!inflate(*entry, &workspace, {bytes, entry->raw_bytes}))
-        return E_FAIL;
-    const HRESULT result = device->CreateVertexShader(bytes, entry->raw_bytes, nullptr, shader);
-    if (FAILED(result) || !layout)
-        return result;
-    *layout_failed = true;
-    const HRESULT created = device->CreateInputLayout(elements.data, elements.count, bytes, entry->raw_bytes, layout);
-    *layout_failed = FAILED(created);
-    return created;
+    return create_from_bytes(id, [&](const u8* bytes, u32 count) noexcept {
+        const HRESULT result = device->CreateVertexShader(bytes, count, nullptr, shader);
+        if (FAILED(result) || !layout)
+            return result;
+        *layout_failed = true;
+        const HRESULT created = device->CreateInputLayout(elements.data, elements.count, bytes, count, layout);
+        *layout_failed = FAILED(created);
+        return created;
+    });
 }
 } // namespace maicord

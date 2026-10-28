@@ -195,7 +195,6 @@ struct UiCallScene {
     UiCallParticipant participants[kUiCallMaximumTiles];
     char names[kUiCallMaximumTiles][kUiCallNameBytes];
     char effects[kUiCallMaximumTiles][kUiCallEffectBytes];
-    char viewer_text[kUiCallMaximumTiles][12];
     char title[kUiCallTitleBytes];
     u32 title_bytes;
     UiCallTile tiles[kUiCallMaximumTiles];

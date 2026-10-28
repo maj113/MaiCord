@@ -77,7 +77,6 @@ struct Parser {
     Utf8View input;
     Slice<char> output;
     Slice<u32> styles;
-    Slice<u32> source_offsets;
     Slice<TextStyleSpan> spans;
     Slice<MessageMarkdownSemantic> semantics;
     Slice<AnsiColorRun> ansi_runs;
@@ -357,8 +356,6 @@ bool emit_byte(Parser* parser, char value, u32 added_style = 0, u32 source_offse
         return false;
     }
     parser->output[parser->output_bytes] = value;
-    if (parser->source_offsets.data)
-        parser->source_offsets[parser->output_bytes] = source_offset;
     const u32 jumbo = parser->emoji_only && !ascii_space(value) ? text_style_jumbo_emoji : 0u;
     parser->styles[parser->output_bytes] =
         parser->line_style | parser->persistent_style | added_style | jumbo;
@@ -374,8 +371,6 @@ bool emit_range(Parser* parser, u32 begin, u32 end, u32 added_style = 0) noexcep
         if (!emit_byte(parser, parser->input.data[offset], added_style, offset)) {
             return false;
         }
-        if (parser->source_offsets.data)
-            parser->source_offsets[parser->output_bytes - 1] = offset;
     }
     return true;
 }
@@ -392,8 +387,6 @@ void remove_output(Parser* parser, u32 offset, u32 bytes) noexcept {
     for (u32 index = 0; index < remaining; ++index) {
         parser->output[offset + index] = parser->output[offset + bytes + index];
         parser->styles[offset + index] = parser->styles[offset + bytes + index];
-        if (parser->source_offsets.data)
-            parser->source_offsets[offset + index] = parser->source_offsets[offset + bytes + index];
     }
     parser->output_bytes -= bytes;
     for (u32 index = 0; index < parser->ansi_run_count; ++index) {
@@ -517,8 +510,6 @@ bool compact_ansi_piece(void* context, u32 begin, u32 end, AnsiTextStyle style) 
     for (u32 i = 0; i < bytes; ++i) {
         parser->output[to + i] = parser->output[from + i];
         parser->styles[to + i] = parser->styles[from + i] | style.flags;
-        if (parser->source_offsets.data)
-            parser->source_offsets[to + i] = parser->source_offsets[from + i];
     }
     compaction.write += bytes;
     if (style.foreground == kAnsiColorNone && style.background == kAnsiColorNone)
@@ -580,8 +571,6 @@ void strip_ansi_sgr(Parser* parser, u32 begin) noexcept {
         }
         parser->output[write] = parser->output[read];
         parser->styles[write] = parser->styles[read];
-        if (parser->source_offsets.data)
-            parser->source_offsets[write] = parser->source_offsets[read];
         ++write;
         ++read;
     }
@@ -1518,8 +1507,6 @@ bool block_prefix(Parser* parser) noexcept {
                     if (!emit_byte(parser, ' ', 0, begin + index)) {
                         return false;
                     }
-                    if (parser->source_offsets.data)
-                        parser->source_offsets[parser->output_bytes - 1] = begin + index;
                 }
             } else if (!emit_range(parser, begin, parser->input_offset)) {
                 return false;
@@ -1902,8 +1889,6 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
                                    parser.input_offset + index)) {
                         return MessageMarkdownError::output_too_small;
                     }
-                    if (parser.source_offsets.data)
-                        parser.source_offsets[parser.output_bytes - 1] = parser.input_offset + index;
                 }
                 parser.input_offset += marker;
                 continue;
@@ -1932,8 +1917,7 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
                                              Slice<u32> byte_style_scratch,
                                              Slice<TextStyleSpan> span_output,
                                              const MessageMarkdownOptions& options,
-                                             Slice<MessageMarkdownSemantic> semantic_output,
-                                             Slice<u32> source_offsets) noexcept {
+                                             Slice<MessageMarkdownSemantic> semantic_output) noexcept {
     if ((!input.data && input.bytes != 0) || (!text_output.data && text_output.count != 0) ||
         (!byte_style_scratch.data && byte_style_scratch.count != 0) ||
         (!span_output.data && span_output.count != 0) ||
@@ -1944,8 +1928,6 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
     if (input.bytes > text_output.count || input.bytes > byte_style_scratch.count) {
         return parse_error(MessageMarkdownError::output_too_small);
     }
-    if (source_offsets.data && source_offsets.count < text_output.count)
-        return parse_error(MessageMarkdownError::output_too_small);
     if (!utf8_validate(input).valid) {
         return parse_error(MessageMarkdownError::invalid_utf8);
     }
@@ -1955,7 +1937,6 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
     parser.output = text_output;
     parser.ansi_runs = Slice<AnsiColorRun>{ansi_runs, kMessageMarkdownAnsiRunMaximum};
     parser.styles = byte_style_scratch;
-    parser.source_offsets = source_offsets;
     parser.spans = span_output;
     parser.semantics = semantic_output;
     parser.options = &options;
@@ -1964,48 +1945,6 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
     const auto error = walk(&parser);
     if (error != MessageMarkdownError::none) return parse_error(error);
     return finish(&parser);
-}
-
-u32 message_markdown_source_styles(Utf8View input, Slice<char> text, Slice<u32> styles, Slice<u32> map,
-                                   Slice<TextStyleSpan> output) noexcept {
-    if (input.bytes > text.count || input.bytes > styles.count || input.bytes > map.count || !output.data)
-        return 0;
-    MessageMarkdownOptions options{};
-    options.preserve_entities = true;
-    options.spoiler_revealed = +[](void*, u32) noexcept { return true; };
-    const auto parsed = message_markdown_parse(input, text, styles, output, options, {}, map);
-    if (!parsed.ok())
-        return 0;
-    // The base transform only removes bytes. Walk backwards to expand styles
-    // into source coordinates in the same scratch, leaving delimiters plain.
-    u32 end = input.bytes;
-    for (u32 i = parsed.text.bytes; i != 0;) {
-        --i;
-        const u32 destination = map[i];
-        if (destination >= input.bytes || destination < i || destination > end)
-            return 0;
-        const u32 flags = styles[i] & ~(text_style_jumbo_emoji | text_style_custom_emoji |
-                                        text_style_spoiler | text_style_list_bullet);
-        while (end > destination + 1)
-            styles[--end] = 0;
-        styles[destination] = flags;
-        end = destination;
-    }
-    while (end)
-        styles[--end] = 0;
-    u32 count = 0;
-    for (u32 first = 0; first < input.bytes;) {
-        u32 last = first + 1;
-        while (last < input.bytes && styles[last] == styles[first])
-            ++last;
-        if (styles[first]) {
-            if (count == output.count)
-                break;
-            output[count++] = {first, last - first, styles[first]};
-        }
-        first = last;
-    }
-    return count;
 }
 
 u32 message_markdown_source_styles(Utf8View input, Slice<TextStyleSpan> output) noexcept {

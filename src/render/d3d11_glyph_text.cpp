@@ -26,6 +26,13 @@ ID3D11ShaderResourceView* d3d11_glyph_text_color_view(const D3D11GlyphTextOwner&
     return owner.color ? owner.color->gpu.view : nullptr;
 }
 namespace {
+D3D11ColorGlyphOwner* color_owner(D3D11GlyphTextOwner* owner) noexcept {
+    if (!owner->color)
+        owner->color = static_cast<D3D11ColorGlyphOwner*>(
+            VirtualAlloc(nullptr, sizeof(D3D11ColorGlyphOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    return owner->color;
+}
+
 // Worker-compiled programs borrow account-module storage only for this call.
 bool rasterize_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
                        const ColrPaintProgram& program, const GlyphAtlasAllocation& allocation,
@@ -36,10 +43,7 @@ bool rasterize_program(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
         return false;
     if (owner->color_batch)
         owner->color_batch->reset();
-    if (!owner->color)
-        owner->color = static_cast<D3D11ColorGlyphOwner*>(
-            VirtualAlloc(nullptr, sizeof(D3D11ColorGlyphOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!owner->color)
+    if (!color_owner(owner))
         return false;
     const GlyphRasterBounds bounds{0, 0, extent, extent, extent, extent};
     return colr_paint_rasterize_target(&owner->color->gpu, context, program, bounds, allocation,
@@ -347,12 +351,8 @@ bool role_color_for_decoration(const D3D11GlyphTextAppendRequest& request, const
 bool append_color_glyph_run(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
                             const D3D11GlyphTextAppendRequest& request, const TextRun& run,
                             const Color& foreground) noexcept {
-    if (!owner->color) {
-        owner->color = static_cast<D3D11ColorGlyphOwner*>(
-            VirtualAlloc(nullptr, sizeof(D3D11ColorGlyphOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (!owner->color)
-            return false;
-    }
+    if (!color_owner(owner))
+        return false;
     auto& color = *owner->color;
     // UI opacity is applied once by the draw shader, including palette colors.
     const ColrColor text_color{foreground.red, foreground.green, foreground.blue, 1};
@@ -858,11 +858,6 @@ void d3d11_glyph_text_release(D3D11GlyphTextOwner* owner) noexcept {
         owner->color = nullptr;
     }
     glyph_atlas_gpu_release(&owner->gpu);
-    owner->gpu.dispatched_pixels = 0;
-    owner->gpu.dispatched_commands = 0;
-    owner->gpu.dispatch_count = 0;
-    owner->gpu.raster_count = 0;
-    owner->gpu.rejected = 0;
     shaped_text_reset(&owner->title);
     for (u32 index = 0; owner->font_faces && index < owner->font_face_count; ++index) {
         native_font_run_release(native_font_session_runs(owner->system.native_fonts),

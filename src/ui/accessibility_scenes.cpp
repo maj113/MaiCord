@@ -1325,60 +1325,49 @@ void describe_call(void* context, const UiWidgetManager&, UiWidgetHandle handle,
     info->mount_context = context;
 }
 
+template <typename Scene>
+u32 add_scene(UiAccessTree* tree, u32 parent, const Scene& scene, UiAccessDescribe describe, u8 surface,
+              UiAccessDescribeGroup group = nullptr) noexcept {
+    return scene.active
+               ? add_widgets(tree, parent, scene.widgets, describe, const_cast<Scene*>(&scene), surface, group)
+               : kUiAccessNone;
+}
+
 } // namespace
 
 u32 ui_access_add_quick_switcher(UiAccessTree* tree, u32 parent, const UiQuickSwitcherScene& scene,
                                  u8 surface) noexcept {
-    if (!scene.active)
-        return kUiAccessNone;
-    return add_widgets(tree, parent, scene.widgets, describe_quick, const_cast<UiQuickSwitcherScene*>(&scene), surface);
+    return add_scene(tree, parent, scene, describe_quick, surface);
 }
 
 u32 ui_access_add_search(UiAccessTree* tree, u32 parent, const UiSearchScene& scene, u8 surface) noexcept {
-    if (!scene.active)
-        return kUiAccessNone;
-    return add_widgets(tree, parent, scene.widgets, describe_search, const_cast<UiSearchScene*>(&scene), surface,
-                       search_group);
+    return add_scene(tree, parent, scene, describe_search, surface, search_group);
 }
 
 u32 ui_access_add_pinned_messages(UiAccessTree* tree, u32 parent, const UiPinnedMessagesScene& scene,
                                   u8 surface) noexcept {
-    if (!scene.active)
-        return kUiAccessNone;
-    return add_widgets(tree, parent, scene.widgets, describe_pins, const_cast<UiPinnedMessagesScene*>(&scene), surface);
+    return add_scene(tree, parent, scene, describe_pins, surface);
 }
 
 u32 ui_access_add_thread_browser(UiAccessTree* tree, u32 parent, const UiThreadBrowserScene& scene,
                                  u8 surface) noexcept {
-    if (!scene.active)
-        return kUiAccessNone;
-    return add_widgets(tree, parent, scene.widgets, describe_threads, const_cast<UiThreadBrowserScene*>(&scene),
-                       surface, thread_group);
+    return add_scene(tree, parent, scene, describe_threads, surface, thread_group);
 }
 
 u32 ui_access_add_inbox(UiAccessTree* tree, u32 parent, const UiInboxScene& scene, u8 surface) noexcept {
-    if (!scene.active)
-        return kUiAccessNone;
-    return add_widgets(tree, parent, scene.widgets, describe_inbox, const_cast<UiInboxScene*>(&scene), surface,
-                       inbox_group);
+    return add_scene(tree, parent, scene, describe_inbox, surface, inbox_group);
 }
 
 u32 ui_access_add_call(UiAccessTree* tree, u32 parent, const UiCallScene& scene, u8 surface) noexcept {
-    if (!scene.active)
-        return kUiAccessNone;
-    return add_widgets(tree, parent, scene.widgets, describe_call, const_cast<UiCallScene*>(&scene), surface);
+    return add_scene(tree, parent, scene, describe_call, surface);
 }
 
 u32 ui_access_add_forum_post(UiAccessTree* tree, u32 parent, const ForumPostScene& scene, u8 surface) noexcept {
-    if (!scene.active)
-        return kUiAccessNone;
-    return add_widgets(tree, parent, scene.widgets, describe_forum, const_cast<ForumPostScene*>(&scene), surface);
+    return add_scene(tree, parent, scene, describe_forum, surface);
 }
 
 u32 ui_access_add_text_form(UiAccessTree* tree, u32 parent, const TextFormScene& scene, u8 surface) noexcept {
-    if (!scene.active)
-        return kUiAccessNone;
-    return add_widgets(tree, parent, scene.widgets, describe_text_form, const_cast<TextFormScene*>(&scene), surface);
+    return add_scene(tree, parent, scene, describe_text_form, surface);
 }
 
 u32 ui_access_add_image_viewer(UiAccessTree* tree, u32 parent, const UiImageViewer& viewer, u8 surface) noexcept {

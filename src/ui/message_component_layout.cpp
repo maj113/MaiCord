@@ -22,6 +22,18 @@ bool section_accessory(const MessageRichRecord& rich, u32 index) noexcept {
            rich.components[component.parent].type == gateway_component_section;
 }
 
+// True when every child of the row at `index` is a button or select.
+bool row_holds_only_buttons(const MessageRichRecord& rich, u32 index) noexcept {
+    for (u32 j = index + 1; j < rich.component_count; ++j) {
+        if (rich.components[j].parent != index)
+            continue;
+        const auto child = message_component_kind(rich.components[j]);
+        if (child != MessageComponentKind::button && child != MessageComponentKind::select)
+            return false;
+    }
+    return true;
+}
+
 Color mix(Color a, Color b, float t) noexcept {
     return {a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t,
             a.alpha + (b.alpha - a.alpha) * t};
@@ -218,13 +230,7 @@ float message_component_measure_tree(const MessageRichRecord& rich, MessageRichI
                                : contained ? minimum(available_width, kMessageComponentMaximumWidth) -
                                                  2 * kMessageComponentPadding
                                            : available_width;
-            bool buttons = true;
-            for (u32 j = i + 1; buttons && j < rich.component_count; ++j) {
-                const auto child = message_component_kind(rich.components[j]);
-                buttons = rich.components[j].parent != i || child == MessageComponentKind::button ||
-                          child == MessageComponentKind::select;
-            }
-            if (buttons && lane > 0 && width > lane) {
+            if (lane > 0 && width > lane && row_holds_only_buttons(rich, i)) {
                 // Replay the children in order to count the wrapped lines.
                 u32 lines = 1;
                 float line = 0, widest = 0;
@@ -330,13 +336,7 @@ UiLayoutStyle message_component_style(const MessageRichRecord& rich, u32 index,
     case MessageComponentKind::row: {
         // Buttons wrap onto further lines where the measure tree counted them;
         // rows holding anything else (a structural row around text) stay one line.
-        bool fixed = true;
-        for (u32 i = index + 1u; fixed && i < rich.component_count; ++i) {
-            if (rich.components[i].parent != index)
-                continue;
-            const auto child = message_component_kind(rich.components[i]);
-            fixed = child == MessageComponentKind::button || child == MessageComponentKind::select;
-        }
+        const bool fixed = row_holds_only_buttons(rich, index);
         style.flow = fixed ? UiLayoutFlow::horizontal_wrap : UiLayoutFlow::horizontal;
         style.gap = kMessageComponentGap;
         break;

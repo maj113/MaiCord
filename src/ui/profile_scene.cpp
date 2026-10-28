@@ -63,9 +63,6 @@ static_assert(sizeof(Storage::connection_line) / sizeof(ProfileString<64>) ==
 Storage& labels(ProfileScene* s) noexcept {
     return *reinterpret_cast<Storage*>(s->storage.base);
 }
-Color packed(u32 color, float alpha = 1) noexcept {
-    return {((color >> 16) & 255) / 255.f, ((color >> 8) & 255) / 255.f, (color & 255) / 255.f, alpha};
-}
 Color over(const Color& top, const Color& bottom) noexcept {
     const float a = top.alpha;
     return {top.red * a + bottom.red * (1 - a), top.green * a + bottom.green * (1 - a),
@@ -100,7 +97,7 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     c.control = own.control;
     c.control_border = own.control_border;
     c.control_icon = own.control_icon;
-    c.banner = s.has_banner_color ? packed(s.banner_color) : own.banner;
+    c.banner = s.has_banner_color ? color_from_rgb24(s.banner_color) : own.banner;
     if (!s.themed) {
         c.surface = c.primary = c.secondary = own.surface;
         c.modal = own.modal;
@@ -125,11 +122,11 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     // the same appearance, else the built-in theme of that appearance.
     const bool app_dark = theme.appearance == ThemeAppearance::dark;
     const auto& tokens = (app_dark == s.theme_dark ? theme : s.theme_dark ? kDefaultTheme : kLightTheme).tokens.profile;
-    c.primary = packed(s.theme_primary);
-    c.secondary = packed(s.theme_secondary);
+    c.primary = color_from_rgb24(s.theme_primary);
+    c.secondary = color_from_rgb24(s.theme_secondary);
     c.overlay = tokens.overlay;
     c.surface = over(c.overlay, c.primary);
-    c.modal = packed(profile_modal_background(s.theme_primary, s.theme_secondary, s.theme_dark));
+    c.modal = color_from_rgb24(profile_modal_background(s.theme_primary, s.theme_secondary, s.theme_dark));
     c.text = c.strong = tokens.text;
     c.subtle = tokens.text_subtle;
     c.muted = tokens.text_muted;
@@ -140,7 +137,7 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     c.input = tokens.input;
     c.button = tokens.button;
     c.button_hover = tokens.button_hover;
-    c.accent = packed(profile_button_color(s.theme_primary));
+    c.accent = color_from_rgb24(profile_button_color(s.theme_primary));
     // Hover: the accent mixed 10% toward the darkest (dark theme) or lightest surface.
     c.accent_hover = mix(c.accent, s.theme_dark ? kDefaultTheme.base_lowest : kLightTheme.surface, .1f);
     c.accent_hover.alpha = 1;
@@ -250,11 +247,11 @@ void size_biography(ProfileScene* s, const TextStyleSpan* styles, u32 count) noe
     push(cursor, bytes - cursor, 0);
     s->bio_style_count = used;
 }
-bool prepare_biography(ProfileScene* s, const Utf8View& source) noexcept {
+void prepare_biography(ProfileScene* s, const Utf8View& source) noexcept {
     u64 signature = hash64_bytes(kHash64Seed, source.data, source.bytes);
     signature = hash64_bytes(signature, s->bio_revealed, s->bio_revealed_count * sizeof(u32));
     if (s->bio_signature == signature)
-        return true;
+        return;
     u32 scratch[1024]{};
     TextStyleSpan styles[128];
     MessageMarkdownOptions options{};
@@ -269,13 +266,12 @@ bool prepare_biography(ProfileScene* s, const Utf8View& source) noexcept {
         s->bio_semantic_count = 0;
         size_biography(s, nullptr, 0);
         s->bio_signature = signature;
-        return true;
+        return;
     }
     s->bio_display.bytes = static_cast<u16>(result.text.bytes);
     s->bio_semantic_count = result.semantic_count;
     size_biography(s, styles, result.span_count);
     s->bio_signature = signature;
-    return true;
 }
 ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, const Utf8View& label = {},
                  ProfileAction action = ProfileAction::none, u32 flags = 0,
@@ -388,6 +384,13 @@ template <u32 N> bool append_date(ProfileString<N>* out, u64 unix_seconds) noexc
     char text[96];
     const auto formatted = format_profile_date(unix_seconds, {text, 96});
     return formatted.ok && append(out, {text, formatted.bytes});
+}
+// "N Mutual Friend(s)" or "N Mutual Server(s)".
+void mutual_count(ProfileString<64>* text, u32 n, bool servers) noexcept {
+    text->bytes = 0;
+    append_number(text, n);
+    append(text, servers ? (n == 1 ? utf8_literal(" Mutual Server") : utf8_literal(" Mutual Servers"))
+                         : (n == 1 ? utf8_literal(" Mutual Friend") : utf8_literal(" Mutual Friends")));
 }
 const UserAppearanceRecord* appearance(const ProfileScene& s, u32 field) noexcept {
     const auto& p = *s.profile;
@@ -873,7 +876,7 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
         auto* pill = blank(s, owner, r, ProfileAction::none, ProfileLook::role);
         if (!pill)
             return -1;
-        pill->color = item.role->color ? packed(item.role->color) : Color{};
+        pill->color = item.role->color ? color_from_rgb24(item.role->color) : Color{};
         pill->target = item.role->id;
         if (!caption(s, owner, {r.left + 22, r.top + 4, r.right - (item.removable ? 24.f : 8.f), r.bottom - 4},
                      item.name, kXs))
@@ -1141,9 +1144,7 @@ float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
     float x = left;
     if (friends) {
         auto& text = l.mutual_text[0];
-        text.bytes = 0;
-        append_number(&text, friends);
-        append(&text, friends == 1 ? utf8_literal(" Mutual Friend") : utf8_literal(" Mutual Friends"));
+        mutual_count(&text, friends, false);
         const u32 faces = minimum<u32>(3, p.mutual_friends_count);
         const float stack = faces ? 16 + (faces - 1) * 12.f + 4 : 0;
         const float w = minimum(width, stack + text_width(s, text.view(), width, flags));
@@ -1159,9 +1160,7 @@ float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
             x += 10;
         }
         auto& text = l.mutual_text[1];
-        text.bytes = 0;
-        append_number(&text, servers);
-        append(&text, servers == 1 ? utf8_literal(" Mutual Server") : utf8_literal(" Mutual Servers"));
+        mutual_count(&text, servers, true);
         const u32 icons = friends ? 0 : minimum<u32>(3, p.mutual_guild_count);
         const float stack = icons ? 16 + (icons - 1) * 12.f + 4 : 0;
         const float w = minimum(left + width - x, stack + text_width(s, text.view(), width, flags));
@@ -1176,8 +1175,9 @@ float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
 // Bio" when it overflows), unclamped in the modal.
 float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool clamp) noexcept {
     const auto source = profile_display(*s->profile).bio;
-    if (!source.bytes || !prepare_biography(s, source))
+    if (!source.bytes)
         return 0;
+    prepare_biography(s, source);
     auto bio = s->bio_display.view();
     UiTextMeasureValue size{};
     if (bio.bytes && s->measure &&
@@ -1648,14 +1648,12 @@ bool tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8*
     if (mutuals) {
         for (u32 i = 0; i < 2; ++i) {
             auto& text = l.tab_text[i];
-            text.bytes = 0;
             const u32 n = i ? p.mutual_guild_count : p.mutual_friend_count;
-            if (!n)
-                append(&text, i ? utf8_literal("No Mutual Servers") : utf8_literal("No Mutual Friends"));
+            if (n)
+                mutual_count(&text, n, i != 0);
             else {
-                append_number(&text, n);
-                append(&text, i ? (n == 1 ? utf8_literal(" Mutual Server") : utf8_literal(" Mutual Servers"))
-                                : (n == 1 ? utf8_literal(" Mutual Friend") : utf8_literal(" Mutual Friends")));
+                text.bytes = 0;
+                append(&text, i ? utf8_literal("No Mutual Servers") : utf8_literal("No Mutual Friends"));
             }
             titles[count++] = text.view();
         }
@@ -1921,7 +1919,6 @@ bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
             return false;
     {
         // Bio and Member Since share one card (12 inside, 12 apart).
-        const u32 first = s->part_count;
         auto* card = blank(s, s->body, {x0, y, x0 + content, y + 1}, ProfileAction::none, ProfileLook::card);
         if (!card)
             return false;
@@ -1940,7 +1937,6 @@ bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
         const float since = member_since(s, s->body, x0 + 12, cy, inner);
         if (since < 0 || !place(s, card->widget, {x0, y, x0 + content, cy + since + 12}))
             return false;
-        static_cast<void>(first);
         y += cy + since + 12 - y + 12;
     }
     if (!self(*s) && !bot(*s) && (s->profile->mutual_guild_count || s->profile->mutual_friend_count)) {
@@ -2643,7 +2639,7 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
         for (u32 i = 0; ok && i < s.part_count; ++i) {
             const auto& p = s.parts[i];
             const bool control = p.look == ProfileLook::header_button || p.look == ProfileLook::icon ||
-                                 ((p.look == ProfileLook::pill) && p.icon != kProfileNoIcon);
+                                 p.look == ProfileLook::pill;
             if (!control || p.icon == kProfileNoIcon ||
                 (p.look == ProfileLook::header_button) != (header != 0))
                 continue;

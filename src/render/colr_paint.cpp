@@ -40,9 +40,6 @@ bool initialize(ColrPaintGpu* g, ID3D11Device* device, u16 extent, bool surface)
     }
     return true;
 }
-} // namespace
-
-namespace {
 // Only an already accumulated destination followed by one shaped source may
 // use the stack-free kernel. Nested groups, masks and other composite modes
 // keep the general interpreter and its evaluation order.
@@ -159,7 +156,7 @@ ID3D11ComputeShader* ensure_colr(ColrPaintGpu* g,ID3D11DeviceContext* context,u3
     com_release(device);
     return ok ? *shader : nullptr;
 }
-}
+} // namespace
 void ColrPaintBatch::reset() noexcept {
     if(active())unbind_colr(context);
     gpu=nullptr;program_view=nullptr;

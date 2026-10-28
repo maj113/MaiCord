@@ -1,4 +1,5 @@
 #include "maicord/ui/forum_channel_scene.hpp"
+#include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/thread_browser_scene.hpp"
 #include "maicord/ui/surface_elevation.hpp"
@@ -24,19 +25,6 @@ bool before(const UiForumSortKey& a, const UiForumSortKey& b, UiForumSort sort) 
         if (x != y) return x > y;
     }
     return a.thread_id > b.thread_id;
-}
-void sift(Slice<UiForumSortKey> keys, u32 root, u32 end, UiForumSort sort) noexcept {
-    // Max-heap on "sorts later", so the final array runs first-to-last.
-    for (;;) {
-        u32 child = root * 2 + 1;
-        if (child >= end) return;
-        if (child + 1 < end && before(keys[child], keys[child + 1], sort)) ++child;
-        if (!before(keys[root], keys[child], sort)) return;
-        const auto swap = keys[root];
-        keys[root] = keys[child];
-        keys[child] = swap;
-        root = child;
-    }
 }
 UiRect bounds(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
     const auto* node = ui_widget_manager_layout_node(s.widgets, handle);
@@ -102,15 +90,10 @@ bool ui_forum_post_matches(ConstSlice<u64> applied, ConstSlice<u64> selected, Ui
     return match == UiForumTagMatch::all;
 }
 void ui_forum_sort(Slice<UiForumSortKey> keys, UiForumSort sort) noexcept {
-    if (keys.count < 2 || !keys.data) return;
-    // Heap sort: bounded O(n log n) without allocation; ties resolve by unique ID.
-    for (u32 root = keys.count / 2; root-- > 0;) sift(keys, root, keys.count, sort);
-    for (u32 end = keys.count; end-- > 1;) {
-        const auto swap = keys[0];
-        keys[0] = keys[end];
-        keys[end] = swap;
-        sift(keys, 0, end, sort);
-    }
+    if (!keys.data) return;
+    // Ties resolve by unique ID, so the unstable heap sort is deterministic.
+    heap_sort(keys.data, keys.count,
+              [sort](const UiForumSortKey& a, const UiForumSortKey& b) noexcept { return before(a, b, sort); });
 }
 void ui_forum_toolbar_layout(UiRect band, const UiForumChannelView& view, const UiForumStyle& s,
     UiForumToolbar* out) noexcept {

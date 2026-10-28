@@ -243,8 +243,7 @@ bool ui_attachment_draft_list_paint(const UiAttachmentDraftList& list, const The
         ok = ok && paint_stream_record_content(paint, {list.manager, list.parts[r][card]}, n->rectangle,
                                                UiLayoutContentKind::control,
                                                ui_layout_content_bounds_allow_overlap);
-        UiRect clip{};
-        const auto picture = ui_attachment_draft_list_preview(list, r, &clip);
+        const auto picture = ui_attachment_draft_list_preview(list, r);
         ok = ok && ui_background_paint_surface(paint, picture, theme, theme.base_lowest, theme.interactive,
                                                list.style.radius, 1);
         if (ok && (!view.preview_ready || view.spoiler)) {

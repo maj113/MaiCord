@@ -17,11 +17,6 @@ bool style_valid(const UiThreadHeaderStyle& s) noexcept {
     return s.height >= s.control_height && s.feedback_height >= s.control_height &&
         s.control_height >= 24 && s.primary_width >= 64 && s.overflow_width >= 24 && s.cancel_width >= 48;
 }
-bool same_style(const UiThreadHeaderStyle& a, const UiThreadHeaderStyle& b) noexcept {
-    return a.height == b.height && a.feedback_height == b.feedback_height && a.inset == b.inset &&
-        a.gap == b.gap && a.control_height == b.control_height && a.primary_width == b.primary_width &&
-        a.overflow_width == b.overflow_width && a.cancel_width == b.cancel_width;
-}
 bool same_view(const UiThreadHeaderView& a, const UiThreadHeaderView& b) noexcept {
     return a.thread_id == b.thread_id && a.source_publication == b.source_publication &&
         a.enabled_actions == b.enabled_actions && a.membership == b.membership && a.operation == b.operation &&
@@ -238,7 +233,7 @@ bool ui_thread_header_update(UiThreadHeader* h, const UiThreadHeaderView& v, UiR
     if (!h || !h->manager) return false;
     UiThreadHeaderGeometry g{};
     if (!ui_thread_header_project(v, style, r, clip, &g)) return false;
-    const bool changed = !h->published || !same_view(h->view, v) || !same_style(h->style, style) ||
+    const bool changed = !h->published || !same_view(h->view, v) || !bytes_equal(&h->style, &style, sizeof(style)) ||
         !ui_rect_equal(h->geometry.rectangle, g.rectangle) || !ui_rect_equal(h->geometry.clip, g.clip);
     const bool project = changed || !geometry_current(*h, g);
     if (!project) return false;

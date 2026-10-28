@@ -21,7 +21,6 @@ enum UiImageViewerButton : u32 {
 };
 // Optional actions; each hidden action is unfocusable and paints nothing.
 enum UiImageViewerAction : u8 {
-    ui_image_viewer_action_save = 1u << 0,
     ui_image_viewer_action_open = 1u << 1,
     ui_image_viewer_action_copy = 1u << 2,
 };

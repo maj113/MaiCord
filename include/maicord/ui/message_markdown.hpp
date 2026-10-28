@@ -143,13 +143,9 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
                                              Slice<u32> byte_style_scratch,
                                              Slice<TextStyleSpan> span_output,
                                              const MessageMarkdownOptions& options,
-                                             Slice<MessageMarkdownSemantic> semantic_output,
-                                             Slice<u32> source_offsets = {}) noexcept;
-// Uses the same parser/highlighter but retains editable source delimiters.
-// Scratch buffers each cover input.bytes; output ranges address the source.
-u32 message_markdown_source_styles(Utf8View input, Slice<char> text_scratch, Slice<u32> styles_scratch,
-                                   Slice<u32> map_scratch, Slice<TextStyleSpan> output) noexcept;
-// Bounded recognition replay emits source spans without source-sized scratch.
+                                             Slice<MessageMarkdownSemantic> semantic_output) noexcept;
+// Uses the same parser/highlighter but retains editable source delimiters;
+// bounded recognition replay emits source spans without source-sized scratch.
 u32 message_markdown_source_styles(Utf8View input, Slice<TextStyleSpan> output) noexcept;
 
 bool message_markdown_url_valid(Utf8View value) noexcept;

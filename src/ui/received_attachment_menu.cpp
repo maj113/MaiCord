@@ -38,6 +38,12 @@ constexpr const char* kMediaExtensions[]{"png", "jpg", "jpeg", "webp", "avif", "
 template <u32 N> constexpr u32 count_of(const char* const (&)[N]) noexcept {
     return N;
 }
+Utf8View link_label(ReceivedAttachmentLinkKind link, bool open) noexcept {
+    static constexpr Utf8View labels[2][3]{
+        {utf8_literal("Copy Link"), utf8_literal("Copy Image Link"), utf8_literal("Copy Media Link")},
+        {utf8_literal("Open Link"), utf8_literal("Open Image Link"), utf8_literal("Open Media Link")}};
+    return labels[open][static_cast<u32>(link)];
+}
 } // namespace
 
 ReceivedAttachmentLinkKind received_attachment_link_kind(Utf8View url) noexcept {
@@ -83,14 +89,8 @@ u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, Slice<Pop
                                                           : utf8_literal("Save File"),
             kReceivedAttachmentActionSave, image ? UiIcon::image : UiIcon::download, count == 0);
     const auto link = received_attachment_link_kind(facts.url);
-    add(link == ReceivedAttachmentLinkKind::image   ? utf8_literal("Copy Image Link")
-        : link == ReceivedAttachmentLinkKind::media ? utf8_literal("Copy Media Link")
-                                                    : utf8_literal("Copy Link"),
-        kReceivedAttachmentActionCopyLink, UiIcon::link, true);
-    add(link == ReceivedAttachmentLinkKind::image   ? utf8_literal("Open Image Link")
-        : link == ReceivedAttachmentLinkKind::media ? utf8_literal("Open Media Link")
-                                                    : utf8_literal("Open Link"),
-        kReceivedAttachmentActionOpenLink, UiIcon::external_link, false);
+    add(link_label(link, false), kReceivedAttachmentActionCopyLink, UiIcon::link, true);
+    add(link_label(link, true), kReceivedAttachmentActionOpenLink, UiIcon::external_link, false);
     return count;
 }
 
@@ -98,12 +98,7 @@ u32 message_link_menu(Utf8View url, Slice<PopupItem> output) noexcept {
     if (!output.data || output.count < kMessageLinkMenuItems || !url.data || !url.bytes)
         return 0;
     const auto link = received_attachment_link_kind(url);
-    const Utf8View labels[]{link == ReceivedAttachmentLinkKind::image   ? utf8_literal("Copy Image Link")
-                            : link == ReceivedAttachmentLinkKind::media ? utf8_literal("Copy Media Link")
-                                                                        : utf8_literal("Copy Link"),
-                            link == ReceivedAttachmentLinkKind::image   ? utf8_literal("Open Image Link")
-                            : link == ReceivedAttachmentLinkKind::media ? utf8_literal("Open Media Link")
-                                                                        : utf8_literal("Open Link")};
+    const Utf8View labels[]{link_label(link, false), link_label(link, true)};
     static constexpr u32 actions[]{kMessageLinkActionCopy, kMessageLinkActionOpen};
     static constexpr UiIcon icons[]{UiIcon::link, UiIcon::external_link};
     for (u32 i = 0; i < kMessageLinkMenuItems; ++i) {

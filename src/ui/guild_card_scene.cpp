@@ -59,10 +59,6 @@ UiRect offset(UiRect r, float dx, float dy) noexcept {
 float opacity(const UiGuildCardScene& s) noexcept {
     return s.progress < 0 ? 0.f : s.progress > 1 ? 1.f : s.progress;
 }
-Color packed(u32 rgb, float alpha = 1) noexcept {
-    return {static_cast<float>((rgb >> 16) & 0xFF) / 255.f, static_cast<float>((rgb >> 8) & 0xFF) / 255.f,
-            static_cast<float>(rgb & 0xFF) / 255.f, alpha};
-}
 // "Est. Mar 2021" from the guild snowflake (UTC month).
 u32 established(u64 guild_id, char* output) noexcept {
     if (!guild_id)
@@ -419,7 +415,7 @@ bool ui_guild_card_paint(const UiGuildCardScene& s, const Theme& theme, PaintStr
     // bottom centre, its top corners rounded with the card and its bottom
     // edge square. A custom banner picture (media) covers it.
     const auto banner = at(s, s.banner);
-    const Color top = s.has_brand_color ? packed(s.brand_color, a) : ui_theme_color_alpha(theme.tokens.accent.brand, a);
+    const Color top = s.has_brand_color ? color_from_rgb24(s.brand_color, a) : ui_theme_color_alpha(theme.tokens.accent.brand, a);
     const Color bottom = ui_guild_card_banner_highlight(top);
     ok = paint_stream_push_clip(paint, banner) &&
          paint_stream_push_gradient(paint, {banner.left, banner.top, banner.right, banner.bottom + kRadius}, top, bottom,

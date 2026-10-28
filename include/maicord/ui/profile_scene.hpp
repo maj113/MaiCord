@@ -1,9 +1,9 @@
+#pragma once
+
 #include "maicord/model/user_activity.hpp"
 #include "maicord/model/image_crop.hpp"
 #include "maicord/media/asset_key.hpp"
 #include "maicord/ui/message_markdown.hpp"
-#pragma once
-#include "maicord/ui/surface_geometry.hpp"
 #include "maicord/ui/edit_field.hpp"
 #include "maicord/ui/badge.hpp"
 #include "maicord/model/user_profile.hpp"
@@ -351,9 +351,6 @@ inline bool profile_scene_animating(const ProfileScene* scene, u64 now) noexcept
     }
     return false;
 }
-} // namespace maicord
-
-namespace maicord {
 bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiTextOutput* text,
-                        const UiEditGeometry* edit) noexcept;
+                               const UiEditGeometry* edit) noexcept;
 } // namespace maicord

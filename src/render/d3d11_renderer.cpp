@@ -494,8 +494,6 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
         paint_us = (static_cast<u64>(paint_end.QuadPart - paint_begin.QuadPart) * 1'000'000ull) /
                    static_cast<u64>(renderer->performance_frequency);
     }
-    renderer->paint_cpu_us_total += paint_us;
-    renderer->paint_cpu_us_max = maximum(renderer->paint_cpu_us_max, paint_us);
     if (renderer->painted_frames == 0) {
         renderer->first_frame_cpu_us = paint_us;
     }
@@ -858,15 +856,9 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     renderer_paint_diff_release(renderer);
     d3d11_renderer_shell_segment_release(&renderer->shell_segment);
     text_edit_layout_release(&renderer->composer_layout);
-    if (renderer->text_effect_buffer) {
-        renderer->text_effect_buffer->Release();
-        renderer->text_effect_buffer = nullptr;
-    }
+    com_release(renderer->text_effect_buffer);
     renderer_release_settings_backdrop(renderer);
-    if (renderer->settings_backdrop_quad) {
-        renderer->settings_backdrop_quad->Release();
-        renderer->settings_backdrop_quad = nullptr;
-    }
+    com_release(renderer->settings_backdrop_quad);
     for (auto& handle : renderer->native_text_faces)
         handle = 0;
     text_edit_layout_release(&renderer->popup_edit_layout);

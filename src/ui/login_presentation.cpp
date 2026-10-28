@@ -48,6 +48,12 @@ Color packed_rgb(u32 rgb, float alpha = 1.0f) noexcept {
                  static_cast<float>(rgb & 0xffu) * inverse, alpha};
 }
 
+// The part of r within the field's 2 DIP inner margin.
+UiRect inside_field(const UiRect& field, const UiRect& r) noexcept {
+    return {maximum(field.left + 2.0f, r.left), maximum(field.top + 2.0f, r.top),
+            minimum(field.right - 2.0f, r.right), minimum(field.bottom - 2.0f, r.bottom)};
+}
+
 } // namespace
 
 bool login_presentation_build(const LoginScene& scene, const LoginPresentationInput& input,
@@ -120,10 +126,7 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
             if ((decoration.span.color_flags & text_composition_color_background) == 0) {
                 continue;
             }
-            const UiRect clipped{maximum(field.left + 2.0f, decoration.rectangle.left),
-                                 maximum(field.top + 2.0f, decoration.rectangle.top),
-                                 minimum(field.right - 2.0f, decoration.rectangle.right),
-                                 minimum(field.bottom - 2.0f, decoration.rectangle.bottom)};
+            const UiRect clipped = inside_field(field, decoration.rectangle);
             if (ui_rect_has_area(clipped) &&
                 !paint_stream_push(stream, pixel_truncated(clipped.left), pixel_truncated(clipped.top),
                                    pixel_truncated(clipped.right + 0.999f),
@@ -136,10 +139,7 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
         selection_color.alpha = 0.35f;
         for (u32 index = 0; index < input.edit_selections.count; ++index) {
             const UiRect& selection = input.edit_selections[index];
-            const UiRect clipped{maximum(field.left + 2.0f, selection.left),
-                                 maximum(field.top + 2.0f, selection.top),
-                                 minimum(field.right - 2.0f, selection.right),
-                                 minimum(field.bottom - 2.0f, selection.bottom)};
+            const UiRect clipped = inside_field(field, selection);
             if (ui_rect_has_area(clipped)) {
                 if (!paint_stream_push(stream, pixel_truncated(clipped.left), pixel_truncated(clipped.top),
                                        pixel_truncated(clipped.right + 0.999f),
@@ -150,10 +150,7 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
         }
         for (u32 index = 0; index < input.edit_composition.count; ++index) {
             const LoginCompositionGeometry& decoration = input.edit_composition[index];
-            const UiRect clipped{maximum(field.left + 2.0f, decoration.rectangle.left),
-                                 maximum(field.top + 2.0f, decoration.rectangle.top),
-                                 minimum(field.right - 2.0f, decoration.rectangle.right),
-                                 minimum(field.bottom - 2.0f, decoration.rectangle.bottom)};
+            const UiRect clipped = inside_field(field, decoration.rectangle);
             if (ui_rect_has_area(clipped) &&
                 !text_composition_paint_line(stream, clipped, decoration.span, theme.accent)) {
                 return false;

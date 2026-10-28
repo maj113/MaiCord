@@ -2,7 +2,6 @@
 #include "maicord/ui/shell_navigation_scene.hpp"
 #include "maicord/ui/voice_panel.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/memory.hpp"
 #include "maicord/model/voice_channel_info_store.hpp"
 
 namespace maicord {

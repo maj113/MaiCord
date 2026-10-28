@@ -80,6 +80,9 @@ const UiThemeMetrics& composer_metrics(const UiResolvedThemeStyles* styles) noex
 float accessory_width(const UiResolvedThemeStyles* styles) noexcept {
     return maximum(32.f, composer_metrics(styles).menu_row_height);
 }
+float accessory_height(const UiResolvedThemeStyles* styles) noexcept {
+    return maximum(32.f, composer_metrics(styles).control_height);
+}
 // Plugin composer-toolbar buttons currently published; global, so the static
 // width functions and the scene agree without a scene argument.
 u32 plugin_slot_count() noexcept {
@@ -184,7 +187,7 @@ UiLayoutStyle fixed_control_style(float width, const UiResolvedThemeStyles* styl
     style.width = ui_layout_fixed(width);
     // The editable surface grows; native accessory controls use the compact row height
     // and remain vertically centered in the current composer row.
-    style.height = ui_layout_fixed(maximum(32.f, composer_metrics(styles).control_height));
+    style.height = ui_layout_fixed(accessory_height(styles));
     style.vertical_alignment = UiLayoutAlignment::center;
     return style;
 }
@@ -205,15 +208,11 @@ UiLayoutStyle edit_style(const UiResolvedThemeStyles* styles = nullptr) noexcept
 // Inline text gets at least the width of the complete trailing action group.
 // Below that width the four trailing actions wrap after the editor instead.
 float full_controls_minimum_width(const UiResolvedThemeStyles* styles = nullptr) noexcept {
-    const auto surface = surface_style(styles);
-    const auto controls = controls_style(styles);
-    const auto accessory = fixed_control_style(accessory_width(styles), styles);
-    const auto edit = edit_style(styles);
+    const auto& metrics = composer_metrics(styles);
+    const float accessory = accessory_width(styles), gap = metrics.composer_padding;
     const float plugins = static_cast<float>(plugin_slot_count());
-    const float trailing_width = (4.f + plugins) * accessory.width.value + (3.f + plugins) * controls.gap;
-    return surface.padding.left + surface.padding.right +
-           (5.f + plugins) * (accessory.width.value + controls.gap) + trailing_width + edit.padding.left +
-           edit.padding.right;
+    const float trailing_width = (4.f + plugins) * accessory + (3.f + plugins) * gap;
+    return gap + gap + (5.f + plugins) * (accessory + gap) + trailing_width + metrics.menu_gap + metrics.menu_gap;
 }
 
 // Between the compact and the full width the GIF and sticker buttons fold
@@ -221,14 +220,11 @@ float full_controls_minimum_width(const UiResolvedThemeStyles* styles = nullptr)
 // emoji and send keep one row with at least this much editable width.
 inline constexpr float kComposerCompactEditorMinimum = 120.0f;
 float compact_controls_minimum_width(const UiResolvedThemeStyles* styles = nullptr) noexcept {
-    const auto surface = surface_style(styles);
-    const auto controls = controls_style(styles);
-    const auto accessory = fixed_control_style(accessory_width(styles), styles);
-    const auto edit = edit_style(styles);
+    const auto& metrics = composer_metrics(styles);
     const float plugins = static_cast<float>(plugin_slot_count());
-    return surface.padding.left + surface.padding.right +
-           (3.f + plugins) * (accessory.width.value + controls.gap) + kComposerCompactEditorMinimum +
-           edit.padding.left + edit.padding.right;
+    return metrics.composer_padding + metrics.composer_padding +
+           (3.f + plugins) * (accessory_width(styles) + metrics.composer_padding) + kComposerCompactEditorMinimum +
+           metrics.menu_gap + metrics.menu_gap;
 }
 bool compact_controls(float composer_width, const UiResolvedThemeStyles* styles) noexcept {
     return composer_width >= compact_controls_minimum_width(styles) &&
@@ -236,9 +232,8 @@ bool compact_controls(float composer_width, const UiResolvedThemeStyles* styles)
 }
 
 float editor_padding_height(const UiResolvedThemeStyles* styles = nullptr) noexcept {
-    const auto surface = surface_style(styles);
-    const auto edit = edit_style(styles);
-    return surface.padding.top + surface.padding.bottom + edit.padding.top + edit.padding.bottom;
+    const auto& metrics = composer_metrics(styles);
+    return metrics.composer_padding + metrics.composer_padding + metrics.menu_padding + metrics.menu_padding;
 }
 
 bool configure_controls(MessageComposerScene* scene, UiRect viewport, float chrome) noexcept {
@@ -575,6 +570,14 @@ bool display_style_available(const MessageComposerScene& scene, u32 first, u32 f
     const auto& last = scene.display_styles[scene.display_style_count - 1];
     return last.flags == flags && last.byte_offset + last.byte_count == first;
 }
+// Start of the UTF-8 scalar that ends at offset (offset > 0).
+u32 scalar_start_before(const char* text, u32 offset) noexcept {
+    u32 start = offset - 1;
+    while (start != 0 && (static_cast<u8>(text[start]) & 0xC0u) == 0x80u) {
+        --start;
+    }
+    return start;
+}
 void project_display(MessageComposerScene* scene, const MessageComposer& model,
                      const MessageComposerProjectionContext* context) noexcept {
     update_source_styles(scene, model);
@@ -582,10 +585,7 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
     u32 first = model.caret;
     u32 before = 0;
     while (first != 0 && before < kMessageComposerDisplayBytes / 2) {
-        u32 previous = first - 1;
-        while (previous != 0 && (static_cast<u8>(model.text[previous]) & 0xC0u) == 0x80u) {
-            --previous;
-        }
+        const u32 previous = scalar_start_before(model.text, first);
         if (model.caret - previous > kMessageComposerDisplayBytes / 2) {
             break;
         }
@@ -603,10 +603,7 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
     // When the caret is at the end, use the complete display window rather
     // than leaving half of it empty.
     while (end == model.bytes && first != 0 && end - first < kMessageComposerDisplayBytes) {
-        u32 previous = first - 1;
-        while (previous != 0 && (static_cast<u8>(model.text[previous]) & 0xC0u) == 0x80u) {
-            --previous;
-        }
+        const u32 previous = scalar_start_before(model.text, first);
         if (end - previous > kMessageComposerDisplayBytes) {
             break;
         }
@@ -894,32 +891,27 @@ bool message_composer_scene_control_visible(const MessageComposerScene& scene,
 
 float message_composer_scene_text_width(float composer_width,
                                         const UiResolvedThemeStyles* styles) noexcept {
-    const auto surface = surface_style(styles);
-    const auto controls = controls_style(styles);
-    const auto edit = edit_style(styles);
-    const auto accessory = fixed_control_style(accessory_width(styles), styles);
+    const auto& metrics = composer_metrics(styles);
     const float plugins = static_cast<float>(plugin_slot_count());
     const float actions = composer_width >= full_controls_minimum_width(styles) ? 5.f + plugins
                           : compact_controls(composer_width, styles)            ? 3.f + plugins
                                                                                 : 1.f;
-    return maximum(0.f, composer_width - surface.padding.left - surface.padding.right -
-                            actions * (accessory.width.value + controls.gap) - edit.padding.left -
-                            edit.padding.right);
+    return maximum(0.f, composer_width - metrics.composer_padding - metrics.composer_padding -
+                            actions * (accessory_width(styles) + metrics.composer_padding) - metrics.menu_gap -
+                            metrics.menu_gap);
 }
 
 float message_composer_scene_toolbar_height(float composer_width,
                                             const UiResolvedThemeStyles* styles) noexcept {
     if (composer_width <= 0.f || composer_width >= compact_controls_minimum_width(styles))
         return 0.f;
-    const auto surface = surface_style(styles);
-    const auto accessory = fixed_control_style(accessory_width(styles), styles);
-    const float gap = controls_style(styles).gap;
-    const float available = maximum(0.f, composer_width - surface.padding.left - surface.padding.right);
+    const float gap = composer_metrics(styles).composer_padding;
+    const float available = maximum(0.f, composer_width - gap - gap);
     const u32 trailing = 4u + plugin_slot_count();
     const u32 columns =
-        minimum(trailing, maximum(1u, static_cast<u32>((available + gap) / (accessory.width.value + gap))));
+        minimum(trailing, maximum(1u, static_cast<u32>((available + gap) / (accessory_width(styles) + gap))));
     const u32 rows = (trailing + columns - 1u) / columns;
-    return static_cast<float>(rows) * (accessory.height.value + gap);
+    return static_cast<float>(rows) * (accessory_height(styles) + gap);
 }
 
 static float composer_row_height(float natural, const UiResolvedThemeStyles* styles) noexcept {
@@ -1223,9 +1215,8 @@ const UiLayoutNode* message_composer_scene_layout_node(const MessageComposerScen
 }
 
 Utf8View message_composer_scene_attachment_label(const MessageComposerScene& scene) noexcept {
-    return scene.attachment_strip && scene.attachment_label_bytes <= kMessageComposerReplyLabelBytes
-               ? Utf8View{scene.attachment_strip->label, scene.attachment_label_bytes}
-               : Utf8View{};
+    return scene.attachment_strip ? Utf8View{scene.attachment_strip->label, scene.attachment_label_bytes}
+                                  : Utf8View{};
 }
 u8 message_composer_scene_attachment_row(const MessageComposerScene& scene) noexcept {
     return scene.attachment_strip && scene.attachment_strip->count ? message_composer_attachment_row_strip
@@ -1396,15 +1387,11 @@ void message_composer_scene_release(MessageComposerScene* scene) noexcept {
 }
 
 Utf8View message_composer_scene_display_text(const MessageComposerScene& scene) noexcept {
-    return scene.display_bytes <= kMessageComposerDisplayBytes
-               ? Utf8View{scene.display, scene.display_bytes}
-               : Utf8View{};
+    return Utf8View{scene.display, scene.display_bytes};
 }
 
 Utf8View message_composer_scene_reply_label(const MessageComposerScene& scene) noexcept {
-    return scene.reply_message_id != 0 && scene.reply_label_bytes <= kMessageComposerReplyLabelBytes
-               ? Utf8View{scene.reply_label, scene.reply_label_bytes}
-               : Utf8View{};
+    return scene.reply_message_id != 0 ? Utf8View{scene.reply_label, scene.reply_label_bytes} : Utf8View{};
 }
 
 Utf8View message_composer_scene_reply_mention_label(const MessageComposerScene& scene) noexcept {
@@ -1453,15 +1440,11 @@ UiRect message_composer_scene_reply_text_rectangle(const MessageComposerScene& s
 }
 
 Utf8View message_composer_scene_typing_label(const MessageComposerScene& scene) noexcept {
-    return scene.typing_label_bytes <= kMessageTypingLabelMaximumBytes
-               ? Utf8View{scene.typing_label, scene.typing_label_bytes}
-               : Utf8View{};
+    return Utf8View{scene.typing_label, scene.typing_label_bytes};
 }
 
 Utf8View message_composer_scene_placeholder(const MessageComposerScene& scene) noexcept {
-    return scene.placeholder_bytes <= kMessageComposerPlaceholderBytes
-               ? Utf8View{scene.placeholder, scene.placeholder_bytes}
-               : Utf8View{};
+    return Utf8View{scene.placeholder, scene.placeholder_bytes};
 }
 
 u32 message_composer_scene_display_offset_from_model(const MessageComposerScene& scene,

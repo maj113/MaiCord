@@ -119,7 +119,6 @@ struct AccountDemandCommit {
     u32 name_bytes[2];
     u32 emoji_records;
     u32 emoji_roles;
-    u32 unused;
 };
 
 static_assert(sizeof(AccountProjectionScratch) == 10'240);
@@ -347,9 +346,10 @@ inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel
 // the channel, name, emoji and emoji-role storage that has since moved to the demand tail, and
 // the navigation view's voice extras binding (16 bytes), the message text
 // projection's scroll shift (8 bytes), the member role
-// overflow, and the 2,048 voice states that moved to their own owned storage.
+// overflow, the 2,048 voice states that moved to their own owned storage, and dead presentation and
+// cache counters removed since (see the base literal).
 static_assert(kAccountUiFixedBytes ==
-              4'261'168 + 16 + 8 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+              4'261'124 + 16 + 8 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +

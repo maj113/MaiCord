@@ -113,9 +113,6 @@ bool member_list_scene_reveal_user(MemberListScene* scene, u64 user_id) noexcept
 MemberListHit member_list_scene_navigate(MemberListScene* scene, UiListMove move) noexcept;
 MemberListHit member_list_scene_page(MemberListScene* scene, bool reverse) noexcept;
 
-} // namespace maicord
-
-namespace maicord {
 UiBadgeWidget member_list_badge(const MemberListScene&, u32 index) noexcept;
 // member_list_badge without the scene's media cache (the cache fills from it).
 UiBadgeWidget member_list_badge_resolve(const MemberListScene&, u32 index) noexcept;

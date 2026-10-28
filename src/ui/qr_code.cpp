@@ -15,10 +15,8 @@ struct BitBuffer {
     u32 bits;
 };
 
-bool append_bits(BitBuffer* buffer, u32 value, u32 count) noexcept {
-    if (count > 31 || buffer->bits + count > kDataCodewords * 8) {
-        return false;
-    }
+// The encoder's payload cap (84 bytes) keeps every call within the 86 data codewords.
+void append_bits(BitBuffer* buffer, u32 value, u32 count) noexcept {
     for (u32 remaining = count; remaining != 0; --remaining) {
         const bool bit = ((value >> (remaining - 1)) & 1u) != 0;
         const u32 index = buffer->bits++;
@@ -27,7 +25,6 @@ bool append_bits(BitBuffer* buffer, u32 value, u32 count) noexcept {
                 static_cast<u8>(1u << (7u - (index & 7u)));
         }
     }
-    return true;
 }
 
 u8 finite_field_multiply(u8 first, u8 second) noexcept {
@@ -329,30 +326,17 @@ bool qr_code_encode_v5_m(ConstSlice<u8> payload, QrCode* output) noexcept {
         return false;
     }
     BitBuffer bits{};
-    if (!append_bits(&bits, 0x4, 4) ||
-        !append_bits(&bits, payload.count, 8)) {
-        return false;
-    }
+    append_bits(&bits, 0x4, 4);
+    append_bits(&bits, payload.count, 8);
     for (u32 index = 0; index < payload.count; ++index) {
-        if (!append_bits(&bits, payload[index], 8)) {
-            return false;
-        }
+        append_bits(&bits, payload[index], 8);
     }
-    const u32 remaining = kDataCodewords * 8 - bits.bits;
-    if (!append_bits(&bits, 0, minimum(remaining, 4u))) {
-        return false;
-    }
+    append_bits(&bits, 0, minimum(kDataCodewords * 8 - bits.bits, 4u));
     while ((bits.bits & 7u) != 0) {
-        if (!append_bits(&bits, 0, 1)) {
-            return false;
-        }
+        append_bits(&bits, 0, 1);
     }
-    bool alternate = false;
-    while (bits.bits < kDataCodewords * 8) {
-        if (!append_bits(&bits, alternate ? 0x11u : 0xECu, 8)) {
-            return false;
-        }
-        alternate = !alternate;
+    for (bool alternate = false; bits.bits < kDataCodewords * 8; alternate = !alternate) {
+        append_bits(&bits, alternate ? 0x11u : 0xECu, 8);
     }
 
     u8 divisor[kErrorCodewordsPerBlock]{};
@@ -374,9 +358,6 @@ bool qr_code_encode_v5_m(ConstSlice<u8> payload, QrCode* output) noexcept {
         for (u32 block = 0; block < kBlockCount; ++block) {
             codewords[codeword_count++] = error[block][index];
         }
-    }
-    if (codeword_count != kTotalCodewords) {
-        return false;
     }
 
     u8 modules[kModuleCount]{};
@@ -489,7 +470,7 @@ QrCodeRectResult qr_code_compact_rects(const QrCode& code,
         return QrCodeRectResult{0, true};
     }
     const u32 required = compact_rect_pass(code, Slice<QrCodeRect>{}, false);
-    if (required > output.count || (required != 0 && !output.data)) {
+    if (required > output.count) {
         return QrCodeRectResult{required, true};
     }
     compact_rect_pass(code, output, true);

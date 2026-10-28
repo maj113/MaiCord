@@ -1,8 +1,6 @@
 #include "maicord/ui/badge.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/paint.hpp"
-#include "maicord/ui/button.hpp"
-#include "maicord/ui/icon.hpp"
 namespace maicord {
 UiBadgeLayout ui_badge_geometry(const UiBadgeWidget& badge, const UiWidgetManager& manager) noexcept {
     const auto* node = ui_widget_manager_layout_node(manager, badge.owner);
@@ -50,9 +48,6 @@ bool ui_badge_text_output(const UiBadgeWidget& b, const UiWidgetManager& manager
                                       UiTextWrapping::no_wrap,
                                       UiTextOverflow::ellipsis});
 }
-} // namespace maicord
-
-namespace maicord {
 bool ui_badge_text(const UiBadgeWidget& b, const UiWidgetManager& manager, const Theme& theme,
                    UiTextCommandStream* text) noexcept {
     UiTextOutput output{text, nullptr};

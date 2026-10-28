@@ -357,15 +357,7 @@ u8 size_text(char* out, u64 bytes) noexcept {
         scaled /= 1024;
         ++unit;
     }
-    char digits[24];
-    u8 used = 0, n = 0;
-    u64 whole = unit ? scaled / 10 : bytes;
-    do {
-        digits[n++] = static_cast<char>('0' + whole % 10);
-        whole /= 10;
-    } while (whole && n < 20);
-    while (n)
-        out[used++] = digits[--n];
+    u8 used = static_cast<u8>(decimal_write(out, unit ? scaled / 10 : bytes));
     if (unit && scaled < 100 && scaled % 10) {
         out[used++] = '.';
         out[used++] = static_cast<char>('0' + scaled % 10);
@@ -778,12 +770,6 @@ UiWidgetHandle add_action(UiSearchScene& s, const UiRect& rectangle, UiSearchAct
     return add(s, rectangle, target, name, enabled);
 }
 void count_label(UiSearchScene& s) noexcept {
-    auto append = [&](u64 value) noexcept {
-        char digits[20];
-        const u32 n = decimal_write(digits, value);
-        for (u32 i = 0; i < n; ++i)
-            s.count_text[s.count_bytes++] = digits[i];
-    };
     s.count_bytes = 0;
     for (u32 tab = 0; tab < 5; ++tab)
         s.tab_bytes[tab] = (s.content->tab_known >> tab) & 1u
@@ -804,7 +790,7 @@ void count_label(UiSearchScene& s) noexcept {
         CopyMemory(s.count_text, prefix.data, prefix.bytes);
         s.count_bytes = static_cast<u8>(prefix.bytes);
     }
-    append(s.content->total);
+    s.count_bytes += static_cast<u8>(decimal_write(s.count_text + s.count_bytes, s.content->total));
     const auto suffix = utf8_literal(" results");
     CopyMemory(s.count_text + s.count_bytes, suffix.data, suffix.bytes);
     s.count_bytes += static_cast<u8>(suffix.bytes);
@@ -1122,7 +1108,6 @@ bool rebuild(UiSearchScene& s) noexcept {
                                   s.content->previous);
         s.buttons[7] = add_action(s, ui_rect_edges(p, ui_end(-72), ui_end(-36), ui_end(-8), ui_end(-8)),
                                   UiSearchAction::next, label(UiSearchAction::next), s.content->next);
-        s.page_count = 0;
         const u32 page_size = s.content->page_size ? s.content->page_size : 25;
         const u64 total_pages = s.content->total / page_size + (s.content->total % page_size != 0);
         const u64 page = s.content->offset / page_size;
@@ -2496,9 +2481,7 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
         const bool enabled = (s.widgets.storage[i].flags & ui_widget_enabled) != 0;
         if (!line(out, s, {static_cast<u16>(i), s.widgets.generation}, label(a), r,
                   enabled ? theme.text_primary : theme.text_secondary, text_style_subtext,
-                  a == UiSearchAction::filters || a == UiSearchAction::sort ||
-                          a == UiSearchAction::previous || a == UiSearchAction::next ||
-                          a == UiSearchAction::close
+                  a == UiSearchAction::filters || a == UiSearchAction::previous || a == UiSearchAction::next
                       ? UiTextAlignment::center
                       : UiTextAlignment::start))
             return false;

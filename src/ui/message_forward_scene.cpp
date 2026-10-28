@@ -304,9 +304,6 @@ void ui_message_forward_scene_release(UiMessageForwardScene* s) noexcept {
     if (!s) return;
     ui_fixed_widget_storage_release(&s->storage); reset_value(s);
 }
-bool ui_message_forward_scene_contains(const UiMessageForwardScene& s, float x, float y) noexcept {
-    return current(s) && ui_rect_contains(s.viewport, x, y);
-}
 UiMessageForwardTarget ui_message_forward_scene_target(const UiMessageForwardScene& s, UiWidgetHandle handle) noexcept {
     if (!current(s)) return {};
     if (ui_widget_handle_matches(handle, s.close)) return {UiMessageForwardAction::close};
@@ -326,7 +323,7 @@ UiMessageForwardTarget ui_message_forward_scene_target(const UiMessageForwardSce
     return {};
 }
 UiMessageForwardTarget ui_message_forward_scene_hit_test(const UiMessageForwardScene& s, float x, float y) noexcept {
-    if (!ui_message_forward_scene_contains(s, x, y)) return {};
+    if (!current(s) || !ui_rect_contains(s.viewport, x, y)) return {};
     if (!ui_rect_contains(s.panel, x, y)) return {UiMessageForwardAction::close};
     return ui_message_forward_scene_target(s, ui_widget_manager_hit_test(s.widgets, x, y));
 }

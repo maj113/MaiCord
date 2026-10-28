@@ -8,8 +8,7 @@ namespace maicord {
 // gradient-canvas remapping); only enhanced role styles add their gradient,
 // which light themes dim to 85% brightness.
 inline Color ui_role_color(u32 rgb) noexcept {
-    return {static_cast<float>((rgb >> 16u) & 0xFFu) / 255.0f, static_cast<float>((rgb >> 8u) & 0xFFu) / 255.0f,
-            static_cast<float>(rgb & 0xFFu) / 255.0f, 1.0f};
+    return color_from_rgb24(rgb);
 }
 
 // Text effect kind for enhanced role styles: a left-to-right linear gradient of

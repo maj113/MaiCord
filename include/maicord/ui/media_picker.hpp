@@ -284,7 +284,7 @@ struct UiMediaPickerScene {
     UiMediaPickerTarget pressed;
     u64 account_scope, query_generation;
     u32 source_revision, content_revision, generation, revision, selected_index;
-    u32 cell_count, header_count, rail_count, media_count;
+    u32 cell_count, header_count, rail_count;
     // Grid: fixed cell_width, column_pitch apart from grid_left; rows are
     // cell_pitch apart. Masonry GIF views place tiles instead.
     float scroll_dips, rail_scroll_dips, content_height, cell_pitch;

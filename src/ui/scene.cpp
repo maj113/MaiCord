@@ -9,71 +9,19 @@ constexpr u32 semantic_id(UiSemantic semantic) noexcept {
 }
 
 Utf8View semantic_name(UiSemantic semantic) noexcept {
-    switch (semantic) {
-    case UiSemantic::root:
-        return utf8_literal("Shell");
-    case UiSemantic::guild_rail:
-        return utf8_literal("GuildRail");
-    case UiSemantic::home_button:
-        return utf8_literal("Home");
-    case UiSemantic::guild_navigation:
-        return utf8_literal("GuildNavigation");
-    case UiSemantic::channel_sidebar:
-        return utf8_literal("ChannelSidebar");
-    case UiSemantic::channel_header:
-        return utf8_literal("ChannelHeader");
-    case UiSemantic::channel_navigation:
-        return utf8_literal("ChannelNavigation");
-    case UiSemantic::channel_footer:
-        return utf8_literal("ChannelFooter");
-    case UiSemantic::content:
-        return utf8_literal("Content");
-    case UiSemantic::title_bar:
-        return utf8_literal("TitleBar");
-    case UiSemantic::title_label:
-        return utf8_literal("TitleLabel");
-    case UiSemantic::member_toggle:
-        return utf8_literal("MemberToggle");
-    case UiSemantic::pins_toggle:
-        return utf8_literal("PinnedMessages");
-    case UiSemantic::threads_toggle:
-        return utf8_literal("Threads");
-    case UiSemantic::thread_header:
-        return utf8_literal("ThreadHeader");
-    case UiSemantic::thread_status:
-        return utf8_literal("ThreadStatus");
-    case UiSemantic::thread_primary:
-        return utf8_literal("ThreadPrimaryAction");
-    case UiSemantic::thread_overflow:
-        return utf8_literal("ThreadActions");
-    case UiSemantic::thread_feedback:
-        return utf8_literal("ThreadFeedback");
-    case UiSemantic::thread_cancel:
-        return utf8_literal("ThreadCancel");
-    case UiSemantic::settings:
-        return utf8_literal("UserSettings");
-    case UiSemantic::friends_button:
-        return utf8_literal("Friends");
-    case UiSemantic::message_view:
-        return utf8_literal("MessageView");
-    case UiSemantic::composer:
-        return utf8_literal("Composer");
-    case UiSemantic::member_sidebar:
-        return utf8_literal("MemberSidebar");
-    case UiSemantic::private_create:
-        return utf8_literal("CreateDirectMessage");
-    case UiSemantic::private_add:
-        return utf8_literal("AddPeople");
-    case UiSemantic::private_call:
-        return utf8_literal("StartCall");
-    case UiSemantic::inbox_toggle:
-        return utf8_literal("Inbox");
-    case UiSemantic::guild_menu:
-        return utf8_literal("ServerMenu");
-    case UiSemantic::count:
-        return Utf8View{};
-    }
-    return Utf8View{};
+    static constexpr Utf8View names[]{
+        utf8_literal("Shell"),          utf8_literal("GuildRail"),     utf8_literal("ChannelSidebar"),
+        utf8_literal("ChannelHeader"),  utf8_literal("ChannelNavigation"), utf8_literal("ChannelFooter"),
+        utf8_literal("Content"),        utf8_literal("TitleBar"),      utf8_literal("TitleLabel"),
+        utf8_literal("MemberToggle"),   utf8_literal("MessageView"),   utf8_literal("Composer"),
+        utf8_literal("MemberSidebar"),  utf8_literal("Home"),          utf8_literal("GuildNavigation"),
+        utf8_literal("UserSettings"),   utf8_literal("Friends"),       utf8_literal("PinnedMessages"),
+        utf8_literal("Threads"),        utf8_literal("ThreadHeader"),  utf8_literal("ThreadStatus"),
+        utf8_literal("ThreadPrimaryAction"), utf8_literal("ThreadActions"), utf8_literal("ThreadFeedback"),
+        utf8_literal("ThreadCancel"),   utf8_literal("CreateDirectMessage"), utf8_literal("AddPeople"),
+        utf8_literal("StartCall"),      utf8_literal("Inbox"),         utf8_literal("ServerMenu")};
+    static_assert(sizeof(names) / sizeof(names[0]) == static_cast<u32>(UiSemantic::count));
+    return names[static_cast<u32>(semantic)];
 }
 
 bool semantic_button(UiSemantic semantic) noexcept {
@@ -541,12 +489,11 @@ bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShel
         return false;
     }
     const u8 variant = shell_variant(metrics, width);
-    if (scene->count != 0 && scene->width == width && scene->height == height && scene->view == view &&
-        scene->layout_metrics_revision == metrics.revision && scene->layout_variant == variant) {
-        return true;
-    }
     const bool same_structure = scene->count != 0 && scene->layout_variant == variant &&
                                 scene->view == view && scene->layout_metrics_revision == metrics.revision;
+    if (same_structure && scene->width == width && scene->height == height) {
+        return true;
+    }
     if (same_structure) {
         update_header_controls(scene, metrics, width, variant);
         if (!ui_widget_manager_layout(&scene->widgets, UiSize{width, height}).ok()) {

@@ -18,10 +18,6 @@ bool push_icon_quad(PaintStream* paint, UiIcon icon, const UiRect& box, const Co
     }
     return true;
 }
-Color unpack(u32 rgba) noexcept {
-    return {((rgba >> 24) & 255) / 255.f, ((rgba >> 16) & 255) / 255.f, ((rgba >> 8) & 255) / 255.f,
-            (rgba & 255) / 255.f};
-}
 } // namespace
 
 bool ui_icon_paint_styled(PaintStream* paint, UiIcon icon, const UiRect& bounds, const UiIconStyle& style) noexcept {
@@ -43,7 +39,7 @@ Color ui_icon_role_color(const Theme& theme, UiIconRole role) noexcept {
     if (index >= static_cast<u32>(UiIconRole::count))
         return theme.text_primary;
     if (theme.styles && theme.styles->icons.colors[index])
-        return unpack(theme.styles->icons.colors[index]);
+        return color_from_rgba(theme.styles->icons.colors[index]);
     switch (role) {
     case UiIconRole::muted:
         return theme.text_secondary;

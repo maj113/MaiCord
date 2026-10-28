@@ -6,8 +6,7 @@
 namespace maicord {
 namespace {
 
-ReactionViewerResult reject(ReactionViewer* viewer, ReactionViewerError error) noexcept {
-    saturating_increment_if(viewer, viewer->rejected);
+ReactionViewerResult reject(ReactionViewerError error) noexcept {
     return ReactionViewerResult{error, false};
 }
 
@@ -118,10 +117,10 @@ ReactionViewerResult reaction_viewer_open(ReactionViewer* viewer, u64 guild_id, 
                                           const MessageRichRecord& rich, UiRect viewport) noexcept {
     if (!viewer || !viewer->users || !viewer->text || channel_id == 0 || message_id == 0 ||
         !rich.occupied || rich.message_id != message_id) {
-        return reject(viewer, ReactionViewerError::invalid_input);
+        return reject(ReactionViewerError::invalid_input);
     }
     if (rich.reaction_count == 0 || rich.reaction_count > kGatewayMessageReactionMaximum) {
-        return reject(viewer, ReactionViewerError::no_reactions);
+        return reject(ReactionViewerError::no_reactions);
     }
     ReactionViewer candidate{};
     candidate.users = viewer->users;
@@ -136,9 +135,6 @@ ReactionViewerResult reaction_viewer_open(ReactionViewer* viewer, u64 guild_id, 
     candidate.hovered_user = kReactionViewerNoIndex;
     candidate.hovered_aggregate = kReactionViewerNoIndex;
     candidate.active = true;
-    candidate.opens = viewer->opens;
-    candidate.closes = viewer->closes;
-    candidate.rejected = viewer->rejected;
     candidate.revision = viewer->revision;
     u32 name_used = 0;
     for (u32 index = 0; index < rich.reaction_count; ++index) {
@@ -146,7 +142,7 @@ ReactionViewerResult reaction_viewer_open(ReactionViewer* viewer, u64 guild_id, 
         const Utf8View name = message_rich_store_string(rich_store, source.name);
         if (!name.data || name.bytes == 0 || name.bytes > kMessageReactionMaximumEmojiNameBytes ||
             name.bytes > sizeof(candidate.aggregate_names) - name_used) {
-            return reject(viewer, ReactionViewerError::capacity);
+            return reject(ReactionViewerError::capacity);
         }
         copy_bytes(candidate.aggregate_names + name_used, name.data, name.bytes);
         ReactionViewerAggregate& aggregate = candidate.aggregates[index];
@@ -161,20 +157,19 @@ ReactionViewerResult reaction_viewer_open(ReactionViewer* viewer, u64 guild_id, 
         aggregate.count_text_bytes = format_count(source.count, aggregate.count_text,
                                                   static_cast<u32>(sizeof(aggregate.count_text)));
         if (aggregate.query_count == 0 || aggregate.count_text_bytes == 0) {
-            return reject(viewer, ReactionViewerError::invalid_input);
+            return reject(ReactionViewerError::invalid_input);
         }
         name_used += name.bytes;
     }
     candidate.expected_user_count = candidate.aggregates[0].query_count;
     if (!reaction_viewer_layout(&candidate, viewport)) {
-        return reject(viewer, ReactionViewerError::layout);
+        return reject(ReactionViewerError::layout);
     }
-    saturating_increment(candidate.opens);
     saturating_increment(candidate.revision);
     *viewer = candidate;
     if (!initialize_text_owner(viewer) ||
         !ui_widget_manager_layout_rectangle(&viewer->widgets, viewport).ok()) {
-        return reject(viewer, ReactionViewerError::layout);
+        return reject(ReactionViewerError::layout);
     }
     return ReactionViewerResult{ReactionViewerError::none, true};
 }
@@ -193,7 +188,6 @@ bool reaction_viewer_close(ReactionViewer* viewer, bool* changed) noexcept {
     viewer->loading = false;
     viewer->hovered_user = kReactionViewerNoIndex;
     viewer->hovered_aggregate = kReactionViewerNoIndex;
-    saturating_increment(viewer->closes);
     saturating_increment(viewer->revision);
     if (changed) {
         *changed = true;
@@ -204,7 +198,7 @@ bool reaction_viewer_close(ReactionViewer* viewer, bool* changed) noexcept {
 ReactionViewerResult reaction_viewer_select_aggregate(ReactionViewer* viewer,
                                                       u32 aggregate_index) noexcept {
     if (!viewer || !viewer->active || aggregate_index >= viewer->aggregate_count) {
-        return reject(viewer, ReactionViewerError::invalid_input);
+        return reject(ReactionViewerError::invalid_input);
     }
     if (viewer->selected_aggregate == aggregate_index) {
         return ReactionViewerResult{ReactionViewerError::none, false};
@@ -240,7 +234,7 @@ ReactionViewerResult reaction_viewer_accept_page(ReactionViewer* viewer,
         users.count > viewer->user_capacity - viewer->user_count ||
         viewer->text_used > viewer->text_capacity ||
         text_bytes > viewer->text_capacity - viewer->text_used) {
-        return reject(viewer, ReactionViewerError::capacity);
+        return reject(ReactionViewerError::capacity);
     }
     const u32 page_begin = viewer->text_used;
     for (u32 index = 0; index < users.count; ++index) {
@@ -254,7 +248,7 @@ ReactionViewerResult reaction_viewer_accept_page(ReactionViewer* viewer,
                            &destination.username_offset) ||
             !range_in_page(*viewer, source.display_name, page_begin, text_bytes,
                            &destination.display_name_offset)) {
-            return reject(viewer, ReactionViewerError::stale_page);
+            return reject(ReactionViewerError::stale_page);
         }
         destination.username_bytes = static_cast<u16>(source.username.bytes);
         destination.display_name_bytes = static_cast<u16>(source.display_name.bytes);

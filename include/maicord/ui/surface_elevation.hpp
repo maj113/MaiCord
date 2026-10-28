@@ -173,8 +173,6 @@ inline bool ui_surface_shadow_paint_isolated(PaintStream* stream, UiRect rectang
 inline bool ui_surface_paint_plate(PaintStream* stream, UiRect rectangle, const Theme& theme, UiElevation elevation,
                                    float radius, const Color* plain_fill = nullptr,
                                    const Color* plain_border = nullptr) noexcept {
-    if (elevation >= UiElevation::count)
-        return false;
     const auto style = ui_surface_style(theme, elevation);
     return ui_surface_paint_material(stream, rectangle, theme, elevation, radius,
                                      plain_fill ? *plain_fill : style.fill,
@@ -188,8 +186,6 @@ inline bool ui_surface_paint_plate(PaintStream* stream, UiRect rectangle, const 
 inline bool ui_surface_paint(PaintStream* stream, UiRect rectangle, const Theme& theme, UiElevation elevation,
                              float radius, const Color* plain_fill = nullptr,
                              const Color* plain_border = nullptr) noexcept {
-    if (elevation >= UiElevation::count)
-        return false;
     return ui_surface_shadow_paint(stream, rectangle, theme, elevation, radius, plain_fill ? plain_fill->alpha : 1.f) &&
            ui_surface_paint_plate(stream, rectangle, theme, elevation, radius, plain_fill, plain_border);
 }

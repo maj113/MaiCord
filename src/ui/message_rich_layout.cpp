@@ -1,4 +1,5 @@
 #include "maicord/ui/message_rich_layout.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 
 #include "maicord/core/decimal.hpp"
@@ -13,48 +14,13 @@ namespace maicord {
 namespace {
 
 bool ascii_equal_case(Utf8View value, const char* literal) noexcept {
-    u32 length = 0;
-    while (literal && literal[length] != 0) {
-        ++length;
-    }
-    if (value.bytes != length) {
-        return false;
-    }
-    for (u32 index = 0; index < length; ++index) {
-        const char left = value.data[index] >= 'A' && value.data[index] <= 'Z'
-                              ? static_cast<char>(value.data[index] + ('a' - 'A'))
-                              : value.data[index];
-        const char right = literal[index] >= 'A' && literal[index] <= 'Z'
-                               ? static_cast<char>(literal[index] + ('a' - 'A'))
-                               : literal[index];
-        if (left != right) {
-            return false;
-        }
-    }
-    return true;
+    return ascii_equal_ignore_case(value, {literal, c_string_length(literal)});
 }
 
 bool ascii_ends_with_case(Utf8View value, const char* suffix) noexcept {
-    u32 suffix_bytes = 0;
-    while (suffix && suffix[suffix_bytes] != 0) {
-        ++suffix_bytes;
-    }
-    if (suffix_bytes > value.bytes) {
-        return false;
-    }
-    const u32 offset = value.bytes - suffix_bytes;
-    for (u32 index = 0; index < suffix_bytes; ++index) {
-        const char left = value.data[offset + index] >= 'A' && value.data[offset + index] <= 'Z'
-                              ? static_cast<char>(value.data[offset + index] + ('a' - 'A'))
-                              : value.data[offset + index];
-        const char right = suffix[index] >= 'A' && suffix[index] <= 'Z'
-                               ? static_cast<char>(suffix[index] + ('a' - 'A'))
-                               : suffix[index];
-        if (left != right) {
-            return false;
-        }
-    }
-    return true;
+    const u32 bytes = c_string_length(suffix);
+    return bytes <= value.bytes &&
+           ascii_equal_ignore_case({value.data + value.bytes - bytes, bytes}, {suffix, bytes});
 }
 
 MediaAttachmentFormat media_format_from_url(Utf8View source) noexcept {
@@ -80,18 +46,6 @@ MediaAttachmentFormat media_format_from_url(Utf8View source) noexcept {
         return MediaAttachmentFormat::mp4;
     }
     return MediaAttachmentFormat::unknown;
-}
-
-bool view_equal(Utf8View left, Utf8View right) noexcept {
-    if (left.bytes != right.bytes) {
-        return false;
-    }
-    for (u32 index = 0; index < left.bytes; ++index) {
-        if (left.data[index] != right.data[index]) {
-            return false;
-        }
-    }
-    return true;
 }
 
 bool bounded_media_extent(u32 source_width, u32 source_height, float available_width, float maximum_width,
@@ -434,13 +388,24 @@ Utf8View soundcloud_audio_url(const MessageRichStore& store, const MessageRichEm
     const auto player = message_rich_store_string(store, embed.video.url);
     return soundcloud_track_url(player) || soundcloud_collection_url(player) ? player : Utf8View{};
 }
-Utf8View apple_collection_url(const MessageRichStore& store,const MessageRichEmbed& embed) noexcept {
-    const auto page=message_rich_store_string(store,embed.url), player=message_rich_store_string(store,embed.video.url);
-    return apple_music_collection_locator(page).id.bytes ? page : apple_music_collection_locator(player).id.bytes ? player : Utf8View{};
+bool apple_collection(Utf8View value) noexcept {
+    return apple_music_collection_locator(value).id.bytes != 0;
+}
+bool youtube_queue(Utf8View value) noexcept {
+    return youtube_collection_locator(value).list.bytes != 0;
+}
+// The embed page, else its player, when `match` accepts it.
+Utf8View page_or_player(const MessageRichStore& store, const MessageRichEmbed& embed,
+                        bool (*match)(Utf8View) noexcept) noexcept {
+    const auto page = message_rich_store_string(store, embed.url),
+               player = message_rich_store_string(store, embed.video.url);
+    return match(page) ? page : match(player) ? player : Utf8View{};
+}
+Utf8View apple_collection_url(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
+    return page_or_player(store, embed, apple_collection);
 }
 Utf8View youtube_queue_url(const MessageRichStore& store, const MessageRichEmbed& embed) noexcept {
-    const auto page = message_rich_store_string(store, embed.url), player = message_rich_store_string(store, embed.video.url);
-    return youtube_collection_locator(page).list.bytes ? page : youtube_collection_locator(player).list.bytes ? player : Utf8View{};
+    return page_or_player(store, embed, youtube_queue);
 }
 } // namespace
 
@@ -663,16 +628,13 @@ bool message_rich_embed_thumbnail_extent(const MessageRichStore& store, const Me
 }
 
 bool message_rich_embed_media_only(const MessageRichEmbed& embed) noexcept {
-    const auto valid = [](const MessageRichEmbedMedia& media) noexcept {
-        return media.url.bytes != 0 || media.proxy_url.bytes != 0;
-    };
     // IMAGE/ARTICLE thumbnails are normalized to images before the inline
     // predicate. Rich cards remain cards, even when their only content is an
     // image. This is metadata policy, not a host list.
     const bool media =
-        valid(embed.image) || valid(embed.video) ||
+        embed_media_valid(embed.image) || embed_media_valid(embed.video) ||
         ((embed.type == GatewayMessageEmbedType::image || embed.type == GatewayMessageEmbedType::article) &&
-         valid(embed.thumbnail));
+         embed_media_valid(embed.thumbnail));
     return media && (embed.type == GatewayMessageEmbedType::gifv ||
                      (embed.type != GatewayMessageEmbedType::rich &&
                       embed.type != GatewayMessageEmbedType::components && !embed.has_author &&
@@ -686,7 +648,7 @@ u32 message_rich_embed_merge_host(const MessageRichStore& store, const MessageRi
     const Utf8View url = message_rich_store_string(store, rich.embeds[index].url);
     for (u32 i = 0; i < index; ++i)
         if (rich.embeds[i].url.bytes == url.bytes &&
-            view_equal(message_rich_store_string(store, rich.embeds[i].url), url))
+            utf8_equal(message_rich_store_string(store, rich.embeds[i].url), url))
             return i;
     return index;
 }
@@ -807,7 +769,7 @@ bool message_rich_embed_suppresses_content(const MessageRichStore& store, const 
         const MessageRichEmbed& embed = rich.embeds[index];
         if ((embed.type == GatewayMessageEmbedType::image || embed.type == GatewayMessageEmbedType::gifv) &&
             message_rich_embed_media_only(embed) &&
-            view_equal(content, message_rich_store_string(store, embed.url))) {
+            utf8_equal(content, message_rich_store_string(store, embed.url))) {
             return true;
         }
     }
@@ -858,10 +820,6 @@ float message_rich_embed_visual_height(const MessageRichStore& store, const Mess
                                             &thumbnail_height))
         height = maximum(height, top + kMessageEmbedBlockGap + thumbnail_height + kMessageEmbedBottomInset);
     return height;
-}
-
-float message_rich_component_visual_height(const MessageRichComponent& component) noexcept {
-    return message_component_leaf_height(component);
 }
 
 float message_rich_reaction_button_width(const MessageRichReaction& reaction) noexcept {
@@ -970,7 +928,7 @@ void message_rich_fill_item_layout(const MessageRichStore* store, const MessageR
     }
     for (u32 index = 0; index < rich->component_count; ++index) {
         result.heights[kMessageRichComponentItemOffset + index] =
-            message_rich_component_visual_height(rich->components[index]);
+            message_component_leaf_height(rich->components[index]);
         result.component_widths[index] = message_component_leaf_width(
             rich->components[index], minimum(available_width, kMessageComponentMaximumWidth) -
                                          2 * kMessageComponentPadding);

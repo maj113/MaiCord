@@ -192,24 +192,7 @@ bool supported_delivery(const MessageRecord& message) noexcept {
            message.delivery == MessageDeliveryState::failed;
 }
 
-struct ForwardPolicyAdapter {
-    MessageActionBarForwardPolicy policy;
-    void* context;
-};
-
-u16 adapt_forward_policy(void* context, u64 message_id) noexcept {
-    const auto& adapter = *static_cast<const ForwardPolicyAdapter*>(context);
-    return adapter.policy(adapter.context, message_id) ? u16{message_action_bar_forward} : u16{0};
-}
-
 } // namespace
-
-MessageActionBarResult message_action_bar_open(MessageActionBar* bar, const MessageScene& scene,
-                                               MessageSceneHit hit, const MessageRecord& message,
-                                               const ReactionPreferenceStore* preferences, bool can_forward) noexcept {
-    return message_action_bar_open(bar, scene, hit, message, preferences,
-                                   MessageActionBarOptions{static_cast<u16>(can_forward ? message_action_bar_forward : 0)});
-}
 
 MessageActionBarResult message_action_bar_open(MessageActionBar* bar, const MessageScene& scene,
                                                MessageSceneHit hit, const MessageRecord& message,
@@ -461,15 +444,6 @@ bool message_action_bar_set_hover(MessageActionBar* bar, float x, float y, bool*
         saturating_increment(bar->revision);
     }
     return true;
-}
-
-MessageActionBarPointerResult message_action_bar_track_pointer(
-    MessageActionBar* bar, MessageScene* scene, float x, float y,
-    const ReactionPreferenceStore* preferences, MessageActionBarForwardPolicy forward_policy, void* policy_context) noexcept {
-    ForwardPolicyAdapter adapter{forward_policy, policy_context};
-    return message_action_bar_track_pointer(bar, scene, x, y, preferences,
-                                            forward_policy ? adapt_forward_policy : MessageActionBarPolicy{},
-                                            &adapter);
 }
 
 MessageActionBarPointerResult message_action_bar_track_pointer(

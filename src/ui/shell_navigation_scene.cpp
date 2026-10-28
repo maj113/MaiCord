@@ -80,6 +80,11 @@ void clear_materialization(ShellNavigationScene* scene) noexcept {
     scene->active = false;
 }
 
+ShellNavigationSceneResult teardown_error(ShellNavigationScene* scene, ShellNavigationSceneError error) noexcept {
+    clear_materialization(scene);
+    return scene_error(scene, error);
+}
+
 u64 focused_channel(const ShellNavigationScene& scene) noexcept {
     const ShellNavigationRowWidget* focused = shell_navigation_scene_resolve(scene, scene.widgets.focused);
     return focused ? focused->view.id : scene.focused_channel_id;
@@ -241,8 +246,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
         &scene->widgets, ui_widget_invalid_handle(), kNavigationRootWidgetId, UiWidgetKind::scroll_view,
         ui_widget_enabled, "ChannelNavigation", ui_layout_scroll_root_style());
     if (!root.ok()) {
-        clear_materialization(scene);
-        return scene_error(scene, ShellNavigationSceneError::widget);
+        return teardown_error(scene, ShellNavigationSceneError::widget);
     }
     scene->root = root.handle;
     if (include_spacer) {
@@ -250,8 +254,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
             &scene->widgets, root.handle, kNavigationSpacerWidgetId, UiWidgetKind::container, ui_widget_enabled,
             "TopInset", ui_layout_spacer_style(inset));
         if (!spacer.ok()) {
-            clear_materialization(scene);
-            return scene_error(scene, ShellNavigationSceneError::widget);
+            return teardown_error(scene, ShellNavigationSceneError::widget);
         }
     }
     for (u32 local = 0; local < row_count; ++local) {
@@ -265,8 +268,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
             &scene->widgets, root.handle, widget_id, UiWidgetKind::button, flags, row_name.data, row_name.bytes,
             row_style(source));
         if (!added.ok()) {
-            clear_materialization(scene);
-            return scene_error(scene, ShellNavigationSceneError::widget);
+            return teardown_error(scene, ShellNavigationSceneError::widget);
         }
         const UiWidgetResult icon = ui_widget_manager_add_keyed(
             &scene->widgets, added.handle, widget_id + 1u, UiWidgetKind::image, ui_widget_enabled, "ChannelIcon",
@@ -275,8 +277,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
             &scene->widgets, added.handle, widget_id + 2u, UiWidgetKind::text, ui_widget_enabled, "ChannelLabel",
             label_style(source));
         if (!icon.ok() || !label.ok()) {
-            clear_materialization(scene);
-            return scene_error(scene, ShellNavigationSceneError::widget);
+            return teardown_error(scene, ShellNavigationSceneError::widget);
         }
         UiWidgetHandle mention_badge = ui_widget_invalid_handle();
         if (source.mention_count != 0) {
@@ -284,8 +285,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
                 &scene->widgets, added.handle, widget_id + 3u, UiWidgetKind::custom, ui_widget_enabled,
                 "MentionBadge", mention_badge_style(source.mention_count, channel_is_private(source.type)));
             if (!badge.ok()) {
-                clear_materialization(scene);
-                return scene_error(scene, ShellNavigationSceneError::widget);
+                return teardown_error(scene, ShellNavigationSceneError::widget);
             }
             mention_badge = badge.handle;
         }
@@ -298,8 +298,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
         !ui_layout_engine_set_scroll(&scene->widgets.layout, root_widget->layout,
                                      UiPoint{0.0f, local_scroll}) ||
         !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
-        clear_materialization(scene);
-        return scene_error(scene, ShellNavigationSceneError::layout);
+        return teardown_error(scene, ShellNavigationSceneError::layout);
     }
 
     scene->viewport = viewport;

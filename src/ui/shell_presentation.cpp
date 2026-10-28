@@ -125,6 +125,18 @@ bool paint_add_server(PaintStream* stream, const GuildRailScene& scene, const Th
                          ui_icon_role_color(theme, hovered ? UiIconRole::on_accent : UiIconRole::accent));
 }
 
+// A count badge cut out of the rail like a server badge.
+bool paint_rail_badge(PaintStream* stream, const UiWidgetManager& widgets, UiWidgetHandle owner, const UiRect& badge,
+                      const Theme& theme) noexcept {
+    const float cutout = ui_background_active(theme) ? 0.0f : theme.scale.space_1 * 1.5f;
+    return paint_stream_push_rounded_border(stream, badge.left - cutout, badge.top - cutout, badge.right + cutout,
+                                            badge.bottom + cutout, theme.notification, theme.base_lowest,
+                                            ui_rect_height(badge) * 0.5f + cutout, cutout) &&
+           record_content(stream, widgets, owner, badge, UiLayoutContentKind::decoration,
+                          static_cast<u16>(ui_layout_content_bounds_allow_overflow |
+                                           ui_layout_content_bounds_allow_overlap));
+}
+
 bool paint_voice_participants(PaintStream* stream, const ShellNavigationScene& scene,
                               const ShellNavigationRowWidget& row_widget, UiRect row_rectangle,
                               const VoiceStateStore& voice_states, UiRect viewport,
@@ -215,9 +227,7 @@ bool paint_voice_extras(PaintStream* stream, const ShellNavigationScene& scene,
 Color folder_color(const Theme& theme, const GuildViewRow& row, float alpha) noexcept {
     Color color = row.folder_color == kGuildFolderNoColor
                       ? theme.tokens.emphasis.outline
-                      : Color{static_cast<float>((row.folder_color >> 16) & 255) / 255.f,
-                              static_cast<float>((row.folder_color >> 8) & 255) / 255.f,
-                              static_cast<float>(row.folder_color & 255) / 255.f, 1.f};
+                      : color_from_rgb24(row.folder_color);
     color.alpha *= alpha;
     return color;
 }
@@ -378,19 +388,10 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         return false;
     }
     // Friend and message requests badge Home, cut out of the rail like a server badge.
-    if (navigation && navigation->home_badge) {
-        const float cutout = ui_background_active(theme) ? 0.0f : theme.scale.space_1 * 1.5f;
-        const auto badge = ui_mention_badge_guild_rectangle(home->rectangle, navigation->home_badge);
-        if (!paint_stream_push_rounded_border(stream, badge.left - cutout,
-                                              badge.top - cutout,
-                                              badge.right + cutout,
-                                              badge.bottom + cutout, theme.notification,
-                                              theme.base_lowest, ui_rect_height(badge) * 0.5f + cutout, cutout) ||
-            !record_content(stream, scene.widgets, home->widget, badge, UiLayoutContentKind::decoration,
-                            static_cast<u16>(ui_layout_content_bounds_allow_overflow |
-                                             ui_layout_content_bounds_allow_overlap)))
-            return false;
-    }
+    if (navigation && navigation->home_badge &&
+        !paint_rail_badge(stream, scene.widgets, home->widget,
+                          ui_mention_badge_guild_rectangle(home->rectangle, navigation->home_badge), theme))
+        return false;
 
     if (guild_scene && guild_scene->active) {
         if (!paint_stream_push_clip(stream, guild_navigation->rectangle)) {
@@ -544,32 +545,25 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                 if (row_rectangle.bottom > channel_navigation->rectangle.top &&
                     row_rectangle.top < channel_navigation->rectangle.bottom) {
                     if ((row_selected || row_hovered) &&
-                        !paint_stream_push_rounded(stream, selected_rectangle, ui_background_hover_color(
-                            theme, row_selected ? theme.interactive : theme.surface_high,
-                            row_selected ? .28f : .20f), theme.scale.radius_sm)) {
-                        return false;
-                    }
-                    if ((row_selected || row_hovered) &&
-                        !record_content(stream, channel_scene->widgets, row_widget.widget,
-                                        selected_rectangle, UiLayoutContentKind::decoration,
-                                        ui_layout_content_bounds_allow_overlap)) {
+                        (!paint_stream_push_rounded(stream, selected_rectangle, ui_background_hover_color(
+                             theme, row_selected ? theme.interactive : theme.surface_high,
+                             row_selected ? .28f : .20f), theme.scale.radius_sm) ||
+                         !record_content(stream, channel_scene->widgets, row_widget.widget,
+                                         selected_rectangle, UiLayoutContentKind::decoration,
+                                         ui_layout_content_bounds_allow_overlap))) {
                         return false;
                     }
                     const UiRect& icon_rectangle = icon_layout->rectangle;
                     const Color row_color = ui_navigation_foreground(theme, row, row_selected);
+                    const UiRect unread_rectangle{row_rectangle.left - 3.0f, row_top + 10.0f,
+                                                  row_rectangle.left + 3.0f, row_top + row_height - 10.0f};
                     if (row.unread && !row_selected &&
-                        !paint_stream_push_rounded(stream, row_rectangle.left - 3.0f, row_top + 10.0f,
-                                      row_rectangle.left + 3.0f, row_top + row_height - 10.0f,
-                                      theme.text_primary, theme.scale.radius_full)) {
-                        return false;
-                    }
-                    if (row.unread && !row_selected &&
-                        !record_content(stream, channel_scene->widgets, row_widget.widget,
-                                        UiRect{row_rectangle.left - 3.0f, row_top + 10.0f,
-                                               row_rectangle.left + 3.0f, row_top + row_height - 10.0f},
-                                        UiLayoutContentKind::decoration,
-                                        static_cast<u16>(ui_layout_content_bounds_allow_overflow |
-                                                         ui_layout_content_bounds_allow_overlap))) {
+                        (!paint_stream_push_rounded(stream, unread_rectangle, theme.text_primary,
+                                                    theme.scale.radius_full) ||
+                         !record_content(stream, channel_scene->widgets, row_widget.widget, unread_rectangle,
+                                         UiLayoutContentKind::decoration,
+                                         static_cast<u16>(ui_layout_content_bounds_allow_overflow |
+                                                          ui_layout_content_bounds_allow_overlap)))) {
                         return false;
                     }
                     if (channel_is_private(row.type)) {
@@ -589,12 +583,10 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                         return false;
                     }
                     if (row.mention_count != 0 &&
-                        !paint_stream_push_rounded(stream, badge_layout->rectangle, theme.notification, theme.scale.radius_md)) {
-                        return false;
-                    }
-                    if (row.mention_count != 0 &&
-                        !record_content(stream, channel_scene->widgets, row_widget.mention_badge,
-                                        badge_layout->rectangle, UiLayoutContentKind::control)) {
+                        (!paint_stream_push_rounded(stream, badge_layout->rectangle, theme.notification,
+                                                    theme.scale.radius_md) ||
+                         !record_content(stream, channel_scene->widgets, row_widget.mention_badge,
+                                         badge_layout->rectangle, UiLayoutContentKind::control))) {
                         return false;
                     }
                     UiPluginSlotBadge plugin{};
@@ -1155,7 +1147,6 @@ bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const Gui
         return false;
     // A rail-coloured ring drawn over the icon's media separates the lower
     // badge from the icon.
-    const float cutout = ui_background_active(theme) ? 0.0f : theme.scale.space_1 * 1.5f;
     constexpr u16 overflow =
         static_cast<u16>(ui_layout_content_bounds_allow_overflow | ui_layout_content_bounds_allow_overlap);
     for (u32 index = 0; index < guild_scene->count; ++index) {
@@ -1171,14 +1162,7 @@ bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const Gui
             (row.folder_role == GuildFolderRole::header && row.folder_expanded))
             continue;
         const auto badge = ui_mention_badge_guild_rectangle(rectangle, row.mention_count);
-        if (row.mention_count != 0 &&
-            (!paint_stream_push_rounded_border(stream, badge.left - cutout,
-                                               badge.top - cutout,
-                                               badge.right + cutout,
-                                               badge.bottom + cutout, theme.notification,
-                                               theme.base_lowest, ui_rect_height(badge) * 0.5f + cutout, cutout) ||
-             !record_content(stream, guild_scene->widgets, row_widget.widget, badge, UiLayoutContentKind::decoration,
-                             overflow))) {
+        if (row.mention_count != 0 && !paint_rail_badge(stream, guild_scene->widgets, row_widget.widget, badge, theme)) {
             paint_stream_pop_clip(stream);
             return false;
         }

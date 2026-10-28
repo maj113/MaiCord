@@ -1021,9 +1021,7 @@ bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& c
         renderer->text_effect_bounds[slot] = {effect_ink.left - reach, effect_ink.top - reach,
                                               effect_ink.right + reach, effect_ink.bottom + reach};
         for (u32 i = 0; i < static_cast<u32>(material.count); ++i) {
-            const u32 c = command.effect.colors[i];
-            material.colors[i] = {((c >> 16) & 255) / 255.f, ((c >> 8) & 255) / 255.f, (c & 255) / 255.f,
-                                  1};
+            material.colors[i] = color_from_rgb24(command.effect.colors[i]);
         }
         if (command.effect.kind == 3 || command.effect.kind == 4 || command.effect.kind == 5) {
             const auto base = material.colors[0];
@@ -1514,20 +1512,17 @@ bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
         (!friends || ui_friends_scene_text_output(*renderer->friends_scene, theme, &output,
                                                   &renderer->friends_search_geometry)) &&
         (!browser || ui_thread_browser_scene_text_output(*renderer->thread_browser_scene, theme, &output));
-    if (projected && d3d11_renderer_audio_scene_visible(*renderer)) {
-        // Selected audio replaces this attachment's static labels. Guard that
-        // omission in the retained base; elapsed time remains suffix-only.
-        const auto owner = renderer->audio_scene->owner;
+    const auto mix_owner = [emitter](const auto& owner) noexcept {
         emitter->signature = hash64_mix(emitter->signature, reinterpret_cast<usize>(owner.manager));
         emitter->signature = hash64_mix(emitter->signature, owner.handle.slot);
         emitter->signature = hash64_mix(emitter->signature, owner.handle.generation);
-    }
-    if (projected && d3d11_renderer_poll_scene_visible(*renderer)) {
-        const auto owner = renderer->poll_scene->owner;
-        emitter->signature = hash64_mix(emitter->signature, reinterpret_cast<usize>(owner.manager));
-        emitter->signature = hash64_mix(emitter->signature, owner.handle.slot);
-        emitter->signature = hash64_mix(emitter->signature, owner.handle.generation);
-    }
+    };
+    // Selected audio replaces this attachment's static labels. Guard that
+    // omission in the retained base; elapsed time remains suffix-only.
+    if (projected && d3d11_renderer_audio_scene_visible(*renderer))
+        mix_owner(renderer->audio_scene->owner);
+    if (projected && d3d11_renderer_poll_scene_visible(*renderer))
+        mix_owner(renderer->poll_scene->owner);
     return projected;
 }
 // The member list rows, appended after the static shell in the same emitter.
@@ -2138,8 +2133,6 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         retention_key =
             content_text_retention_key(*renderer, theme, shell.signature, overlay.signature, include_messages);
     }
-    if (shell_retained || shell_moved)
-        saturating_increment(retained_shell.projections_skipped);
     if (!shell_moved && content_text_retention_probe(&renderer->content_text_retention, retention_key)) {
         d3d11_renderer_commit_interaction_text_state(renderer);
         storage->last_error = RendererTextBuildError::none;
@@ -2202,8 +2195,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         const bool shell_storage_current =
             shell_prefix.storage == storage && shell_prefix.build_serial == storage->rebuilds;
         const bool shell_reuse =
-            !shell_moved && shell_generation_current && shell_prefix.storage == storage &&
-            shell_prefix.build_serial == storage->rebuilds &&
+            !shell_moved && shell_generation_current && shell_storage_current &&
             shell_prefix.signature == retention_key.shell_signature &&
             shell_prefix.theme_signature == retention_key.theme_signature && shell_prefix.dpi == retention_key.dpi &&
             shell_prefix.atlas_evicted_entries == retention_key.atlas_evicted_entries &&
@@ -2310,7 +2302,6 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
                                                ~0u, // committed with the build below
                                                0,
                                                shell_prefix.reuses,
-                                               shell_prefix.projections_skipped,
                                                renderer->text_effect_animated,
                                                shell_prefix.scroll_hint};
         shell_prefix.static_signature = static_marks.signature;

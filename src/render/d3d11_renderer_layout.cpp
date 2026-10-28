@@ -61,6 +61,34 @@ static_assert(sizeof(GlyphQuad) == 48);
 static_assert(sizeof(MediaQuad) == 64);
 static_assert(sizeof(MediaDrawBatch) == 24);
 
+// A custom emoji or regional flag cell of rendered text.
+MediaAssetKey emoji_key(const MessageTextSemantic& semantic) noexcept {
+    return semantic.kind == MessageMarkdownSemanticKind::regional_flag
+               ? media_asset_regional_flag(static_cast<u16>(semantic.target))
+               : media_asset_custom_emoji(semantic.target, (semantic.reserved & 1u) != 0);
+}
+
+// The square the cell draws in: centred on its text region.
+UiRect emoji_cell(const TextHitRegion& region, bool flag) noexcept {
+    const float height = maximum(1.0f, region.bottom - region.top);
+    const float extent =
+        flag ? minimum(48.0f, region.right - region.left) : minimum(48.0f, maximum(16.0f, height));
+    const float center_x = (region.left + region.right) * 0.5f;
+    const float center_y = (region.top + region.bottom) * 0.5f;
+    return {center_x - extent * 0.5f, center_y - extent * 0.5f, center_x + extent * 0.5f, center_y + extent * 0.5f};
+}
+
+// A width x height picture scaled into the tile (covering it or contained) and centred.
+UiRect fit_in(const UiRect& tile, u32 width, u32 height, bool cover) noexcept {
+    const float scale_x = ui_rect_width(tile) / width;
+    const float scale_y = ui_rect_height(tile) / height;
+    const float scale = cover ? maximum(scale_x, scale_y) : minimum(scale_x, scale_y);
+    const float scaled_width = width * scale, scaled_height = height * scale;
+    const float left = (tile.left + tile.right - scaled_width) * .5f;
+    const float top = (tile.top + tile.bottom - scaled_height) * .5f;
+    return {left, top, left + scaled_width, top + scaled_height};
+}
+
 bool paint_threads_launcher(const D3D11Renderer& renderer, const Theme& theme,
                             PaintStream* stream) noexcept {
     const auto* scene = renderer.ui_scene;
@@ -535,9 +563,7 @@ bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, c
                                   theme.surface_high);
         } else if (kind == ProfileMediaKind::banner) {
             const u32 accent = profile.profile->accent_color;
-            const Color fallback = accent ? Color{((accent >> 16) & 255) / 255.f, ((accent >> 8) & 255) / 255.f,
-                                                  (accent & 255) / 255.f, 1}
-                                          : theme.surface_high;
+            const Color fallback = accent ? color_from_rgb24(accent) : theme.surface_high;
             reveal_media_underlay(*renderer, media_before, profile.banner, fallback);
         }
     }
@@ -763,12 +789,7 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
             renderer->media_batch_count < kRendererMediaBatchCapacity) {
             const auto allocation = media_atlas_peek(renderer->media_atlas, renderer->tooltip_scene->emoji_media);
             if (allocation.ok() && allocation.width && allocation.height) {
-                const float scale = minimum(ui_rect_width(square) / allocation.width,
-                                            ui_rect_height(square) / allocation.height);
-                const float width = allocation.width * scale, height = allocation.height * scale;
-                const float left = (square.left + square.right - width) * .5f,
-                            top = (square.top + square.bottom - height) * .5f;
-                if (!queue_media_quad(renderer, allocation, UiRect{left, top, left + width, top + height},
+                if (!queue_media_quad(renderer, allocation, fit_in(square, allocation.width, allocation.height, false),
                                       renderer->tooltip_scene->viewport, false, first))
                     return false;
                 first = false;
@@ -792,12 +813,7 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
                     const auto allocation = media_atlas_peek(renderer->preview_media_atlas, view.preview);
                     if (!allocation.ok() || !allocation.width || !allocation.height)
                         continue;
-                    const float scale = minimum(ui_rect_width(tile) / allocation.width,
-                                                ui_rect_height(tile) / allocation.height);
-                    const float width = allocation.width * scale, height = allocation.height * scale;
-                    const float left = (tile.left + tile.right - width) * .5f,
-                                top = (tile.top + tile.bottom - height) * .5f;
-                    if (!queue_media_quad(renderer, allocation, UiRect{left, top, left + width, top + height}, clip,
+                    if (!queue_media_quad(renderer, allocation, fit_in(tile, allocation.width, allocation.height, false), clip,
                                           false, first, MediaQuadStyle{tile, 1.f, 0.f, list.style.radius, 0.f, 1}) ||
                         !paint_stream_record_content(
                             &renderer->paint_stream, {&scene.widgets, list.parts[row][2]}, tile,
@@ -1192,21 +1208,11 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
                 semantic.target == 0 || (semantic.reserved & (2u | kRendererSearchSemanticFlag))) {
                 continue;
             }
-            const bool animated = (semantic.reserved & 1u) != 0;
-            const MediaAtlasResult allocation = media_atlas_peek(
-                renderer->media_atlas, flag ? media_asset_regional_flag(static_cast<u16>(semantic.target))
-                                            : media_asset_custom_emoji(semantic.target, animated));
+            const MediaAtlasResult allocation = media_atlas_peek(renderer->media_atlas, emoji_key(semantic));
             if (!allocation.ok()) {
                 continue;
             }
-            const float height = maximum(1.0f, region.bottom - region.top);
-            const float extent =
-                flag ? minimum(48.0f, region.right - region.left) : minimum(48.0f, maximum(16.0f, height));
-            const float center_x = (region.left + region.right) * 0.5f;
-            const float center_y = (region.top + region.bottom) * 0.5f;
-            if (!queue_media_quad(renderer, allocation,
-                                  UiRect{center_x - extent * 0.5f, center_y - extent * 0.5f, center_x + extent * 0.5f, center_y + extent * 0.5f},
-                                  message_scene->viewport, false)) {
+            if (!queue_media_quad(renderer, allocation, emoji_cell(region, flag), message_scene->viewport, false)) {
                 return layout_step_failed(__LINE__);
             }
         }
@@ -1379,20 +1385,11 @@ bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
                     *renderer->search_scene, {region.left, region.top, region.right, region.bottom});
                 if (!ui_rect_has_area(clip))
                     continue;
-                const auto allocation = media_atlas_peek(
-                    renderer->media_atlas,
-                    flag ? media_asset_regional_flag(static_cast<u16>(semantic.target))
-                         : media_asset_custom_emoji(semantic.target, (semantic.reserved & 1u) != 0));
+                const auto allocation = media_atlas_peek(renderer->media_atlas, emoji_key(semantic));
                 if (!allocation.ok() || renderer->media_quad_count >= kRendererMediaQuadCapacity)
                     continue;
-                const float height = maximum(1.f, region.bottom - region.top);
-                const float extent =
-                    flag ? minimum(48.f, region.right - region.left) : minimum(48.f, maximum(16.f, height));
-                const float cx = (region.left + region.right) * .5f,
-                            cy = (region.top + region.bottom) * .5f;
                 const u32 before = renderer->media_quad_count;
-                if (!queue_media_quad(renderer, allocation,
-                                  UiRect{cx - extent * .5f, cy - extent * .5f, cx + extent * .5f, cy + extent * .5f}, clip, false, first))
+                if (!queue_media_quad(renderer, allocation, emoji_cell(region, flag), clip, false, first))
                     return layout_step_failed(__LINE__);
                 if (renderer->media_quad_count != before)
                     first = false;
@@ -2199,14 +2196,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!allocation.ok() || !allocation.width || !allocation.height)
                 continue;
             const auto tile = slot.rectangle;
-            const float scale_x = ui_rect_width(tile) / allocation.width;
-            const float scale_y = ui_rect_height(tile) / allocation.height;
-            const float scale =
-                slot.fit == UiMediaPickerFit::cover ? maximum(scale_x, scale_y) : minimum(scale_x, scale_y);
-            const float width = allocation.width * scale, height = allocation.height * scale;
-            const float left = (tile.left + tile.right - width) * .5f;
-            const float top = (tile.top + tile.bottom - height) * .5f;
-            if (!queue_media_quad(renderer, allocation, UiRect{left, top, left + width, top + height},
+            if (!queue_media_quad(renderer, allocation,
+                                  fit_in(tile, allocation.width, allocation.height, slot.fit == UiMediaPickerFit::cover),
                                   ui_rect_intersection(slot.clip, tile), false, first_media,
                                   MediaQuadStyle{tile, slot.opacity, 0.f, slot.radius, 0.f, static_cast<u8>(!emoji)}))
                 return layout_step_failed(__LINE__);

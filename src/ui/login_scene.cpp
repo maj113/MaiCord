@@ -92,6 +92,19 @@ LoginControl control_for_element(LoginElement element) noexcept {
     }
 }
 
+// Forgot/Back share one widget, as do the password/phone-code and
+// SMS/resend pairs: the control a widget means in the current mode.
+LoginControl semantic_control(const LoginScene& scene, LoginControl control) noexcept {
+    if (control == LoginControl::forgot_password &&
+        (scene.back_only || scene.phone_mode || scene.recovery_mode || scene.reset_mode))
+        return LoginControl::back;
+    if (scene.phone_mode && control == LoginControl::password)
+        return LoginControl::phone_code;
+    if (scene.phone_mode && control == LoginControl::mfa_sms)
+        return LoginControl::phone_resend;
+    return control;
+}
+
 Utf8View element_name(LoginElement element) noexcept {
     switch (element) {
     case LoginElement::root:
@@ -324,12 +337,10 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     const UiWidgetHandle form = scene->elements[static_cast<u32>(LoginElement::form)];
     // Recovery copy uses the form width instead of the shorter sign-in copy's
     // intrinsic boxes. Reserve two subtitle lines before laying out Back/fields.
-    const auto recovery_alignment = scene->phone_mode || scene->recovery_mode || scene->reset_mode || scene->browser_mode
-                                        ? UiLayoutAlignment::stretch
-                                        : UiLayoutAlignment::center;
+    const bool alternate = scene->phone_mode || scene->recovery_mode || scene->reset_mode || scene->browser_mode;
+    const auto recovery_alignment = alternate ? UiLayoutAlignment::stretch : UiLayoutAlignment::center;
     if (!add_text(scene, widgets, LoginElement::heading, form, 200.0f, 30.0f, 0.0f, recovery_alignment) ||
-        !add_text(scene, widgets, LoginElement::subtitle, form, 300.0f,
-                  scene->phone_mode || scene->recovery_mode || scene->reset_mode || scene->browser_mode ? 44.0f : 20.0f, 4.0f,
+        !add_text(scene, widgets, LoginElement::subtitle, form, 300.0f, alternate ? 44.0f : 20.0f, 4.0f,
                   recovery_alignment) ||
         (!scene->phone_mode && !scene->reset_mode && !scene->browser_mode && !(scene->recovery_mode && scene->back_only) &&
          !add_text(scene, widgets, LoginElement::login_label, form, 180.0f, 16.0f, 13.0f,
@@ -430,10 +441,8 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     }
     const UiWidgetHandle status = scene->elements[static_cast<u32>(LoginElement::status)];
     if (!add_text(scene, widgets, LoginElement::status_message, status, 0.0f,
-                  scene->reset_mode && scene->mfa_capabilities                     ? 48.0f
-                  : scene->phone_mode || scene->recovery_mode || scene->reset_mode || scene->browser_mode ? 64.0f
-                                                                                   : 18.0f,
-                  0.0f, UiLayoutAlignment::stretch) ||
+                  scene->reset_mode && scene->mfa_capabilities ? 48.0f : alternate ? 64.0f : 18.0f, 0.0f,
+                  UiLayoutAlignment::stretch) ||
         !add_text(scene, widgets, LoginElement::status_account, status, 0.0f, 18.0f, 0.0f,
                   UiLayoutAlignment::stretch)) {
         return false;
@@ -523,13 +532,7 @@ void sync_login_input(LoginScene* scene) noexcept {
         const auto handle = scene->elements[static_cast<u32>(element_for_control(control))];
         if (ui_widget_manager_resolve(scene->widgets, handle)) {
             // Forgot and Back share one widget; apply its current meaning once.
-            const auto semantic =
-                control == LoginControl::forgot_password &&
-                        (scene->back_only || scene->phone_mode || scene->recovery_mode || scene->reset_mode)
-                    ? LoginControl::back
-                : scene->phone_mode && control == LoginControl::password ? LoginControl::phone_code
-                : scene->phone_mode && control == LoginControl::mfa_sms  ? LoginControl::phone_resend
-                                                                         : control;
+            const auto semantic = semantic_control(*scene, control);
             ui_widget_manager_block_input(&scene->widgets, handle,
                                           !control_input_enabled(*scene, semantic));
         }
@@ -684,14 +687,8 @@ LoginControl login_scene_hit_test(const LoginScene& scene, float x, float y) noe
     if (!widget || widget->id == 0 || widget->id > static_cast<u32>(LoginElement::count)) {
         return LoginControl::none;
     }
-    LoginControl control = control_for_element(static_cast<LoginElement>(widget->id - 1));
-    if ((scene.back_only || scene.phone_mode || scene.recovery_mode || scene.reset_mode) &&
-        control == LoginControl::forgot_password)
-        control = LoginControl::back;
-    if (scene.phone_mode && control == LoginControl::password)
-        control = LoginControl::phone_code;
-    if (scene.phone_mode && control == LoginControl::mfa_sms)
-        control = LoginControl::phone_resend;
+    const LoginControl control =
+        semantic_control(scene, control_for_element(static_cast<LoginElement>(widget->id - 1)));
     if (!control_input_enabled(scene, control)) {
         return LoginControl::none;
     }
@@ -750,14 +747,8 @@ LoginControl login_scene_move_focus(LoginScene* scene, bool reverse) noexcept {
         scene->focus = LoginControl::none;
         return LoginControl::none;
     }
-    LoginControl control = control_for_element(static_cast<LoginElement>(widget->id - 1));
-    if ((scene->back_only || scene->phone_mode || scene->recovery_mode || scene->reset_mode) &&
-        control == LoginControl::forgot_password)
-        control = LoginControl::back;
-    if (scene->phone_mode && control == LoginControl::password)
-        control = LoginControl::phone_code;
-    if (scene->phone_mode && control == LoginControl::mfa_sms)
-        control = LoginControl::phone_resend;
+    const LoginControl control = semantic_control(
+        *scene, control_for_element(static_cast<LoginElement>(widget->id - 1)));
     scene->focus = control;
     return control;
 }

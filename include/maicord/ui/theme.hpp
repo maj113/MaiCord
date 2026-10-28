@@ -13,6 +13,16 @@ struct Color {
     float alpha;
 };
 
+// Colour of a 0xRRGGBB value; of a 0xRRGGBBAA value.
+constexpr Color color_from_rgb24(u32 rgb, float alpha = 1.0f) noexcept {
+    return {static_cast<float>((rgb >> 16) & 255) / 255.0f, static_cast<float>((rgb >> 8) & 255) / 255.0f,
+            static_cast<float>(rgb & 255) / 255.0f, alpha};
+}
+constexpr Color color_from_rgba(u32 rgba) noexcept {
+    return {static_cast<float>(rgba >> 24) / 255.0f, static_cast<float>((rgba >> 16) & 255) / 255.0f,
+            static_cast<float>((rgba >> 8) & 255) / 255.0f, static_cast<float>(rgba & 255) / 255.0f};
+}
+
 struct UiResolvedThemeStyles;
 enum class ThemeAppearance : u32 {
     dark,

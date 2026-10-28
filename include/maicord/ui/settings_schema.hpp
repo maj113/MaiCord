@@ -10,7 +10,6 @@ enum class UiSettingsControlKind : u8;
 // storage bindings. Catalog data is constexpr; hosts project live values and
 // omit nodes without backing at runtime.
 enum UiSettingsSchemaFlag : u16 {
-    ui_settings_schema_none = 0,
     ui_settings_schema_search_hidden = 1u << 0,
     ui_settings_schema_marks = 1u << 1,
     ui_settings_schema_dynamic = 1u << 2,

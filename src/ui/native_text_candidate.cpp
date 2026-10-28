@@ -683,7 +683,7 @@ NativeTextCandidateCounts native_text_candidate_counts(const TextSystem& system)
     const auto* owner=system.native_text;return owner?NativeTextCandidateCounts{owner->shaped,owner->measured,owner->arabic_shaped,owner->arabic_measured,owner->paragraphs_shaped,owner->paragraphs_measured,owner->latin_shaped,owner->latin_measured}:NativeTextCandidateCounts{};
 }
 NativeTextStorageCounts native_text_candidate_storage_counts(const TextSystem& system) noexcept {
-    const auto* o=system.native_text;return o?NativeTextStorageCounts{o->scratch.reserved,o->scratch.committed,o->scratch.peak,o->storage_retries,o->catalogs.build_ticks}:NativeTextStorageCounts{};
+    const auto* o=system.native_text;return o?NativeTextStorageCounts{o->scratch.reserved,o->scratch.committed,o->scratch.peak,o->storage_retries}:NativeTextStorageCounts{};
 }
 ConstSlice<NativeParagraphCluster> native_text_candidate_prepared_clusters(const TextSystem& system) noexcept {
     const auto* owner=system.native_text;

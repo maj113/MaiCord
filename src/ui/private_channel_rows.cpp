@@ -25,9 +25,6 @@ const PrivateChannelRecord* record(const ChatStateStore& state, u64 channel_id,
                ? private_channel_store_find(*state.private_channels, channel_id)
                : nullptr;
 }
-} // namespace
-
-namespace {
 // The other member of a one-to-one conversation, or zero.
 u64 private_row_peer(const UiPrivateRowSource& source, u64 channel_id) noexcept {
     const ChannelRecord* channel = nullptr;

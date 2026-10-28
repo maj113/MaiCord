@@ -50,7 +50,8 @@ bool slider(UiThemeEditorElement e) noexcept {
     return range(e) && e != UiThemeEditorElement::sv && e != UiThemeEditorElement::hue;
 }
 void rgb_hsv(UiThemeEditorScene& s, u32 rgb) noexcept {
-    const float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f;
+    const Color c = color_from_rgb24(rgb);
+    const float r = c.red, g = c.green, b = c.blue;
     const float high = maximum(r, maximum(g, b)), low = minimum(r, minimum(g, b)), d = high - low;
     s.value = high;
     s.saturation = high ? d / high : 0;

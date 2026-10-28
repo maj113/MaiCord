@@ -139,8 +139,6 @@ struct MessageTextRichMetrics {
     u32 embeds;
     u32 stickers;
     u32 components;
-    u32 truncated_records;
-    u32 flow_items;
     u32 flow_overflow_regions;
     u32 skipped_components;
 };
@@ -175,7 +173,6 @@ enum class MessageTextPresentationOperation : u8 {
     begin_flow_item,
     append_command,
     commit_flow_item,
-    advance_flow,
     ensure_extent,
     finish_flow,
     build_reactions,
@@ -184,7 +181,6 @@ enum class MessageTextPresentationOperation : u8 {
 struct MessageTextPresentationResult {
     u32 command_count;
     u32 measurement_count;
-    u32 transformed_bytes;
     MessageTextPresentationError error;
 
     constexpr bool ok() const noexcept {
@@ -214,7 +210,6 @@ struct MessageMarkdownCacheEntry {
     u16 span_count;
     u16 list_items;
     u16 resolved_entities;
-    u16 unresolved_entities;
     u16 timestamps;
     u8 semantic_count;
     u8 flags;
@@ -226,11 +221,7 @@ struct MessageMarkdownCache {
     u32 slot_count;
     u32 arena_bytes;
     u64 head;
-    u32 hits;
-    u32 misses;
     u32 inserts;
-    u32 refreshes;
-    u32 uncacheable;
 };
 
 // entries start zeroed; their count is a power of two and arena.count a
@@ -260,7 +251,6 @@ struct MessageTextPresentation {
     u32 spoiler_reveal_count;
     u32 spoiler_reveal_cursor;
     u32 builds;
-    u32 rejected;
     u32 markdown_parses; // parser runs; cache hits count in markdown_cache_hits
     u32 markdown_cache_hits;
     u32 markdown_transformations;
@@ -271,9 +261,7 @@ struct MessageTextPresentation {
     u32 markdown_list_items;
     u32 markdown_syntax_truncated;
     u32 markdown_resolved_entities;
-    u32 markdown_unresolved_entities;
     u32 markdown_timestamps;
-    u32 markdown_semantics_truncated;
     MessageTextRichMetrics rich;
     u64 next_timestamp_update_unix_seconds;
     u64 projection_signature;
@@ -356,7 +344,7 @@ static_assert(sizeof(MessageTextHit) == 32);
 static_assert(sizeof(MessageTextSpoilerReveal) == 16);
 static_assert(sizeof(MessageTextCommand) == 176);
 static_assert(sizeof(MessageTextMeasurement) == 816);
-static_assert(sizeof(MessageTextRichMetrics) == 40);
+static_assert(sizeof(MessageTextRichMetrics) == 32);
 static_assert(sizeof(MessageMarkdownCacheEntry) == 72);
 
 } // namespace maicord

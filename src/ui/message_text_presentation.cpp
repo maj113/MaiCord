@@ -197,8 +197,7 @@ UiSize previous_measurement(MessageTextPresentation* presentation, u64 identity)
 
 MessageTextPresentationResult result(const MessageTextPresentation& presentation,
                                      MessageTextPresentationError error) noexcept {
-    return MessageTextPresentationResult{presentation.command_count, presentation.measurement_count,
-                                         presentation.utf8_count, error};
+    return MessageTextPresentationResult{presentation.command_count, presentation.measurement_count, error};
 }
 
 void reject_atomically(MessageTextPresentation* presentation, MessageTextPresentationError error) noexcept {
@@ -215,7 +214,6 @@ void reject_atomically(MessageTextPresentation* presentation, MessageTextPresent
     presentation->projection_signature = 0;
     presentation->active = false;
     presentation->last_error = error;
-    saturating_accumulate(presentation->rejected);
 }
 
 bool fail(MessageTextPresentation* presentation, MessageTextPresentationError error) noexcept {
@@ -246,6 +244,15 @@ void set_failure_operation(MessageTextPresentation* presentation,
     }
     presentation->failure_operation = operation;
     presentation->failure_flow_error = flow_error;
+}
+
+void clear_failure_context(MessageTextPresentation* presentation) noexcept {
+    presentation->failure_message_id = 0;
+    presentation->failure_source_index = ~0u;
+    presentation->failure_item_index = kInvalidMessageTextMeasurement;
+    presentation->failure_stage = MessageTextPresentationStage::none;
+    presentation->failure_operation = MessageTextPresentationOperation::none;
+    presentation->failure_flow_error = UiTextFlowError::none;
 }
 
 // Every emission that can outgrow its source passes a callback; one resolved
@@ -514,7 +521,6 @@ MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentatio
             result.syntax_tokens = entry->syntax_tokens;
             result.syntax_styled_bytes = entry->syntax_styled_bytes;
             result.resolved_entities = entry->resolved_entities;
-            result.unresolved_entities = entry->unresolved_entities;
             result.timestamps = entry->timestamps;
             result.semantic_count = entry->semantic_count;
             result.next_timestamp_update_unix_seconds = entry->expires_unix_seconds;
@@ -523,16 +529,13 @@ MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentatio
             result.semantics_truncated = (entry->flags & markdown_cache_semantics_truncated) != 0;
             // Copy a payload the ring is about to reach forward, from the
             // caller buffers it was just written to.
-            if (cache->head - (entry->position - 1u) > cache->arena_bytes / 2u &&
+            if (cache->head - (entry->position - 1u) > cache->arena_bytes / 2u)
                 markdown_cache_write(cache, entry,
                                      ConstSlice<MessageMarkdownSemantic>{semantic_output.data, entry->semantic_count},
-                                     ConstSlice<TextStyleSpan>{span_output.data, entry->span_count}, result.text))
-                saturating_increment(cache->refreshes);
-            saturating_increment(cache->hits);
+                                     ConstSlice<TextStyleSpan>{span_output.data, entry->span_count}, result.text);
             saturating_increment(presentation->markdown_cache_hits);
             return result;
         }
-        saturating_increment(cache->misses);
     }
     reset_value<MarkdownParseTrace>(&context->trace);
     saturating_accumulate(presentation->markdown_parses);
@@ -543,10 +546,8 @@ MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentatio
     const MarkdownParseTrace& trace = context->trace;
     const u64 required = u64{source.bytes} + trace.extra_bytes + trace.largest_emission + 1u;
     if (required > text_capacity || (parsed.semantics_truncated && !full_semantics) || parsed.span_count > 0xFFFFu ||
-        parsed.semantic_count > 0xFFu) {
-        saturating_increment(cache->uncacheable);
+        parsed.semantic_count > 0xFFu)
         return parsed;
-    }
     MessageMarkdownCacheEntry* entry = markdown_cache_slot(cache, key);
     MessageMarkdownCacheEntry value{};
     value.key = key;
@@ -561,7 +562,6 @@ MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentatio
     value.span_count = static_cast<u16>(parsed.span_count);
     value.list_items = parsed.list_items;
     value.resolved_entities = static_cast<u16>(minimum(parsed.resolved_entities, 0xFFFFu));
-    value.unresolved_entities = static_cast<u16>(minimum(parsed.unresolved_entities, 0xFFFFu));
     value.timestamps = static_cast<u16>(minimum(parsed.timestamps, 0xFFFFu));
     value.semantic_count = static_cast<u8>(parsed.semantic_count);
     value.flags = static_cast<u8>((trace.entities ? markdown_cache_entities : 0u) |
@@ -574,8 +574,6 @@ MessageMarkdownResult cached_markdown_parse(MessageTextPresentation* presentatio
                              ConstSlice<MessageMarkdownSemantic>{semantic_output.data, parsed.semantic_count},
                              ConstSlice<TextStyleSpan>{span_output.data, parsed.span_count}, parsed.text))
         saturating_increment(cache->inserts);
-    else
-        saturating_increment(cache->uncacheable);
     return parsed;
 }
 
@@ -745,7 +743,6 @@ bool commit_last_command(MessageTextPresentation* presentation, UiTextFlowLayout
         presentation->failure_flow_error = flow->last_error;
         return fail(presentation, MessageTextPresentationError::layout);
     }
-    saturating_accumulate(presentation->rich.flow_items);
     return true;
 }
 
@@ -1088,7 +1085,6 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
         saturating_accumulate(presentation->markdown_transformations, parsed.transformations);
         saturating_accumulate(presentation->markdown_spans_emitted, parsed.span_count);
         saturating_accumulate(presentation->markdown_resolved_entities, parsed.resolved_entities);
-        saturating_accumulate(presentation->markdown_unresolved_entities, parsed.unresolved_entities);
         saturating_accumulate(presentation->markdown_timestamps, parsed.timestamps);
     } else if (parsed_markdown) {
         saturating_accumulate(presentation->markdown_rejected);
@@ -1354,13 +1350,9 @@ bool parse_content(MessageTextPresentation* presentation, BuildContext* context,
     saturating_accumulate(presentation->markdown_syntax_styled_bytes, parsed.syntax_styled_bytes);
     saturating_accumulate(presentation->markdown_list_items, parsed.list_items);
     saturating_accumulate(presentation->markdown_resolved_entities, parsed.resolved_entities);
-    saturating_accumulate(presentation->markdown_unresolved_entities, parsed.unresolved_entities);
     saturating_accumulate(presentation->markdown_timestamps, parsed.timestamps);
     if (parsed.syntax_truncated) {
         saturating_accumulate(presentation->markdown_syntax_truncated);
-    }
-    if (parsed.semantics_truncated) {
-        saturating_accumulate(presentation->markdown_semantics_truncated);
     }
     if (parsed.next_timestamp_update_unix_seconds != 0 &&
         (presentation->next_timestamp_update_unix_seconds == 0 ||
@@ -3594,7 +3586,6 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         presentation->measurements[measurement_index].rich_layout.notice =
             presentation->measurements[measurement_index]
                 .rich_item_layout.heights[kMessageSceneNoticeItemOffset];
-        saturating_accumulate(presentation->rich.truncated_records);
     }
     return append_annotations(presentation, scene, row, *record, theme, row_clip, measurement_index, forwarded,
                               rich->truncations != 0
@@ -3681,13 +3672,7 @@ bool message_text_presentation_initialize(MessageTextPresentation* presentation,
     presentation->measurements = measurements;
     presentation->spoiler_reveals = spoiler_reveals;
     presentation->byte_style_scratch = byte_style_scratch;
-    presentation->last_error = MessageTextPresentationError::none;
-    presentation->failure_message_id = 0;
-    presentation->failure_source_index = ~0u;
-    presentation->failure_item_index = kInvalidMessageTextMeasurement;
-    presentation->failure_stage = MessageTextPresentationStage::none;
-    presentation->failure_operation = MessageTextPresentationOperation::none;
-    presentation->failure_flow_error = UiTextFlowError::none;
+    clear_failure_context(presentation);
     return true;
 }
 
@@ -3732,14 +3717,8 @@ MessageTextPresentationResult message_text_presentation_build(
     MessageTextPresentation* presentation, const MessageScene& scene, const ChatStateStore& state,
     const UserStore* users, const NavigationView& navigation, const Theme& theme,
     u64 now_unix_seconds) noexcept {
-    if (presentation) {
-        presentation->failure_message_id = 0;
-        presentation->failure_source_index = ~0u;
-        presentation->failure_item_index = kInvalidMessageTextMeasurement;
-        presentation->failure_stage = MessageTextPresentationStage::none;
-        presentation->failure_operation = MessageTextPresentationOperation::none;
-        presentation->failure_flow_error = UiTextFlowError::none;
-    }
+    if (presentation)
+        clear_failure_context(presentation);
     if (!presentation || !presentation->commands.data || !presentation->utf8.data ||
         !presentation->styles.data || !presentation->semantics.data || !presentation->measurements.data ||
         !presentation->spoiler_reveals.data || !presentation->byte_style_scratch.data || !scene.active ||
@@ -3748,7 +3727,7 @@ MessageTextPresentationResult message_text_presentation_build(
         reject_atomically(presentation, MessageTextPresentationError::invalid_input);
         return presentation
                    ? result(*presentation, presentation->last_error)
-                   : MessageTextPresentationResult{0, 0, 0, MessageTextPresentationError::invalid_input};
+                   : MessageTextPresentationResult{0, 0, MessageTextPresentationError::invalid_input};
     }
     const u32 previous_count = presentation->command_count;
     if (previous_count > presentation->commands.count ||
@@ -3806,12 +3785,7 @@ MessageTextPresentationResult message_text_presentation_build(
         }
     }
     presentation->active = true;
-    presentation->failure_message_id = 0;
-    presentation->failure_source_index = ~0u;
-    presentation->failure_item_index = kInvalidMessageTextMeasurement;
-    presentation->failure_stage = MessageTextPresentationStage::none;
-    presentation->failure_operation = MessageTextPresentationOperation::none;
-    presentation->failure_flow_error = UiTextFlowError::none;
+    clear_failure_context(presentation);
     presentation->projection_signature = message_text_presentation_projection_signature(*presentation);
     presentation->shift_layout_passes = scene.layout_passes;
     saturating_accumulate(presentation->builds);
@@ -3839,10 +3813,8 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
         presentation->measurement_count > presentation->measurements.count ||
         presentation->command_count > presentation->byte_style_scratch.count / 2u ||
         presentation->command_count > 0xFFFFu) {
-        if (presentation) {
+        if (presentation)
             presentation->last_error = MessageTextPresentationError::measurement;
-            saturating_accumulate(presentation->rejected);
-        }
         return false;
     }
     for (u32 index = 0; index < presentation->command_count; ++index) {
@@ -3856,7 +3828,6 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
             (command.measurement_kind != MessageTextMeasurementKind::none &&
              command.measurement_index >= presentation->measurement_count)) {
             presentation->last_error = MessageTextPresentationError::measurement;
-            saturating_accumulate(presentation->rejected);
             return false;
         }
     }
@@ -3877,7 +3848,6 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
         UiTextMeasureValue value{};
         if (!ui_text_measure_cache_measure(cache, request, &value).ok()) {
             presentation->last_error = MessageTextPresentationError::measurement;
-            saturating_accumulate(presentation->rejected);
             return false;
         }
         const FloatWord measured_height{value.size.height};

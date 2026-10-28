@@ -221,9 +221,6 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_initialize(D3D11DrawPipelineOwner* o
                                                        ID3D11DeviceContext* context, u32 width, u32 height,
                                                        u32 dpi,
                                                        const D3D11DrawPipelineConfig& config) noexcept {
-    if (!owner || !context || width == 0 || height == 0 || dpi == 0) {
-        return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
-    }
     D3D11DrawPipelineOwner staged{};
     const D3D11DrawPipelineResult created = d3d11_draw_pipeline_create(&staged, device, config);
     return created.ok() ? d3d11_draw_pipeline_publish(owner, &staged, context, width, height, dpi) : created;
@@ -233,8 +230,7 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_ui_instances(D3D11DrawPipeli
                                                                  ID3D11Device* device, u32 stride,
                                                                  u32 required_count) noexcept {
     const u32 capacity = d3d11_ui_instance_capacity_for_count(required_count);
-    if (!owner || !device || stride < 64 || !valid_buffer_dimensions(stride, capacity) ||
-        owner->ui_instance_capacity > kD3D11MaximumUiInstanceCapacity) {
+    if (!owner || !device || stride < 64 || !valid_buffer_dimensions(stride, capacity)) {
         return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
     }
     if (owner->ui_instance_buffer && required_count <= owner->ui_instance_capacity)

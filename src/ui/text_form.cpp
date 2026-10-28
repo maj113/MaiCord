@@ -204,9 +204,6 @@ bool build(TextFormScene* scene) noexcept {
         } else if (element == TextFormElement::panel) {
             kind = UiWidgetKind::scroll_view;
             style.flow = UiLayoutFlow::vertical;
-            style.gap = ui_theme_metrics(scene->theme_styles).form_group_gap * .5f;
-            const float padding = ui_theme_metrics(scene->theme_styles).form_field_padding + 8;
-            style.padding = {padding, padding, padding, padding};
             style.horizontal_alignment = UiLayoutAlignment::center;
             style.vertical_alignment = UiLayoutAlignment::center;
             style.flags |= ui_layout_node_clip_children | ui_layout_node_scroll_vertical;
@@ -214,15 +211,8 @@ bool build(TextFormScene* scene) noexcept {
             kind = UiWidgetKind::container;
             style.flow = UiLayoutFlow::horizontal_wrap;
             style.justification = UiLayoutJustification::end;
-            style.gap = ui_theme_metrics(scene->theme_styles).form_group_gap * .5f;
-            style.margin.top = style.gap;
         } else if (element == TextFormElement::edit) {
             kind = UiWidgetKind::text_field;
-            style.height = ui_layout_fixed(
-                scene->content.single_line ? ui_theme_metrics(scene->theme_styles).form_single_height + 4
-                                           : ui_theme_metrics(scene->theme_styles).form_multiline_height);
-            const float padding = ui_theme_metrics(scene->theme_styles).form_field_padding;
-            style.padding = {padding, maximum(0.f, padding - 2), padding, maximum(0.f, padding - 2)};
             style.flags |= ui_layout_node_clip_children;
         } else if (element == TextFormElement::option || radio(element)) {
             // A full-width checkbox or radio row: the marker, then the wrapped label.
@@ -638,8 +628,7 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
             const auto swatch = text_form_swatch_box(scene);
             if (valid && ui_rect_has_area(swatch)) {
                 const u32 rgba = scene.content.swatch_rgba;
-                const Color color{static_cast<float>(rgba >> 24) / 255.f, static_cast<float>((rgba >> 16) & 255) / 255.f,
-                                  static_cast<float>((rgba >> 8) & 255) / 255.f, static_cast<float>(rgba & 255) / 255.f};
+                const Color color = color_from_rgba(rgba);
                 valid = paint_stream_push_rounded_border(paint, swatch, color, theme.tokens.border.strong, theme.scale.radius_xs, 1);
             }
         } else if (radio(element)) {

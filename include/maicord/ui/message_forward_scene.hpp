@@ -54,7 +54,6 @@ bool ui_message_forward_scene_update(UiMessageForwardScene*, const UiMessageForw
     const UiMessageForwardContent*, UiRect viewport) noexcept;
 void ui_message_forward_scene_release(UiMessageForwardScene*) noexcept;
 bool ui_message_forward_scene_current(const UiMessageForwardScene&) noexcept;
-bool ui_message_forward_scene_contains(const UiMessageForwardScene&, float x, float y) noexcept;
 UiMessageForwardTarget ui_message_forward_scene_target(const UiMessageForwardScene&, UiWidgetHandle) noexcept;
 UiMessageForwardTarget ui_message_forward_scene_hit_test(const UiMessageForwardScene&, float x, float y) noexcept;
 UiMessageForwardTarget ui_message_forward_scene_selected(const UiMessageForwardScene&) noexcept;
