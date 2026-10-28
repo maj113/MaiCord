@@ -43,36 +43,10 @@ RtpDepacketize rtp_h265_push(RtpVideoAssembly* assembly, ConstSlice<u8> payload,
         complete(a, type);
         return RtpDepacketize::appended;
     }
-    if (type == kAggregation) {
-        u32 offset = 2, total = 0, units = 0;
-        while (offset != payload.count) {
-            if (payload.count - offset < 2)
-                return reject(a, RtpDepacketize::damaged);
-            const u32 size = load16(payload.data + offset);
-            offset += 2;
-            if (size < 2 || size > payload.count - offset || !plain_nal(payload.data + offset))
-                return reject(a, RtpDepacketize::damaged);
-            total += 4 + size;
-            offset += size;
-            ++units;
-        }
-        // RFC 7798 4.4.2: an AP carries at least two aggregation units; accept
-        // one defensively since its bytes are still a complete NAL unit.
-        if (!units)
-            return reject(a, RtpDepacketize::damaged);
-        if (!fits(a, total))
-            return reject(a, RtpDepacketize::overflow);
-        offset = 2;
-        while (offset != payload.count) {
-            const u32 size = load16(payload.data + offset);
-            offset += 2;
-            start_code(a);
-            put(a, payload.data + offset, size);
-            complete(a, nal_type(payload.data + offset));
-            offset += size;
-        }
-        return RtpDepacketize::appended;
-    }
+    // RFC 7798 4.4.2: an AP carries at least two aggregation units; accept
+    // one defensively since its bytes are still a complete NAL unit.
+    if (type == kAggregation)
+        return append_aggregate(a, payload, 2, 2, plain_nal, nal_type);
     if (type != kFragmentation)
         return reject(a, RtpDepacketize::damaged); // PACI and unassigned types.
     if (payload.count < 4) {
@@ -86,36 +60,9 @@ RtpDepacketize rtp_h265_push(RtpVideoAssembly* assembly, ConstSlice<u8> payload,
         drop_fragment(a);
         return reject(a, RtpDepacketize::damaged);
     }
-    const u32 data = payload.count - 3;
-    if (start) {
-        drop_fragment(a);
-        if (!fits(a, data + 6))
-            return reject(a, RtpDepacketize::overflow);
-        a.fu_offset = a.bytes;
-        a.fu_type = fu_type;
-        a.fu_active = true;
-        start_code(a);
-        // The payload header carries F, LayerId and TID; FuType replaces Type.
-        const u8 reconstructed[2]{static_cast<u8>((payload[0] & 0x81) | (fu_type << 1)), payload[1]};
-        put(a, reconstructed, 2);
-    } else {
-        if (!a.fu_active)
-            return reject(a, RtpDepacketize::damaged);
-        if (a.fu_type != fu_type) {
-            drop_fragment(a);
-            return reject(a, RtpDepacketize::damaged);
-        }
-        if (!fits(a, data)) {
-            drop_fragment(a);
-            return reject(a, RtpDepacketize::overflow);
-        }
-    }
-    put(a, payload.data + 3, data);
-    if (end) {
-        a.fu_active = false;
-        complete(a, fu_type);
-    }
-    return RtpDepacketize::appended;
+    // The payload header carries F, LayerId and TID; FuType replaces Type.
+    const u8 reconstructed[2]{static_cast<u8>((payload[0] & 0x81) | (fu_type << 1)), payload[1]};
+    return append_fragment(a, payload, 3, start, end, fu_type, reconstructed, 2);
 }
 
 bool rtp_h265_starts_access_unit(ConstSlice<u8> payload) noexcept {
