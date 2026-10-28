@@ -73,7 +73,7 @@ RestRouteKey attachment_upload_route(u64 channel_id) noexcept {
 AttachmentUploadResponse attachment_upload_parse_response(Utf8View body, u32 expected_id,
     Slice<char> url, Slice<char> uploaded_filename) noexcept {
     if (body.bytes > 32 * 1024 || !url.data || !uploaded_filename.data) return {};
-    u32 structurals[512]{};
+    u32 structurals[512];
     const auto scan = json_scan_structurals_avx1(body, {structurals, 512});
     Response r{};
     r.document = {body, {structurals, scan.count}};
@@ -107,11 +107,15 @@ bool attachment_upload_valid_reference(const UploadedAttachment& attachment) noe
     if ((attachment.waveform.bytes != 0) != (attachment.duration_ms != 0) ||
         (attachment.waveform.bytes && !gateway_message_waveform_valid(attachment.waveform)))
         return false;
-    return attachment_upload_valid_filename(attachment.filename) &&
-        valid_text(attachment.uploaded_filename, kAttachmentUploadMaximumUploadedFilenameBytes, true) &&
-        (!attachment.description.bytes || (attachment.description.data &&
-          attachment.description.bytes <= 4096 && utf8_validate(attachment.description).valid &&
-          utf8_validate(attachment.description).codepoints <= 1024));
+    if (!attachment_upload_valid_filename(attachment.filename) ||
+        !valid_text(attachment.uploaded_filename, kAttachmentUploadMaximumUploadedFilenameBytes, true))
+        return false;
+    if (!attachment.description.bytes)
+        return true;
+    if (!attachment.description.data || attachment.description.bytes > 4096)
+        return false;
+    const auto description = utf8_validate(attachment.description);
+    return description.valid && description.codepoints <= 1024;
 }
 u32 attachment_upload_write_references(ConstSlice<UploadedAttachment> attachments,
     Slice<u8> output) noexcept {

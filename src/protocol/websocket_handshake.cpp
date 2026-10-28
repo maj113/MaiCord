@@ -1,5 +1,6 @@
 #include "maicord/protocol/websocket_handshake.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/memory.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/client_user_agent.hpp"
 #include "maicord/protocol/http1.hpp"
@@ -15,7 +16,7 @@ u32 rotate_left(u32 value, u32 shift) noexcept {
 }
 
 void sha1_block(const u8* block, u32* hash) noexcept {
-    u32 words[80]{};
+    u32 words[80];
     for (u32 index = 0; index < 16; ++index) {
         words[index] = byte_load_be32(block + index * 4);
     }
@@ -59,29 +60,19 @@ void sha1_block(const u8* block, u32* hash) noexcept {
     hash[4] += e;
 }
 
-void sha1(ConstSlice<u8> input, u8* digest) noexcept {
+// SHA-1 of the 60-byte client key plus GUID: one data block holding the message and the
+// padding byte, then one block holding only the bit length (480).
+void sha1_accept_source(const ConstSlice<u8>& client_key, u8* digest) noexcept {
+    static_assert(kWebSocketClientKeyBytes + sizeof(kWebSocketGuid) - 1 == 60);
     u32 hash[5] = {0x67452301u, 0xEFCDAB89u, 0x98BADCFEu, 0x10325476u, 0xC3D2E1F0u};
-    u32 offset = 0;
-    while (input.count - offset >= 64) {
-        sha1_block(input.data + offset, hash);
-        offset += 64;
-    }
-
-    u8 final_blocks[128]{};
-    const u32 remaining = input.count - offset;
-    for (u32 index = 0; index < remaining; ++index) {
-        final_blocks[index] = input[offset + index];
-    }
-    final_blocks[remaining] = 0x80;
-    const u32 final_bytes = remaining < 56 ? 64 : 128;
-    const u64 bit_count = static_cast<u64>(input.count) * 8;
-    for (u32 index = 0; index < 8; ++index) {
-        final_blocks[final_bytes - 8 + index] = static_cast<u8>(bit_count >> (56 - index * 8));
-    }
-    sha1_block(final_blocks, hash);
-    if (final_bytes == 128) {
-        sha1_block(final_blocks + 64, hash);
-    }
+    u8 blocks[128]{};
+    copy_bytes(blocks, client_key.data, kWebSocketClientKeyBytes);
+    copy_bytes(blocks + kWebSocketClientKeyBytes, kWebSocketGuid, sizeof(kWebSocketGuid) - 1);
+    blocks[60] = 0x80;
+    blocks[126] = 0x01;
+    blocks[127] = 0xE0;
+    sha1_block(blocks, hash);
+    sha1_block(blocks + 64, hash);
     for (u32 index = 0; index < 5; ++index) {
         byte_store_be32(digest + index * 4, hash[index]);
     }
@@ -91,7 +82,7 @@ bool valid_client_key(ConstSlice<u8> key) noexcept {
     if (key.count != kWebSocketClientKeyBytes) {
         return false;
     }
-    u8 decoded[kWebSocketNonceBytes]{};
+    u8 decoded[kWebSocketNonceBytes];
     const Base64Result result = base64_decode(Utf8View{reinterpret_cast<const char*>(key.data), key.count},
                                               Slice<u8>{decoded, kWebSocketNonceBytes});
     return result.ok() && result.bytes == kWebSocketNonceBytes;
@@ -193,15 +184,8 @@ WebSocketHandshakeWriteResult websocket_compute_accept(ConstSlice<u8> client_key
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
     }
 
-    u8 source[kWebSocketClientKeyBytes + sizeof(kWebSocketGuid) - 1]{};
-    for (u32 index = 0; index < client_key.count; ++index) {
-        source[index] = client_key[index];
-    }
-    for (u32 index = 0; index < sizeof(kWebSocketGuid) - 1; ++index) {
-        source[kWebSocketClientKeyBytes + index] = static_cast<u8>(kWebSocketGuid[index]);
-    }
-    u8 digest[20]{};
-    sha1(ConstSlice<u8>{source, static_cast<u32>(sizeof(source))}, digest);
+    u8 digest[20];
+    sha1_accept_source(client_key, digest);
     const Base64Result encoded =
         base64_encode(ConstSlice<u8>{digest, static_cast<u32>(sizeof(digest))},
                       Slice<char>{reinterpret_cast<char*>(output.data), output.count});

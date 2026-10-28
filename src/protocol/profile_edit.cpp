@@ -21,6 +21,11 @@ bool text_within(const Utf8View& value, u32 codepoints, u32 bytes) noexcept {
 bool image_valid(Utf8View value) noexcept {
     return !value.bytes || (data_uri(value) && utf8_validate(value).valid);
 }
+// An optional image whose description needs it.
+bool avatar_valid(Utf8View avatar, Utf8View description) noexcept {
+    return image_valid(avatar) && (!description.bytes || avatar.bytes) &&
+           text_within(description, kProfileEditDescriptionBytes, kProfileEditDescriptionBytes);
+}
 bool user_valid(const UserPatch& p) noexcept {
     if (!p.fields || (p.fields & ~7u))
         return false;
@@ -30,8 +35,7 @@ bool user_valid(const UserPatch& p) noexcept {
         return false;
     if (!(p.fields & user_patch_avatar_decoration) && p.avatar_decoration_sku)
         return false;
-    return image_valid(p.avatar) && (!p.avatar_description.bytes || p.avatar.bytes) &&
-           text_within(p.avatar_description, kProfileEditDescriptionBytes, kProfileEditDescriptionBytes) &&
+    return avatar_valid(p.avatar, p.avatar_description) &&
            text_within(p.global_name, kProfileEditDisplayNameCodepoints, kProfileEditDisplayNameCodepoints * 4);
 }
 bool member_valid(const MemberEditPatch& p) noexcept {
@@ -43,8 +47,7 @@ bool member_valid(const MemberEditPatch& p) noexcept {
         return false;
     if (!(p.fields & member_edit_avatar_decoration) && p.avatar_decoration_sku)
         return false;
-    return image_valid(p.avatar) && (!p.avatar_description.bytes || p.avatar.bytes) &&
-           text_within(p.avatar_description, kProfileEditDescriptionBytes, kProfileEditDescriptionBytes) &&
+    return avatar_valid(p.avatar, p.avatar_description) &&
            text_within(p.nick, kProfileEditNicknameCodepoints, kProfileEditNicknameCodepoints * 4);
 }
 bool profile_valid(const ProfilePatch& p, bool member) noexcept {

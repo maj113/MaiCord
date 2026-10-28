@@ -1,5 +1,6 @@
 #include "json_write.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/protocol/rest.hpp"
 
 namespace maicord::protocol_detail {
 namespace {
@@ -80,6 +81,13 @@ bool encoded_string(const Utf8View& source, u32 maximum_bytes, EncodedString* ou
 void write_encoded(u8* output, u32* offset, const EncodedString& string) noexcept {
     write_json_string(output + *offset, string.source);
     *offset += string.bytes;
+}
+
+bool audit_reason_encodes(const Utf8View& reason) noexcept {
+    u8 scratch[kRestAuditReasonMaximumEncodedBytes];
+    const bool ok = rest_encode_audit_reason(reason, {scratch, sizeof(scratch)}).ok;
+    secure_clear_bytes(scratch, sizeof(scratch));
+    return ok;
 }
 
 } // namespace maicord::protocol_detail

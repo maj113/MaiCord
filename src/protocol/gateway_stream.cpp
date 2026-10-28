@@ -183,6 +183,16 @@ GatewayEventDecodeResult decode_stream(JsonValue data, Slice<u32> scratch, u32 d
         return {data.source_offset, GatewayEventDecodeError::missing_required_field};
     return {};
 }
+template <typename T>
+GatewayEventDecodeResult decode_as(u8 kind, T StreamDecode::*member, JsonValue data, Slice<u32> scratch, u32 depth,
+                                   T* output) noexcept {
+    StreamDecode d{};
+    d.kind = kind;
+    const auto result = decode_stream(data, scratch, depth, &d);
+    if (result.ok())
+        *output = d.*member;
+    return result;
+}
 } // namespace
 
 bool gateway_stream_key_valid(const GatewayStreamKey& key) noexcept {
@@ -267,39 +277,19 @@ GatewayCommandWriteResult gateway_write_stream_ping(const GatewayStreamKey& key,
 
 GatewayEventDecodeResult gateway_decode_stream_create(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamCreate* output) noexcept {
-    StreamDecode d{};
-    d.kind = 0;
-    const auto result = decode_stream(data, scratch, depth, &d);
-    if (result.ok())
-        *output = d.create;
-    return result;
+    return decode_as(0, &StreamDecode::create, data, scratch, depth, output);
 }
 GatewayEventDecodeResult gateway_decode_stream_server(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamServer* output) noexcept {
-    StreamDecode d{};
-    d.kind = 1;
-    const auto result = decode_stream(data, scratch, depth, &d);
-    if (result.ok())
-        *output = d.server;
-    return result;
+    return decode_as(1, &StreamDecode::server, data, scratch, depth, output);
 }
 GatewayEventDecodeResult gateway_decode_stream_update(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamUpdate* output) noexcept {
-    StreamDecode d{};
-    d.kind = 2;
-    const auto result = decode_stream(data, scratch, depth, &d);
-    if (result.ok())
-        *output = d.update;
-    return result;
+    return decode_as(2, &StreamDecode::update, data, scratch, depth, output);
 }
 GatewayEventDecodeResult gateway_decode_stream_delete(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamDelete* output) noexcept {
-    StreamDecode d{};
-    d.kind = 3;
-    const auto result = decode_stream(data, scratch, depth, &d);
-    if (result.ok())
-        *output = d.removal;
-    return result;
+    return decode_as(3, &StreamDecode::removal, data, scratch, depth, output);
 }
 
 u32 gateway_stream_preview_target(const GatewayStreamKey& key, u64 version, Slice<u8> output) noexcept {

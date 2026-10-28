@@ -1,7 +1,6 @@
 #include "maicord/protocol/gateway_voice.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "json_field_lists.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 
 namespace maicord {
 namespace {
@@ -67,8 +66,7 @@ bool visit(void* opaque, JsonString key, JsonValue value) noexcept {
             valid = true;
             break;
         }
-        JsonString text{};
-        valid = json_value_as_string(value, &text) && parse_iso_timestamp(text, &d.state.request_to_speak_ms);
+        valid = json_value_to_timestamp(value, &d.state.request_to_speak_ms);
         if (valid)
             d.state.flags |= gateway_voice_request_to_speak;
         break;
@@ -110,31 +108,28 @@ GatewayEventDecodeResult decode(JsonValue data, Slice<u32> scratch, u32 depth, D
         return {data.source_offset, GatewayEventDecodeError::missing_required_field};
     return {};
 }
+template <typename T>
+GatewayEventDecodeResult decode_as(T Decode::*member, bool server_event, bool session_optional, JsonValue data,
+                                   Slice<u32> scratch, u32 depth, T* output) noexcept {
+    Decode d{};
+    d.server_event = server_event;
+    d.session_optional = session_optional;
+    const auto result = decode(data, scratch, depth, &d);
+    if (result.ok())
+        *output = d.*member;
+    return result;
+}
 } // namespace
 GatewayEventDecodeResult gateway_decode_voice_state(JsonValue data, Slice<u32> scratch, u32 depth,
                                                     GatewayVoiceState* output) noexcept {
-    Decode d{};
-    const auto result = decode(data, scratch, depth, &d);
-    if (result.ok())
-        *output = d.state;
-    return result;
+    return decode_as(&Decode::state, false, false, data, scratch, depth, output);
 }
 GatewayEventDecodeResult gateway_decode_voice_state_row(JsonValue data, Slice<u32> scratch, u32 depth,
                                                         GatewayVoiceState* output) noexcept {
-    Decode d{};
-    d.session_optional = true;
-    const auto result = decode(data, scratch, depth, &d);
-    if (result.ok())
-        *output = d.state;
-    return result;
+    return decode_as(&Decode::state, false, true, data, scratch, depth, output);
 }
 GatewayEventDecodeResult gateway_decode_voice_server(JsonValue data, Slice<u32> scratch, u32 depth,
                                                      GatewayVoiceServer* output) noexcept {
-    Decode d{};
-    d.server_event = true;
-    const auto result = decode(data, scratch, depth, &d);
-    if (result.ok())
-        *output = d.server;
-    return result;
+    return decode_as(&Decode::server, true, false, data, scratch, depth, output);
 }
 } // namespace maicord

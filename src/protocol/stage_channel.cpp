@@ -77,6 +77,7 @@ bool stage_request_valid(const StageRequest& r) noexcept {
     return true;
 }
 
+namespace {
 RestMethod stage_method(StageOperation operation) noexcept {
     switch (operation) {
     case StageOperation::start:
@@ -89,6 +90,7 @@ RestMethod stage_method(StageOperation operation) noexcept {
         return RestMethod::patch;
     }
 }
+} // namespace
 
 bool stage_has_body(StageOperation operation) noexcept {
     return operation != StageOperation::end && operation < StageOperation::count;

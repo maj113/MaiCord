@@ -91,7 +91,7 @@ bool activity_item(void* opaque, u32, JsonValue v) noexcept {
         return true;
     if (type != 4) {
         // One-line status such as "Playing X" or "Listening to X".
-        ProfileString<256> name{}, details{};
+        ProfileString<256> name, details;
         if (!string(f[1].value, &name) || !name.bytes)
             return true; // Oversized or missing names do not invalidate the presence.
         string(f[4].value, &details);
@@ -100,7 +100,7 @@ bool activity_item(void* opaque, u32, JsonValue v) noexcept {
         c.out->activity.bytes = static_cast<u16>(bytes);
         return true;
     }
-    ProfileString<256> text{};
+    ProfileString<256> text;
     if (!string(f[2].value, &text))
         return false;
     copy_value(&c.out->activity, text);

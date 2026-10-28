@@ -87,7 +87,7 @@ PollWriteResult write_poll_request(const PollRequest& request,
         (!body_output.data && body_output.count)) {
         result.error=PollWriteError::invalid_input; return result;
     }
-    u8 target[kPollMaximumTargetBytes]{},body[kPollMaximumRequestBodyBytes]{};
+    u8 target[kPollMaximumTargetBytes],body[kPollMaximumRequestBodyBytes];
     RouteWriter route{};
     ProtocolWriter payload{{body,sizeof(body)},0};
     const bool refresh=request.operation==PollOperation::refresh;
@@ -156,7 +156,7 @@ PollMessageDecodeResult decode_poll_message(Utf8View input,
     if (!members.channel_seen || !members.message_seen || members.channel!=expected_channel ||
         members.message!=expected_message) { result.error=PollDecodeError::identity; return result; }
     if (!members.poll_seen) { result.error=PollDecodeError::poll; return result; }
-    GatewayMessagePoll decoded{};
+    GatewayMessagePoll decoded;
     result.poll=gateway_decode_message_poll(members.poll,document,depth,text,&result.text_bytes,
                                            poll_scratch,&decoded,true);
     if (!result.poll.ok()) {

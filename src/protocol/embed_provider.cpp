@@ -1,6 +1,7 @@
 #include "maicord/protocol/embed_provider.hpp"
 #include "maicord/protocol/embed_player.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -78,6 +79,24 @@ EmbedProvider provider(const Url& u) noexcept {
         host(u, utf8_literal("sessionshare.sp-int.playstation.com"))) return EmbedProvider::playstation;
     return EmbedProvider::none;
 }
+// Percent-decodes input into output; false for a malformed escape or when it does not fit.
+bool percent_decode(const Utf8View& input, char* output, u32 capacity, u32* bytes) noexcept {
+    u32 count = 0;
+    for (u32 i = 0; i < input.bytes; ++i) {
+        char c = input.data[i];
+        if (c == '%') {
+            if (i + 2 >= input.bytes || !ascii_is_hex_digit(input.data[i + 1]) ||
+                !ascii_is_hex_digit(input.data[i + 2]))
+                return false;
+            c = static_cast<char>((ascii_hex_value(input.data[i + 1]) << 4) | ascii_hex_value(input.data[i + 2]));
+            i += 2;
+        }
+        if (count == capacity) return false;
+        output[count++] = c;
+    }
+    *bytes = count;
+    return true;
+}
 bool id_valid(Utf8View id) noexcept {
     if (id.bytes != 11) return false;
     for (u32 i = 0; i < id.bytes; ++i) {
@@ -137,13 +156,9 @@ SoundcloudStation soundcloud_station_locator(Utf8View path) noexcept {
     constexpr auto track = utf8_literal("/discover/sets/track-stations:"), artist = utf8_literal("/discover/sets/artist-stations:");
     const bool from_track = prefix(path, track);
     const auto station = from_track ? track : artist;
-    if (!prefix(path, station) || path.bytes <= station.bytes ||
-        path.bytes > station.bytes + 20 || path.data[station.bytes] == '0') return {};
+    if (!prefix(path, station)) return {};
     u64 id = 0;
-    for (u32 i = station.bytes; i < path.bytes; ++i) {
-        if (!ascii_is_digit(path.data[i]) || id > (~u64{0} - static_cast<u32>(path.data[i] - '0')) / 10) return {};
-        id = id * 10 + static_cast<u32>(path.data[i] - '0');
-    }
+    if (!snowflake_parse({path.data + station.bytes, path.bytes - station.bytes}, &id)) return {};
     return {id,from_track};
 }
 static Utf8View soundcloud_path(Utf8View url, bool collection) noexcept {
@@ -184,16 +199,7 @@ static SoundcloudCollectionLocator soundcloud_locator(Utf8View url, Slice<char> 
         (!equal(widget.path, utf8_literal("/player/")) && !equal(widget.path, utf8_literal("/player"))) ||
         !parameter(widget.query, utf8_literal("url"), &nested) || !nested.bytes || !decoded.data) return {};
     u32 bytes = 0;
-    for (u32 i = 0; i < nested.bytes; ++i) {
-        char c = nested.data[i];
-        if (c == '%') {
-            if (i + 2 >= nested.bytes || !ascii_is_hex_digit(nested.data[i + 1]) || !ascii_is_hex_digit(nested.data[i + 2])) return {};
-            const auto hex = [](char value) noexcept -> u8 { return static_cast<u8>(ascii_is_digit(value) ? value - '0' : ascii_lower(value) - 'a' + 10); };
-            c = static_cast<char>((hex(nested.data[i + 1]) << 4) | hex(nested.data[i + 2])); i += 2;
-        }
-        if (bytes == decoded.count) return {};
-        decoded[bytes++] = c;
-    }
+    if (!percent_decode(nested, decoded.data, decoded.count, &bytes)) return {};
     u32 start = 0; Utf8View index{};
     if (collection) {
         if (!parameter(widget.query, utf8_literal("start_track"), &index)) return {};
@@ -210,12 +216,8 @@ static SoundcloudCollectionLocator soundcloud_locator(Utf8View url, Slice<char> 
     if (!parse(target, &api) || !host(api, utf8_literal("api.soundcloud.com")) || api.query.bytes ||
         !utf8_starts_with(api.path, prefix)) return {};
     const Utf8View id{api.path.data + prefix.bytes, api.path.bytes - prefix.bytes};
-    if (!id.bytes || id.bytes > 20 || id.data[0] == '0') return {};
     u64 value = 0;
-    for (u32 i = 0; i < id.bytes; ++i) {
-        if (!ascii_is_digit(id.data[i]) || value > (~u64{0} - static_cast<u32>(id.data[i] - '0')) / 10) return {};
-        value = value * 10 + static_cast<u32>(id.data[i] - '0');
-    }
+    if (!snowflake_parse(id, &value)) return {};
     return {{}, value, start};
 }
 SoundcloudTrackLocator soundcloud_track_locator(Utf8View url, Slice<char> decoded) noexcept {
@@ -282,16 +284,7 @@ AmazonMusicTrackLocator amazon_music_track_locator(Utf8View url) noexcept {
     if(!parameter(outer.query,utf8_literal("iframe_url"),&frame)) return {};
     if(frame.bytes) {
         char decoded[2048];u32 count=0;
-        for(u32 i=0;i<frame.bytes;++i) {
-            char c=frame.data[i];
-            if(c=='%') {
-                if(i+2>=frame.bytes || !ascii_is_hex_digit(frame.data[i+1]) || !ascii_is_hex_digit(frame.data[i+2])) return {};
-                const auto hex=[](char v) noexcept -> u8 {return static_cast<u8>(ascii_is_digit(v)?v-'0':ascii_lower(v)-'a'+10);};
-                c=static_cast<char>((hex(frame.data[i+1])<<4)|hex(frame.data[i+2]));i+=2;
-            }
-            if(count==sizeof(decoded)) return {};
-            decoded[count++]=c;
-        }
+        if(!percent_decode(frame, decoded, sizeof(decoded), &count)) return {};
         Url nested{};Utf8View recursive{};
         if(!parse({decoded,count},&nested) || !ascii_equal_ignore_case(outer.host,nested.host) ||
             !equal(identify(nested),id) || !parameter(nested.query,utf8_literal("iframe_url"),&recursive) || recursive.bytes) return {};
@@ -576,13 +569,7 @@ EmbedVideoLocator embed_video_locator(Utf8View url) noexcept {
             if (end > 2 && prefix(rest, utf8_literal("/video/"))) out.id = {rest.data + 7, rest.bytes - 7};
         }
         u64 value = 0;
-        bool valid = out.id.bytes && out.id.bytes <= 20 && out.id.data[0] != '0';
-        for (u32 i = 0; valid && i < out.id.bytes; ++i) {
-            const u32 digit = static_cast<u8>(out.id.data[i]) - '0';
-            valid = digit <= 9 && value <= (~u64{0} - digit) / 10;
-            if (valid) value = value * 10 + digit;
-        }
-        if (!valid) reset_value(&out.id);
+        if (!snowflake_parse(out.id, &value)) reset_value(&out.id);
         return out;
     }
     if (out.provider != EmbedProvider::youtube && out.provider != EmbedProvider::youtube_music) return out;

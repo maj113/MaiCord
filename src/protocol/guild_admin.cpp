@@ -3,10 +3,10 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/guild_invite.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "json_helpers.hpp"
+#include "json_write.hpp"
 #include "json_field_lists.hpp"
 
 
@@ -315,13 +315,7 @@ bool reason_valid(const GuildAdminRequest& request) noexcept {
     // Lifting a ban and revoking an invite carry no reason.
     if (request.operation == Op::ban_remove || request.operation == Op::invite_delete)
         return false;
-    if (!request.reason.bytes)
-        return guild_admin_method(request.operation) != RestMethod::get;
-    u8 scratch[kRestAuditReasonMaximumEncodedBytes];
-    const bool ok = guild_admin_method(request.operation) != RestMethod::get &&
-                    rest_encode_audit_reason(request.reason, {scratch, sizeof(scratch)}).ok;
-    secure_clear_bytes(scratch, sizeof(scratch));
-    return ok;
+    return guild_admin_method(request.operation) != RestMethod::get && audit_reason_encodes(request.reason);
 }
 
 // Body writers ------------------------------------------------------------
@@ -1198,7 +1192,7 @@ bool visit_audit_user_item(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<AuditParse*>(opaque);
     if (p.page.user_count >= p.page.users.count)
         return fail(&p.error, GuildAdminError::capacity);
-    GuildAdminUser user{};
+    GuildAdminUser user;
     if (!decode_user(*p.document, value, &user, &p.error))
         return false;
     for (u32 i = 0; i < p.page.user_count; ++i)
@@ -1281,10 +1275,8 @@ bool visit_invite(void* opaque, JsonString name, JsonValue value) noexcept {
     case 7:
         if (value.kind == JsonValueKind::null_value)
             v.expires_at_ms = 0;
-        else {
-            JsonString stamp{};
-            valid = json_value_as_string(value, &stamp) && parse_iso_timestamp(stamp, &v.expires_at_ms);
-        }
+        else
+            valid = json_value_to_timestamp(value, &v.expires_at_ms);
         break;
     default: break;
     }

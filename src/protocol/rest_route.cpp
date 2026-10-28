@@ -1,6 +1,5 @@
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/protocol/writer.hpp"
-#include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -44,19 +43,10 @@ bool route_append_path_component(RouteWriter* writer, Utf8View value) noexcept {
         writer->valid = false;
         return false;
     }
-    for (u32 index = 0; index < value.bytes; ++index) {
-        const u8 byte = static_cast<u8>(value.data[index]);
-        if (url_unreserved(byte)) {
-            if (!route_append_byte(writer, byte)) {
-                return false;
-            }
-        } else if (!route_append_byte(writer, '%') ||
-                   !route_append_byte(writer, static_cast<u8>(ascii_hex_digit_upper(byte >> 4))) ||
-                   !route_append_byte(writer, static_cast<u8>(ascii_hex_digit_upper(byte)))) {
-            return false;
-        }
-    }
-    return true;
+    ProtocolWriter inner{writer->output, writer->bytes};
+    writer->valid = protocol_writer_append_percent_encoded(&inner, value);
+    writer->bytes = inner.used;
+    return writer->valid;
 }
 
 } // namespace maicord

@@ -3,10 +3,10 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "json_helpers.hpp"
+#include "json_write.hpp"
 #include "json_field_lists.hpp"
 
 
@@ -101,12 +101,7 @@ bool reason_valid(const GuildModerationRequest& r) noexcept {
         return true;
     if (r.operation != Op::bulk_ban)
         return false;
-    if (!r.reason.bytes)
-        return true;
-    u8 scratch[kRestAuditReasonMaximumEncodedBytes];
-    const bool ok = rest_encode_audit_reason(r.reason, {scratch, sizeof(scratch)}).ok;
-    secure_clear_bytes(scratch, sizeof(scratch));
-    return ok;
+    return audit_reason_encodes(r.reason);
 }
 
 struct Body : JsonBody {
@@ -290,9 +285,7 @@ template <typename Size> bool decode_text(JsonValue value, char* output, u32 cap
 
 bool timestamp(JsonValue value, u64* ms) noexcept {
     *ms = 0;
-    JsonString text{};
-    return value.kind == JsonValueKind::null_value ||
-           (json_value_as_string(value, &text) && parse_iso_timestamp(text, ms));
+    return value.kind == JsonValueKind::null_value || json_value_to_timestamp(value, ms);
 }
 
 bool nullable_u64(JsonValue value, u64* output) noexcept {

@@ -40,15 +40,6 @@ constexpr u32 rate_body_field_retry_after = 1u << 0;
 constexpr u32 rate_body_field_global = 1u << 1;
 constexpr u32 rate_body_field_code = 1u << 2;
 
-#include "rest_metadata.inc"
-
-bool valid_user_headers(const RestUserRequestHeaders& headers) noexcept {
-    return valid_base64_metadata(headers.super_properties) &&
-           ascii_graphic_string(headers.locale, kRestUserLocaleMaximumBytes, true) &&
-           ascii_graphic_string(headers.timezone, kRestUserTimezoneMaximumBytes) &&
-           ascii_graphic_string(headers.accept_language, kRestUserAcceptLanguageMaximumBytes);
-}
-
 const char* method_literal(RestMethod method) noexcept {
     static constexpr const char* names[] = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"};
     const u32 index = static_cast<u32>(method);
@@ -389,6 +380,26 @@ bool rest_target_valid(ConstSlice<u8> target) noexcept {
     return true;
 }
 
+bool rest_user_headers_valid(const RestUserRequestHeaders& headers) noexcept {
+    const ConstSlice<u8> value = headers.super_properties;
+    if (!value.data || value.count == 0 || value.count > kRestUserSuperPropertiesMaximumBytes ||
+        (value.count & 3u) != 0)
+        return false;
+    u32 padding = 0;
+    for (u32 index = 0; index < value.count; ++index) {
+        const u8 byte = value[index];
+        if (byte == '=') {
+            if (++padding > 2 || index < value.count - 2)
+                return false;
+        } else if (padding != 0 || !(ascii_is_alnum(byte) || byte == '+' || byte == '/')) {
+            return false;
+        }
+    }
+    return ascii_graphic_string(headers.locale, kRestUserLocaleMaximumBytes, true) &&
+           ascii_graphic_string(headers.timezone, kRestUserTimezoneMaximumBytes) &&
+           ascii_graphic_string(headers.accept_language, kRestUserAcceptLanguageMaximumBytes);
+}
+
 bool rest_route_valid(const RestRouteKey& route) noexcept {
     if (route.route_id == 0 || !method_literal(route.method))
         return false;
@@ -679,7 +690,7 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
          request.authorization != RestAuthorization::bearer && !normal_user) ||
         (normal_user && !request.user_headers) ||
         (request.authorization == RestAuthorization::bearer && request.user_headers) ||
-        (request.user_headers && !valid_user_headers(*request.user_headers)) ||
+        (request.user_headers && !rest_user_headers_valid(*request.user_headers)) ||
         (!request.token.data && request.token.count != 0) ||
         (!request.json_body && request.content_length != 0) ||
         !rest_audit_reason_valid(request.audit_reason) ||

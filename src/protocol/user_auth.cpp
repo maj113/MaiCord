@@ -800,7 +800,7 @@ struct HandoffNames {
     u32 count;
 };
 bool handoff_unique(HandoffNames* names, JsonString name, ResponseContext* context) noexcept {
-    char decoded[128]{};
+    char decoded[128];
     const auto result = json_string_decode_utf8(name, {decoded, sizeof(decoded)});
     if (!result.ok() || names->count == 64) {
         context->error = UserAuthDecodeError::value_too_large;

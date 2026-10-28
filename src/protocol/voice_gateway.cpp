@@ -14,10 +14,10 @@ GatewayEndpointError voice_gateway_endpoint(Utf8View authority, GatewayEndpoint*
     for (u32 i = 0; i < authority.bytes; ++i)
         if (authority.data[i] == '/' || authority.data[i] == '?' || authority.data[i] == '#')
             return GatewayEndpointError::invalid_authority;
-    char url[6 + kGatewayEndpointAuthorityCapacity]{};
+    char url[6 + kGatewayEndpointAuthorityCapacity];
     copy_bytes(url, "wss://", 6);
     copy_bytes(url + 6, authority.data, authority.bytes);
-    GatewayEndpoint endpoint{};
+    GatewayEndpoint endpoint;
     const auto error = gateway_endpoint_parse_with_policy({url, 6 + authority.bytes},
                                                           GatewayEndpointPolicy::voice_v9_json, &endpoint);
     if (error != GatewayEndpointError::none)

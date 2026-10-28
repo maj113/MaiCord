@@ -89,7 +89,7 @@ Base64Result base64_codec_decode(Utf8View input, Slice<u8> output, Base64CodecAl
         return failure(Base64Error::invalid_length);
     }
     const u32 required = static_cast<u32>(required64);
-    if (required > output.count || (required != 0 && !output.data)) {
+    if (required > output.count) {
         return failure(Base64Error::output_too_small, 0, required);
     }
 
@@ -132,7 +132,7 @@ Base64Result base64_codec_encode(ConstSlice<u8> input, Slice<char> output, Base6
         return failure(Base64Error::invalid_length);
     }
     const u32 required = static_cast<u32>(required64);
-    if (required > output.count || (required != 0 && !output.data)) {
+    if (required > output.count) {
         return failure(Base64Error::output_too_small, 0, required);
     }
 

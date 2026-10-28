@@ -5,7 +5,6 @@
 #include "maicord/app/user_client_configuration.hpp"
 #include "maicord/app/client_session_metadata.hpp"
 
-#include "maicord/core/ascii.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -556,13 +555,9 @@ void publish_client_failure(RestClient* client, RestClientError error,
     SetEvent(client->response_event);
 }
 
-#include "../protocol/rest_metadata.inc"
-
 bool valid_user_configuration(const RestUserConfiguration& configuration) noexcept {
-    return valid_base64_metadata(configuration.super_properties) &&
-           ascii_graphic_string(configuration.locale, kRestUserLocaleMaximumBytes, true) &&
-           ascii_graphic_string(configuration.timezone, kRestUserTimezoneMaximumBytes) &&
-           ascii_graphic_string(configuration.accept_language, kRestUserAcceptLanguageMaximumBytes);
+    return rest_user_headers_valid(
+        {configuration.super_properties, configuration.locale, configuration.timezone, configuration.accept_language});
 }
 
 bool copy_user_configuration(RestClientRuntime* runtime,
@@ -665,21 +660,13 @@ RestRouteKey user_auth_route(UserAuthOperation operation) noexcept {
 }
 
 void erase_command(RestClientRuntime* runtime, bool erase_body = true) noexcept {
-    if (runtime->command.target_bytes != 0) {
-        secure_clear_bytes(runtime->request_target, runtime->command.target_bytes);
-    }
-    if (erase_body && runtime->command.body_bytes != 0) {
+    secure_clear_bytes(runtime->request_target, runtime->command.target_bytes);
+    if (erase_body)
         secure_clear_bytes(runtime->request_body, runtime->command.body_bytes);
-    }
-    if (runtime->command.head_bytes != 0) {
-        secure_clear_bytes(runtime->request_head, runtime->command.head_bytes);
-    }
-    if (runtime->command.audit_reason_bytes != 0)
-        secure_clear_bytes(runtime->audit_reason, runtime->command.audit_reason_bytes);
-    if (runtime->command.extra_headers_bytes != 0)
-        secure_clear_bytes(runtime->extra_headers, runtime->command.extra_headers_bytes);
-    if (runtime->command.multipart_boundary_bytes != 0)
-        secure_clear_bytes(runtime->multipart_boundary, runtime->command.multipart_boundary_bytes);
+    secure_clear_bytes(runtime->request_head, runtime->command.head_bytes);
+    secure_clear_bytes(runtime->audit_reason, runtime->command.audit_reason_bytes);
+    secure_clear_bytes(runtime->extra_headers, runtime->command.extra_headers_bytes);
+    secure_clear_bytes(runtime->multipart_boundary, runtime->command.multipart_boundary_bytes);
     reset_value<RestClientCommand>(&runtime->command);
 }
 
@@ -1227,8 +1214,6 @@ RestClientError client_transport_error(const RestClientRuntime* runtime, TlsStre
         return runtime->transaction.phase == RestTransactionPhase::receiving
                    ? rest_client_response_error(runtime->response_step.error)
                    : RestClientError::tls;
-    case TlsStreamError::invalid_input:
-    case TlsStreamError::none:
     default:
         return RestClientError::request;
     }
@@ -2078,9 +2063,7 @@ RestClientTakeResult rest_client_take_response(RestClient* client,
         return RestClientTakeResult{runtime->completed.body_bytes,
                                     RestClientTakeError::output_too_small};
     }
-    for (u32 index = 0; index < runtime->completed.body_bytes; ++index) {
-        body_output[index] = runtime->response_body[index];
-    }
+    copy_bytes(body_output.data, runtime->response_body, runtime->completed.body_bytes);
     *response = runtime->completed;
     const u32 body_bytes = runtime->completed.body_bytes;
     release_completed_response(client, runtime, body_bytes);
@@ -2245,10 +2228,6 @@ RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
 
 u32 rest_client_runtime_bytes(u32 response_capacity) noexcept {
     return allocation_bytes(response_capacity, false, false);
-}
-
-u32 rest_client_user_runtime_bytes(u32 response_capacity) noexcept {
-    return allocation_bytes(response_capacity, false, true);
 }
 
 u32 rest_client_user_auth_capacity_runtime_bytes(u32 response_capacity, u32 request_capacity) noexcept {

@@ -49,11 +49,9 @@ bool visit_call_member(void* opaque, JsonString name, JsonValue value) noexcept 
     auto* context = static_cast<CallContext*>(opaque);
     switch (member_index<"ended_timestamp", "participants">(name)) {
     case 0: {
-        JsonString text{};
         const bool null = value.kind == JsonValueKind::null_value;
         if (!accept_member(&context->seen, 1,
-                           null || (json_value_as_string(value, &text) &&
-                                    parse_iso_timestamp(text, &context->ended_timestamp_ms)),
+                           null || json_value_to_timestamp(value, &context->ended_timestamp_ms),
                            &context->error))
             return false;
         context->ended = !null;
@@ -259,25 +257,18 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
                            GatewayEventDecodeError::invalid_message_content))
             return false;
         break;
-    case 12: {
-        JsonString timestamp{};
+    case 12:
         if (!accept_member(&event.fields, gateway_message_field_timestamp,
-                           json_value_as_string(value, &timestamp) &&
-                               parse_iso_timestamp(timestamp, &event.timestamp_ms),
-                           &error, GatewayEventDecodeError::invalid_message_timestamp))
+                           json_value_to_timestamp(value, &event.timestamp_ms), &error,
+                           GatewayEventDecodeError::invalid_message_timestamp))
             return false;
         break;
-    }
     case 13: {
-        JsonString timestamp{};
         const bool null = value.kind == JsonValueKind::null_value;
         if (!accept_member(&event.fields, gateway_message_field_edited_timestamp,
-                           null || (json_value_as_string(value, &timestamp) &&
-                                    parse_iso_timestamp(timestamp, &event.edited_timestamp_ms)),
-                           &error, GatewayEventDecodeError::invalid_edited_timestamp))
+                           null || json_value_to_timestamp(value, &event.edited_timestamp_ms), &error,
+                           GatewayEventDecodeError::invalid_edited_timestamp))
             return false;
-        if (null)
-            event.edited_timestamp_ms = 0;
         break;
     }
     case 14:
@@ -627,7 +618,7 @@ GatewayEventDecodeResult decode_mentions(MessageContext* context, Slice<u32> str
         if (!scan.ok()) {
             return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
         }
-        u32 object_scratch[512]{};
+        u32 object_scratch[512];
         MentionUserContext users{};
         users.document = {context->mentions.source, {structural_scratch.data, scan.count}};
         users.structural_scratch = Slice<u32>{object_scratch, 512};
@@ -834,8 +825,8 @@ GatewayEventDecodeResult gateway_decode_message_snapshot_core(JsonValue data, Sl
                                                               Slice<char> content_scratch,
                                                               Slice<GatewayMessageNamedUser> mention_users,
                                                               GatewayMessageEvent* output) noexcept {
-    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
-    u64 member_roles[kGatewayMessageMemberRoleMaximumIds]{};
+    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
+    u64 member_roles[kGatewayMessageMemberRoleMaximumIds];
     auto result = decode_message(data, structural_scratch, maximum_depth, content_scratch,
                                  {mention_roles, kGatewayMessageMentionRoleMaximumIds},
                                  {member_roles, kGatewayMessageMemberRoleMaximumIds}, mention_users, {}, 0,
@@ -863,7 +854,7 @@ GatewayEventDecodeResult decode_plain(JsonValue data, Slice<u32> structural_scra
                                       Slice<char> content_scratch, Slice<u64> mention_roles, bool keep_mention_roles,
                                       Slice<GatewayMessageNamedUser> mention_users, u64 current_user_id,
                                       bool capture_names, bool create, GatewayMessageEvent* output) noexcept {
-    u64 member_roles[kGatewayMessageMemberRoleMaximumIds]{};
+    u64 member_roles[kGatewayMessageMemberRoleMaximumIds];
     const GatewayEventDecodeResult result =
         decode_message(data, structural_scratch, maximum_depth, content_scratch, mention_roles,
                        Slice<u64>{member_roles, kGatewayMessageMemberRoleMaximumIds}, mention_users,
@@ -880,7 +871,7 @@ GatewayEventDecodeResult decode_plain(JsonValue data, Slice<u32> structural_scra
 GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
                                                        u32 maximum_depth, Slice<char> content_scratch,
                                                        GatewayMessageEvent* output) noexcept {
-    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
+    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
     return decode_plain(data, structural_scratch, maximum_depth, content_scratch,
                         {mention_roles, kGatewayMessageMentionRoleMaximumIds}, false, {}, 0, false, true, output);
 }
@@ -908,7 +899,7 @@ GatewayEventDecodeResult gateway_decode_message_create(
 GatewayEventDecodeResult gateway_decode_message_update(JsonValue data, Slice<u32> structural_scratch,
                                                        u32 maximum_depth, Slice<char> content_scratch,
                                                        GatewayMessageEvent* output) noexcept {
-    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
+    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
     return decode_plain(data, structural_scratch, maximum_depth, content_scratch,
                         {mention_roles, kGatewayMessageMentionRoleMaximumIds}, false, {}, 0, false, false, output);
 }

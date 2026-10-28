@@ -59,7 +59,6 @@ bool stage_topic_valid(Utf8View topic) noexcept;
 // A voice channel status: one line of at most 500 code points; empty clears it.
 bool stage_voice_status_valid(Utf8View status) noexcept;
 bool stage_request_valid(const StageRequest&) noexcept;
-RestMethod stage_method(StageOperation) noexcept;
 bool stage_has_body(StageOperation) noexcept;
 RestRouteKey stage_route(const StageRequest&) noexcept;
 // Writers leave output untouched on failure.

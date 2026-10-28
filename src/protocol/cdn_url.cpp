@@ -482,10 +482,7 @@ bool soundboard_target_valid(ConstSlice<u8> target) noexcept {
 }
 
 namespace {
-bool gif_id_byte(u8 c) noexcept {
-    return ascii_is_alnum(c);
-}
-bool slug_byte(u8 c) noexcept { return gif_id_byte(c) || c == '-' || c == '_'; }
+bool slug_byte(u8 c) noexcept { return ascii_is_alnum(c) || c == '-' || c == '_'; }
 // /<11-byte id>AAAA1/<slug>.webp
 bool tenor_target_valid(ConstSlice<u8> target) noexcept {
     if (!target.data || target.count < 1 + 16 + 1 + 1 + 5 || target.count > 1 + 16 + 1 + 128 + 5 || target[0] != '/' ||
@@ -505,7 +502,7 @@ bool giphy_target_valid(ConstSlice<u8> target) noexcept {
         !bytes_equal(target.data, "/media/", prefix) || !bytes_equal(target.data + target.count - suffix, "/200w.webp", suffix))
         return false;
     for (u32 i = prefix; i < target.count - suffix; ++i)
-        if (!gif_id_byte(target[i])) return false;
+        if (!ascii_is_alnum(target[i])) return false;
     return true;
 }
 // Splits https://<host>/<path> (no port, credentials, query or fragment kept).
@@ -642,13 +639,10 @@ bool external_proxy_target(ConstSlice<u8> target, ExternalProxyTarget* out) noex
     if (!target.data || !bytes_begin_with(target, target.count, "/external/"))
         return false;
     const auto text = reinterpret_cast<const char*>(target.data);
-    const auto alnum = [](u8 c) noexcept {
-        return ascii_is_alnum(c);
-    };
     u32 cursor = prefix;
     while (cursor < target.count && target[cursor] != '/') {
         const u8 c = target[cursor++];
-        if (!alnum(c) && c != '_' && c != '-')
+        if (!ascii_is_alnum(c) && c != '_' && c != '-')
             return false;
     }
     if (cursor == prefix || cursor - prefix > 128 || cursor == target.count)
@@ -671,7 +665,7 @@ bool external_proxy_target(ConstSlice<u8> target, ExternalProxyTarget* out) noex
     const u32 host = cursor;
     while (cursor < target.count && target[cursor] != '/' && target[cursor] != '?') {
         const u8 c = target[cursor++];
-        if (!alnum(c) && c != '.' && c != '-' && c != ':')
+        if (!ascii_is_alnum(c) && c != '.' && c != '-' && c != ':')
             return false;
     }
     if (cursor == host || cursor - host > 253 || cursor == target.count || target[cursor] != '/')
@@ -1082,8 +1076,7 @@ u32 cdn_guild_icon_variant(Utf8View icon_hash) noexcept {
 
 namespace {
 // "<prefix><id>/<hash>.webp?size=<size>", animated when allowed and the hash is.
-template <usize N>
-CdnTargetResult write_hashed_asset_target(const char (&prefix)[N], u64 id, Utf8View hash, u32 size,
+CdnTargetResult write_hashed_asset_target(const char* prefix, u64 id, Utf8View hash, u32 size,
                                           bool animate, Slice<u8> output) noexcept {
     if (id == 0 || !guild_icon_hash_valid(hash) || !image_size_valid(size) ||
         (!output.data && output.count != 0)) {
@@ -1093,7 +1086,7 @@ CdnTargetResult write_hashed_asset_target(const char (&prefix)[N], u64 id, Utf8V
     ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
     const bool animated = animate && asset_hash_animated(hash);
     const bool written =
-        protocol_writer_append_literal(&writer, prefix) &&
+        protocol_writer_append_c_string(&writer, prefix) &&
         protocol_writer_append_u64(&writer, id) && protocol_writer_append_byte(&writer, '/') &&
         protocol_writer_append_bytes(&writer, ConstSlice<u8>{reinterpret_cast<const u8*>(hash.data), hash.bytes}) &&
         protocol_writer_append_literal(&writer, ".webp?size=") &&

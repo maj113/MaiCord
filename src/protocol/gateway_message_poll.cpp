@@ -40,7 +40,6 @@ bool canonical_snowflake(JsonValue value, u64* out) noexcept {
 struct Text {
     char data[kPollTextMaximumBytes];
     u32 used;
-    GatewayEventDecodeError error;
 };
 bool text(JsonValue value, Text* bank, u32 byte_limit, u32 scalar_limit, Utf8View* out,
           bool nullable = false) noexcept {
@@ -277,12 +276,8 @@ bool poll_member(void* opaque, JsonString name, JsonValue value) noexcept {
             return false;
     } else if (bit == gateway_message_poll_field_expiry) {
         context.value.expiry_null = value.kind == JsonValueKind::null_value;
-        if (!context.value.expiry_null) {
-            JsonString timestamp{};
-            if (!json_value_as_string(value, &timestamp) ||
-                !parse_iso_timestamp(timestamp, &context.value.expiry_ms))
-                return false;
-        }
+        if (!context.value.expiry_null && !json_value_to_timestamp(value, &context.value.expiry_ms))
+            return false;
     } else if (bit == gateway_message_poll_field_multiselect) {
         if (!json_value_to_bool(value, &context.value.allow_multiselect))
             return false;
@@ -460,10 +455,13 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
         return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     if (!document.structurals.data || !document.structurals.count)
         return decode_failure(GatewayEventDecodeError::invalid_input);
-    Poll context{};
+    Poll context;  // The text bank and answer tables are read only below their counts.
     context.document = &document;
     context.depth = maximum_depth;
+    reset_value(&context.value);
     context.value.present = true;
+    context.answer_count = context.count_count = context.results_fields = context.bank.used = 0;
+    context.error = GatewayEventDecodeError::none;
     const auto read = json_visit_indexed_object(document, data, maximum_depth, poll_member, &context);
     if (!read.ok())
         return read_failure(context.error, read, GatewayEventDecodeError::invalid_data);

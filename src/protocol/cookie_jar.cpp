@@ -336,13 +336,18 @@ Utf8View entry_text(const CookieJar& jar, const CookieEntry& entry, u32 part) no
 u32 entry_bytes(const CookieEntry& entry) noexcept {
     return static_cast<u32>(entry.name_bytes) + entry.value_bytes + entry.domain_bytes + entry.path_bytes;
 }
+void reset_jar(CookieJar* jar) noexcept {
+    secure_clear_bytes(jar->entries, sizeof(jar->entries));
+    secure_clear_bytes(jar->text, sizeof(jar->text));
+    jar->count = 0;
+    jar->text_bytes = 0;
+}
 
 void remove_entry(CookieJar* jar, u32 index) noexcept {
     const CookieEntry removed = jar->entries[index];
     const u32 bytes = entry_bytes(removed);
     if (removed.expires_ms)
         ++jar->persistent_revision;
-    secure_clear_bytes(jar->text + removed.offset, bytes);
     copy_bytes(jar->text + removed.offset, jar->text + removed.offset + bytes,
                jar->text_bytes - removed.offset - bytes);
     jar->text_bytes -= bytes;
@@ -522,10 +527,7 @@ void cookie_jar_clear(CookieJar* jar) noexcept {
                 return true;
         return false;
     }();
-    secure_clear_bytes(jar->entries, sizeof(jar->entries));
-    secure_clear_bytes(jar->text, sizeof(jar->text));
-    jar->count = 0;
-    jar->text_bytes = 0;
+    reset_jar(jar);
     if (persistent)
         ++jar->persistent_revision;
 }
@@ -563,10 +565,7 @@ bool cookie_jar_decode_persistent(CookieJar* jar, ConstSlice<u8> input, u64 now_
         return false;
     JarLock guard(jar);
     const u32 revision = jar->persistent_revision;
-    secure_clear_bytes(jar->entries, sizeof(jar->entries));
-    secure_clear_bytes(jar->text, sizeof(jar->text));
-    jar->count = 0;
-    jar->text_bytes = 0;
+    reset_jar(jar);
     if (!input.data || input.count < 4 || input.count > kCookieJarPersistentMaximumBytes)
         return false;
     const u32 count = byte_load_le32(input.data);
@@ -608,12 +607,8 @@ bool cookie_jar_decode_persistent(CookieJar* jar, ConstSlice<u8> input, u64 now_
             store(jar, cookie, created_ms, now_ms);
     }
     valid = valid && at == input.count;
-    if (!valid) {
-        secure_clear_bytes(jar->entries, sizeof(jar->entries));
-        secure_clear_bytes(jar->text, sizeof(jar->text));
-        jar->count = 0;
-        jar->text_bytes = 0;
-    }
+    if (!valid)
+        reset_jar(jar);
     jar->persistent_revision = revision + 1;
     return valid;
 }

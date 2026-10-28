@@ -45,10 +45,8 @@ struct UserSocialWriteResult {
     }
 };
 
-Utf8View report_menu_name(ReportMenuName) noexcept;
 bool user_note_valid(Utf8View note) noexcept;
 bool user_social_request_valid(const UserSocialRequest&) noexcept;
-RestMethod user_social_method(UserSocialOperation) noexcept;
 bool user_social_has_body(UserSocialOperation) noexcept;
 RestRouteKey user_social_route(const UserSocialRequest&) noexcept;
 // Writers leave output untouched on failure.

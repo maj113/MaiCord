@@ -277,7 +277,7 @@ RemoteAuthUserPreviewResult remote_auth_parse_user_preview(Utf8View payload,
     if (!validated.valid) {
         return user_failure(RemoteAuthUserPreviewError::invalid_utf8, validated.error_offset);
     }
-    u32 separators[3]{};
+    u32 separators[3];
     u32 separator_count = 0;
     for (u32 index = 0; index < payload.bytes; ++index) {
         const u8 value = static_cast<u8>(payload.data[index]);

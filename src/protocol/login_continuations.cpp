@@ -86,7 +86,7 @@ bool visit_assertion(void* opaque, JsonString name, JsonValue value) noexcept {
          member_index<"platform", "cross-platform">(string) < 2);
 }
 bool native_assertion_valid(Utf8View credential) noexcept {
-    u32 scratch[128]{};
+    u32 scratch[128];
     const auto scan = json_scan_structurals_avx1(credential, {scratch, 128});
     if (!scan.ok()) return false;
     AssertionContext context{{credential, {scratch, scan.count}}, {}, {}, 0};

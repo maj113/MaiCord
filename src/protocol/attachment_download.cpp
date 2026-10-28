@@ -90,7 +90,7 @@ AttachmentDownloadRequestResult attachment_download_write_request(Utf8View url, 
     u64 attachment, u64 now_seconds, Slice<u8> output) noexcept {
     if (!channel || !attachment || !url.data || !url.bytes || !output.data)
         return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_input};
-    u8 target[kCdnMaximumTargetBytes]{}, prefix[80]{};
+    u8 target[kCdnMaximumTargetBytes], prefix[80];
     const auto parsed = parse_signed_attachment_url(url, attachment, {target, sizeof(target)});
     if (!parsed.ok()) return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_url};
     ProtocolWriter path{{prefix, sizeof(prefix)}, 0};
@@ -171,7 +171,7 @@ AttachmentDownloadFilenameResult attachment_download_safe_filename(Utf8View name
     if ((!name.data && name.bytes) || name.bytes > kAttachmentDownloadMaximumFilenameBytes ||
         !utf8_validate(name).valid || !output.data)
         return {0, AttachmentDownloadFilenameError::invalid_input, false, false};
-    char safe[kAttachmentDownloadMaximumFilenameBytes + 2]{};
+    char safe[kAttachmentDownloadMaximumFilenameBytes + 2];
     u32 used = 0;
     for (u32 i = 0; i < name.bytes;) {
         const auto scalar = utf8_decode_one(name.data + i, name.bytes - i);

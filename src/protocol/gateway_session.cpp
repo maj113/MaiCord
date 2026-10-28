@@ -115,7 +115,6 @@ void process_gateway_message(GatewaySession* session, Utf8View message, u32 hear
             backed.data != session->structural_scratch.data || backed.count < required ||
             backed.count > kGatewaySessionMaximumStructuralCount) break;
         session->structural_scratch = backed;
-        clear_bytes(&result.envelope, sizeof(result.envelope));
         decoded = gateway_decode_envelope(message, backed, 64, &result.envelope);
     }
     if (!decoded.ok()) {

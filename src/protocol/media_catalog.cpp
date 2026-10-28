@@ -161,7 +161,7 @@ bool string(Context& c, JsonString input, Utf8View* output, u32 maximum, bool re
             bool publish, bool whitespace = false) noexcept {
     if (!input.encoded.data)
         return required ? fail(c, E::schema, input.source_offset) : true;
-    char decoded[kMediaCatalogMaximumUrlBytes]{};
+    char decoded[kMediaCatalogMaximumUrlBytes];
     const auto read = json_string_decode_utf8(input, {decoded, sizeof(decoded)});
     if (!read.ok() || read.bytes > maximum || (required && !read.bytes))
         return fail(c, E::schema, input.source_offset);

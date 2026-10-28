@@ -1,8 +1,7 @@
 #include "maicord/protocol/emoji_preferences.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/protocol/base64.hpp"
-#include "maicord/protocol/writer.hpp"
 #include "json_fields.hpp"
+#include "proto_wire.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
@@ -202,7 +201,7 @@ E check_frecency(ConstSlice<u8> group) noexcept {
             if (t != 2 || !r.length(stop))
                 return E::protobuf;
             Utf8View key{};
-            EmojiFrecencyItem item{};
+            EmojiFrecencyItem item;
             const E error = map_entry({r.data, r.at, stop}, key, item);
             if (error != E::none)
                 return error;
@@ -337,7 +336,7 @@ template <class Visit> void each_key(ConstSlice<u8> group, bool map, Visit visit
             r.length(stop);
             Utf8View key = view(r.data, r.at, stop);
             if (map) {
-                EmojiFrecencyItem item{};
+                EmojiFrecencyItem item;
                 map_entry({r.data, r.at, stop}, key, item);
             }
             visit(key);
@@ -457,7 +456,7 @@ void write_frecency(Writer& out, ConstSlice<u8> group, ConstSlice<EmojiFrecencyE
             u32 stop = 0;
             r.length(stop);
             Utf8View key{};
-            EmojiFrecencyItem item{};
+            EmojiFrecencyItem item;
             map_entry({r.data, r.at, stop}, key, item);
             r.at = stop;
             const u32 current = ordinal++;
@@ -609,7 +608,7 @@ EmojiPreferencesError emoji_preferences_visit_frecency(ConstSlice<u8> group, Emo
             u32 stop = 0;
             r.length(stop);
             Utf8View key{};
-            EmojiFrecencyItem item{};
+            EmojiFrecencyItem item;
             map_entry({r.data, r.at, stop}, key, item);
             if (!visit(context, key, item))
                 return E::none;
@@ -679,33 +678,22 @@ EmojiPreferencesWriteResult emoji_preferences_write_patch(const EmojiPreferences
         return fail(E::capacity);
     if (counted.used > scratch.count || counted.used > 3 * (kEmojiPreferencesMaximumGroupBytes + 8))
         return fail(E::capacity);
-    static constexpr char start[] = "{\"settings\":\"";
-    static constexpr char middle[] = "\",\"required_data_version\":";
-    constexpr u32 start_bytes = static_cast<u32>(sizeof(start) - 1);
-    constexpr u32 middle_bytes = static_cast<u32>(sizeof(middle) - 1);
-    const u32 encoded_bytes = base64_encoded_size(counted.used);
-    const u32 json_bytes =
-        start_bytes + encoded_bytes + middle_bytes + decimal_digits(patch.required_data_version) + 1;
+    const u32 json_bytes = proto_settings_patch_bytes(counted.used, patch.required_data_version, true);
     if (json_bytes > json.count || json_bytes > kEmojiPreferencesMaximumPatchBytes)
         return fail(E::capacity);
     Writer proto{scratch.data, 0, scratch.count, false};
     body(proto);
     if (proto.overflow || proto.used != counted.used)
         return fail(E::capacity);
-    copy_bytes(json.data, start, start_bytes);
-    base64_encode({scratch.data, proto.used}, {reinterpret_cast<char*>(json.data + start_bytes), encoded_bytes});
-    ProtocolWriter text{json, start_bytes + encoded_bytes};
-    protocol_writer_append_literal(&text, middle);
-    protocol_writer_append_u64(&text, patch.required_data_version);
-    protocol_writer_append_byte(&text, '}');
-    return {text.used, proto.used, patch.favorite_edits.count ? favorite_count : 0, E::none};
+    proto_write_settings_patch({scratch.data, proto.used}, patch.required_data_version, json, true);
+    return {json_bytes, proto.used, patch.favorite_edits.count ? favorite_count : 0, E::none};
 }
 
 EmojiPreferencesError emoji_preferences_validate_patch_json(Utf8View input) noexcept {
     if (input.bytes > kEmojiPreferencesMaximumPatchBytes ||
         !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}))
         return E::input;
-    u32 structurals[16]{};
+    u32 structurals[16];
     const auto scan = json_scan_structurals_avx1(input, {structurals, 16});
     SettingsPatchEnvelope parsed{};
     if (!scan.ok() || !json_visit_root_object(input, {structurals, scan.count}, 2, settings_patch_member, &parsed).ok() ||

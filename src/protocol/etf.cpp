@@ -303,7 +303,7 @@ u32 format_double(u64 bits, char* out) noexcept {
         n += decimal_write(out + n, mantissa >> -power);
         return n;
     }
-    Big big{};
+    Big big;
     big.words[0] = static_cast<u32>(mantissa);
     big.words[1] = static_cast<u32>(mantissa >> 32);
     big.count = big.words[1] ? 2 : 1;
@@ -806,12 +806,15 @@ struct Encoder {
         if (room(1))
             out[used++] = value;
     }
+    void store32(u32 at, u32 value) noexcept {
+        out[at] = static_cast<u8>(value >> 24);
+        out[at + 1] = static_cast<u8>(value >> 16);
+        out[at + 2] = static_cast<u8>(value >> 8);
+        out[at + 3] = static_cast<u8>(value);
+    }
     void put32(u32 value) noexcept {
         if (room(4)) {
-            out[used] = static_cast<u8>(value >> 24);
-            out[used + 1] = static_cast<u8>(value >> 16);
-            out[used + 2] = static_cast<u8>(value >> 8);
-            out[used + 3] = static_cast<u8>(value);
+            store32(used, value);
             used += 4;
         }
     }
@@ -940,12 +943,8 @@ struct Encoder {
                 }
                 return false;
             }
-            if (!overflow) {
-                out[arity_at] = static_cast<u8>(arity >> 24);
-                out[arity_at + 1] = static_cast<u8>(arity >> 16);
-                out[arity_at + 2] = static_cast<u8>(arity >> 8);
-                out[arity_at + 3] = static_cast<u8>(arity);
-            }
+            if (!overflow)
+                store32(arity_at, arity);
             return true;
         }
         if (c == '[') {
@@ -976,12 +975,8 @@ struct Encoder {
                 return false;
             }
             put(kNil);
-            if (!overflow) {
-                out[length_at] = static_cast<u8>(length >> 24);
-                out[length_at + 1] = static_cast<u8>(length >> 16);
-                out[length_at + 2] = static_cast<u8>(length >> 8);
-                out[length_at + 3] = static_cast<u8>(length);
-            }
+            if (!overflow)
+                store32(length_at, length);
             return true;
         }
         if (c == '"')

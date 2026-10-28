@@ -32,6 +32,9 @@ enum class CdnImageType : u8 {
 // .gif asset (a GIF favourite's stored gif_src) or .mp4 asset (a VIDEO
 // favourite without one). Type and extension agree.
 bool catalog_provider_request_valid(CdnHost host, CdnImageType type, ConstSlice<u8> target) noexcept;
+// An origin-form request target (one leading "/", visible ASCII, no '#' or '\\') and an ETag value.
+bool cdn_target_valid(ConstSlice<u8> target) noexcept;
+bool cdn_etag_valid(ConstSlice<u8> etag) noexcept;
 constexpr u32 cdn_encoded_body_limit(CdnImageType type) noexcept {
     return type == CdnImageType::mp4                 ? kMediaMaximumEncodedVideoBytes
            : type == CdnImageType::mpeg_ts            ? 8u * 1024u * 1024u

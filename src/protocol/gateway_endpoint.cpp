@@ -197,11 +197,10 @@ bool gateway_endpoint_validate(const GatewayEndpoint& endpoint) noexcept {
         endpoint.authority_bytes == 0 || endpoint.authority_bytes >= kGatewayEndpointAuthorityCapacity ||
         endpoint.target_bytes == 0 || endpoint.target_bytes >= kGatewayEndpointTargetCapacity ||
         endpoint.port == 0 || endpoint.host_wide[endpoint.host_bytes] != 0 ||
-        endpoint.authority[endpoint.authority_bytes] != 0 || endpoint.target[endpoint.target_bytes] != 0 ||
-        !endpoint_query(endpoint.policy).data) {
+        endpoint.authority[endpoint.authority_bytes] != 0 || endpoint.target[endpoint.target_bytes] != 0) {
         return false;
     }
-    char url[6 + kGatewayEndpointAuthorityCapacity + kGatewayEndpointTargetCapacity]{};
+    char url[6 + kGatewayEndpointAuthorityCapacity + kGatewayEndpointTargetCapacity];
     static constexpr char scheme[] = "wss://";
     u32 bytes = 0;
     for (u32 index = 0; index < sizeof(scheme) - 1; ++index) {

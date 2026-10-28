@@ -1,6 +1,5 @@
 #include "maicord/protocol/notification_settings.hpp"
 #include "maicord/protocol/json_ids.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "proto_wire.hpp"
@@ -23,7 +22,7 @@ bool mute_member(void*opaque,JsonString name,JsonValue v) noexcept {
     if(!json_string_equals_ascii(name,utf8_literal("end_time")))return true;
     if(!mark(p,1u<<20))return false;p.setting.fields|=notification_mute_end;
     if(v.kind==JsonValueKind::null_value){p.setting.mute_end_ms=0;return true;}
-    JsonString str{};if(!json_value_as_string(v,&str)||!parse_iso_timestamp(str,&p.setting.mute_end_ms)){p.error=E::field;return false;}return true;
+    if(!json_value_to_timestamp(v,&p.setting.mute_end_ms)){p.error=E::field;return false;}return true;
 }
 bool member(void*opaque,JsonString name,JsonValue v) noexcept {
     auto&p=*static_cast<Parse*>(opaque);u32 bit=0;bool ok=true;bool*dest=nullptr;

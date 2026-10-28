@@ -36,6 +36,11 @@ bool append_emoji(ProtocolWriter* w, const SoundboardRequest& r) noexcept {
            (r.emoji_name.bytes ? protocol_writer_append_json_string(w, r.emoji_name)
                                : protocol_writer_append_literal(w, "null"));
 }
+Utf8View soundboard_audio_mime(SoundboardAudioFormat format) noexcept {
+    return format == SoundboardAudioFormat::mp3        ? utf8_literal("audio/mpeg")
+           : format == SoundboardAudioFormat::ogg_opus ? utf8_literal("audio/ogg")
+                                                       : Utf8View{};
+}
 // Create body around the data URI: prefix {"name":..,"sound":" and suffix
 // ","volume":..,"emoji_id":..,"emoji_name":..}.
 bool create_prefix(const SoundboardRequest& r, ProtocolWriter* w) noexcept {
@@ -344,12 +349,6 @@ SoundboardBlock soundboard_send_check(const SoundboardSendContext& c) noexcept {
     return SoundboardBlock::none;
 }
 
-Utf8View soundboard_audio_mime(SoundboardAudioFormat format) noexcept {
-    return format == SoundboardAudioFormat::mp3        ? utf8_literal("audio/mpeg")
-           : format == SoundboardAudioFormat::ogg_opus ? utf8_literal("audio/ogg")
-                                                       : Utf8View{};
-}
-
 namespace {
 // Snowflakes are strings; default sound IDs may arrive as numbers.
 bool parse_optional_id(JsonValue value, u64* output) noexcept {
@@ -423,7 +422,7 @@ bool visit_sound_item(void* opaque, u32, JsonValue value) noexcept {
         list.error = SoundboardDecodeError::field;
         return false;
     }
-    SoundParse parse{};
+    SoundParse parse;
     sound_defaults(&parse);
     const auto read = json_visit_indexed_object(*list.document, value, kDepth, visit_sound, &parse);
     if (!read.ok()) {
@@ -481,7 +480,7 @@ SoundboardDecodeResult soundboard_decode_sound(Utf8View object, u64 guild_id, Sl
     const auto s = scan_json<SoundboardDecodeError>(object, scratch);
     if (s.error != SoundboardDecodeError::none)
         return {0, s.error};
-    SoundParse parse{};
+    SoundParse parse;
     sound_defaults(&parse);
     const auto read = json_visit_root_object(object, s.document.structurals, kDepth, visit_sound, &parse);
     if (!read.ok())

@@ -37,7 +37,7 @@ __forceinline bool fields(const JsonIndexedDocument& doc, const JsonValue& value
     return protocol_detail::fields_at<16>(doc, value, set);
 }
 struct Scratch {
-    char signature[128]{}, token[2048]{};
+    char signature[128], token[2048];
     EmbedStream result{};
     ~Scratch() noexcept { secure_clear_bytes(this, sizeof(*this)); }
 };
@@ -85,7 +85,7 @@ EmbedPlayerError twitch_playback_manifest(Utf8View json, Utf8View id, u64 now, S
         const auto decoded = json_string_decode_utf8(channel, {name, sizeof(name)});
         if (!decoded.ok() || !ascii_equal_ignore_case({name, decoded.bytes}, id)) return E::malformed;
     } else {
-        for (u32 i = 0; i < id.bytes; ++i) requested = requested * 10 + static_cast<u32>(id.data[i] - '0');
+        snowflake_parse(id, &requested); // id passed twitch_vod_id
         if (!json_value_to_u64(claims[0].value, &identity) || identity != requested) return E::malformed;
     }
     if (forbidden || expires <= now) return E::unavailable;
@@ -172,8 +172,7 @@ bool twitch_live_location(const Utf8View& url_view, bool playlist, EmbedStreamLo
             const char c = target.data[i];
             if (c == '%') {
                 if (i + 2 >= target.bytes || !ascii_is_hex_digit(target.data[i + 1]) || !ascii_is_hex_digit(target.data[i + 2])) return false;
-                const auto digit = [](char v) noexcept -> u32 { return ascii_is_digit(v) ? v - '0' : ascii_lower(v) - 'a' + 10; };
-                const u32 decoded = digit(target.data[i + 1]) * 16 + digit(target.data[i + 2]);
+                const u32 decoded = static_cast<u32>(ascii_hex_value(target.data[i + 1]) * 16 + ascii_hex_value(target.data[i + 2]));
                 if (decoded <= 32 || decoded >= 127 || decoded == '#' || decoded == '&') return false;
                 i += 2;
             } else if (!ascii_is_alnum(c) && c != '_' && c != '-' && c != '.' && c != '~' && c != '=' && c != '+' && c != '/') return false;

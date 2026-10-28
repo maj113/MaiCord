@@ -1,7 +1,6 @@
 #include "maicord/protocol/thread_creation.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/thread_actions.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -93,10 +92,8 @@ bool metadata_field(void* opaque, JsonString name, JsonValue value) noexcept {
         if (valid)
             parse.value.auto_archive_duration = static_cast<u16>(duration);
     } else {
-        JsonString timestamp{};
         u64 parsed{};
-        valid = (bit == 16 && value.kind == JsonValueKind::null_value) ||
-                (json_value_as_string(value, &timestamp) && parse_iso_timestamp(timestamp, &parsed));
+        valid = (bit == 16 && value.kind == JsonValueKind::null_value) || json_value_to_timestamp(value, &parsed);
         if (valid && bit == 8)
             parse.value.archive_timestamp_ms = parsed;
     }

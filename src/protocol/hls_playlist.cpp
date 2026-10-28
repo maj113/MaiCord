@@ -113,10 +113,7 @@ bool reference_uri(Utf8View s, u32* origin = nullptr, u32* path_end = nullptr) n
         if (!query && c == '/' && i > start && s.data[i - 1] == '/') return false;
         if (c == '%') {
             if (i + 2 >= s.bytes || !ascii_is_hex_digit(s.data[i + 1]) || !ascii_is_hex_digit(s.data[i + 2])) return false;
-            const auto hex = [](char digit) noexcept -> u32 {
-                return ascii_is_digit(digit) ? digit - '0' : ascii_lower(digit) - 'a' + 10;
-            };
-            const u32 decoded = hex(s.data[i + 1]) * 16 + hex(s.data[i + 2]);
+            const u32 decoded = static_cast<u32>(ascii_hex_value(s.data[i + 1]) * 16 + ascii_hex_value(s.data[i + 2]));
             if (decoded <= 32 || decoded >= 127 || decoded == '\\' ||
                 (!absolute && !query && (decoded == '.' || decoded == '/' || decoded == ':'))) return false;
             i += 2;

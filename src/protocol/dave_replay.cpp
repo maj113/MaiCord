@@ -72,12 +72,10 @@ bool dave_replay_commit(DaveReplay* replay, u64 counter) noexcept {
     if (at < replay->count / 2) {
         for (u32 i = at; i; --i)
             replay->missing[slot(*replay, i)] = replay->missing[slot(*replay, i - 1)];
-        replay->missing[replay->head] = 0;
         replay->head = slot(*replay, 1);
     } else {
         for (u32 i = at; i + 1 < replay->count; ++i)
             replay->missing[slot(*replay, i)] = replay->missing[slot(*replay, i + 1)];
-        replay->missing[slot(*replay, replay->count - 1)] = 0;
     }
     --replay->count;
     return true;

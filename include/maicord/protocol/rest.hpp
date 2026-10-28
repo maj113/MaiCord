@@ -50,6 +50,8 @@ struct RestUserRequestHeaders {
     Utf8View timezone;
     Utf8View accept_language;
 };
+// True when super_properties is canonical padded base64 and every other field is graphic ASCII within its bound.
+bool rest_user_headers_valid(const RestUserRequestHeaders& headers) noexcept;
 
 struct RestRequestHead {
     ConstSlice<u8> target;

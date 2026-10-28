@@ -458,6 +458,15 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
         number(id);
         write_literal(output.data, &offset, "\":{");
     };
+    const auto range_pair = [&](u32 i, const GatewayMemberSubscriptionRange& range) noexcept {
+        if (i)
+            write_literal(output.data, &offset, ",");
+        write_literal(output.data, &offset, "[");
+        number(range.first);
+        write_literal(output.data, &offset, ",");
+        number(range.last);
+        write_literal(output.data, &offset, "]");
+    };
     write_literal(output.data, &offset, "{\"op\":37,\"d\":{\"subscriptions\":{");
     if (subscription.clear_thread_guild_id) {
         guild(subscription.clear_thread_guild_id);
@@ -480,34 +489,18 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
         write_literal(output.data, &offset, "\"channels\":{\"");
         number(subscription.channel_id);
         write_literal(output.data, &offset, "\":[");
-        for (u32 i = 0; i < range_count; ++i) {
-            const auto range =
-                subscription.range_count
-                    ? subscription.ranges[i]
-                    : GatewayMemberSubscriptionRange{subscription.range_first, subscription.range_last};
-            if (i)
-                write_literal(output.data, &offset, ",");
-            write_literal(output.data, &offset, "[");
-            number(range.first);
-            write_literal(output.data, &offset, ",");
-            number(range.last);
-            write_literal(output.data, &offset, "]");
-        }
+        for (u32 i = 0; i < range_count; ++i)
+            range_pair(i, subscription.range_count
+                              ? subscription.ranges[i]
+                              : GatewayMemberSubscriptionRange{subscription.range_first, subscription.range_last});
         write_literal(output.data, &offset, "]");
         for (u32 c = 0; c < subscription.channel_count; ++c) {
             const auto& other = subscription.channels[c];
             write_literal(output.data, &offset, ",\"");
             number(other.channel_id);
             write_literal(output.data, &offset, "\":[");
-            for (u32 i = 0; i < other.range_count; ++i) {
-                if (i)
-                    write_literal(output.data, &offset, ",");
-                write_literal(output.data, &offset, "[");
-                number(other.ranges[i].first);
-                write_literal(output.data, &offset, ",");
-                number(other.ranges[i].last);
-                write_literal(output.data, &offset, "]");
-            }
+            for (u32 i = 0; i < other.range_count; ++i)
+                range_pair(i, other.ranges[i]);
             write_literal(output.data, &offset, "]");
         }
         write_literal(output.data, &offset, "}");

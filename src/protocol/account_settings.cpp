@@ -2,7 +2,6 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest_route.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/user_settings_proto.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
@@ -81,12 +80,7 @@ bool session_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& s = *c.current;
     switch (member_index<"id_hash", "approx_last_used_time", "client_info">(name)) {
     case 0: s.id_hash_bytes = copy_small(value, s.id_hash); break;
-    case 1: {
-        JsonString string{};
-        if (json_value_as_string(value, &string))
-            parse_iso_timestamp(string, &s.last_used_ms);
-        break;
-    }
+    case 1: json_value_to_timestamp(value, &s.last_used_ms); break;
     case 2:
         if (value.kind == JsonValueKind::object)
             return json_visit_indexed_object(c.document, value, 4, client_info_member, &s).ok();

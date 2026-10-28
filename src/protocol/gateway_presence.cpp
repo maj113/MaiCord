@@ -114,9 +114,8 @@ GatewayPresenceUpdate gateway_presence_effective(const GatewayPresenceUpdate& de
                                                  const GatewayLocalPresence* local) noexcept {
     if (!local || !local->idle || !local->idle_since_ms)
         return desired;
-    if (desired.status == GatewayUserStatus::online)
-        return {local->idle_since_ms, GatewayUserStatus::idle, true, true};
     // Other statuses stay chosen but report when the user went idle.
-    return {local->idle_since_ms, desired.status, true, true};
+    return {local->idle_since_ms, desired.status == GatewayUserStatus::online ? GatewayUserStatus::idle : desired.status,
+            true, true};
 }
 } // namespace maicord

@@ -22,6 +22,26 @@ bool catalog_provider_request_valid(CdnHost host, CdnImageType type,
            : type == CdnImageType::mp4 ? cdn_klipy_host(host) && suffix(".mp4", 4)
                                               : false;
 }
+bool cdn_target_valid(ConstSlice<u8> target) noexcept {
+    if (!target.data || target.count == 0 || target.count > kCdnMaximumTargetBytes || target[0] != '/' ||
+        (target.count > 1 && target[1] == '/'))
+        return false;
+    for (u32 index = 0; index < target.count; ++index) {
+        const u8 value = target[index];
+        if (value <= 0x20 || value > 0x7E || value == '#' || value == '\\')
+            return false;
+    }
+    return true;
+}
+
+bool cdn_etag_valid(ConstSlice<u8> etag) noexcept {
+    if ((!etag.data && etag.count != 0) || etag.count > kCdnMaximumEtagBytes)
+        return false;
+    for (u32 index = 0; index < etag.count; ++index)
+        if (etag[index] < 0x21 || etag[index] > 0x7E)
+            return false;
+    return true;
+}
 namespace {
 
 struct ResponseFields {
@@ -43,8 +63,6 @@ struct ResponseFields {
     bool no_store;
     bool no_cache;
 };
-
-#include "cdn_validation.inc"
 
 bool slice_equal_case(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
     if (left.count != right.count) {
@@ -152,7 +170,7 @@ bool response_field_visitor(void* context, HttpField field) noexcept {
         fields->has_location = true;
         fields->location = field.value;
     } else if (name_equal(field.name, "etag")) {
-        if (fields->has_etag || field.value.count == 0 || !valid_etag(field.value)) {
+        if (fields->has_etag || field.value.count == 0 || !cdn_etag_valid(field.value)) {
             fields->error =
                 fields->has_etag ? CdnHttpError::duplicate_field : CdnHttpError::invalid_etag;
             return false;
@@ -227,7 +245,7 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
                         range.first > kMediaMaximumProgressiveVideoBytes - u64{range.bytes}))
         return CdnRequestResult{0, CdnHttpError::invalid_input};
     const Utf8View host_name = cdn_host_name(host);
-    if ((!output.data && output.count != 0) || host_name.empty() || !valid_target(target) ||
+    if ((!output.data && output.count != 0) || host_name.empty() || !cdn_target_valid(target) ||
         (image_type == CdnImageType::soundboard_sound &&
          (host != CdnHost::cdn || !soundboard_target_valid(target))) ||
         (image_type == CdnImageType::lottie_json &&
@@ -236,7 +254,7 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
         (cdn_catalog_provider(host) && !catalog_provider_request_valid(host, image_type, target))) {
         return CdnRequestResult{0, CdnHttpError::invalid_target};
     }
-    if (!valid_etag(etag)) {
+    if (!cdn_etag_valid(etag)) {
         return CdnRequestResult{0, CdnHttpError::invalid_etag};
     }
     u8 request[kCdnMaximumRequestHeadBytes];
@@ -328,7 +346,7 @@ CdnRedirectResult parse_cdn_redirect(CdnHost current_host, ConstSlice<u8> locati
         target_host = parsed_host;
         target = ConstSlice<u8>{location.data + slash, location.count - slash};
     }
-    if (!valid_target(target) ||
+    if (!cdn_target_valid(target) ||
         (cdn_catalog_provider(current_host) && !catalog_provider_target_valid(current_host, target))) {
         return CdnRedirectResult{CdnHost::none, 0, CdnHttpError::invalid_location};
     }

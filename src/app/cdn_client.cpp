@@ -145,8 +145,6 @@ void publish_client_failure(CdnClient* client, CdnClientError error,
     SetEvent(client->response_event);
 }
 
-#include "../protocol/cdn_validation.inc"
-
 const wchar_t* host_wide(CdnHost host) noexcept {
     switch (host) {
     case CdnHost::cdn: return L"cdn.discordapp.com";
@@ -232,13 +230,9 @@ void copy_policy_metadata(CdnClientRuntime* runtime, CdnClientResponse* response
     response->must_revalidate = runtime->policy.must_revalidate;
     response->http_error = runtime->policy.error;
     response->etag_bytes = runtime->policy.etag.count;
-    for (u32 index = 0; index < runtime->policy.etag.count; ++index) {
-        response->etag[index] = runtime->policy.etag[index];
-    }
+    copy_bytes(response->etag, runtime->policy.etag.data, runtime->policy.etag.count);
     response->conditional_etag_bytes = runtime->command.etag_bytes;
-    for (u32 index = 0; index < runtime->command.etag_bytes; ++index) {
-        response->conditional_etag[index] = runtime->conditional_etag[index];
-    }
+    copy_bytes(response->conditional_etag, runtime->conditional_etag, runtime->command.etag_bytes);
     response->range_first = runtime->policy.range_first;
     response->entity_bytes = runtime->policy.entity_bytes;
 }
@@ -856,7 +850,7 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
     if (request.etag.count > kCdnMaximumEtagBytes) {
         return CdnClientSubmitResult{CdnClientSubmitError::etag_capacity};
     }
-    if ((!provider && !valid_target(request.target)) || !valid_etag(request.etag)) {
+    if ((!provider && !cdn_target_valid(request.target)) || !cdn_etag_valid(request.etag)) {
         return CdnClientSubmitResult{CdnClientSubmitError::invalid_input};
     }
     if (InterlockedCompareExchange(&client->request_state, request_state_writing, request_state_empty) !=

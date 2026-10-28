@@ -412,6 +412,8 @@ GatewayCommandWriteResult self_status_settings_write_show_game_patch(ConstSlice<
         scratch.data[at++] = 0;
     return finish_patch(scratch, at, output);
 }
+namespace {
+// Today ends at the next local midnight, given the local time of day in milliseconds.
 u64 self_custom_status_expiry(SelfCustomStatusClear clear, u64 now, u64 local_ms_of_day) noexcept {
     switch (clear) {
     case SelfCustomStatusClear::minutes_30:
@@ -426,6 +428,7 @@ u64 self_custom_status_expiry(SelfCustomStatusClear clear, u64 now, u64 local_ms
         return 0;
     }
 }
+} // namespace
 bool self_custom_status_build(Utf8View emoji, Utf8View text, SelfCustomStatusClear clear, u64 now,
                               u64 local_ms_of_day, SelfCustomStatus* output) noexcept {
     const auto trim = [](Utf8View v) noexcept {

@@ -71,13 +71,8 @@ constexpr UserSettingsValue user_settings_member(u64 id, bool member) noexcept {
     return {id, {}, 0, member};
 }
 UserSettingsValue user_settings_text(Utf8View text) noexcept;
-constexpr bool user_settings_field_equal(UserSettingsField a, UserSettingsField b) noexcept {
-    return a.group == b.group && a.field == b.field && a.child == b.child && a.kind == b.kind;
-}
-bool user_settings_value_equal(const UserSettingsValue&, const UserSettingsValue&) noexcept;
 
 // Wire codec. All functions validate complete input before writing output.
-bool user_settings_proto_valid(ConstSlice<u8> message) noexcept;
 // Last occurrence wins, as in protobuf merging. Strings longer than
 // kUserSettingsTextBytes are reported as unreadable. id_member fields read
 // through user_settings_proto_contains instead.

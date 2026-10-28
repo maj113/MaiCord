@@ -39,29 +39,28 @@ struct Span {
 };
 
 bool reencode(const u8* raw, u32 size, Slice<u8> output, u32* bytes) noexcept {
-    const Base64Result decoded{size, 0, Base64Error::none};
     Span claims{}, signature{};
     u32 key_id = 0;
     Span unknown[16];
     u32 unknown_count = 0;
-    for (u32 at = 0; at < decoded.bytes;) {
+    for (u32 at = 0; at < size;) {
         const u32 start = at;
         u64 key = 0;
-        if (!read_varint(raw, decoded.bytes, &at, &key))
+        if (!read_varint(raw, size, &at, &key))
             return false;
         const u64 field = key >> 3;
         const u32 wire = static_cast<u32>(key & 7);
         u64 length = 0;
         if (wire == 0) {
-            if (!read_varint(raw, decoded.bytes, &at, &length))
+            if (!read_varint(raw, size, &at, &length))
                 return false;
         } else if (wire == 2) {
-            if (!read_varint(raw, decoded.bytes, &at, &length) || length > decoded.bytes - at)
+            if (!read_varint(raw, size, &at, &length) || length > size - at)
                 return false;
             at += static_cast<u32>(length);
         } else if (wire == 1 || wire == 5) {
             const u32 width = wire == 1 ? 8 : 4;
-            if (width > decoded.bytes - at)
+            if (width > size - at)
                 return false;
             at += width;
         } else {

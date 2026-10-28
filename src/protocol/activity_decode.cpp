@@ -411,9 +411,10 @@ u32 decode(const JsonValue& v, char* output, u32 budget, bool whole) noexcept {
     copy_bytes(output, scratch + begin, bytes);
     return bytes;
 }
+// Only the lengths start zeroed: every text slot is read up to its length.
 struct Pending {
     char text[kUserActivityFieldCount][320];
-    u16 bytes[kUserActivityFieldCount];
+    u16 bytes[kUserActivityFieldCount]{};
 };
 UserActivityPlatform platform(const JsonValue& v) noexcept {
     char text[16];
@@ -472,7 +473,7 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     const u64 type = number(f.v[activity_type]);
     if (type == 4 || type > 5 || c.out->count == kUserActivityMaximum)
         return true;
-    Pending pending{};
+    Pending pending;
     using F = UserActivityField;
     const auto take = [&](F field, JsonValue v, bool whole) noexcept {
         const u32 i = static_cast<u32>(field);

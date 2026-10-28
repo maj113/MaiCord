@@ -220,15 +220,6 @@ UserSettingsValue user_settings_text(Utf8View text) noexcept {
     value.text_bytes = static_cast<u8>(bytes);
     return value;
 }
-bool user_settings_value_equal(const UserSettingsValue& a, const UserSettingsValue& b) noexcept {
-    return a.present == b.present && a.number == b.number && a.text_bytes == b.text_bytes &&
-           bytes_equal(a.text, b.text, a.text_bytes);
-}
-
-bool user_settings_proto_valid(ConstSlice<u8> message) noexcept {
-    return byte_range_valid(message) && valid(proto_source(message), 0, message.count);
-}
-
 bool user_settings_proto_read(ConstSlice<u8> group, UserSettingsField field, UserSettingsValue* value) noexcept {
     if (!field_valid(field) || field.kind == K::id_member || !byte_range_valid(group))
         return false;
@@ -463,7 +454,7 @@ UserSettingsResponse user_settings_proto_decode_response(Utf8View body, u32 mask
     UserSettingsResponse result{{0, 0, E::input}, false, false};
     if (!body.data || !body.bytes)
         return result;
-    u32 indexes[64]{};
+    u32 indexes[64];
     const auto scanned = json_scan_structurals_avx1(body, {indexes, 64});
     Envelope envelope{};
     if (!scanned.ok() || !json_visit_root_object(body, {indexes, scanned.count}, 8, envelope_member, &envelope).ok()) {
@@ -505,7 +496,8 @@ ConstSlice<u8> user_settings_store_server_group(const UserSettingsStore& store, 
 }
 
 bool user_settings_store_apply(UserSettingsStore* store, ConstSlice<u8> extracted, bool partial) noexcept {
-    if (!user_settings_proto_valid(extracted) || extracted.count > kUserSettingsProtoArenaBytes)
+    if (extracted.count > kUserSettingsProtoArenaBytes || !byte_range_valid(extracted) ||
+        !valid(proto_source(extracted), 0, extracted.count))
         return false;
     ProtoWriter out{{store->scratch, kUserSettingsProtoArenaBytes}, 0, true};
     u32 present = 0;
@@ -548,9 +540,14 @@ bool user_settings_store_apply(UserSettingsStore* store, ConstSlice<u8> extracte
 }
 
 namespace {
+bool value_equal(const UserSettingsValue& a, const UserSettingsValue& b) noexcept {
+    return a.present == b.present && a.number == b.number && a.text_bytes == b.text_bytes &&
+           bytes_equal(a.text, b.text, a.text_bytes);
+}
 // Edits address a field; id_member edits address one ID of it (`key`).
 bool edit_matches(const UserSettingsEdit& edit, UserSettingsField field, u64 key) noexcept {
-    return user_settings_field_equal(edit.field, field) && (field.kind != K::id_member || edit.value.number == key);
+    return edit.field.group == field.group && edit.field.field == field.field && edit.field.child == field.child &&
+           edit.field.kind == field.kind && (field.kind != K::id_member || edit.value.number == key);
 }
 const UserSettingsEdit* find(const UserSettingsEdit* edits, u32 count, UserSettingsField field, u64 key) noexcept {
     for (u32 i = count; i--;)
@@ -606,7 +603,7 @@ bool user_settings_store_set(UserSettingsStore* store, UserSettingsField field, 
             index = i;
     UserSettingsValue base{};
     base_value(*store, field, key, &base);
-    const bool redundant = user_settings_value_equal(base, value) ||
+    const bool redundant = value_equal(base, value) ||
                            (!base.present && value.present && !value.number && !value.text_bytes &&
                             (field.kind == K::enumeration || field.kind == K::plain_bool));
     if (redundant) {

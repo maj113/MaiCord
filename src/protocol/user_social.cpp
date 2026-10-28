@@ -23,15 +23,11 @@ bool find_member(void* p, JsonString name, JsonValue value) noexcept {
     return true;
 }
 JsonValue field(const JsonIndexedDocument& doc, const JsonValue& object, const char* name) noexcept {
-    u32 bytes = 0;
-    while (name[bytes])
-        ++bytes;
-    Member member{{name, bytes}, {}, false};
+    Member member{{name, c_string_length(name)}, {}, false};
     if (object.source.bytes && object.kind == JsonValueKind::object)
         json_visit_indexed_object(doc, object, depth_limit, find_member, &member);
     return member.value;
 }
-} // namespace
 
 Utf8View report_menu_name(ReportMenuName name) noexcept {
     switch (name) {
@@ -43,6 +39,7 @@ Utf8View report_menu_name(ReportMenuName name) noexcept {
         return {};
     }
 }
+} // namespace
 
 bool user_note_valid(Utf8View note) noexcept {
     if ((!note.data && note.bytes) || note.bytes > kUserNoteMaximumBytes)
@@ -70,6 +67,7 @@ bool user_social_request_valid(const UserSocialRequest& r) noexcept {
     }
 }
 
+namespace {
 RestMethod user_social_method(UserSocialOperation operation) noexcept {
     switch (operation) {
     case UserSocialOperation::note_put:
@@ -82,6 +80,7 @@ RestMethod user_social_method(UserSocialOperation operation) noexcept {
         return RestMethod::get;
     }
 }
+} // namespace
 
 bool user_social_has_body(UserSocialOperation operation) noexcept {
     return operation == UserSocialOperation::note_put || operation == UserSocialOperation::report_submit ||
@@ -296,7 +295,6 @@ bool element_item(void* p, u32, JsonValue value) noexcept {
     ReportElement* element = d.counting ? &scratch : &menu.elements[d.elements];
     ListContext options{&d, c.node, element};
     if (!d.counting) {
-        reset_value(element);
         element->kind = kind;
         element->name = named(menu, value, "name");
         bool submit = false;
@@ -347,7 +345,6 @@ bool node_member(void* p, JsonString, JsonValue value) noexcept {
     ReportNode scratch{};
     ReportNode* node = d.counting ? &scratch : &menu.nodes[d.nodes];
     if (!d.counting) {
-        reset_value(node);
         node->id = static_cast<u32>(id);
         node->key = named(menu, value, "key");
         node->header = named(menu, value, "header");

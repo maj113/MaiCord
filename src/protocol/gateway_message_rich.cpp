@@ -578,7 +578,6 @@ GatewayEventDecodeResult decode_reference(const RootContext& root, const JsonInd
                               root.referenced_message.source_offset);
     }
     if (!output->reference.content.bytes && referenced.poll.source.data) {
-        reset_value(&preview.text);
         json_visit_indexed_object(scratch, referenced.poll, maximum_depth, visit_referenced_question, &preview);
         if (preview.question.source.data) {
             reset_value(&preview.text);
@@ -1586,10 +1585,8 @@ GatewayEventDecodeResult decode_embeds(JsonValue array, const JsonIndexedDocumen
                                       context.provider.source_offset);
             }
         }
-        if ((context.seen & (1ull << 13)) != 0 &&
-            !parse_iso_timestamp(context.timestamp, &destination.timestamp_ms)) {
-            destination.timestamp_ms = 0;
-        }
+        if ((context.seen & (1ull << 13)) != 0)
+            parse_iso_timestamp(context.timestamp, &destination.timestamp_ms);
         if ((context.seen & (1ull << 7)) != 0) {
             DecodeScratch<JsonValue, 25> field_values;
             const u32 remaining = output_scratch.embed_fields.count > field_count
@@ -2235,10 +2232,6 @@ GatewayEventDecodeResult decode_snapshot(JsonValue value, const JsonIndexedDocum
                                   ? GatewayEventDecodeError::invalid_json
                                   : child.error,
                               child_read.error_offset);
-    if (child.seen & (gateway_message_field_message_snapshots | gateway_message_field_message_reference |
-                      gateway_message_field_referenced_message | gateway_message_field_reactions |
-                      gateway_message_field_interaction))
-        return decode_failure(GatewayEventDecodeError::invalid_data);
     const GatewayMessageRichScratch media{
         {}, scratch.attachments, scratch.embeds, scratch.embed_fields, scratch.stickers, scratch.components,
         {}};

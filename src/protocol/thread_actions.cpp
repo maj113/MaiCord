@@ -1,7 +1,6 @@
 #include "maicord/protocol/thread_actions.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/json_ids.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "json_field_lists.hpp"
 
@@ -29,9 +28,7 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
         valid = json_value_to_snowflake(value, &id) && id == expected;
         if (!valid) parse.error = ThreadActionError::identity;
     } else if (field == thread_member_join_timestamp) {
-        JsonString timestamp{};
-        valid = json_value_as_string(value, &timestamp) &&
-            parse_iso_timestamp(timestamp, &parse.value.join_timestamp_ms);
+        valid = json_value_to_timestamp(value, &parse.value.join_timestamp_ms);
     } else {
         u64 flags{};
         valid = json_value_to_u64(value, &flags) && flags <= 0xffffffffull;
@@ -88,7 +85,7 @@ ThreadActionResult thread_member_decode(
         input.bytes > kThreadMemberMaximumBodyBytes ||
         !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}) || !utf8_validate(input).valid)
         return {0, ThreadActionError::input};
-    u32 offsets[4'096]{};
+    u32 offsets[4'096];
     const auto scanned = json_scan_structurals_avx1(input, {offsets, 4'096});
     if (!scanned.ok()) return {0, scanned.error == JsonScanError::output_overflow
         ? ThreadActionError::capacity : ThreadActionError::json};

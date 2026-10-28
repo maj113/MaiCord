@@ -79,10 +79,7 @@ bool reason_valid(const GuildAssetRequest& request) noexcept {
         return true;
     if (request.operation == Op::image_probe || guild_asset_method(request.operation) == RestMethod::get)
         return false;
-    u8 scratch[kRestAuditReasonMaximumEncodedBytes];
-    const bool ok = rest_encode_audit_reason(request.reason, {scratch, sizeof(scratch)}).ok;
-    secure_clear_bytes(scratch, sizeof(scratch));
-    return ok;
+    return audit_reason_encodes(request.reason);
 }
 
 // Byte sink that either writes or only measures, so sizing and writing share

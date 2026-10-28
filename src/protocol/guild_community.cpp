@@ -3,7 +3,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest_route.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/guild_admin.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/json_scan.hpp"
@@ -372,12 +371,11 @@ struct EventPass {
     bool bad;
 };
 bool timestamp(JsonValue value, u64* output) noexcept {
-    JsonString text{};
     if (value.kind == JsonValueKind::null_value) {
         *output = 0;
         return true;
     }
-    return json_value_as_string(value, &text) && parse_iso_timestamp(text, output);
+    return json_value_to_timestamp(value, output);
 }
 bool metadata_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<EventPass*>(opaque);
@@ -705,11 +703,8 @@ bool guild_verification_answers_complete(const GuildVerificationForm& form,
 
 namespace {
 struct SubmitPass {
-    ProtocolWriter* writer;
-    ConstSlice<GuildVerificationAnswer> answers;
     JsonValue version, fields;
-    u32 index;
-    bool ok, version_seen, fields_seen;
+    bool version_seen, fields_seen;
 };
 bool submit_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<SubmitPass*>(opaque);
@@ -743,12 +738,12 @@ u32 guild_verification_write_submit(Utf8View form_body, ConstSlice<GuildVerifica
     const auto s = scan(form_body, scratch);
     if (!s.ok || !output.data)
         return 0;
-    GuildVerificationForm form{};
+    GuildVerificationForm form;
     if (!decode_form(s.document, &form) || !guild_verification_supported(form) ||
         !guild_verification_answers_complete(form, answers))
         return 0;
     ProtocolWriter w{output, 0};
-    SubmitPass pass{&w, answers, {}, {}, 0, true, false, false};
+    SubmitPass pass{};
     if (!json_visit_root_object(form_body, s.document.structurals, kDepth, submit_member, &pass).ok() ||
         !pass.fields_seen)
         return 0;
@@ -1128,14 +1123,10 @@ u32 profile_color(JsonValue value) noexcept {
         return ~0u;
     u32 color = 0;
     for (u32 i = 1; i < 7; ++i) {
-        const char c = text[i];
-        const u32 digit = c >= '0' && c <= '9'   ? static_cast<u32>(c - '0')
-                          : c >= 'a' && c <= 'f' ? static_cast<u32>(c - 'a' + 10)
-                          : c >= 'A' && c <= 'F' ? static_cast<u32>(c - 'A' + 10)
-                                                 : 16u;
-        if (digit > 15)
+        const i32 digit = ascii_hex_value(text[i]);
+        if (digit < 0)
             return ~0u;
-        color = color << 4 | digit;
+        color = color << 4 | static_cast<u32>(digit);
     }
     return color;
 }

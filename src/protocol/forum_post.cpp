@@ -750,7 +750,7 @@ ForumPostResult forum_post_decode(Utf8View input, const ForumPostRequest& reques
     const auto attachments = validate_attachments(parse.document, scope, intent.attachments.count, nullptr);
     if (!attachments.ok())
         return attachments;
-    GatewayMessageEvent message{};
+    GatewayMessageEvent message;
     const auto decoded = gateway_decode_message_create(
         parse.message, scratch, 32, {parse.value.content, sizeof(parse.value.content)}, &message);
     if (!decoded.ok())

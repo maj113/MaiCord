@@ -67,9 +67,6 @@ GatewayCommandWriteResult self_status_settings_write_show_game_patch(ConstSlice<
                                                                      Slice<u8> scratch, Slice<u8> output) noexcept;
 // Custom status dialog choices: Don't clear, 30 minutes, 1 hour, 4 hours, Today.
 enum class SelfCustomStatusClear : u8 { never, minutes_30, hour_1, hours_4, today, count };
-// Expiry for a clear-after choice; Today ends at the next local midnight, given
-// the local time of day in milliseconds.
-u64 self_custom_status_expiry(SelfCustomStatusClear, u64 unix_now_ms, u64 local_ms_of_day) noexcept;
 // Builds a status from dialog text. The emoji field takes a Unicode emoji or a
 // custom emoji as <:name:id> / <a:name:id>; surrounding spaces are ignored.
 // Returns false for overlong or malformed input. An empty result clears.

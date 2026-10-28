@@ -136,9 +136,7 @@ GuildInviteWriteResult guild_invite_write_request(const GuildInviteRequest& requ
         return result;
     }
     for (u32 i = 0; i < session_id.bytes; ++i)
-        if (!((session_id.data[i] >= '0' && session_id.data[i] <= '9') ||
-              (session_id.data[i] >= 'a' && session_id.data[i] <= 'z') ||
-              (session_id.data[i] >= 'A' && session_id.data[i] <= 'Z'))) {
+        if (!ascii_is_alnum(session_id.data[i])) {
             result.error = GuildInviteWriteError::invalid_input;
             return result;
         }

@@ -32,7 +32,7 @@ bool rate_seconds(JsonValue value, u64* output) noexcept {
     if (value.kind != JsonValueKind::number || !value.source.data || !value.source.bytes ||
         value.source.bytes > 64 || value.source.data[0] == '-')
         return false;
-    char digits[64]{};
+    char digits[64];
     u32 count = 0, before_decimal = 0, at = 0;
     bool decimal = false;
     while (at < value.source.bytes && value.source.data[at] != 'e' && value.source.data[at] != 'E') {

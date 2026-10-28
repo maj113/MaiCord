@@ -1,7 +1,5 @@
 #include "maicord/protocol/gif_favorites.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/protocol/base64.hpp"
-#include "maicord/protocol/writer.hpp"
 #include "json_fields.hpp"
 #include "proto_wire.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -104,7 +102,7 @@ E favorites(const ProtoSource& w, u32 p, u32 end, GifFavoritesResult& result) no
             return E::protobuf;
         if (f == 1) {
             u32 stop = 0;
-            Entry parsed{};
+            Entry parsed;
             if (t != 2 || !proto_length(w, p, end, stop))
                 return E::protobuf;
             if (result.entry_count == kGifFavoritesMaximumEntries)
@@ -230,7 +228,7 @@ Entry indexed_entry(const ProtoSource& group, u32 offset) noexcept {
     u32 p = offset;
     u32 end = 0;
     proto_length(group, p, group.size, end);
-    Entry result{};
+    Entry result;
     entry(group, p, end, result);
     return result;
 }
@@ -252,7 +250,7 @@ u32 index_group(const ProtoSource& group, Index index) noexcept {
         const u32 offset = p;
         u32 stop = 0;
         proto_length(group, p, group.size, stop);
-        Entry parsed{};
+        Entry parsed;
         entry(group, p, stop, parsed);
         u32 bucket = hash(group, parsed.key_begin, parsed.key_end) & (buckets - 1);
         for (u32 probes = 0; probes < buckets; ++probes) {
@@ -510,7 +508,7 @@ void write_group(const ProtoSource& group, const GifFavoriteMutation& mutation, 
             const u32 offset = p;
             u32 stop = 0;
             proto_length(group, p, group.size, stop);
-            Entry observed{};
+            Entry observed;
             entry(group, p, stop, observed);
             p = stop;
             if (mutation.kind == GifFavoriteMutationKind::remove && equal(group, observed, mutation.url))
@@ -604,12 +602,7 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
     prefix.varint(18);
     prefix.varint(counted.at);
     const u32 proto_bytes = prefix.at + counted.at;
-    static constexpr char start[] = "{\"settings\":\"";
-    static constexpr char middle[] = "\",\"required_data_version\":";
-    const u32 encoded_bytes = base64_encoded_size(proto_bytes);
-    constexpr u32 start_bytes = static_cast<u32>(sizeof(start) - 1);
-    constexpr u32 middle_bytes = static_cast<u32>(sizeof(middle) - 1);
-    const u32 json_bytes = start_bytes + encoded_bytes + middle_bytes + decimal_digits(data_version) + 1;
+    const u32 json_bytes = proto_settings_patch_bytes(proto_bytes, data_version, true);
     if (proto_bytes > scratch.count || json_bytes > output.count ||
         json_bytes > kGifFavoritesMaximumPatchBytes)
         return fail(E::capacity);
@@ -617,20 +610,14 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
     encoded.varint(18);
     encoded.varint(counted.at);
     write_group(group, mutation, plan, encoded);
-    copy_bytes(output.data, start, start_bytes);
-    base64_encode({scratch.data, encoded.at},
-                  {reinterpret_cast<char*>(output.data + start_bytes), encoded_bytes});
-    ProtocolWriter json{output, start_bytes + encoded_bytes};
-    protocol_writer_append_literal(&json, middle);
-    protocol_writer_append_u64(&json, data_version);
-    protocol_writer_append_byte(&json, '}');
-    return {json.used, counted.at, E::none};
+    proto_write_settings_patch({scratch.data, encoded.at}, data_version, output, true);
+    return {json_bytes, counted.at, E::none};
 }
 GifFavoritesError gif_favorites_validate_patch_json(Utf8View input) noexcept {
     if (input.bytes > kGifFavoritesMaximumPatchBytes ||
         !byte_range_valid({reinterpret_cast<const u8*>(input.data), input.bytes}))
         return E::input;
-    u32 structurals[16]{};
+    u32 structurals[16];
     const auto scan = json_scan_structurals_avx1(input, {structurals, 16});
     SettingsPatchEnvelope parsed{};
     if (!scan.ok() ||

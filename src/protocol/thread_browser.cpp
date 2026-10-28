@@ -1,7 +1,6 @@
 #include "maicord/protocol/thread_browser.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/protocol/json_ids.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/thread_actions.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -132,9 +131,7 @@ bool metadata_field(void* opaque, JsonString name, JsonValue value) noexcept {
     if (bit == 4) {
         // Threads created before 2022-01-09 report null; the snowflake is then the creation time.
         if (value.kind == JsonValueKind::null_value) return true;
-        JsonString timestamp{};
-        if (!json_value_as_string(value, &timestamp) ||
-            !parse_iso_timestamp(timestamp, &thread.post.create_timestamp_ms))
+        if (!json_value_to_timestamp(value, &thread.post.create_timestamp_ms))
             return reject(*thread.page, ThreadBrowserError::field);
         thread.post.fields |= thread_browser_post_created;
         return true;

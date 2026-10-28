@@ -110,7 +110,6 @@ SoundboardWriteResult soundboard_write_cdn_target(u64 sound_id, Slice<u8> output
 u32 soundboard_format_volume(u32 per_mille, Slice<char> output) noexcept;
 // JSON number in [0, 1] (exponent forms included) rounded to per-mille.
 bool soundboard_parse_volume(Utf8View number, u32* per_mille) noexcept;
-Utf8View soundboard_audio_mime(SoundboardAudioFormat) noexcept;
 
 // Sound object (REST lists, GUILD_SOUNDBOARD_SOUND_CREATE/UPDATE). Strings are
 // owned and not NUL-terminated.

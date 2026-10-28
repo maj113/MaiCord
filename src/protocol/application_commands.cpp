@@ -16,10 +16,7 @@ bool find_member(void* p, JsonString name, JsonValue value) noexcept {
     return true;
 }
 JsonValue field(const JsonIndexedDocument& doc, JsonValue obj, const char* name) noexcept {
-    u32 bytes = 0;
-    while (name[bytes])
-        ++bytes;
-    return command_member(doc, obj, {name, bytes});
+    return command_member(doc, obj, {name, c_string_length(name)});
 }
 Utf8View text(CommandIndex& index, JsonValue value) noexcept {
     JsonString string{};
@@ -339,7 +336,9 @@ bool argument_schema(void* opaque, u32, JsonValue value) noexcept {
     if (!schema.names[n].bytes)
         return false;
     schema.types[n] = static_cast<u32>(type);
-    json_value_to_bool(field(doc, value, "required"), &schema.required[n]);
+    bool required = false;
+    json_value_to_bool(field(doc, value, "required"), &required);
+    schema.required[n] = required;
     return true;
 }
 bool blank(char c) noexcept {
@@ -470,12 +469,14 @@ bool argument_lookup(const CommandIndex& index, const ApplicationCommand& comman
         (caret < input.bytes && (static_cast<u8>(input.data[caret]) & 0xc0) == 0x80))
         return false;
     reset_value(output);
-    ArgumentSchema schema{&index};
+    ArgumentSchema schema;
+    schema.index = &index;
+    schema.count = 0;
     if (command.options.source.bytes &&
         !json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, &schema)
              .ok())
         return false;
-    ScannedArgument spans[25]{};
+    ScannedArgument spans[25];
     u32 count = 0;
     Utf8View error{};
     if (!scan_arguments(schema, input, spans, &count, true, &error))
@@ -590,16 +591,18 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
         !utf8_validate(focused_query).valid)
         return false;
     reset_value(error);
-    ArgumentSchema schema{&index};
+    ArgumentSchema schema;
+    schema.index = &index;
+    schema.count = 0;
     if (command.options.source.bytes &&
         !json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, &schema)
              .ok()) {
         *error = utf8_literal("Unable to read command options");
         return false;
     }
-    Utf8View values[25]{};
+    Utf8View values[25];
     bool supplied[25]{};
-    ScannedArgument spans[25]{};
+    ScannedArgument spans[25];
     u32 count = 0;
     if (!scan_arguments(schema, input, spans, &count, focused_name.bytes != 0, error))
         return false;

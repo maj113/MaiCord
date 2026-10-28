@@ -125,7 +125,7 @@ ChannelOverviewResult channel_overview_decode(Utf8View input, ChannelOverviewSna
         return {0, ChannelOverviewError::input};
     // Application bound, not a wire-schema limit. Refuse structural overflow
     // atomically; never publish a truncated channel or unknown JSON subtree.
-    u32 offsets[4096]{};
+    u32 offsets[4096];
     const auto scanned = json_scan_structurals_avx1(input, {offsets, 4096});
     if (!scanned.ok())
         return {0, scanned.error == JsonScanError::output_overflow ? ChannelOverviewError::capacity

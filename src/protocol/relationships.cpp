@@ -168,7 +168,7 @@ RelationshipWriteResult write_relationship_target(RelationshipOperation operatio
         operation == RelationshipOperation::ignore || operation == RelationshipOperation::unignore;
     if (operation > RelationshipOperation::clear_hidden || individual != (user_id != 0) ||
         !byte_range_valid({output.data, output.count})) return {0, RelationshipWriteError::invalid_input};
-    char temporary[96]{};
+    char temporary[96];
     RouteWriter writer{};
     route_writer_initialize(&writer, {reinterpret_cast<u8*>(temporary), sizeof(temporary)});
     route_append(&writer, utf8_literal("/api/v10/users/@me/relationships"));
@@ -185,7 +185,7 @@ RelationshipWriteResult write_relationship_body(RelationshipOperation operation,
     if (operation > RelationshipOperation::clear_hidden || !byte_range_valid({output.data, output.count}) ||
         !byte_range_valid({reinterpret_cast<const u8*>(username.data), username.bytes}) ||
         (operation != RelationshipOperation::request && username.bytes)) return {0, RelationshipWriteError::invalid_input};
-    char temporary[128]{};
+    char temporary[128];
     RouteWriter writer{};
     route_writer_initialize(&writer, {reinterpret_cast<u8*>(temporary), sizeof(temporary)});
     if (operation == RelationshipOperation::request) {
@@ -315,7 +315,7 @@ RelationshipUserApplyResult relationships_hydrate(UserStore* users, Utf8View inp
     struct Hydrate { const JsonIndexedDocument* document; UserStore* users; RelationshipUserApplyResult result; } context{&document, users, {}};
     const auto read = json_visit_root_array(input, document.structurals, 64, +[](void* opaque, u32, JsonValue value) noexcept {
         auto& context = *static_cast<Hydrate*>(opaque);
-        RelationshipMutation decoded{};
+        RelationshipMutation decoded;
         if (decode_record(*context.document, value, RelationshipEvent::update, &decoded) != RelationshipsDecodeError::none) {
             context.result.error = UserStoreError::invalid_input;
             return false;

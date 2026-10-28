@@ -1,4 +1,5 @@
 #include "maicord/protocol/json_ids.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 
 namespace maicord {
 
@@ -33,6 +34,11 @@ bool json_value_to_u64_or_string(const JsonValue& value, u64* output) noexcept {
     JsonString encoded{};
     return json_value_to_u64(value, output) ||
            (json_value_as_string(value, &encoded) && json_string_to_u64(encoded, output));
+}
+
+bool json_value_to_timestamp(const JsonValue& value, u64* timestamp_ms) noexcept {
+    JsonString text{};
+    return json_value_as_string(value, &text) && parse_iso_timestamp(text, timestamp_ms);
 }
 
 } // namespace maicord

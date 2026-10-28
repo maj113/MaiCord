@@ -330,7 +330,7 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
     }
     parsed.rp_id[rp_bytes] = 0;
 
-    char encoded_challenge[2048]{};
+    char encoded_challenge[2048];
     u32 encoded_challenge_bytes = 0;
     if (!decode_string(public_key.challenge,
                        Slice<char>{encoded_challenge, static_cast<u32>(sizeof(encoded_challenge))},
@@ -416,7 +416,7 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
             !utf8_equal({type, type_bytes}, utf8_literal("public-key"))) {
             return failure(WebAuthnMfaError::invalid_field, credential.type.source_offset);
         }
-        char encoded_id[2048]{};
+        char encoded_id[2048];
         u32 encoded_id_bytes = 0;
         if (!decode_string(credential.id, Slice<char>{encoded_id, static_cast<u32>(sizeof(encoded_id))},
                            &encoded_id_bytes)) {
@@ -486,7 +486,7 @@ WebAuthnMfaResult webauthn_mfa_write_client_data(const WebAuthnMfaRequestOptions
         return failure(WebAuthnMfaError::value_too_large);
     }
     const u32 required = static_cast<u32>(required64);
-    if (required > output.count || (required != 0 && !output.data)) {
+    if (required > output.count) {
         return failure(WebAuthnMfaError::output_too_small, 0, JsonScanError::none, JsonReadError::none,
                        Base64UrlError::none, required);
     }
@@ -542,7 +542,7 @@ WebAuthnMfaResult webauthn_mfa_write_assertion(const WebAuthnMfaAssertionView& a
         return failure(WebAuthnMfaError::value_too_large);
     }
     const u32 required = static_cast<u32>(required64);
-    if (required > output.count || (required != 0 && !output.data)) {
+    if (required > output.count) {
         return failure(WebAuthnMfaError::output_too_small, 0, JsonScanError::none, JsonReadError::none,
                        Base64UrlError::none, required);
     }
