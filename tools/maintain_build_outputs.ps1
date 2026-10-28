@@ -139,7 +139,7 @@ if ($RuntimeOnly) {
             }
         }
     }
-    foreach ($name in @('CMakeCache.txt', 'build.ninja', 'cmake_install.cmake', '.ninja_deps', '.ninja_log', '.ninja_lock',
+    foreach ($name in @('CMakeCache.txt', 'build.ninja', 'cmake_install.cmake', 'compile_commands.json', '.ninja_deps', '.ninja_log', '.ninja_lock',
             'CTestTestfile.cmake', 'maicord-test-targets.txt', 'maicord-tests.txt', 'notification_sounds.rc',
             'CMakeFiles\cmake.check_cache', 'CMakeFiles\cmake.verify_globs', 'CMakeFiles\InstallScripts.json',
             'CMakeFiles\rules.ninja', 'CMakeFiles\TargetDirectories.txt', 'CMakeFiles\VerifyGlobs.cmake',

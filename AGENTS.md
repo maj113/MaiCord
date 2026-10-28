@@ -25,7 +25,11 @@ has the same rules in more detail.
   never wall-clock times.
 - The script removes test executables, objects, temporary profiles and logs
   after each run; leave the build directory holding only the client binaries
-  and their runtime assets.
+  and their runtime assets. For iterative work, `-KeepIntermediates` keeps
+  objects, ninja state and `compile_commands.json`, so later builds are
+  incremental and `python tools/check_sources.py` can parse changed files and
+  every unit including a changed header without building. Finish with a
+  normal run to restore the clean directory.
 
 ## Code rules
 

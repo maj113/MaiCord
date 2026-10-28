@@ -39,6 +39,9 @@ param(
     # pinned in tools/llvm_toolchain.json, fetched once into %LOCALAPPDATA%\MaiCord-toolchain). Another toolchain
     # directory reconfigures the build directory from scratch.
     [string]$LlvmBin = '',
+    # Development only: keep objects, the ninja state and compile_commands.json for incremental builds and
+    # tools/check_sources.py. The next run without it restores the client-only build directory.
+    [switch]$KeepIntermediates,
     [hashtable]$PerfArguments = @{}
 )
 
@@ -73,6 +76,7 @@ function Invoke-Native([string]$Command, [string[]]$Arguments) {
 }
 function Invoke-Configure([string[]]$Options) {
     if ($NoUpdater) { $Options += '-DMAICORD_UPDATE_REPOSITORY=', '-DMAICORD_UPDATE_PUBLIC_KEY=' }
+    $Options += "-DCMAKE_EXPORT_COMPILE_COMMANDS=$(if ($KeepIntermediates) { 'ON' } else { 'OFF' })"
     Invoke-Native cmake (@('-S', $repository, '--preset', 'x64-release') + $toolchainOptions + $Options)
 }
 function Invoke-Build([string[]]$Targets) {
@@ -222,7 +226,8 @@ try {
     foreach ($step in {
         if ($restoreClient) { Invoke-Configure @('-DMAICORD_STARTUP_PROBE=OFF'); Invoke-Build @('MaiCord') }
     }, {
-        if ($locked) { & "$PSScriptRoot\maintain_build_outputs.ps1" -Apply -RuntimeOnly:(Test-Path -LiteralPath "$build\maicord-build-outputs.txt") }
+        if ($locked -and $KeepIntermediates) { if ($testProfile) { Remove-Item -LiteralPath $testProfile -Recurse -Force -ErrorAction SilentlyContinue } }
+        elseif ($locked) { & "$PSScriptRoot\maintain_build_outputs.ps1" -Apply -RuntimeOnly:(Test-Path -LiteralPath "$build\maicord-build-outputs.txt") }
     }, {
         if ($locked -and $Test) {
             Get-ChildItem -LiteralPath "$([Environment]::GetFolderPath('LocalApplicationData'))\CrashDumps" -Filter 'MaiCord?*.exe.*.dmp' -File -ErrorAction SilentlyContinue |
