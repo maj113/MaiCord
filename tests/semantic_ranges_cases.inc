@@ -1,4 +1,4 @@
-bool semantic_compare(DWriteTextSystem system,Utf8View input,ConstSlice<TextStyleSpan> styles,ConstSlice<TextHitSpan> hits,bool required,float width,TextWrapping wrap,bool detached=false) noexcept {
+inline bool semantic_compare(DWriteTextSystem system,Utf8View input,ConstSlice<TextStyleSpan> styles,ConstSlice<TextHitSpan> hits,bool required,float width,TextWrapping wrap,bool detached=false) noexcept {
     ++cases;shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
     TextHitRange ranges[kTextHitSpanMaximum];
     for(u32 i=0;i<hits.count;++i){u32 first=0,end=0;CHECK(utf8_utf16_position_for_byte_offset(input,hits[i].byte_offset,&first)&&utf8_utf16_position_for_byte_offset(input,hits[i].byte_offset+hits[i].byte_count,&end));ranges[i]={first,end-first,hits[i].semantic_index,0};}
@@ -23,7 +23,7 @@ bool semantic_compare(DWriteTextSystem system,Utf8View input,ConstSlice<TextStyl
     }return true;
 }
 #include "directional_semantic_cases.inc"
-bool semantic_corpus(DWriteTextSystem system,bool required) noexcept {
+inline bool semantic_corpus(DWriteTextSystem system,bool required) noexcept {
     const Utf8View texts[]{utf8_literal("AV office caf\xc3\xa9 fi AV"),utf8_literal("AV office e\xcc\x81 fi AV\n\xc3\xa9 AV"),utf8_literal("AV\toffice\r\n\xc3\xa9 AV\n"),utf8_literal("AV office\n\n"),utf8_literal("AV office\t\t   "),utf8_literal("AV office\r\n\t\t")};
     const float widths[]{8.f,37.f,95.f,1000000.f};
     for(u32 sample=0;sample<6;++sample){const auto text=texts[sample];u32 offsets[256],boundaries=0;
@@ -46,7 +46,7 @@ bool semantic_corpus(DWriteTextSystem system,bool required) noexcept {
         }
     }return true;
 }
-bool semantic_long_range() noexcept {
+inline bool semantic_long_range() noexcept {
     // Exercise more than the former 256 intermediate rectangles. The app's
     // reference adapter has that same limit, so query its layout directly.
     static TextGlyph glyphs[1024];static TextRun runs[1024];static u16 clusters[1024];
@@ -76,7 +76,7 @@ bool semantic_long_range() noexcept {
         CHECK(output.hit_region_count==written);shaped_text_reset(&output);output.hit_region_capacity=1024;
     }return true;
 }
-bool semantic_options() noexcept {
+inline bool semantic_options() noexcept {
     CHECK(semantic_long_range());
     const float stops[]{3.5f,91.25f};
     for(float stop:stops){CHECK(SUCCEEDED(owner.format->SetIncrementalTabStop(stop)));CHECK(semantic_corpus(owner,true));}

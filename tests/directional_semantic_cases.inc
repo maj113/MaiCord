@@ -1,4 +1,4 @@
-const Utf8View directional_editor_samples[]{
+inline const Utf8View directional_editor_samples[]{
         utf8_literal("\xd7\x90\xd7\x91\xd7\x92"),
         utf8_literal("A \xd7\x90\xd7\x91\xd7\x92 B"),
         utf8_literal("\xd7\x90 123 \xd7\x91"),
@@ -19,7 +19,7 @@ const Utf8View directional_editor_samples[]{
         utf8_literal("\xd7\x90 \xf0\x9f\x98\x80 \xf0\x9f\x98\x83 \xd7\x91"),
         utf8_literal("  \xd7\x90 \n\n\xd7\x91  "),
         utf8_literal("A \xd7\x90\xd7\x91\xd7\x92 abc \xd7\x93\xd7\x94\xd7\x95 B")};
-bool directional_semantic_large_origin(DWriteTextSystem system) noexcept {
+inline bool directional_semantic_large_origin(DWriteTextSystem system) noexcept {
     struct LargeOutput {ShapedText text;TextGlyph glyphs[4096];TextRun runs[4096];u16 clusters[4096];TextHitRegion hits[8];};
     static LargeOutput actual{},expected{};static char bytes[4005];static wchar_t wide[4096];
     for(u32 i=0;i<4000;++i)bytes[i]='A';bytes[4000]=' ';bytes[4001]='\xd7';bytes[4002]='\x90';bytes[4003]='\xd7';bytes[4004]='\x91';
@@ -34,7 +34,7 @@ bool directional_semantic_large_origin(DWriteTextSystem system) noexcept {
     CHECK(expected.text.hit_region_count==1&&expected.hits[0].left>1000000);
     CHECK(actual.text.hit_region_count==1&&bytes_equal(actual.hits,expected.hits,sizeof(TextHitRegion)));return true;
 }
-bool directional_semantic_options(DWriteTextSystem system) noexcept {
+inline bool directional_semantic_options(DWriteTextSystem system) noexcept {
     if(system.em_size==1000)CHECK(directional_semantic_large_origin(system));
     const auto text=utf8_literal("A \xd7\x90\xd7\x91\xd7\x92 B\n\xd7\x90 \xe2\x9d\xa4\xef\xb8\x8f \xd7\x91");
     const TextStyleSpan style{0,text.bytes,text_style_link};const TextHitSpan public_hit{0,text.bytes,65535,0};
@@ -57,7 +57,7 @@ bool directional_semantic_options(DWriteTextSystem system) noexcept {
     for(const auto& range:invalid){CHECK(!submit(range));CHECK(!native_output.text.native_fonts()&&!native_output.text.run_count&&!native_output.text.hit_region_count);}
     CHECK(semantic_compare(system,text,{&style,1},{&public_hit,1},true,37,TextWrapping::wrap,true));return true;
 }
-bool directional_semantic_corpus(DWriteTextSystem system) noexcept {
+inline bool directional_semantic_corpus(DWriteTextSystem system) noexcept {
     CHECK(directional_semantic_options(system));
     const auto& texts=directional_editor_samples;
     const u32 flags[]{0,text_style_link,text_style_underline,text_style_bold|text_style_italic,text_style_monospace,text_style_heading_3,text_style_quote,text_style_mention};

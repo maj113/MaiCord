@@ -10,17 +10,17 @@ struct ReferenceEditQueryEntry {
     ReferenceEditQueryValue value;
     bool boundary_control;
 };
-IDWriteTextLayout* reference_edit_layout=nullptr;
-ReferenceEditShapeKey reference_edit_shape{};
-ReferenceEditQueryEntry reference_edit_queries[512]{};
-u32 reference_edit_generation=1;
-u64 reference_edit_requests=0,reference_edit_reuses=0,reference_edit_controls=0,reference_edit_direct=0;
-u32 reference_edit_bits(float value) noexcept {u32 bits=0;copy_bytes(&bits,&value,4);return bits;}
-void reference_edit_queries_release() noexcept {
+inline IDWriteTextLayout* reference_edit_layout=nullptr;
+inline ReferenceEditShapeKey reference_edit_shape{};
+inline ReferenceEditQueryEntry reference_edit_queries[512]{};
+inline u32 reference_edit_generation=1;
+inline u64 reference_edit_requests=0,reference_edit_reuses=0,reference_edit_controls=0,reference_edit_direct=0;
+inline u32 reference_edit_bits(float value) noexcept {u32 bits=0;copy_bytes(&bits,&value,4);return bits;}
+inline void reference_edit_queries_release() noexcept {
     com_release(reference_edit_layout);reference_edit_shape={};
     if(!++reference_edit_generation){clear_bytes(reference_edit_queries,sizeof(reference_edit_queries));reference_edit_generation=1;}
 }
-void reference_edit_queries_report() noexcept {
+inline void reference_edit_queries_report() noexcept {
     if(!reference_edit_requests)return;
     print("reference_edit_requests=");number(reference_edit_requests);print(" reference_edit_reuses=");number(reference_edit_reuses);
     print(" reference_edit_controls=");number(reference_edit_controls);print(" reference_edit_direct=");number(reference_edit_direct);print("\n");
@@ -54,12 +54,12 @@ bool reference_edit_query(const DWriteEditLayoutOwner& edit,u32 kind,const u32 (
         available->value=value;available->boundary_control=false;}
     *output=value;return true;
 }
-bool reference_edit_line_count(const DWriteEditLayoutOwner& edit,u32* count) noexcept {
+inline bool reference_edit_line_count(const DWriteEditLayoutOwner& edit,u32* count) noexcept {
     const u32 key[7]{};ReferenceEditQueryValue value{};
     CHECK(reference_edit_query(edit,0,key,false,[&](ReferenceEditQueryValue* out) noexcept {out->position=text_edit_layout_line_count(edit);return !edit.active||!edit.text_bytes||out->position!=0;},&value));
     *count=value.position;return true;
 }
-bool reference_edit_vertical(const DWriteEditLayoutOwner& edit,bool down,u32* position) noexcept {
+inline bool reference_edit_vertical(const DWriteEditLayoutOwner& edit,bool down,u32* position) noexcept {
     // move_vertical reads measured caret coordinates/height, subtracts origin,
     // and clamps to UTF16 units. Scroll/viewport effects enter through origin.
     const u32 key[7]{static_cast<u32>(down),reference_edit_bits(edit.caret.left),reference_edit_bits(edit.caret.top),
@@ -68,14 +68,14 @@ bool reference_edit_vertical(const DWriteEditLayoutOwner& edit,bool down,u32* po
     CHECK(reference_edit_query(edit,1,key,false,[&](ReferenceEditQueryValue* out) noexcept {return text_edit_layout_move_vertical(edit,down,&out->position);},&value));
     *position=value.position;return true;
 }
-bool reference_edit_point(const DWriteEditLayoutOwner& edit,float x,float y,u32* position) noexcept {
+inline bool reference_edit_point(const DWriteEditLayoutOwner& edit,float x,float y,u32* position) noexcept {
     // hit_test subtracts exact origins and clamps the result to UTF16 units.
     const u32 key[7]{reference_edit_bits(x),reference_edit_bits(y),reference_edit_bits(edit.origin_x),reference_edit_bits(edit.origin_y),edit.utf16_units,0,0};
     ReferenceEditQueryValue value{};
     CHECK(reference_edit_query(edit,2,key,false,[&](ReferenceEditQueryValue* out) noexcept {return text_edit_layout_hit_test(edit,x,y,&out->position);},&value));
     *position=value.position;return true;
 }
-bool reference_edit_position(const DWriteEditLayoutOwner& edit,u32 position,TextEditMetric* metric) noexcept {
+inline bool reference_edit_position(const DWriteEditLayoutOwner& edit,u32 position,TextEditMetric* metric) noexcept {
     // position_geometry translates the raw position by current origins and
     // fixes width to1; both source boundaries receive first-hit controls.
     const u32 key[7]{position,reference_edit_bits(edit.origin_x),reference_edit_bits(edit.origin_y),edit.utf16_units,0,0,0};
@@ -84,7 +84,7 @@ bool reference_edit_position(const DWriteEditLayoutOwner& edit,u32 position,Text
         [&](ReferenceEditQueryValue* out) noexcept {return text_edit_layout_position_geometry(edit,position,&out->metric);},&value));
     *metric=value.metric;return true;
 }
-bool same_edit(const DWriteEditLayoutOwner& a,const DWriteEditLayoutOwner& b) noexcept {
+inline bool same_edit(const DWriteEditLayoutOwner& a,const DWriteEditLayoutOwner& b) noexcept {
     CHECK(a.active==b.active&&a.text_bytes==b.text_bytes&&a.anchor==b.anchor&&a.caret_offset==b.caret_offset&&a.utf16_units==b.utf16_units&&a.selection_count==b.selection_count&&a.manual_scroll==b.manual_scroll);
     CHECK(bytes_equal(&a.caret,&b.caret,sizeof(a.caret))&&bytes_equal(a.selections,b.selections,a.selection_count*sizeof(*a.selections)));
     CHECK(a.origin_x==b.origin_x&&a.origin_y==b.origin_y&&a.layout_height==b.layout_height&&a.scroll_x==b.scroll_x&&a.scroll_y==b.scroll_y);
@@ -97,7 +97,7 @@ bool same_edit(const DWriteEditLayoutOwner& a,const DWriteEditLayoutOwner& b) no
     for(u32 p:positions){TextEditMetric m{},n{};CHECK(text_edit_layout_position_geometry(a,p,&m)&&reference_edit_position(b,p,&n)&&bytes_equal(&m,&n,sizeof(m)));}
     return true;
 }
-bool edit_hits() noexcept {
+inline bool edit_hits() noexcept {
     DWriteEditLayoutOwner native{},legacy{};TextEditMetric ns[48],ls[48];native.selections=ns;legacy.selections=ls;native.selection_capacity=legacy.selection_capacity=48;
     struct Release {DWriteEditLayoutOwner& a;DWriteEditLayoutOwner& b;~Release() noexcept {text_edit_layout_release(&a);text_edit_layout_release(&b);}} release{native,legacy};
     auto reference=owner;reference.native_text=nullptr;

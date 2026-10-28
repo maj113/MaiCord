@@ -30,16 +30,6 @@ maicord_program(MaiCordTextProjectionBenchmark ENTRY maicord_text_projection_ben
     SOURCES tests/bench/text_projection.cpp $<TARGET_OBJECTS:maicord_text_projection_observer>
     LIBS maicord_core maicord_platform maicord_ui maicord_ui_input maicord_model maicord_protocol maicord_app_core
         maicord_text kernel32 user32 crypt32)
-maicord_program(MaiCordProcessBenchmark ENTRY maicord_process_benchmark_entry SOURCES benchmarks/process_benchmark.cpp
-    LIBS maicord_core kernel32)
-maicord_program(MaiCordImportBenchmark ENTRY maicord_import_benchmark_entry SOURCES benchmarks/import_benchmark.cpp
-    LIBS kernel32 user32 shell32)
-maicord_program(MaiCordGpuTextureStorageBenchmark ENTRY maicord_gpu_texture_storage_entry
-    SOURCES benchmarks/gpu_texture_storage.cpp
-    LIBS maicord_core kernel32 d3d11 dxgi)
-maicord_program(MaiCordWindowFrameBenchmark ENTRY maicord_window_frame_benchmark_entry
-    SOURCES benchmarks/window_frame_benchmark.cpp
-    LIBS kernel32 user32 dwmapi d3d11 dxgi dcomp)
 maicord_program(MaiCordPngCrcBenchmark ENTRY maicord_png_crc_entry SOURCES benchmarks/png_crc_benchmark.cpp
     LIBS maicord_core maicord_media_codec kernel32)
 maicord_program(MaiCordGatewayPipelineBenchmark ENTRY maicord_gateway_pipeline_benchmark_entry
@@ -51,16 +41,12 @@ maicord_program(MaiCordRestWorkerStorageBenchmark ENTRY maicord_rest_worker_stor
     SOURCES benchmarks/rest_worker_storage.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_media_codec maicord_app_core kernel32
         ${maicord_tls_libs})
-maicord_program(MaiCordArenaBenchmark ENTRY maicord_arena_benchmark_entry SOURCES benchmarks/arena_strategies.cpp
-    LIBS maicord_core kernel32)
 maicord_program(MaiCordHttpCompressionBenchmark ENTRY maicord_http_compression_entry
     SOURCES benchmarks/http_compression.cpp
     LIBS maicord_core maicord_media_codec maicord_protocol kernel32)
 maicord_program(MaiCordTransportBenchmark ENTRY maicord_transport_benchmark_entry
     SOURCES benchmarks/transport_benchmark.cpp
     LIBS maicord_core maicord_protocol maicord_platform maicord_app_core kernel32 ${maicord_tls_libs})
-maicord_program(MaiCordGcm64Stages ENTRY maicord_gcm64_stages_entry SOURCES benchmarks/gcm64_stages.cpp
-    LIBS maicord_core maicord_platform kernel32 bcrypt crypt32)
 maicord_program(MaiCordGcm64Benchmark ENTRY maicord_gcm64_benchmark_entry SOURCES benchmarks/gcm64_benchmark.cpp
     LIBS maicord_core maicord_platform kernel32 bcrypt crypt32)
 maicord_program(MaiCordVoiceCryptoBenchmark ENTRY maicord_voice_crypto_benchmark_entry

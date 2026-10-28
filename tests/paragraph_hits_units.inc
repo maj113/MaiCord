@@ -1,12 +1,12 @@
 // Included by the native application line QA harness. DirectWrite is an oracle
 // here only; none of these calls are part of the production geometry engine.
 struct HitPointProbe {u32 x,y,generation;};
-HitPointProbe hit_point_probes[8192]{};u32 hit_point_generation=0;
-u64 hit_point_requests=0,hit_point_reused=0,repeated_hit_boxes=0;
-void begin_hit_point_probes() noexcept {
+inline HitPointProbe hit_point_probes[8192]{};inline u32 hit_point_generation=0;
+inline u64 hit_point_requests=0,hit_point_reused=0,repeated_hit_boxes=0;
+inline void begin_hit_point_probes() noexcept {
     if(!++hit_point_generation){clear_bytes(hit_point_probes,sizeof(hit_point_probes));hit_point_generation=1;}
 }
-bool repeated_hit_point(float x,float y) noexcept {
+inline bool repeated_hit_point(float x,float y) noexcept {
     ++hit_point_requests;u32 xb=0,yb=0;copy_bytes(&xb,&x,4);copy_bytes(&yb,&y,4);
     u32 hash=xb*0x9e3779b9u+yb;hash^=hash>>16;hash*=0x7feb352du;hash^=hash>>15;
     // Exact coordinates and a layout-local generation are mandatory. A bounded
@@ -16,10 +16,10 @@ bool repeated_hit_point(float x,float y) noexcept {
         if(entry.x==xb&&entry.y==yb){++hit_point_reused;return true;}}
     return false;
 }
-void hit_metric(const DWRITE_HIT_TEST_METRICS& m) noexcept {
+inline void hit_metric(const DWRITE_HIT_TEST_METRICS& m) noexcept {
     print("[");number(m.textPosition);print(",");number(m.length);print(",");real(m.left);print(",");real(m.top);print(",");real(m.width);print(",");real(m.height);print(",");number(m.bidiLevel);print(",");number(m.isText);print(",");number(m.isTrimmed);print("]");
 }
-NativeParagraphHitCluster hit_clusters[256];NativeParagraphHitLine hit_lines[257];float hit_advances[1280];NativeParagraphHitRun hit_visual_runs[256];
+inline NativeParagraphHitCluster hit_clusters[256];inline NativeParagraphHitLine hit_lines[257];inline float hit_advances[1280];inline NativeParagraphHitRun hit_visual_runs[256];
 struct HitRunCapture final : IDWriteTextRenderer {
     bool comma=false;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** out) override {
@@ -43,17 +43,17 @@ struct HitRunCapture final : IDWriteTextRenderer {
     HRESULT STDMETHODCALLTYPE DrawStrikethrough(void*,FLOAT,FLOAT,const DWRITE_STRIKETHROUGH*,IUnknown*) override {return S_OK;}
     HRESULT STDMETHODCALLTYPE DrawInlineObject(void*,FLOAT,FLOAT,IDWriteInlineObject*,BOOL,BOOL,IUnknown*) override {return S_OK;}
 };
-void describe_hit_runs(const NativeParagraphHits& h,IDWriteTextLayout* layout) noexcept {
+inline void describe_hit_runs(const NativeParagraphHits& h,IDWriteTextLayout* layout) noexcept {
     HitRunCapture capture;layout->Draw(nullptr,&capture,0,0);
     for(u32 i=0;i<h.visual_runs.count;++i){const auto& r=h.visual_runs[i];const u32 first=h.clusters[r.first_cluster].source_first,end=h.clusters[r.first_cluster+r.cluster_count-1].source_end;
         print("run=");number(first);print("..");number(end);print(" left/width/level=");real(r.left);print("/");real(r.width);print("/");number(r.bidi_level);print(" ref=");
         DWRITE_HIT_TEST_METRICS m[256];u32 count=0;if(SUCCEEDED(layout->HitTestTextRange(first,end-first,0,0,m,256,&count)))for(u32 j=0;j<count;++j)hit_metric(m[j]);print("\n");}
 }
-bool same_hit(const NativeParagraphHitMetric& a,const DWRITE_HIT_TEST_METRICS& b) noexcept {
+inline bool same_hit(const NativeParagraphHitMetric& a,const DWRITE_HIT_TEST_METRICS& b) noexcept {
     if(a.source_first!=b.textPosition||a.source_count!=b.length||a.left!=b.left||a.top!=b.top||a.width!=b.width||a.height!=b.height||a.bidi_level!=b.bidiLevel||!b.isText||b.isTrimmed){
         print("native hit=[");number(a.source_first);print(",");number(a.source_count);print(",");real(a.left);print(",");real(a.top);print(",");real(a.width);print(",");real(a.height);print(",");number(a.bidi_level);print("] ref=");hit_metric(b);print("\n");return false;}return true;
 }
-bool compare_hits(DWriteTextSystem system,Utf8View text,float width,TextWrapping wrapping,ConstSlice<TextStyleSpan> styles,bool detached,bool tracked_layout,bool captured_format) noexcept {
+inline bool compare_hits(DWriteTextSystem system,Utf8View text,float width,TextWrapping wrapping,ConstSlice<TextStyleSpan> styles,bool detached,bool tracked_layout,bool captured_format) noexcept {
     ++cases;NativeParagraphHits native{};NativeParagraphHitStorage storage{{hit_clusters,256},{hit_lines,257},{hit_advances,1280},&native};TextMeasureResult measured{};
     SfntFontLineParts parts[513];storage.styles={parts,513};storage.visual_runs={hit_visual_runs,256};
     auto candidate=system;if(detached){
@@ -119,7 +119,7 @@ bool compare_hits(DWriteTextSystem system,Utf8View text,float width,TextWrapping
     }
     return true;
 }
-bool hit_guards() noexcept {
+inline bool hit_guards() noexcept {
     {
         const auto split_text=utf8_literal("a\r\nb");
         NativeParagraphCluster split[]{{0,1,0,1,7,0},{1,2,1,0,0,native_paragraph_newline|(1u<<native_paragraph_style_shift)},
@@ -175,7 +175,7 @@ bool hit_guards() noexcept {
     CHECK(hits.lines.count==1&&!hits.clusters.count&&native_paragraph_hit_position(hits,0,false,&metric,&x)==SfntStatus::ok&&metric.height==20&&x==0);
     return true;
 }
-bool paragraph_hits() noexcept {
+inline bool paragraph_hits() noexcept {
     CHECK(hit_guards());
     const wchar_t* families[]{L"Segoe UI",L"Georgia",L"Consolas"};const float sizes[]{14.f,17.5f,1000.f},widths[]{8.f,37.f,95.f,1000000.f};
     for(u32 family=0;family<3;++family)for(float em:sizes){IDWriteTextFormat* format=nullptr;

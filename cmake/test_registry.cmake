@@ -1129,6 +1129,9 @@ maicord_test(MaiCordGatewayEtfSessionTests ENTRY maicord_gateway_etf_session_ent
     BUNDLE MaiCordCoreUnitTests TEST maicord_gateway_etf_session)
 maicord_test(MaiCordByteOrderTests ENTRY maicord_byte_order_entry SOURCES tests/byte_order_test.cpp
     BUNDLE MaiCordCoreUnitTests TEST maicord_byte_order)
+# The inline TEB/PEB reads in core/win32_process.hpp against the public APIs, on two threads.
+maicord_test(MaiCordProcessAccessorTests ENTRY maicord_process_accessors_entry SOURCES tests/process_accessors.cpp
+    BUNDLE MaiCordCoreUnitTests TIMEOUT 5 TEST maicord_process_accessors)
 maicord_font_test(MaiCordFontSessionTests maicord_font_session_entry font_session_test TIMEOUT 2
     TEST maicord_native_font_session)
 maicord_test(MaiCordNativeFormatTests ENTRY maicord_native_format_entry
@@ -1139,7 +1142,8 @@ maicord_test(MaiCordNativeFormatTests ENTRY maicord_native_format_entry
 maicord_add_tests(MaiCordNativeFormatTests TIMEOUT 2
     TEST maicord_native_recovery_pressure --recovery-pressure "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Compagnon.otf")
 # Inline the shared test driver's hot comparisons and query helpers (/Ob2).
-add_library(maicord_native_app_line_driver OBJECT tests/native_app_line_test.cpp)
+add_library(maicord_native_app_line_driver OBJECT tests/native_app_line_test.cpp tests/native_app_line_scripts.cpp
+    tests/native_app_line_editing.cpp)
 target_link_libraries(maicord_native_app_line_driver PRIVATE maicord_compile_contract)
 set_target_properties(maicord_native_app_line_driver PROPERTIES CXX_EXTENSIONS OFF MAICORD_INLINE_ANY ON)
 maicord_test(MaiCordNativeAppLineTests ENTRY maicord_native_app_line_entry

@@ -1,5 +1,5 @@
 // UTF-8 Latin and neutral-character app layout probes.
-const Utf8View latin_samples[]{
+inline const Utf8View latin_samples[]{
     utf8_literal("\x61\x65\xcc\x81\x62"),
     utf8_literal("\x61\xc3\xa9\x62"),
     utf8_literal("\x61\x41\xcc\x8a\x62"),

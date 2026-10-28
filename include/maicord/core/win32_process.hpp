@@ -12,7 +12,7 @@ namespace maicord {
 
 // Native Windows x64 ABI: GS:[0x60] is TEB.ProcessEnvironmentBlock;
 // PEB+0x30 is ProcessHeap. These private offsets are isolated here and checked
-// against the public APIs by MaiCordProcessBenchmark. Revalidate for a new ABI.
+// against the public APIs by tests/process_accessors.cpp. Revalidate for a new ABI.
 __forceinline HANDLE process_heap() noexcept {
     const auto* peb = reinterpret_cast<const u8*>(__readgsqword(0x60));
     return *reinterpret_cast<HANDLE const*>(peb + 0x30);

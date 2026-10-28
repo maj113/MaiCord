@@ -1,4 +1,4 @@
-const Utf8View latin_paragraph_samples[]{
+inline const Utf8View latin_paragraph_samples[]{
     utf8_literal("caf\xc3\xa9\tAV\r\nna\xc3\xafve"),
     utf8_literal("\r\n\xc3\xa9\t\tffi\n"),
     utf8_literal("\xc3\xa9\xe2\x80\xa8" "a"),

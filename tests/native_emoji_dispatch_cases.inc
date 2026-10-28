@@ -61,7 +61,7 @@ bool emoji_dispatch_cuts(DWriteTextSystem system,DWriteTextSystem reference,Utf8
     }
     return true;
 }
-bool native_emoji_dispatch_corpus(const wchar_t* path,bool mixed=false) noexcept {
+bool native_emoji_dispatch_corpus(const wchar_t* path,bool mixed) noexcept {
     if(*path){wchar_t name[32768];u32 n=0;const bool quoted=*path=='"';if(quoted)++path;
         while(*path&&!(quoted?*path=='"':*path==' '||*path=='\t')){CHECK(n+1<32768);name[n++]=*path++;}name[n]=0;
         HANDLE file=CreateFileW(name,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);

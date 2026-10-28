@@ -40,13 +40,16 @@ maicord_finish_test_bundles()
 maicord_copy_fonts(MaiCordUiProbe MaiCordMessageLinkUiProbe MaiCordComposerUiProbe MaiCordAccountLogoutUiProbe
     MaiCordScopedReadUiProbe MaiCordFontCatalogTests)
 
-# The non-/GL library twins and shared objects are temporary like the tests:
-# tools/build.ps1 builds the ones the selected tests need and
+# The non-/GL library twins, shared objects and test PCH libraries are temporary
+# like the tests: tools/build.ps1 builds the ones the selected tests need and
 # maintain_build_outputs.ps1 removes their outputs by maicord-build-outputs.txt.
 get_property(maicord_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 list(REMOVE_ITEM maicord_test_targets ${maicord_production_targets})
 maicord_add_test_codegen_twins(maicord_test_targets)
 maicord_share_test_objects(maicord_test_targets)
+# The tests compiling the most application sources use the application PCH too.
+maicord_precompile_test_application_sources(maicord_test_targets
+    MaiCordUiProbe MaiCordSettingsRuntimeTests MaiCordTests)
 set_property(TARGET ${maicord_test_targets} PROPERTY EXCLUDE_FROM_ALL TRUE)
 
 # Per-test environment: no Python bytecode in the source tree and, for the

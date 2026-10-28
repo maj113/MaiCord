@@ -493,7 +493,7 @@ function(maicord_reaches_application_state variable source)
     set(${variable} ${app} PARENT_SCOPE)
 endfunction()
 
-# MaiCord's application sources share a precompiled header (src/app/
+# Application sources share a precompiled header (src/app/
 # application_pch.hpp: application_state.hpp), about half of each source's
 # front-end time. A /Yu object also leaves the header's inline code
 # to the PCH object, which shrinks the LTO link input. One PCH per
@@ -502,14 +502,23 @@ endfunction()
 # (directly or through another src/app header) before any #define, #undef or
 # #pragma of its own and has no definitions of its own, so the PCH holds only
 # declarations it already includes. The options apply only to targets with
-# MAICORD_APPLICATION_PCH, never to test targets compiling the same sources.
-# OBJECT_DEPENDS has no per-target form, so a configuration that does not build
-# the client (MAICORD_TEST_PREBUILT_CLIENT) does not set the PCH up at all,
-# rather than have test objects wait on a PCH that nothing there uses.
+# MAICORD_APPLICATION_PCH, the directory of their own PCHs, so every target
+# compiling a source uses a PCH built with its settings, or none.
+# maicord_precompile_application_sources(<target> [STUBS <object library>]):
+# without STUBS the PCHs are built in <target> and each qualifying source names
+# them in OBJECT_DEPENDS, which has no per-target form, so a configuration that
+# does not build the client (MAICORD_TEST_PREBUILT_CLIENT) does not set the
+# client's PCH up at all, rather than have test objects wait on a PCH that
+# nothing there uses. STUBS builds them in that object library instead (with
+# <target>'s settings) and orders only <target>'s objects after them.
 function(maicord_precompile_application_sources target)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "STUBS" "")
+    if(NOT ARG_STUBS)
+        set(ARG_STUBS ${target})
+    endif()
     set(header "${CMAKE_CURRENT_SOURCE_DIR}/src/app/application_pch.hpp")
     maicord_application_state_headers(app_headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.hpp")
-    set(directory "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.dir")
+    set(directory "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${ARG_STUBS}.dir")
     set(enabled "$<BOOL:$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH>>")
     set(modes)
     get_target_property(sources ${target} SOURCES)
@@ -533,15 +542,23 @@ function(maicord_precompile_application_sources target)
             set(mode Os)
         endif()
         list(APPEND modes ${mode})
-        set(pch "${directory}/application_pch_${mode}.pch")
-        set_property(SOURCE "${path}" APPEND PROPERTY COMPILE_OPTIONS
-            "$<${enabled}:/FI${header}>" "$<${enabled}:/Yu${header}>" "$<${enabled}:/Fp${pch}>")
-        # /showIncludes omits headers read from a PCH, so name the PCH itself
-        # (OBJECT_DEPENDS takes no generator expressions; for other targets
-        # compiling the source it is only an extra, already built, input).
-        set_property(SOURCE "${path}" APPEND PROPERTY OBJECT_DEPENDS "${pch}")
+        # The options are the same for every target; the first one sets them.
+        get_source_file_property(tagged "${path}" MAICORD_APPLICATION_PCH_MODE)
+        if(NOT tagged)
+            set(pch "$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH>/application_pch_${mode}.pch")
+            set_property(SOURCE "${path}" PROPERTY MAICORD_APPLICATION_PCH_MODE ${mode})
+            set_property(SOURCE "${path}" APPEND PROPERTY COMPILE_OPTIONS
+                "$<${enabled}:/FI${header}>" "$<${enabled}:/Yu${header}>" "$<${enabled}:/Fp${pch}>")
+        endif()
+        if(ARG_STUBS STREQUAL target)
+            # /showIncludes omits headers read from a PCH, so name the PCH itself
+            # (OBJECT_DEPENDS takes no generator expressions; for other targets
+            # compiling the source it is only an extra, already built, input).
+            set_property(SOURCE "${path}" APPEND PROPERTY OBJECT_DEPENDS "${directory}/application_pch_${mode}.pch")
+        endif()
     endforeach()
     list(REMOVE_DUPLICATES modes)
+    set(pchs)
     foreach(mode IN LISTS modes)
         set(stub "${directory}/application_pch_${mode}.cpp")
         set(pch "${directory}/application_pch_${mode}.pch")
@@ -553,9 +570,18 @@ function(maicord_precompile_application_sources target)
         endif()
         set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" OBJECT_OUTPUTS "${pch}")
         # The PCH object holds the header's code; every image using the PCH links it.
-        target_sources(${target} PRIVATE "${stub}")
+        target_sources(${ARG_STUBS} PRIVATE "${stub}")
+        list(APPEND pchs "${pch}")
     endforeach()
-    set_target_properties(${target} PROPERTIES MAICORD_APPLICATION_PCH ON)
+    if(NOT ARG_STUBS STREQUAL target)
+        # A custom command output of the target orders all of its objects after
+        # the PCHs, and only its own; it waits for nothing else the target needs.
+        set(stamp "${directory}/application_pch.stamp")
+        add_custom_command(OUTPUT "${stamp}" COMMAND "${CMAKE_COMMAND}" -E touch "${stamp}" DEPENDS ${pchs}
+            DEPENDS_EXPLICIT_ONLY VERBATIM)
+        target_sources(${target} PRIVATE "$<TARGET_OBJECTS:${ARG_STUBS}>" "${stamp}")
+    endif()
+    set_target_properties(${target} PROPERTIES MAICORD_APPLICATION_PCH "${directory}")
 endfunction()
 if(NOT MAICORD_TEST_PREBUILT_CLIENT)
     maicord_precompile_application_sources(MaiCord)
