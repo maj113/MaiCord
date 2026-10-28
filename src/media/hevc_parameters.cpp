@@ -5,7 +5,7 @@
 
 namespace maicord {
 namespace {
-void profile_tier(HevcBits& b, u8 layers, u8* profile, u8* level) noexcept {
+void profile_tier(HevcBits& b, u8 layers, u8* profile = nullptr, u8* level = nullptr) noexcept {
     const u32 space = b.read(2);
     b.bit();
     const u32 id = b.read(5);
@@ -15,8 +15,10 @@ void profile_tier(HevcBits& b, u8 layers, u8* profile, u8* level) noexcept {
     const u32 lev = b.read(8);
     if (space || (id != 1 && !(compatible & 0x40000000u)))
         b.error = HevcError::unsupported;
-    *profile = static_cast<u8>(id);
-    *level = static_cast<u8>(lev);
+    if (profile)
+        *profile = static_cast<u8>(id);
+    if (level)
+        *level = static_cast<u8>(lev);
     bool profiles[7]{}, levels[7]{};
     for (u32 i = 0; i < layers; ++i) {
         profiles[i] = b.bit();
@@ -227,8 +229,7 @@ HevcError parse_vps(ConstSlice<u8> nal, u8* id, u8* layers) noexcept {
     b.bit();
     if (b.read(16) != 0xffffu)
         b.error = HevcError::malformed;
-    u8 profile{}, level{};
-    profile_tier(b, sub, &profile, &level);
+    profile_tier(b, sub);
     const bool all = b.bit();
     for (u32 i = all ? 0 : sub; i <= sub; ++i) {
         const u32 buffering = b.ue(14);
@@ -661,8 +662,7 @@ HevcError hevc_select_parameters(ConstSlice<u8> config, u8 pps_id, HevcConfigura
                     const u8 vid = static_cast<u8>(b.read(4));
                     const u8 layers = static_cast<u8>(b.read(3));
                     b.bit();
-                    u8 prof{}, level{};
-                    profile_tier(b, layers, &prof, &level);
+                    profile_tier(b, layers);
                     const u32 id = b.ue(15);
                     if (b.error != HevcError::none)
                         return b.error;

@@ -70,8 +70,8 @@ bool prepare_owner(NativeGlyphOutlines** pointer,u16 face_id,NativeFontSession* 
     if(!pointer||!face_id||face_id>capacity||!fonts||!run.slot)return false;
     if(!*pointer){auto* o=static_cast<NativeGlyphOutlines*>(VirtualAlloc(nullptr,sizeof(NativeGlyphOutlines),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!o)return false;
         if(!arena_initialize(&o->scratch,4*1024*1024,0,4096)){VirtualFree(o,0,MEM_RELEASE);return false;}
-        const bool shared=native_font_session_retain(fonts);if(shared)o->fonts=fonts;
-        if(!shared){arena_release(&o->scratch);VirtualFree(o,0,MEM_RELEASE);return false;}*pointer=o;}
+        if(!native_font_session_retain(fonts)){arena_release(&o->scratch);VirtualFree(o,0,MEM_RELEASE);return false;}
+        o->fonts=fonts;*pointer=o;}
     auto& o=**pointer;if(fonts!=o.fonts)return false;const u32 index=face_id-1;if(!o.bindings[index].slot&&!bind(o,index,run))return false;
     return true;
 }

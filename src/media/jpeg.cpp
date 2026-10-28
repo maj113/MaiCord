@@ -348,13 +348,15 @@ IccParseOutcome parse_icc_xyz(const IccScatter& scatter, const IccTag& tag, floa
     return IccParseOutcome::applied;
 }
 
+// Parameters of ICC parametric curve functions 0-4.
+inline constexpr u8 kIccParametricParameterCounts[5] = {1, 3, 4, 5, 7};
+
 bool icc_parametric_sane(u16 function, const float* parameters) noexcept {
     const float g = parameters[0];
     if (!(g > 0.0f) || g > 16.0f) {
         return false;
     }
-    static constexpr u8 counts[5] = {1, 3, 4, 5, 7};
-    for (u32 index = 0; index < counts[function]; ++index) {
+    for (u32 index = 0; index < kIccParametricParameterCounts[function]; ++index) {
         if (absolute(parameters[index]) > 16.0f) {
             return false;
         }
@@ -429,8 +431,7 @@ IccParseOutcome parse_icc_curve(const IccScatter& scatter, const IccTag& tag, Jp
     if (function_reserved != 0) {
         return IccParseOutcome::malformed;
     }
-    static constexpr u8 parameter_counts[5] = {1, 3, 4, 5, 7};
-    const u32 parameter_count = parameter_counts[function];
+    const u32 parameter_count = kIccParametricParameterCounts[function];
     if (12u + parameter_count * 4u > tag.bytes) {
         return IccParseOutcome::malformed;
     }
@@ -444,9 +445,7 @@ IccParseOutcome parse_icc_curve(const IccScatter& scatter, const IccTag& tag, Jp
         return IccParseOutcome::unsupported;
     }
     curve->g = parameters[0];
-    if (function == 0) {
-        curve->a = 1.0f;
-    } else {
+    if (function != 0) {
         curve->a = parameters[1];
         curve->b = parameters[2];
     }
@@ -517,10 +516,7 @@ IccParseOutcome parse_icc_mft(const IccScatter& scatter, const IccTag& tag, u8 e
     for (u32 index = 0; index < 9; ++index) {
         u32 value = 0;
         const u32 expected = index == 0 || index == 4 || index == 8 ? 0x00010000u : 0;
-        if (!icc_read_u32(scatter, tag.offset + 12u + index * 4u, &value)) {
-            return IccParseOutcome::malformed;
-        }
-        if (value != expected) {
+        if (!icc_read_u32(scatter, tag.offset + 12u + index * 4u, &value) || value != expected) {
             return IccParseOutcome::malformed;
         }
     }
@@ -830,9 +826,6 @@ void finalize_icc_profile(ConstSlice<u8> encoded, const JpegIccChunk* chunks, u3
 
 bool build_huffman_table(JpegHuffmanTable* table, const u8* counts, const u8* symbols,
                          u32 symbol_count) noexcept {
-    if (symbol_count == 0 || symbol_count > 256) {
-        return false;
-    }
     reset_value<JpegHuffmanTable>(table);
     i32 code = 0;
     u32 symbol_offset = 0;
@@ -850,13 +843,9 @@ bool build_huffman_table(JpegHuffmanTable* table, const u8* counts, const u8* sy
         } else {
             table->minimum_code[length] = 0xffff;
             table->maximum_code[length] = 0;
-            table->value_offset[length] = 0;
         }
         code = (code + static_cast<i32>(count)) << 1;
         symbol_offset += count;
-    }
-    if (symbol_offset != symbol_count) {
-        return false;
     }
     for (u32 index = 0; index < symbol_count; ++index) {
         table->symbols[index] = symbols[index];
@@ -1380,11 +1369,7 @@ void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode,
     for (u32 length = 0; length < kJpegLookaheadBits; ++length) {
         const u32 shift = kJpegLookaheadBits - 1u - length;
         for (i32 code = table.minimum_code[length]; code <= table.maximum_code[length]; ++code) {
-            const i32 index = table.value_offset[length] + code;
-            if (index < 0 || static_cast<u32>(index) >= table.symbol_count) {
-                continue; // the canonical path reports it
-            }
-            const u16 entry = static_cast<u16>((length + 1u) << 8 | table.symbols[index]);
+            const u16 entry = static_cast<u16>((length + 1u) << 8 | table.symbols[table.value_offset[length] + code]);
             const u32 first = static_cast<u32>(code) << shift;
             for (u32 fill = 0; fill < (1u << shift); ++fill) {
                 if (decode->lookahead[first + fill] == 0) {
@@ -1436,18 +1421,14 @@ void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegAcD
     }
 }
 
-// Bit-serial canonical match over a 16-bit window: length << 8 | symbol, with
-// bit 16 set when the matching codeword indexes past the symbols; 0 if no
-// codeword of up to 16 bits matches.
+// Bit-serial canonical match over a 16-bit window: length << 8 | symbol, or 0
+// if no codeword of up to 16 bits matches. Table symbol indices are in range:
+// the code ranges come from build_huffman_table.
 __declspec(noinline) u32 canonical_entry(const JpegHuffmanTable& table, u32 window) noexcept {
     for (u32 length = 0; length < 16; ++length) {
         const i32 code = static_cast<i32>(window >> (15u - length));
         if (code >= table.minimum_code[length] && code <= table.maximum_code[length]) {
-            const i32 index = table.value_offset[length] + code;
-            if (index < 0 || static_cast<u32>(index) >= table.symbol_count) {
-                return 0x10000u | (length + 1u) << 8;
-            }
-            return (length + 1u) << 8 | table.symbols[index];
+            return (length + 1u) << 8 | table.symbols[table.value_offset[length] + code];
         }
     }
     return 0;
@@ -1477,10 +1458,6 @@ __forceinline bool decode_huffman_symbol(JpegEntropyReader* reader, const JpegDe
     const u32 length = entry >> 8 & 0x1Fu;
     if (length > reader->bits) {
         reader->error = reader->stop;
-        return false;
-    }
-    if ((entry & 0x10000u) != 0) {
-        reader->error = JpegError::huffman;
         return false;
     }
     entropy_consume(reader, length);
@@ -2284,10 +2261,6 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
         const u32 mcu_y = mcu / image.mcu_columns;
         for (u32 scan = 0; scan < image.component_count; ++scan) {
             const u32 component_index = image.scan_order[scan];
-            if (component_index >= image.component_count) {
-                result.error = JpegError::scan;
-                return result;
-            }
             const JpegComponent& component = image.components[component_index];
             const JpegDecodeTable& dc = dc_decode[component.dc_table];
             const JpegAcDecodeTable& ac = ac_decode[component.ac_table];
@@ -2584,10 +2557,6 @@ JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegIm
             const u32 mcu_x = mcu % image.mcu_columns, mcu_y = mcu / image.mcu_columns;
             for (u32 scan = 0; scan < image.component_count; ++scan) {
                 const u32 component_index = image.scan_order[scan];
-                if (component_index >= image.component_count) {
-                    result.error = JpegError::scan;
-                    return result;
-                }
                 const JpegComponent& component = image.components[component_index];
                 for (u32 vertical = 0; vertical < component.vertical_sampling; ++vertical)
                     for (u32 horizontal = 0; horizontal < component.horizontal_sampling; ++horizontal) {

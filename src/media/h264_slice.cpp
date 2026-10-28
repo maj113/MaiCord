@@ -63,11 +63,7 @@ H264Error h264_slice_parameter_id(ConstSlice<u8> nal, u8* output) noexcept {
 
 H264Error h264_parse_slice(ConstSlice<u8> nal, const H264Sps& sps,
     const H264Pps& pps, H264Slice* output) noexcept {
-    if (!output || !nal.data || nal.count < 2 || sps.frame_num_bits < 4 ||
-        sps.frame_num_bits > 16 || sps.poc_type > 2 ||
-        (sps.poc_type == 0 && (sps.poc_bits < 4 || sps.poc_bits > 16)) ||
-        !sps.coded_width || !sps.coded_height || sps.coded_width > 8'704 ||
-        sps.coded_height > 17'408 || sps.id != pps.sps_id)
+    if (!output || !nal.data || nal.count < 2 || sps.id != pps.sps_id)
         return H264Error::invalid_input;
     const u8 nal_type = nal.data[0] & 31u;
     if (nal.data[0] & 0x80u) return H264Error::malformed;

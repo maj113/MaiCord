@@ -4,6 +4,22 @@
 
 namespace maicord {
 
+namespace {
+
+// Damages `rectangle` grown by `fringe` DIPs, clipped to the viewport.
+void damage_with_fringe(D3D11Renderer* renderer, const UiRect& rectangle, float fringe) noexcept {
+    if (renderer->dpi && rectangle.left < rectangle.right && rectangle.top < rectangle.bottom) {
+        const float scale = 96.f / static_cast<float>(renderer->dpi);
+        presentation_damage_add(&renderer->presentation_damage,
+                                {rectangle.left - fringe, rectangle.top - fringe, rectangle.right + fringe,
+                                 rectangle.bottom + fringe},
+                                {0, 0, static_cast<float>(renderer->width) * scale,
+                                 static_cast<float>(renderer->height) * scale});
+    }
+}
+
+} // namespace
+
 bool renderer_set_layer_opacity(D3D11Renderer* renderer, RendererLayerSurface surface,
                                 float opacity) noexcept {
     if (!renderer)
@@ -68,16 +84,8 @@ bool renderer_set_layer_opacity(D3D11Renderer* renderer, RendererLayerSurface su
     if (*value == opacity)
         return false;
     *value = opacity;
-    if (renderer->dpi && rectangle.left < rectangle.right && rectangle.top < rectangle.bottom) {
-        // Cover rounded antialiasing and the popup's existing exterior shadow.
-        constexpr float fringe = 12;
-        const float scale = 96.f / static_cast<float>(renderer->dpi);
-        presentation_damage_add(&renderer->presentation_damage,
-                                {rectangle.left - fringe, rectangle.top - fringe, rectangle.right + fringe,
-                                 rectangle.bottom + fringe},
-                                {0, 0, static_cast<float>(renderer->width) * scale,
-                                 static_cast<float>(renderer->height) * scale});
-    }
+    // Cover rounded antialiasing and the popup's existing exterior shadow.
+    damage_with_fringe(renderer, rectangle, 12);
     return true;
 }
 
@@ -95,16 +103,7 @@ bool renderer_set_popup_scale(D3D11Renderer* renderer, float scale, float origin
     renderer->popup_layer_origin_x = origin_x;
     renderer->popup_layer_origin_y = origin_y;
     // A shrinking popup stays inside its settled rectangle (and its shadow).
-    const UiRect rectangle = renderer->popup_scene ? renderer->popup_scene->rectangle : UiRect{};
-    if (renderer->dpi && rectangle.left < rectangle.right && rectangle.top < rectangle.bottom) {
-        constexpr float fringe = 12;
-        const float pixels = 96.f / static_cast<float>(renderer->dpi);
-        presentation_damage_add(&renderer->presentation_damage,
-                                {rectangle.left - fringe, rectangle.top - fringe, rectangle.right + fringe,
-                                 rectangle.bottom + fringe},
-                                {0, 0, static_cast<float>(renderer->width) * pixels,
-                                 static_cast<float>(renderer->height) * pixels});
-    }
+    damage_with_fringe(renderer, renderer->popup_scene ? renderer->popup_scene->rectangle : UiRect{}, 12);
     return true;
 }
 
@@ -126,17 +125,8 @@ bool renderer_set_toast_opacity(D3D11Renderer* renderer, float opacity) noexcept
     if (renderer->toast_opacity == opacity)
         return false;
     renderer->toast_opacity = opacity;
-    const UiRect rectangle = renderer->toast_scene ? renderer->toast_scene->rectangle : UiRect{};
-    if (renderer->dpi && rectangle.left < rectangle.right && rectangle.top < rectangle.bottom) {
-        // The popover shadow below it reaches 12 DIP out and 6 DIP down.
-        constexpr float fringe = 20;
-        const float pixels = 96.f / static_cast<float>(renderer->dpi);
-        presentation_damage_add(&renderer->presentation_damage,
-                                {rectangle.left - fringe, rectangle.top - fringe, rectangle.right + fringe,
-                                 rectangle.bottom + fringe},
-                                {0, 0, static_cast<float>(renderer->width) * pixels,
-                                 static_cast<float>(renderer->height) * pixels});
-    }
+    // The popover shadow below it reaches 12 DIP out and 6 DIP down.
+    damage_with_fringe(renderer, renderer->toast_scene ? renderer->toast_scene->rectangle : UiRect{}, 20);
     return true;
 }
 

@@ -70,66 +70,37 @@ u64 apng_frame_duration_us(const ApngFrame& frame) noexcept {
     return minimum(duration, kApngFrameDurationMaximumUs);
 }
 
-bool configure_frame_image(ConstSlice<u8> encoded,
-                           const ApngImage& image,
-                           const ApngFrame& frame,
-                           PngImage* frame_image) noexcept {
-    if (!frame_image || frame.span_count == 0 ||
-        frame.span_count > kPngIdatSpanCapacity ||
-        frame.first_span > image.span_count ||
-        frame.span_count > image.span_count - frame.first_span) {
+bool bind_spans(ConstSlice<u8> encoded, const ApngImage& image, u32 first, u32 count, u32 compressed_bytes,
+                PngImage* out) noexcept {
+    if (count == 0 || count > kPngIdatSpanCapacity || first > image.span_count ||
+        count > image.span_count - first) {
         return false;
     }
-    *frame_image = image.canvas;
-    frame_image->idat_span_count = 0;
-    frame_image->compressed_bytes = 0;
-    if (!png_image_configure(frame_image, frame.width, frame.height,
-                             image.canvas.bit_depth,
-                             image.canvas.color_type)) {
-        return false;
-    }
-    for (u32 index = 0; index < frame.span_count; ++index) {
-        const ApngDataSpan span =
-            image.spans[frame.first_span + index];
-        if (span.offset > encoded.count ||
-            span.bytes > encoded.count - span.offset) {
+    out->compressed_bytes = 0;
+    for (u32 index = 0; index < count; ++index) {
+        const ApngDataSpan span = image.spans[first + index];
+        if (span.offset > encoded.count || span.bytes > encoded.count - span.offset) {
             return false;
         }
-        frame_image->idat_spans[index] =
-            DeflateInputSpan{encoded.data + span.offset, span.bytes};
-        frame_image->compressed_bytes += span.bytes;
+        out->idat_spans[index] = DeflateInputSpan{encoded.data + span.offset, span.bytes};
+        out->compressed_bytes += span.bytes;
     }
-    frame_image->idat_span_count = frame.span_count;
-    return frame_image->compressed_bytes == frame.compressed_bytes;
+    out->idat_span_count = count;
+    return out->compressed_bytes == compressed_bytes;
 }
 
-bool configure_default_image(ConstSlice<u8> encoded,
-                             const ApngImage& image,
-                             PngImage* default_image) noexcept {
-    if (!default_image || image.default_span_count == 0 ||
-        image.default_span_count > kPngIdatSpanCapacity ||
-        image.default_first_span > image.span_count ||
-        image.default_span_count >
-            image.span_count - image.default_first_span) {
-        return false;
-    }
+bool configure_frame_image(ConstSlice<u8> encoded, const ApngImage& image, const ApngFrame& frame,
+                           PngImage* frame_image) noexcept {
+    *frame_image = image.canvas;
+    return png_image_configure(frame_image, frame.width, frame.height, image.canvas.bit_depth,
+                               image.canvas.color_type) &&
+           bind_spans(encoded, image, frame.first_span, frame.span_count, frame.compressed_bytes, frame_image);
+}
+
+bool configure_default_image(ConstSlice<u8> encoded, const ApngImage& image, PngImage* default_image) noexcept {
     *default_image = image.canvas;
-    default_image->idat_span_count = 0;
-    default_image->compressed_bytes = 0;
-    for (u32 index = 0; index < image.default_span_count; ++index) {
-        const ApngDataSpan span =
-            image.spans[image.default_first_span + index];
-        if (span.offset > encoded.count ||
-            span.bytes > encoded.count - span.offset) {
-            return false;
-        }
-        default_image->idat_spans[index] =
-            DeflateInputSpan{encoded.data + span.offset, span.bytes};
-        default_image->compressed_bytes += span.bytes;
-    }
-    default_image->idat_span_count = image.default_span_count;
-    return default_image->compressed_bytes ==
-           image.default_compressed_bytes;
+    return bind_spans(encoded, image, image.default_first_span, image.default_span_count,
+                      image.default_compressed_bytes, default_image);
 }
 
 } // namespace
@@ -340,7 +311,6 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
             if (!ancillary) {
                 return fail(result, ApngError::unknown_critical_chunk);
             }
-            ++result.ancillary_chunks;
             image->canvas.has_color_metadata =
                 image->canvas.has_color_metadata || png_color_metadata_chunk(type);
         }

@@ -1176,7 +1176,7 @@ bool compile_parameters_valid(ColrPaintProgram* program, float frame, float pixe
     return program && pixels > 0 && pixels <= 512 && frame >= 0 && frame < 100000;
 }
 bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
-                     float frame, float pixels, float* source_width) noexcept {
+                     float frame, float pixels) noexcept {
     const usize ends_bytes = json.structurals.count * sizeof(u32);
     const usize doc_offset = (ends_bytes + alignof(Document) - 1) & ~(alignof(Document) - 1);
     void* block = VirtualAlloc(nullptr, doc_offset + sizeof(Document),
@@ -1274,14 +1274,11 @@ bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
     ColrPaintElement root_paint{};
     root_paint.kind = ColrPaintKind::layers;
     root_paint.paint.layers.childCount = doc->leaf_count;
-    if (source_width)
-        *source_width = 1;
     return colr_program_build(program, source, root_paint, {0, 0, w / extent, h / extent}, pixels);
 }
 } // namespace
 bool lottie_program_compile_frame(ConstSlice<u8> encoded, u32 frame_index, float pixels,
-                                  LottieTiming* timing, LottieProgramAcquire acquire, void* context,
-                                  float* source_width) noexcept {
+                                  LottieTiming* timing, LottieProgramAcquire acquire, void* context) noexcept {
     if (!timing || !acquire || !encoded.data || !encoded.count || encoded.count > kLottieMaximumBytes)
         return false;
     reset_value(timing);
@@ -1291,6 +1288,6 @@ bool lottie_program_compile_frame(ConstSlice<u8> encoded, u32 frame_index, float
     auto* program = acquire(context);
     const float frame = timing->first + frame_index;
     return compile_parameters_valid(program, frame, pixels) &&
-           compile_indexed(source.json, program, frame, pixels, source_width);
+           compile_indexed(source.json, program, frame, pixels);
 }
 } // namespace maicord

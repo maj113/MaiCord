@@ -127,9 +127,6 @@ void sort_symbols(const u8* lengths, u32 alphabet_size, u16* output) noexcept {
 }
 
 bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* code) noexcept {
-    if (alphabet_size == 0 || alphabet_size > 19) {
-        return false;
-    }
     reset_value<SmallHuffmanCode>(code);
     if (!count_code(lengths, alphabet_size, code->counts, &code->symbol_count, &code->single_symbol)) {
         return false;
@@ -139,14 +136,12 @@ bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* co
 }
 
 // Canonical decoding of the next codeword, bit-serial semantics: the first
-// read bit is the codeword's most significant bit.
-template <typename Code, typename Symbol>
-bool decode_huffman(BitReader* reader, const Code& code, const Symbol* symbols, u16* symbol) noexcept {
-    if (code.symbol_count == 0) {
-        return false;
-    }
-    if (code.symbol_count == 1) {
-        *symbol = code.single_symbol;
+// read bit is the codeword's most significant bit. One body serves both code
+// layouts.
+bool decode_canonical(BitReader* reader, const u16* counts, u32 symbol_count, u16 single_symbol, const u16* symbols,
+                      u16* symbol) noexcept {
+    if (symbol_count == 1) {
+        *symbol = single_symbol;
         return true;
     }
     const u64 available = total_bits(*reader) - reader->bit_position;
@@ -159,13 +154,10 @@ bool decode_huffman(BitReader* reader, const Code& code, const Symbol* symbols, 
             return fail_at_end(reader);
         }
         canonical = canonical << 1 | static_cast<u32>(bits >> (length - 1u) & 1u);
-        const u32 count = code.counts[length];
+        const u32 count = counts[length];
         if (canonical >= first && canonical - first < count) {
             const u32 index = base + canonical - first;
             reader->bit_position += length;
-            if (index >= code.symbol_count) {
-                return false;
-            }
             *symbol = symbols[index];
             return true;
         }
@@ -174,6 +166,11 @@ bool decode_huffman(BitReader* reader, const Code& code, const Symbol* symbols, 
     }
     reader->bit_position += 15;
     return false;
+}
+
+template <typename Code>
+__forceinline bool decode_huffman(BitReader* reader, const Code& code, const u16* symbols, u16* symbol) noexcept {
+    return decode_canonical(reader, code.counts, code.symbol_count, code.single_symbol, symbols, symbol);
 }
 
 // Root lookup for codewords of up to kVp8lLookupBits bits: entry = symbol |
@@ -217,9 +214,6 @@ void build_lookup(Vp8lWorkspace* workspace, Vp8lHuffmanCode* code) noexcept {
 }
 
 bool build_code(Vp8lWorkspace* workspace, u32 alphabet_size, Vp8lHuffmanCode* code) noexcept {
-    if (alphabet_size == 0 || alphabet_size > kVp8lMaximumAlphabetSize) {
-        return false;
-    }
     reset_value<Vp8lHuffmanCode>(code);
     if (!count_code(workspace->code_lengths, alphabet_size, code->counts, &code->symbol_count,
                     &code->single_symbol) ||
@@ -302,9 +296,6 @@ inline constexpr u8 kCodeLengthOrder[19] = {
 
 bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* workspace,
                        Vp8lHuffmanCode* code) noexcept {
-    if (alphabet_size == 0 || alphabet_size > kVp8lMaximumAlphabetSize) {
-        return false;
-    }
     for (u32 index = 0; index < alphabet_size; ++index) {
         workspace->code_lengths[index] = 0;
     }
@@ -638,7 +629,7 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
         }
         group_count = maximum_group + 1;
     }
-    if (state->reader.failed || group_count == 0 || group_count > kVp8lHuffmanGroupCapacity) {
+    if (state->reader.failed) {
         set_error(state, WebpError::bitstream);
         return false;
     }
@@ -665,7 +656,6 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
     // x/y track position; the group changes only at prefix-block columns,
     // on a new row and after a backward copy.
     const u32 block_mask = prefix_bits != 0 ? (1u << prefix_bits) - 1u : ~0u;
-    const u32* const cache = workspace->color_cache;
     u32* const color_cache = workspace->color_cache;
     const u32 cache_shift = 32u - cache_bits;
     u32 position = 0;
@@ -712,8 +702,7 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
             }
             const u32 distance_code = window_prefix_value(&state->reader, &window, distance_prefix);
             const u32 distance = distance_value(distance_code, width);
-            if (state->reader.failed || length == 0 || length > pixel_count - position || distance == 0 ||
-                distance > position) {
+            if (state->reader.failed || length > pixel_count - position || distance > position) {
                 set_error(state, WebpError::distance);
                 return false;
             }
@@ -745,7 +734,7 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
                 set_error(state, WebpError::bitstream);
                 return false;
             }
-            const u32 pixel = cache[cache_index];
+            const u32 pixel = color_cache[cache_index];
             output[position++] = pixel;
             color_cache[static_cast<u32>(0x1E35A7BDull * pixel) >> cache_shift] = pixel;
             if (++x == width) {
@@ -988,12 +977,8 @@ bool read_transforms(DecodeState* state, u32 original_width, u32 height, Transfo
     bool seen[4]{};
     u32 width = original_width;
     while (read_bits(&state->reader, 1) != 0) {
-        if (*transform_count >= 4) {
-            set_error(state, WebpError::transform);
-            return false;
-        }
         const u32 type_value = read_bits(&state->reader, 2);
-        if (type_value > 3 || seen[type_value]) {
+        if (seen[type_value]) {
             set_error(state, WebpError::transform);
             return false;
         }
@@ -1061,9 +1046,6 @@ bool remaining_padding_is_zero(BitReader* reader) noexcept {
         return false;
     }
     const u64 total_bits = static_cast<u64>(reader->bytes.count) * 8u;
-    if (reader->bit_position > total_bits) {
-        return false;
-    }
     const u64 remaining = total_bits - reader->bit_position;
     return remaining <= 7 && (remaining == 0 || read_bits(reader, static_cast<u32>(remaining)) == 0);
 }

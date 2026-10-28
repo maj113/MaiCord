@@ -8,10 +8,13 @@ namespace {
 using namespace mp4_demux_detail;
 using E = Mp4DemuxError;
 constexpr u64 limit = 0x7fffffffffffffffull;
-template <typename T> bool output_valid(ConstSlice<u8> input, T* output) noexcept {
-    const ConstSlice<u8> region{reinterpret_cast<const u8*>(output), sizeof(T)};
+bool output_region_valid(ConstSlice<u8> input, const void* output, u32 bytes) noexcept {
+    const ConstSlice<u8> region{static_cast<const u8*>(output), bytes};
     return input.data && byte_range_valid(input) && output && byte_range_valid(region) &&
            !byte_ranges_overlap(input, region);
+}
+template <typename T> __forceinline bool output_valid(ConstSlice<u8> input, T* output) noexcept {
+    return output_region_valid(input, output, static_cast<u32>(sizeof(T)));
 }
 bool box(ConstSlice<u8> input, u32 type, Box* out) noexcept {
     u64 cursor = 0;

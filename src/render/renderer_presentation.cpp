@@ -43,6 +43,14 @@ public:
     StampWriter& caret(bool visible) noexcept {
         return push(!stamp_->structural && visible);
     }
+    StampWriter& atlas(const MediaAtlas& atlas) noexcept {
+        return push(atlas.entry_count)
+            .push(atlas.insertions)
+            .push(atlas.stale_entries)
+            .push(atlas.allocations.evicted_entries)
+            .push(atlas.allocations.full_resets)
+            .push(atlas.next_allocation_key);
+    }
 
 private:
     RendererPresentationStamp* stamp_;
@@ -452,15 +460,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         .pointer(renderer.content_text)
         .pointer(renderer.media_atlas)
         .pointer(renderer.preview_media_atlas);
-    if (renderer.preview_media_atlas) {
-        const auto& atlas = *renderer.preview_media_atlas;
-        s.push(atlas.entry_count)
-            .push(atlas.insertions)
-            .push(atlas.stale_entries)
-            .push(atlas.allocations.evicted_entries)
-            .push(atlas.allocations.full_resets)
-            .push(atlas.next_allocation_key);
-    }
+    if (renderer.preview_media_atlas)
+        s.atlas(*renderer.preview_media_atlas);
     if (renderer.content_text) {
         const TimelineInputs timeline(&stamp);
         s.push(renderer.content_text->rebuilds)
@@ -470,15 +471,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(renderer.content_text->content_semantic_count)
             .push(renderer.content_text->content_hit_region_count);
     }
-    if (renderer.media_atlas) {
-        const auto& atlas = *renderer.media_atlas;
-        s.push(atlas.entry_count)
-            .push(atlas.insertions)
-            .push(atlas.stale_entries)
-            .push(atlas.allocations.evicted_entries)
-            .push(atlas.allocations.full_resets)
-            .push(atlas.next_allocation_key);
-    }
+    if (renderer.media_atlas)
+        s.atlas(*renderer.media_atlas);
     if (!content_hidden) {
         s.pointer(renderer.thread_header);
         if (renderer.thread_header)
@@ -668,8 +662,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
 }
 
 bool renderer_note_text_effect_damage(D3D11Renderer* renderer, u64 now_ms) noexcept {
-    if (!renderer || !renderer->text_effect_animated || now_ms < renderer->text_effect_next_ms ||
-        !renderer->dpi)
+    if (!renderer->text_effect_animated || now_ms < renderer->text_effect_next_ms || !renderer->dpi)
         return false;
     const float scale = 96.f / static_cast<float>(renderer->dpi);
     const PresentationDamageRect viewport{0, 0, static_cast<float>(renderer->width) * scale,
@@ -732,11 +725,11 @@ u64 layout_signature(const D3D11Renderer& renderer) noexcept {
     return hash64_bytes(hash, renderer.inline_media_layer_end, sizeof(renderer.inline_media_layer_end));
 }
 
-bool add_quad_damage(PresentationDamageTracker* tracker, float left, float top, float right, float bottom,
-                     PresentationDamageRect clip) noexcept {
+template <typename Quad>
+bool add_quad_damage(PresentationDamageTracker* tracker, const Quad& quad, PresentationDamageRect clip) noexcept {
     return presentation_damage_add(tracker,
-                                   {left - kPaintDiffFringe, top - kPaintDiffFringe, right + kPaintDiffFringe,
-                                    bottom + kPaintDiffFringe},
+                                   {quad.left - kPaintDiffFringe, quad.top - kPaintDiffFringe,
+                                    quad.right + kPaintDiffFringe, quad.bottom + kPaintDiffFringe},
                                    clip);
 }
 
@@ -769,18 +762,12 @@ bool add_paint_damage(D3D11Renderer* renderer, const RendererFrameCopy& diff) no
             ++suffix;
         const PaintClip& clip = paint.clips[after.clip_index];
         const PresentationDamageRect bounds{clip.left, clip.top, clip.right, clip.bottom};
-        for (u32 index = prefix; index < old_count - suffix; ++index) {
-            const PaintQuad& quad = old_quads[index];
-            if (!add_quad_damage(&renderer->presentation_damage, quad.left, quad.top, quad.right, quad.bottom,
-                                 bounds))
+        for (u32 index = prefix; index < old_count - suffix; ++index)
+            if (!add_quad_damage(&renderer->presentation_damage, old_quads[index], bounds))
                 return false;
-        }
-        for (u32 index = prefix; index < new_count - suffix; ++index) {
-            const PaintQuad& quad = new_quads[index];
-            if (!add_quad_damage(&renderer->presentation_damage, quad.left, quad.top, quad.right, quad.bottom,
-                                 bounds))
+        for (u32 index = prefix; index < new_count - suffix; ++index)
+            if (!add_quad_damage(&renderer->presentation_damage, new_quads[index], bounds))
                 return false;
-        }
     }
     return true;
 }
@@ -813,23 +800,26 @@ bool add_media_damage(D3D11Renderer* renderer, const RendererFrameCopy& diff) no
             if (bytes_equal(&quad, &previous[index], sizeof(MediaQuad)))
                 continue;
             const MediaQuad& old = previous[index];
-            if (!add_quad_damage(&renderer->presentation_damage, old.left, old.top, old.right, old.bottom, clip) ||
-                !add_quad_damage(&renderer->presentation_damage, quad.left, quad.top, quad.right, quad.bottom,
-                                 clip))
+            if (!add_quad_damage(&renderer->presentation_damage, old, clip) ||
+                !add_quad_damage(&renderer->presentation_damage, quad, clip))
                 return false;
         }
     }
     return true;
 }
 
-template <typename T>
-bool record_array(StableStorage* storage, const T* source, u32 count) noexcept {
+bool record_bytes(StableStorage* storage, const void* source, u32 count, usize size) noexcept {
     if (count == 0)
         return true;
     if (!source || !stable_storage_reserve(storage, count))
         return false;
-    CopyMemory(stable_storage_data<T>(*storage), source, static_cast<usize>(count) * sizeof(T));
+    CopyMemory(stable_storage_data<u8>(*storage), source, static_cast<usize>(count) * size);
     return true;
+}
+
+template <typename T>
+bool record_array(StableStorage* storage, const T* source, u32 count) noexcept {
+    return record_bytes(storage, source, count, sizeof(T));
 }
 
 } // namespace
@@ -876,8 +866,6 @@ bool renderer_frame_copy_record(RendererFrameCopy* copy, const D3D11Renderer& re
 }
 
 bool renderer_paint_diff_damage(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    if (!renderer)
-        return false;
     RendererPaintDiff& diff = renderer->paint_diff;
     const PaintStream& paint = renderer->paint_stream;
     const RendererPresentationStamp structure = renderer_capture_presentation_stamp(*renderer, theme, true);
@@ -952,10 +940,8 @@ bool renderer_step_typing_dots(D3D11Renderer* renderer) noexcept {
     ui_typing_dots_quads(p.row, p.color, phase, after);
     const PresentationDamageRect clip{p.clip.left, p.clip.top, p.clip.right, p.clip.bottom};
     for (u32 i = 0; i < kUiTypingDotCount; ++i)
-        if (!add_quad_damage(&renderer->presentation_damage, before[i].left, before[i].top, before[i].right,
-                             before[i].bottom, clip) ||
-            !add_quad_damage(&renderer->presentation_damage, after[i].left, after[i].top, after[i].right,
-                             after[i].bottom, clip))
+        if (!add_quad_damage(&renderer->presentation_damage, before[i], clip) ||
+            !add_quad_damage(&renderer->presentation_damage, after[i], clip))
             presentation_damage_invalidate_full(&renderer->presentation_damage);
     CopyMemory(quads, after, sizeof(after));
     // The diff record mirrors the built stream: keep it equal to the screen.
@@ -969,15 +955,13 @@ bool renderer_step_typing_dots(D3D11Renderer* renderer) noexcept {
 }
 
 void renderer_paint_diff_commit(D3D11Renderer* renderer) noexcept {
-    if (renderer && renderer->paint_diff.pending) {
+    if (renderer->paint_diff.pending) {
         renderer->paint_diff.valid = true;
         renderer->paint_diff.pending = false;
     }
 }
 
 void renderer_paint_diff_release(D3D11Renderer* renderer) noexcept {
-    if (!renderer)
-        return;
     renderer_frame_copy_release(&renderer->paint_diff.frame);
     reset_value<RendererPaintDiff>(&renderer->paint_diff);
 }

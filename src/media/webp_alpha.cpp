@@ -16,41 +16,50 @@ __forceinline u8 gradient_predictor(u8 left, u8 above, u8 upper_left) noexcept {
     return value < 0 ? 0 : value > 255 ? 255 : static_cast<u8>(value);
 }
 
+} // namespace
+
 // The first row predicts from the left (its first pixel from zero); later rows
 // start from the pixel above, then apply the filter's own predictor.
+void webp_alpha_unfilter_row(WebpAlphaFilter filter, u8* row, const u8* above, u32 width) noexcept {
+    if (!above) {
+        for (u32 x = 1; x < width; ++x) {
+            row[x] = static_cast<u8>(row[x] + row[x - 1]);
+        }
+        return;
+    }
+    if (filter == WebpAlphaFilter::vertical) {
+        u32 x = 0;
+        for (; x + 16 <= width; x += 16) {
+            const __m128i sum = _mm_add_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(row + x)),
+                                             _mm_loadu_si128(reinterpret_cast<const __m128i*>(above + x)));
+            _mm_storeu_si128(reinterpret_cast<__m128i*>(row + x), sum);
+        }
+        for (; x < width; ++x) {
+            row[x] = static_cast<u8>(row[x] + above[x]);
+        }
+        return;
+    }
+    row[0] = static_cast<u8>(row[0] + above[0]);
+    if (filter == WebpAlphaFilter::horizontal) {
+        for (u32 x = 1; x < width; ++x) {
+            row[x] = static_cast<u8>(row[x] + row[x - 1]);
+        }
+    } else {
+        for (u32 x = 1; x < width; ++x) {
+            row[x] = static_cast<u8>(row[x] + gradient_predictor(row[x - 1], above[x], above[x - 1]));
+        }
+    }
+}
+
+namespace {
+
 void unfilter_alpha(Slice<u8> alpha, u32 width, u32 height, WebpAlphaFilter filter) noexcept {
     if (filter == WebpAlphaFilter::none) {
         return;
     }
-    u8* row = alpha.data;
-    for (u32 x = 1; x < width; ++x) {
-        row[x] = static_cast<u8>(row[x] + row[x - 1]);
-    }
+    webp_alpha_unfilter_row(filter, alpha.data, nullptr, width);
     for (u32 y = 1; y < height; ++y) {
-        const u8* above = row;
-        row += width;
-        if (filter == WebpAlphaFilter::vertical) {
-            u32 x = 0;
-            for (; x + 16 <= width; x += 16) {
-                const __m128i sum = _mm_add_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(row + x)),
-                                                 _mm_loadu_si128(reinterpret_cast<const __m128i*>(above + x)));
-                _mm_storeu_si128(reinterpret_cast<__m128i*>(row + x), sum);
-            }
-            for (; x < width; ++x) {
-                row[x] = static_cast<u8>(row[x] + above[x]);
-            }
-            continue;
-        }
-        row[0] = static_cast<u8>(row[0] + above[0]);
-        if (filter == WebpAlphaFilter::horizontal) {
-            for (u32 x = 1; x < width; ++x) {
-                row[x] = static_cast<u8>(row[x] + row[x - 1]);
-            }
-        } else {
-            for (u32 x = 1; x < width; ++x) {
-                row[x] = static_cast<u8>(row[x] + gradient_predictor(row[x - 1], above[x], above[x - 1]));
-            }
-        }
+        webp_alpha_unfilter_row(filter, alpha.data + y * width, alpha.data + (y - 1) * width, width);
     }
 }
 

@@ -19,14 +19,6 @@ inline void start_code(RtpVideoAssembly& assembly) noexcept {
 inline void complete(RtpVideoAssembly& assembly, u32 type) noexcept {
     assembly.nal_types |= u64{1} << (type & 63);
 }
-// Removes a fragment whose remaining pieces can no longer arrive in order.
-inline void drop_fragment(RtpVideoAssembly& assembly) noexcept {
-    if (!assembly.fu_active)
-        return;
-    assembly.bytes = assembly.fu_offset;
-    assembly.fu_active = false;
-    assembly.damaged = true;
-}
 inline RtpDepacketize reject(RtpVideoAssembly& assembly, RtpDepacketize result) noexcept {
     assembly.damaged = true;
     return result;

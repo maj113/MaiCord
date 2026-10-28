@@ -44,13 +44,10 @@ MediaPresentationRequest media_presentation_request(
     if (source_width == 0 || source_height == 0 || decoder_extent_cap == 0) {
         return request;
     }
-    u32 target = media_resolution_tier_extent(request.resolution);
-    if (target == 0) {
-        target = decoder_extent_cap;
-    }
-    target = minimum<u32>(target, decoder_extent_cap);
-    target = minimum<u32>(target, maximum(source_width, source_height));
-    target = maximum(target, 1u);
+    const u32 tier = media_resolution_tier_extent(request.resolution);
+    // The cap and the source extent are nonzero here, so the target is too.
+    const u32 target = minimum<u32>(minimum<u32>(tier ? tier : decoder_extent_cap, decoder_extent_cap),
+                                    maximum(source_width, source_height));
     if (source_width >= source_height) {
         const u64 scaled =
             (static_cast<u64>(source_height) * target + source_width / 2u) /

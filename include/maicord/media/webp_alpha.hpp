@@ -54,5 +54,8 @@ WebpAlphaDecodeResult webp_alpha_decode(
     ConstSlice<u8> payload, u32 width, u32 height,
     Vp8lWorkspace* workspace, Slice<u8> rgba_scratch,
     Slice<u8> alpha_output) noexcept;
+// Reverses one row's prediction filter in place. `above` is the already
+// unfiltered row above, or null for the first row. Not for filter none.
+void webp_alpha_unfilter_row(WebpAlphaFilter filter, u8* row, const u8* above, u32 width) noexcept;
 
 } // namespace maicord

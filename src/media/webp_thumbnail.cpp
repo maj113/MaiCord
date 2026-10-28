@@ -2,6 +2,7 @@
 
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/media/webp_alpha.hpp"
 
 // RFC 6386 keyframe reconstruction (sections 12, 14 and 15) on the CPU, one
 // macroblock row at a time. Intra prediction reads the unfiltered row above,
@@ -262,22 +263,16 @@ void simple_edge(u8* p, i32 hstride, i32 vstride, u32 size, i32 threshold) noexc
         if (needs_filter(p, hstride, t))
             filter2(p, hstride);
 }
-void edge26(u8* p, i32 hstride, i32 vstride, u32 size, i32 threshold, i32 interior, i32 hev) noexcept {
+// Wide: the macroblock-edge filter (six pixels), else the inner-edge filter (four).
+template <bool Wide>
+void edge(u8* p, i32 hstride, i32 vstride, u32 size, i32 threshold, i32 interior, i32 hev) noexcept {
     const i32 t = 2 * threshold + 1;
     for (u32 i = 0; i < size; ++i, p += vstride)
         if (needs_filter2(p, hstride, t, interior)) {
             if (high_variance(p, hstride, hev))
                 filter2(p, hstride);
-            else
+            else if constexpr (Wide)
                 filter6(p, hstride);
-        }
-}
-void edge24(u8* p, i32 hstride, i32 vstride, u32 size, i32 threshold, i32 interior, i32 hev) noexcept {
-    const i32 t = 2 * threshold + 1;
-    for (u32 i = 0; i < size; ++i, p += vstride)
-        if (needs_filter2(p, hstride, t, interior)) {
-            if (high_variance(p, hstride, hev))
-                filter2(p, hstride);
             else
                 filter4(p, hstride);
         }
@@ -351,27 +346,6 @@ Workspace carve(u8* base, u32 width, bool filtered_alpha) noexcept {
     return w;
 }
 
-// WebP ALPH filters (container specification, "Alpha"): predictors from the
-// reconstructed neighbours; row 0 predicts from the left, column 0 from above.
-void unfilter_alpha(u8 method, const u8* filtered, const u8* previous, u8* output, u32 width, u32 y) noexcept {
-    for (u32 x = 0; x < width; ++x) {
-        u32 predictor = 0;
-        if (y == 0) {
-            predictor = x ? output[x - 1] : 0;
-        } else if (x == 0) {
-            predictor = previous[0];
-        } else if (method == 1) {
-            predictor = output[x - 1];
-        } else if (method == 2) {
-            predictor = previous[x];
-        } else {
-            const i32 g = static_cast<i32>(output[x - 1]) + previous[x] - previous[x - 1];
-            predictor = clip8(g);
-        }
-        output[x] = static_cast<u8>(filtered[x] + predictor);
-    }
-}
-
 struct Decoder {
     const WebpThumbnailLayout* layout;
     Workspace w;
@@ -427,8 +401,9 @@ bool emit(Decoder* d, u32 mb_y) noexcept {
             u8* swap = d->w.alpha_previous;
             d->w.alpha_previous = d->w.alpha_current;
             d->w.alpha_current = swap;
-            unfilter_alpha(d->layout->alpha_filter, alpha, d->w.alpha_previous, d->w.alpha_current,
-                           d->width, y);
+            copy_bytes(d->w.alpha_current, alpha, d->width);
+            webp_alpha_unfilter_row(static_cast<WebpAlphaFilter>(d->layout->alpha_filter), d->w.alpha_current,
+                                    y ? d->w.alpha_previous : nullptr, d->width);
             alpha = d->w.alpha_current;
         }
     }
@@ -551,26 +526,26 @@ void filter_row(Decoder* d, u32 mb_y, const FilterStrength (*strengths)[2], bool
         u8* u = d->w.u + static_cast<usize>(kPendingChroma) * d->w8 + mb_x * 8u;
         u8* v = d->w.v + static_cast<usize>(kPendingChroma) * d->w8 + mb_x * 8u;
         if (mb_x > 0) {
-            edge26(y, 1, ys, 16, limit + 4, interior, hev);
-            edge26(u, 1, cs, 8, limit + 4, interior, hev);
-            edge26(v, 1, cs, 8, limit + 4, interior, hev);
+            edge<true>(y, 1, ys, 16, limit + 4, interior, hev);
+            edge<true>(u, 1, cs, 8, limit + 4, interior, hev);
+            edge<true>(v, 1, cs, 8, limit + 4, interior, hev);
         }
         if (inner) {
             for (u32 k = 4; k < 16; k += 4)
-                edge24(y + k, 1, ys, 16, limit, interior, hev);
-            edge24(u + 4, 1, cs, 8, limit, interior, hev);
-            edge24(v + 4, 1, cs, 8, limit, interior, hev);
+                edge<false>(y + k, 1, ys, 16, limit, interior, hev);
+            edge<false>(u + 4, 1, cs, 8, limit, interior, hev);
+            edge<false>(v + 4, 1, cs, 8, limit, interior, hev);
         }
         if (mb_y > 0) {
-            edge26(y, ys, 1, 16, limit + 4, interior, hev);
-            edge26(u, cs, 1, 8, limit + 4, interior, hev);
-            edge26(v, cs, 1, 8, limit + 4, interior, hev);
+            edge<true>(y, ys, 1, 16, limit + 4, interior, hev);
+            edge<true>(u, cs, 1, 8, limit + 4, interior, hev);
+            edge<true>(v, cs, 1, 8, limit + 4, interior, hev);
         }
         if (inner) {
             for (u32 k = 4; k < 16; k += 4)
-                edge24(y + k * d->w16, ys, 1, 16, limit, interior, hev);
-            edge24(u + 4 * d->w8, cs, 1, 8, limit, interior, hev);
-            edge24(v + 4 * d->w8, cs, 1, 8, limit, interior, hev);
+                edge<false>(y + k * d->w16, ys, 1, 16, limit, interior, hev);
+            edge<false>(u + 4 * d->w8, cs, 1, 8, limit, interior, hev);
+            edge<false>(v + 4 * d->w8, cs, 1, 8, limit, interior, hev);
         }
     }
 }

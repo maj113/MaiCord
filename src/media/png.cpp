@@ -304,7 +304,6 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
                 return parse_failure(
                     result, PngError::unknown_critical_chunk);
             }
-            ++result.ancillary_chunks;
             image->has_color_metadata =
                 image->has_color_metadata || png_color_metadata_chunk(type);
         }
@@ -364,14 +363,12 @@ PngDecodeResult png_decode_parsed_scanlines(
     Slice<u8> scanlines) noexcept {
     PngDecodeResult result{};
     PngImage configured{};
-    if (!image || !workspace || !scanlines.data ||
+    // Zero for a null image, interlace above 1 or an empty inflated size.
+    const u32 required = image ? png_decode_buffer_bytes(*image) : 0;
+    if (!required || !workspace || !scanlines.data || scanlines.count < required ||
         !png_image_configure(&configured, image->width, image->height, image->bit_depth,
                              image->color_type) ||
         image->idat_span_count == 0 || image->compressed_bytes < 6 ||
-        image->interlace > 1 ||
-        png_decode_buffer_bytes(*image) == 0 ||
-        scanlines.count < png_decode_buffer_bytes(*image) ||
-        image->inflated_bytes == 0 ||
         image->row_bytes != configured.row_bytes ||
         image->row_stride != configured.row_stride ||
         image->inflated_bytes != configured.inflated_bytes ||

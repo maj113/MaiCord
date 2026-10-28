@@ -64,7 +64,6 @@ enum class PngError : u8 {
 
 struct PngParseResult {
     u32 chunks;
-    u32 ancillary_chunks;
     PngError error;
 
     constexpr bool ok() const noexcept {

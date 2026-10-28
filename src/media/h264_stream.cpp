@@ -294,7 +294,6 @@ void h264_stream_reset(H264StreamState* state) noexcept {
     if (!state) return;
     reset_value(&state->references);
     reset_value(&state->output);
-    state->output.leased = 255;
     state->waiting = true;
     state->drain = false;
     state->output_started = false;
@@ -373,7 +372,6 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
     if (reset && state->output.count) {
         if (first.idr && first.discard_prior) {
             reset_value(&state->output);
-            state->output.leased = 255;
         } else state->drain = true;
     }
     next.surface = surface;

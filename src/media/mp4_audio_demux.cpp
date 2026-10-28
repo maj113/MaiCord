@@ -415,10 +415,13 @@ bool mp4_audio_sample_window(const Mp4AudioTimeline& d, i64 target,
     *output = window;
     return true;
 }
+// The demuxer's timeline, once its output slot is valid.
+static bool demux_clock(const Mp4AudioDemuxer& d, const void* output, u32 bytes, Mp4AudioTimeline* clock) noexcept {
+    return output_valid(d, output, bytes) && timeline(d, clock);
+}
 bool mp4_audio_demux_frame_time_100ns(const Mp4AudioDemuxer& d, u64 frame, i64* output) noexcept {
     Mp4AudioTimeline clock{};
-    return output_valid(d, output, sizeof(*output)) && timeline(d, &clock) &&
-        mp4_audio_frame_time_100ns(clock, frame, output);
+    return demux_clock(d, output, sizeof(*output), &clock) && mp4_audio_frame_time_100ns(clock, frame, output);
 }
 bool mp4_audio_demux_timeline(const Mp4AudioDemuxer& d, Mp4AudioTimeline* output) noexcept {
     return output_valid(d, output, sizeof(*output)) && timeline(d, output);
@@ -426,12 +429,10 @@ bool mp4_audio_demux_timeline(const Mp4AudioDemuxer& d, Mp4AudioTimeline* output
 bool mp4_audio_demux_frame_time_bounds_100ns(const Mp4AudioDemuxer& d, u64 frame,
                                            Mp4AudioFrameTimeBounds* output) noexcept {
     Mp4AudioTimeline clock{};
-    return output_valid(d, output, sizeof(*output)) && timeline(d, &clock) &&
-        mp4_audio_frame_time_bounds_100ns(clock, frame, output);
+    return demux_clock(d, output, sizeof(*output), &clock) && mp4_audio_frame_time_bounds_100ns(clock, frame, output);
 }
 bool mp4_audio_demux_sample_window(const Mp4AudioDemuxer& d, i64 target, Mp4AudioSampleWindow* output) noexcept {
     Mp4AudioTimeline clock{};
-    return output_valid(d, output, sizeof(*output)) && timeline(d, &clock) &&
-        mp4_audio_sample_window(clock, target, output);
+    return demux_clock(d, output, sizeof(*output), &clock) && mp4_audio_sample_window(clock, target, output);
 }
 } // namespace maicord

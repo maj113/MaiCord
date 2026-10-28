@@ -80,10 +80,6 @@ u32 tile_log2(u32 block, u32 target) noexcept {
     return k;
 }
 
-void reset_film_grain(Av1FilmGrain* grain) noexcept {
-    reset_value(grain);
-}
-
 struct Parser {
     const Av1SequenceHeader& sequence;
     const Av1References& references;
@@ -442,7 +438,6 @@ struct Parser {
                 abs_bits = 9 - !h.allow_high_precision_mv;
                 precision_bits = 3 - !h.allow_high_precision_mv;
             } else {
-                abs_bits = 12;
                 precision_bits = 6;
             }
         }
@@ -485,7 +480,6 @@ struct Parser {
     }
     bool film_grain() noexcept {
         Av1FilmGrain& g = h.film_grain;
-        reset_film_grain(&g);
         if (!sequence.film_grain_params_present || (!h.show_frame && !h.showable_frame))
             return true;
         g.apply_grain = b.flag();
@@ -603,7 +597,7 @@ struct Parser {
         if (intra)
             h.force_integer_mv = true;
         if (sequence.frame_id_bits)
-            h.frame_id = b.f(sequence.frame_id_bits);
+            b.f(sequence.frame_id_bits);
         const bool size_override =
             h.frame_type == av1_switch_frame || (!sequence.reduced_still_picture_header && b.flag());
         h.order_hint = static_cast<u8>(b.f(sequence.order_hint_bits));
@@ -680,9 +674,8 @@ struct Parser {
         quantization();
         segmentation();
         h.delta_q_present = h.base_q_idx && b.flag();
-        if (h.delta_q_present)
-            h.delta_q_res = static_cast<u8>(b.f(2));
         if (h.delta_q_present) {
+            h.delta_q_res = static_cast<u8>(b.f(2));
             h.delta_lf_present = !h.allow_intrabc && b.flag();
             if (h.delta_lf_present) {
                 h.delta_lf_res = static_cast<u8>(b.f(2));
@@ -706,9 +699,7 @@ struct Parser {
         return b.overrun ? Av1Status::truncated : Av1Status::ok;
     }
 };
-} // namespace
 
-namespace {
 __declspec(noinline) void store(Av1Reference* slot, const Av1FrameHeader& h) noexcept {
     *slot = h;
     slot->valid = true;

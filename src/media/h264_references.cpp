@@ -32,8 +32,7 @@ void clear_references(H264ReferenceState* state) noexcept {
 
 H264Error h264_reference_plan(const H264ReferenceState& state, const H264Sps& sps,
     const H264Slice& slice, u8 surface, H264ReferencePlan* output) noexcept {
-    if (!output || surface >= 32 || state.count > 16 || sps.max_references > 16 ||
-        slice.marking_count > 32 || (!slice.adaptive_marking && slice.marking_count))
+    if (!output || surface >= 32 || (!slice.adaptive_marking && slice.marking_count))
         return H264Error::invalid_input;
     if (!slice.reference && (slice.adaptive_marking || slice.marking_count)) return H264Error::malformed;
     H264ReferencePlan plan{};

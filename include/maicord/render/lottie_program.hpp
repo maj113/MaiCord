@@ -9,6 +9,5 @@ using LottieProgramAcquire = ColrPaintProgram* (*)(void* context) noexcept;
 // The callback supplies a caller-owned program after metadata and relative-frame validation.
 // The compiler calls the callback once and retains no reference after this call.
 bool lottie_program_compile_frame(ConstSlice<u8> json, u32 frame_index, float pixels,
-                                  LottieTiming* timing, LottieProgramAcquire acquire, void* context,
-                                  float* source_width = nullptr) noexcept;
+                                  LottieTiming* timing, LottieProgramAcquire acquire, void* context) noexcept;
 } // namespace maicord

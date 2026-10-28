@@ -253,7 +253,6 @@ void hevc_stream_reset(HevcStreamState* state) noexcept {
         return;
     reset_value(&state->references);
     reset_value(&state->output);
-    state->output.leased = 255;
     state->waiting = true;
     state->drain = false;
     state->skip_rasl = false;
@@ -316,13 +315,8 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
     if (discard || next.reinitialize) {
         const H264OutputQueue emptied{};
         surface = h264_free_surface(emptied, busy, capacity);
-    } else {
-        // The lease only matters to the output path; ignore it while choosing.
-        const u8 leased = state->output.leased;
-        state->output.leased = 255;
+    } else
         surface = h264_free_surface(state->output, busy, capacity);
-        state->output.leased = leased;
-    }
     if (surface == 255) {
         hevc_stream_reset(state);
         return HevcStreamAction::request_keyframe;
@@ -340,7 +334,6 @@ HevcStreamAction hevc_stream_prepare(HevcStreamState* state, const HevcStreamPic
     if (next.restart && state->output.count) {
         if (discard) {
             reset_value(&state->output);
-            state->output.leased = 255;
         } else
             state->drain = true;
     }
@@ -374,7 +367,6 @@ void hevc_stream_commit(HevcStreamState* state, const HevcStreamPicture& picture
     ++state->decoded;
     if (!header.output)
         return;
-    state->output.leased = 255;
     if (!h264_output_push(&state->output, {0, decode.plan.poc, decode.surface, 0})) {
         hevc_stream_reset(state);
         return;
@@ -387,7 +379,6 @@ bool hevc_stream_pop(HevcStreamState* state, H264StreamOutput* output) noexcept 
         return false;
     if (state->output.count && (state->drain || state->output.count > state->reorder)) {
         H264Output picture{};
-        state->output.leased = 255;
         if (h264_output_pop(&state->output, &picture)) {
             state->output.leased = 255;
             const auto& info = state->info[picture.surface & 31u];

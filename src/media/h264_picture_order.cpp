@@ -7,8 +7,7 @@ constexpr bool fits(i64 n) noexcept { return n >= (-2'147'483'647ll - 1) && n <=
 
 H264Error h264_picture_order(const H264PocState& state, const H264Sps& sps,
     const H264Slice& slice, H264PictureOrder* output) noexcept {
-    if (!output || sps.frame_num_bits < 4 || sps.frame_num_bits > 16 || sps.poc_type > 2 ||
-        (sps.poc_type == 0 && (sps.poc_bits < 4 || sps.poc_bits > 16))) return H264Error::invalid_input;
+    if (!output) return H264Error::invalid_input;
     if (!state.ready && !slice.idr) return H264Error::unsupported;
     const u32 max_frame = 1u << sps.frame_num_bits;
     if (slice.frame_num >= max_frame || (slice.idr && (slice.frame_num || !slice.reference)))

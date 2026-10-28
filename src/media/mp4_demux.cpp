@@ -633,11 +633,10 @@ using namespace mp4_demux_detail;
 Mp4DemuxError mp4_demux_initialize(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
                                    Mp4SourceAvailability availability) noexcept {
     if(!demuxer)return Mp4DemuxError::invalid_input;
-    if(!byte_range_valid({reinterpret_cast<const u8*>(demuxer),sizeof(*demuxer)})||
-        !byte_range_valid(encoded)||byte_ranges_overlap(encoded,{reinterpret_cast<const u8*>(demuxer),sizeof(*demuxer)}))return Mp4DemuxError::invalid_input;
     Box description{};
     const auto result=initialize_tables(demuxer,encoded,fourcc('v','i','d','e'),&description,availability);
-    if(result!=Mp4DemuxError::none){demuxer->ready=false;return result;}
+    // invalid_input rejected the arguments before touching demuxer, which may alias them.
+    if(result!=Mp4DemuxError::none){if(result!=Mp4DemuxError::invalid_input)demuxer->ready=false;return result;}
     const auto described=parse_description(demuxer,description);
     if(described!=Mp4DemuxError::none)demuxer->ready=false;
     return described;
@@ -654,11 +653,7 @@ void mp4_demux_reset(Mp4Demuxer* demuxer) noexcept {
     demuxer->samples_left_in_chunk = 0;
     demuxer->stsc_index = 0;
     demuxer->stts_index = 0;
-    demuxer->stts_left = 0;
-    demuxer->stts_delta = 0;
     demuxer->ctts_index = 0;
-    demuxer->ctts_left = 0;
-    demuxer->ctts_delta = 0;
     demuxer->stss_index = 0;
     demuxer->mdat_cursor=demuxer->mdat_begin=demuxer->mdat_end=0;
     if (!initialize_runs(demuxer)) {

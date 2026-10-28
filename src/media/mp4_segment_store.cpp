@@ -7,6 +7,15 @@ namespace {
 using E = Mp4DemuxError;
 void advance(u64& serial) noexcept { if (!++serial) ++serial; }
 }
+bool mp4_segment_store_range_fits(const Mp4SegmentStore& s, u32 number, const Mp4FragmentRange& range) noexcept {
+    for (const auto& prior : s.slots) if (prior.bytes && prior.number != number) {
+        const auto& a = prior.number < number ? prior.media.range : range;
+        const auto& b = prior.number < number ? range : prior.media.range;
+        if (a.time + a.duration > b.time || (s.live &&
+            (prior.number + 1 == number || number + 1 == prior.number) && a.time + a.duration != b.time)) return false;
+    }
+    return true;
+}
 bool mp4_segment_store_overlaps(const Mp4SegmentStore& s, const void* p, u32 bytes) noexcept {
     if (!byte_range_valid(p, bytes) || byte_ranges_overlap(&s, sizeof(s), p, bytes) ||
         byte_ranges_overlap(s.initialization.base, s.initialization.reserved, p, bytes)) return true;
@@ -65,12 +74,7 @@ Mp4DemuxError mp4_segment_store_accept(Mp4SegmentStore* s, u32 number, u64 seria
     if (error != E::none) return error;
     // Each ordinal describes a disjoint interval. This also rejects a server
     // repeating the old file for a different requested segment.
-    for (const auto& prior : s->slots) if (prior.bytes && prior.number != number) {
-        const auto& a = prior.number < number ? prior.media.range : parsed.range;
-        const auto& b = prior.number < number ? parsed.range : prior.media.range;
-        if (a.time + a.duration > b.time || (s->live &&
-            (prior.number + 1 == number || number + 1 == prior.number) && a.time + a.duration != b.time)) return E::malformed;
-    }
+    if (!mp4_segment_store_range_fits(*s, number, parsed.range)) return E::malformed;
     const u32 chosen = s->active == 0 ? 1 : 0;
     auto& slot = s->slots[chosen];
     if ((!slot.storage.base && !reserved_bytes_initialize(&slot.storage, capacity)) ||

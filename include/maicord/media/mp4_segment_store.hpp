@@ -41,6 +41,8 @@ Mp4DemuxError mp4_segment_store_initialize(Mp4SegmentStore*, ConstSlice<u8> init
 // ordinal needs caller resynchronization; it must never be silently renumbered.
 Mp4DemuxError mp4_segment_store_extend(Mp4SegmentStore*, u32 first_available, u32 count, bool ended) noexcept;
 bool mp4_segment_store_overlaps(const Mp4SegmentStore&, const void*, u32) noexcept;
+// A file's interval must not overlap a resident neighbour, and live neighbours abut exactly.
+bool mp4_segment_store_range_fits(const Mp4SegmentStore&, u32 number, const Mp4FragmentRange&) noexcept;
 const Mp4SegmentSlot* mp4_segment_store_find(const Mp4SegmentStore&, u32 number) noexcept;
 // A missing lookup publishes demand. Repeating the same demand preserves its
 // serial; retarget/cancel makes prior responses stale. No active bytes change.

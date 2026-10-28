@@ -668,16 +668,6 @@ bool inverse_wht(const i16* input, Vp8MacroblockCoefficients* output) noexcept {
     return true;
 }
 
-void clear_coefficients(Vp8MacroblockCoefficients* output) noexcept {
-    for (u32 block = 0; block < 24; ++block) {
-        for (u32 coefficient = 0; coefficient < 16; ++coefficient) {
-            output->values[block][coefficient] = 0;
-        }
-    }
-    output->has_coefficients = 0;
-    output->reserved = 0;
-}
-
 // Tokens of one macroblock (RFC 6386 section 13): dequantized residuals in
 // raster order, the Y2 inverse WHT folded into the luma DC positions.
 Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, const Vp8ControlHeader& header,
@@ -690,50 +680,50 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
     }
     WindowReader& reader = *token_reader;
     Vp8MacroblockCoefficients& output = *coefficients;
-    clear_coefficients(&output);
+    reset_value<Vp8MacroblockCoefficients>(&output);
     Vp8TokenContext& top = *top_context;
     Vp8TokenContext& left = *left_context;
     if (mode.skip_coefficients) {
-        for (u32 index = 0; index < 4; ++index) {
-            top.y[index] = 0;
-            left.y[index] = 0;
-        }
-        for (u32 index = 0; index < 2; ++index) {
-            top.u[index] = 0;
-            top.v[index] = 0;
-            left.u[index] = 0;
-            left.v[index] = 0;
-        }
         // I4x4 macroblocks have no Y2 block. VP8 retains the Y2
         // neighbour contexts across them; only a skipped I16 block
         // contributes an explicit zero Y2 context.
-        if (mode.luma != Vp8IntraMode::subblocks) {
-            top.y2 = 0;
-            left.y2 = 0;
+        const u8 top_y2 = top.y2, left_y2 = left.y2;
+        reset_value<Vp8TokenContext>(&top);
+        reset_value<Vp8TokenContext>(&left);
+        if (mode.luma == Vp8IntraMode::subblocks) {
+            top.y2 = top_y2;
+            left.y2 = left_y2;
         }
         return Vp8CoefficientParseResult{Vp8CoefficientError::none};
     }
 
     const Vp8QuantMatrix quantizer = make_quant_matrix(header, mode.segment_id);
     u8 has_coefficients = 0;
+    Vp8DecodedCoefficientBlock result{};
+    // One block; its non-zero flag becomes both neighbour contexts.
+    const auto decode = [&](u32 type, u32 context, u16 dc_quantizer, u16 ac_quantizer, u32 start, i16* values,
+                            u8& top_flag, u8& left_flag) noexcept {
+        result = decode_coefficient_block(&reader, probabilities, type, context, dc_quantizer, ac_quantizer, start,
+                                          values);
+        if (!reader.ok()) {
+            return Vp8CoefficientError::boolean_stream;
+        }
+        if (result.range_error) {
+            return Vp8CoefficientError::coefficient_range;
+        }
+        top_flag = left_flag = static_cast<u8>(result.has_nonzero);
+        has_coefficients |= top_flag;
+        return Vp8CoefficientError::none;
+    };
     u32 y_start = 0;
     u32 y_type = 3;
     if (mode.luma != Vp8IntraMode::subblocks) {
         i16 y2[16]{};
-        const u32 y2_context = top.y2 + left.y2;
-        const Vp8DecodedCoefficientBlock y2_result = decode_coefficient_block(
-            &reader, probabilities, 1, y2_context, quantizer.y2_dc, quantizer.y2_ac, 0, y2);
-        if (!reader.ok()) {
-            return {Vp8CoefficientError::boolean_stream};
+        if (const auto error = decode(1, top.y2 + left.y2, quantizer.y2_dc, quantizer.y2_ac, 0, y2, top.y2, left.y2);
+            error != Vp8CoefficientError::none) {
+            return {error};
         }
-        if (y2_result.range_error) {
-            return {Vp8CoefficientError::coefficient_range};
-        }
-        const u8 y2_nonzero = static_cast<u8>(y2_result.has_nonzero);
-        top.y2 = y2_nonzero;
-        left.y2 = y2_nonzero;
-        has_coefficients |= y2_nonzero;
-        if (y2_result.end_position > 1) {
+        if (result.end_position > 1) {
             if (!inverse_wht(y2, &output)) {
                 return {Vp8CoefficientError::coefficient_range};
             }
@@ -752,21 +742,12 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
 
     for (u32 block_y = 0; block_y < 4; ++block_y) {
         for (u32 block_x = 0; block_x < 4; ++block_x) {
-            const u32 context = left.y[block_y] + top.y[block_x];
-            const u32 block = block_y * 4u + block_x;
-            const Vp8DecodedCoefficientBlock result =
-                decode_coefficient_block(&reader, probabilities, y_type, context, quantizer.y1_dc,
-                                         quantizer.y1_ac, y_start, output.values[block]);
-            if (!reader.ok()) {
-                return {Vp8CoefficientError::boolean_stream};
+            if (const auto error = decode(y_type, left.y[block_y] + top.y[block_x], quantizer.y1_dc, quantizer.y1_ac,
+                                          y_start, output.values[block_y * 4u + block_x], top.y[block_x],
+                                          left.y[block_y]);
+                error != Vp8CoefficientError::none) {
+                return {error};
             }
-            if (result.range_error) {
-                return {Vp8CoefficientError::coefficient_range};
-            }
-            const u8 nonzero = static_cast<u8>(result.has_nonzero);
-            left.y[block_y] = nonzero;
-            top.y[block_x] = nonzero;
-            has_coefficients |= nonzero;
         }
     }
 
@@ -776,21 +757,12 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
         const u32 first_block = 16u + channel * 4u;
         for (u32 block_y = 0; block_y < 2; ++block_y) {
             for (u32 block_x = 0; block_x < 2; ++block_x) {
-                const u32 context = left_chroma[block_y] + top_chroma[block_x];
-                const u32 block = first_block + block_y * 2u + block_x;
-                const Vp8DecodedCoefficientBlock result =
-                    decode_coefficient_block(&reader, probabilities, 2, context, quantizer.uv_dc,
-                                             quantizer.uv_ac, 0, output.values[block]);
-                if (!reader.ok()) {
-                    return {Vp8CoefficientError::boolean_stream};
+                if (const auto error = decode(2, left_chroma[block_y] + top_chroma[block_x], quantizer.uv_dc,
+                                              quantizer.uv_ac, 0, output.values[first_block + block_y * 2u + block_x],
+                                              top_chroma[block_x], left_chroma[block_y]);
+                    error != Vp8CoefficientError::none) {
+                    return {error};
                 }
-                if (result.range_error) {
-                    return {Vp8CoefficientError::coefficient_range};
-                }
-                const u8 nonzero = static_cast<u8>(result.has_nonzero);
-                left_chroma[block_y] = nonzero;
-                top_chroma[block_x] = nonzero;
-                has_coefficients |= nonzero;
             }
         }
     }
@@ -832,9 +804,7 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
         return {Vp8ControlError::invalid_input};
     }
     reset_value<Vp8ControlHeader>(header);
-    for (u32 index = 0; index < kVp8CoefficientProbabilityCount; ++index) {
-        probabilities->coefficient[index] = kDefaultCoefficientProbability[index];
-    }
+    copy_bytes(probabilities->coefficient, kDefaultCoefficientProbability, sizeof(kDefaultCoefficientProbability));
     header->segmentation.absolute_delta = 1;
     header->segmentation.tree_probability[0] = 255;
     header->segmentation.tree_probability[1] = 255;

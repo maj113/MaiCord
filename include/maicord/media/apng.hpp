@@ -94,7 +94,6 @@ enum class ApngError : u8 {
 
 struct ApngParseResult {
     u32 chunks;
-    u32 ancillary_chunks;
     u32 sequence_chunks;
     ApngError error;
 

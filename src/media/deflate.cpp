@@ -304,7 +304,6 @@ bool reader_initialize(BitReader* reader, ConstSlice<DeflateInputSpan> spans) no
     if (!spans.data || spans.count == 0) {
         return false;
     }
-    reset_value<BitReader>(reader);
     reader->spans = spans.data;
     reader->span_count = spans.count;
     u64 total = 0;
@@ -732,10 +731,8 @@ bool decode_stored_block(InflateState* state) noexcept {
         state->error = ZlibInflateError::invalid_block;
         return false;
     }
-    if (!ensure_output(state, length)) {
-        state->error = ZlibInflateError::output_capacity;
+    if (!ensure_output(state, length))
         return false;
-    }
     if (!read_aligned_bytes(&state->reader, state->output.data + state->output_bytes, length)) {
         state->error = ZlibInflateError::truncated;
         return false;
@@ -816,11 +813,8 @@ bool decode_final_blocks(InflateState* state) noexcept {
         }
         final_block = final != 0;
         ++state->blocks;
-        if (!decode_block(state, type)) {
-            if (state->error == ZlibInflateError::none)
-                state->error = ZlibInflateError::invalid_block;
+        if (!decode_block(state, type))
             return false;
-        }
     }
     align_reader(&state->reader);
     return true;
@@ -882,9 +876,7 @@ ZlibInflateResult zlib_inflate(ConstSlice<DeflateInputSpan> input, Slice<u8> out
     if (expected_output_bytes != ~0u && state.output_bytes != expected_output_bytes) {
         return failure(state, ZlibInflateError::output_size);
     }
-    const u32 expected_checksum = static_cast<u32>(checksum_bytes[0]) << 24 |
-                                  static_cast<u32>(checksum_bytes[1]) << 16 |
-                                  static_cast<u32>(checksum_bytes[2]) << 8 | checksum_bytes[3];
+    const u32 expected_checksum = byte_load_be32(checksum_bytes);
     if (adler32_update(1u, ConstSlice<u8>{output.data, state.output_bytes}) != expected_checksum) {
         return failure(state, ZlibInflateError::checksum);
     }
@@ -922,9 +914,7 @@ ZlibInflateResult zlib_inflate_windowed(ConstSlice<DeflateInputSpan> input, Slic
         return finish(ZlibInflateError::trailing_data);
     if (expected_output_bytes != ~0u && state.delivered != expected_output_bytes)
         return finish(ZlibInflateError::output_size);
-    const u32 expected_checksum = static_cast<u32>(checksum_bytes[0]) << 24 |
-                                  static_cast<u32>(checksum_bytes[1]) << 16 |
-                                  static_cast<u32>(checksum_bytes[2]) << 8 | checksum_bytes[3];
+    const u32 expected_checksum = byte_load_be32(checksum_bytes);
     return finish(state.adler != expected_checksum ? ZlibInflateError::checksum : ZlibInflateError::none);
 }
 
@@ -939,10 +929,6 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
     const auto fail = [&](ZlibInflateError error) noexcept {
         result.error = error;
         return result;
-    };
-    const auto le32 = [&](u32 at) noexcept {
-        return static_cast<u32>(input[at]) | static_cast<u32>(input[at + 1]) << 8 |
-               static_cast<u32>(input[at + 2]) << 16 | static_cast<u32>(input[at + 3]) << 24;
     };
     DecodeTables tables;
     while (cursor < input.count) {
@@ -994,9 +980,9 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
         cursor += reader_consumed(state.reader);
         if (input.count - cursor < 8)
             return fail(ZlibInflateError::truncated);
-        if (le32(cursor + 4) != state.output_bytes)
+        if (byte_load_le32(input.data + cursor + 4) != state.output_bytes)
             return fail(ZlibInflateError::output_size);
-        if (png_crc32(state.output.data, state.output_bytes) != le32(cursor))
+        if (png_crc32(state.output.data, state.output_bytes) != byte_load_le32(input.data + cursor))
             return fail(ZlibInflateError::checksum);
         cursor += 8;
         result.input_bytes = cursor;

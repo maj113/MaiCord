@@ -24,14 +24,20 @@ inline void rtp_video_assembly_begin(RtpVideoAssembly* assembly, Slice<u8> outpu
     reset_value(assembly);
     assembly->output = output;
 }
+namespace rtp_detail {
+// Removes a fragment whose remaining pieces can no longer arrive in order.
+inline void drop_fragment(RtpVideoAssembly& assembly) noexcept {
+    if (!assembly.fu_active)
+        return;
+    assembly.bytes = assembly.fu_offset;
+    assembly.fu_active = false;
+    assembly.damaged = true;
+}
+} // namespace rtp_detail
 // Ends the access unit. An unterminated fragmentation unit is removed and the
 // unit is marked damaged. Returns the Annex B byte count.
 inline u32 rtp_video_assembly_finish(RtpVideoAssembly* assembly) noexcept {
-    if (assembly->fu_active) {
-        assembly->bytes = assembly->fu_offset;
-        assembly->fu_active = false;
-        assembly->damaged = true;
-    }
+    rtp_detail::drop_fragment(*assembly);
     return assembly->bytes;
 }
 } // namespace maicord

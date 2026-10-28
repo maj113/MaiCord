@@ -611,8 +611,6 @@ bool decode_sequences(ZstdStreamDecoder* d, const u8* source, u32 size, Literals
             const ZstdFseEntry ll_entry = ll_table[ll_state], of_entry = of_table[of_state],
                                ml_entry = ml_table[ml_state];
             const u32 of_code = of_entry.symbol;
-            if (of_code > kOffsetMaximumSymbol)
-                return false;
             u32 offset_value = (1u << of_code) + static_cast<u32>(back_read(&r, of_code));
             const u32 match_length =
                 kMatchLengthBase[ml_entry.symbol] + static_cast<u32>(back_read(&r, kMatchLengthBits[ml_entry.symbol]));
@@ -691,9 +689,8 @@ void start_frame_tables(ZstdStreamDecoder* d) noexcept {
     hash_reset(d);
 }
 
-// Frame header, or a skippable frame (skipped is set). Both lie whole in the message.
-ZstdError read_frame_header(ZstdStreamDecoder* d, const u8* p, u32 left, u32* consumed, bool* skipped) noexcept {
-    *skipped = false;
+// Frame header, or a skippable frame (in_frame stays unset). Both lie whole in the message.
+ZstdError read_frame_header(ZstdStreamDecoder* d, const u8* p, u32 left, u32* consumed) noexcept {
     if (left < 4)
         return ZstdError::truncated;
     const u32 magic = load32(p);
@@ -701,7 +698,6 @@ ZstdError read_frame_header(ZstdStreamDecoder* d, const u8* p, u32 left, u32* co
         if (left < 8 || load32(p + 4) > left - 8)
             return ZstdError::truncated;
         *consumed = 8 + load32(p + 4);
-        *skipped = true;
         return ZstdError::none;
     }
     if (magic != kFrameMagic)
@@ -828,8 +824,7 @@ ZstdDecodeResult zstd_stream_decompress(ZstdStreamDecoder* d, ConstSlice<u8> inp
     while (left) {
         if (!d->in_frame) {
             u32 used = 0;
-            bool skipped = false;
-            const ZstdError header = read_frame_header(d, p, left, &used, &skipped);
+            const ZstdError header = read_frame_header(d, p, left, &used);
             if (header != ZstdError::none)
                 return fail(d, header, blocks);
             p += used;

@@ -17,10 +17,13 @@ bool initialize_storage(MessageHitTestCacheOwner& owner) noexcept {
     return owner.storage.base||arena_initialize(&owner.storage,512*1024,0,4096);
 }
 struct NativeMessageGeometry {NativeParagraphHits hits;TextMeasureResult measure;float* widths;u16* bytes;};
-template<class T> Slice<T> message_take(Arena& arena,u32 count) noexcept {return {count?arena_allocate<T>(&arena,count):nullptr,count};}
+template<class T> Slice<T> message_take(Arena& arena,u32 count) noexcept {return {arena_allocate<T>(&arena,count),count};}
+const void* pack_message_bytes(Arena& arena,const void* source,u32 count,usize size,usize alignment) noexcept {
+    void* target=arena_allocate(&arena,size*count,alignment);
+    if(target)copy_bytes(target,source,size*count);return target;
+}
 template<class T> ConstSlice<T> pack_message_slice(Arena& arena,ConstSlice<T> source) noexcept {
-    auto* target=source.count?arena_allocate<T>(&arena,source.count):nullptr;
-    if(source.count)copy_bytes(target,source.data,source.count*sizeof(T));return {target,source.count};
+    return {static_cast<const T*>(pack_message_bytes(arena,source.data,source.count,sizeof(T),alignof(T))),source.count};
 }
 void compact_geometry(Arena& arena,NativeMessageGeometry& geometry) noexcept {
     if(arena.offset>16*1024){

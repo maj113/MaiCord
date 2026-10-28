@@ -182,7 +182,6 @@ bool animation_timeline_initialize(AnimationTimeline* timeline, Slice<AnimationT
         buckets.count < entries.count * 2u) {
         return false;
     }
-    reset_value<AnimationTimeline>(timeline);
     timeline->entries = entries.data;
     timeline->buckets = buckets.data;
     timeline->capacity = entries.count;

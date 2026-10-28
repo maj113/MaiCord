@@ -225,11 +225,7 @@ E fill(Mp4SegmentStore& s,u32 number,ConstSlice<u8> body,u64 duration_us,u64 ini
     }
     if(fragment.index!=count || fragment.decode_time!=first+duration) return E::malformed;
     mp4_fragment_reset(&fragment);
-    for(const auto& prior:s.slots) if(prior.bytes && prior.number!=number) {
-        const auto& a=prior.number<number?prior.media.range:media.range;
-        const auto& b=prior.number<number?media.range:prior.media.range;
-        if(a.time+a.duration>b.time || ((prior.number+1==number||number+1==prior.number)&&a.time+a.duration!=b.time)) return E::malformed;
-    }
+    if(!mp4_segment_store_range_fits(s,number,media.range)) return E::malformed;
     if(!s.received_count) s.track.media_start=static_cast<i64>(first);
     slot.media=media; slot.number=number; slot.bytes=used;
     s.available_end=maximum(s.available_end,first+duration); s.available_presentation_end=maximum(s.available_presentation_end,media.presentation_end);

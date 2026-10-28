@@ -73,7 +73,7 @@ struct Av1Reference {
     i32 gm_params[kAv1RefsPerFrame][6];
     i16 feature_data[8][8];
     Av1FilmGrain film_grain;
-    u32 upscaled_width, frame_height, render_width, render_height, frame_id;
+    u32 upscaled_width, frame_height, render_width, render_height;
     signed char loop_filter_ref_deltas[8], loop_filter_mode_deltas[2];
     u8 feature_enabled[8]; // Bit j: segmentation feature j.
     u8 frame_type, order_hint;

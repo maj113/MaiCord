@@ -102,12 +102,9 @@ bool prepare_native(TextEditLayoutOwner* owner,const TextEditLayoutInput& input,
 u64 style_signature(ConstSlice<TextStyleSpan> styles) noexcept {
     return hash64_counted_bytes(kHash64Seed, styles.data, styles.count * sizeof(TextStyleSpan));
 }
-u64 format_key(const TextSystem& system) noexcept {
-    return native_text_format_identity(system);
-}
 bool cache_matches(const TextEditLayoutOwner& owner, const TextEditLayoutInput& input,
                    const TextSystem& text_system) noexcept {
-    return owner.active && owner.format == format_key(text_system) &&
+    return owner.active && owner.format == native_text_format_identity(text_system) &&
            owner.text_signature == input.text_signature && owner.style_signature == style_signature(input.styles) && owner.text_bytes == input.text.bytes &&
            owner.anchor == input.anchor_utf16 && owner.caret_offset == input.caret_utf16 &&
            owner.viewport_left == input.origin_x && owner.viewport_top == input.viewport_top &&
@@ -175,7 +172,7 @@ bool measure_large_selection(TextEditLayoutOwner* owner, const TextEditLayoutInp
 
 void commit_key(TextEditLayoutOwner* owner, const TextEditLayoutInput& input,
                 const TextSystem& text_system, float origin_y) noexcept {
-    owner->format = format_key(text_system);
+    owner->format = native_text_format_identity(text_system);
     owner->text_signature = input.text_signature;
     owner->style_signature = style_signature(input.styles);
     owner->text_bytes = input.text.bytes;
@@ -202,7 +199,7 @@ u64 text_edit_signature(Utf8View text) noexcept {
 bool text_edit_layout_measure(TextEditLayoutOwner* owner,
                               const TextEditLayoutInput& input,
                               const TextSystem& text_system) noexcept {
-    if (!owner || !format_key(text_system) ||
+    if (!owner || !native_text_format_identity(text_system) ||
         !owner->selections || owner->selection_capacity == 0 ||
         owner->selection_capacity > kTextEditSelectionCapacity ||
         (!input.text.data && input.text.bytes != 0) ||
@@ -226,7 +223,7 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
     const bool manual_scroll = owner->manual_scroll && owner->text_signature == input.text_signature &&
         owner->anchor == input.anchor_utf16 && owner->caret_offset == input.caret_utf16;
     // A caret/selection/viewport-origin change does not change text shaping.
-    const bool retain_layout = owner->active && owner->geometry && owner->format == format_key(text_system) &&
+    const bool retain_layout = owner->active && owner->geometry && owner->format == native_text_format_identity(text_system) &&
         owner->text_signature == input.text_signature && owner->style_signature == style_signature(input.styles) && owner->text_bytes == input.text.bytes &&
         owner->width == input.width && owner->maximum_layout_height == input.maximum_layout_height &&
         owner->em_size == text_system.em_size && ((owner->options ^ input.options) & text_edit_layout_wrap) == 0;
@@ -320,12 +317,12 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner,
                                                 owner->origin_x, origin_y, owner->selections,
                                                 owner->selection_capacity, &actual);
         const bool oversized = status == SfntStatus::output_too_small && actual > owner->selection_capacity;
-        if (oversized && measure_large_selection(owner, input, origin_y, selection_first, selection_last)) {
-        } else if (status != SfntStatus::ok || actual > owner->selection_capacity) {
-            owner->geometry = false;
-            saturating_increment(owner->rejected);
-            return false;
-        } else {
+        if (!oversized || !measure_large_selection(owner, input, origin_y, selection_first, selection_last)) {
+            if (status != SfntStatus::ok || actual > owner->selection_capacity) {
+                owner->geometry = false;
+                saturating_increment(owner->rejected);
+                return false;
+            }
             owner->selection_count = actual;
         }
     }
@@ -377,7 +374,7 @@ bool text_composer_layout_current(const TextEditLayoutOwner& owner, const Messag
 }
 bool text_edit_layout_current_font(const TextEditLayoutOwner& owner,
                                    const TextSystem& system) noexcept {
-    const auto identity = format_key(system);
+    const auto identity = native_text_format_identity(system);
     return owner.active && identity && owner.format == identity && owner.em_size == system.em_size;
 }
 
