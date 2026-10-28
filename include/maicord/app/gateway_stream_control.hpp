@@ -77,7 +77,6 @@ bool gateway_stream_submitted(GatewayStreamControl* stream, const GatewayStreamC
 GatewayCommandWriteResult gateway_stream_write(const GatewayStreamCommand& command, Slice<u8> output) noexcept;
 void gateway_stream_create(GatewayStreamControl* stream, const GatewayStreamCreate& event, u64 now_ms) noexcept;
 void gateway_stream_server(GatewayStreamControl* stream, const GatewayStreamServer& event) noexcept;
-void gateway_stream_update(GatewayStreamControl* stream, const GatewayStreamUpdate& event) noexcept;
 void gateway_stream_delete(GatewayStreamControl* stream, const GatewayStreamDelete& event) noexcept;
 // STREAM_* dispatches. True when the event was a stream event (consumed on
 // the worker; the server token never reaches the UI mailbox).

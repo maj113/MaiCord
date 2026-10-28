@@ -66,7 +66,6 @@ enum : u64 {
     control_when,
     control_place,
     control_about,
-    control_count,
     control_category,
     control_text_base = 100,   // + field index
     control_choice_base = 200, // + field index
@@ -197,6 +196,10 @@ bool ensure_events() noexcept {
 }
 void events_changed() noexcept {
     application_request_frame();
+}
+bool upsert_listed(void*, const ScheduledEvent& e) noexcept {
+    scheduled_event_store_upsert(events, e);
+    return true;
 }
 bool enqueue(GuildCommunityOperation op, u64 guild_id, u64 event_id = 0) noexcept {
     if (!ensure_background() || !guild_id)
@@ -900,6 +903,12 @@ u64 local_to_unix(u64 local_seconds) noexcept {
 u64 create_start_unix() noexcept {
     return local_to_unix(local_day_seconds(owner->day) + owner->time_slot * 1'800ull);
 }
+u32 wide_label(const wchar_t* wide, int units, char* out, u32 capacity) noexcept {
+    const int written = units > 1 ? WideCharToMultiByte(CP_UTF8, 0, wide, units - 1, out, static_cast<int>(capacity),
+                                                        nullptr, nullptr)
+                                  : 0;
+    return written > 0 ? static_cast<u32>(written) : 0;
+}
 void build_calendar() noexcept {
     auto& p = *owner;
     for (u32 d = 0; d < kDayChoices; ++d) {
@@ -913,11 +922,8 @@ void build_calendar() noexcept {
             bytes = text.bytes;
         } else {
             wchar_t wide[32]{};
-            const int units = GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &day, L"ddd, MMM d", wide, 32, nullptr);
-            const int written = units > 1 ? WideCharToMultiByte(CP_UTF8, 0, wide, units - 1, p.day_labels[d],
-                                                                 sizeof(p.day_labels[d]), nullptr, nullptr)
-                                          : 0;
-            bytes = written > 0 ? static_cast<u32>(written) : 0;
+            bytes = wide_label(wide, GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &day, L"ddd, MMM d", wide, 32, nullptr),
+                               p.day_labels[d], sizeof(p.day_labels[d]));
         }
         p.day_views[d] = {p.day_labels[d], bytes};
     }
@@ -930,10 +936,7 @@ void build_calendar() noexcept {
         time.wMinute = static_cast<WORD>(t % 2 * 30);
         wchar_t wide[24]{};
         const int units = GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &time, nullptr, wide, 24);
-        const int written = units > 1 ? WideCharToMultiByte(CP_UTF8, 0, wide, units - 1, p.time_labels[t],
-                                                             sizeof(p.time_labels[t]), nullptr, nullptr)
-                                      : 0;
-        p.time_views[t] = {p.time_labels[t], written > 0 ? static_cast<u32>(written) : 0u};
+        p.time_views[t] = {p.time_labels[t], wide_label(wide, units, p.time_labels[t], sizeof(p.time_labels[t]))};
     }
     // The next half hour, an hour ahead, as the official client's default.
     SYSTEMTIME now{};
@@ -1442,12 +1445,7 @@ void application_guild_community_gateway(const GatewayClientEvent& event, ConstS
         if (!ensure_events())
             return;
         scheduled_event_store_clear_guild(events, event.voice_states.guild_id);
-        scheduled_event_decode_list(json, {scratch, 16384},
-                                    +[](void*, const ScheduledEvent& e) noexcept {
-                                        scheduled_event_store_upsert(events, e);
-                                        return true;
-                                    },
-                                    nullptr);
+        scheduled_event_decode_list(json, {scratch, 16384}, upsert_listed, nullptr);
         events_changed();
         return;
     }
@@ -1519,7 +1517,8 @@ bool application_guild_community_composer_press() noexcept {
     const auto* g = composer_guild();
     if (!g || !rules_gated(*g))
         return false;
-    return application_guild_community_open_rules(state().selected_guild_id) || true;
+    application_guild_community_open_rules(state().selected_guild_id);
+    return true;
 }
 
 void application_guild_community_joined(u64 guild_id) noexcept {
@@ -2031,12 +2030,7 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
         if (!ensure_events())
             break;
         scheduled_event_store_clear_guild(events, request.guild_id);
-        scheduled_event_decode_list(body, {b.scratch, 16384},
-                                    +[](void*, const ScheduledEvent& e) noexcept {
-                                        scheduled_event_store_upsert(events, e);
-                                        return true;
-                                    },
-                                    nullptr);
+        scheduled_event_decode_list(body, {b.scratch, 16384}, upsert_listed, nullptr);
         if (same_modal && owner->phase == Phase::loading)
             owner->phase = Phase::ready;
         enqueue(GuildCommunityOperation::event_rsvps, request.guild_id);

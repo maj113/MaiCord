@@ -141,14 +141,11 @@ void cancel_flight() noexcept {
         return;
     auto& flight = owner->flight;
     flight.retired = true;
-    if (!flight.cancel_requested &&
+    // Both stages use the same DETAILS transport. The nullable thread
+    // callback cancels that ID; channel_overview has no cancel opcode.
+    if (!flight.cancel_requested && g_app.account.api.thread_action &&
         flight.source.account_instance == reinterpret_cast<usize>(g_app.account.instance)) {
-        // Both stages use the same DETAILS transport. The nullable thread
-        // callback cancels that ID; channel_overview has no cancel opcode.
-        if (g_app.account.api.thread_action)
-            g_app.account.api.thread_action(g_app.account.instance, nullptr, flight.request_id);
-        else
-            return;
+        g_app.account.api.thread_action(g_app.account.instance, nullptr, flight.request_id);
         flight.cancel_requested = true;
     }
 }
@@ -195,8 +192,6 @@ Admission queue(u64 id, Operation operation, ApplicationThreadActionTicket* outp
         invalidate_uncertain_membership(owner->flight);
     owner->source = capture(*value);
     owner->source.serial = ++next_serial;
-    if (!owner->source.serial)
-        owner->source.serial = ++next_serial;
     owner->operation = operation;
     owner->metadata_checked = false;
     reset_value(&owner->refusal_source);

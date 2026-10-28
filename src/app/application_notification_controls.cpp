@@ -212,8 +212,7 @@ bool apply(const UserGuildSettingsPatch& patch) noexcept {
 void remove_front() noexcept {
     for (u32 i = 1; i < owner.count; ++i)
         owner.queue[i - 1] = owner.queue[i];
-    if (owner.count)
-        --owner.count;
+    --owner.count;
 }
 // Channel override flags OPT_IN_ENABLED for one channel or category.
 bool override_opted_in(const MessageNotificationStore& store, u64 guild, u64 channel) noexcept {

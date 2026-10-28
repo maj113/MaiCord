@@ -389,7 +389,7 @@ u64 settings_layer_next_wake(const SettingsLayer& layer) noexcept {
     return layer.blink_at;
 }
 
-bool settings_layer_backdrop_hit(const UiSettingsScene& scene, float x, float y) noexcept {
+static bool settings_layer_backdrop_hit(const UiSettingsScene& scene, float x, float y) noexcept {
     return scene.active && scene.presentation != UiSettingsPresentation::layer && !scene.layout.compact &&
            ui_rect_contains(scene.viewport, x, y) && !ui_rect_contains(scene.layout.modal, x, y);
 }

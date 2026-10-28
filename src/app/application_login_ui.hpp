@@ -5,8 +5,6 @@
 
 namespace maicord::app_detail {
 
-struct Application;
-
 SecureEdit* application_active_login_edit() noexcept;
 bool application_initialize_login_ui() noexcept;
 void application_release_login_ui() noexcept;

@@ -51,7 +51,7 @@ bool plugin_call_ledger_peek(const wchar_t* path, PluginCallMarker* leftover) no
     HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                               FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (file == INVALID_HANDLE_VALUE) return true;
-    u8 bytes[24]{};
+    u8 bytes[24];
     DWORD read = 0;
     const bool ok = ReadFile(file, bytes, sizeof(bytes), &read, nullptr) && read == sizeof(bytes);
     CloseHandle(file);
@@ -127,7 +127,7 @@ PluginCallTicket plugin_call_begin(PluginCallLedger* ledger, u64 owner, PluginCa
     // Only the outermost call owns the marker; nested host->plugin calls are
     // attributed to the plugin that is already on the stack.
     if (ticket.outer && ledger->view && owner) {
-        u8 record[16]{};
+        u8 record[9];
         byte_store_le64(record, owner);
         record[8] = static_cast<u8>(kind);
         for (u32 i = 0; i < 9; ++i) ledger->view[8 + i] = record[i];

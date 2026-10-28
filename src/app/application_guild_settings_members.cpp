@@ -112,10 +112,7 @@ void relative(Bank& bank, u64 then_ms, u64 now_ms, bool account) noexcept {
         bank.number(value);
         bank.add(" ");
         const char* word = value == 1 ? one : other;
-        u32 bytes = 0;
-        while (word[bytes])
-            ++bytes;
-        bank.add({word, bytes});
+        bank.add({word, c_string_length(word)});
         bank.add(" ago");
     };
     if (account && seconds < 86'400)

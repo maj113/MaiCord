@@ -14,6 +14,13 @@
 namespace maicord {
 namespace {
 
+// Wipes the partly built storage.
+UserClientConfigurationResult fail(UserClientConfigurationStorage* storage, UserClientConfigurationError error,
+                                   u32 native_error = 0) noexcept {
+    SecureZeroMemory(storage, sizeof(*storage));
+    return UserClientConfigurationResult{native_error, error};
+}
+
 using RtlGetVersionFunction = LONG(WINAPI*)(OSVERSIONINFOW*) noexcept;
 SRWLOCK launch_lock = SRWLOCK_INIT;
 char launch_id[kGatewayUserLaunchIdBytes + 1]{};
@@ -223,20 +230,14 @@ UserClientConfigurationResult user_client_configuration_initialize(
     // The host takes its locale from ICU's default, the user's format locale.
     wchar_t locale_wide[LOCALE_NAME_MAX_LENGTH]{};
     const int locale_characters = GetUserDefaultLocaleName(locale_wide, LOCALE_NAME_MAX_LENGTH);
-    if (locale_characters <= 1) {
-        const u32 native_error = thread_last_error();
-        SecureZeroMemory(storage, sizeof(*storage));
-        return UserClientConfigurationResult{native_error, UserClientConfigurationError::locale};
-    }
+    if (locale_characters <= 1)
+        return fail(storage, UserClientConfigurationError::locale, thread_last_error());
     char system_locale[kGatewayUserMaximumLocaleBytes];
     const int system_bytes =
         WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, locale_wide, locale_characters - 1,
                             system_locale, sizeof(system_locale), nullptr, nullptr);
-    if (system_bytes <= 0) {
-        const u32 native_error = thread_last_error();
-        SecureZeroMemory(storage, sizeof(*storage));
-        return UserClientConfigurationResult{native_error, UserClientConfigurationError::locale};
-    }
+    if (system_bytes <= 0)
+        return fail(storage, UserClientConfigurationError::locale, thread_last_error());
     const u32 locale_bytes = client_host_locale({system_locale, static_cast<u32>(system_bytes)},
                                                 {storage->locale, kGatewayUserMaximumLocaleBytes});
     const Utf8View host_locale{storage->locale, locale_bytes};
@@ -257,18 +258,13 @@ UserClientConfigurationResult user_client_configuration_initialize(
         ntdll ? reinterpret_cast<RtlGetVersionFunction>(GetProcAddress(ntdll, "RtlGetVersion")) : nullptr;
     OSVERSIONINFOW version{};
     version.dwOSVersionInfoSize = sizeof(version);
-    if (!rtl_get_version || rtl_get_version(&version) < 0) {
-        const u32 native_error = thread_last_error();
-        SecureZeroMemory(storage, sizeof(*storage));
-        return UserClientConfigurationResult{native_error, UserClientConfigurationError::version};
-    }
+    if (!rtl_get_version || rtl_get_version(&version) < 0)
+        return fail(storage, UserClientConfigurationError::version, thread_last_error());
     const u32 os_version_bytes =
         write_os_version(version, storage->os_version, static_cast<u32>(sizeof(storage->os_version)));
     SecureZeroMemory(&version, sizeof(version));
-    if (os_version_bytes == 0) {
-        SecureZeroMemory(storage, sizeof(*storage));
-        return UserClientConfigurationResult{0, UserClientConfigurationError::version};
-    }
+    if (os_version_bytes == 0)
+        return fail(storage, UserClientConfigurationError::version);
 
     // os_version is major.minor.build, and the SDK version is its build.
     u32 sdk_offset = os_version_bytes;
@@ -300,10 +296,8 @@ UserClientConfigurationResult user_client_configuration_initialize(
                                                     configuration.has_since, configuration.afk},
                                                    {validation, sizeof(validation)});
     SecureZeroMemory(validation, sizeof(validation));
-    if (!valid.ok()) {
-        SecureZeroMemory(storage, sizeof(*storage));
-        return UserClientConfigurationResult{0, UserClientConfigurationError::validation};
-    }
+    if (!valid.ok())
+        return fail(storage, UserClientConfigurationError::validation);
     return UserClientConfigurationResult{0, UserClientConfigurationError::none};
 }
 

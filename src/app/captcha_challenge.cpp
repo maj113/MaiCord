@@ -1,4 +1,5 @@
 #include "maicord/app/captcha_challenge.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 
@@ -27,41 +28,23 @@ Slice<char> storage(CaptchaChallenge* challenge, u32 offset, u32 capacity) noexc
     return Slice<char>{reinterpret_cast<char*>(secret(challenge, offset)), capacity};
 }
 
-bool ascii_equal_folded(ConstSlice<u8> value, const char* expected, u32 expected_bytes) noexcept {
-    if (!value.data || !expected || value.count != expected_bytes) {
-        return false;
-    }
-    for (u32 index = 0; index < expected_bytes; ++index) {
-        u8 left = value[index];
-        u8 right = static_cast<u8>(expected[index]);
-        if (left >= 'A' && left <= 'Z') {
-            left = static_cast<u8>(left + ('a' - 'A'));
-        }
-        if (right >= 'A' && right <= 'Z') {
-            right = static_cast<u8>(right + ('a' - 'A'));
-        }
-        if (left != right) {
-            return false;
-        }
-    }
-    return true;
-}
-
 } // namespace
 
 CaptchaProvider captcha_provider_from_service(ConstSlice<u8> service) noexcept {
-    if (ascii_equal_folded(service, "hcaptcha", 8)) {
-        return CaptchaProvider::hcaptcha;
-    }
-    if (ascii_equal_folded(service, "recaptcha", 9)) {
-        return CaptchaProvider::recaptcha;
-    }
-    if (ascii_equal_folded(service, "recaptcha_enterprise", 20) ||
-        ascii_equal_folded(service, "recaptcha-enterprise", 20)) {
-        return CaptchaProvider::recaptcha_enterprise;
-    }
-    if (ascii_equal_folded(service, "turnstile", 9)) {
-        return CaptchaProvider::turnstile;
+    struct Name {
+        Utf8View text;
+        CaptchaProvider provider;
+    };
+    static constexpr Name kNames[] = {{utf8_literal("hcaptcha"), CaptchaProvider::hcaptcha},
+                                      {utf8_literal("recaptcha"), CaptchaProvider::recaptcha},
+                                      {utf8_literal("recaptcha_enterprise"), CaptchaProvider::recaptcha_enterprise},
+                                      {utf8_literal("recaptcha-enterprise"), CaptchaProvider::recaptcha_enterprise},
+                                      {utf8_literal("turnstile"), CaptchaProvider::turnstile}};
+    const Utf8View view{reinterpret_cast<const char*>(service.data), service.count};
+    for (const Name& name : kNames) {
+        if (ascii_equal_ignore_case(view, name.text)) {
+            return name.provider;
+        }
     }
     return CaptchaProvider::unknown;
 }

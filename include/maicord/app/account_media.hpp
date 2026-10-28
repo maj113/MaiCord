@@ -287,7 +287,6 @@ struct AccountMedia {
     // Monotonic time the resident decoder last published a frame. Worker
     // admission keeps actively playing decoders off new video sources.
     u64 mp4_used_ms;
-    u64 next_wake_at_ms;
     u32 frame_bytes;
     u32 frame_index;
     u32 frame_count;
@@ -297,9 +296,6 @@ struct AccountMedia {
     u32 frame_source_message_revision;
     u32 active_catalog_generation;
     u32 frame_catalog_generation;
-    u32 admitted;
-    u32 cache_ready;
-    u32 failures;
     AccountMediaRequestResult last_failure;
     AccountMediaFailure failed[kAccountMediaFailureCapacity];
     bool active;

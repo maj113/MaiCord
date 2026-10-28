@@ -26,13 +26,17 @@ bool socket_live(const VoiceConnection& connection) noexcept {
     return connection.identify_submitted && connection.socket.phase == VoiceSocketPhase::open &&
            !connection.socket.pending_close && !connection.socket.stop_requested;
 }
+// The UDP transport is open and bound to the current Ready revision.
+bool udp_ready(const VoiceConnection& connection) noexcept {
+    return connection.ready_revision && connection.udp_revision == connection.ready_revision &&
+           connection.udp.phase == VoiceUdpPhase::ready && connection.udp.socket.open;
+}
 bool current_media_transport(const VoiceConnection& connection, u64 setup_generation,
                              u64 ready_revision) noexcept {
-    return setup_generation && ready_revision && socket_live(connection) &&
-           connection.media.has_description && setup_generation == connection.socket.setup_generation &&
-           ready_revision == connection.ready_revision && connection.udp_revision == ready_revision &&
-           connection.media.packets.generation == ready_revision &&
-           connection.udp.phase == VoiceUdpPhase::ready && connection.udp.socket.open;
+    return setup_generation && ready_revision == connection.ready_revision &&
+           setup_generation == connection.socket.setup_generation && socket_live(connection) &&
+           connection.media.has_description && udp_ready(connection) &&
+           connection.media.packets.generation == ready_revision;
 }
 void stop_media_io(VoiceConnection* connection) noexcept {
     connection->media_receive = nullptr;
@@ -197,7 +201,7 @@ bool voice_connection_event(VoiceConnection* connection, const VoiceSessionEvent
                                          {"video_offer", connection->media.video_offer},
                                          {"video_codec", static_cast<u64>(connection->media.video_codec)}};
             voice_log_fields(kInfo, "session_description", {fields, 4});
-            if (!voice_connection_dave_description(connection, connection->socket.now_ms)) {
+            if (!voice_connection_dave_description(connection)) {
                 fail(connection, VoiceConnectionError::protocol, "dave_session_failed");
                 voice_media_clear(&connection->media);
                 return false;
@@ -331,9 +335,7 @@ u32 offered_cipher(const VoiceConnection& connection) noexcept {
 }
 bool can_select(const VoiceConnection& connection) noexcept {
     return socket_live(connection) && connection.media.has_ready && !connection.media.selected_mode &&
-           !connection.media.has_description && connection.ready_revision &&
-           connection.udp_revision == connection.ready_revision &&
-           connection.udp.phase == VoiceUdpPhase::ready && connection.udp.socket.open;
+           !connection.media.has_description && udp_ready(connection);
 }
 } // namespace
 VoiceProtocolCommand voice_connection_protocol_command(const VoiceConnection& connection,
@@ -370,9 +372,7 @@ bool voice_connection_protocol_submitted(VoiceConnection* connection, const Voic
 VoiceMediaSetupError voice_connection_description(VoiceConnection* connection, JsonValue data,
                                                   Slice<u32> scratch, u32 maximum_depth,
                                                   u64 now_ms) noexcept {
-    if (!connection || !socket_live(*connection) || !connection->ready_revision ||
-        connection->udp_revision != connection->ready_revision ||
-        connection->udp.phase != VoiceUdpPhase::ready || !connection->udp.socket.open ||
+    if (!connection || !socket_live(*connection) || !udp_ready(*connection) ||
         deadline_due(now_ms, connection->protocol_deadline_ms))
         return VoiceMediaSetupError::order;
     // Must stay consistent with the actual Identify advertisement in prepare.

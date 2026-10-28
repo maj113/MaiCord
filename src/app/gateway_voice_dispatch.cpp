@@ -210,11 +210,6 @@ bool visit_array(Projection& p, JsonValue array, Slice<u32> index, JsonArrayVisi
     p.array = {array.source, {index.data, scan.count}};
     return json_visit_value_array(array, p.array.structurals, p.depth, visit, &p).ok();
 }
-bool states_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_name_is(name, utf8_literal("voice_states")))
-        *static_cast<JsonValue*>(opaque) = value;
-    return true;
-}
 struct PassiveFields {
     JsonValue guild_id, states, removed, members;
 };
@@ -230,16 +225,6 @@ bool passive_field(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     return true;
 }
-bool supplemental_guilds(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_name_is(name, utf8_literal("guilds")))
-        *static_cast<JsonValue*>(opaque) = value;
-    return true;
-}
-bool guild_id_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_name_is(name, utf8_literal("id")))
-        *static_cast<JsonValue*>(opaque) = value;
-    return true;
-}
 struct SupplementalPass {
     JsonIndexedDocument guilds;
     Slice<u32> scratch;
@@ -252,10 +237,11 @@ struct SupplementalPass {
 bool supplemental_guild(void* opaque, u32, JsonValue value) noexcept {
     auto& pass = *static_cast<SupplementalPass*>(opaque);
     JsonValue id{};
+    GatewayNamedMember id_target{utf8_literal("id"), &id};
     u64 guild_id = 0;
     // A malformed guild entry only skips that guild's voice states.
     if (value.kind != JsonValueKind::object ||
-        !json_visit_indexed_object(pass.guilds, value, 32, guild_id_field, &id).ok() ||
+        !json_visit_indexed_object(pass.guilds, value, 32, gateway_store_named_member, &id_target).ok() ||
         !json_value_to_snowflake(id, &guild_id) || !guild_id)
         return true;
     if (gateway_client_publish_voice_states(value, GatewayVoiceStateSource::guild, guild_id, pass.scratch,
@@ -283,9 +269,10 @@ bool gateway_client_publish_voice_states(JsonValue data, GatewayVoiceStateSource
             return true;
         states = *located;
     } else {
+        GatewayNamedMember target{utf8_literal("voice_states"), &states};
         const auto scan = json_scan_structurals_avx1(data.source, scratch);
         if (!scan.ok() ||
-            !json_visit_value_object(data, {scratch.data, scan.count}, 64, states_field, &states).ok() ||
+            !json_visit_value_object(data, {scratch.data, scan.count}, 64, gateway_store_named_member, &target).ok() ||
             states.kind != JsonValueKind::array)
             return true;
     }
@@ -367,10 +354,11 @@ bool gateway_client_publish_supplemental_voice_states(JsonValue data, Slice<u32>
     // The whole document and then the guild list index into array_scratch; the
     // list index stays live while each guild rescans into object_scratch.
     JsonValue guilds{};
+    GatewayNamedMember target{utf8_literal("guilds"), &guilds};
     auto scan = json_scan_structurals_avx1(data.source, array_scratch);
     if (!scan.ok() ||
-        !json_visit_value_object(data, {array_scratch.data, scan.count}, 64, supplemental_guilds,
-                                &guilds)
+        !json_visit_value_object(data, {array_scratch.data, scan.count}, 64, gateway_store_named_member,
+                                &target)
              .ok() ||
         guilds.kind != JsonValueKind::array)
         return true;

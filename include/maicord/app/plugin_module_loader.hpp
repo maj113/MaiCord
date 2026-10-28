@@ -7,7 +7,6 @@
 namespace maicord {
 
 inline constexpr u32 kNativePluginModuleMaxPathCharacters = 1023;
-inline constexpr u32 kNativePluginModuleMaxStateBytes = 16u * 1024u * 1024u;
 inline constexpr char kNativePluginQueryExport[] = MC_QUERY_EXPORT;
 
 enum class NativePluginModuleError : u8 {

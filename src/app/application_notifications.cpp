@@ -663,11 +663,13 @@ void application_notifications_drain(Application* a) noexcept {
         const auto invocation=notification_sound_throttle_timer(&n.sound_throttle,now,n.audio_epoch);
         if(invocation.invoke) sound_submit(n,invocation.request.kind==NotificationSoundKind::message3?2:1,invocation.request.generation);
     }
+    const auto audio_ready=[&](const DesktopNotificationQueueRow& row) noexcept {
+        return !row.sound_id || row.sound_epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n) || audio_capacity(n,1);
+    };
     DesktopNotificationQueueRow front{};
     const bool display_pending=n.display && desktop_notification_queue_pending(&n.display->queue);
     const bool has_front=n.display && desktop_notification_queue_front(&n.display->queue,&front);
-    const bool display_audio_ready=!has_front || !front.sound_id || front.sound_epoch!=n.audio_epoch || !n.audio_preference ||
-        !audio_sink(n) || audio_capacity(n,1);
+    const bool display_audio_ready=!has_front || audio_ready(front);
     if(!n.work_pending && !n.pending.message_id && !display_pending && !desktop_notifications_history_pending(&n.native)) return;
     n.work_pending=false;
     for(u32 i=0;i<n.deferred_removal_count;++i)
@@ -769,7 +771,7 @@ void application_notifications_drain(Application* a) noexcept {
     DesktopNotificationQueueRow next{};
     const bool next_pending=n.display && desktop_notification_queue_pending(&n.display->queue);
     const bool next_front=n.display && desktop_notification_queue_front(&n.display->queue,&next);
-    const bool display_can_progress=next_pending && (!next_front || !next.sound_id || next.sound_epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n) || audio_capacity(n,1));
+    const bool display_can_progress=next_pending && (!next_front || audio_ready(next));
     if(display_can_progress || desktop_notifications_history_pending(&n.native) || audio_can_resume ||
         (n.backpressured && !n.audio_backpressured)) post_continuation(*a,n);
     if(!n.pending.message_id || !n.ready || !a->account_ui || a->login.visible) return;
@@ -1222,7 +1224,6 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     input.focused=focused(*a,n);
     input.selected=policy_channel->id==state.selected_channel_id;
     // This process's own call; a voice state from another client never counts.
-    input.current_voice_channel_known=true;
     input.current_voice_channel=ui.voice_session.channel_id==policy_channel->id &&
         ui.voice_session.phase!=VoiceSetupPhase::idle;
     input.known_gates=notification_gate_active_application|notification_gate_rpc_suppressed|notification_gate_streamer|notification_gate_overlay|notification_gate_required_action;
@@ -1241,14 +1242,12 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
         input.known_gates|=notification_gate_spammer;
         if(event.message.author_public_flags&1048576) input.gates|=notification_gate_spammer;
     }
-    {
-        input.known_gates|=notification_gate_own_activity;
-        // JS tests !==undefined, so a present null instance counts.
-        if(event.message.fields&gateway_message_field_activity_instance) {
-            u64 interaction_user{};
-            if(!gateway_client_event_message_interaction_user(event,payload,&interaction_user)) return;
-            if(interaction_user==state.self_user_id) input.gates|=notification_gate_own_activity;
-        }
+    input.known_gates|=notification_gate_own_activity;
+    // JS tests !==undefined, so a present null instance counts.
+    if(event.message.fields&gateway_message_field_activity_instance) {
+        u64 interaction_user{};
+        if(!gateway_client_event_message_interaction_user(event,payload,&interaction_user)) return;
+        if(interaction_user==state.self_user_id) input.gates|=notification_gate_own_activity;
     }
     if(input.message_type!=47) input.known_gates|=notification_gate_changelog;
     else if(!(event.message.mention_flags&gateway_client_message_changelog_present)) {

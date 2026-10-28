@@ -56,32 +56,6 @@ MessageHistoryApplyResult apply_error(MessageHistoryApplyError error, bool destr
     return result;
 }
 
-constexpr bool valid_content_availability(MessageContentAvailability availability) noexcept {
-    return availability == MessageContentAvailability::unknown ||
-           availability == MessageContentAvailability::available ||
-           availability == MessageContentAvailability::restricted;
-}
-
-UiScrollAnchor capture_anchor(const MessageTimeline& timeline) noexcept {
-    UiScrollAnchor anchor{};
-    if (!timeline.follow_bottom && timeline.list->count != 0) {
-        ui_variable_list_capture_anchor(*timeline.list, timeline.scroll_units, &anchor);
-    }
-    return anchor;
-}
-
-void restore_scroll(MessageTimeline* timeline, UiScrollAnchor* anchor, u64 previous_scroll) noexcept {
-    u64 restored = previous_scroll;
-    if (timeline->follow_bottom) {
-        message_timeline_restore_scroll(timeline, message_timeline_maximum_scroll(*timeline), true);
-    } else if (anchor->valid &&
-               ui_variable_list_restore_anchor(*timeline->list, *anchor, &restored)) {
-        message_timeline_restore_scroll(timeline, restored, false);
-    } else {
-        message_timeline_restore_scroll(timeline, previous_scroll, false);
-    }
-}
-
 bool content_overlaps_store(const MessageStore& store, Utf8View content) noexcept {
     if (!content.data || content.bytes == 0) {
         return false;
@@ -410,9 +384,7 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
     if (!timeline || !timeline->store || !timeline->list || !timeline->store->records ||
         !timeline->store->order || !timeline->store->text || !timeline->list->item_units ||
         !timeline->list->fenwick || timeline->store->count != timeline->list->count ||
-        (!messages.data && messages.count != 0) || messages.count > kMessageHistoryMaximumMessages ||
-        !valid_content_availability(empty_content_availability) ||
-        (direction != MessageHistoryDirection::older && direction != MessageHistoryDirection::newer)) {
+        (!messages.data && messages.count != 0) || messages.count > kMessageHistoryMaximumMessages) {
         return apply_error(timeline && timeline->store && timeline->list &&
                                    timeline->store->count != timeline->list->count
                                ? MessageHistoryApplyError::count_mismatch
@@ -549,7 +521,7 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
 
     const u32 old_count = timeline->list->count;
     const u64 previous_scroll = timeline->scroll_units;
-    UiScrollAnchor anchor = capture_anchor(*timeline);
+    UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
     const u32 previous_compactions = store.compactions;
     u32 rich_skipped = 0;
     for (u32 index = 0; index < eviction_count; ++index) {
@@ -619,7 +591,7 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
     if (store.count != timeline->list->count) {
         return apply_error(MessageHistoryApplyError::count_mismatch, true);
     }
-    restore_scroll(timeline, &anchor, previous_scroll);
+    message_timeline_settle_scroll(timeline, &anchor, previous_scroll);
 
     MessageHistoryApplyResult result{};
     result.inserted = incoming_count;
@@ -650,7 +622,7 @@ MessageHistoryApplyResult message_history_refresh_attachment(
     if (!timeline || !timeline->store || !timeline->rich_store || !timeline->list ||
         timeline->store->count != timeline->list->count || expected_message_id == 0 ||
         expected_channel_id == 0 || expected_message_revision == 0 || expected_attachment_id == 0 ||
-        !valid_content_availability(empty_content_availability) || message.id != expected_message_id ||
+        message.id != expected_message_id ||
         message.channel_id != expected_channel_id ||
         (message.fields & gateway_message_field_attachments) == 0) {
         return apply_error(MessageHistoryApplyError::invalid_input);
@@ -739,8 +711,7 @@ MessageHistoryRestResult message_history_jump_accept_rest(
     MessageHistoryRestResult result{};
     result.disposition = MessageHistoryRestDisposition::failed;
     if (!timeline || !users || !members || !state || target_channel_id == 0 || target_message_id == 0 ||
-        (!body.data && body.bytes != 0) || response.body_bytes != body.bytes ||
-        !valid_content_availability(empty_content_availability)) {
+        (!body.data && body.bytes != 0) || response.body_bytes != body.bytes) {
         result.error = MessageHistoryRestError::invalid_input;
         return result;
     }
@@ -867,8 +838,7 @@ MessageHistoryRestResult message_history_attachment_accept_rest(
     MessageHistoryRestResult result{};
     result.disposition = MessageHistoryRestDisposition::failed;
     if (!refresh || !timeline || refresh->state != AttachmentRefreshState::awaiting_response ||
-        (!body.data && body.bytes != 0) || response.body_bytes != body.bytes ||
-        !valid_content_availability(empty_content_availability)) {
+        (!body.data && body.bytes != 0) || response.body_bytes != body.bytes) {
         result.error = MessageHistoryRestError::invalid_input;
         return result;
     }

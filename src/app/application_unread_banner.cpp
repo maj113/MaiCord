@@ -192,7 +192,7 @@ bool perform(UiUnreadBannerAction action) noexcept {
 }
 } // namespace
 
-bool application_unread_banner_synchronize(u64 now_ms) noexcept {
+void application_unread_banner_synchronize(u64 now_ms) noexcept {
     g_app.renderer.unread_banner_scene = &g_banner;
     UnreadBannerInput in{};
     UnreadBannerProjection projection{};
@@ -221,9 +221,8 @@ bool application_unread_banner_synchronize(u64 now_ms) noexcept {
     const bool changed = ui_unread_banner_update(&g_banner, projection.view, {label, label_bytes},
                                                  timeline_presented() ? g_app.message_scene.viewport : UiRect{},
                                                  owner, now_ms, motion_allowed());
-    if (changed || notice_changed) {
+    if (changed || notice_changed)
         application_repaint();
-    }
     // The hover toolbar belongs to the timeline layer: these bars draw above
     // it, so it clips (or hides) itself where they cover it.
     UiRect occluders[2]{};
@@ -231,7 +230,6 @@ bool application_unread_banner_synchronize(u64 now_ms) noexcept {
     bool bar_changed = false;
     if (message_action_bar_set_occluders(&g_app.message_action_bar, occluders, 2, &bar_changed) && bar_changed)
         application_request_frame();
-    return true;
 }
 
 u64 application_unread_banner_next_wake(u64 now_ms) noexcept {

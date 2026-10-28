@@ -382,7 +382,7 @@ bool application_pinned_messages_pending(u64 now_ms) noexcept {
         pinned_message_controller_request(g_app.pinned_messages->controller, now_ms).ready;
 }
 bool application_pinned_messages_submit(u64 request_id, u64 now_ms) noexcept {
-    if (!application_pinned_messages_pending(now_ms) || !request_id || !g_app.account.instance || !g_app.account.api.pinned_messages) return false;
+    if (!application_pinned_messages_pending(now_ms) || !request_id) return false;
     auto& value = *g_app.pinned_messages;
     const auto request = pinned_message_controller_request(value.controller, now_ms);
     const auto admission = g_app.account.api.pinned_messages(g_app.account.instance, &request.payload, request_id);

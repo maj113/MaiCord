@@ -46,17 +46,11 @@ void enumerate(DeviceList& list, bool capture) noexcept {
     for (u32 i = 0; i < list.count; ++i)
         list.choices[i + 1] = {list.devices[i].name, list.devices[i].name_bytes};
 }
-bool same_id(const wchar_t* a, const wchar_t* b) noexcept {
-    u32 i = 0;
-    while (i + 1 < kVoiceDeviceIdCharacters && a[i] && a[i] == b[i])
-        ++i;
-    return a[i] == b[i];
-}
 u32 selected_device(const DeviceList& list, const wchar_t* id) noexcept {
     if (!id[0])
         return 0;
     for (u32 i = 0; i < list.count; ++i)
-        if (same_id(list.devices[i].id, id))
+        if (voice_device_id_equal(list.devices[i].id, id))
             return i + 1;
     return 0;
 }

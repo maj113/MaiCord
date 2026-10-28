@@ -119,9 +119,8 @@ bool read_ack_controller_admit(ReadAckController* controller,
 ReadAckCompletionResult read_ack_controller_complete(ReadAckController* controller,
     ReadAckRequestTicket ticket, ReadAckCompletion completion, u64 retry_due_at_ms) noexcept {
     if (!controller || !valid(*controller) || !controller->inflight_active || !ticket.request_id ||
-        ticket.request_id != controller->request_id || ticket.generation != controller->generation ||
-        (completion != ReadAckCompletion::success && completion != ReadAckCompletion::retry &&
-         completion != ReadAckCompletion::terminal)) return ReadAckCompletionResult::ignored;
+        ticket.request_id != controller->request_id || ticket.generation != controller->generation)
+        return ReadAckCompletionResult::ignored;
     const bool superseded = controller->inflight_superseded;
     const u32 position = lower_bound(*controller, controller->inflight.channel_id);
     const bool channel_pending = position < controller->count &&

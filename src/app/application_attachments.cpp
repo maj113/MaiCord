@@ -74,6 +74,10 @@ bool retryable(const MessageAttachmentDraft& record) noexcept {
            record.failure != MessageAttachmentDraftFailure::source_changed &&
            record.failure != MessageAttachmentDraftFailure::size_limit;
 }
+void requeue(MessageAttachmentDraft& record) noexcept {
+    record.phase = MessageAttachmentDraftPhase::waiting_url; record.retry_at_ms = 0;
+    record.failure = MessageAttachmentDraftFailure::none; record.uploaded_bytes = 0;
+}
 // The picker is still preparing files for channel_id.
 bool preparing(const ApplicationAttachments* state, u64 channel_id) noexcept {
     return state->picker.runtime && !state->picker_consumed && state->picker_channel == channel_id;
@@ -393,8 +397,7 @@ bool application_attachment_action(u32 action) noexcept {
             auto* record = message_attachment_drafts_get(&state->drafts, state->menu_ids[i]);
             if (record && record->channel_id == g_app.account_ui->active_channel_id &&
                 record->phase == MessageAttachmentDraftPhase::failed && record->failure != MessageAttachmentDraftFailure::source_changed) {
-                record->phase = MessageAttachmentDraftPhase::waiting_url; record->retry_at_ms = 0; record->failure = MessageAttachmentDraftFailure::none;
-                record->uploaded_bytes = 0;
+                requeue(*record);
             }
         }
     } else if (action == popup_action_attachment_cancel_selection) {
@@ -659,10 +662,7 @@ bool application_attachment_voice_retry(u64 id) noexcept {
     auto* record = current(state) ? message_attachment_drafts_get(&state->drafts, id) : nullptr;
     if (!record || !record->voice || !retryable(*record))
         return false;
-    record->phase = MessageAttachmentDraftPhase::waiting_url;
-    record->retry_at_ms = 0;
-    record->failure = MessageAttachmentDraftFailure::none;
-    record->uploaded_bytes = 0;
+    requeue(*record);
     ++state->drafts.revision;
     return true;
 }
@@ -729,8 +729,7 @@ bool application_attachment_retry(u64 id) noexcept {
     if (!state || !record_editable(state, id)) return false;
     auto* record = message_attachment_drafts_get(&state->drafts, id);
     if (!retryable(*record)) return false;
-    record->phase = MessageAttachmentDraftPhase::waiting_url; record->retry_at_ms = 0;
-    record->failure = MessageAttachmentDraftFailure::none; record->uploaded_bytes = 0; ++state->drafts.revision;
+    requeue(*record); ++state->drafts.revision;
     return refresh_message_composer_ui() && pump_message_history();
 }
 bool application_attachment_modify(u64 id, UiRect anchor) noexcept {

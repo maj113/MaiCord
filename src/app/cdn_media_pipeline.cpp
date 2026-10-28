@@ -45,14 +45,12 @@ ConstSlice<u8> copy_result_etag(CdnMediaPipeline* pipeline, ConstSlice<u8> etag)
     return ConstSlice<u8>{pipeline->result_etag, pipeline->result_etag_bytes};
 }
 
-// Results are reset and given a state out of line: a braced result written
-// at each return would be zeroed in a temporary and copied.
+// Results are reset out of line: a braced result written at each return would be zeroed in a
+// temporary and copied. A reset result is given its state without another reset.
 template <typename Result> __declspec(noinline) void reset(Result* out) noexcept {
     reset_value<Result>(out);
 }
-template <typename Result>
-__declspec(noinline) void set_state(Result* out, decltype(Result::state) state) noexcept {
-    reset_value<Result>(out);
+template <typename Result> void set_state(Result* out, decltype(Result::state) state) noexcept {
     out->state = state;
 }
 
@@ -380,7 +378,6 @@ bool reduced_jpeg_row(void* context, u32 y, const u8* rgba) noexcept {
         switch (r.orientation) {
         case JpegOrientation::top_right: dx = w - 1 - x; break;
         case JpegOrientation::bottom_right: dx = w - 1 - x; dy = h - 1 - y; break;
-        case JpegOrientation::bottom_left: dy = h - 1 - y; break;
         case JpegOrientation::left_top: dx = y; dy = x; break;
         case JpegOrientation::right_top: dx = h - 1 - y; dy = x; break;
         case JpegOrientation::right_bottom: dx = h - 1 - y; dy = w - 1 - x; break;
@@ -1182,59 +1179,29 @@ bool audio_key_valid(const MediaAssetKey& key) noexcept {
     return media_asset_key_valid(key) &&
            media_attachment_format_audio_supported(media_asset_audio_format(key));
 }
+// Decoder errors in their enum order; anything past the table (end of stream, preroll) is malformed.
+template <typename Error, u32 Count>
+EncodedAudioError audio_error(const EncodedAudioError (&table)[Count], Error error) noexcept {
+    const u32 index = static_cast<u32>(error);
+    return index < Count ? table[index] : EncodedAudioError::malformed;
+}
 EncodedAudioError audio_error(OggOpusError error) noexcept {
-    switch (error) {
-    case OggOpusError::none:
-        return EncodedAudioError::none;
-    case OggOpusError::invalid_input:
-        return EncodedAudioError::invalid_input;
-    case OggOpusError::unsupported:
-        return EncodedAudioError::unsupported;
-    case OggOpusError::truncated:
-        return EncodedAudioError::truncated;
-    case OggOpusError::checksum:
-        return EncodedAudioError::checksum;
-    case OggOpusError::capacity:
-        return EncodedAudioError::capacity;
-    case OggOpusError::cancelled:
-        return EncodedAudioError::cancelled;
-    default:
-        return EncodedAudioError::malformed;
-    }
+    using E = EncodedAudioError;
+    static constexpr E table[]{E::none,      E::invalid_input, E::malformed, E::unsupported,
+                               E::truncated, E::checksum,      E::capacity,  E::cancelled};
+    return audio_error(table, error);
 }
 EncodedAudioError audio_error(WavePcmError error) noexcept {
-    switch (error) {
-    case WavePcmError::none:
-        return EncodedAudioError::none;
-    case WavePcmError::invalid_input:
-        return EncodedAudioError::invalid_input;
-    case WavePcmError::unsupported:
-        return EncodedAudioError::unsupported;
-    case WavePcmError::truncated:
-        return EncodedAudioError::truncated;
-    case WavePcmError::capacity:
-        return EncodedAudioError::capacity;
-    default:
-        return EncodedAudioError::malformed;
-    }
+    using E = EncodedAudioError;
+    static constexpr E table[]{E::none,      E::invalid_input, E::malformed,
+                               E::unsupported, E::truncated,   E::capacity};
+    return audio_error(table, error);
 }
 EncodedAudioError audio_error(Mp3Error error) noexcept {
-    switch (error) {
-    case Mp3Error::none:
-        return EncodedAudioError::none;
-    case Mp3Error::invalid_input:
-        return EncodedAudioError::invalid_input;
-    case Mp3Error::unsupported:
-        return EncodedAudioError::unsupported;
-    case Mp3Error::truncated:
-        return EncodedAudioError::truncated;
-    case Mp3Error::capacity:
-        return EncodedAudioError::capacity;
-    case Mp3Error::cancelled:
-        return EncodedAudioError::cancelled;
-    default:
-        return EncodedAudioError::malformed;
-    }
+    using E = EncodedAudioError;
+    static constexpr E table[]{E::none,      E::invalid_input, E::malformed, E::unsupported,
+                               E::truncated, E::capacity,      E::cancelled};
+    return audio_error(table, error);
 }
 CdnImageType audio_http_type(const MediaAssetKey& key) noexcept {
     const auto format = media_asset_audio_format(key);

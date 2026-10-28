@@ -196,7 +196,7 @@ void voice_connection_dave_reset(VoiceConnection* connection) noexcept {
     connection->dave_recovering = false;
     connection->dave_invalid_streak = 0;
 }
-bool voice_connection_dave_description(VoiceConnection* connection, u64) noexcept {
+bool voice_connection_dave_description(VoiceConnection* connection) noexcept {
     const u16 version = connection->media.dave_protocol_version;
     voice_log(kInfo, "dave_session", "version", version, "stage", connection->dave_optional);
     dave_session_release(&connection->dave_session);

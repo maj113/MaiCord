@@ -53,12 +53,4 @@ void application_guild_lifecycle_edit_cancel_native_group(TextInputTarget) noexc
 UiRect application_guild_lifecycle_edit_bounds() noexcept;
 bool application_guild_lifecycle_edit_changed(bool content) noexcept;
 u32 application_guild_lifecycle_owner_bytes() noexcept;
-
-// Invite options as the official client offers them; exposed for tests.
-inline constexpr u32 kGuildInviteExpiryCount = 7;
-inline constexpr u32 kGuildInviteExpirySeconds[kGuildInviteExpiryCount]{1'800,  3'600,   21'600, 43'200,
-                                                                        86'400, 604'800, 0};
-inline constexpr u32 kGuildInviteDefaultExpiry = 5; // 7 days
-inline constexpr u32 kGuildInviteUsesCount = 7;
-inline constexpr u32 kGuildInviteUses[kGuildInviteUsesCount]{0, 1, 5, 10, 25, 50, 100};
 } // namespace maicord::app_detail

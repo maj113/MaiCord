@@ -27,6 +27,11 @@ SecureTextInputScope active_input_scope(const Application& application, const Se
     return SecureTextInputScope::text;
 }
 
+bool mfa_edit_status(RendererLoginStatus status) noexcept {
+    return status == RendererLoginStatus::mfa_required || status == RendererLoginStatus::mfa_input_invalid ||
+           status == RendererLoginStatus::mfa_code_rejected;
+}
+
 bool text_store_geometry(void*, SecureTextStoreGeometry* geometry) noexcept {
     Application& application = g_app;
     const SecureEdit* edit = application_active_login_edit();
@@ -180,13 +185,8 @@ bool application_synchronize_login_view() noexcept {
     u32 secret_display_bytes = 0;
     SecureEditRenderWindow login_window{};
     SecureEditRenderWindow secret_window{};
-    const bool mfa_edit = application.login.status == RendererLoginStatus::mfa_required ||
-                          application.login.status == RendererLoginStatus::mfa_input_invalid ||
-                          application.login.status == RendererLoginStatus::mfa_code_rejected;
-    const bool mfa_presented = application.login.status == RendererLoginStatus::mfa_required ||
-                               application.login.status == RendererLoginStatus::mfa_backup_acknowledgement ||
-                               application.login.status == RendererLoginStatus::mfa_code_rejected ||
-                               application.login.status == RendererLoginStatus::mfa_input_invalid ||
+    const bool mfa_edit = mfa_edit_status(application.login.status);
+    const bool mfa_presented = mfa_edit || application.login.status == RendererLoginStatus::mfa_backup_acknowledgement ||
                                application.login.status == RendererLoginStatus::webauthn_required ||
                                application.login.status == RendererLoginStatus::webauthn_failed;
     // Reveal is an explicit per-field choice; any other state re-masks it.
@@ -370,9 +370,7 @@ SecureEdit* application_active_login_edit() noexcept {
         return &login.login;
     }
     if (login_recovery_mode(login.status)) return nullptr;
-    const bool mfa_edit = login.status == RendererLoginStatus::mfa_required ||
-                          login.status == RendererLoginStatus::mfa_input_invalid ||
-                          login.status == RendererLoginStatus::mfa_code_rejected;
+    const bool mfa_edit = mfa_edit_status(login.status);
     return login.focus == LoginControl::password ? mfa_edit ? &login.mfa : &login.password : nullptr;
 }
 

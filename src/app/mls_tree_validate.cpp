@@ -405,22 +405,11 @@ MlsStatus mls_tree_validate(KdfSha256Workspace& kdf, const MlsRatchetTree& tree,
     v.filtered_capacity = static_cast<u32>(scratch.data + required - v.filtered);
     if (!secure_random_fill({reinterpret_cast<u8*>(&v.seed), sizeof(v.seed)}).ok())
         return MlsStatus::crypto_failure;
-    auto iterator = mls_tree_iterate(tree);
-    u32 index = 0;
-    for (; index != tree.encoded_node_count; ++index) {
-        MlsTreeNode node{};
-        bool has_node = false;
-        const u32 offset = iterator.offset;
-        auto status = mls_tree_next(iterator, &node, &has_node);
-        if (status == MlsStatus::ok && (!has_node || node.index != index))
-            status = MlsStatus::malformed;
-        if (status != MlsStatus::ok)
-            return status;
-        v.offsets[index] = offset;
-    }
-    for (; index != tree.node_count; ++index)
-        v.offsets[index] = ~u32{0};
-    for (index = 0; index != tree.encoded_node_count; ++index) {
+    MlsTreeIndex offsets{};
+    if (const auto status = mls_tree_index_init(&offsets, tree, {scratch.data, mls_tree_index_bytes(tree)});
+        status != MlsStatus::ok)
+        return status;
+    for (u32 index = 0; index != tree.encoded_node_count; ++index) {
         RawNode raw{};
         auto status = raw_at(v, index, &raw);
         if (status != MlsStatus::ok)

@@ -128,22 +128,21 @@ u32 default_rows(Slice<UiSettingsControl> controls, Slice<UiSettingsControlPrese
     }
     return count;
 }
-bool commit(ShortcutChord chord) noexcept {
+void commit(ShortcutChord chord) noexcept {
     if (ui.draft_action == CustomKeybindAction::push_to_talk) {
         auto& preferences = application_voice_preferences();
         preferences.audio.push_to_talk_key = chord.key;
         application_voice_settings_changed(true);
         stop_draft();
-        return true;
+        return;
     }
     CustomKeybindError error{};
     if (!custom_keybinds_add(&ui.keybinds, {ui.draft_action, chord}, &error)) {
         ui.error = error;
-        return true;
+        return;
     }
     save();
     stop_draft();
-    return true;
 }
 } // namespace
 
@@ -201,8 +200,6 @@ bool application_keybinds_settings_activate(SettingBinding binding) noexcept {
         return false;
     ui.drafting = true;
     ui.draft_action = CustomKeybindAction::toggle_mute;
-    ui.error = CustomKeybindError::none;
-    ui.recorder.active = false;
     return true;
 }
 
@@ -277,7 +274,8 @@ bool application_keybinds_settings_capture(UiInputKind kind, u32 code) noexcept 
     ShortcutChord chord{};
     switch (shortcut_recorder_input(&ui.recorder, down, code, modifiers, &chord)) {
     case ShortcutRecordStep::recorded:
-        return commit(chord);
+        commit(chord);
+        return true;
     case ShortcutRecordStep::cancelled:
     case ShortcutRecordStep::cleared:
         ui.error = CustomKeybindError::none;

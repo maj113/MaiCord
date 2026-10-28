@@ -120,7 +120,6 @@ enum class PluginCatalogStatus : u8 {
     unadmitted,  // the cache is not the admitted index (a newer floor): browse only
     failed,      // the cache is unreadable or no longer verifies
     key_changed, // the provider serves another key (last check)
-    disabled,    // checks are off
 };
 struct PluginCatalogProviderView {
     u64 id;

@@ -81,8 +81,6 @@ bool settings_layer_input(SettingsLayer*, UiInputKind, u32 key, bool repeated) n
 bool settings_layer_window_message(SettingsLayer*, UINT, WPARAM, LPARAM) noexcept;
 // Releases capture and pointer state; keeps focus.
 void settings_layer_cancel_pointer(SettingsLayer*) noexcept;
-// A point on the scrim around a dialog or modal (never a full-window layer).
-bool settings_layer_backdrop_hit(const UiSettingsScene&, float x, float y) noexcept;
 // Native text input glue for the focused editor.
 UiRect settings_layer_edit_bounds(SettingsLayer*) noexcept;
 bool settings_layer_edit_changed(SettingsLayer*, bool content) noexcept;

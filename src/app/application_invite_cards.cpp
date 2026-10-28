@@ -129,7 +129,8 @@ bool application_invite_card_click(u64 message_id, UiWidgetHandle widget, float 
             const auto geometry = message_invite_card_geometry(node->rectangle);
             if (invite_link_event(links[i])) {
                 // The whole event card opens the event.
-                return application_guild_community_open_event(links[i].event_guild_id, links[i].event_id) || true;
+                application_guild_community_open_event(links[i].event_guild_id, links[i].event_id);
+                return true;
             }
             if (!ui_rect_contains(geometry.button, x, y))
                 return true; // the card body is inert, like the official client's
@@ -139,7 +140,8 @@ bool application_invite_card_click(u64 message_id, UiWidgetHandle widget, float 
                 return true;
             if (entry->joined)
                 return select_content_guild(entry->invite.guild_id);
-            return application_guild_invite_open(code) || true;
+            application_guild_invite_open(code);
+            return true;
         }
     }
     return false;

@@ -83,7 +83,6 @@ MlsStatus mls_transcript_join(KdfSha256Workspace& kdf, MlsTranscript* transcript
 struct MlsProposal {
     u64 group_id, epoch;
     u16 type;
-    bool verified; // Signature checked, or reparsed against a verified reference.
     u32 removed_leaf;
     MlsKeyPackage added;
     u8 reference[kMlsHashBytes];
@@ -202,8 +201,6 @@ struct MlsCommitBuffers {
     Slice<u32> joiners;
     Slice<u8> proposal_tree, merged_tree, next_context;
 };
-u32 mls_commit_scratch_bytes(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposals,
-                             bool create) noexcept;
 MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local,
                                   const MlsSuccessor& current, ConstSlice<MlsProposal> proposals,
                                   const u8* leaf_secret, const P256Key& signing, bool force_path,

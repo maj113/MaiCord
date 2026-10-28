@@ -140,9 +140,7 @@ bool search_recent_path(u64 profile_id, wchar_t* path, u32 capacity) noexcept {
 bool search_recent_load_file(const wchar_t* path, SearchRecentList* list) noexcept {
     if (!path || !list)
         return false;
-    const u32 revision = list->revision;
     search_recent_clear(list);
-    list->revision = revision + 1;
     u8 record[kSearchRecentFileBytes];
     const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)});
     return read.error == FileReadError::missing || (read.ok() && search_recent_decode({record, read.bytes}, list));

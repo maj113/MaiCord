@@ -58,9 +58,8 @@ u32 store_flags(const GatewayUserSessionSnapshot& snapshot, const ClientHeartbea
 
 bool encode(const GatewayUserSessionSnapshot& snapshot, const ClientHeartbeatSession* heartbeat,
             CookieJar* cookies, SecureBuffer* payload, u32* flags_output) noexcept {
-    if (!snapshot_valid(snapshot) || !secure_buffer_initialize(payload, kPayloadCapacity).ok()) {
+    if (!secure_buffer_initialize(payload, kPayloadCapacity).ok())
         return false;
-    }
     const u32 session_bytes = snapshot.has_resume ? snapshot.resume.session_id_bytes : 0;
     const u32 url_bytes = snapshot.has_resume ? snapshot.resume.resume_url_bytes : 0;
     u32 bytes = kPayloadHeaderBytes + session_bytes + url_bytes + (heartbeat ? kHeartbeatBytes : 0);
@@ -243,34 +242,20 @@ AccountSessionStoreResult account_user_session_store_load(const wchar_t* path, u
         !snapshot) {
         return failure(AccountSessionStoreError::invalid_input);
     }
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return failure(AccountSessionStoreError::open, thread_last_error());
+    auto* file_bytes = static_cast<u8*>(
+        VirtualAlloc(nullptr, kAccountSessionStoreMaximumFileBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!file_bytes)
+        return failure(AccountSessionStoreError::memory, thread_last_error());
+    const FileReadResult read =
+        file_persistence_read_file(path, {file_bytes, kAccountSessionStoreMaximumFileBytes}, kHeaderBytes);
+    if (!read.ok()) {
+        file_persistence_secure_release(file_bytes, kAccountSessionStoreMaximumFileBytes);
+        return failure(read.error == FileReadError::size   ? AccountSessionStoreError::size
+                       : read.error == FileReadError::read ? AccountSessionStoreError::read
+                                                           : AccountSessionStoreError::open,
+                       read.native_error);
     }
-    Win32LargeInteger size{};
-    if (!GetFileSizeEx(file, size.native()) || size.QuadPart < kHeaderBytes ||
-        size.QuadPart > kAccountSessionStoreMaximumFileBytes) {
-        const u32 native_error = thread_last_error();
-        CloseHandle(file);
-        return failure(AccountSessionStoreError::size, native_error);
-    }
-    const u32 file_size = static_cast<u32>(size.QuadPart);
-    auto* file_bytes =
-        static_cast<u8*>(VirtualAlloc(nullptr, file_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!file_bytes) {
-        const u32 native_error = thread_last_error();
-        CloseHandle(file);
-        return failure(AccountSessionStoreError::memory, native_error);
-    }
-    u32 native_error = 0;
-    const bool read =
-        file_persistence_read_complete(file, Slice<u8>{file_bytes, file_size}, &native_error);
-    CloseHandle(file);
-    if (!read) {
-        file_persistence_secure_release(file_bytes, file_size);
-        return failure(AccountSessionStoreError::read, native_error);
-    }
+    const u32 file_size = read.bytes;
     const u32 version = byte_load_le32(file_bytes + 8);
     if (version == 0 || version > kUserAccountSessionStoreVersion) {
         file_persistence_secure_release(file_bytes, file_size);

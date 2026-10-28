@@ -546,10 +546,9 @@ bool submit(ClientThemeIo* io, const ClientThemeIoRequest& request, u64* generat
     if (!io || !generation || byte_ranges_conflict(generation, sizeof(*generation), io, sizeof(*io)))
         return reject(ERROR_INVALID_PARAMETER);
     AcquireSRWLockExclusive(&io->lock);
-    if (io->stopping || io->next_generation == ~u64{0}) {
-        const u32 error = io->stopping ? ERROR_OPERATION_ABORTED : ERROR_ARITHMETIC_OVERFLOW;
+    if (io->stopping) {
         ReleaseSRWLockExclusive(&io->lock);
-        return reject(error);
+        return reject(ERROR_OPERATION_ABORTED);
     }
     if (!io->running) {
         // The previous worker (if any) has exited or is returning.

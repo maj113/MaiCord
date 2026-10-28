@@ -100,8 +100,7 @@ bool synchronize_autocomplete() noexcept {
         return true;
     }
     if (!g_app.account_ui || g_app.login.visible || g_app.reaction_viewer.active ||
-        !g_app.message_composer.focused ||
-        (g_app.popup_scene.active && g_app.popup_owner_kind != PopupOwnerKind::autocomplete && g_app.popup_owner_kind != PopupOwnerKind::commands)) {
+        (g_app.popup_scene.active && !composer_owns_popup())) {
         cancel_composer_member_query();
         return true;
     }

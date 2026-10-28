@@ -3,7 +3,6 @@
 #include "application_media_picker.hpp"
 #include "application_settings_envelope.hpp"
 #include "application_state.hpp"
-#include "maicord/core/json_reader.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/emoji_preferences.hpp"

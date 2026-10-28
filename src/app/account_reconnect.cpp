@@ -13,15 +13,6 @@ u64 next_random(u64* state) noexcept {
     *state = x;
     return x;
 }
-void schedule(AccountReconnect* r, u64 now_ms) noexcept {
-    if (r->attempt >= kAccountReconnectMaximumAttempts) {
-        r->phase = AccountReconnectPhase::offline;
-        r->retry_at_ms = 0;
-        return;
-    }
-    r->phase = AccountReconnectPhase::waiting;
-    r->retry_at_ms = now_ms + account_reconnect_delay(r->attempt, &r->jitter);
-}
 } // namespace
 
 AccountStopReason account_reconnect_classify(u8 coordinator_error, AccountRequirement required) noexcept {
@@ -57,7 +48,7 @@ void account_reconnect_stopped(AccountReconnect* r, AccountStopReason reason, u6
         r->retry_at_ms = 0;
         return;
     }
-    schedule(r, now_ms);
+    account_reconnect_start_failed(r, now_ms);
 }
 
 bool account_reconnect_due(const AccountReconnect& r, u64 now_ms) noexcept {
@@ -71,7 +62,13 @@ void account_reconnect_starting(AccountReconnect* r) noexcept {
 }
 
 void account_reconnect_start_failed(AccountReconnect* r, u64 now_ms) noexcept {
-    schedule(r, now_ms);
+    if (r->attempt >= kAccountReconnectMaximumAttempts) {
+        r->phase = AccountReconnectPhase::offline;
+        r->retry_at_ms = 0;
+        return;
+    }
+    r->phase = AccountReconnectPhase::waiting;
+    r->retry_at_ms = now_ms + account_reconnect_delay(r->attempt, &r->jitter);
 }
 
 void account_reconnect_connected(AccountReconnect* r, u64 now_ms) noexcept {

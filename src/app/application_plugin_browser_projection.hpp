@@ -91,8 +91,6 @@ struct PluginBrowserBank {
 };
 
 // ---- projection -------------------------------------------------------------------------------
-// Entries matching the filters, in snapshot order (official first).
-u32 plugin_browser_filtered(const PluginCatalogSnapshot* snapshot, const PluginBrowserUiState& ui) noexcept;
 // The entry of a provider and owner, or ~0u.
 u32 plugin_browser_find(const PluginCatalogSnapshot* snapshot, u64 provider, u64 owner) noexcept;
 // The installed plugin of owner, or null.

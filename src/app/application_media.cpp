@@ -257,6 +257,40 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         return false;
     if (!visibility_only && uploads >= kMessageMediaUploadBudget)
         return true;
+    enum class Walk : u8 { next, stopped, failed };
+    // Requests a card's plain media parts (no banner fallback handling).
+    const auto request_parts = [&](const ProfileScene& scene) noexcept {
+        for (u32 i = 0; i < scene.part_count; ++i) {
+            ProfileMedia media;
+            if (!profile_media_resolve(scene, i, &media) || media.domain || !media.url.bytes)
+                continue;
+            bool stop = false;
+            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
+                return Walk::failed;
+            if (stop)
+                return Walk::stopped;
+        }
+        return Walk::next;
+    };
+    // Requests a card's effect layers; playback starts once every layer is resident.
+    const auto request_effects = [&](ProfileScene& scene) noexcept {
+        bool ready = true;
+        for (u32 i = 0; scene.effect && i < maximum<u8>(1, scene.effect->count); ++i) {
+            ProfileMedia media;
+            if (!profile_effect_media_resolve(scene, i, now_ms, &media))
+                continue;
+            bool stop = false;
+            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop,
+                                       scene.effect_started_ms != 0))
+                return Walk::failed;
+            ready = ready && media_atlas_find(application.renderer.media_atlas, media.key).ok();
+            if (stop)
+                return Walk::stopped;
+        }
+        if (!visibility_only && scene.effect && scene.effect->count && !scene.effect_started_ms && ready)
+            scene.effect_started_ms = now_ms + 500;
+        return Walk::next;
+    };
     if (application.profile && application.profile->scene.active) {
         auto& profile = application.profile->scene;
         // Submit the banner and avatar before decorative effect layers can fill the worker queue.
@@ -284,23 +318,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             if (stop)
                 return true;
         }
-        bool effects_ready = true;
-        for (u32 i = 0; profile.effect && i < maximum<u8>(1, profile.effect->count); ++i) {
-            ProfileMedia media;
-            if (!profile_effect_media_resolve(profile, i, now_ms, &media))
-                continue;
-            bool stop = false;
-            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop,
-                                       profile.effect_started_ms != 0))
-                return false;
-            effects_ready =
-                effects_ready && media_atlas_find(application.renderer.media_atlas, media.key).ok();
-            if (stop)
-                return true;
-        }
-        if (!visibility_only && profile.effect && profile.effect->count && !profile.effect_started_ms &&
-            effects_ready)
-            profile.effect_started_ms = now_ms + 500;
+        if (const auto walked = request_effects(profile); walked != Walk::next)
+            return walked == Walk::stopped;
     }
     // The selected server's banner: its animation first while it plays, then
     // the still it falls back to. A stopped animation gives back its playback.
@@ -332,47 +351,16 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         }
     }
     // The DM profile panel beside a one-to-one DM (no profile effect).
-    if (const auto* panel = application.renderer.dm_profile_panel; panel && panel->active && content_media_visible()) {
-        for (u32 i = 0; i < panel->part_count; ++i) {
-            ProfileMedia media;
-            if (!profile_media_resolve(*panel, i, &media) || media.domain || !media.url.bytes)
-                continue;
-            bool stop = false;
-            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
-                return false;
-            if (stop)
-                return true;
-        }
-    }
+    if (const auto* panel = application.renderer.dm_profile_panel; panel && panel->active && content_media_visible())
+        if (const auto walked = request_parts(*panel); walked != Walk::next)
+            return walked == Walk::stopped;
     // The profile editor's preview card and its picker tiles (CDN images;
     // picked images are local previews and never fetched).
     if (auto* preview = application_profile_editor_preview()) {
-        for (u32 i = 0; i < preview->part_count; ++i) {
-            ProfileMedia media;
-            if (!profile_media_resolve(*preview, i, &media) || media.domain || !media.url.bytes)
-                continue;
-            bool stop = false;
-            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
-                return false;
-            if (stop)
-                return true;
-        }
-        bool effects_ready = true;
-        for (u32 i = 0; preview->effect && i < maximum<u8>(1, preview->effect->count); ++i) {
-            ProfileMedia media;
-            if (!profile_effect_media_resolve(*preview, i, now_ms, &media))
-                continue;
-            bool stop = false;
-            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop,
-                                       preview->effect_started_ms != 0))
-                return false;
-            effects_ready = effects_ready && media_atlas_find(application.renderer.media_atlas, media.key).ok();
-            if (stop)
-                return true;
-        }
-        if (!visibility_only && preview->effect && preview->effect->count && !preview->effect_started_ms &&
-            effects_ready)
-            preview->effect_started_ms = now_ms + 500;
+        if (const auto walked = request_parts(*preview); walked != Walk::next)
+            return walked == Walk::stopped;
+        if (const auto walked = request_effects(*preview); walked != Walk::next)
+            return walked == Walk::stopped;
     }
     if (const auto* dialog = application_profile_editor_dialog()) {
         ProfileMedia media;
@@ -857,26 +845,33 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         return request_visible_hashed_identity(key, custom, now_ms, now_seconds, &uploads, repaint, stop_scan,
                                                force_request);
     };
+    // A conversation's custom icon, else the avatars of its (up to two) members.
+    const auto request_conversation = [&](u64 channel_id, bool play, bool* stop_scan) noexcept {
+        bool custom_icon = false;
+        if (!request_group_icon(channel_id, &custom_icon, stop_scan, play))
+            return false;
+        if (*stop_scan || custom_icon)
+            return true;
+        u64 people[2]{};
+        const u32 count = ui_private_row_group_members(application.account_ui->chat_state, channel_id, people);
+        for (u32 j = 0; j < count; ++j) {
+            if (!request_avatar(user_store_find(application.account_ui->user_store, people[j]), stop_scan, play))
+                return false;
+            if (*stop_scan)
+                return true;
+        }
+        return true;
+    };
     // Conversations pinned in the server rail show still avatars.
     for (u32 i = 0; application.guild_rail_scene.active && i < application.guild_rail_scene.count; ++i) {
         const auto& row = application.guild_rail_scene.rows[i];
         if (row.view.folder_role != GuildFolderRole::conversation)
             continue;
-        bool custom_icon = false, icon_stop = false;
-        if (!request_group_icon(row.view.id, &custom_icon, &icon_stop, false))
+        bool stop_scan = false;
+        if (!request_conversation(row.view.id, false, &stop_scan))
             return false;
-        if (icon_stop)
+        if (stop_scan)
             return true;
-        u64 people[2]{};
-        const u32 count =
-            custom_icon ? 0 : ui_private_row_group_members(application.account_ui->chat_state, row.view.id, people);
-        for (u32 j = 0; j < count; ++j) {
-            bool stop_scan = false;
-            if (!request_avatar(user_store_find(application.account_ui->user_store, people[j]), &stop_scan, false))
-                return false;
-            if (stop_scan)
-                return true;
-        }
     }
     if (application.shell_navigation_scene.active) {
         const auto& scene = application.shell_navigation_scene;
@@ -890,45 +885,19 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 continue;
             // As in the official client's DM list: the open (selected) or hovered conversation.
             const bool row_plays = avatar_row_animates(hovered_row == &row || row.view.selected);
-            bool custom_icon = false, icon_stop = false;
-            if (!request_group_icon(row.view.id, &custom_icon, &icon_stop, row_plays))
+            bool stop_scan = false;
+            if (!request_conversation(row.view.id, row_plays, &stop_scan))
                 return false;
-            if (icon_stop)
+            if (stop_scan)
                 return true;
-            if (custom_icon)
-                continue;
-            u64 people[2]{};
-            const u32 count = ui_private_row_group_members(application.account_ui->chat_state, row.view.id, people);
-            for (u32 j = 0; j < count; ++j) {
-                bool stop_scan = false;
-                if (!request_avatar(user_store_find(application.account_ui->user_store, people[j]),
-                                    &stop_scan, row_plays))
-                    return false;
-                if (stop_scan)
-                    return true;
-            }
         }
         // The conversation header repeats the selected row's avatars, still.
         if (application.shell_scene.view == UiShellView::private_channels) {
-            bool custom_icon = false, icon_stop = false;
-            if (!request_group_icon(application.account_ui->chat_state.selected_channel_id, &custom_icon,
-                                    &icon_stop, false))
+            bool stop_scan = false;
+            if (!request_conversation(application.account_ui->chat_state.selected_channel_id, false, &stop_scan))
                 return false;
-            if (icon_stop)
+            if (stop_scan)
                 return true;
-            u64 people[2]{};
-            const u32 count = custom_icon ? 0
-                                          : ui_private_row_group_members(
-                                                application.account_ui->chat_state,
-                                                application.account_ui->chat_state.selected_channel_id, people);
-            for (u32 j = 0; j < count; ++j) {
-                bool stop_scan = false;
-                if (!request_avatar(user_store_find(application.account_ui->user_store, people[j]),
-                                    &stop_scan, false))
-                    return false;
-                if (stop_scan)
-                    return true;
-            }
         }
         for (u32 i = 0; i < scene.count; ++i) {
             const auto& row = scene.rows[i];
@@ -1279,7 +1248,6 @@ ApplicationMediaPumpResult application_pump_forum_preview_media(Application* app
             if (!application_local_preview_frame_current(frame))
                 continue;
         } else {
-            bool consumed{};
             for (u32 index = 0; index < application->animations.pending_advance_count; ++index) {
                 const auto& pending = application->animations.pending_advances[index];
                 const auto* visual = pump.find_animation_visual(pending.key, pending.generation);
@@ -1294,11 +1262,8 @@ ApplicationMediaPumpResult application_pump_forum_preview_media(Application* app
                                                       1'000)
                          .ok())
                     pump.release_animation_visual(advance.key, advance.generation);
-                consumed = true;
                 break;
             }
-            if (consumed)
-                continue;
             // Cold hidden completions are leased without being shown. The
             // worker reclaims leases on the next keyed request, and the normal
             // still-image atlas-miss path reloads from its retained encoded

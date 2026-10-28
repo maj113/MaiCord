@@ -139,11 +139,7 @@ void voice_receive_configure(VoiceReceive* receive, const VoiceAudioSettings& se
     if (!receive)
         return;
     voice_playback_set_master(&receive->playback, settings.output_gain_percent);
-    u32 i = 0;
-    while (i + 1 < kVoiceDeviceIdCharacters && settings.output_device[i] == receive->output_device[i] &&
-           settings.output_device[i])
-        ++i;
-    if (settings.output_device[i] == receive->output_device[i])
+    if (voice_device_id_equal(settings.output_device, receive->output_device))
         return;
     copy_bytes(receive->output_device, settings.output_device, sizeof(receive->output_device));
     receive->output_device[kVoiceDeviceIdCharacters - 1] = 0;

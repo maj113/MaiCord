@@ -82,6 +82,10 @@ bool message_timeline_reset(MessageTimeline* timeline) noexcept;
 bool message_timeline_set_viewport(MessageTimeline* timeline, u64 viewport_units) noexcept;
 bool message_timeline_set_scroll(MessageTimeline* timeline, u64 scroll_units, bool follow_bottom) noexcept;
 bool message_timeline_restore_scroll(MessageTimeline* timeline, u64 scroll_units, bool follow_bottom) noexcept;
+// The scroll anchor to preserve across a list mutation: none while following the bottom.
+UiScrollAnchor message_timeline_capture_anchor(const MessageTimeline& timeline) noexcept;
+// Restores the scroll after a list mutation: the bottom when following, else the anchor, else `previous_scroll`.
+void message_timeline_settle_scroll(MessageTimeline* timeline, UiScrollAnchor* anchor, u64 previous_scroll) noexcept;
 // The bottom scroll offset: content height beyond the viewport, or 0.
 u64 message_timeline_maximum_scroll(const MessageTimeline& timeline) noexcept;
 bool message_timeline_scroll_by(MessageTimeline* timeline, i64 delta_units, u64 bottom_tolerance_units,

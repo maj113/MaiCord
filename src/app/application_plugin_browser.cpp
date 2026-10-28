@@ -253,6 +253,15 @@ void begin_installer() noexcept {
     if (!send_finish()) g_op.stage = Stage::none;
     set_status(utf8_literal("Installation cancelled. Keep Settings open while a plugin installs."), true);
 }
+// Keeps a plugin from updating past the given version.
+bool hold_version(u64 owner, u64 code) noexcept {
+    PluginBrowserCommand hold{};
+    hold.kind = Kind::plugin_flags;
+    hold.owner = owner;
+    hold.set = kPluginStateHeld;
+    hold.held_code = code;
+    return command(hold);
+}
 void finished() noexcept {
     const auto& r = g_view.manager;
     const auto& settled = g_view.settled;
@@ -268,14 +277,7 @@ void finished() noexcept {
     if (removed && g_revoked.owner == g_op.owner) reset_value(&g_revoked);
     set_status(removed ? utf8_literal("Plugin uninstalled.") : g_op.op == Op::install ? utf8_literal("Plugin installed.")
                : g_op.op == Op::rollback ? utf8_literal("Plugin rolled back.") : utf8_literal("Plugin updated."));
-    if (g_op.downgrade) {
-        PluginBrowserCommand hold{};
-        hold.kind = Kind::plugin_flags;
-        hold.owner = g_op.owner;
-        hold.set = kPluginStateHeld;
-        hold.held_code = g_op.from_code;
-        command(hold);
-    }
+    if (g_op.downgrade) hold_version(g_op.owner, g_op.from_code);
     if (!removed && settled.trusted && (g_op.was_enabled || g_op.enable_after)) {
         application_plugins_discover();
         if (!application_plugins_enable_owner(g_op.owner))
@@ -477,12 +479,7 @@ bool dialog_accept(TextFormOwnerKey key, bool checked) noexcept {
     case DialogKind::rollback: return start_operation(p.op, p.owner, p.provider, p.version_code, p.approved, false, p.from_code), true;
     case DialogKind::review:
         if (checked) {
-            PluginBrowserCommand hold{};
-            hold.kind = Kind::plugin_flags;
-            hold.owner = p.owner;
-            hold.set = kPluginStateHeld;
-            hold.held_code = p.version_code;
-            if (!command(hold)) set_status(utf8_literal("Wait for the current plugin change to finish."), true);
+            if (!hold_version(p.owner, p.version_code)) set_status(utf8_literal("Wait for the current plugin change to finish."), true);
             return true;
         }
         return start_operation(Op::update, p.owner, p.provider, p.version_code, p.approved, false, p.from_code), true;
@@ -707,6 +704,12 @@ void enforce_revocations() noexcept {
     g_enforce_pending = false;
     refresh();
 }
+// Moves a list offset one page back or forward; false at the first page.
+bool step_page(u32& first, bool previous) noexcept {
+    if (previous && first < kPluginBrowserRows) return false;
+    first = previous ? first - kPluginBrowserRows : first + kPluginBrowserRows;
+    return true;
+}
 } // namespace
 
 // ---- public -----------------------------------------------------------------------------------
@@ -896,9 +899,7 @@ bool application_plugin_browser_activate(u64 id, const UiSettingsActivation& req
         state.detail_owner = e->owner;
         state.detail_provider = g_ui->snapshot->providers[e->provider].id;
     } else if (id == kPluginBrowserPreviousId || id == kPluginBrowserNextId) {
-        const bool previous = id == kPluginBrowserPreviousId;
-        if (previous && state.first < kPluginBrowserRows) return false;
-        state.first = previous ? state.first - kPluginBrowserRows : state.first + kPluginBrowserRows;
+        if (!step_page(state.first, id == kPluginBrowserPreviousId)) return false;
     } else if (id == kPluginBrowserBackId) state.detail = false;
     else if (id == kPluginBrowserActionsId) result = choice < map.action_count && detail_action(map.actions[choice]);
     else if (id == kPluginBrowserHomepageId) {
@@ -929,9 +930,7 @@ bool application_plugin_browser_activate(u64 id, const UiSettingsActivation& req
         const u32 slot = static_cast<u32>(id - kPluginBrowserUpdateFirst);
         result = slot < map.update_count && update_entry(map.updates[slot]);
     } else if (id == kPluginBrowserUpdatesPreviousId || id == kPluginBrowserUpdatesNextId) {
-        const bool previous = id == kPluginBrowserUpdatesPreviousId;
-        if (previous && state.updates_first < kPluginBrowserRows) return false;
-        state.updates_first = previous ? state.updates_first - kPluginBrowserRows : state.updates_first + kPluginBrowserRows;
+        if (!step_page(state.updates_first, id == kPluginBrowserUpdatesPreviousId)) return false;
     } else if (id >= kPluginBrowserProviderFirst && id < kPluginBrowserProviderFirst + kPluginProviderMaximum) {
         result = provider_action(static_cast<u32>(id - kPluginBrowserProviderFirst), choice);
     } else if (id == kPluginBrowserAddProviderId) {

@@ -5,9 +5,18 @@
 namespace maicord {
 namespace {
 
-UserAccountCoordinatorResult invalid_result() noexcept {
+UserAccountCoordinatorResult failure(UserAccountCoordinatorError error) noexcept {
     UserAccountCoordinatorResult result{};
-    result.error = UserAccountCoordinatorError::invalid_input;
+    result.error = error;
+    return result;
+}
+UserAccountCoordinatorResult invalid_result() noexcept {
+    return failure(UserAccountCoordinatorError::invalid_input);
+}
+UserAccountCoordinatorResult rest_start_failure(const RestClientResult& started) noexcept {
+    UserAccountCoordinatorResult result = failure(UserAccountCoordinatorError::rest_start);
+    result.rest_error = started.error;
+    result.native_error = started.native_error;
     return result;
 }
 
@@ -68,17 +77,13 @@ UserAccountCoordinatorResult user_account_coordinator_start(
     if (!properties.ok()) {
         secure_clear_bytes(json_scratch, sizeof(json_scratch));
         secure_clear_bytes(super_properties, sizeof(super_properties));
-        UserAccountCoordinatorResult result{};
-        result.error = UserAccountCoordinatorError::properties;
-        return result;
+        return failure(UserAccountCoordinatorError::properties);
     }
 
     SecureBuffer rest_credential{};
     if (!duplicate_credential(profile->credential, &rest_credential)) {
         secure_clear_bytes(super_properties, sizeof(super_properties));
-        UserAccountCoordinatorResult result{};
-        result.error = UserAccountCoordinatorError::credential;
-        return result;
+        return failure(UserAccountCoordinatorError::credential);
     }
     // Live metadata replaces the locale with the Discord interface locale per request.
     const RestUserConfiguration rest_configuration{ConstSlice<u8>{super_properties, properties.bytes},
@@ -90,11 +95,7 @@ UserAccountCoordinatorResult user_account_coordinator_start(
     if (!rest_started.ok()) {
         secure_clear_bytes(super_properties, sizeof(super_properties));
         cleanup_failed_start(coordinator, &rest_credential);
-        UserAccountCoordinatorResult result{};
-        result.error = UserAccountCoordinatorError::rest_start;
-        result.rest_error = rest_started.error;
-        result.native_error = rest_started.native_error;
-        return result;
+        return rest_start_failure(rest_started);
     }
 
     const bool copied = duplicate_credential(profile->credential, &rest_credential);
@@ -105,11 +106,7 @@ UserAccountCoordinatorResult user_account_coordinator_start(
     secure_clear_bytes(super_properties, sizeof(super_properties));
     if (!details_started.ok()) {
         cleanup_failed_start(coordinator, &rest_credential);
-        UserAccountCoordinatorResult result{};
-        result.error = UserAccountCoordinatorError::rest_start;
-        result.rest_error = details_started.error;
-        result.native_error = details_started.native_error;
-        return result;
+        return rest_start_failure(details_started);
     }
 
     coordinator->metadata = profile->metadata;
@@ -150,7 +147,7 @@ UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinato
         if (gateway.close_code == 4004 || rest_client_status(&coordinator->rest).authentication_rejected ||
             rest_client_status(&coordinator->details).authentication_rejected) {
             // Only rejected credentials end the session (and its saved token).
-            set_failure(coordinator, UserAccountCoordinatorError::authentication_rejected, 0);
+            set_failure(coordinator, UserAccountCoordinatorError::authentication_rejected);
         } else if (gateway.close_code >= 4010 && gateway.close_code <= 4014) {
             // Invalid shard/version/intents configuration cannot recover by
             // repeating IDENTIFY. Keep the credentials for an explicit restart

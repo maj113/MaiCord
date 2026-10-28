@@ -223,24 +223,33 @@ bool application_guild_menu_activate(u32 action) noexcept {
         return false;
     reset_value(&header);
     application_guild_menu_synchronize();
-    if (action > action_settings_page && action <= action_settings_page + kGuildSettingsPageCount)
-        return application_guild_settings_open(guild, static_cast<u8>(action - action_settings_page)) || true;
+    if (action > action_settings_page && action <= action_settings_page + kGuildSettingsPageCount) {
+        application_guild_settings_open(guild, static_cast<u8>(action - action_settings_page));
+        return true;
+    }
     switch (action) {
     case action_invite:
-        return application_guild_lifecycle_open_invite(guild) || true;
+        application_guild_lifecycle_open_invite(guild);
+        return true;
     case action_settings:
-        return application_guild_settings_open(guild) || true;
+        application_guild_settings_open(guild);
+        return true;
     case action_create_channel:
-        return application_guild_settings_create_channel(guild, 0, 0) || true;
+        application_guild_settings_create_channel(guild, 0, 0);
+        return true;
     case action_create_category:
-        return application_guild_settings_create_channel(guild, 0, 4) || true;
+        application_guild_settings_create_channel(guild, 0, 4);
+        return true;
     case action_create_event:
-        return application_guild_community_open_create(guild) || true;
+        application_guild_community_open_create(guild);
+        return true;
     case action_privacy:
-        return application_guild_lifecycle_open_privacy(guild) || true;
+        application_guild_lifecycle_open_privacy(guild);
+        return true;
     case action_profile:
         // Opens Settings > Profiles on the Per-server tab for this server, as the official client does.
-        return application_profile_editor_open(ProfileEditorTab::guild, guild) || true;
+        application_profile_editor_open(ProfileEditorTab::guild, guild);
+        return true;
     case action_hide_muted: {
         // Synced through the user guild settings (hide_muted_channels), as the
         // official client does; the projection applies it at once.
@@ -256,7 +265,8 @@ bool application_guild_menu_activate(u32 action) noexcept {
         return synchronize_navigation_view() && refresh_account_frame(true);
     }
     case action_leave:
-        return application_guild_lifecycle_leave(guild) || true;
+        application_guild_lifecycle_leave(guild);
+        return true;
     case action_copy_id:
         if (g_app.preferences.developer_mode && !copy_guild_id(guild))
             log_write(LogLevel::warning, "ui", "guild_id_copy_failed");

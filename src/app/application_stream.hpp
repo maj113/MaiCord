@@ -18,16 +18,16 @@ namespace maicord::app_detail {
 
 // Watches key: inside its voice channel at once, otherwise joins the channel
 // first and watches once the call is there. Opens the call view on the stream.
-bool application_stream_watch(const GatewayStreamKey& key) noexcept;
+void application_stream_watch(const GatewayStreamKey& key) noexcept;
 // Stops watching (also clears an ended stream's tile).
-bool application_stream_stop() noexcept;
+void application_stream_stop() noexcept;
 StreamWatchView application_stream_view() noexcept;
 // The call-view tile ID of owner's stream (never a user ID).
 u64 application_stream_tile(u64 owner_id) noexcept;
 // Marks key's preview as shown now (fetching it when due) and returns its
 // image key once a URL is known; {} otherwise. loading reports a first fetch.
 MediaAssetKey application_stream_preview(const GatewayStreamKey& key, bool* loading = nullptr) noexcept;
-bool application_stream_set_volume(u32 percent) noexcept;
+void application_stream_set_volume(u32 percent) noexcept;
 
 // Stream tile menu: volume slider (0-200 %), full screen, stop watching.
 bool application_stream_menu_open(u64 tile_id, const UiRect& anchor, bool fullscreen) noexcept;

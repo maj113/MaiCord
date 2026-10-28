@@ -205,7 +205,6 @@ void hide() noexcept {
     }
     if (g_panel)
         g_panel->shown = 0;
-    update_wake();
 }
 bool show(u64 user, UiRect slot) noexcept {
     if (!g_panel) {
@@ -266,7 +265,10 @@ bool show(u64 user, UiRect slot) noexcept {
     return true;
 }
 bool open_full(u64 user, UiRect anchor) noexcept {
-    return application_profile_open(user, anchor) && (application_profile_expand(user) || true);
+    if (!application_profile_open(user, anchor))
+        return false;
+    application_profile_expand(user);
+    return true;
 }
 // Shown activity timers (elapsed, track progress) advance each second. True
 // when the scene changed.
@@ -311,7 +313,9 @@ bool activate(const ProfileScene& s, UiWidgetHandle target) noexcept {
         return friends ? open_full(id, anchor) : select_content_guild(id);
     }
     case ProfileAction::guild_tag:
-        return !part->target || application_guild_card_open(part->target, anchor) || true;
+        if (part->target)
+            application_guild_card_open(part->target, anchor);
+        return true;
     case ProfileAction::badge:
         if (part->source < s.profile->badge_count && s.profile->badges[part->source].link.bytes)
             application_open_content_url(s.profile->badges[part->source].link.view());

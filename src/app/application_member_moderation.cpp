@@ -108,7 +108,6 @@ bool still_allowed() noexcept {
 
 void reset() noexcept {
     secure_clear_bytes(moderation.text, sizeof(moderation.text));
-    moderation.user_count = 0;
     const u64 menu_guild = moderation.menu_guild_id, menu_user = moderation.menu_user_id;
     reset_value(&moderation);
     moderation.menu_guild_id = menu_guild;
@@ -125,6 +124,14 @@ bool reject(Utf8View status) noexcept {
     moderation.step = Step::failed;
     changed();
     return false;
+}
+
+// Marks the captured request ready to send.
+void queue_request() noexcept {
+    moderation.step = Step::queued;
+    moderation.retry_at = 0;
+    reset_value(&moderation.status);
+    changed();
 }
 
 Utf8View target_name(u64 guild_id, u64 user_id) noexcept {
@@ -202,10 +209,7 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
     secure_clear_bytes(moderation.text, sizeof(moderation.text));
     copy_bytes(moderation.text, text.data, text.bytes);
     moderation.text_bytes = text.bytes;
-    moderation.step = Step::queued;
-    moderation.retry_at = 0;
-    reset_value(&moderation.status);
-    changed();
+    queue_request();
     return false;
 }
 
@@ -250,10 +254,7 @@ bool ban_save(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 s
     copy_bytes(moderation.text, reason.data, reason.bytes);
     moderation.text_bytes = reason.bytes;
     moderation.choice = kModerationBanDeleteChoices[select];
-    moderation.step = Step::queued;
-    moderation.retry_at = 0;
-    reset_value(&moderation.status);
-    changed();
+    queue_request();
     return true;
 }
 
@@ -379,9 +380,7 @@ bool begin(Kind kind, u64 guild_id, u64 user_id) noexcept {
     moderation.user_id = user_id;
     moderation.kind = kind;
     moderation.self_nickname = kind == Kind::nickname && allowed.nickname_self;
-    if (++moderation_serial == 0)
-        ++moderation_serial;
-    moderation.serial = moderation_serial;
+    moderation.serial = ++moderation_serial;
     return true;
 }
 
@@ -526,9 +525,7 @@ bool application_member_moderation_bulk_ban(u64 guild_id, ConstSlice<u64> user_i
     moderation.kind = Kind::bulk_ban;
     copy_bytes(moderation.users, user_ids.data, user_ids.count * sizeof(u64));
     moderation.user_count = user_ids.count;
-    if (++moderation_serial == 0)
-        ++moderation_serial;
-    moderation.serial = moderation_serial;
+    moderation.serial = ++moderation_serial;
     return open_form();
 }
 
@@ -580,18 +577,17 @@ bool application_member_moderation_response(const RestClientResponse& response, 
         return true;
     moderation.request_id = 0;
     moderation.http_status = response.status_code;
+    const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
+                    response.status_code < 300;
     // A ban's dialog closed as it sent; only a failed bulk ban is reported.
     if (moderation.kind == Kind::ban || moderation.kind == Kind::bulk_ban) {
-        const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
-                        response.status_code < 300;
         if (!ok && moderation.kind == Kind::bulk_ban)
             application_guild_settings_bulk_ban_failed(moderation.guild_id);
         reset();
         changed();
         return true;
     }
-    if (response.error == RestClientError::none && response.status_code >= 200 &&
-        response.status_code < 300) {
+    if (ok) {
         moderation.step = Step::done;
         secure_clear_bytes(moderation.text, sizeof(moderation.text));
     } else {

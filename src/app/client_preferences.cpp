@@ -166,7 +166,7 @@ ClientPreferencesResult client_preferences_load_file(const wchar_t* path,
     u32 length = 0;
     if (!preferences || !valid_path(path, &length))
         return failure(ClientPreferencesError::invalid_input);
-    u8 record[kClientPreferencesRecordBytes]{};
+    u8 record[kClientPreferencesRecordBytes];
     const FileReadResult read = file_persistence_read_file(path, {record, sizeof(record)}, kHeaderBytes);
     switch (read.error) {
     case FileReadError::none:
@@ -188,7 +188,7 @@ ClientPreferencesResult client_preferences_save_file(const wchar_t* path,
     u32 length = 0;
     if (!valid_path(path, &length))
         return failure(ClientPreferencesError::invalid_input);
-    u8 record[kClientPreferencesRecordBytes]{};
+    u8 record[kClientPreferencesRecordBytes];
     const auto encoded = client_preferences_encode(preferences, {record, sizeof(record)});
     if (!encoded.ok())
         return encoded;

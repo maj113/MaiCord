@@ -135,6 +135,17 @@ bool other_reference(const Runtime& r,const NativePluginManifest& manifest) noex
     }
     return false;
 }
+// Whether `name` is "<owner prefix>-<sha256 hex>.dll"; decodes the digest.
+bool managed_leaf(const wchar_t* name,const wchar_t* prefix,u8* digest) noexcept {
+    u32 length{};while(length<MAX_PATH&&name[length])++length;
+    if(length!=85||name[16]!=L'-'||name[81]!=L'.'||ascii_lower(name[82])!=L'd'||ascii_lower(name[83])!=L'l'||ascii_lower(name[84])!=L'l')return false;
+    for(u32 i=0;i<16;++i)if(ascii_lower(name[i])!=prefix[i])return false;
+    for(u32 i=0;i<64;++i){const auto c=ascii_lower(name[17+i]);
+        const i32 nibble=c>=L'0'&&c<=L'9'?c-L'0':c>=L'a'&&c<=L'f'?c-L'a'+10:-1;
+        if(nibble<0)return false;
+        digest[i/2]=static_cast<u8>(i%2?(digest[i/2]<<4)|nibble:nibble);}
+    return true;
+}
 Error retention_limit(Runtime& r,bool new_file) noexcept {
     auto& directory=r.destination_directory;const u32 base=directory.path_characters;
     if(base+3>=kNativePluginCatalogPathCapacity)return fail(r,Error::path);
@@ -147,12 +158,8 @@ Error retention_limit(Runtime& r,bool new_file) noexcept {
         if((data.cFileName[0]==L'.'&&!data.cFileName[1])||(data.cFileName[0]==L'.'&&data.cFileName[1]==L'.'&&!data.cFileName[2]))continue;
         if(++visited>kNativePluginCatalogMaximumDirectoryEntries){error=Error::catalog;break;}
         if(cancelled(r)){error=Error::cancelled;break;}
-        u32 length{};while(length<MAX_PATH&&data.cFileName[length])++length;
-        if(length!=85||data.cFileName[16]!=L'-'||data.cFileName[81]!=L'.'||ascii_lower(data.cFileName[82])!=L'd'||
-            ascii_lower(data.cFileName[83])!=L'l'||ascii_lower(data.cFileName[84])!=L'l')continue;
-        bool match=true;for(u32 i=0;i<16;++i)if(ascii_lower(data.cFileName[i])!=prefix[i])match=false;
-        for(u32 i=17;i<81;++i){const auto c=ascii_lower(data.cFileName[i]);if(!((c>=L'0'&&c<=L'9')||(c>=L'a'&&c<=L'f')))match=false;}
-        if(!match)continue;
+        u8 digest[32];
+        if(!managed_leaf(data.cFileName,prefix,digest))continue;
         const u64 size=(u64{data.nFileSizeHigh}<<32)|data.nFileSizeLow;
         if(data.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT)||size>kNativePluginDllMaximumBytes){error=Error::conflict;break;}
         ++count;bytes+=size;
@@ -341,15 +348,8 @@ Error trim(Runtime& r) noexcept {
     u32 visited{},found{};wchar_t prefix[16];hexadecimal(r.installed.owner_id,prefix);Error error=Error::none;
     do{
         if(++visited>kNativePluginCatalogMaximumDirectoryEntries){error=Error::catalog;break;}
-        u32 length{};while(length<MAX_PATH&&data.cFileName[length])++length;
-        if(length!=85||data.cFileName[16]!=L'-'||data.cFileName[81]!=L'.'||ascii_lower(data.cFileName[82])!=L'd'||
-            ascii_lower(data.cFileName[83])!=L'l'||ascii_lower(data.cFileName[84])!=L'l')continue;
-        bool match=true;for(u32 i=0;i<16;++i)if(ascii_lower(data.cFileName[i])!=prefix[i])match=false;
-        u8 digest[32]{};
-        for(u32 i=0;match&&i<64;++i){const auto c=ascii_lower(data.cFileName[17+i]);
-            const i32 nibble=c>=L'0'&&c<=L'9'?c-L'0':c>=L'a'&&c<=L'f'?c-L'a'+10:-1;
-            if(nibble<0)match=false;else digest[i/2]=static_cast<u8>(i%2?(digest[i/2]<<4)|nibble:nibble);}
-        if(!match||keeps(r,digest))continue;
+        u8 digest[32];
+        if(!managed_leaf(data.cFileName,prefix,digest)||keeps(r,digest))continue;
         if(found==8||(data.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))){++r.result.kept;continue;}
         copy_bytes(r.candidates[found++],digest,32);
     }while(FindNextFileW(directory.scan,&data));

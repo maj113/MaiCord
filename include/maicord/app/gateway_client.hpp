@@ -1356,7 +1356,6 @@ bool gateway_client_stream_snapshot(const GatewayClient* client, GatewayClientSt
 bool gateway_client_stream_volume(GatewayClient* client, u32 percent) noexcept;
 // UI-thread request; transport teardown and fresh identify run on the worker.
 GatewayStateRecoveryResult gateway_client_request_fresh_state(GatewayClient* client) noexcept;
-u32 gateway_client_user_runtime_bytes() noexcept;
 
 // Pure identity gate shared by the worker and deterministic tests. The
 // normal-user contract is v9 and unsharded.

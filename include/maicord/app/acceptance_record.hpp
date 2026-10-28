@@ -31,14 +31,10 @@ struct AcceptanceRecordResult {
     constexpr bool ok() const noexcept { return error == AcceptanceRecordError::none; }
 };
 
-// A Windows reserved device name (CON, PRN, AUX, NUL, COM0-9, LPT0-9) before any extension.
-bool acceptance_record_reserved_name(const wchar_t* name, u32 count) noexcept;
 // The path rules above, leaving room for the 5-character ".lock" sibling.
 bool acceptance_record_path_valid(const ConstSlice<wchar_t>& path) noexcept;
 // Copies path and appends a NUL (output holds count + 1 characters).
 void acceptance_record_terminate(const ConstSlice<wchar_t>& path, wchar_t* output) noexcept;
-// Copies the first count characters of path followed by the NUL-terminated ending.
-void acceptance_record_sibling(const wchar_t* path, u32 count, const wchar_t* ending, wchar_t* output) noexcept;
 // Fixed drive, and every ancestor of the NUL-terminated path an existing
 // directory without a reparse point (`path`). path is restored before return.
 AcceptanceRecordResult acceptance_record_ancestors(wchar_t* path, u32 count) noexcept;

@@ -271,17 +271,11 @@ bool private_channel_action_accept(PrivateChannelActionController* c, ChatStateS
         chat_state_store_touch_private_channel(state, c->request.channel_id);
         break;
     case PrivateChannelActionKind::ignore_request:
-    case PrivateChannelActionKind::ignore_requests: {
         if (!success && status != 404) return fail(PrivateChannelActionError::http);
-        const bool batch = c->request.kind == PrivateChannelActionKind::ignore_requests;
-        const u32 count = batch ? c->request.recipient_count : 1u;
-        for (u32 i = 0; i < count; ++i) {
-            const u64 id = batch ? c->request.recipients[i] : c->request.channel_id;
-            if (const auto* channel = chat_state_store_find_channel(*state, id); channel && channel->type == 1)
-                chat_state_store_remove_channel(state, id);
-        }
+        if (const auto* channel = chat_state_store_find_channel(*state, c->request.channel_id);
+            channel && channel->type == 1)
+            chat_state_store_remove_channel(state, channel->id);
         break;
-    }
     case PrivateChannelActionKind::acknowledge_safety:
         if (!success) return fail(PrivateChannelActionError::http);
         if (state->private_channels)

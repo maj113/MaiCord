@@ -18,6 +18,14 @@ bool text_valid(Utf8View text, u32 capacity, bool required) noexcept {
     }
     return true;
 }
+// CON, PRN, AUX, NUL, COM1-9 and LPT1-9 in any case: Windows device names, with or without an extension.
+template <typename Char> bool reserved_device_name(const Char* name, u32 stem) noexcept {
+    const auto is = [name](const char* word) noexcept {
+        return ascii_lower(name[0]) == word[0] && ascii_lower(name[1]) == word[1] && ascii_lower(name[2]) == word[2];
+    };
+    if (stem == 3) return is("con") || is("prn") || is("aux") || is("nul");
+    return stem == 4 && name[3] >= '1' && name[3] <= '9' && (is("com") || is("lpt"));
+}
 constexpr u32 kManifestSchema = 3;
 constexpr u32 kManifestAbi = 5;
 enum Field : u32 { schema, owner, abi, name, version, description, dll, digest, permissions, min_host, publisher,
@@ -138,28 +146,13 @@ bool native_plugin_dll_name_valid(Utf8View name) noexcept {
         if (c == '.' && i && name.data[i - 1] == '.') return false;
         if (!stem && c == '.') stem = i;
     }
-    const Utf8View base{name.data, stem};
-    static constexpr Utf8View reserved[]{utf8_literal("con"), utf8_literal("prn"), utf8_literal("aux"), utf8_literal("nul")};
-    for (auto word : reserved) {
-        if (base.bytes != word.bytes) continue;
-        bool match = true;
-        for (u32 i = 0; i < base.bytes; ++i) if (ascii_lower(base.data[i]) != word.data[i]) match = false;
-        if (match) return false;
-    }
-    if (base.bytes == 4 && base.data[3] >= '1' && base.data[3] <= '9' &&
-        ((ascii_lower(base.data[0]) == 'c' && ascii_lower(base.data[1]) == 'o' && ascii_lower(base.data[2]) == 'm') ||
-         (ascii_lower(base.data[0]) == 'l' && ascii_lower(base.data[1]) == 'p' && ascii_lower(base.data[2]) == 't'))) return false;
-    return true;
+    return !reserved_device_name(name.data, stem);
 }
 bool native_plugin_path_component_valid(ConstSlice<wchar_t> part) noexcept {
     if (!part.count || part[0] == L'.' || part[part.count - 1] == L'.' || part[part.count - 1] == L' ') return false;
     u32 stem = 0;
     while (stem < part.count && part[stem] != L'.') ++stem;
-    const auto stem_is = [&](const wchar_t* name) noexcept {
-        return ascii_lower(part[0]) == name[0] && ascii_lower(part[1]) == name[1] && ascii_lower(part[2]) == name[2];
-    };
-    if (stem == 3 && (stem_is(L"con") || stem_is(L"prn") || stem_is(L"aux") || stem_is(L"nul"))) return false;
-    if (stem == 4 && part[3] >= L'1' && part[3] <= L'9' && (stem_is(L"com") || stem_is(L"lpt"))) return false;
+    if (reserved_device_name(part.data, stem)) return false;
     for (u32 i = 0; i < part.count; ++i) {
         const wchar_t c = part[i];
         if (c < 32 || c == L'/' || c == L'\\' || c == L':' || c == L'*' || c == L'?' || c == L'"' ||

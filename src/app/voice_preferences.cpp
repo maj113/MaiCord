@@ -15,11 +15,6 @@ constexpr u32 kHeaderBytes = 40, kChecksumOffset = 32, kUserBytes = 11;
 constexpr u8 kAutomatic = 1, kProcessing = 2, kSelfMute = 4, kSelfDeaf = 8, kSoundboardMuted = 16;
 constexpr u8 kKnownFlagsV1 = 15, kKnownFlags = 31;
 
-void store16(u8* output, u16 value) noexcept {
-    output[0] = static_cast<u8>(value);
-    output[1] = static_cast<u8>(value >> 8);
-}
-
 u32 id_length(const wchar_t* id) noexcept {
     u32 length = 0;
     while (length + 1 < kVoiceDeviceIdCharacters && id[length])
@@ -100,9 +95,9 @@ u32 voice_preferences_encode(const VoicePreferences& p, Slice<u8> output) noexce
     copy_bytes(r, kMagic, 8);
     byte_store_le32(r + 8, kVoicePreferencesVersion);
     byte_store_le32(r + 12, bytes);
-    store16(r + 16, a.input_gain_percent);
-    store16(r + 18, a.output_gain_percent);
-    store16(r + 20, a.push_to_talk_release_ms);
+    byte_store_le16(r + 16, a.input_gain_percent);
+    byte_store_le16(r + 18, a.output_gain_percent);
+    byte_store_le16(r + 20, a.push_to_talk_release_ms);
     r[22] = static_cast<u8>(a.mode);
     r[23] = a.sensitivity;
     r[24] = a.push_to_talk_key;
@@ -110,18 +105,18 @@ u32 voice_preferences_encode(const VoicePreferences& p, Slice<u8> output) noexce
                             (p.self_mute ? kSelfMute : 0) | (p.self_deaf ? kSelfDeaf : 0) |
                             (p.soundboard_muted ? kSoundboardMuted : 0));
     r[26] = p.soundboard_volume;
-    store16(r + 28, static_cast<u16>(input));
-    store16(r + 30, static_cast<u16>(speaker));
+    byte_store_le16(r + 28, static_cast<u16>(input));
+    byte_store_le16(r + 30, static_cast<u16>(speaker));
     u32 at = kHeaderBytes;
     for (u32 i = 0; i < input; ++i, at += 2)
-        store16(r + at, static_cast<u16>(a.input_device[i]));
+        byte_store_le16(r + at, static_cast<u16>(a.input_device[i]));
     for (u32 i = 0; i < speaker; ++i, at += 2)
-        store16(r + at, static_cast<u16>(a.output_device[i]));
-    store16(r + at, static_cast<u16>(p.user_count));
+        byte_store_le16(r + at, static_cast<u16>(a.output_device[i]));
+    byte_store_le16(r + at, static_cast<u16>(p.user_count));
     at += 2;
     for (u32 i = 0; i < p.user_count; ++i, at += kUserBytes) {
         byte_store_le64(r + at, p.users[i].user_id);
-        store16(r + at + 8, p.users[i].gain_percent);
+        byte_store_le16(r + at + 8, p.users[i].gain_percent);
         r[at + 10] = p.users[i].muted ? 1 : 0;
     }
     byte_store_le64(r + kChecksumOffset, checksum({r, bytes}));

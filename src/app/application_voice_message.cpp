@@ -126,9 +126,7 @@ bool begin_upload() noexcept {
         return false;
     }
     char waveform[kVoiceMessageWaveformBase64Bytes];
-    u8 samples[kVoiceMessageWaveformSamples];
-    copy_bytes(samples, g_voice.status.waveform, sizeof(samples));
-    const u32 waveform_bytes = voice_message_waveform_base64(samples, {waveform, sizeof(waveform)});
+    const u32 waveform_bytes = voice_message_waveform_base64(s.waveform, {waveform, sizeof(waveform)});
     const UploadSource source{buffer, &kBufferOps, s.bytes};
     u64 id = 0;
     const bool added = waveform_bytes && application_attachment_add_voice(g_voice.flow.channel_id, source,

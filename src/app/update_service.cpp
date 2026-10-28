@@ -89,6 +89,7 @@ SE manifest_error(UpdateManifestError e) noexcept {
 }
 UpdateCheckResult failed(SE error) noexcept { UpdateCheckResult r{}; r.error = error; r.outcome = UpdateCheckOutcome::failed; return r; }
 UpdateCheckResult outcome(UpdateCheckOutcome o, u64 version) noexcept { UpdateCheckResult r{}; r.outcome = o; r.version = version; return r; }
+UpdateCheckResult manifest_failed(SE error, UpdateManifestError manifest) noexcept { auto r = failed(error); r.manifest_error = manifest; return r; }
 UpdateCheckResult fetch_failed(const UpdateFetchResult& fetched) noexcept {
     auto r = failed(fetch_error(fetched.error));
     r.fetch_error = fetched.error; r.retry_at_unix = fetched.retry_at_unix; r.native_error = fetched.native_error;
@@ -249,13 +250,12 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     //    version is "up to date" and never reaches durable state.
     auto verified = update_manifest_authenticate(text, {s->signature, 64}, s->key, s->workspace,
         s->config.maximum_artifact_bytes, kUpdateMaximumValiditySeconds, {s->scratch, 256}, &manifest);
-    if (!verified.ok()) { auto r = failed(manifest_error(verified.error)); r.manifest_error = verified.error; return report(r, "verify"); }
+    if (!verified.ok()) return report(manifest_failed(manifest_error(verified.error), verified.error), "verify");
     UpdateLog("offer").field("channel", static_cast<u8>(manifest.channel)).field("version", manifest.version)
         .field("bytes", manifest.artifact_bytes).field("issued", manifest.issued_unix_seconds).field("expires", manifest.expires_unix_seconds).write();
     // The stable channel never offers a preview build, whatever its manifest says.
-    if (manifest.channel != channel || (channel == UpdateChannel::stable && update_version_channel(manifest.version) != UpdateChannel::stable)) {
-        auto r = failed(SE::manifest); r.manifest_error = UpdateManifestError::unsupported; return report(r, "channel");
-    }
+    if (manifest.channel != channel || (channel == UpdateChannel::stable && update_version_channel(manifest.version) != UpdateChannel::stable))
+        return report(manifest_failed(SE::manifest, UpdateManifestError::unsupported), "channel");
     if (manifest.version <= floor) return up_to_date(s, floor, manifest.version);
     offer_changelog(s, transport, repository, channel, manifest, now);
     if (staged >= manifest.version) {
@@ -280,7 +280,7 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     if (lane.present) copy_bytes(policy.accepted_manifest_sha256, lane.manifest_sha256, 32);
     verified = update_manifest_verify(text, {s->signature, 64}, s->key, s->workspace, policy, {s->scratch, 256}, &manifest);
     if (verified.error == UpdateManifestError::rollback) return up_to_date(s, floor, manifest.version);
-    if (!verified.ok()) { auto r = failed(manifest_error(verified.error)); r.manifest_error = verified.error; return report(r, "freshness"); }
+    if (!verified.ok()) return report(manifest_failed(manifest_error(verified.error), verified.error), "freshness");
     // 4. Durable admission before any package byte is fetched.
     if (!ensure_storage(s->paths)) { auto r = failed(SE::storage); r.native_error = GetLastError(); return report(r, "storage"); }
     UpdateAcceptanceTransaction acceptance{};
@@ -301,9 +301,8 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     //    size. The package an earlier session staged and left uninstalled is
     //    used again while it still has the signed size and digest; step 6
     //    verifies it once more under the acceptance lock.
-    if (!update_asset_location(repository, channel, UpdateAsset::package, manifest.version, &location)) {
-        auto r = failed(SE::manifest); r.manifest_error = UpdateManifestError::unsupported; return report(r, "tag");
-    }
+    if (!update_asset_location(repository, channel, UpdateAsset::package, manifest.version, &location))
+        return report(manifest_failed(SE::manifest, UpdateManifestError::unsupported), "tag");
     UpdateArtifact kept{};
     const bool reused = update_artifact_verify({s->paths.download, s->paths.download_count}, manifest, &kept).ok();
     update_artifact_release(&kept);

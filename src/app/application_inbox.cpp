@@ -267,8 +267,8 @@ void build_unreads() noexcept {
             if (c.guild_id != guild_id || channel_is_private(c.type) || !chat_state_store_channel_unread(s, c))
                 continue;
             if (!added) {
-                UnreadRow header{UiInboxRowKind::group, guild_id ? guild_id : ~u64{0}, 0};
-                const auto* guild = guild_id ? chat_state_store_find_guild(s, guild_id) : nullptr;
+                UnreadRow header{UiInboxRowKind::group, guild_id, 0};
+                const auto* guild = chat_state_store_find_guild(s, guild_id);
                 title(header, guild ? chat_state_store_guild_name(s, *guild) : utf8_literal("Direct messages"));
                 if (!push_unread(header))
                     return;

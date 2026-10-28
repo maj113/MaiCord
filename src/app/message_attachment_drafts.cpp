@@ -70,7 +70,7 @@ MessageAttachmentDraftError message_attachment_drafts_add(MessageAttachmentDraft
         message_attachment_drafts_channel(store, channel_id, {}))) return MessageAttachmentDraftError::channel_capacity;
     if (files.count > kMessageAttachmentDraftCapacity - store->count) return MessageAttachmentDraftError::capacity;
     struct Prepared { char filename[kAttachmentUploadMaximumFilenameBytes]; u32 bytes; };
-    Prepared prepared[kAttachmentUploadMaximumCount]{};
+    Prepared prepared[kAttachmentUploadMaximumCount];
     for (u32 i = 0; i < files.count; ++i) {
         const auto& file = files[i];
         if ((file.content.context ? !upload_source_valid(file.content) || file.content.bytes != file.snapshot.bytes || file.path.count :

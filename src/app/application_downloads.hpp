@@ -5,7 +5,6 @@
 
 #include "maicord/core/win32_types.hpp"
 namespace maicord::app_detail {
-struct ApplicationDownloads;
 struct ApplicationSearchSourceTicket;
 bool application_downloads_available(u64 message_id, u64 attachment_id, bool snapshot = false) noexcept;
 bool application_downloads_begin(u64 message_id, u64 attachment_id, bool snapshot = false) noexcept;

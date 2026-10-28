@@ -40,7 +40,6 @@ struct HpkeContext {
     bool poisoned;
 };
 void hpke_release(HpkeContext* context) noexcept;
-bool hpke_aliases(const HpkeContext& context, ConstSlice<u8> span) noexcept;
 // Base mode, P-256/SHA256/AES128-GCM. Sender setup generates and retires a fresh
 // ephemeral key. Both setups stage all ownership/material before replacing a
 // live context; ALL setup failures preserve it and the encapsulation output.

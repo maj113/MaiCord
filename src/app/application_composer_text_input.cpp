@@ -199,7 +199,7 @@ bool geometry(void* opaque, SecureTextStoreGeometry* output) noexcept {
     if (!output || !current_owner(static_cast<ApplicationComposerTextInput*>(opaque)) || !current_layout())
         return false;
     const auto bounds = edit_bounds();
-    if (!ui_rect_has_area(bounds) || !eligible() || !g_app.renderer.dpi)
+    if (!ui_rect_has_area(bounds) || !g_app.renderer.dpi)
         return false;
     POINT origin{};
     if (!application_content_to_screen(&origin) ||
@@ -266,7 +266,7 @@ bool range_geometry(void* opaque, u32 first, u32 last, RECT* output, bool* clipp
     const auto& scene = g_app.message_composer_scene;
     const auto& layout = edit_layout();
     const auto bounds = edit_bounds();
-    if (!output || !clipped || !eligible() || !layout.active || !ui_rect_has_area(bounds))
+    if (!output || !clipped || !layout.active || !ui_rect_has_area(bounds))
         return false;
     const bool plain = plain_edit();
     u32 begin = 0, end = 0;

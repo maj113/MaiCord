@@ -21,24 +21,16 @@ struct MembershipRoot {
 };
 
 // A guild sticker list: an array, or a CLIENT_STATE_V2 {"items": [...]} set.
-bool items_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_name_is(name, utf8_literal("items")))
-        *static_cast<JsonValue*>(opaque) = value;
-    return true;
-}
 JsonValue sticker_array(JsonValue value, Slice<u32> scratch) noexcept {
-    if (value.kind == JsonValueKind::array || value.kind != JsonValueKind::object)
+    if (value.kind != JsonValueKind::object)
         return value;
     JsonValue items{};
+    GatewayNamedMember target{utf8_literal("items"), &items};
     const auto scan = json_scan_structurals_avx1(value.source, scratch);
-    if (!scan.ok() || !json_visit_value_object(value, {scratch.data, scan.count}, 8, items_field, &items).ok())
+    if (!scan.ok() ||
+        !json_visit_value_object(value, {scratch.data, scan.count}, 8, gateway_store_named_member, &target).ok())
         return {};
     return items;
-}
-bool stickers_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_name_is(name, utf8_literal("stickers")))
-        *static_cast<JsonValue*>(opaque) = value;
-    return true;
 }
 
 bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
@@ -171,8 +163,10 @@ bool gateway_client_publish_guild_stickers(JsonValue guild, u64 guild_id, Slice<
         payload.count < kGatewayClientDispatchPayloadCapacity || guild.kind != JsonValueKind::object)
         return true;
     JsonValue found{};
+    GatewayNamedMember target{utf8_literal("stickers"), &found};
     const auto scan = json_scan_structurals_avx1(guild.source, scratch);
-    if (!scan.ok() || !json_visit_value_object(guild, {scratch.data, scan.count}, 32, stickers_field, &found).ok())
+    if (!scan.ok() ||
+        !json_visit_value_object(guild, {scratch.data, scan.count}, 32, gateway_store_named_member, &target).ok())
         return true;
     const JsonValue list = sticker_array(found, scratch);
     if (list.kind != JsonValueKind::array || !list.source.bytes ||

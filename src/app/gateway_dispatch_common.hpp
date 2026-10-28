@@ -84,17 +84,36 @@ inline bool gateway_duplicate_member(GatewayEventDecodeError* error) noexcept {
     return false;
 }
 
-// Keeps the first occurrence of a member whose value has the expected shape. A repeat or another
-// shape fails the visit and sets *error unless an earlier error is already recorded.
-inline bool gateway_keep_member(GatewayEventDecodeError* error, bool* seen, JsonValue* slot,
-                                JsonValue value, bool shape_ok) noexcept {
-    if (*seen || !shape_ok) {
+// Accepts a member once: a repeat or an unreadable value fails the visit and sets *error unless an
+// earlier error is already recorded.
+inline bool gateway_once_member(GatewayEventDecodeError* error, bool* seen, bool valid) noexcept {
+    if (*seen || !valid) {
         if (*error == GatewayEventDecodeError::none)
             *error = gateway_field_error(*seen);
         return false;
     }
     *seen = true;
+    return true;
+}
+
+// Keeps the first occurrence of a member whose value has the expected shape.
+inline bool gateway_keep_member(GatewayEventDecodeError* error, bool* seen, JsonValue* slot,
+                                JsonValue value, bool shape_ok) noexcept {
+    if (!gateway_once_member(error, seen, shape_ok))
+        return false;
     *slot = value;
+    return true;
+}
+
+// Where to store the value of one named member; the context of gateway_store_named_member.
+struct GatewayNamedMember {
+    Utf8View name;
+    JsonValue* value;
+};
+inline bool gateway_store_named_member(void* opaque, JsonString name, JsonValue value) noexcept {
+    const auto& target = *static_cast<const GatewayNamedMember*>(opaque);
+    if (json_name_is(name, target.name))
+        *target.value = value;
     return true;
 }
 

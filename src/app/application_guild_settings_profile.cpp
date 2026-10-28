@@ -39,10 +39,14 @@ bool read_pending() noexcept {
     return busy() && owner->request.op == Op::profile_get;
 }
 
+// The picked icon with the data URI made from it.
+void release_icon_pick() noexcept {
+    release_picked(&owner->icon);
+    release_uri(&owner->icon_uri, &owner->icon_uri_bytes);
+}
 void load() noexcept {
     auto& p = *owner;
-    release_picked(&p.icon);
-    release_uri(&p.icon_uri, &p.icon_uri_bytes);
+    release_icon_pick();
     const auto* profile = server_profile();
     p.profile_loaded = profile != nullptr;
     p.profile_base = p.profile_draft = profile ? guild_server_profile_draft(*profile) : GuildServerProfileDraft{};
@@ -131,8 +135,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         return;
     }
     if (id == control_icon_remove) {
-        release_picked(&p.icon);
-        release_uri(&p.icon_uri, &p.icon_uri_bytes);
+        release_icon_pick();
         d.icon = p.profile_base.profile.icon_bytes ? GuildProfileImageEdit::remove : GuildProfileImageEdit::keep;
     } else if (id == control_private && !d.profile.discoverable) {
         guild_server_profile_set_private(&d, p.profile_base.profile, activation.value.checked);
@@ -268,8 +271,7 @@ void profile_saved(bool ok, const Utf8View& body) noexcept {
         return;
     }
     // An unreadable reply still saved the draft.
-    release_picked(&p.icon);
-    release_uri(&p.icon_uri, &p.icon_uri_bytes);
+    release_icon_pick();
     p.profile_draft.icon = GuildProfileImageEdit::keep;
     p.profile_base = p.profile_draft;
 }

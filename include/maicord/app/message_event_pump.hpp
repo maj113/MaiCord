@@ -61,7 +61,6 @@ enum class MessageEventPumpRejectReason : u8 {
     reaction_decode,
     reaction_apply,
     message_decode,
-    message_users,
     message_typing,
     message_send,
     message_mentions,

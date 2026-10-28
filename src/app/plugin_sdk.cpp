@@ -453,7 +453,6 @@ void write_setting(NativePluginSdkBinding& binding, Writer& writer, const mc_set
         extra.step = control.step;
         break;
     }
-    default: break;
     }
 }
 
@@ -1075,8 +1074,8 @@ bool native_plugin_sdk_destroy(NativePluginSdkBinding* binding) noexcept {
     for (auto*& slot : g_live)
         if (slot == binding) slot = nullptr;
     // The ledger tracks a bounded set of owners; a released plugin leaves it.
-    if (binding->runtime && binding->owner_id) plugin_call_ledger_forget(binding->runtime->ledger, binding->owner_id);
-    if (binding->runtime && binding->runtime->pending == binding) binding->runtime->pending = nullptr;
+    if (binding->owner_id) plugin_call_ledger_forget(binding->runtime->ledger, binding->owner_id);
+    if (binding->runtime->pending == binding) binding->runtime->pending = nullptr;
     binding->magic = 0;
     return VirtualFree(binding, 0, MEM_RELEASE) != FALSE;
 }
@@ -1343,7 +1342,6 @@ void native_plugin_sdk_keybinds_recheck(NativePluginSdkRuntime* runtime) noexcep
         for (auto& keybind : binding->keybinds) {
             if (!keybind.page_id) continue;
             char buffer[kConflictBytes];
-            keybind.active = false;
             keybind.active = keybind_resolve(*binding, keybind.page_id, keybind.control_id, keybind.chord, buffer).bytes == 0;
         }
     }

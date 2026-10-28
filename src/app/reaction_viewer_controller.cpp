@@ -23,6 +23,15 @@ void require_current_page(ReactionViewerController* controller) noexcept {
                             ? ReactionViewerRequestPhase::required
                             : ReactionViewerRequestPhase::idle;
 }
+// A new page or selection: the request is required again, or the one in flight is shown as loading.
+void restart_request(ReactionViewerController* controller) noexcept {
+    controller->retry_at_ms = 0;
+    controller->retry_attempt = 0;
+    if (controller->phase != ReactionViewerRequestPhase::submitted)
+        controller->phase = ReactionViewerRequestPhase::required;
+    else
+        reaction_viewer_set_loading(controller->viewer, true);
+}
 
 ReactionViewerControllerResult stale_response(ReactionViewerController* controller) noexcept {
     reaction_viewer_set_loading(controller->viewer, false);
@@ -83,13 +92,7 @@ ReactionViewerControllerResult reaction_viewer_controller_open(ReactionViewerCon
         return failure(ReactionViewerControllerError::viewer);
     }
     controller->epoch = next_epoch(controller->epoch);
-    controller->retry_at_ms = 0;
-    controller->retry_attempt = 0;
-    if (controller->phase != ReactionViewerRequestPhase::submitted) {
-        controller->phase = ReactionViewerRequestPhase::required;
-    } else {
-        reaction_viewer_set_loading(controller->viewer, true);
-    }
+    restart_request(controller);
     return ReactionViewerControllerResult{ReactionViewerControllerError::none, opened.changed, false,
                                           false};
 }
@@ -126,13 +129,7 @@ ReactionViewerControllerResult reaction_viewer_controller_select(ReactionViewerC
     }
     if (selected.changed) {
         controller->epoch = next_epoch(controller->epoch);
-        controller->retry_at_ms = 0;
-        controller->retry_attempt = 0;
-        if (controller->phase != ReactionViewerRequestPhase::submitted) {
-            controller->phase = ReactionViewerRequestPhase::required;
-        } else {
-            reaction_viewer_set_loading(controller->viewer, true);
-        }
+        restart_request(controller);
     }
     return ReactionViewerControllerResult{ReactionViewerControllerError::none, selected.changed, false,
                                           false};

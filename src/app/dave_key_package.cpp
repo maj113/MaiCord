@@ -7,6 +7,12 @@
 
 namespace maicord {
 namespace {
+template <typename Result>
+DavePackageResult signature_failure(const Result& result) noexcept {
+    return {0, result.native_status,
+            result.error == MlsSignatureError::hash_failure ? DavePackageError::hash_failure
+                                                            : DavePackageError::signature_failure};
+}
 DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing, u64 user_id,
                           DaveKeyPackage& candidate) noexcept {
     u8 init[65], leaf[65], signature_key[65], identity[8];
@@ -45,10 +51,7 @@ DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing,
     auto signed_result = mls_sign_with_label(workspace, signing, text_bytes("LeafNodeTBS"),
                                              {candidate.wire, encoded.bytes}, {}, {signature, 72});
     if (!signed_result.ok())
-        return {0, signed_result.native_status,
-                signed_result.error == MlsSignatureError::hash_failure
-                    ? DavePackageError::hash_failure
-                    : DavePackageError::signature_failure};
+        return signature_failure(signed_result);
     view.leaf.signature = {signature, signed_result.bytes};
     encoded = mls_encode_tbs(view, {candidate.wire, sizeof(candidate.wire)});
     if (!encoded.ok())
@@ -58,10 +61,7 @@ DavePackageResult produce(KdfSha256Workspace& workspace, const P256Key& signing,
     signed_result = mls_sign_with_label(workspace, signing, text_bytes("KeyPackageTBS"),
                                         {candidate.wire, encoded.bytes}, {}, {signature, 72});
     if (!signed_result.ok())
-        return {0, signed_result.native_status,
-                signed_result.error == MlsSignatureError::hash_failure
-                    ? DavePackageError::hash_failure
-                    : DavePackageError::signature_failure};
+        return signature_failure(signed_result);
     u8 prefix[4];
     const u32 prefix_bytes = mls_vector_length(signed_result.bytes, prefix);
     if (!prefix_bytes || encoded.bytes > sizeof(candidate.wire) ||

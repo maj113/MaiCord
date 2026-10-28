@@ -108,9 +108,7 @@ bool host_wide(Utf8View name, wchar_t* out) noexcept {
 E exchange(UpdateHttpsTransport* t, const UpdateHttpRequest& request, UpdateHttpResponse* response,
            const HttpsExchangeOptions& options) noexcept {
     const Utf8View host_name = request.host_name;
-    if (!host_wide(host_name, t->host) || !request.target.data || !request.target.count || request.target.count > kUpdateTargetCapacity ||
-        request.target[0] != '/' || !request.sink || !request.maximum_body_bytes) return E::invalid_input;
-    for (u32 i = 0; i < request.target.count; ++i) if (request.target[i] <= ' ' || request.target[i] > '~') return E::invalid_input;
+    if (!host_wide(host_name, t->host) || !request.sink || !request.maximum_body_bytes) return E::invalid_input;
     struct Head {
         u8 bytes[8192];
         ~Head() noexcept { secure_clear_bytes(bytes, sizeof(bytes)); }
@@ -251,8 +249,6 @@ UpdateTransportError update_http_read(UpdateHttpReader* r, const UpdateHttpReque
             if (head.head.has_content_length && head.head.content_length > request.maximum_body_bytes) return E::oversize;
             if (r->kind == HttpBodyKind::chunked &&
                 !http_chunk_decoder_initialize(&r->chunks, request.maximum_body_bytes, 1024, kHeadBytes, kFields)) return E::http;
-            if (r->kind != HttpBodyKind::chunked && r->kind != HttpBodyKind::content_length &&
-                r->kind != HttpBodyKind::until_close && r->kind != HttpBodyKind::none) return E::http;
             r->remaining = head.head.content_length;
             break;
         }

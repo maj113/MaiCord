@@ -327,7 +327,7 @@ int application_run() noexcept {
         application_downloads_pump();
         application_account_logout_pump();
         application_account_switch_pump();
-        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 15]{};
+        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 15];
         const u32 account_handle_count =
             application_account_logout_blocked()
                 ? 0

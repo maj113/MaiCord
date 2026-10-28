@@ -551,12 +551,9 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
         const RestClientSubmitResult submitted =
             host.api.history_submit(host.instance, channel_id, &query, request_id);
         if (!submitted.ok()) {
+            const bool busy = submitted.error == RestClientSubmitError::busy;
             if (owner == MessageHistoryRequestOwner::message_jump &&
-                application_search_navigation_history_admission_failed(
-                    channel_id, query.cursor, submitted.error == RestClientSubmitError::busy))
-                return true;
-            if (owner == MessageHistoryRequestOwner::message_jump &&
-                submitted.error == RestClientSubmitError::busy)
+                (application_search_navigation_history_admission_failed(channel_id, query.cursor, busy) || busy))
                 return true;
             if (owner == MessageHistoryRequestOwner::catchup) {
                 message_history_catchup_fail(&catchup, MessageHistoryCatchupFailure::transport);

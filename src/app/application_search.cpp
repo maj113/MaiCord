@@ -61,7 +61,7 @@ struct SearchTextBanks {
     u32 committed[2]{};
 };
 bool text_reserve(SearchTextBanks& storage, u32 bank, u32 bytes) noexcept {
-    if (bank > 1 || bytes > search_bank_text_limit)
+    if (bytes > search_bank_text_limit)
         return false;
     if (!storage.data)
         storage.data = static_cast<u8*>(
@@ -283,12 +283,6 @@ void bank_release(SearchBank* bank) noexcept {
         VirtualFree(bank->user_names.data, 0, MEM_RELEASE);
     VirtualFree(bank, 0, MEM_RELEASE);
 }
-bool bank_rich_initialize(SearchBank& b) noexcept {
-    return message_rich_store_initialize_owned_sparse(&b.rich, &b.rich_storage,
-                                                      kMessageSearchMaximumMessages,
-                                                      {b.rich_order, kMessageSearchMaximumMessages},
-                                                      {b.rich_text.data, 2 * search_bank_text_limit});
-}
 bool bank_initialize(SearchBank& b) noexcept {
     constexpr u32 poll_text_limit =
         kMessageSearchMaximumMessages *
@@ -306,7 +300,9 @@ bool bank_initialize(SearchBank& b) noexcept {
         !message_store_initialize(&b.store, {b.records, kMessageSearchMaximumMessages},
                                   {b.order, kMessageSearchMaximumMessages},
                                   {stable_storage_data<u8>(b.content_storage), search_bank_text_limit}) ||
-        !bank_rich_initialize(b) ||
+        !message_rich_store_initialize_owned_sparse(&b.rich, &b.rich_storage, kMessageSearchMaximumMessages,
+                                                    {b.rich_order, kMessageSearchMaximumMessages},
+                                                    {b.rich_text.data, 2 * search_bank_text_limit}) ||
         !user_store_initialize(&b.users,
                                        {stable_storage_data<UserRecord>(b.user_records), 16},
                                        {stable_storage_data<u32>(b.user_order), 16},
@@ -539,13 +535,8 @@ bool bank_accept(void* opaque, u32 index, const MessageSearchMessage& item) noex
         return false;
     if (!bank_mentions(b, m.mention_users) || !bank_mentions(b, m.snapshot.mention_users))
         return false;
-    const u64 guild =
-        item.guild_known
-            ? item.guild_id
-            : (chat_state_store_find_channel(g_app.account_ui->chat_state, m.channel_id)
-                   ? chat_state_store_find_channel(g_app.account_ui->chat_state, m.channel_id)
-                         ->guild_id
-                   : 0);
+    const auto* message_channel = chat_state_store_find_channel(g_app.account_ui->chat_state, m.channel_id);
+    const u64 guild = item.guild_known ? item.guild_id : message_channel ? message_channel->guild_id : 0;
     if (guild && (m.fields & gateway_message_field_member)) {
         const auto member = guild_member_store_upsert(&b.members, g_app.account_ui->chat_state,
                                                               guild, m.author_id, m.member_nick, m.member_roles,
@@ -1557,6 +1548,15 @@ bool commit(ApplicationSearch& s, bool tab_switch = false) noexcept {
     application_request_frame();
     return true;
 }
+void close_panel(ApplicationSearch& s) noexcept {
+    cancel_submitted(s);
+    message_search_cancel(&s.controller);
+    s.panel = false;
+    retire_actions(s);
+    choices_release(s);
+    menus_close(s);
+    focus(s, false);
+}
 void decorate(SearchBank& bank) noexcept {
     bank.measured_native_text = nullptr;
     bank.measured_width = 0;
@@ -1641,13 +1641,7 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
         focus(s, true);
         return repaint();
     case UiSearchAction::close:
-        cancel_submitted(s);
-        message_search_cancel(&s.controller);
-        s.panel = false;
-        retire_actions(s);
-        choices_release(s);
-        menus_close(s);
-        focus(s, false);
+        close_panel(s);
         return repaint();
     case UiSearchAction::filters:
     case UiSearchAction::more_filters:
@@ -1824,13 +1818,7 @@ bool application_search_close_panel() noexcept {
     auto* s = g_app.search;
     if (!s)
         return true;
-    cancel_submitted(*s);
-    message_search_cancel(&s->controller);
-    s->panel = false;
-    menus_close(*s);
-    retire_actions(*s);
-    choices_release(*s);
-    focus(*s, false);
+    close_panel(*s);
     release_pointer(*s);
     return repaint();
 }
@@ -2207,7 +2195,6 @@ bool application_search_synchronize() noexcept {
         g_app.search = s;
         s->account_id = g_app.account_ui->chat_state.self_user_id;
         s->source = {s, 0, 1, resolve, source_current};
-        current_scope(*s);
     }
     current_scope(*s);
     synchronize_privacy(*s);
@@ -2723,9 +2710,6 @@ bool application_search_input(UiInputKind kind, u32 key, bool repeated) noexcept
         return true;
     if (s->focused && !raw && !alt && !shift && s->suggestions && s->choices &&
         s->choices->filter.kind != UiSearchFilterKind::none) {
-        if (application_composer_text_input_composing() &&
-            (key == VK_UP || key == VK_DOWN || key == VK_RETURN || key == VK_TAB))
-            return true;
         const bool current_choices = choices_current(s);
         if (current_choices) {
             if (key == VK_UP || key == VK_DOWN) {

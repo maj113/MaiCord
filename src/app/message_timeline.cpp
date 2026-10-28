@@ -12,27 +12,6 @@ MessageTimelineApplyResult timeline_error(MessageTimelineError error) noexcept {
     return result;
 }
 
-void clamp_or_follow(MessageTimeline* timeline, UiScrollAnchor* anchor, u64 previous_scroll) noexcept {
-    if (timeline->follow_bottom) {
-        message_timeline_restore_scroll(timeline, message_timeline_maximum_scroll(*timeline), true);
-        return;
-    }
-    u64 restored = previous_scroll;
-    if (anchor && anchor->valid && ui_variable_list_restore_anchor(*timeline->list, *anchor, &restored)) {
-        message_timeline_restore_scroll(timeline, restored, false);
-        return;
-    }
-    message_timeline_restore_scroll(timeline, previous_scroll, false);
-}
-
-UiScrollAnchor capture_anchor(const MessageTimeline& timeline) noexcept {
-    UiScrollAnchor anchor{};
-    if (!timeline.follow_bottom && timeline.list && timeline.list->count != 0) {
-        ui_variable_list_capture_anchor(*timeline.list, timeline.scroll_units, &anchor);
-    }
-    return anchor;
-}
-
 void install_removed_anchor_fallback(UiVariableList* list, UiScrollAnchor* anchor, bool removed_anchor,
                                      u32 removal_index) noexcept {
     if (!removed_anchor || list->count == 0) {
@@ -198,6 +177,27 @@ __declspec(noinline) bool resolve_resident_reference(const MessageTimeline& time
     return true;
 }
 } // namespace
+
+void message_timeline_settle_scroll(MessageTimeline* timeline, UiScrollAnchor* anchor, u64 previous_scroll) noexcept {
+    if (timeline->follow_bottom) {
+        message_timeline_restore_scroll(timeline, message_timeline_maximum_scroll(*timeline), true);
+        return;
+    }
+    u64 restored = previous_scroll;
+    if (anchor && anchor->valid && ui_variable_list_restore_anchor(*timeline->list, *anchor, &restored)) {
+        message_timeline_restore_scroll(timeline, restored, false);
+        return;
+    }
+    message_timeline_restore_scroll(timeline, previous_scroll, false);
+}
+
+UiScrollAnchor message_timeline_capture_anchor(const MessageTimeline& timeline) noexcept {
+    UiScrollAnchor anchor{};
+    if (!timeline.follow_bottom && timeline.list && timeline.list->count != 0) {
+        ui_variable_list_capture_anchor(*timeline.list, timeline.scroll_units, &anchor);
+    }
+    return anchor;
+}
 
 u64 message_timeline_maximum_scroll(const MessageTimeline& timeline) noexcept {
     if (!timeline.list || timeline.list->total_units <= timeline.viewport_units) {
@@ -380,12 +380,12 @@ bool message_timeline_set_item_height(MessageTimeline* timeline, u32 index, u32 
         return false;
     }
     const u64 previous_scroll = timeline->scroll_units;
-    UiScrollAnchor anchor = capture_anchor(*timeline);
+    UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
     if (!ui_variable_list_set_height(timeline->list, index, item_units)) {
         ++timeline->rejected;
         return false;
     }
-    clamp_or_follow(timeline, &anchor, previous_scroll);
+    message_timeline_settle_scroll(timeline, &anchor, previous_scroll);
     *invalidation = MessageTimelineInvalidation{
         index,
         timeline->list->count - index,
@@ -424,7 +424,7 @@ MessageTimelineApplyResult message_timeline_insert_local(
     MessageTimelineApplyResult result{};
     const u32 old_count = timeline->list->count;
     const u64 previous_scroll = timeline->scroll_units;
-    UiScrollAnchor anchor = capture_anchor(*timeline);
+    UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
     u32 first_changed = old_count;
     const u32 previous_compactions = timeline->store->compactions;
     while (insertion_requires_eviction(*timeline, input.content.bytes)) {
@@ -468,7 +468,7 @@ MessageTimelineApplyResult message_timeline_insert_local(
         return result;
     }
     first_changed = minimum(first_changed, inserted.order_index);
-    clamp_or_follow(timeline, &anchor, previous_scroll);
+    message_timeline_settle_scroll(timeline, &anchor, previous_scroll);
     result.kind = GatewayMessageApplyKind::created;
     result.invalidation = structural_invalidation(first_changed, old_count, timeline->list->count,
                                                   timeline->scroll_units != previous_scroll);
@@ -499,7 +499,7 @@ MessageTimelineApplyResult message_timeline_remove_local(MessageTimeline* timeli
     }
     const u32 old_count = timeline->list->count;
     const u64 previous_scroll = timeline->scroll_units;
-    UiScrollAnchor anchor = capture_anchor(*timeline);
+    UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
     const bool removed_anchor = anchor_in_range(anchor, found.order_index, 1);
     if (!message_store_delete(timeline->store, message_id) ||
         (timeline->rich_store && !message_rich_store_delete(timeline->rich_store, message_id)) ||
@@ -508,7 +508,7 @@ MessageTimelineApplyResult message_timeline_remove_local(MessageTimeline* timeli
         return timeline_error(MessageTimelineError::ui_mutation);
     }
     install_removed_anchor_fallback(timeline->list, &anchor, removed_anchor, found.order_index);
-    clamp_or_follow(timeline, &anchor, previous_scroll);
+    message_timeline_settle_scroll(timeline, &anchor, previous_scroll);
     MessageTimelineApplyResult result{};
     result.kind = GatewayMessageApplyKind::deleted;
     result.invalidation = structural_invalidation(found.order_index, old_count, timeline->list->count,
@@ -628,7 +628,7 @@ static MessageTimelineApplyResult apply_decoded_message(
         return result;
     }
 
-    UiScrollAnchor anchor = inserting || update_pressure ? capture_anchor(*timeline) : UiScrollAnchor{};
+    UiScrollAnchor anchor = inserting || update_pressure ? message_timeline_capture_anchor(*timeline) : UiScrollAnchor{};
     u32 first_changed = old_count;
     const u32 previous_compactions = timeline->store->compactions;
     while (inserting && insertion_requires_eviction(*timeline, message.content.bytes)) {
@@ -702,7 +702,7 @@ static MessageTimelineApplyResult apply_decoded_message(
                                                 resident->revision);
     }
     if (result.evicted != 0 || result.mutation.inserted) {
-        clamp_or_follow(timeline, &anchor, previous_scroll);
+        message_timeline_settle_scroll(timeline, &anchor, previous_scroll);
         result.invalidation = structural_invalidation(first_changed, old_count, timeline->list->count,
                                                       timeline->scroll_units != previous_scroll);
     } else {
@@ -791,7 +791,7 @@ MessageTimelineApplyResult message_timeline_apply(
             ++timeline->rejected;
             return timeline_error(MessageTimelineError::invalid_payload);
         }
-        UiScrollAnchor anchor = capture_anchor(*timeline);
+        UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
         const MessageStoreResult found = message_store_find(*timeline->store, message.id);
         const u32 removal_index = found.order_index;
         const bool removed_anchor = found.ok() && anchor_in_range(anchor, removal_index, 1);
@@ -814,7 +814,7 @@ MessageTimelineApplyResult message_timeline_apply(
         }
         install_removed_anchor_fallback(timeline->list, &anchor, removed_anchor,
                                         result.mutation.order_index);
-        clamp_or_follow(timeline, &anchor, previous_scroll);
+        message_timeline_settle_scroll(timeline, &anchor, previous_scroll);
         result.invalidation =
             structural_invalidation(result.mutation.order_index, old_count, timeline->list->count,
                                     timeline->scroll_units != previous_scroll);
@@ -829,7 +829,7 @@ MessageTimelineApplyResult message_timeline_apply(
             return timeline_error(MessageTimelineError::invalid_payload);
         }
         result.kind = GatewayMessageApplyKind::bulk_deleted;
-        UiScrollAnchor anchor = capture_anchor(*timeline);
+        UiScrollAnchor anchor = message_timeline_capture_anchor(*timeline);
         u32 first_changed = old_count;
         for (u32 id_index = 0; id_index < message.id_count; ++id_index) {
             const MessageStoreResult found = message_store_find(*timeline->store, bulk_ids[id_index]);
@@ -872,7 +872,7 @@ MessageTimelineApplyResult message_timeline_apply(
             ++result.bulk.deleted;
         }
         if (result.bulk.deleted != 0) {
-            clamp_or_follow(timeline, &anchor, previous_scroll);
+            message_timeline_settle_scroll(timeline, &anchor, previous_scroll);
             result.invalidation = structural_invalidation(first_changed, old_count, timeline->list->count,
                                                           timeline->scroll_units != previous_scroll);
         }

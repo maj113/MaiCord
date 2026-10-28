@@ -202,7 +202,7 @@ bool voice_connection_event(VoiceConnection* connection, const VoiceSessionEvent
 // false. kVoiceDaveInvalidLimit consecutive reports (close 4803) or a refused
 // downgrade to version 0 (close 4804) request a fresh session instead. Flush
 // sends queued replies in order while the socket is idle.
-bool voice_connection_dave_description(VoiceConnection* connection, u64 now_ms) noexcept;
+bool voice_connection_dave_description(VoiceConnection* connection) noexcept;
 bool voice_connection_dave_binary(VoiceConnection* connection, const VoiceGatewayBinary& frame,
                                   u64 now_ms) noexcept;
 bool voice_connection_dave_json(VoiceConnection* connection, u8 opcode, JsonValue data, Slice<u32> scratch,

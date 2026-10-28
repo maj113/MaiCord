@@ -481,7 +481,6 @@ bool append_index(Builder& b, u32 slot, const PluginIndex& index, Utf8View docum
                 u64{s.version_count + plugin.version_count} * sizeof(PluginCatalogVersionView)))
             return false;
         PluginCatalogEntryView& e = s.entries[s.entry_count];
-        reset_value(&e);
         e.owner = plugin.owner_id;
         e.provider = slot;
         e.slug = plugin.slug; e.name = plugin.name; e.summary = plugin.summary; e.publisher = plugin.publisher;
@@ -499,7 +498,6 @@ bool append_index(Builder& b, u32 slot, const PluginIndex& index, Utf8View docum
         for (u32 v = 0; v < plugin.version_count; ++v) {
             const PluginIndexVersion& listed = index.versions[plugin.first_version + v];
             PluginCatalogVersionView& view = s.versions[s.version_count++];
-            reset_value(&view);
             view.code = listed.version_code;
             view.released = listed.released;
             view.permissions = listed.permissions;
@@ -602,7 +600,6 @@ PluginCatalogSnapshot* plugin_catalog_snapshot_build(const PluginManagerPaths& p
         const PluginCatalogSource& source = sources.sources[i];
         const bool is_official = source.kind == PluginProviderKind::official;
         PluginCatalogProviderView& provider = s->providers[s->provider_count];
-        reset_value(&provider);
         provider.id = source.provider;
         provider.kind = source.kind;
         provider.enabled = true;

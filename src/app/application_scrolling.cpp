@@ -26,7 +26,7 @@ bool observe_read_after_scroll() noexcept {
 }
 } // namespace
 
-void invalidate_if_scrolled(bool changed) noexcept {
+static void invalidate_if_scrolled(bool changed) noexcept {
     if (changed && g_app.window && refresh_account_text(true)) {
         application_request_frame();
     }
@@ -106,7 +106,7 @@ bool application_message_jump_to_present() noexcept {
     return scroll_message_view_to(true);
 }
 
-UiScrollbarGeometry application_scrollbar_geometry(ScrollbarDragKind kind) noexcept {
+static UiScrollbarGeometry application_scrollbar_geometry(ScrollbarDragKind kind) noexcept {
     if (kind == ScrollbarDragKind::messages && g_app.message_scene.active &&
         g_app.message_view.timeline.list) {
         return ui_scrollbar_geometry(g_app.message_scene.viewport,
@@ -130,7 +130,7 @@ UiScrollbarGeometry application_scrollbar_geometry(ScrollbarDragKind kind) noexc
     return UiScrollbarGeometry{};
 }
 
-bool apply_scrollbar_pointer(float pointer_y) noexcept {
+static bool apply_scrollbar_pointer(float pointer_y) noexcept {
     const ScrollbarDragKind kind = g_app.scrollbar_drag;
     const UiScrollbarGeometry geometry = application_scrollbar_geometry(kind);
     if (kind == ScrollbarDragKind::none || !geometry.visible) {

@@ -35,8 +35,6 @@ bool current(const ApplicationMessageMutationScope& value, bool any_channel = fa
 }
 ApplicationMessageMutationScope* request(ApplicationMessageMutationKind kind, u64 channel_id,
                                          u64 message_id) noexcept {
-    if (index(kind) >= kApplicationMessageMutationKinds)
-        return nullptr;
     auto& value = g_app.message_mutation_notice.requests[index(kind)];
     if (value.channel_id != channel_id || value.message_id != message_id ||
         !current(value, kind == ApplicationMessageMutationKind::mark_unread ||
@@ -93,8 +91,6 @@ Utf8View navigation_text(ApplicationMessageNavigationStage stage, bool failed, u
 } // namespace
 void application_message_mutation_notice_begin(ApplicationMessageMutationKind kind, u64 channel_id,
                                                u64 message_id) noexcept {
-    if (index(kind) >= kApplicationMessageMutationKinds)
-        return;
     auto& value = g_app.message_mutation_notice;
     value.requests[index(kind)] = scope(channel_id, message_id,
                                         kind == ApplicationMessageMutationKind::mark_unread ||
@@ -124,8 +120,7 @@ void application_message_mutation_notice_pending(ApplicationMessageMutationKind 
 void application_message_mutation_notice_navigation_pending(u64 channel_id, u64 message_id,
                                                             ApplicationMessageNavigationStage stage,
                                                             u16 status_code) noexcept {
-    if (!request(ApplicationMessageMutationKind::navigate_message, channel_id, message_id) ||
-        stage > ApplicationMessageNavigationStage::message_missing)
+    if (!request(ApplicationMessageMutationKind::navigate_message, channel_id, message_id))
         return;
     application_message_mutation_notice_pending(ApplicationMessageMutationKind::navigate_message,
                                                 channel_id, message_id, status_code);
@@ -134,8 +129,7 @@ void application_message_mutation_notice_navigation_pending(u64 channel_id, u64 
 void application_message_mutation_notice_navigation_failed(
     u64 channel_id, u64 message_id, ApplicationMessageNavigationStage stage,
     const RestClientResponse& response) noexcept {
-    if (!request(ApplicationMessageMutationKind::navigate_message, channel_id, message_id) ||
-        stage > ApplicationMessageNavigationStage::message_missing)
+    if (!request(ApplicationMessageMutationKind::navigate_message, channel_id, message_id))
         return;
     application_message_mutation_notice_failed(ApplicationMessageMutationKind::navigate_message, channel_id,
                                                message_id, response);
@@ -221,8 +215,6 @@ bool application_message_mutation_notice_is_error() noexcept {
 }
 void application_message_mutation_notice_clear(ApplicationMessageMutationKind kind, u64 channel_id,
                                                u64 message_id) noexcept {
-    if (index(kind) >= kApplicationMessageMutationKinds)
-        return;
     auto& value = g_app.message_mutation_notice;
     const auto matches = [&](const ApplicationMessageMutationScope& owner) noexcept {
         return (!channel_id || owner.channel_id == channel_id) &&

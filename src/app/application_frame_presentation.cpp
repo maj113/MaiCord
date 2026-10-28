@@ -466,8 +466,7 @@ void application_resize_surface(u32 width, u32 height) noexcept {
     popup_scene_close(&g_app.popup_scene);
     application_plugins_menu_dismissed();
     g_app.popup_owner_kind = PopupOwnerKind::none;
-    const bool resized =
-        renderer_resize(&g_app.renderer, static_cast<u32>(width), static_cast<u32>(height));
+    const bool resized = renderer_resize(&g_app.renderer, width, height);
     const bool shell_ready = resized && synchronize_shell_layout();
     const bool account_text_ready = shell_ready && refresh_account_text_for_layout();
     const bool login_ready =

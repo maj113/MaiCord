@@ -1,4 +1,5 @@
 #include "maicord/app/https_file_upload.hpp"
+#include "https_transfer_owner.hpp"
 #include "maicord/platform/tls_stream.hpp"
 #include "maicord/protocol/http1.hpp"
 #include "maicord/core/interlocked.hpp"
@@ -214,8 +215,8 @@ void destroy(HttpsFileUpload* upload) noexcept {
     }
     reset_value(upload);
 }
+u32 runtime_bytes() noexcept { return static_cast<u32>((sizeof(Runtime) + 4095) & ~4095ull); }
 }
-u32 https_file_upload_runtime_bytes() noexcept { return static_cast<u32>((sizeof(Runtime) + 4095) & ~4095ull); }
 HttpsFileUploadError https_file_upload_start(HttpsFileUpload* upload, Utf8View url,
     ConstSlice<wchar_t> path, u64 expected_bytes, u32 timeout_ms, const FileIdentity* expected_identity, UploadSource content,
     HttpsUploadContentType content_type) noexcept {
@@ -226,7 +227,7 @@ HttpsFileUploadError https_file_upload_start(HttpsFileUpload* upload, Utf8View u
         return HttpsFileUploadError::invalid_input;
     for (u32 i = 0; i < path.count; ++i) if (!path[i]) return HttpsFileUploadError::invalid_input;
     reset_value(upload);
-    upload->runtime = VirtualAlloc(nullptr, https_file_upload_runtime_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    upload->runtime = VirtualAlloc(nullptr, runtime_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!upload->runtime) return HttpsFileUploadError::memory;
     auto* r = static_cast<Runtime*>(upload->runtime);
     r->content = content; upload_source_retain(content);
@@ -258,41 +259,12 @@ HttpsFileUploadResult https_file_upload_status(const HttpsFileUpload* upload) no
 bool https_file_upload_cancel(HttpsFileUpload* upload) noexcept {
     if (!upload || !upload->runtime || upload->stop_requested) return false;
     if (https_file_upload_status(upload).phase == HttpsFileUploadPhase::complete) return true;
-    InterlockedExchange(&upload->cancelled, 1);
-    const auto startup = network_worker_startup_status(&upload->worker);
-    // The first worker callback observes the cancellation flag. Do not touch
-    // its completion loop before ready_event has published initialization.
-    if (startup.error == NetworkWorkerError::startup_pending ||
-        startup.error == NetworkWorkerError::network_initialize) return true;
-    if (!startup.ok()) return false;
-    auto* r = static_cast<Runtime*>(upload->runtime);
-    return network_signal_post(&upload->worker.loop, &r->cancel_signal, 1).ok();
+    return https_transfer_cancel(&upload->worker, &upload->cancelled, &static_cast<Runtime*>(upload->runtime)->cancel_signal);
 }
 bool https_file_upload_release(HttpsFileUpload* upload, u32 timeout_ms) noexcept {
     if (!upload) return false;
     if (!upload->runtime) return true;
-    const u64 started = GetTickCount64();
-    if (!upload->stop_requested) {
-        InterlockedExchange(&upload->cancelled, 1);
-        auto startup = network_worker_startup_status(&upload->worker);
-        if (startup.error == NetworkWorkerError::startup_pending) {
-            if (!timeout_ms || WaitForSingleObject(upload->worker.ready_event, timeout_ms) != WAIT_OBJECT_0) return false;
-            startup = network_worker_startup_status(&upload->worker);
-        }
-        if (startup.error == NetworkWorkerError::network_initialize) {
-            const u64 elapsed = GetTickCount64() - started;
-            const u32 remaining = elapsed >= timeout_ms ? 0 : timeout_ms - static_cast<u32>(elapsed);
-            if (!network_worker_join(&upload->worker, remaining).ok()) return false;
-            destroy(upload);
-            return true;
-        }
-        if (!startup.ok()) return false;
-        if (!network_worker_request_stop(&upload->worker).ok()) return false;
-        upload->stop_requested = true;
-    }
-    const u64 elapsed = GetTickCount64() - started;
-    const u32 remaining = elapsed >= timeout_ms ? 0 : timeout_ms - static_cast<u32>(elapsed);
-    if (!network_worker_join(&upload->worker, remaining).ok()) return false;
+    if (!https_transfer_stop_and_join(&upload->worker, &upload->cancelled, &upload->stop_requested, timeout_ms)) return false;
     destroy(upload);
     return true;
 }

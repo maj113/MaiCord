@@ -205,7 +205,7 @@ void copy_reaction(const GatewayMessageReactionEvent& source,
 }
 
 template <typename Value> bool append_packed(Slice<char> output, u32* cursor, const Value& value) noexcept {
-    if (!cursor || *cursor > output.count || sizeof(Value) > output.count - *cursor) {
+    if (*cursor > output.count || sizeof(Value) > output.count - *cursor) {
         return false;
     }
     copy_bytes(output.data + *cursor, &value, static_cast<u32>(sizeof(Value)));
@@ -213,10 +213,8 @@ template <typename Value> bool append_packed(Slice<char> output, u32* cursor, co
     return true;
 }
 
-bool pack_text_range(const Slice<char>& output_view, u32 transient_bytes, const Utf8View& value_view,
+bool pack_text_range(Slice<char> output, u32 transient_bytes, Utf8View value,
                      GatewayClientMessageTextRange* range) noexcept {
-    const Slice<char> output = output_view; // *range is cleared below
-    const Utf8View value = value_view;
     if (transient_bytes > output.count || value.bytes > 0xFFFFu) {
         return false;
     }
@@ -287,7 +285,7 @@ bool append_poll_metadata(Slice<char> output, const GatewayMessageEvent& message
 
 bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent& message, u32* cursor,
                                   u32* rich_payload_bytes) noexcept {
-    if (!cursor || *cursor > output.count) {
+    if (*cursor > output.count) {
         return false;
     }
     *rich_payload_bytes = 0;
@@ -543,10 +541,7 @@ bool append_message_metadata(Slice<char> output, const GatewayMessageEvent& mess
         packed.id = user.id;
         packed.name_offset = static_cast<u32>(user.name.data - output.data);
         packed.name_bytes = static_cast<u16>(user.name.bytes);
-        const auto* bytes = reinterpret_cast<const u8*>(&packed);
-        for (u32 byte = 0; byte < sizeof(packed); ++byte) {
-            output[cursor + byte] = static_cast<char>(bytes[byte]);
-        }
+        copy_bytes(output.data + cursor, &packed, static_cast<u32>(sizeof(packed)));
         cursor += sizeof(packed);
     }
     if (!append_message_rich_metadata(output, message, &cursor, &mutation->rich_payload_bytes)) {
@@ -1114,30 +1109,58 @@ void gateway_client_append_notification_sidecar(const GatewayEnvelope& env, Slic
     *payload = {reinterpret_cast<const u8*>(storage.data), side.cursor};
 }
 
+namespace {
+using BatchPublish = bool (*)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
+struct BatchBinding {
+    const GatewayEnvelope* envelope;
+    u64 now_ms;
+    BatchPublish publish;
+    void* context;
+    u32 remaining_prefix;
+};
+bool batch_rejected(const GatewayEnvelope& envelope, BatchPublish publish, Utf8View name) noexcept {
+    return !publish || envelope.opcode != 0 || !envelope.has_sequence || !envelope.has_event_name ||
+           !json_string_equals_ascii(envelope.event_name, name);
+}
+// A resumed batch skips the records the cancelled attempt already published.
+BatchBinding batch_binding(const GatewayEnvelope& envelope, u64 now_ms, BatchPublish publish, void* context,
+                           const GatewayReactionBatchCursor* cursor) noexcept {
+    return {&envelope, now_ms, publish, context,
+            cursor && cursor->active && cursor->sequence == envelope.sequence ? cursor->published : 0};
+}
+bool batch_skips_record(BatchBinding& binding) noexcept {
+    if (!binding.remaining_prefix)
+        return false;
+    --binding.remaining_prefix;
+    return true;
+}
+GatewayReactionBatchVisitResult settle_batch(GatewayReactionBatchVisitResult result, const BatchBinding& binding,
+                                             GatewayReactionBatchCursor* cursor) noexcept {
+    if (result.ok() && binding.remaining_prefix)
+        result.decoded.error = GatewayEventDecodeError::invalid_data;
+    if (cursor) {
+        if (result.ok())
+            reset_value(cursor);
+        else if (result.cancelled)
+            *cursor = {binding.envelope->sequence, result.visited, result.visited != 0};
+    }
+    return result;
+}
+} // namespace
+
 GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
-    Slice<char> name_scratch, u64 now_ms,
-    bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept, void* context,
+    Slice<char> name_scratch, u64 now_ms, BatchPublish publish, void* context,
     GatewayReactionBatchCursor* cursor) noexcept {
-    if (!publish || envelope.opcode != 0 || !envelope.has_sequence || !envelope.has_event_name ||
-        !json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_REACTION_ADD_MANY")))
+    if (batch_rejected(envelope, publish, utf8_literal("MESSAGE_REACTION_ADD_MANY")))
         return {{0, GatewayEventDecodeError::invalid_data}, 0, false};
-    struct Binding {
-        const GatewayEnvelope* envelope;
-        u64 now_ms;
-        bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
-        void* context;
-        u32 remaining_prefix;
-    } binding{&envelope, now_ms, publish, context,
-              cursor && cursor->active && cursor->sequence == envelope.sequence ? cursor->published : 0};
-    auto result = gateway_visit_message_reaction_add_many(
+    BatchBinding binding = batch_binding(envelope, now_ms, publish, context, cursor);
+    const auto result = gateway_visit_message_reaction_add_many(
         envelope.data, structural_scratch, maximum_depth, name_scratch, &binding,
         [](void* opaque, const GatewayMessageReactionEvent& reaction) noexcept {
-            auto& binding = *static_cast<Binding*>(opaque);
-            if (binding.remaining_prefix) {
-                --binding.remaining_prefix;
+            auto& binding = *static_cast<BatchBinding*>(opaque);
+            if (batch_skips_record(binding))
                 return true;
-            }
             GatewayClientEvent event =
                 gateway_dispatch_event(GatewayClientDispatchKind::message_reaction_add,
                                        binding.envelope->sequence, binding.now_ms);
@@ -1147,55 +1170,28 @@ GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
             return binding.publish(binding.context, event,
                                    {reinterpret_cast<const u8*>(reaction.name.data), reaction.name.bytes});
         });
-    if (result.ok() && binding.remaining_prefix)
-        result.decoded.error = GatewayEventDecodeError::invalid_data;
-    if (cursor) {
-        if (result.ok())
-            reset_value(cursor);
-        else if (result.cancelled)
-            *cursor = {envelope.sequence, result.visited, result.visited != 0};
-    }
-    return result;
+    return settle_batch(result, binding, cursor);
 }
 
 GatewayReactionBatchVisitResult gateway_client_publish_poll_vote_batch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth, u64 now_ms,
-    bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept, void* context,
-    GatewayReactionBatchCursor* cursor) noexcept {
-    if (!publish || envelope.opcode != 0 || !envelope.has_sequence || !envelope.has_event_name ||
-        !json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY")))
+    BatchPublish publish, void* context, GatewayReactionBatchCursor* cursor) noexcept {
+    if (batch_rejected(envelope, publish, utf8_literal("MESSAGE_POLL_VOTE_ADD_MANY")))
         return {{0, GatewayEventDecodeError::invalid_data}, 0, false};
-    struct Binding {
-        const GatewayEnvelope* envelope;
-        u64 now_ms;
-        bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
-        void* context;
-        u32 remaining_prefix;
-    } binding{&envelope, now_ms, publish, context,
-              cursor && cursor->active && cursor->sequence == envelope.sequence ? cursor->published : 0};
-    auto result = gateway_visit_message_poll_vote_add_many(
+    BatchBinding binding = batch_binding(envelope, now_ms, publish, context, cursor);
+    const auto result = gateway_visit_message_poll_vote_add_many(
         envelope.data, structural_scratch, maximum_depth, &binding,
         [](void* opaque, const GatewayMessagePollVoteEvent& vote) noexcept {
-            auto& binding = *static_cast<Binding*>(opaque);
-            if (binding.remaining_prefix) {
-                --binding.remaining_prefix;
+            auto& binding = *static_cast<BatchBinding*>(opaque);
+            if (batch_skips_record(binding))
                 return true;
-            }
             GatewayClientEvent event = gateway_dispatch_event(GatewayClientDispatchKind::message_poll_vote_add,
                                                               binding.envelope->sequence, binding.now_ms);
             event.has_sequence = binding.envelope->has_sequence;
             event.poll_vote = vote;
             return binding.publish(binding.context, event, {});
         });
-    if (result.ok() && binding.remaining_prefix)
-        result.decoded.error = GatewayEventDecodeError::invalid_data;
-    if (cursor) {
-        if (result.ok())
-            reset_value(cursor);
-        else if (result.cancelled)
-            *cursor = {envelope.sequence, result.visited, result.visited != 0};
-    }
-    return result;
+    return settle_batch(result, binding, cursor);
 }
 
 GatewayClientDispatchRouteResult gateway_client_route_dispatch(

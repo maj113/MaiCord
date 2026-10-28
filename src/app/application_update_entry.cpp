@@ -34,12 +34,11 @@ static_assert(sizeof(commit) == 1 || sizeof(commit) == 41, "MAICORD_UPDATE_COMMI
 static_assert(update_version_components_valid(MAICORD_VERSION_MAJOR, MAICORD_VERSION_MINOR, MAICORD_VERSION_PATCH, MAICORD_UPDATE_DEV));
 constexpr u64 installed_version =
     update_version_number(MAICORD_VERSION_MAJOR, MAICORD_VERSION_MINOR, MAICORD_VERSION_PATCH, MAICORD_UPDATE_DEV);
-void write_update_log(LogLevel level, const char* category, const char* line) noexcept { log_write(level, category, line); }
 } // namespace
 
 UpdateServiceConfig application_update_build_config() noexcept {
     // Every updater path starts here, so this routes its diagnostics.
-    g_update_log_sink = write_update_log;
+    g_update_log_sink = log_write;
     UpdateServiceConfig config{};
     if (!update_service_config({repository, sizeof(repository) - 1}, {public_key, sizeof(public_key) - 1}, installed_version, &config))
         update_service_config({}, {}, installed_version, &config);

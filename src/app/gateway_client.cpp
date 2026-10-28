@@ -520,6 +520,13 @@ bool wake_worker(GatewayClient* client, NetworkSignal* signal) noexcept {
            InterlockedCompareExchange(&signal->pending, 0, 0) != 0;
 }
 
+// Wakes the worker for a changed subscription-lock state and tells the consumer.
+void post_subscription_change(GatewayClient* client, GatewayClientRuntime* runtime) noexcept {
+    network_signal_post(&client->worker.loop, &runtime->subscription_signal, 1);
+    if (client->notification_event)
+        SetEvent(client->notification_event);
+}
+
 GatewayClientResult invalid_input_result() noexcept {
     GatewayClientResult value{};
     value.error = GatewayClientError::invalid_input;
@@ -1201,6 +1208,18 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
     return true;
 }
 
+// Drops the connection and its TLS state; the worker keeps its loop.
+void close_transport(GatewayClientRuntime* runtime) noexcept {
+    if (runtime->resolver.pending)
+        network_resolver_cancel(&runtime->resolver);
+    network_connection_close(&runtime->connection);
+    if (runtime->tls_initialized) {
+        tls_client_release(&runtime->tls);
+        runtime->tls_initialized = false;
+    }
+    clear_user_transport(runtime);
+}
+
 bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, GatewayLifecycleAction action,
                         u64 now_ms, u32 delay_ms) noexcept {
     runtime->mailbox_deadline_ms = 0;
@@ -1218,15 +1237,7 @@ bool schedule_reconnect(GatewayClient* client, GatewayClientRuntime* runtime, Ga
     runtime->rate_deadline_ms = 0;
     gateway_outbound_reset(&runtime->outbound);
     runtime->qos.has_immediate = false;
-    if (runtime->resolver.pending) {
-        network_resolver_cancel(&runtime->resolver);
-    }
-    network_connection_close(&runtime->connection);
-    if (runtime->tls_initialized) {
-        tls_client_release(&runtime->tls);
-        runtime->tls_initialized = false;
-    }
-    clear_user_transport(runtime);
+    close_transport(runtime);
     publish_phase(client, GatewayClientPhase::reconnect_wait);
     GatewayClientEvent reconnecting{};
     reconnecting.timestamp_ms = now_ms;
@@ -1258,15 +1269,7 @@ void begin_shutdown(GatewayClient* client, GatewayClientRuntime* runtime) noexce
         if (!runtime->failed) {
             publish_phase(client, GatewayClientPhase::stopping);
         }
-        if (runtime->resolver.pending) {
-            network_resolver_cancel(&runtime->resolver);
-        }
-        network_connection_close(&runtime->connection);
-        if (runtime->tls_initialized) {
-            tls_client_release(&runtime->tls);
-            runtime->tls_initialized = false;
-        }
-        clear_user_transport(runtime);
+        close_transport(runtime);
     }
 }
 
@@ -1489,9 +1492,7 @@ bool queue_pong(GatewayClientRuntime* runtime, ConstSlice<u8> payload) noexcept 
     if (runtime->has_pending_pong || payload.count > sizeof(runtime->pending_pong)) {
         return false;
     }
-    for (u32 index = 0; index < payload.count; ++index) {
-        runtime->pending_pong[index] = payload[index];
-    }
+    copy_bytes(runtime->pending_pong, payload.data, payload.count);
     runtime->pending_pong_bytes = static_cast<u8>(payload.count);
     runtime->has_pending_pong = true;
     return true;
@@ -2018,7 +2019,6 @@ bool publish_ready_state_record(void* opaque, u32, JsonValue value) noexcept {
                                                                      : utf8_literal("READY_GUILD"),
                    0, false};
     envelope.sequence = context->sequence;
-    envelope.opcode = 0;
     envelope.has_sequence = true;
     envelope.has_event_name = true;
 
@@ -2123,21 +2123,14 @@ void set_decode_failure(GatewayClientDispatchRouteResult* routed, const GatewayE
     routed->error_offset = decoded.error_offset;
 }
 
-// A route failure's categorical codes, kept for the terminal failure report.
-void note_route_error(GatewayClientRuntime* runtime, const GatewayClientDispatchRouteResult& route) noexcept {
-    runtime->event_decode_error = route.event_error;
-    runtime->json_scan_error = route.scan_error;
-    runtime->json_read_error = route.read_error;
-    runtime->route_error_offset = route.error_offset;
-    runtime->route_detail = route.detail;
-}
-
-void set_route_error(GatewayClientEvent* event, const GatewayClientDispatchRouteResult& route) noexcept {
-    event->event_decode_error = route.event_error;
-    event->json_scan_error = route.scan_error;
-    event->json_read_error = route.read_error;
-    event->route_error_offset = route.error_offset;
-    event->route_detail = route.detail;
+// A route failure's categorical codes, for the terminal failure report or the diagnostic event.
+template <class Target>
+void note_route_error(Target* target, const GatewayClientDispatchRouteResult& route) noexcept {
+    target->event_decode_error = route.event_error;
+    target->json_scan_error = route.scan_error;
+    target->json_read_error = route.read_error;
+    target->route_error_offset = route.error_offset;
+    target->route_detail = route.detail;
 }
 
 PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
@@ -2279,7 +2272,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 diagnostic.kind = GatewayClientEventKind::reconnecting;
                 diagnostic.error = GatewayClientError::session;
                 diagnostic.failure_stage = stage;
-                set_route_error(&diagnostic, projection.route);
+                note_route_error(&diagnostic, projection.route);
                 publish_event(runtime, diagnostic);
                 u32 random = 0;
                 if (!secure_random_u32(&random).ok())
@@ -2301,7 +2294,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                 degraded.kind = GatewayClientEventKind::dispatch;
                 degraded.dispatch_kind = GatewayClientDispatchKind::unknown;
                 degraded.failure_stage = GatewayClientFailureStage::ready_guild_route;
-                set_route_error(&degraded, projection.degraded_route);
+                note_route_error(&degraded, projection.degraded_route);
                 if (degraded.event_decode_error == GatewayEventDecodeError::none)
                     degraded.event_decode_error = GatewayEventDecodeError::invalid_data;
                 degraded.native_error = projection.degraded_guilds;
@@ -2674,6 +2667,22 @@ PlaintextDrive resume_gateway_input(GatewayClient* client, GatewayClientRuntime*
                                                : buffered;
 }
 
+// Sends what is queued; a failed send or receive restart ends the worker.
+NetworkWorkerStep drive_output_step(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
+    if (drive_application_output(client, runtime, now_ms) == OutboundDrive::failed)
+        return fail_and_drain(client, runtime, GatewayClientError::session, 0);
+    if (runtime->session.opened && !ensure_receive(runtime))
+        return fail_and_drain(client, runtime, GatewayClientError::receive, WSAGetLastError());
+    return NetworkWorkerStep{next_worker_wait(client, runtime, now_ms), false};
+}
+
+NetworkWorkerStep fail_send(GatewayClient* client, GatewayClientRuntime* runtime, u32 native_error,
+                            u64 now_ms) noexcept {
+    if (runtime->send_purpose == SendPurpose::guild_subscription)
+        gateway_subscription_thread_owner_complete(&runtime->thread_subscription_owner, false);
+    return reconnect_or_fail(client, runtime, GatewayClientError::send, native_error, now_ms);
+}
+
 NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime* runtime, NetworkLoop* loop,
                                     const NetworkWorkerEvent& event) noexcept {
     const NetworkCompletion& completion = event.poll.completion;
@@ -2707,14 +2716,7 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
         AcquireSRWLockExclusive(&runtime->subscription_lock);
         gateway_state_recovery_schedule(&runtime->state_recovery, event.now_ms);
         ReleaseSRWLockExclusive(&runtime->subscription_lock);
-        const OutboundDrive outbound = drive_application_output(client, runtime, event.now_ms);
-        if (outbound == OutboundDrive::failed) {
-            return fail_and_drain(client, runtime, GatewayClientError::session, 0);
-        }
-        if (runtime->session.opened && !ensure_receive(runtime)) {
-            return fail_and_drain(client, runtime, GatewayClientError::receive, WSAGetLastError());
-        }
-        return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
+        return drive_output_step(client, runtime, event.now_ms);
     }
     if (completion.kind == NetworkOperationKind::resolve && completion.resolver == &runtime->resolver) {
         if (runtime->stopping) {
@@ -2777,20 +2779,12 @@ NetworkWorkerStep handle_completion(GatewayClient* client, GatewayClientRuntime*
     }
 
     if (completion.kind == NetworkOperationKind::send) {
-        if (!completion.succeeded || completion.stale || completion.transferred == 0) {
-            if (runtime->send_purpose == SendPurpose::guild_subscription)
-                gateway_subscription_thread_owner_complete(&runtime->thread_subscription_owner, false);
-            return reconnect_or_fail(client, runtime, GatewayClientError::send,
-                                     static_cast<u32>(completion.native_error), event.now_ms);
-        }
+        if (!completion.succeeded || completion.stale || completion.transferred == 0)
+            return fail_send(client, runtime, static_cast<u32>(completion.native_error), event.now_ms);
         runtime->send_offset += completion.transferred;
         if (runtime->send_offset < runtime->send_bytes) {
-            if (!continue_send(runtime)) {
-                if (runtime->send_purpose == SendPurpose::guild_subscription)
-                    gateway_subscription_thread_owner_complete(&runtime->thread_subscription_owner, false);
-                return reconnect_or_fail(client, runtime, GatewayClientError::send, WSAGetLastError(),
-                                         event.now_ms);
-            }
+            if (!continue_send(runtime))
+                return fail_send(client, runtime, WSAGetLastError(), event.now_ms);
             return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
         }
         const SendPurpose purpose = runtime->send_purpose;
@@ -2918,10 +2912,7 @@ NetworkWorkerStep gateway_worker_dispatch(void* opaque, NetworkLoop* loop,
         }
         if (!runtime->stopping && runtime->deadline_ms != 0 && event.now_ms >= runtime->deadline_ms &&
             load_phase(client) != GatewayClientPhase::hello) {
-            if (runtime->authenticated && schedule_backoff_reconnect(client, runtime, event.now_ms)) {
-                return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
-            }
-            return fail_and_drain(client, runtime, GatewayClientError::timeout, WAIT_TIMEOUT);
+            return reconnect_or_fail(client, runtime, GatewayClientError::timeout, WAIT_TIMEOUT, event.now_ms);
         }
         if (runtime->authenticated && runtime->session.lifecycle.heartbeat_interval_ms != 0 &&
             event.now_ms >= runtime->session.lifecycle.next_heartbeat_ms) {
@@ -2951,14 +2942,7 @@ NetworkWorkerStep gateway_worker_dispatch(void* opaque, NetworkLoop* loop,
         if (runtime->rate_deadline_ms != 0 && event.now_ms >= runtime->rate_deadline_ms) {
             runtime->rate_deadline_ms = 0;
         }
-        const OutboundDrive outbound = drive_application_output(client, runtime, event.now_ms);
-        if (outbound == OutboundDrive::failed) {
-            return fail_and_drain(client, runtime, GatewayClientError::session, 0);
-        }
-        if (runtime->session.opened && !ensure_receive(runtime)) {
-            return fail_and_drain(client, runtime, GatewayClientError::receive, WSAGetLastError());
-        }
-        return NetworkWorkerStep{next_worker_wait(client, runtime, event.now_ms), false};
+        return drive_output_step(client, runtime, event.now_ms);
     }
     if (event.kind == NetworkWorkerEventKind::poll_error) {
         return fail_and_drain(client, runtime, GatewayClientError::worker,
@@ -3123,21 +3107,18 @@ GatewayClientResult start_client(GatewayClient* client, SecureBuffer* credential
         close_start_events(client, runtime);
         return fail_start(client, GatewayClientError::event, native_error);
     }
-    if (credential) {
-        if (!secure_buffer_transfer(&runtime->credential, credential)) {
-            close_start_events(client, runtime);
-            release_runtime_allocation(client);
-            reset_value<GatewayClient>(client);
-            return invalid_input_result();
-        }
-        runtime->authenticated = true;
+    if (!secure_buffer_transfer(&runtime->credential, credential)) {
+        close_start_events(client, runtime);
+        release_runtime_allocation(client);
+        reset_value<GatewayClient>(client);
+        return invalid_input_result();
     }
+    runtime->authenticated = true;
     const NetworkWorkerResult started =
         network_worker_start(&client->worker, gateway_worker_handler, client);
     if (!started.ok()) {
-        if (credential && runtime->credential.data) {
+        if (runtime->credential.data)
             secure_buffer_transfer(credential, &runtime->credential);
-        }
         close_start_events(client, runtime);
         return fail_start(client, GatewayClientError::worker, started.native_error);
     }
@@ -3510,11 +3491,8 @@ RestClientSubmitResult gateway_client_self_status_submit(GatewayClient* client,
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
     SecureZeroMemory(scratch, sizeof(scratch));
     SecureZeroMemory(body, sizeof(body));
-    if (submitted.ok()) {
-        network_signal_post(&client->worker.loop, &runtime->subscription_signal, 1);
-        if (client->notification_event)
-            SetEvent(client->notification_event);
-    }
+    if (submitted.ok())
+        post_subscription_change(client, runtime);
     return submitted;
 }
 bool gateway_client_self_status_complete(GatewayClient* client, u64 profile, u64 self, u64 request_id,
@@ -3553,9 +3531,7 @@ bool gateway_client_self_status_complete(GatewayClient* client, u64 profile, u64
         }
     }
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
-    network_signal_post(&client->worker.loop, &runtime->subscription_signal, 1);
-    if (client->notification_event)
-        SetEvent(client->notification_event);
+    post_subscription_change(client, runtime);
     return true;
 }
 
@@ -3610,11 +3586,8 @@ bool gateway_client_local_presence(GatewayClient* client, const GatewayLocalPres
             output->share = false;
     }
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
-    if (changed) {
-        network_signal_post(&client->worker.loop, &runtime->subscription_signal, 1);
-        if (client->notification_event)
-            SetEvent(client->notification_event);
-    }
+    if (changed)
+        post_subscription_change(client, runtime);
     return true;
 }
 void gateway_client_activity_changed(GatewayClient* client) noexcept {
@@ -3903,9 +3876,6 @@ bool gateway_client_attach_soundboard(GatewayClient* client, SoundboardMixer* mi
     const bool live = playback.block != nullptr;
     ReleaseSRWLockShared(playback.lock.native());
     return live;
-}
-u32 gateway_client_user_runtime_bytes() noexcept {
-    return kGatewayUserClientRuntimeBytes;
 }
 
 } // namespace maicord

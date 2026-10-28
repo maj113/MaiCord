@@ -72,11 +72,8 @@ void settle_info() noexcept {
     }
 }
 
-struct Apply {
-    VoiceChannelInfoStore* store;
-};
 bool apply_entry(void* opaque, const VoiceChannelInfoEntry& entry) noexcept {
-    auto* store = static_cast<Apply*>(opaque)->store;
+    auto* store = static_cast<VoiceChannelInfoStore*>(opaque);
     if (entry.has_start)
         voice_channel_info_store_set_start(store, entry.guild_id, entry.channel_id, entry.start_s);
     if (entry.has_status)
@@ -99,9 +96,8 @@ void decode(VoiceChannelInfoEvent kind, ConstSlice<u8> payload) noexcept {
         }
         voice_channel_info_store_clear_guild(&vc.info, probe.guild_id);
     }
-    Apply apply{&vc.info};
     const auto result =
-        voice_channel_info_decode(kind, data, structurals, {vc.text, sizeof(vc.text)}, apply_entry, &apply);
+        voice_channel_info_decode(kind, data, structurals, {vc.text, sizeof(vc.text)}, apply_entry, &vc.info);
     if (!result.ok())
         log_u64(LogLevel::warning, "voice", "channel_info_update_rejected", static_cast<u64>(result.error));
 }
@@ -238,7 +234,7 @@ bool open_status_form(u64 channel_id) noexcept {
     if (!channel || g_app.text_form)
         return false;
     reset_value(&vc.form);
-    vc.form.serial = ++vc.form_serial ? vc.form_serial : ++vc.form_serial;
+    vc.form.serial = ++vc.form_serial;
     vc.form.channel_id = channel->id;
     vc.form.guild_id = channel->guild_id;
     vc.form.account_scope = g_app.plugin_account_scope_serial;

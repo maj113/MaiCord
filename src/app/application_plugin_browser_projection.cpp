@@ -78,10 +78,6 @@ bool loaded(const PluginBrowserFacts& facts, u64 owner) noexcept {
 const PluginCatalogInstalledView* installed(const PluginCatalogSnapshot& s, const PluginCatalogEntryView& e) noexcept {
     return e.installed_index < s.installed_count ? &s.installed[e.installed_index] : nullptr;
 }
-const PluginCatalogInstalledView* installed_owner(const PluginCatalogSnapshot* s, u64 owner) noexcept {
-    for (u32 i = 0; s && i < s->installed_count; ++i) if (s->installed[i].owner == owner) return &s->installed[i];
-    return nullptr;
-}
 bool update_offered(const PluginCatalogEntryView& e) noexcept {
     return e.bound && (e.update.outcome == PluginUpdateOutcome::available || e.update.outcome == PluginUpdateOutcome::review);
 }
@@ -152,7 +148,7 @@ struct Emitter {
 } // namespace
 
 // ---- list -------------------------------------------------------------------------------------
-u32 plugin_browser_filtered(const PluginCatalogSnapshot* snapshot, const PluginBrowserUiState& ui) noexcept {
+static u32 plugin_browser_filtered(const PluginCatalogSnapshot* snapshot, const PluginBrowserUiState& ui) noexcept {
     u32 n = 0;
     for (u32 i = 0; snapshot && i < snapshot->entry_count; ++i) n += matches(*snapshot, snapshot->entries[i], ui) ? 1u : 0u;
     return n;
@@ -209,7 +205,7 @@ void notices(Emitter& out, const PluginBrowserUiState& ui, const PluginBrowserFa
         add(bank, "MaiCord turned off ");
         add(bank, facts.revoked->name_bytes ? Utf8View{facts.revoked->name, facts.revoked->name_bytes} : utf8_literal("a plugin"));
         add(bank, " because its provider found it harmful.");
-        const bool present = installed_owner(s, facts.revoked->owner) != nullptr;
+        const bool present = plugin_browser_installed(s, facts.revoked->owner) != nullptr;
         out.emit(kPluginBrowserRevokedId, since(bank, start), utf8_literal("It stays off. Remove it from your computer."),
             UiSettingsControlKind::notice, present && !facts.busy, present ? utf8_literal("Remove") : Utf8View{}, UiSettingsVariant::critical);
     }
@@ -241,7 +237,7 @@ void author_line(PluginBrowserBank& bank, const Utf8View& document, const Plugin
         add(bank, " \xC2\xB7 ");
     }
 }
-void browse(Emitter& out, PluginBrowserUiState ui, const PluginBrowserFacts& facts) noexcept {
+void browse(Emitter& out, const PluginBrowserUiState& ui, const PluginBrowserFacts& facts) noexcept {
     auto& bank = out.bank;
     const PluginCatalogSnapshot* s = facts.snapshot;
     bank.search[0] = add(bank, "Search\xE2\x80\xA6");
@@ -501,7 +497,7 @@ void installed_tab(Emitter& out, const PluginBrowserFacts& facts) noexcept {
         if (entry.status != NativePluginCatalogError::none) continue;
         const u64 owner = entry.manifest.owner_id;
         const u8 gate = facts.gate ? plugin_startup_gate_reason(*facts.gate, owner) : 0;
-        const PluginCatalogInstalledView* local = installed_owner(s, owner);
+        const PluginCatalogInstalledView* local = plugin_browser_installed(s, owner);
         const bool revoked = (gate & kPluginGateRevoked) || (local && (local->state_flags & kPluginStateRevokedMalicious));
         if (revoked) {
             control.enabled = false;
@@ -789,7 +785,7 @@ void plugin_browser_provider_dialog(const PluginBrowserProviderFacts& f, PluginB
     t.add(f.name.bytes ? f.name : f.host);
     t.add(" \xC2\xB7 "); t.number(f.plugin_count); t.add(f.plugin_count == 1 ? utf8_literal(" plugin") : utf8_literal(" plugins"));
     t.add("\nAddress: https://"); t.add(f.host); t.add(f.path);
-    if (key_change && f.old_fingerprint) { t.add("\nOld key: "); t.fingerprint(f.old_fingerprint); }
+    if (key_change) { t.add("\nOld key: "); t.fingerprint(f.old_fingerprint); }
     if (f.signed_provider && f.fingerprint) {
         t.add(key_change ? utf8_literal("\nNew key: ") : utf8_literal("\nSigning key: "));
         t.fingerprint(f.fingerprint);
@@ -844,8 +840,9 @@ void plugin_browser_rollback_dialog(Utf8View name, u64 to_code, u64 from_code, P
     d->accept = utf8_literal("Roll back");
 }
 
-const PluginCatalogInstalledView* plugin_browser_installed(const PluginCatalogSnapshot* snapshot, u64 owner) noexcept {
-    return installed_owner(snapshot, owner);
+const PluginCatalogInstalledView* plugin_browser_installed(const PluginCatalogSnapshot* s, u64 owner) noexcept {
+    for (u32 i = 0; s && i < s->installed_count; ++i) if (s->installed[i].owner == owner) return &s->installed[i];
+    return nullptr;
 }
 void plugin_browser_update_all_dialog(const PluginCatalogSnapshot& s, ConstSlice<u32> entries, PluginBrowserDialog* d) noexcept {
     reset_value(d);

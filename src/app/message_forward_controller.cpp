@@ -94,7 +94,6 @@ bool message_forward_open(MessageForwardController* c, QuickSwitcherScope scope,
     if (!message_forward_source_available(sources, *store, handle)) return fail(c, MessageForwardError::invalid_source);
     const auto* record = message_store_resolve(*store, handle);
     const auto* channel = chat_state_store_find_channel(*sources.state, record->channel_id);
-    if (!channel) return fail(c, MessageForwardError::invalid_source);
     MessageForwardSource source{};
     source.reference = {record->id, record->channel_id, channel->guild_id};
     source.store = store; source.handle = handle; source.author_id = record->author_id; source.channel_generation = channel->generation;

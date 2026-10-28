@@ -331,8 +331,7 @@ bool hex_color(Utf8View text, Color* output) noexcept {
     u32 rgba = 0;
     if (text.bytes < 4 || text.data[0] != '#' || !color_hex_parse(text, true, &rgba))
         return false;
-    *output = {static_cast<float>(rgba >> 24) / 255.f, static_cast<float>((rgba >> 16) & 255) / 255.f,
-               static_cast<float>((rgba >> 8) & 255) / 255.f, static_cast<float>(rgba & 255) / 255.f};
+    *output = color_from_rgba(rgba);
     return true;
 }
 // Plain decimal in [0, 1] for the reference alpha suffix.
@@ -732,7 +731,7 @@ bool icon_member(void* context, JsonString name, JsonValue value) noexcept {
     auto& section = *static_cast<SectionVisit*>(context);
     auto& parse = *section.parse;
     constexpr u32 count = kIconRoleCount;
-    const u32 id = json_string_equals_ascii(name, utf8_literal("weight")) ? count : key_index(name, kIconRoles);
+    const u32 id = key_index(name, kIconRoles); // The weight key shares the past-the-roles index.
     if (id == count && !json_string_equals_ascii(name, utf8_literal("weight"))) {
         ++parse.unsupported;
         return true;

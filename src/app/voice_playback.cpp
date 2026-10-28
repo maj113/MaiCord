@@ -46,8 +46,6 @@ VoicePlaybackStream* commit_stream(VoicePlayback& playback) noexcept {
         !VirtualAlloc(storage, playback.decoder_bytes, MEM_COMMIT, PAGE_READWRITE) ||
         !opus_decoder_initialize(&stream->decoder, {storage, playback.decoder_bytes}, kVoiceChannels).ok())
         return nullptr;
-    voice_jitter_reset(&stream->jitter);
-    stream->last_frames = kDefaultFrames;
     playback.stream_count = index + 1;
     return stream;
 }
@@ -146,7 +144,6 @@ bool voice_playback_initialize(VoicePlayback* playback) noexcept {
     playback->block = block;
     playback->streams = reinterpret_cast<VoicePlaybackStream*>(block);
     playback->mix = reinterpret_cast<i32*>(block + mix_offset(decoder_bytes));
-    playback->stream_count = 0;
     playback->decoder_bytes = decoder_bytes;
     reset_value(&playback->stats);
     ReleaseSRWLockExclusive(playback->lock.native());

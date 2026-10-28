@@ -16,7 +16,6 @@
 #include "maicord/protocol/message_ack.hpp"
 #include "maicord/ui/quick_switcher_scene.hpp"
 #include "maicord/core/deadline.hpp"
-#include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/message_forward_scene.hpp"
 #include "maicord/ui/friends_scene.hpp"
@@ -69,6 +68,12 @@ namespace {
 bool forum_form_covers_messages() noexcept {
     return g_app.renderer.forum_form && g_app.renderer.forum_form->scene &&
            g_app.renderer.forum_form->scene->active;
+}
+bool read_surfaces_blocked() noexcept {
+    return application_thread_browser_read_blocked() ||
+           (g_app.renderer.poll_voters_scene && g_app.renderer.poll_voters_scene->active) ||
+           forum_form_covers_messages() || application_downloads_active() ||
+           (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active);
 }
 bool account_live() noexcept {
     return g_app.account_ui && g_app.account.instance && g_app.account.api.message_ack &&
@@ -407,14 +412,10 @@ bool application_read_state_eligible() noexcept {
     // A startup shell's channel is acknowledged once READY has its read state.
     if (!g_app.account_ui || !g_app.account.instance || !g_app.window || g_app.startup_shell_provisional)
         return false;
-    if ((application_downloads_active() ||
-         (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active)) ||
+    if (read_surfaces_blocked() ||
         (g_app.renderer.quick_switcher_scene && g_app.renderer.quick_switcher_scene->active) ||
         application_search_read_blocked() || application_pinned_messages_read_blocked() ||
-        application_thread_browser_read_blocked() ||
-        (g_app.renderer.poll_voters_scene && g_app.renderer.poll_voters_scene->active) ||
-        (g_app.renderer.call_scene && g_app.renderer.call_scene->active && !g_app.renderer.call_scene->chat_open) ||
-        forum_form_covers_messages())
+        (g_app.renderer.call_scene && g_app.renderer.call_scene->active && !g_app.renderer.call_scene->chat_open))
         return false;
     const auto* pane =
         ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::message_view));
@@ -615,12 +616,8 @@ bool application_read_state_observe(u64) noexcept {
 }
 u64 application_read_state_next_wake() noexcept {
     application_read_state_ready();
-    if (application_thread_browser_read_blocked() ||
-        (g_app.renderer.poll_voters_scene && g_app.renderer.poll_voters_scene->active) ||
-        forum_form_covers_messages() ||
-        (application_downloads_active() ||
-         (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active)) ||
-        !g_app.read_state || g_app.message_history_request_owner != MessageHistoryRequestOwner::none)
+    if (read_surfaces_blocked() || !g_app.read_state ||
+        g_app.message_history_request_owner != MessageHistoryRequestOwner::none)
         return 0;
     u64 due = 0;
     if (!read_ack_controller_next_due(g_app.read_state->queue, &due))
@@ -630,12 +627,8 @@ u64 application_read_state_next_wake() noexcept {
 bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
     application_read_state_ready();
     application_scoped_read_synchronize();
-    if (application_thread_browser_read_blocked() ||
-        (g_app.renderer.poll_voters_scene && g_app.renderer.poll_voters_scene->active) ||
-        forum_form_covers_messages() ||
-        (application_downloads_active() ||
-         (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active)) ||
-        !g_app.read_state || !account_live() || now_ms < g_app.read_state->submit_retry_at_ms)
+    if (read_surfaces_blocked() || !g_app.read_state || !account_live() ||
+        now_ms < g_app.read_state->submit_retry_at_ms)
         return false;
     auto& owner = *g_app.read_state;
     ReadAckIntent intent{};
@@ -793,9 +786,8 @@ bool application_read_state_response(const RestClientResponse& response, const u
         } else
             log_write(LogLevel::warning, "read", "ack_response_decode");
     }
-    const bool latest_manual = manual && action(owner, source.channel_id) &&
-                               action(owner, source.channel_id)->serial == source.serial &&
-                               action(owner, source.channel_id)->manual;
+    const auto* current_action = manual ? action(owner, source.channel_id) : nullptr;
+    const bool latest_manual = current_action && current_action->serial == source.serial && current_action->manual;
     if (response.transport_ok() && response.status_code >= 400 && response.status_code < 500)
         application_read_state_echo_rejected(response.request_id);
     const bool transient =
@@ -853,7 +845,7 @@ void application_read_state_ack_observed(void*, u64 channel_id, u64 cursor, bool
         return;
     auto* latest = action(*o, channel_id);
     const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id);
-    const auto* echoes = stable_storage_data<ManualReadEcho>(o->echoes);
+    auto* echoes = stable_storage_data<ManualReadEcho>(o->echoes);
     u32 matched = ~u32{0};
     u64 matched_serial = ~u64{0};
     for (u32 i = 0; channel && i < o->echo_count; ++i)
@@ -867,9 +859,8 @@ void application_read_state_ack_observed(void*, u64 channel_id, u64 cursor, bool
     if (matched != ~u32{0}) {
         const bool superseded =
             latest && matched_serial < latest->serial && source_current(*o, *latest, false);
-        auto* mutable_echoes = stable_storage_data<ManualReadEcho>(o->echoes);
-        if (mutable_echoes[matched].copies > 1)
-            --mutable_echoes[matched].copies;
+        if (echoes[matched].copies > 1)
+            --echoes[matched].copies;
         else
             erase_echo(*o, matched);
         if (superseded) {
@@ -1110,53 +1101,6 @@ void application_read_state_echo_admitted(ConstSlice<ApplicationReadEchoProof> p
                                         latest->manual,
                                         1};
     }
-}
-// Logs what lights a guild's unread pill: the counter, a recount, and each
-// unread channel's read-state inputs (ids and flags only).
-void application_read_state_log_guild_unread(u64 guild_id) noexcept {
-    if (!g_app.account_ui)
-        return;
-    const ChatStateStore& s = g_app.account_ui->chat_state;
-    const GuildRecord* guild = chat_state_store_find_guild(s, guild_id);
-    if (!guild || !guild->unread_channels)
-        return;
-    char line[256];
-    u32 n = 0;
-    const auto text = [&](const char* t) noexcept {
-        while (*t && n < sizeof(line) - 24)
-            line[n++] = *t++;
-    };
-    const auto field = [&](const char* name, u64 value) noexcept {
-        text(name);
-        n += decimal_write(line + n, value);
-    };
-    u32 recount = 0;
-    for (u32 order = 0; order < s.channel_count; ++order) {
-        const ChannelRecord& c = s.channels[s.channel_order[order]];
-        if (c.guild_id != guild_id || !chat_state_store_channel_unread(s, c))
-            continue;
-        if (++recount > 16)
-            continue;
-        n = 0;
-        field("guild_unread_channel id=", c.id);
-        field(" type=", c.type);
-        field(" parent=", c.parent_id);
-        field(" last=", c.last_message_id);
-        field(" read=", c.last_read_message_id);
-        field(" known=", c.read_state_known);
-        field(" mentions=", c.mention_count);
-        field(" muted=", c.notification_muted);
-        field(" joined=", c.thread_self_joined_known ? 1u + c.thread_self_joined : 0u);
-        field(" archived=", c.thread_archived_known ? 1u + c.thread_archived : 0u);
-        line[n] = 0;
-        log_write(LogLevel::info, "read_state", line);
-    }
-    n = 0;
-    field("guild_unread guild=", guild_id);
-    field(" counter=", guild->unread_channels);
-    field(" recount=", recount);
-    line[n] = 0;
-    log_write(LogLevel::info, "read_state", line);
 }
 void application_read_state_echo_rejected(u64 request_id) noexcept {
     auto* o = g_app.read_state;

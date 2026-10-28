@@ -704,8 +704,7 @@ bool palette_resolve(void*, u64 control, u32 choice, BackgroundTheme* out) noexc
     out->color_count = 2;
     return true;
 }
-bool project() noexcept;
-bool project_controls(Bank& bank) noexcept {
+void project_controls(Bank& bank) noexcept {
     auto& p = *owner;
     p.control_count = 0;
     const auto g = gate();
@@ -739,7 +738,7 @@ bool project_controls(Bank& bank) noexcept {
               {}, UiSettingsControlKind::notice, true, false, {}, 0, p.load_failed ? utf8_literal("Try again") : Utf8View{},
               nullptr},
              {p.load_failed ? UiSettingsVariant::critical : UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
-        return true;
+        return;
     }
     // Display Name / Server Nickname.
     const bool name_allowed = (g.enabled & profile_editor_name) != 0;
@@ -835,9 +834,7 @@ bool project_controls(Bank& bank) noexcept {
     push_error(control_misc_error, ProfileEditErrorField::misc);
     if (p.status.bytes && !p.failed)
         push({control_status_note, p.status, {}, UiSettingsControlKind::error, true, false, {}, 0, {}, nullptr});
-    return true;
 }
-bool repaint() noexcept;
 bool project() noexcept {
     if (!owner || !owner->scene.active)
         return true;

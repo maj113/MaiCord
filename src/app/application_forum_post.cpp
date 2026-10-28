@@ -305,7 +305,7 @@ bool forum_known_created(const ForumOwner& owner) noexcept {
            chat_state_store_thread_accessible(g_app.account_ui->chat_state, *row);
 }
 bool forum_publish_starter(ForumOwner& owner) noexcept {
-    if (!forum_actor_current(owner.source) || !g_app.account_ui ||
+    if (!forum_actor_current(owner.source) ||
         g_app.account_ui->active_channel_id != owner.known_created ||
         g_app.account_ui->chat_state.selected_channel_id != owner.known_created ||
         g_app.message_view.timeline.store != &g_app.message_view.store ||
@@ -407,6 +407,10 @@ bool forum_publish_thread(ForumOwner& owner, const ForumFlight& flight) noexcept
     owner.known_created = receipt.id;
     return forum_known_created(owner);
 }
+bool forum_phase_editable(const ForumOwner& owner) noexcept {
+    return !owner.known_created && owner.phase != ForumPhase::queued && owner.phase != ForumPhase::creating &&
+           owner.phase != ForumPhase::settled;
+}
 } // namespace
 
 bool application_forum_post_available(u64 id) noexcept {
@@ -493,9 +497,7 @@ bool application_forum_post_current(const ApplicationForumPostTicket& value) noe
            forum_owner_current(*forum_owner);
 }
 bool application_forum_post_editable(const ApplicationForumPostTicket& value) noexcept {
-    return application_forum_post_current(value) && !forum_owner->known_created &&
-        forum_owner->phase != ForumPhase::queued && forum_owner->phase != ForumPhase::creating &&
-        forum_owner->phase != ForumPhase::settled;
+    return application_forum_post_current(value) && forum_phase_editable(*forum_owner);
 }
 bool application_forum_post_cancel_upload(const ApplicationForumPostTicket& value, u64 draft_id) noexcept {
     if (!application_forum_post_current(value) || !forum_owner->flight.active ||
@@ -513,8 +515,7 @@ ApplicationForumPostView application_forum_post_view() noexcept {
         return {};
     auto& owner = *forum_owner;
     const bool current = !owner.retired && forum_owner_current(owner);
-    const bool editable = current && !owner.known_created && owner.phase != ForumPhase::queued &&
-                          owner.phase != ForumPhase::creating && owner.phase != ForumPhase::settled;
+    const bool editable = current && forum_phase_editable(owner);
     forum_tags(owner);
     return {forum_ticket(owner),
             {owner.parent_name, owner.parent_name_bytes},
@@ -541,7 +542,7 @@ ApplicationForumPostView application_forum_post_view() noexcept {
 }
 bool application_forum_post_draft_update(const ApplicationForumPostTicket& value, Utf8View title,
                                          Utf8View body) noexcept {
-    if (!application_forum_post_current(value) || !application_forum_post_view().can_edit ||
+    if (!application_forum_post_editable(value) ||
         !forum_draft_text(title, kForumPostTitleMaximumBytes, kForumPostTitleMaximumScalars,
                           true) ||
         !forum_draft_text(body, kForumPostContentMaximumBytes,
@@ -559,7 +560,7 @@ bool application_forum_post_draft_update(const ApplicationForumPostTicket& value
     return true;
 }
 bool application_forum_post_tag_toggle(const ApplicationForumPostTicket& value, u64 id) noexcept {
-    if (!application_forum_post_current(value) || !application_forum_post_view().can_edit)
+    if (!application_forum_post_editable(value))
         return false;
     auto& owner = *forum_owner;
     for (u32 i = 0; i < owner.selected_count; ++i)
@@ -808,23 +809,23 @@ bool application_forum_post_response(const RestClientResponse& response, Utf8Vie
         return true;
     }
     const bool create = flight.request.operation == ForumOperation::create;
+    const bool action_required = response.status_code == 401 || response.error == RestClientError::account_restricted ||
+                                 api_rejection_requires_action(response.rejection) ||
+                                 g_app.account.status.required_action != AccountRequirement::none;
     if (flight.request.operation == ForumOperation::attachment_url) {
         auto upload_response = response;
         if (flight.metadata_epoch != owner.metadata_epoch ||
             !forum_parent_authority_current(owner.source.parent, flight.parent_authority))
             upload_response.error = RestClientError::response;
         application_forum_attachments_url_response(forum_ticket(owner), flight.attachment_id, upload_response, body);
-        if (response.status_code == 401 || response.error == RestClientError::account_restricted ||
-            api_rejection_requires_action(response.rejection) || g_app.account.status.required_action != AccountRequirement::none)
+        if (action_required)
             forum_fail(owner, utf8_literal("Verify your account to upload files."), false, true);
         else if (limited) forum_publish(owner, ForumPhase::editing, utf8_literal("You're uploading too fast. Wait a moment and try again."), true);
         else if (response.status_code == 403) forum_fail(owner, utf8_literal("You no longer have permission to upload here."), false, true);
         else { ++owner.revision; application_request_frame(); application_forum_post_synchronize(); }
         return true;
     }
-    if (response.status_code == 401 || response.error == RestClientError::account_restricted ||
-        api_rejection_requires_action(response.rejection) ||
-        g_app.account.status.required_action != AccountRequirement::none) {
+    if (action_required) {
         forum_fail(owner,
                    response.status_code == 401
                        ? utf8_literal("Your session expired. Sign in again.")

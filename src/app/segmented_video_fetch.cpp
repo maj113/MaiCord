@@ -59,6 +59,17 @@ bool target(ProgressiveVideoFetch& f, bool initialization, u32 number) noexcept 
 ProgressiveVideoNext failed(ProgressiveVideoFetch& f) noexcept {
     f.state = ProgressiveVideoFetchState::failed; return {{}, ProgressiveVideoStep::failed};
 }
+ProgressiveVideoAccept reject(ProgressiveVideoFetch& f) noexcept {
+    failed(f); return ProgressiveVideoAccept::failed;
+}
+// Installs the owner into a fresh fetch that starts probing.
+void adopt(ProgressiveVideoFetch* f, SegmentedVideoFetch* s, CdnHost host, bool audio) noexcept {
+    progressive_video_fetch_release(f);
+    f->segmented = s; f->host = host;
+    f->kind = audio ? ProgressiveVideoKind::fragmented_audio : ProgressiveVideoKind::fragmented_video;
+    f->image_type = audio ? CdnImageType::m4a : CdnImageType::mp4;
+    f->state = ProgressiveVideoFetchState::probing; f->expires_at_seconds = ~u64{0};
+}
 bool locate(void* context, u64 time, u32* number) noexcept {
     auto& s = *static_cast<SegmentedVideoFetch*>(context);
     HlsMediaSegment found{};
@@ -117,11 +128,7 @@ bool progressive_video_fetch_begin_hls(ProgressiveVideoFetch* f, Utf8View manife
     if (!write_target(*s, {probe, sizeof(probe)}, true, 0) || !write_target(*s, {probe, sizeof(probe)}, false, last)) {
         VirtualFree(s, 0, MEM_RELEASE); return false;
     }
-    progressive_video_fetch_release(f);
-    f->segmented = s; f->host = live ? (youtube?CdnHost::youtube_live:CdnHost::twitch_live) : soundcloud ? CdnHost::soundcloud_audio : vimeo ? CdnHost::vimeo_video : CdnHost::twitch_vod;
-    f->kind = audio ? ProgressiveVideoKind::fragmented_audio : ProgressiveVideoKind::fragmented_video;
-    f->image_type = audio ? CdnImageType::m4a : CdnImageType::mp4;
-    f->state = ProgressiveVideoFetchState::probing; f->expires_at_seconds = ~u64{0};
+    adopt(f, s, live ? (youtube?CdnHost::youtube_live:CdnHost::twitch_live) : soundcloud ? CdnHost::soundcloud_audio : vimeo ? CdnHost::vimeo_video : CdnHost::twitch_vod, audio);
     return true;
 }
 bool progressive_video_fetch_begin_segments(ProgressiveVideoFetch* f, Utf8View manifest, const DashTrack& track, bool audio) noexcept {
@@ -143,11 +150,7 @@ bool progressive_video_fetch_begin_segments(ProgressiveVideoFetch* f, Utf8View m
     if (!write_target(*s, {probe, sizeof(probe)}, true, 0) || !write_target(*s, {probe, sizeof(probe)}, false, track.segment_count - 1)) {
         VirtualFree(s, 0, MEM_RELEASE); return false;
     }
-    progressive_video_fetch_release(f);
-    f->segmented = s; f->host = CdnHost::steam_video;
-    f->kind = audio ? ProgressiveVideoKind::fragmented_audio : ProgressiveVideoKind::fragmented_video;
-    f->image_type = audio ? CdnImageType::m4a : CdnImageType::mp4;
-    f->state = ProgressiveVideoFetchState::probing; f->expires_at_seconds = ~u64{0};
+    adopt(f, s, CdnHost::steam_video, audio);
     return true;
 }
 ProgressiveVideoNext segmented_video_next(ProgressiveVideoFetch* f, bool ahead, u64 now) noexcept {
@@ -192,16 +195,15 @@ ProgressiveVideoAccept segmented_video_accept(ProgressiveVideoFetch* f, const Cd
         HlsMediaPlaylist next{}; HlsPlaylistAdvance update{}; u32 first{}, count{};
         if (policy.disposition != CdnResponseDisposition::accept_body || policy.status_code != 200 || policy.body_bytes != body.count ||
             hls_media_playlist({reinterpret_cast<const char*>(body.data), body.count}, &next, HlsPlaylistMode::sliding) != HlsPlaylistError::none ||
-            !live_locations(next,s.youtube)) { failed(*f); return ProgressiveVideoAccept::failed; }
+            !live_locations(next,s.youtube)) return reject(*f);
         const auto changed = hls_media_update(s.playlist, next, &update);
         const u32 interval = update.changed ? next.target_seconds : maximum(1u, next.target_seconds / 2);
         s.refresh_at = deadline_after(s.requested_at, interval); s.refreshing = false;
         if (changed == HlsPlaylistError::stale && ++f->transport_failures < kProgressiveVideoMaximumTransportFailures)
             return ProgressiveVideoAccept::ignored;
         if (changed != HlsPlaylistError::none || !live_counts(s, next, &first, &count) ||
-            mp4_segment_store_extend(&s.store, first, count, next.ended) != Mp4DemuxError::none) {
-            failed(*f); return ProgressiveVideoAccept::failed;
-        }
+            mp4_segment_store_extend(&s.store, first, count, next.ended) != Mp4DemuxError::none)
+            return reject(*f);
         auto* owned = const_cast<char*>(s.playlist.input.data);
         copy_bytes(owned, body.data, body.count);
         if (next.initialization.bytes) next.initialization.data = owned + (next.initialization.data - next.input.data);
@@ -214,9 +216,7 @@ ProgressiveVideoAccept segmented_video_accept(ProgressiveVideoFetch* f, const Cd
     const u32 maximum = (s.initialization && !s.playlist.transport) || f->kind == ProgressiveVideoKind::fragmented_audio ? 1024 * 1024 : 8 * 1024 * 1024;
     const bool whole = policy.disposition == CdnResponseDisposition::accept_body ||
         (policy.disposition == CdnResponseDisposition::accept_partial && !policy.range_first && policy.entity_bytes == body.count);
-    if (!whole || !body.count || body.count > maximum || policy.body_bytes != body.count) {
-        failed(*f); return ProgressiveVideoAccept::failed;
-    }
+    if (!whole || !body.count || body.count > maximum || policy.body_bytes != body.count) return reject(*f);
     const auto error = s.playlist.transport
         ? (s.initialization
             ? mpeg_ts_segment_store_initialize(&s.store,body,f->kind==ProgressiveVideoKind::fragmented_audio,
@@ -228,7 +228,7 @@ ProgressiveVideoAccept segmented_video_accept(ProgressiveVideoFetch* f, const Cd
                                       s.playlist.input.bytes ? s.playlist.target_seconds : s.track.segment_duration,
                                       s.playlist.input.bytes ? 1 : s.track.timescale, s.manifest.bytes != 0)
         : mp4_segment_store_accept(&s.store, s.number, s.serial, body);
-    if (error != Mp4DemuxError::none) { failed(*f); return ProgressiveVideoAccept::failed; }
+    if (error != Mp4DemuxError::none) return reject(*f);
     if (s.initialization && s.manifest.bytes) s.store.ended = s.playlist.ended;
     if (s.initialization && s.playlist.input.bytes && !s.manifest.bytes) { s.store.seek_context = &s; s.store.locate = locate; }
     f->transport_failures = 0;

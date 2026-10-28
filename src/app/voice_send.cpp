@@ -93,12 +93,6 @@ void process(VoiceSend& send, u64 now_us) noexcept {
 void discard(VoiceSendShared& s) noexcept {
     write_release(&s.read, read_acquire(&s.write));
 }
-bool same_device(const wchar_t* a, const wchar_t* b) noexcept {
-    u32 i = 0;
-    while (i < kVoiceDeviceIdCharacters && a[i] == b[i] && a[i])
-        ++i;
-    return i == kVoiceDeviceIdCharacters || a[i] == b[i];
-}
 void stop_capture(VoiceSend& send) noexcept {
     AcquireSRWLockExclusive(send.lock.native());
     send.capture_visible = false;
@@ -329,7 +323,7 @@ void voice_send_drive(VoiceSend* send, VoiceConnection* connection, const Gatewa
     const bool want = sending || a.monitor || tail;
     const bool running = voice_audio_capture_running(send->capture);
     if (running && (!want || send->capture_processing != a.voice_processing ||
-                    !same_device(send->capture_device, a.input_device)))
+                    !voice_device_id_equal(send->capture_device, a.input_device)))
         stop_capture(*send);
     if (want && !voice_audio_capture_running(send->capture))
         start_capture(*send);

@@ -121,9 +121,6 @@ MessageComposerRequest* empty_request(MessageComposerController* controller) noe
 }
 
 bool compact_requests(MessageComposerController* controller) noexcept {
-    if (!controller_valid(controller)) {
-        return false;
-    }
     u32 write_offset = 0;
     u32 previous_source = 0;
     bool has_previous = false;

@@ -5,8 +5,6 @@
 #include "application_settings_envelope.hpp"
 #include "rest_rate_retry.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/json_reader.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/media_catalog.hpp"
 
@@ -112,9 +110,8 @@ bool online() noexcept {
            !g_app.account.status.failed && g_app.account.status.required_action == AccountRequirement::none;
 }
 void changed(ApplicationGifFavorites& p, bool data = false) noexcept {
-    if (!++p.revision)
-        ++p.revision;
-    if (data && !++p.data_revision)
+    ++p.revision;
+    if (data)
         ++p.data_revision;
     application_media_picker_favorites_changed();
     application_request_frame();
@@ -518,6 +515,15 @@ bool application_gif_favorites_response(const RestClientResponse& response, Utf8
     auto& p = *owner;
     const auto operation = p.operation;
     const bool current = scope(p) && p.submitted_generation == p.generation;
+    // The response is unusable: the snapshot is no longer authoritative and no fetch follows.
+    const auto fail_response = [&](Utf8View status) noexcept {
+        mark_failure(p, status, operation == AccountGifFavoritesOperation::update);
+        p.authoritative = false;
+        p.fetch_wanted = false;
+        p.due_at = 0;
+        if (operation == AccountGifFavoritesOperation::update && p.queue_count)
+            schedule(p);
+    };
     p.request_id = 0;
     p.admission_busy = false;
     p.receipt_consumed = true;
@@ -558,28 +564,12 @@ bool application_gif_favorites_response(const RestClientResponse& response, Utf8
             }
             p.attempts = 0;
             schedule(p);
-        } else {
-            mark_failure(p, utf8_literal("Couldn't update favorites. Try again."),
-                         operation == AccountGifFavoritesOperation::update);
-            p.authoritative = false;
-            p.fetch_wanted = false;
-            p.due_at = 0;
-            if (operation == AccountGifFavoritesOperation::update && p.queue_count)
-                schedule(p);
-        }
-    } else {
-        mark_failure(
-            p,
-            operation == AccountGifFavoritesOperation::update
-                ? utf8_literal("Couldn't confirm the change. Check your favorites.")
-                : utf8_literal("Couldn't load favorites. Try again."),
-            operation == AccountGifFavoritesOperation::update);
-        p.authoritative = false;
-        p.fetch_wanted = false;
-        p.due_at = 0;
-        if (operation == AccountGifFavoritesOperation::update && p.queue_count)
-            schedule(p);
-    }
+        } else
+            fail_response(utf8_literal("Couldn't update favorites. Try again."));
+    } else
+        fail_response(operation == AccountGifFavoritesOperation::update
+                          ? utf8_literal("Couldn't confirm the change. Check your favorites.")
+                          : utf8_literal("Couldn't load favorites. Try again."));
     changed(p);
     return true;
 }

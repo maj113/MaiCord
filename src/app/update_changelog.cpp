@@ -240,9 +240,8 @@ u32 update_changelog_date_text(u64 unix_seconds, bool year, Slice<char> output) 
     const u64 civil_year = static_cast<u64>(year_of_era + era * 400 + (month <= 2 ? 1 : 0));
     static constexpr char names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
     char text[24];
-    u32 used = 0;
     copy_bytes(text, names + (month - 1) * 3, 3);
-    used = 3;
+    u32 used = 3;
     text[used++] = ' ';
     used += decimal_write(text + used, day);
     if (year) {

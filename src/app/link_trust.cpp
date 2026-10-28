@@ -1,5 +1,6 @@
 #include "maicord/app/link_trust.hpp"
 #include "maicord/core/scratch_pages.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/hash.hpp"
@@ -237,9 +238,8 @@ u32 link_trust_encode(const LinkTrustStore& store, Slice<u8> output) noexcept {
         if (!protocol_valid(protocol) || !put(&length, 1) || !put(protocol.data, protocol.bytes))
             return 0;
     }
-    const u32 hash = hash32_bytes(output.data, used);
-    const u8 tail[] = {static_cast<u8>(hash), static_cast<u8>(hash >> 8), static_cast<u8>(hash >> 16),
-                       static_cast<u8>(hash >> 24)};
+    u8 tail[4];
+    byte_store_le32(tail, hash32_bytes(output.data, used));
     return put(tail, 4) ? used : 0;
 }
 
@@ -247,8 +247,7 @@ bool link_trust_decode(ConstSlice<u8> input, LinkTrustStore* store) noexcept {
     if (!store || !input.data || input.count < 12 || input.count > kLinkTrustFileBytes)
         return false;
     const u32 body = input.count - 4;
-    const u32 stored = input[body] | (u32{input[body + 1]} << 8) | (u32{input[body + 2]} << 16) |
-                       (u32{input[body + 3]} << 24);
+    const u32 stored = byte_load_le32(input.data + body);
     if (!bytes_equal(input.data, kMagic, 4) || input[4] != kVersion || input[5] > kLinkTrustHostCapacity ||
         input[6] > kLinkTrustProtocolCapacity || input[7] != 0 || stored != hash32_bytes(input.data, body))
         return false;

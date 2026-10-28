@@ -3,7 +3,8 @@
 #include "maicord/media/hevc_mp4_demux.hpp"
 
 namespace maicord {
-
+namespace {
+// Copies every block the range touches (block aligned, clipped to the file).
 LocalVideoPosterStep local_video_poster_read(ProgressiveSource* source, ProgressiveRange range,
                                              LocalVideoPosterReader* reader) noexcept {
     if (!source || !source->base || !reader || !reader->read || !reader->scratch || !range.bytes ||
@@ -28,6 +29,7 @@ LocalVideoPosterStep local_video_poster_read(ProgressiveSource* source, Progress
     return LocalVideoPosterStep::ready;
 }
 
+// Walks the top-level boxes until the moov is resident (progressive_mp4_probe).
 LocalVideoPosterStep local_video_poster_metadata(ProgressiveSource* source, LocalVideoPosterReader* reader) noexcept {
     // Each probe step either finishes or names one missing range; the box
     // count and the 16 MiB moov bound keep this loop finite.
@@ -49,6 +51,7 @@ LocalVideoPosterStep local_video_poster_metadata(ProgressiveSource* source, Loca
     }
     return LocalVideoPosterStep::malformed;
 }
+} // namespace
 
 bool local_video_poster_service(ProgressiveSource* source, LocalVideoPosterReader* reader,
                                 LocalVideoPosterStep* step) noexcept {

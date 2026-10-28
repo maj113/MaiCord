@@ -23,8 +23,7 @@ bool application_upload_lane_acquire(ApplicationUploadOwner owner, ApplicationUp
     if (!output || owner == ApplicationUploadOwner::none || upload_lane.id || !g_app.account.instance ||
         !g_app.account_ui || !g_app.account.api.upload || !g_app.account.status.running || g_app.account.stop_failed)
         return false;
-    if (!++upload_serial) ++upload_serial;
-    upload_lane = {upload_serial, g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
+    upload_lane = {++upload_serial, g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
         g_app.account_ui->chat_state.self_user_id, g_app.account.instance, owner};
     *output = upload_lane;
     upload_started = false;

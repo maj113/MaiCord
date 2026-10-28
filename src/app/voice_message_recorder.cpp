@@ -58,13 +58,8 @@ VoiceMessageRecorderError encode(VoiceMessageRecorder* r, bool audible) noexcept
 } // namespace
 
 u8 voice_message_frame_level(ConstSlice<i16> pcm) noexcept {
-    if (!pcm.data || !pcm.count)
-        return 0;
-    u64 energy = 0;
-    for (u32 i = 0; i < pcm.count; ++i)
-        energy += static_cast<u64>(static_cast<i64>(pcm[i]) * pcm[i]);
     // 0..100 is -100..0 dBFS; the display spans the top 60 dB.
-    const u32 level = voice_level_from_energy(energy / pcm.count);
+    const u32 level = voice_level(pcm);
     return level <= 40 ? 0 : static_cast<u8>((level - 40) * 255 / 60);
 }
 

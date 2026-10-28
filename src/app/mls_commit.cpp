@@ -323,8 +323,8 @@ MlsStatus mls_commit_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, const 
     return MlsStatus::ok;
 }
 
-u32 mls_commit_scratch_bytes(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposals,
-                             bool create) noexcept {
+namespace {
+u32 scratch_bytes(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposals) noexcept {
     const u32 edit = mls_tree_edit_bytes(tree, proposals);
     if (!edit)
         return 0;
@@ -336,11 +336,12 @@ u32 mls_commit_scratch_bytes(const MlsRatchetTree& tree, ConstSlice<MlsProposal>
         mls_tree_node_count(leaves, &nodes) != MlsStatus::ok)
         return 0;
     const MlsRatchetTree shape{{}, {}, nullptr, 0, nodes, leaves};
-    u32 bytes =
+    const u32 bytes =
         maximum(edit, maximum(mls_tree_validation_bytes(leaves, nodes), mls_treekem_scratch_bytes(shape)));
-    bytes = (bytes + 3) & ~3u;
-    return create ? bytes + kMaxStubPathBytes : bytes;
+    return (bytes + 3) & ~3u;
 }
+} // namespace
+
 MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local,
                                   const MlsSuccessor& current, ConstSlice<MlsProposal> proposals,
                                   const u8* leaf_secret, const P256Key& signing, bool force_path,
@@ -353,7 +354,7 @@ MlsStatus mls_commit_create_local(KdfSha256Workspace& kdf, MlsLocalCommit* local
     reset_value(local);
     if (const auto status = check_current(kdf, current); status != MlsStatus::ok)
         return status;
-    const u32 core = mls_commit_scratch_bytes(current.tree, proposals, false);
+    const u32 core = scratch_bytes(current.tree, proposals);
     if (!core || buffers.scratch.count < core + kMaxStubPathBytes)
         return core ? MlsStatus::buffer_too_small : MlsStatus::malformed;
     const Slice<u8> scratch{buffers.scratch.data, core};
@@ -465,7 +466,7 @@ MlsStatus mls_commit_apply_remote(KdfSha256Workspace& kdf, MlsSuccessor* success
     reset_value(successor);
     if (const auto status = check_current(kdf, current); status != MlsStatus::ok)
         return status;
-    const u32 required = mls_commit_scratch_bytes(current.tree, proposals, false);
+    const u32 required = scratch_bytes(current.tree, proposals);
     if (!required || buffers.scratch.count < required)
         return required ? MlsStatus::buffer_too_small : MlsStatus::malformed;
     MlsSuccessor candidate{};

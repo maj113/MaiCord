@@ -151,7 +151,7 @@ bool unread_popup_capture(UnreadContextKind kind, u64 id, bool enabled, u32 acti
 }
 } // namespace
 
-const MessageTextCommand* selected_message_text_command() noexcept {
+static const MessageTextCommand* selected_message_text_command() noexcept {
     if (!g_app.account_ui || !g_app.message_text_selection.valid) {
         return nullptr;
     }
@@ -340,7 +340,7 @@ bool open_reaction_picker(u64 message_id, UiRect anchor) noexcept {
     return application_media_picker_open_reaction(message_id, anchor);
 }
 
-bool retry_failed_message(u64 nonce) noexcept {
+static bool retry_failed_message(u64 nonce) noexcept {
     if (!g_app.account_ui || nonce == 0) {
         return false;
     }
@@ -374,7 +374,7 @@ bool retry_failed_message(u64 nonce) noexcept {
     return refreshed && invalidated && pumped;
 }
 
-bool discard_failed_message(u64 nonce) noexcept {
+static bool discard_failed_message(u64 nonce) noexcept {
     if (!g_app.account_ui || nonce == 0) {
         return false;
     }
@@ -467,7 +467,7 @@ struct LinkMenu {
 
 // The official client merges a right-clicked link's Copy Link / Open Link group into the
 // message menu (after the message sections, before Copy Message ID).
-bool open_message_link_context_popup(const MessageTextHit& hit, UiRect anchor) noexcept {
+static bool open_message_link_context_popup(const MessageTextHit& hit, UiRect anchor) noexcept {
     if (!g_app.account_ui || !hit.valid || !hit.message_id ||
         (hit.kind != MessageMarkdownSemanticKind::link && hit.kind != MessageMarkdownSemanticKind::message_link))
         return false;
@@ -488,7 +488,7 @@ bool open_message_link_context_popup(const MessageTextHit& hit, UiRect anchor) n
     return true;
 }
 
-bool activate_message_link_action(u32 action) noexcept {
+static bool activate_message_link_action(u32 action) noexcept {
     if (!message_link_menu_action(action) || !link_menu.valid || !g_app.account_ui ||
         g_app.popup_owner_kind != PopupOwnerKind::message || !g_app.popup_scene.active ||
         !g_app.message_context.active || g_app.message_context.opens != link_menu.opens ||
@@ -638,7 +638,7 @@ bool application_message_action_bar_activate(const MessageActionBarHit& hit, boo
     }
 }
 
-bool open_reaction_viewer(u64 message_id) noexcept {
+static bool open_reaction_viewer(u64 message_id) noexcept {
     if (!g_app.account_ui || g_app.login.visible || message_id == 0) {
         return false;
     }
@@ -787,7 +787,9 @@ bool open_channel_context_popup(u64 channel_id, UiRect anchor) noexcept {
     return refresh_popup_text();
 }
 
-bool thread_actions_menu_open_impl(const ApplicationThreadActionTicket& ticket, UiRect anchor) noexcept {
+} // namespace
+
+bool application_thread_actions_menu_open(const ApplicationThreadActionTicket& ticket, UiRect anchor) noexcept {
     if (!g_app.account_ui || g_app.account_ui->active_channel_id != ticket.thread_id ||
         !application_thread_actions_current(ticket))
         return false;
@@ -811,7 +813,7 @@ bool thread_actions_menu_open_impl(const ApplicationThreadActionTicket& ticket, 
     return refresh_popup_text();
 }
 
-bool refresh_thread_actions_menu_impl() noexcept {
+bool application_refresh_thread_actions_menu() noexcept {
     if (!thread_menu_scope.active || !g_app.popup_scene.active ||
         g_app.popup_owner_kind != PopupOwnerKind::channel ||
         g_app.popup_scene.owner_id != thread_menu_scope.ticket.thread_id)
@@ -836,7 +838,7 @@ bool refresh_thread_actions_menu_impl() noexcept {
     const auto anchor = g_app.popup_scene.anchor;
     const bool from_header = thread_menu_scope.from_header;
     const auto selected_action = popup_scene_selected_action(g_app.popup_scene);
-    if (!(from_header ? thread_actions_menu_open_impl(host.ticket, anchor)
+    if (!(from_header ? application_thread_actions_menu_open(host.ticket, anchor)
                       : open_channel_context_popup(host.ticket.thread_id, anchor)))
         return false;
     for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
@@ -848,6 +850,8 @@ bool refresh_thread_actions_menu_impl() noexcept {
         }
     return refresh_popup_text();
 }
+
+namespace {
 
 bool open_guild_context_popup(u64 guild_id, UiRect anchor) noexcept {
     return application_scoped_read_menu_open(ReadScopeKind::guild, guild_id, anchor);
@@ -873,14 +877,6 @@ bool open_folder_context_popup(u64 row_id, UiRect anchor) noexcept {
 }
 
 } // namespace
-
-bool application_thread_actions_menu_open(const ApplicationThreadActionTicket& ticket,
-                                          UiRect anchor) noexcept {
-    return thread_actions_menu_open_impl(ticket, anchor);
-}
-bool application_refresh_thread_actions_menu() noexcept {
-    return refresh_thread_actions_menu_impl();
-}
 
 void focus_context_at(float x, float y) noexcept {
     g_app.context_focus = nullptr;
@@ -1029,7 +1025,7 @@ bool open_context_popup(i32 client_x, i32 client_y) noexcept {
     return dismiss_popup();
 }
 
-bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
+static bool activate_popup_action(u32 action, bool shift_pressed) noexcept {
     if (application_plugins_popover_action(action))
         return application_plugins_popover_activate(action);
     if (application_profile_menu_action(action))
@@ -1305,7 +1301,7 @@ bool refresh_reaction_viewer_presentation() noexcept {
     return refresh_account_frame(true);
 }
 
-bool dismiss_reaction_viewer() noexcept {
+static bool dismiss_reaction_viewer() noexcept {
     ui_scroll_host_cancel(&g_app.scroll_host);
     if (!g_app.reaction_viewer.active) {
         return true;

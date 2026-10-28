@@ -451,50 +451,30 @@ bool send_frame(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, WebS
     return sent;
 }
 
-bool open_websocket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
-                    u32* native_error) noexcept {
-    publish_phase(client, RemoteAuthClientPhase::websocket_opening);
-    u8 nonce[kWebSocketNonceBytes]{};
-    u8 client_key[kWebSocketClientKeyBytes]{};
+// Sends the opening request and validates the response. The caller erases the key.
+bool exchange_websocket_opening(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
+                                ConstSlice<u8> client_key, u32* native_error) noexcept {
     u8 request[1024]{};
-    const SecureRandomResult random = secure_random_fill(Slice<u8>{nonce, static_cast<u32>(sizeof(nonce))});
-    const WebSocketHandshakeWriteResult encoded =
-        random.ok()
-            ? websocket_encode_client_key(ConstSlice<u8>{nonce, static_cast<u32>(sizeof(nonce))},
-                                          Slice<u8>{client_key, static_cast<u32>(sizeof(client_key))})
-            : WebSocketHandshakeWriteResult{};
-    SecureZeroMemory(nonce, sizeof(nonce));
-    if (!random.ok() || !encoded.ok()) {
-        SecureZeroMemory(client_key, sizeof(client_key));
-        *native_error = static_cast<u32>(random.platform_status);
-        return false;
-    }
-    const WebSocketHandshakeWriteResult written =
-        websocket_write_opening_request(bytes("/?v=2"), bytes(kRemoteAuthHost), ConstSlice<u8>{client_key, encoded.bytes},
-                                        Slice<u8>{request, static_cast<u32>(sizeof(request))});
-    if (!written.ok() || !send_tls(client, runtime, ConstSlice<u8>{request, written.bytes}, native_error)) {
-        SecureZeroMemory(client_key, sizeof(client_key));
-        SecureZeroMemory(request, sizeof(request));
-        return false;
-    }
+    const WebSocketHandshakeWriteResult written = websocket_write_opening_request(
+        bytes("/?v=2"), bytes(kRemoteAuthHost), client_key,
+        Slice<u8>{request, static_cast<u32>(sizeof(request))});
+    const bool sent =
+        written.ok() && send_tls(client, runtime, ConstSlice<u8>{request, written.bytes}, native_error);
     SecureZeroMemory(request, sizeof(request));
+    if (!sent)
+        return false;
     const u64 deadline = deadline_after(GetTickCount64(), kPhaseTimeoutMs);
     for (;;) {
         const WebSocketHandshakeValidation validation = websocket_validate_opening_response(
-            byte_queue_readable(runtime->websocket_input), ConstSlice<u8>{client_key, encoded.bytes},
-            kWebSocketInputBytes, 64);
-        if (validation.state == WebSocketHandshakeState::complete) {
-            SecureZeroMemory(client_key, sizeof(client_key));
+            byte_queue_readable(runtime->websocket_input), client_key, kWebSocketInputBytes, 64);
+        if (validation.state == WebSocketHandshakeState::complete)
             return byte_queue_consume(&runtime->websocket_input, validation.header_bytes);
-        }
         if (validation.state == WebSocketHandshakeState::error) {
-            SecureZeroMemory(client_key, sizeof(client_key));
             *native_error = ERROR_INVALID_DATA;
             return false;
         }
         const u64 now_ms = GetTickCount64();
         if (now_ms >= deadline) {
-            SecureZeroMemory(client_key, sizeof(client_key));
             *native_error = WAIT_TIMEOUT;
             return false;
         }
@@ -502,11 +482,31 @@ bool open_websocket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
             receive_plaintext(client, runtime, wait_milliseconds_until(now_ms, deadline, INFINITE));
         if (received.state != PlaintextState::plaintext ||
             !byte_queue_append(&runtime->websocket_input, received.plaintext)) {
-            SecureZeroMemory(client_key, sizeof(client_key));
             *native_error = received.native_error;
             return false;
         }
     }
+}
+
+bool open_websocket(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
+                    u32* native_error) noexcept {
+    publish_phase(client, RemoteAuthClientPhase::websocket_opening);
+    u8 nonce[kWebSocketNonceBytes]{};
+    u8 client_key[kWebSocketClientKeyBytes]{};
+    const SecureRandomResult random = secure_random_fill(Slice<u8>{nonce, static_cast<u32>(sizeof(nonce))});
+    const WebSocketHandshakeWriteResult encoded =
+        random.ok()
+            ? websocket_encode_client_key(ConstSlice<u8>{nonce, static_cast<u32>(sizeof(nonce))},
+                                          Slice<u8>{client_key, static_cast<u32>(sizeof(client_key))})
+            : WebSocketHandshakeWriteResult{};
+    SecureZeroMemory(nonce, sizeof(nonce));
+    if (!random.ok() || !encoded.ok())
+        *native_error = static_cast<u32>(random.platform_status);
+    const bool opened = random.ok() && encoded.ok() &&
+                        exchange_websocket_opening(client, runtime, ConstSlice<u8>{client_key, encoded.bytes},
+                                                   native_error);
+    SecureZeroMemory(client_key, sizeof(client_key));
+    return opened;
 }
 
 void store_qr(RemoteAuthClient* client, Utf8View fingerprint) noexcept {
@@ -712,9 +712,8 @@ bool process_frames(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime, 
                 *native_error = ERROR_INSUFFICIENT_BUFFER;
                 return false;
             }
-            for (u32 index = 0; index < frame.payload.count; ++index) {
-                runtime->message_storage[runtime->message_bytes + index] = frame.payload[index];
-            }
+            copy_bytes(runtime->message_storage + runtime->message_bytes, frame.payload.data,
+                       frame.payload.count);
             runtime->message_bytes += frame.payload.count;
             if (tracked.state == WebSocketMessageState::message_complete) {
                 if (tracked.message_opcode != WebSocketOpcode::text) {
@@ -1149,7 +1148,7 @@ SecureBufferResult remote_auth_client_take_credential(RemoteAuthClient* client,
                                                       SecureBuffer* output) noexcept {
     auto* runtime =
         client && client->runtime ? static_cast<RemoteAuthClientRuntime*>(client->runtime) : nullptr;
-    if (!client || !runtime || !output || !output->data || !output->locked || output->capacity == 0 ||
+    if (!runtime || !output || !output->data || !output->locked || output->capacity == 0 ||
         load_phase(client) != RemoteAuthClientPhase::authenticated ||
         WaitForSingleObject(client->thread, 0) != WAIT_OBJECT_0) {
         return SecureBufferResult{0, ERROR_INVALID_STATE, SecureBufferError::invalid_input};

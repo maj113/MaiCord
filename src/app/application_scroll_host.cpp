@@ -474,47 +474,11 @@ bool animate_popup_scroll_from(float before) noexcept {
     return popup_scene_scroll(&popup, after - popup.scroll_offset, &changed) && result != UiScrollDispatch::failed;
 }
 
-namespace {
-// Live cost of a menu glide: per-tick refresh time, logged once it settles, so
-// a slow projection (which would make the glide look like a jump) shows up.
-struct PopupGlideCost {
-    u32 ticks;
-    u64 total_us, max_us;
-};
-PopupGlideCost popup_glide;
-void popup_glide_settled() noexcept {
-    if (!popup_glide.ticks)
-        return;
-    log_u64(LogLevel::info, "scroll", "popup_glide_ticks", popup_glide.ticks);
-    log_u64(LogLevel::info, "scroll", "popup_glide_tick_max_us", popup_glide.max_us);
-    log_u64(LogLevel::info, "scroll", "popup_glide_tick_mean_us", popup_glide.total_us / popup_glide.ticks);
-    reset_value(&popup_glide);
-}
-} // namespace
-
 bool tick_smooth_scrolls(u64 now_us) noexcept {
     const u64 message_scroll_before = g_app.message_view.timeline.scroll_units;
     bool changed = false;
     if (!ui_scroll_host_tick(&g_app.scroll_host, now_us, &changed))
         return false;
-    const bool popup_glide_tick = changed && g_app.popup_scene.active && !application_settings_active();
-    if (!popup_glide_tick)
-        popup_glide_settled();
-    const u64 refresh_start = popup_glide_tick ? application_now_us() : 0;
-    struct PopupGlideSample {
-        bool active;
-        u64 start;
-        ~PopupGlideSample() {
-            if (!active)
-                return;
-            const u64 elapsed = application_now_us() - start;
-            ++popup_glide.ticks;
-            popup_glide.total_us += elapsed;
-            popup_glide.max_us = maximum(popup_glide.max_us, elapsed);
-            if (!ui_scroll_host_active(g_app.scroll_host))
-                popup_glide_settled();
-        }
-    } sample{popup_glide_tick, refresh_start};
     if (g_app.reaction_viewer.active) {
         const auto more = reaction_viewer_controller_request_more(&g_app.reaction_viewer_controller);
         if (more.ok() && more.changed) {

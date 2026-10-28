@@ -13,7 +13,6 @@
 #include "application_custom_status.hpp"
 #include "application_account_switch.hpp"
 #include "maicord/ui/account_menu.hpp"
-#include "maicord/ui/clipboard.hpp"
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"

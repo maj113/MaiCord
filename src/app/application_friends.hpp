@@ -12,7 +12,6 @@ struct GatewayClientEvent;
 } // namespace maicord
 
 namespace maicord::app_detail {
-struct ApplicationFriends;
 const RelationshipStore* application_friends_relationships() noexcept;
 // Relationship presence as a UI dot; `unknown` is what an unreported presence shows.
 constexpr UiPresence application_friends_presence(RelationshipPresence value,

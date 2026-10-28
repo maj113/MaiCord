@@ -390,8 +390,7 @@ bool handle_composer_button_key(u32 key, bool down, bool repeated) noexcept {
     }
     const auto logical = key == VK_SPACE    ? UiButtonKey::space
                          : key == VK_RETURN ? UiButtonKey::enter
-                         : key == VK_ESCAPE ? UiButtonKey::escape
-                                            : UiButtonKey::other;
+                                            : UiButtonKey::escape;
     const auto result = ui_button_keyboard_key(
         &g_app.button_keyboard, &g_app.message_composer_scene.widgets, logical, down, repeated);
     if (result.activate &&

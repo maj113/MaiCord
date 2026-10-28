@@ -427,7 +427,7 @@ bool application_voice_context_at(float x, float y, UiRect anchor) noexcept {
                              false,
                              kVolumeSteps,
                              audio.gain_percent};
-    if (!application_user_menu_open(user_id, anchor, guild_id ? guild_id : 0,
+    if (!application_user_menu_open(user_id, anchor, guild_id,
                                     guild_id ? UserMenuSource::voice : UserMenuSource::private_channel,
                                     self ? ConstSlice<PopupItem>{} : ConstSlice<PopupItem>{&mute, 1},
                                     self ? nullptr : &feedback))

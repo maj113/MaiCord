@@ -42,6 +42,9 @@ bool locked_output(const SecureBuffer* output) noexcept {
     return output && output->data && output->locked && output->capacity != 0 &&
            output->bytes <= output->capacity;
 }
+bool cancelled(HANDLE cancel_event) noexcept {
+    return WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0;
+}
 
 bool consume_response(void* context, const RestClientResponse& response,
                       ConstSlice<u8> locked_body) noexcept {
@@ -187,9 +190,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
     clear_ephemeral(exchange);
     secure_buffer_clear(&exchange->credential);
     exchange->admitted_request_id = 0;
-    if (WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0) {
-        return failure(RemoteAuthTicketExchangeError::cancelled);
-    }
+    if (cancelled(cancel_event)) return failure(RemoteAuthTicketExchangeError::cancelled);
     const RemoteAuthWriteResult body = remote_auth_write_ticket_request(
         ticket, Slice<char>{reinterpret_cast<char*>(exchange->request.data), exchange->request.capacity});
     if (!body.ok()) {
@@ -211,7 +212,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
                                   kRemoteAuthTicketExchangeStructuralCount};
     const SecureBuffer* captcha_key = nullptr;
     for (u32 attempt = 0; attempt <= kMaximumCaptchaAttempts; ++attempt) {
-        if (WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0) {
+        if (cancelled(cancel_event)) {
             result.error = RemoteAuthTicketExchangeError::cancelled;
             break;
         }
@@ -259,7 +260,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
                                                           : 0;
             break;
         }
-        if (WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0) {
+        if (cancelled(cancel_event)) {
             rest_client_cancel(&exchange->transport, request_id);
             result.error = RemoteAuthTicketExchangeError::cancelled;
             break;
@@ -270,7 +271,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
         const RestClientTakeResult taken = rest_client_consume_user_auth_response(
             &exchange->transport, &response, consume_response, &consumed);
         retain_response(&result, response, consumed);
-        if (WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0) {
+        if (cancelled(cancel_event)) {
             result.error = RemoteAuthTicketExchangeError::cancelled;
             break;
         }
@@ -344,7 +345,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
     }
 
     result = stop_transport(exchange, result, kStopTimeoutMs);
-    if (WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0) {
+    if (cancelled(cancel_event)) {
         result.error = RemoteAuthTicketExchangeError::cancelled;
     }
     if (!result.ok()) {

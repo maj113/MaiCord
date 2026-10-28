@@ -29,12 +29,7 @@ bool synchronize_selected_channel() noexcept {
     AccountUiRuntime& ui = *g_app.account_ui;
     ChatStateStore& state = ui.chat_state;
     const u64 now_ms = clock_monotonic_milliseconds();
-    if (ui.observed_selection_revision == state.selection_revision) {
-        if (state.selected_channel_id && state.selected_channel_id == g_app.member_list_scene.restore_channel_id)
-            g_app.member_list_scene.restore_channel_id = 0;
-        return synchronize_member_subscription(now_ms);
-    }
-    if (ui.active_channel_id == state.selected_channel_id) {
+    if (ui.observed_selection_revision == state.selection_revision || ui.active_channel_id == state.selected_channel_id) {
         if (state.selected_channel_id && state.selected_channel_id == g_app.member_list_scene.restore_channel_id)
             g_app.member_list_scene.restore_channel_id = 0;
         ui.observed_selection_revision = state.selection_revision;

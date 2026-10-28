@@ -853,6 +853,52 @@ bool audio_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, vo
     }
     return s.status.error == AccountVideoError::none;
 }
+enum class OutputStep : u8 { proceed, again, stop, interrupted };
+// What the standalone codecs share in one service pass: cancellation, ring errors, writing the pending
+// PCM and sealing the stream. stop leaves the pass (waiting or failed); again repeats it.
+template <typename Workspace>
+OutputStep output_step(AccountVideoSession& s, Workspace& w, u32 channels, bool (*cancelled)(void*) noexcept,
+                       void* context, u32* writes) noexcept {
+    if (cancelled && cancelled(context))
+        return OutputStep::interrupted;
+    const auto audio = media_audio_status(&w.audio);
+    if (audio.error != MediaAudioError::none) {
+        terminal(s, AccountVideoError::audio, audio.native_error);
+        return OutputStep::stop;
+    }
+    if (w.pending_frames) {
+        if (!audio.free_frames)
+            return OutputStep::stop;
+        const u32 frames = minimum(kMediaAudioMaximumWriteFrames, minimum(audio.free_frames, w.pending_frames));
+        const auto written = media_audio_write(&w.audio, s.playback_epoch,
+                                               {w.pcm + w.pending_offset * channels, frames * channels});
+        if (!written.ok()) {
+            if (written.error != MediaAudioError::capacity)
+                terminal(s, AccountVideoError::audio, written.native_error);
+            return OutputStep::stop;
+        }
+        w.queued_frames += frames;
+        w.pending_offset += frames;
+        w.pending_frames -= frames;
+        s.video_seek_ready = true;
+        ++*writes;
+        return OutputStep::again;
+    }
+    if (!w.decoded_end)
+        return OutputStep::proceed;
+    if (w.queued_frames != w.wanted_frames) {
+        terminal(s, AccountVideoError::timestamp);
+    } else if (!w.sealed) {
+        const auto ended = media_audio_end(&w.audio, s.playback_epoch);
+        if (!ended.ok()) {
+            terminal(s, AccountVideoError::audio, ended.native_error);
+        } else {
+            w.sealed = true;
+            s.video_seek_ready = true;
+        }
+    }
+    return OutputStep::stop;
+}
 bool pcm_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, void* context,
                  bool* interrupted) noexcept {
     if (!workspace(s))
@@ -861,49 +907,15 @@ bool pcm_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, void
     const u32 channels = encoded_audio_channels(*s.encoded_metadata);
     u32 blocks{}, writes{};
     while (blocks < 8 && writes < 4 && s.status.error == AccountVideoError::none) {
-        if (cancelled && cancelled(context)) {
+        const auto step = output_step(s, w, channels, cancelled, context, &writes);
+        if (step == OutputStep::interrupted) {
             *interrupted = true;
             return true;
         }
-        const auto audio = media_audio_status(&w.audio);
-        if (audio.error != MediaAudioError::none) {
-            terminal(s, AccountVideoError::audio, audio.native_error);
-            break;
-        }
-        if (w.pending_frames) {
-            if (!audio.free_frames)
-                return false;
-            const u32 frames = minimum(audio.free_frames, w.pending_frames);
-            const auto written = media_audio_write(&w.audio, s.playback_epoch,
-                {w.pcm + w.pending_offset * channels, frames * channels});
-            if (!written.ok()) {
-                if (written.error != MediaAudioError::capacity)
-                    terminal(s, AccountVideoError::audio, written.native_error);
-                return false;
-            }
-            w.queued_frames += frames;
-            w.pending_offset += frames;
-            w.pending_frames -= frames;
-            s.video_seek_ready = true;
-            ++writes;
-            continue;
-        }
-        if (w.decoded_end) {
-            if (w.queued_frames != w.wanted_frames) {
-                terminal(s, AccountVideoError::timestamp);
-                break;
-            }
-            if (!w.sealed) {
-                const auto ended = media_audio_end(&w.audio, s.playback_epoch);
-                if (!ended.ok()) {
-                    terminal(s, AccountVideoError::audio, ended.native_error);
-                    break;
-                }
-                w.sealed = true;
-                s.video_seek_ready = true;
-            }
+        if (step == OutputStep::stop)
             return false;
-        }
+        if (step == OutputStep::again)
+            continue;
         if (s.source_cancelled && s.source_cancelled(s.source_cancel_context)) {
             *interrupted = true;
             return true;
@@ -971,51 +983,15 @@ bool opus_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, voi
     auto& w = *static_cast<OpusWorkspace*>(s.workspace);
     u32 packets{}, writes{};
     while (packets < 8 && writes < 4 && s.status.error == AccountVideoError::none) {
-        if (cancelled && cancelled(context)) {
+        const auto step = output_step(s, w, w.demux.channels, cancelled, context, &writes);
+        if (step == OutputStep::interrupted) {
             *interrupted = true;
             return true;
         }
-        const auto audio = media_audio_status(&w.audio);
-        if (audio.error != MediaAudioError::none) {
-            terminal(s, AccountVideoError::audio, audio.native_error);
-            break;
-        }
-        if (w.pending_frames) {
-            if (!audio.free_frames)
-                return false;
-            const u32 frames =
-                minimum(kMediaAudioMaximumWriteFrames, minimum(audio.free_frames, w.pending_frames));
-            const auto written =
-                media_audio_write(&w.audio, s.playback_epoch,
-                                  {w.pcm + w.pending_offset * w.demux.channels, frames * w.demux.channels});
-            if (!written.ok()) {
-                if (written.error != MediaAudioError::capacity)
-                    terminal(s, AccountVideoError::audio, written.native_error);
-                return false;
-            }
-            w.queued_frames += frames;
-            w.pending_offset += frames;
-            w.pending_frames -= frames;
-            s.video_seek_ready = true;
-            ++writes;
-            continue;
-        }
-        if (w.decoded_end) {
-            if (w.queued_frames != w.wanted_frames) {
-                terminal(s, AccountVideoError::timestamp);
-                break;
-            }
-            if (!w.sealed) {
-                const auto ended = media_audio_end(&w.audio, s.playback_epoch);
-                if (!ended.ok()) {
-                    terminal(s, AccountVideoError::audio, ended.native_error);
-                    break;
-                }
-                w.sealed = true;
-                s.video_seek_ready = true;
-            }
+        if (step == OutputStep::stop)
             return false;
-        }
+        if (step == OutputStep::again)
+            continue;
         const auto before = w.demux;
         const auto packet = ogg_opus_demux_next(&w.demux, {w.packet, sizeof(w.packet)});
         if (packet.error == OggOpusError::end_of_stream) {

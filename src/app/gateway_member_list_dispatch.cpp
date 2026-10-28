@@ -1,4 +1,5 @@
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/model/chat_state.hpp"
@@ -168,6 +169,12 @@ bool reject(GatewayEventDecodeError* error,
     return false;
 }
 
+// Rejects with the error a visitor recorded, else `fallback`.
+bool reject_visited(GatewayEventDecodeError* error, GatewayEventDecodeError visited,
+                    GatewayEventDecodeError fallback) noexcept {
+    return reject(error, visited != GatewayEventDecodeError::none ? visited : fallback);
+}
+
 bool u32_value(JsonValue value, u32* output) noexcept {
     u64 decoded = 0;
     if (!output || !json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFFFull) {
@@ -182,25 +189,17 @@ bool visit_root(void* opaque, JsonString name, JsonValue value) noexcept {
     const bool array = value.kind == JsonValueKind::array;
     switch (skim_member_index<"guild_id", "id", "member_count", "online_count", "groups", "members", "ops">(name)) {
     case 0:
-        if (context->guild_seen || !json_value_to_snowflake(value, &context->guild_id))
-            return reject(&context->error, gateway_field_error(context->guild_seen));
-        context->guild_seen = true;
-        break;
+        return gateway_once_member(&context->error, &context->guild_seen,
+                                   json_value_to_snowflake(value, &context->guild_id));
     case 1:
-        if (context->list_seen || !json_value_to_member_list_id(value, &context->list_id))
-            return reject(&context->error, gateway_field_error(context->list_seen));
-        context->list_seen = true;
-        break;
+        return gateway_once_member(&context->error, &context->list_seen,
+                                   json_value_to_member_list_id(value, &context->list_id));
     case 2:
-        if (context->members_seen || !u32_value(value, &context->member_count))
-            return reject(&context->error, gateway_field_error(context->members_seen));
-        context->members_seen = true;
-        break;
+        return gateway_once_member(&context->error, &context->members_seen,
+                                   u32_value(value, &context->member_count));
     case 3:
-        if (context->online_seen || !u32_value(value, &context->online_count))
-            return reject(&context->error, gateway_field_error(context->online_seen));
-        context->online_seen = true;
-        break;
+        return gateway_once_member(&context->error, &context->online_seen,
+                                   u32_value(value, &context->online_count));
     case 4:
         return gateway_keep_member(&context->error, &context->groups_seen, &context->groups, value, array);
     case 5:
@@ -217,10 +216,8 @@ bool visit_op(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<OpObject*>(opaque);
     switch (skim_member_index<"op", "range", "items", "item", "index">(name)) {
     case 0:
-        if (context->operation_seen || !json_value_as_string(value, &context->operation))
-            return reject(&context->error, gateway_field_error(context->operation_seen));
-        context->operation_seen = true;
-        break;
+        return gateway_once_member(&context->error, &context->operation_seen,
+                                   json_value_as_string(value, &context->operation));
     case 1:
         return gateway_keep_member(&context->error, &context->range_seen, &context->range, value,
                                    value.kind == JsonValueKind::array);
@@ -231,10 +228,7 @@ bool visit_op(void* opaque, JsonString name, JsonValue value) noexcept {
         return gateway_keep_member(&context->error, &context->item_seen, &context->item, value,
                                    value.kind == JsonValueKind::object);
     case 4:
-        if (context->index_seen || !u32_value(value, &context->index))
-            return reject(&context->error, gateway_field_error(context->index_seen));
-        context->index_seen = true;
-        break;
+        return gateway_once_member(&context->error, &context->index_seen, u32_value(value, &context->index));
     default: break;
     }
     return true;
@@ -312,10 +306,8 @@ bool visit_presence(void* opaque, JsonString name, JsonValue value) noexcept {
     switch (skim_member_index<"status", "client_status">(name)) {
     case 0:
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
-        if (context->status_seen || !json_value_as_string(value, &context->status))
-            return reject(&context->error, gateway_field_error(context->status_seen));
-        context->status_seen = true;
-        break;
+        return gateway_once_member(&context->error, &context->status_seen,
+                                   json_value_as_string(value, &context->status));
     case 1:
         if (context->client_status_seen)
             return reject(&context->error, GatewayEventDecodeError::duplicate_field);
@@ -434,9 +426,7 @@ bool append_group(PayloadWriter* writer, JsonValue value, u32 index,
         writer->decode_detail =
             (writer->decode_detail & 0xFFFF0000u) |
             (value.kind == JsonValueKind::object ? field : static_cast<u32>(value.kind));
-        return reject(error, group.error == GatewayEventDecodeError::none
-                                 ? GatewayEventDecodeError::invalid_data
-                                 : group.error);
+        return reject_visited(error, group.error, GatewayEventDecodeError::invalid_data);
     }
     if (group.count == ~0u) {
         writer->decode_detail =
@@ -518,9 +508,7 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
         !member.user_seen || (full_roles && !member.roles_seen)) {
         writer->decode_detail |=
             member.error != GatewayEventDecodeError::none ? member.field_detail : (1u << 8) | 0xFFu;
-        return reject(error, member.error != GatewayEventDecodeError::none
-                                 ? member.error
-                                 : GatewayEventDecodeError::missing_required_field);
+        return reject_visited(error, member.error, GatewayEventDecodeError::missing_required_field);
     }
     UserObject user{};
     writer->decode_detail = decode_detail(MemberDecodeStage::user, 0, 0);
@@ -529,9 +517,7 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
         writer->decode_detail |= user.error != GatewayEventDecodeError::none
                                      ? user.field_detail
                                      : ((!user.id_seen ? 1u : 2u) << 8) | 0xFFu;
-        return reject(error, user.error != GatewayEventDecodeError::none
-                                 ? user.error
-                                 : GatewayEventDecodeError::missing_required_field);
+        return reject_visited(error, user.error, GatewayEventDecodeError::missing_required_field);
     }
     PresenceObject presence{};
     // A member profile is complete without a presence. Null, like an omitted
@@ -543,16 +529,14 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
         writer->decode_detail |= presence.field_detail;
         return reject(error, presence.error);
     }
-    u64 roles[kMemberListMaximumRoles]{};
+    u64 roles[kMemberListMaximumRoles];
     RoleContext role_context{roles, kMemberListMaximumRoles, 0, GatewayEventDecodeError::none};
     writer->decode_detail = decode_detail(MemberDecodeStage::roles);
     if (member.roles_seen) {
         const JsonReadResult read =
             json_visit_indexed_array(document, member.roles, maximum_depth, visit_role, &role_context);
         if (!read.ok()) {
-            return reject(error, role_context.error != GatewayEventDecodeError::none
-                                     ? role_context.error
-                                     : GatewayEventDecodeError::invalid_json);
+            return reject_visited(error, role_context.error, GatewayEventDecodeError::invalid_json);
         }
     }
     JsonString display = user.username;
@@ -690,9 +674,7 @@ bool parse_range(JsonValue value, const JsonIndexedDocument& document, u32 maxim
     const JsonReadResult read =
         json_visit_indexed_array(document, value, maximum_depth, visit_u32_pair, &range);
     if (!read.ok() || range.count != 2 || range.values[1] < range.values[0]) {
-        return reject(error, range.error != GatewayEventDecodeError::none
-                                 ? range.error
-                                 : GatewayEventDecodeError::invalid_data);
+        return reject_visited(error, range.error, GatewayEventDecodeError::invalid_data);
     }
     *first = range.values[0];
     *last = range.values[1];
@@ -709,9 +691,7 @@ bool visit_operation(void* opaque, u32, JsonValue value) noexcept {
     if (!visit_object(value, *context->document, context->maximum_depth, visit_op, &operation,
                       &operation.error) ||
         !operation.operation_seen) {
-        return reject(&context->error, operation.error != GatewayEventDecodeError::none
-                                           ? operation.error
-                                           : GatewayEventDecodeError::missing_required_field);
+        return reject_visited(&context->error, operation.error, GatewayEventDecodeError::missing_required_field);
     }
     const u32 operation_index = member_index<"SYNC", "INVALIDATE", "DELETE", "INSERT", "UPDATE">(operation.operation);
     if (operation_index == 0) {
@@ -732,9 +712,7 @@ bool visit_operation(void* opaque, u32, JsonValue value) noexcept {
         const JsonReadResult read = json_visit_indexed_array(
             *context->document, operation.items, context->maximum_depth, visit_sync_item, &items);
         if (!read.ok()) {
-            return reject(&context->error, items.error != GatewayEventDecodeError::none
-                                               ? items.error
-                                               : GatewayEventDecodeError::invalid_json);
+            return reject_visited(&context->error, items.error, GatewayEventDecodeError::invalid_json);
         }
         return true;
     }
@@ -777,16 +755,11 @@ bool gateway_visit_member_user(void* opaque, JsonString name, JsonValue value) n
     switch (name_index) {
     case 0:
         context->field_detail = (1u << 8) | static_cast<u32>(value.kind);
-        if (context->id_seen || !json_value_to_snowflake(value, &context->id))
-            return reject(&context->error, gateway_field_error(context->id_seen));
-        context->id_seen = true;
-        break;
+        return gateway_once_member(&context->error, &context->id_seen, json_value_to_snowflake(value, &context->id));
     case 1:
         context->field_detail = (2u << 8) | static_cast<u32>(value.kind);
-        if (context->username_seen || !json_value_as_string(value, &context->username))
-            return reject(&context->error, gateway_field_error(context->username_seen));
-        context->username_seen = true;
-        break;
+        return gateway_once_member(&context->error, &context->username_seen,
+                                   json_value_as_string(value, &context->username));
     case 2:
     case 3: {
         const bool global = name_index == 2;
@@ -1032,8 +1005,7 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
         return false;
     if ((!positional && !summary && mutation->kind != GatewayClientMemberListItemKind::member) ||
         (positional && !member && !group) ||
-        (mutation->operation == GatewayClientMemberListOperation::group_summary && !summary) ||
-        ((positional || summary) && mutation->index == ~0u))
+        (mutation->operation == GatewayClientMemberListOperation::group_summary && !summary))
         return false;
     const u32 role_bytes = static_cast<u32>(mutation->role_count) * 8u;
     const u32 text_bytes = static_cast<u32>(mutation->nickname_bytes) + mutation->display_name_bytes +
@@ -1095,18 +1067,12 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
     if (!gateway_avatar_hash_valid(*avatar_hash))
         return false;
     for (u32 role = 0; role < mutation->role_count; ++role) {
-        u64 id = 0;
-        for (u32 byte = 0; byte < 8; ++byte)
-            id |= static_cast<u64>((*role_payload)[role * 8 + byte]) << (byte * 8);
+        const u64 id = byte_load_le64(role_payload->data + role * 8);
         if (!id)
             return false;
-        for (u32 previous = 0; previous < role; ++previous) {
-            bool equal = true;
-            for (u32 byte = 0; byte < 8; ++byte)
-                equal &= (*role_payload)[role * 8 + byte] == (*role_payload)[previous * 8 + byte];
-            if (equal)
+        for (u32 previous = 0; previous < role; ++previous)
+            if (byte_load_le64(role_payload->data + previous * 8) == id)
                 return false;
-        }
     }
     ++*index;
     if (*index == event.member_list.record_count && *cursor != payload.count) {

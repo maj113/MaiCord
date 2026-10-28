@@ -66,8 +66,7 @@ NativePluginSettingsError native_plugin_settings_project(const NativePluginSetti
         if ((!control.label.bytes && control.kind != NativePluginSettingsKind::notice) ||
             !utf8_validate(control.label).valid || !utf8_validate(control.description).valid ||
             !utf8_validate(control.action_label).valid ||
-            (control.kind == NativePluginSettingsKind::action &&
-                (!control.action_label.bytes || !utf8_validate(control.action_label).valid))) return Error::invalid_argument;
+            (control.kind == NativePluginSettingsKind::action && !control.action_label.bytes)) return Error::invalid_argument;
         if (control.kind == NativePluginSettingsKind::choice)
             for (u32 j = 0; j < control.choices.count; ++j)
                 if (!control.choices[j].bytes || !utf8_validate(control.choices[j]).valid) return Error::invalid_argument;

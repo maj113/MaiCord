@@ -1,4 +1,5 @@
 #include "maicord/app/https_file_download.hpp"
+#include "https_transfer_owner.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/platform/tls_stream.hpp"
 #include "maicord/platform/staged_file.hpp"
@@ -344,34 +345,12 @@ HttpsFileDownloadResult https_file_download_status(const HttpsFileDownload* owne
 bool https_file_download_cancel(HttpsFileDownload* owner) noexcept {
     if (!owner || !owner->runtime || owner->stop_requested) return false;
     if (https_file_download_status(owner).phase == HttpsFileDownloadPhase::complete) return true;
-    InterlockedExchange(&owner->cancelled, 1);
-    const auto startup = network_worker_startup_status(&owner->worker);
-    if (startup.error == NetworkWorkerError::startup_pending || startup.error == NetworkWorkerError::network_initialize) return true;
-    if (!startup.ok()) return false;
-    auto* r = static_cast<Runtime*>(owner->runtime);
-    return network_signal_post(&owner->worker.loop, &r->cancel_signal, 1).ok();
+    return https_transfer_cancel(&owner->worker, &owner->cancelled, &static_cast<Runtime*>(owner->runtime)->cancel_signal);
 }
 bool https_file_download_release(HttpsFileDownload* owner, u32 timeout_ms) noexcept {
     if (!owner) return false;
     if (!owner->runtime) return true;
-    const u64 started = GetTickCount64();
-    if (!owner->stop_requested) {
-        InterlockedExchange(&owner->cancelled, 1);
-        auto startup = network_worker_startup_status(&owner->worker);
-        if (startup.error == NetworkWorkerError::startup_pending) {
-            if (!timeout_ms || WaitForSingleObject(owner->worker.ready_event, timeout_ms) != WAIT_OBJECT_0) return false;
-            startup = network_worker_startup_status(&owner->worker);
-        }
-        if (startup.error == NetworkWorkerError::network_initialize) {
-            const u64 elapsed = GetTickCount64() - started;
-            if (!network_worker_join(&owner->worker, elapsed >= timeout_ms ? 0 : timeout_ms - static_cast<u32>(elapsed)).ok()) return false;
-            destroy(owner); return true;
-        }
-        if (!startup.ok() || !network_worker_request_stop(&owner->worker).ok()) return false;
-        owner->stop_requested = true;
-    }
-    const u64 elapsed = GetTickCount64() - started;
-    if (!network_worker_join(&owner->worker, elapsed >= timeout_ms ? 0 : timeout_ms - static_cast<u32>(elapsed)).ok()) return false;
+    if (!https_transfer_stop_and_join(&owner->worker, &owner->cancelled, &owner->stop_requested, timeout_ms)) return false;
     destroy(owner); return true;
 }
 }

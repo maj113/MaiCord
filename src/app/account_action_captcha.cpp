@@ -53,7 +53,7 @@ bool arm(AccountActionCaptcha* captcha, RestClient* rest, u64 request_id) noexce
 CaptchaBridgeStatus account_action_captcha(AccountActionCaptcha* captcha, RestClient* primary,
                                            RestClient* details,
                                            const AccountActionCaptchaRequest& request) noexcept {
-    if (!captcha || request.operation > AccountActionCaptchaOperation::cancel)
+    if (!captcha)
         return refused(captcha, CaptchaBridgeError::invalid_input);
     switch (request.operation) {
     case AccountActionCaptchaOperation::start: {

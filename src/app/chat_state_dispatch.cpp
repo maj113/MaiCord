@@ -233,7 +233,7 @@ bool read_guild_role_input(const void* opaque, u32 index, RoleInput* output) noe
 }
 
 bool guild_roles_valid(const GatewayClientEvent& event, ConstSlice<u8> payload,
-                       bool require_everyone, ConstSlice<u32> offsets) noexcept {
+                       ConstSlice<u32> offsets) noexcept {
     if (event.state.role_count == 0 || event.state.role_count > kGuildRoleMaximum) {
         return false;
     }
@@ -253,20 +253,17 @@ bool guild_roles_valid(const GatewayClientEvent& event, ConstSlice<u8> payload,
         }
         everyone = everyone || role.id == event.state.id;
     }
-    return !require_everyone || everyone;
+    return everyone;
 }
 
-bool guild_roles_payload_bytes(const GatewayClientEvent& event,
-                               ConstSlice<u8> payload, u32* bytes, ConstSlice<u32> offsets = {}) noexcept {
-    if (!bytes) {
-        return false;
-    }
+bool guild_roles_payload_bytes(const GatewayClientEvent& event, ConstSlice<u8> payload,
+                               u32* bytes, ConstSlice<u32> offsets) noexcept {
     u64 total = gateway_client_guild_strings_bytes(event.state);
     for (u32 index = 0; index < event.state.role_count; ++index) {
         GatewayClientRoleMutation role{};
         Utf8View name{};
-        if (offsets.count ? index >= offsets.count || !gateway_client_event_guild_role_at(event, payload, offsets[index], &role, &name) :
-            !gateway_client_event_guild_role(event, payload, index, &role, &name)) {
+        if (index >= offsets.count ||
+            !gateway_client_event_guild_role_at(event, payload, offsets[index], &role, &name)) {
             return false;
         }
         total += sizeof(role) + name.bytes;
@@ -338,6 +335,11 @@ bool overwrite_payload_valid(ConstSlice<u8> payload, u32 count) noexcept {
     return true;
 }
 
+static_assert(static_cast<u8>(gateway_client_emoji_animated) == custom_emoji_animated &&
+              static_cast<u8>(gateway_client_emoji_available) == custom_emoji_available &&
+              static_cast<u8>(gateway_client_emoji_managed) == custom_emoji_managed &&
+              static_cast<u8>(gateway_client_emoji_require_colons) == custom_emoji_require_colons);
+
 bool guild_emojis_payload(
     const GatewayClientEvent& event, ConstSlice<u8> payload,
     Slice<CustomEmojiInput> emojis, u32* count) noexcept {
@@ -377,22 +379,8 @@ bool guild_emojis_payload(
                 if (!read_u64(roles, previous * 8u, &other) || other == id) return false;
             }
         }
-        emojis[index - 1] = CustomEmojiInput{
-            emoji.id, name, roles, emoji.role_count,
-            static_cast<u8>(
-                ((emoji.flags & gateway_client_emoji_animated) != 0
-                     ? custom_emoji_animated
-                     : 0u) |
-                ((emoji.flags & gateway_client_emoji_available) != 0
-                     ? custom_emoji_available
-                     : 0u) |
-                ((emoji.flags & gateway_client_emoji_managed) != 0
-                     ? custom_emoji_managed
-                     : 0u) |
-                ((emoji.flags & gateway_client_emoji_require_colons) != 0
-                     ? custom_emoji_require_colons
-                     : 0u)),
-            0};
+        // The wire flag bits are the store's (validated against the known mask above).
+        emojis[index - 1] = CustomEmojiInput{emoji.id, name, roles, emoji.role_count, emoji.flags, 0};
         for (u32 previous = 0; previous + 1 < index; ++previous) {
             if (emojis[previous].id == emoji.id) {
                 return false;
@@ -495,8 +483,8 @@ bool thread_sync_input(const void* opaque, u32 index, ChannelInput* out) noexcep
     out->thread_active_known = true;
     return true;
 }
-bool id_in(ConstSlice<u8> payload, u32 begin, u32 count, u64 id) noexcept {
-    for (u32 i = 0; i < count; ++i) if (byte_load_le64(payload.data + begin + i * 8) == id) return true;
+bool id_in(ConstSlice<u8> payload, u32 count, u64 id) noexcept {
+    for (u32 i = 0; i < count; ++i) if (byte_load_le64(payload.data + i * 8) == id) return true;
     return false;
 }
 // Joined-thread entries of THREAD_LIST_SYNC: id, then join seconds.
@@ -599,7 +587,7 @@ ChatStateApplyResult chat_state_apply_thread_authority(
     for (u32 i = 0; i < sync.parent_count; ++i) {
         const u64 id = byte_load_le64(payload.data + i * 8);
         const auto* parent = chat_state_store_find_channel(*store, id);
-        if (!id || id_in(payload, 0, i, id) ||
+        if (!id || id_in(payload, i, id) ||
             (parent && (parent->guild_id != sync.guild_id || !channel_is_thread_parent(parent->type))))
             return apply_error(ChatStateApplyError::invalid_payload);
     }
@@ -608,7 +596,7 @@ ChatStateApplyResult chat_state_apply_thread_authority(
         GatewayClientStateMutation state{}; Utf8View name{};
         offsets[i] = cursor;
         if (!thread_sync_record(payload, cursor, &state, &name, &cursor) || state.guild_id != sync.guild_id ||
-            (sync.scope == GatewayClientThreadSyncScope::parents && !id_in(payload, 0, sync.parent_count, state.parent_id)))
+            (sync.scope == GatewayClientThreadSyncScope::parents && !id_in(payload, sync.parent_count, state.parent_id)))
             return apply_error(ChatStateApplyError::invalid_payload);
         const auto* parent = chat_state_store_find_channel(*store, state.parent_id);
         const auto* resident = chat_state_store_find_channel(*store, state.id);
@@ -652,7 +640,7 @@ ChatStateApplyResult chat_state_apply_thread_authority(
         const auto& channel = store->channels[store->channel_order[i]];
         if (channel.guild_id != sync.guild_id ||
             (sync.scope == GatewayClientThreadSyncScope::parents &&
-             !id_in(payload, 0, sync.parent_count, channel_is_thread(channel.type) ? channel.parent_id : channel.id)))
+             !id_in(payload, sync.parent_count, channel_is_thread(channel.type) ? channel.parent_id : channel.id)))
             continue;
         if (channel_is_thread_parent(channel.type)) {
             chat_state_store_set_thread_listing_synced(store, channel.id, sync.self_user_id);
@@ -884,7 +872,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 const ConstSlice<u32> offsets{role_offsets, event.state.role_count};
                 if (store->self_user_id == 0 || event.state.owner_id == 0 ||
                     !gateway_client_event_guild_role_offsets(event, payload, {role_offsets, kGuildRoleMaximum}) ||
-                    !guild_roles_valid(event, payload, true, offsets)) {
+                    !guild_roles_valid(event, payload, offsets)) {
                     return apply_error(ChatStateApplyError::invalid_payload);
                 }
                 u32 roles_end = 0;
@@ -1083,7 +1071,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                      : (event.state.emoji_count != 0 ||
                         event.state.emoji_role_count != 0 ||
                         roles_bytes != payload.count)) ||
-                !guild_roles_valid(event, payload, true, offsets)) {
+                !guild_roles_valid(event, payload, offsets)) {
                 return apply_error(ChatStateApplyError::invalid_payload);
             }
             const u32 old_roles = resident_guild_roles(*store, event.state.id);

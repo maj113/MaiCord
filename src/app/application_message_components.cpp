@@ -45,7 +45,6 @@ struct Owner {
     MessageInteractionRequest request;
     u64 account_scope;
     u64 message_id;
-    u64 channel_id;
     u64 nonce;
     u64 interaction_id;
     u64 deadline_ms;
@@ -138,6 +137,16 @@ bool resolve_message(u64 message_id, Resolved* output) noexcept {
     return true;
 }
 
+// Publishes the prepared owner->request as the one interaction in flight.
+void mark_queued(u64 nonce) noexcept {
+    owner->nonce = nonce;
+    owner->interaction_id = 0;
+    owner->failed = false;
+    owner->phase = Phase::queued;
+    owner->retry_at_ms = 0;
+    publish_feedback();
+}
+
 // Builds and queues a component interaction (one in flight at a time).
 bool queue_component(const Resolved& message, u16 index, ConstSlice<Utf8View> values) noexcept {
     if (!ensure_owner())
@@ -167,14 +176,8 @@ bool queue_component(const Resolved& message, u16 index, ConstSlice<Utf8View> va
         return false;
     owner->account_scope = application_account_scope();
     owner->message_id = message.record->id;
-    owner->channel_id = message.record->channel_id;
-    owner->nonce = request.nonce;
-    owner->interaction_id = 0;
     owner->component_index = index;
-    owner->failed = false;
-    owner->phase = Phase::queued;
-    owner->retry_at_ms = 0;
-    publish_feedback();
+    mark_queued(request.nonce);
     return true;
 }
 
@@ -421,13 +424,8 @@ bool queue_modal_submit() noexcept {
     request.type = MessageInteractionType::modal_submit;
     if (!message_interaction_request_valid(request))
         return false;
-    owner->nonce = request.nonce;
     owner->message_id = owner->modal_message_id;
-    owner->interaction_id = 0;
-    owner->failed = false;
-    owner->phase = Phase::queued;
-    owner->retry_at_ms = 0;
-    publish_feedback();
+    mark_queued(request.nonce);
     return true;
 }
 

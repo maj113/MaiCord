@@ -71,6 +71,13 @@ enum : u64 {
     control_privacy_joining,
 };
 
+// Invite options as the official client offers them.
+constexpr u32 kGuildInviteExpiryCount = 7;
+constexpr u32 kGuildInviteExpirySeconds[kGuildInviteExpiryCount]{1'800, 3'600, 21'600, 43'200, 86'400, 604'800, 0};
+constexpr u32 kGuildInviteDefaultExpiry = 5; // 7 days
+constexpr u32 kGuildInviteUsesCount = 7;
+constexpr u32 kGuildInviteUses[kGuildInviteUsesCount]{0, 1, 5, 10, 25, 50, 100};
+
 static constexpr Utf8View kExpiryLabels[kGuildInviteExpiryCount]{
     utf8_literal("30 minutes"), utf8_literal("1 hour"), utf8_literal("6 hours"), utf8_literal("12 hours"),
     utf8_literal("1 day"),      utf8_literal("7 days"), utf8_literal("Never")};
@@ -595,16 +602,15 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
     auto& p = *owner;
     const auto target = activation.value.target;
     switch (target.kind) {
-    case UiSettingsTargetKind::reset:
+    case UiSettingsTargetKind::reset: {
         // Privacy: the secondary button opens the global DM settings, as
         // the official client's modal links to them.
-        if (p.mode == Mode::privacy) {
-            application_guild_lifecycle_close();
-            application_settings_open_key(utf8_literal("content.dms"));
-            return;
-        }
+        const bool privacy = p.mode == Mode::privacy;
         application_guild_lifecycle_close();
+        if (privacy)
+            application_settings_open_key(utf8_literal("content.dms"));
         return;
+    }
     case UiSettingsTargetKind::close:
         application_guild_lifecycle_close();
         return;

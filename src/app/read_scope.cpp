@@ -1,4 +1,5 @@
 #include "maicord/app/read_scope.hpp"
+#include "maicord/core/byte_range.hpp"
 #include "maicord/model/permission_bits.hpp"
 
 namespace maicord {
@@ -73,15 +74,6 @@ ReadScopeTarget target(const ChatStateStore& state, const ReadScopeSource& sourc
     }
     return result;
 }
-bool overlap(const void* first, u64 first_bytes, const void* second, u64 second_bytes) noexcept {
-    if (!first_bytes || !second_bytes)
-        return false;
-    const auto a = reinterpret_cast<usize>(first), b = reinterpret_cast<usize>(second);
-    constexpr usize maximum = ~usize{0};
-    if (first_bytes > maximum - a || second_bytes > maximum - b)
-        return true;
-    return a < b + second_bytes && b < a + first_bytes;
-}
 } // namespace
 bool read_scope_source(const ChatStateStore& state, ReadScopeKind kind, u64 id,
                        ReadScopeSource* output) noexcept {
@@ -151,12 +143,12 @@ ReadScopePlanResult read_scope_plan(const ChatStateStore& state, ReadScopeKind k
                                     u64 action_time_ms, Slice<ReadScopeTarget> output) noexcept {
     const auto result = read_scope_plan_size(state, kind, id, action_time_ms);
     if (!result.valid || (result.count && (!output.data || output.count < result.count)) ||
-        overlap(output.data, static_cast<u64>(output.count) * sizeof(ReadScopeTarget), state.channels,
-                static_cast<u64>(state.channel_capacity) * sizeof(ChannelRecord)) ||
-        overlap(output.data, static_cast<u64>(output.count) * sizeof(ReadScopeTarget), state.guilds,
-                static_cast<u64>(state.guild_capacity) * sizeof(GuildRecord)) ||
-        overlap(output.data, static_cast<u64>(output.count) * sizeof(ReadScopeTarget), &state,
-                sizeof(state)))
+        byte_ranges_overlap_or_wrap(output.data, static_cast<u64>(output.count) * sizeof(ReadScopeTarget), state.channels,
+                                    static_cast<u64>(state.channel_capacity) * sizeof(ChannelRecord)) ||
+        byte_ranges_overlap_or_wrap(output.data, static_cast<u64>(output.count) * sizeof(ReadScopeTarget), state.guilds,
+                                    static_cast<u64>(state.guild_capacity) * sizeof(GuildRecord)) ||
+        byte_ranges_overlap_or_wrap(output.data, static_cast<u64>(output.count) * sizeof(ReadScopeTarget), &state,
+                                    sizeof(state)))
         return {};
     const u64 cursor = clock_cursor(action_time_ms);
     u32 used = 0;

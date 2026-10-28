@@ -10,7 +10,6 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/text_bank.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/protocol/guild_invite.hpp"
 #include "maicord/ui/message_markdown.hpp"
 
@@ -136,8 +135,10 @@ bool form_save(TextFormOwnerKey key, Utf8View) noexcept {
         return true;
     switch (g_invite.state) {
     case InviteState::resolved:
-        if (member_of(g_invite.invite.guild_id))
-            return select_content_guild(g_invite.invite.guild_id) || true;
+        if (member_of(g_invite.invite.guild_id)) {
+            select_content_guild(g_invite.invite.guild_id);
+            return true;
+        }
         publish(InviteState::accept_queued);
         pump_message_history();
         return false;
@@ -194,9 +195,12 @@ bool application_guild_invite_open_url(Utf8View url) noexcept {
         return false;
     // An event link opens the event in a server the account is in; others
     // fall back to the browser.
-    if (invite_link_event(link))
-        return member_of(link.event_guild_id) &&
-               (application_guild_community_open_event(link.event_guild_id, link.event_id) || true);
+    if (invite_link_event(link)) {
+        const bool member = member_of(link.event_guild_id);
+        if (member)
+            application_guild_community_open_event(link.event_guild_id, link.event_id);
+        return member;
+    }
     application_guild_invite_open({link.code, link.code_bytes});
     return true;
 }

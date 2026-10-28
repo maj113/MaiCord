@@ -89,14 +89,17 @@ void revoke_capture(ApplicationMessageForward& q) noexcept {
     ui_widget_manager_capture(&q.scene.widgets, ui_widget_invalid_handle());
     if (GetCapture() == g_app.window) ReleaseCapture();
 }
-void caret_reset(ApplicationMessageForward& q) noexcept {
+u64 blink_deadline(u64 now) noexcept {
     const u32 interval = GetCaretBlinkTime();
+    return interval && interval != INFINITE ? deadline_after(now, interval) : 0;
+}
+void caret_reset(ApplicationMessageForward& q) noexcept {
     q.caret_visible = true;
-    q.blink_at = interval && interval != INFINITE ? deadline_after(clock_monotonic_milliseconds(), interval) : 0;
+    q.blink_at = blink_deadline(clock_monotonic_milliseconds());
 }
 bool edit_ready(const TextInputTarget& target) noexcept {
     const auto* q = g_app.message_forward;
-    return q && q->active && q->focused && !q->controller.committed && available() && quick_switcher_scope_equal(q->controller.scope, scope()) &&
+    return application_message_forward_edit_focused() &&
         target.context == (q->caption_focused ? &q->caption : &q->edit) && target.identity == q->identity;
 }
 using EditInput = ForwardedInput<edit_ready, text_input_single_line_forbidden>;
@@ -217,10 +220,11 @@ bool application_message_forward_synchronize() noexcept {
     auto* q = g_app.message_forward;
     if (!q) return true;
     if (!g_app.account_ui) { application_message_forward_close(); return true; }
-    if (!quick_switcher_scope_equal(q->controller.scope, scope())) {
+    const QuickSwitcherScope current = scope();
+    if (!quick_switcher_scope_equal(q->controller.scope, current)) {
         // Never apply an old account's nonces to another account's outbox.
         if (q->account_ui == g_app.account_ui && q->account_instance == g_app.account.instance &&
-            q->controller.scope.profile_key == scope().profile_key && q->controller.scope.self_user_id == scope().self_user_id)
+            q->controller.scope.profile_key == current.profile_key && q->controller.scope.self_user_id == current.self_user_id)
             message_forward_cancel_pending(&q->controller, &g_app.account_ui->message_composer_controller);
         application_message_forward_close();
         reset_value(&q->controller);
@@ -301,7 +305,6 @@ bool application_message_forward_open(u64 id) noexcept {
         }
         g_app.message_forward = q;
     }
-    if (g_app.message_forward_lifetime_serial == ~u64{0}) return false;
     q->identity = ++g_app.message_forward_lifetime_serial;
     message_composer_reset(&q->edit, 0, false); message_composer_reset(&q->caption, 0, false);
     const auto* author = user_store_find(g_app.account_ui->user_store, record->author_id);
@@ -465,8 +468,7 @@ void application_message_forward_tick(u64 now) noexcept {
     auto* q = g_app.message_forward;
     if (!q || !deadline_due(now, application_message_forward_caret_wake())) return;
     q->caret_visible = !q->caret_visible; ++q->content_revision;
-    const u32 interval = GetCaretBlinkTime();
-    q->blink_at = interval && interval != INFINITE ? deadline_after(now, interval) : 0;
+    q->blink_at = blink_deadline(now);
     application_request_frame();
 }
 void application_message_forward_completion(const MessageSendCompletion& completion) noexcept {

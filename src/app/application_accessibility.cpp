@@ -11,6 +11,7 @@
 #include "application_attachments_state.hpp"
 #include "application_channel_overview.hpp"
 #include "application_composer.hpp"
+#include "application_composer_input.hpp"
 #include "application_composer_text_input.hpp"
 #include "application_content_input.hpp"
 #include "application_custom_status.hpp"
@@ -1466,12 +1467,8 @@ bool wheel_node(const UiAccessNode& node, UiAccessScroll amount) noexcept {
 
 void focus_owner(UiWidgetManager* owner) noexcept {
     ui_button_keyboard_cancel(&g_app.button_keyboard);
-    if (owner != &g_app.message_composer_scene.widgets && g_app.message_composer.focused) {
-        stop_local_typing(g_app.message_composer.channel_id);
-        g_app.message_composer.focused = false;
-        ++g_app.message_composer.revision;
-        reset_message_composer_caret_timing(false);
-    }
+    if (owner != &g_app.message_composer_scene.widgets && g_app.message_composer.focused)
+        release_message_composer_focus();
     g_app.context_focus = owner;
     g_app.keyboard_focus_visible = true;
     SetFocus(g_app.window);

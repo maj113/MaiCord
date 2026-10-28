@@ -103,7 +103,6 @@ struct AccountMediaWorkerLane {
 
 struct AccountMediaWorkerCounters {
     volatile LONG64 queued;
-    volatile LONG64 ready;
 };
 
 struct AccountMediaWorkerRetry {

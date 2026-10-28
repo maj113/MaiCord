@@ -240,11 +240,7 @@ void account_soundboard_output(AccountSoundboard* s, const VoiceAudioSettings& s
     if (!s || !s->initialized)
         return;
     s->output_gain_percent = minimum<u32>(settings.output_gain_percent, kVoiceGainMaximumPercent);
-    u32 i = 0;
-    while (i + 1 < kVoiceDeviceIdCharacters && settings.output_device[i] == s->output_device[i] &&
-           settings.output_device[i])
-        ++i;
-    if (settings.output_device[i] == s->output_device[i])
+    if (voice_device_id_equal(settings.output_device, s->output_device))
         return;
     copy_bytes(s->output_device, settings.output_device, sizeof(s->output_device));
     s->output_device[kVoiceDeviceIdCharacters - 1] = 0;

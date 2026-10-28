@@ -50,16 +50,16 @@ bool bind(UiRect viewport) noexcept {
 }
 } // namespace
 
-bool application_toast_synchronize(u64 now_ms) noexcept {
+void application_toast_synchronize(u64 now_ms) noexcept {
     auto& toasts = g_app.toasts;
     // Nothing queued or on screen: no work, no wake.
     if (!toasts.count && !ui_rect_has_area(toasts.rectangle))
-        return true;
+        return;
     const UiRect viewport = g_app.renderer_ready ? application_viewport_dips() : UiRect{};
     // A minimized window keeps the queue's time; nothing is placed until it returns.
     if (ui_rect_has_area(viewport) && !bind(viewport)) {
         ui_toast_clear(&toasts);
-        return false;
+        return;
     }
     const u32 revision = toasts.revision;
     const UiToastEnvironment environment{&application_theme(),
@@ -72,7 +72,6 @@ bool application_toast_synchronize(u64 now_ms) noexcept {
         application_repaint();
     else if (changed)
         application_request_frame();
-    return true;
 }
 
 u64 application_toast_next_wake() noexcept {

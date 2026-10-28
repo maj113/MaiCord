@@ -167,9 +167,8 @@ ObservedSurface observe(RendererLayerSurface surface, bool allowed) noexcept {
     if ((surface == RendererLayerSurface::settings_choice && (!choice || !settings)) ||
         (surface == RendererLayerSurface::popup && (choice || settings)))
         return {};
-    const bool covered = form;
     return {{reinterpret_cast<u64>(popup), popup->owner_id, popup->opens, static_cast<u32>(popup->kind)},
-            allowed && !covered};
+            allowed && !form};
 }
 } // namespace
 

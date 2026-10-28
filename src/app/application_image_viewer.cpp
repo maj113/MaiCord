@@ -415,6 +415,17 @@ void record_identity(const MessageRecord& message, MessageHandle handle, bool sn
     viewer.profile_id = g_app.account.status.profile_id;
     viewer.self_user_id = g_app.account_ui->chat_state.self_user_id;
 }
+// Opens the viewer on a timeline message's item; request.pixels sizes its first layout.
+void open_local(const MessageRecord& message, MessageHandle handle, bool snapshot, const OpenRequest& request) noexcept {
+    auto& viewer = g_app.image_viewer;
+    if (!ui_image_viewer_open(&viewer.scene, viewport(), request.pixels))
+        return;
+    reset_value(&viewer.search_source);
+    viewer.search_result = false;
+    record_identity(message, handle, snapshot);
+    if (!begin(request))
+        application_image_viewer_close();
+}
 } // namespace
 bool application_image_viewer_source(ApplicationSearchSourceView* out) noexcept {
     const auto& viewer = g_app.image_viewer;
@@ -687,18 +698,11 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
                 media_asset_attachment(attachment.id, format,
                                        media_resolution_tier_for_display(width, height, g_app.renderer.dpi,
                                                                          media_preview_extent_cap(format)));
-            if (!attachment.width || !attachment.height)
-                request.pixels = {width, height};
-            auto& viewer = g_app.image_viewer;
-            if (!ui_image_viewer_open(
-                    &viewer.scene, viewport(),
-                    attachment.width && attachment.height ? UiSize{static_cast<float>(attachment.width), static_cast<float>(attachment.height)}
-                                                          : UiSize{width, height}))
-                return true;
-            reset_value(&viewer.search_source); viewer.search_result = false;
-            record_identity(*message, row.message, content_scope != 0);
-            if (!begin(request))
-                application_image_viewer_close();
+            const UiSize shown = attachment.width && attachment.height
+                                     ? UiSize{static_cast<float>(attachment.width), static_cast<float>(attachment.height)}
+                                     : UiSize{width, height};
+            request.pixels = shown;
+            open_local(*message, row.message, content_scope != 0, request);
             return true;
         }
         for (u32 member = 0; member < rich->embed_count; ++member) {
@@ -740,18 +744,12 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
             request.fallback =
                 media_asset_embed(message->id, message->revision, static_cast<u8>(member), selected.resource,
                                   selected.format, selected.animated, tier, row.forwarded_snapshot);
-            if (!selected.media->width || !selected.media->height)
-                request.pixels = {width, height};
-            auto& viewer = g_app.image_viewer;
-            if (!ui_image_viewer_open(&viewer.scene, viewport(),
-                                      selected.media->width && selected.media->height
-                                          ? UiSize{static_cast<float>(selected.media->width), static_cast<float>(selected.media->height)}
-                                          : UiSize{width, height}))
-                return true;
-            reset_value(&viewer.search_source); viewer.search_result = false;
-            record_identity(*message, row.message, content_scope != 0);
-            if (!begin(request))
-                application_image_viewer_close();
+            const UiSize shown = selected.media->width && selected.media->height
+                                     ? UiSize{static_cast<float>(selected.media->width),
+                                              static_cast<float>(selected.media->height)}
+                                     : UiSize{width, height};
+            request.pixels = shown;
+            open_local(*message, row.message, content_scope != 0, request);
             return true;
         }
     }

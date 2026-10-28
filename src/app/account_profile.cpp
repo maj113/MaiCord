@@ -141,34 +141,20 @@ AccountProfileResult account_profile_load(const wchar_t* path, AccountProfile* p
         profile->credential.data) {
         return failure(AccountProfileError::invalid_input, ERROR_INVALID_PARAMETER);
     }
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        return failure(AccountProfileError::open, thread_last_error());
+    auto* file_bytes = static_cast<u8*>(
+        VirtualAlloc(nullptr, kAccountProfileMaximumFileBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!file_bytes)
+        return failure(AccountProfileError::memory, thread_last_error());
+    const FileReadResult read =
+        file_persistence_read_file(path, {file_bytes, kAccountProfileMaximumFileBytes}, kProfileHeaderBytes);
+    if (!read.ok()) {
+        file_persistence_secure_release(file_bytes, kAccountProfileMaximumFileBytes);
+        return failure(read.error == FileReadError::size   ? AccountProfileError::size
+                       : read.error == FileReadError::read ? AccountProfileError::read
+                                                           : AccountProfileError::open,
+                       read.native_error);
     }
-    Win32LargeInteger size{};
-    if (!GetFileSizeEx(file, size.native()) || size.QuadPart < kProfileHeaderBytes ||
-        size.QuadPart > kAccountProfileMaximumFileBytes) {
-        const u32 native_error = thread_last_error();
-        CloseHandle(file);
-        return failure(AccountProfileError::size, native_error);
-    }
-    const u32 file_size = static_cast<u32>(size.QuadPart);
-    auto* file_bytes =
-        static_cast<u8*>(VirtualAlloc(nullptr, file_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    if (!file_bytes) {
-        const u32 native_error = thread_last_error();
-        CloseHandle(file);
-        return failure(AccountProfileError::memory, native_error);
-    }
-    u32 native_error = 0;
-    const bool read =
-        file_persistence_read_complete(file, Slice<u8>{file_bytes, file_size}, &native_error);
-    CloseHandle(file);
-    if (!read) {
-        file_persistence_secure_release(file_bytes, file_size);
-        return failure(AccountProfileError::read, native_error);
-    }
+    const u32 file_size = read.bytes;
     if (byte_load_le32(file_bytes + 8) != kAccountProfileVersion) {
         file_persistence_secure_release(file_bytes, file_size);
         return failure(AccountProfileError::version);

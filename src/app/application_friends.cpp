@@ -235,15 +235,6 @@ bool before(const ApplicationFriends& friends, u32 left, u32 right) noexcept {
     const auto compared = friend_name_compare(a, b);
     return compared.ok() && compared.order ? compared.order < 0 : friends.records[left].user_id < friends.records[right].user_id;
 }
-void sift(ApplicationFriends& friends, u32 root, u32 end) noexcept {
-    for (;;) {
-        u32 child = root * 2 + 1;
-        if (child >= end) return;
-        if (child + 1 < end && before(friends, friends.indices[child], friends.indices[child + 1])) ++child;
-        if (!before(friends, friends.indices[root], friends.indices[child])) return;
-        const auto value = friends.indices[root];friends.indices[root] = friends.indices[child];friends.indices[child] = value;root = child;
-    }
-}
 void project(ApplicationFriends& friends, bool force = false) noexcept {
     const auto* query_model = friends_search_document(&friends.search, friends.tab);
     const auto query = query_model ? message_composer_text(*query_model) : Utf8View{};
@@ -279,10 +270,8 @@ void project(ApplicationFriends& friends, bool force = false) noexcept {
                     user_store_name(g_app.account_ui->user_store, *user)).matched))
                     friends.indices[friends.source.count++] = i;
             }
-    for (u32 i = friends.source.count / 2; i; --i) sift(friends, i - 1, friends.source.count);
-    for (u32 end = friends.source.count; end > 1; --end) {
-        const auto value = friends.indices[0];friends.indices[0] = friends.indices[end - 1];friends.indices[end - 1] = value;sift(friends, 0, end - 1);
-    }
+    heap_sort(friends.indices, friends.source.count,
+              [&friends](u32 a, u32 b) noexcept { return before(friends, a, b); });
     friends.store_revision = friends.store.revision;friends.user_revision = g_app.account_ui->user_store.revision;
     friends.query_revision = query_revision;
     u32 incoming_count = 0;
@@ -327,14 +316,19 @@ bool overlay_open() noexcept {
 bool search_available() noexcept {
     return application_friends_active() && !application_friends_requests_active() && !overlay_open();
 }
+void restart_search_blink(ApplicationFriends& friends) noexcept {
+    friends.search_caret_visible = friends.search_focused;
+    friends.search_blink_at = friends.search_focused && friends.search_blink_ms != INFINITE
+                                  ? deadline_after(clock_monotonic_milliseconds(), friends.search_blink_ms)
+                                  : 0;
+}
 void search_focus(ApplicationFriends& friends, bool focused) noexcept {
     auto* model = friends_search_document(&friends.search, friends.tab);
     focused = focused && model && search_available();
     if (friends.search_focused != focused) application_composer_text_input_suspend();
     for (auto& document : friends.search.models) document.focused = focused && &document == model;
-    friends.search_focused = focused;friends.search_caret_visible = focused;
-    friends.search_blink_at = focused && friends.search_blink_ms != INFINITE ?
-        deadline_after(clock_monotonic_milliseconds(), friends.search_blink_ms) : 0;
+    friends.search_focused = focused;
+    restart_search_blink(friends);
     if (focused) {
         message_composer_enable_history(model, 2048);
         ui_friends_scene_focus(&friends.scene, {UiFriendsAction::search, 0, friends.tab});
@@ -624,7 +618,7 @@ bool confirm(ApplicationFriends& friends, const UiFriendsTarget& target, bool al
     friends.confirmation_epoch = friends.membership_epoch;friends.confirmation_hidden = allow_hidden;
     friends.confirmation_ignored = current && current->ignored;friends.confirmation_spam = current && current->spam;
     friends.confirmation_stranger = current && current->stranger;friends.confirmation_stranger_known = current && current->stranger_known;
-    if (!++friends.confirmation_serial) ++friends.confirmation_serial;
+    ++friends.confirmation_serial;
     ProtocolWriter writer{{reinterpret_cast<u8*>(friends.confirmation_text), sizeof(friends.confirmation_text)}, 0};
     if (bulk) {
         u32 count = 0;
@@ -843,9 +837,7 @@ void application_friends_search_cancel_native_group(const TextInputTarget& targe
 }
 bool application_friends_search_changed(bool content) noexcept {
     auto* friends = g_app.friends;if (!friends) return false;
-    friends->search_caret_visible = friends->search_focused;
-    friends->search_blink_at = friends->search_focused && friends->search_blink_ms != INFINITE ?
-        deadline_after(clock_monotonic_milliseconds(), friends->search_blink_ms) : 0;
+    restart_search_blink(*friends);
     if (content) project(*friends);
     return repaint();
 }
@@ -1199,9 +1191,8 @@ void application_friends_gateway(const GatewayClientEvent& event, ConstSlice<u8>
             relationship_apply_decoded(&friends->store, operation, mutation) :
             RelationshipStoreResult{RelationshipStoreError::capacity, false};
         valid = applied.ok();
-        if (applied.changed) { ++friends->membership_epoch;invalidate_sources(*friends); }
+        if (applied.changed) { ++friends->membership_epoch;invalidate_sources(*friends);application_request_frame(); }
         if (friends->snapshot_active) friends->snapshot_failed = true;
-        if (applied.changed) application_request_frame();
     }
     if (valid && mutation.user.id) {
         const u32 revision = g_app.account_ui->user_store.revision;

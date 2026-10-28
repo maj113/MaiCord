@@ -1730,7 +1730,7 @@ HANDLE application_preferences_notification() noexcept {
     return client_preferences_writer_completion_event(g_app.preferences_writer);
 }
 HANDLE application_media_auth_notification() noexcept { return oauth_sign_in_notification(&g_spotify_account.sign_in); }
-void poll_media_account() noexcept {
+void application_media_auth_poll() noexcept {
     auto& account = g_spotify_account;
     if (!account.sign_in.runtime) return;
     if (account.stopping) {
@@ -1787,9 +1787,6 @@ void poll_media_account() noexcept {
         project(*g_app.settings);
         if (g_app.settings->scene.active) refresh();
     }
-}
-void application_media_auth_poll() noexcept {
-    poll_media_account();
 }
 void application_media_auth_shutdown() noexcept {
     auto& account = g_spotify_account;

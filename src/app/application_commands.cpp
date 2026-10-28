@@ -85,11 +85,8 @@ bool retired_text(Utf8View text, const Arena& storage) noexcept {
 }
 Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
                     Slice<char> scratch) noexcept {
-    u32 n = 0;
-    while (key[n])
-        ++n;
     Utf8View text{};
-    command_json_text(command_member(index.document, value, {key, n}), scratch, &text);
+    command_json_text(command_member(index.document, value, {key, c_string_length(key)}), scratch, &text);
     return text;
 }
 bool command_space(char value) noexcept {

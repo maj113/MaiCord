@@ -141,9 +141,7 @@ MlsPackageCryptoResult check_package(KdfSha256Workspace& workspace, ConstSlice<u
 MlsPackageCryptoError mls_leaf_check_dave(const MlsLeafView& leaf, u64* user_id) noexcept {
     if (leaf.credential.type != 1 || leaf.credential.identity.count != 8)
         return MlsPackageCryptoError::invalid_credential;
-    u64 identity = 0;
-    for (u32 i = 0; i != 8; ++i)
-        identity = (identity << 8) | leaf.credential.identity[i];
+    const u64 identity = byte_load_be64(leaf.credential.identity.data);
     const auto& caps = leaf.capabilities;
     if (!includes(caps.versions, 1) || !includes(caps.cipher_suites, 2) || !includes(caps.credentials, 1) ||
         lists_defaults(caps.extensions, 5) || lists_defaults(caps.proposals, 7))

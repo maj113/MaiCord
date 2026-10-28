@@ -33,8 +33,9 @@ bool application_custom_theme_publish(const ClientThemeDocument* document) noexc
     const UiThemeTypography& typography = document ? document->typography : default_typography;
     const UiThemeMetrics& metrics = document ? document->metrics : kUiThemeMetricsDefault;
     // Read before the commit below overwrites the published bank.
-    const float previous_sidebar_width = (publication.styles ? publication.styles->metrics : kUiThemeMetricsDefault).shell_sidebar_width;
-    const float previous_member_width = (publication.styles ? publication.styles->metrics : kUiThemeMetricsDefault).shell_member_width;
+    const UiThemeMetrics& previous = publication.styles ? publication.styles->metrics : kUiThemeMetricsDefault;
+    const float previous_sidebar_width = previous.shell_sidebar_width,
+                previous_member_width = previous.shell_member_width;
     UiResolvedThemeStyles candidate;
     if (publication.styles)
         copy_value(&candidate, *publication.styles);

@@ -6,11 +6,6 @@
 namespace maicord {
 namespace {
 constexpr u32 kDepth = 32;
-bool events_field(void* opaque, JsonString name, JsonValue value) noexcept {
-    if (json_name_is(name, utf8_literal("guild_scheduled_events")))
-        *static_cast<JsonValue*>(opaque) = value;
-    return true;
-}
 bool arrays_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& arrays = *static_cast<GatewayGuildArrays*>(opaque);
     switch (protocol_detail::member_index<"voice_states", "stage_instances", "guild_scheduled_events">(name)) {
@@ -45,9 +40,10 @@ bool gateway_client_publish_scheduled_events(JsonValue guild, u64 guild_id, Slic
     if (located) {
         events = *located;
     } else {
+        GatewayNamedMember target{utf8_literal("guild_scheduled_events"), &events};
         const auto scan = json_scan_structurals_avx1(guild.source, scratch);
         if (!scan.ok() ||
-            !json_visit_value_object(guild, {scratch.data, scan.count}, kDepth, events_field, &events).ok())
+            !json_visit_value_object(guild, {scratch.data, scan.count}, kDepth, gateway_store_named_member, &target).ok())
             return true;
     }
     if (events.kind != JsonValueKind::array || events.source.bytes > kGatewayClientDispatchPayloadCapacity)

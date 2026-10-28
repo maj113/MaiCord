@@ -459,11 +459,9 @@ void poll_install(ApplicationPlugins& plugins) noexcept {
             if(install_context(plugins,true)&&advance_catalog(plugins)){
                 if(!plugins.catalog)plugins.catalog=static_cast<ApplicationPluginCatalogOwner*>(VirtualAlloc(nullptr,
                     sizeof(ApplicationPluginCatalogOwner),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
-                if(plugins.catalog&&native_plugin_bundle_install_catalog(&plugins.installer,&plugins.catalog->catalog,{plugins.catalog->entries,32}))
-                    plugins.catalog_first=0;
-                else {
+                plugins.catalog_first=0;
+                if(!(plugins.catalog&&native_plugin_bundle_install_catalog(&plugins.installer,&plugins.catalog->catalog,{plugins.catalog->entries,32}))){
                     if(plugins.catalog)plugins.catalog->catalog.count=0;
-                    plugins.catalog_first=0;
                     plugins.status=utf8_literal("Plugin installed. Refresh the list to enable it.");
                 }
             }

@@ -1,4 +1,3 @@
-#include "maicord/core/win32_process.hpp"
 #include "maicord/app/account_inventory.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -84,28 +83,25 @@ void encode_entry(u8* output, const AccountInventoryEntry& entry) noexcept {
     copy_bytes(output + offset, entry.avatar_hash, entry.avatar_hash_bytes);
 }
 
+// Fills a zeroed entry; inventory_valid checks its contents.
 bool decode_entry(const u8* input, AccountInventoryEntry* entry) noexcept {
-    AccountInventoryEntry decoded{};
-    decoded.user_id = byte_load_le64(input);
-    decoded.last_used_unix_ms = byte_load_le64(input + 8);
-    decoded.slot = input[16];
-    decoded.flags = input[17];
-    decoded.display_name_bytes = input[18];
-    decoded.username_bytes = input[19];
-    decoded.avatar_hash_bytes = input[20];
-    if (input[21] || input[22] || input[23] || decoded.display_name_bytes > kAccountInventoryDisplayNameBytes ||
-        decoded.username_bytes > kAccountInventoryUsernameBytes ||
-        decoded.avatar_hash_bytes > kAccountInventoryAvatarHashBytes)
+    entry->user_id = byte_load_le64(input);
+    entry->last_used_unix_ms = byte_load_le64(input + 8);
+    entry->slot = input[16];
+    entry->flags = input[17];
+    entry->display_name_bytes = input[18];
+    entry->username_bytes = input[19];
+    entry->avatar_hash_bytes = input[20];
+    if (input[21] || input[22] || input[23] || entry->display_name_bytes > kAccountInventoryDisplayNameBytes ||
+        entry->username_bytes > kAccountInventoryUsernameBytes ||
+        entry->avatar_hash_bytes > kAccountInventoryAvatarHashBytes)
         return false;
     u32 offset = 24;
-    copy_bytes(decoded.display_name, input + offset, decoded.display_name_bytes);
+    copy_bytes(entry->display_name, input + offset, entry->display_name_bytes);
     offset += kAccountInventoryDisplayNameBytes;
-    copy_bytes(decoded.username, input + offset, decoded.username_bytes);
+    copy_bytes(entry->username, input + offset, entry->username_bytes);
     offset += kAccountInventoryUsernameBytes;
-    copy_bytes(decoded.avatar_hash, input + offset, decoded.avatar_hash_bytes);
-    if (!entry_valid(decoded))
-        return false;
-    copy_value(entry, decoded);
+    copy_bytes(entry->avatar_hash, input + offset, entry->avatar_hash_bytes);
     return true;
 }
 
@@ -140,28 +136,15 @@ AccountInventoryResult account_inventory_load(const wchar_t* path, AccountInvent
     const u32 characters = wide_length(path, kAccountProfileMaximumPathCharacters);
     if (!characters || characters >= kAccountProfileMaximumPathCharacters || !inventory)
         return failure(AccountInventoryError::invalid_input, ERROR_INVALID_PARAMETER);
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        const u32 error = thread_last_error();
-        return failure(win32_error_is_missing_file(error) ? AccountInventoryError::missing
-                                                          : AccountInventoryError::open,
-                       error);
-    }
-    Win32LargeInteger size{};
-    if (!GetFileSizeEx(file, size.native()) || size.QuadPart < kHeaderBytes ||
-        size.QuadPart > kAccountInventoryMaximumFileBytes) {
-        const u32 error = thread_last_error();
-        CloseHandle(file);
-        return failure(AccountInventoryError::size, error);
-    }
     u8 bytes[kAccountInventoryMaximumFileBytes];
-    const u32 file_size = static_cast<u32>(size.QuadPart);
-    u32 native_error = 0;
-    const bool read = file_persistence_read_complete(file, Slice<u8>{bytes, file_size}, &native_error);
-    CloseHandle(file);
-    if (!read)
-        return failure(AccountInventoryError::read, native_error);
+    const FileReadResult read = file_persistence_read_file(path, {bytes, sizeof(bytes)}, kHeaderBytes);
+    if (!read.ok())
+        return failure(read.error == FileReadError::missing ? AccountInventoryError::missing
+                       : read.error == FileReadError::size   ? AccountInventoryError::size
+                       : read.error == FileReadError::read   ? AccountInventoryError::read
+                                                             : AccountInventoryError::open,
+                       read.native_error);
+    const u32 file_size = read.bytes;
     if (!bytes_equal(bytes, kMagic, sizeof(kMagic)))
         return failure(AccountInventoryError::format);
     if (byte_load_le32(bytes + 8) != kAccountInventoryVersion)

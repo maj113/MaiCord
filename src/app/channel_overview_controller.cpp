@@ -321,16 +321,13 @@ bool channel_overview_controller_complete(ChannelOverviewController* value, Chan
             value->phase = ChannelOverviewPhase::failed;
         }
     } else {
+        value->phase = ChannelOverviewPhase::ready;
+        value->failure = ChannelOverviewFailure::none;
         if (!value->has_baseline || operation == ChannelOverviewOperation::update) {
             value->baseline = value->draft = *remote;
             value->dirty_fields = value->conflict_fields = 0;
-            value->phase = ChannelOverviewPhase::ready;
-            value->failure = ChannelOverviewFailure::none;
-        } else {
-            value->phase = ChannelOverviewPhase::ready;
-            value->failure = ChannelOverviewFailure::none;
+        } else
             install_remote(*value, *remote);
-        }
         value->has_baseline = value->authoritative = true;
         if (!value->can_manage) {
             value->phase = ChannelOverviewPhase::permission_lost;

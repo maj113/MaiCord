@@ -140,7 +140,7 @@ MessageNotificationGlobal message_notification_effective_global(const MessageNot
 MessageNotificationScope message_notification_scope_resolve(const MessageNotificationPolicyInput&i,MessageNotificationScopeMode mode) noexcept {
     using R=MessageNotificationReason;using L=MessageNotificationLevel;
     const auto fail=[](R reason) noexcept {return MessageNotificationScope{reason,L::inherit,false,false};};
-    if(!i.settings||!i.channel_id||static_cast<u8>(mode)>static_cast<u8>(MessageNotificationScopeMode::message_thread))return fail(R::unknown);
+    if(!i.settings||!i.channel_id)return fail(R::unknown);
     const auto*g=message_notifications_guild(*i.settings,i.guild_id);
     if(!settings_known(*i.settings,g,i.guild_id))return fail(R::unknown);
     auto gs=g?g->setting:baseline();
@@ -156,7 +156,7 @@ MessageNotificationScope message_notification_scope_resolve(const MessageNotific
     L level=c?c->setting.level:L::inherit;if(level==L::inherit&&p)level=p->setting.level;
     if(level==L::inherit)level=gs.level;
     if(level==L::inherit){if(!i.guild_default_known)return fail(R::unknown);level=i.guild_default;}
-    if(level==L::inherit||static_cast<u8>(level)>static_cast<u8>(L::inherit))return fail(R::unknown);
+    if(level==L::inherit)return fail(R::unknown);
     if(level==L::none)return fail(R::nothing);
     if(i.guild_id&&(gs.flags&16384)&&!(c&&(c->setting.flags&4096))&&!(p&&(p->setting.flags&4096)))return fail(R::not_opted_in);
     bool se=gs.suppress_everyone,sr=gs.suppress_roles;
@@ -173,7 +173,7 @@ MessageNotificationScope message_notification_scope_resolve(const MessageNotific
             if(level==L::inherit)level=gs.level;if(level==L::inherit){if(!i.guild_default_known)return fail(R::unknown);level=i.guild_default;}}
         se=sr=false;
     }
-    if(level==L::inherit||static_cast<u8>(level)>static_cast<u8>(L::inherit))return fail(R::unknown);
+    if(level==L::inherit)return fail(R::unknown);
     if(level==L::none)return fail(R::nothing);
     return {R::eligible,level,se,sr};
 }
@@ -196,12 +196,11 @@ MessageNotificationReason message_notification_admit(const MessageNotificationPo
     if(scope.reason!=R::eligible)return scope.reason;
     if(i.focused&&(i.selected||i.sidebar_selected))return R::selected;
     const bool vocal=i.channel_type==2||i.channel_type==13;
-    if(scope.level==L::all&&(!vocal||(i.current_voice_channel_known&&i.current_voice_channel)))return R::eligible;
+    if(scope.level==L::all&&(!vocal||i.current_voice_channel))return R::eligible;
     bool mentioned=i.direct_mention||(i.everyone_mention&&!scope.suppress_everyone);
     if(!mentioned&&!scope.suppress_roles&&i.mention_roles.count){if(!i.roles_known||(!i.mention_roles.data&&i.mention_roles.count)||(!i.self_roles.data&&i.self_roles.count))return R::unknown;
         for(u32 m=0;m<i.mention_roles.count;++m)for(u32 r=0;r<i.self_roles.count;++r)if(i.mention_roles[m]==i.self_roles[r])mentioned=true;}
     if(mentioned)return R::eligible;
-    if(scope.level==L::all&&vocal&&!i.current_voice_channel_known)return R::unknown;
     return R::not_mentioned;
 }
 MessageNotificationReason message_notification_admit(const MessageNotificationPolicyInput&i) noexcept {

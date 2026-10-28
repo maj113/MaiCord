@@ -7,8 +7,6 @@
 #include "maicord/app/account_paths.hpp"
 #include "maicord/platform/browser_sign_in_launcher.hpp"
 
-#include "maicord/core/memory.hpp"
-
 namespace maicord::app_detail {
 namespace {
 bool stop_browser_owner(LoginStatus terminal) noexcept {

@@ -292,11 +292,9 @@ bool application_custom_status_request(const SelfCustomStatus* status) noexcept 
     scope();
     if (!application_custom_status_available())
         return false;
-    if (status)
+    if (status && (status->text_bytes || status->emoji_name_bytes || status->emoji_id))
         copy_value(&request.desired, *status);
     else
-        reset_value(&request.desired);
-    if (!request.desired.text_bytes && !request.desired.emoji_name_bytes && !request.desired.emoji_id)
         reset_value(&request.desired);
     request.queued = true;
     request.failed = false;

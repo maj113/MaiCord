@@ -260,7 +260,7 @@ bool application_theme_editor_open() noexcept {
     if (g_app.theme_editor)
         return application_theme_editor_active();
     if (!g_app.renderer_ready || !g_app.account_ui || g_app.login.visible ||
-        !application_settings_active() || g_app.text_form || g_app.theme_editor_lifetime_serial == ~u64{0})
+        !application_settings_active() || g_app.text_form)
         return false;
     application_settings_cancel_pointer();
     application_tooltip_clear();
@@ -505,7 +505,7 @@ bool application_theme_editor_window_message(UINT message, WPARAM wparam, LPARAM
     }
     if (message != WM_MOUSEMOVE && message != WM_LBUTTONDOWN && message != WM_LBUTTONUP)
         return message == WM_RBUTTONDOWN || message == WM_RBUTTONUP || message == WM_CONTEXTMENU ||
-               message == WM_MOUSEHWHEEL || message == WM_LBUTTONDBLCLK;
+               message == WM_MOUSEHWHEEL;
     const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
     const UiPoint p{static_cast<short>(LOWORD(lparam)) * scale, static_cast<short>(HIWORD(lparam)) * scale};
     const auto hit = ui_theme_editor_hit_test(e->scene, p);

@@ -60,21 +60,27 @@ bool read_file(const wchar_t* path, char* output, u32 capacity, u32* bytes) noex
     *bytes = got;
     return ok;
 }
-// Staging belongs to the plugin manager: every regular file directly in it goes.
-u32 empty_staging(const PluginManagerPaths& paths) noexcept {
+// Deletes the regular files directly in a directory; false when its path is too long to scan.
+bool delete_files(const wchar_t* directory, u32 count, u32* removed) noexcept {
     Path pattern{};
-    if (!join(paths.staging, paths.staging_count, L"*", pattern)) return 0;
+    if (!join(directory, count, L"*", pattern)) return false;
     WIN32_FIND_DATAW found{};
     const HANDLE scan = FindFirstFileW(pattern, &found);
-    if (scan == INVALID_HANDLE_VALUE) return 0;
-    u32 removed = 0, visited = 0;
+    if (scan == INVALID_HANDLE_VALUE) return true;
+    u32 visited = 0;
     do {
         if (++visited > 256) break;
         if (found.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) continue;
         Path path{};
-        if (join(paths.staging, paths.staging_count, found.cFileName, path) && DeleteFileW(path)) ++removed;
+        if (join(directory, count, found.cFileName, path) && DeleteFileW(path) && removed) ++*removed;
     } while (FindNextFileW(scan, &found));
     FindClose(scan);
+    return true;
+}
+// Staging belongs to the plugin manager: every regular file directly in it goes.
+u32 empty_staging(const PluginManagerPaths& paths) noexcept {
+    u32 removed = 0;
+    delete_files(paths.staging, paths.staging_count, &removed);
     return removed;
 }
 // AMD64 PE image with the DLL characteristic and a PE32+ optional header.
@@ -187,6 +193,23 @@ bool prepared_manifest_path(const PluginManagerPaths& paths, u64 owner, PluginMa
     prepared->manifest_count = plugin_manager_id_path(paths.staging, paths.staging_count, owner,
         kNativePluginManifestSuffix, prepared->manifest);
     return prepared->manifest_count != 0;
+}
+// Stages the manifests (previous: the replaced one, kept as the rollback snapshot), records the staged
+// phase and fills prepared. A failure abandons the operation.
+PluginManagerResult stage_prepared(const PluginManagerPaths& paths, PluginJournal& journal, const NativePluginManifest& manifest,
+    const NativePluginManifest* previous, PluginManagerWork* work, PluginManagerPrepared* prepared) noexcept {
+    u32 native = 0;
+    ME error = stage_manifest(paths, manifest, kNativePluginManifestSuffix, work, &native);
+    if (error == ME::none && previous) error = stage_manifest(paths, *previous, kPreviousSuffix, work, &native);
+    if (error != ME::none) { auto r = failure(error); r.native_error = native; return abandon(paths, r, journal); }
+    journal.phase = Phase::staged;
+    const auto saved = save_journal(paths, journal);
+    if (!saved.ok()) return abandon(paths, record_failure(saved), journal);
+    prepared->journal = journal;
+    prepared->options.retain_previous = previous != nullptr;
+    if (!prepared_manifest_path(paths, journal.owner, prepared)) return abandon(paths, failure(ME::storage), journal);
+    log_operation("staged", journal, 0);
+    return failure(ME::none);
 }
 
 // ---- settling --------------------------------------------------------------------------
@@ -302,20 +325,7 @@ void remove_data(const PluginManagerPaths& paths, u64 owner, PluginManagerSettle
     Path directory{};
     const u32 count = plugin_manager_id_path(paths.data, paths.data_count, owner, L"", directory);
     if (!count || !exists(directory)) { out->data_removed = count != 0; return; }
-    Path pattern{};
-    if (!join(directory, count, L"*", pattern)) return;
-    WIN32_FIND_DATAW found{};
-    const HANDLE scan = FindFirstFileW(pattern, &found);
-    if (scan != INVALID_HANDLE_VALUE) {
-        u32 visited = 0;
-        do {
-            if (++visited > 256) break;
-            if (found.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) continue;
-            Path path{};
-            if (join(directory, count, found.cFileName, path)) DeleteFileW(path);
-        } while (FindNextFileW(scan, &found));
-        FindClose(scan);
-    }
+    if (!delete_files(directory, count, nullptr)) return;
     // Directories the plugin never created (subfolders) keep it in place.
     out->data_removed = RemoveDirectoryW(directory) != 0;
 }
@@ -514,19 +524,7 @@ PluginManagerResult prepare_download(const PluginManagerPaths& paths, const Plug
     if (!MoveFileExW(download, staged, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         r = failure(ME::storage); r.native_error = GetLastError(); return abandon(paths, r, journal);
     }
-    u32 native = 0;
-    ME staged_error = stage_manifest(paths, manifest, kNativePluginManifestSuffix, work, &native);
-    // The replaced manifest becomes the rollback snapshot at commit.
-    if (staged_error == ME::none && !install) staged_error = stage_manifest(paths, current, kPreviousSuffix, work, &native);
-    if (staged_error != ME::none) { r = failure(staged_error); r.native_error = native; return abandon(paths, r, journal); }
-    journal.phase = Phase::staged;
-    const auto staged_saved = save_journal(paths, journal);
-    if (!staged_saved.ok()) return abandon(paths, record_failure(staged_saved), journal);
-    prepared->journal = journal;
-    prepared->options.retain_previous = !install;
-    if (!prepared_manifest_path(paths, request.owner, prepared)) return abandon(paths, failure(ME::storage), journal);
-    log_operation("staged", journal, 0);
-    return failure(ME::none);
+    return stage_prepared(paths, journal, manifest, install ? nullptr : &current, work, prepared);
 }
 PluginManagerResult prepare_rollback(const PluginManagerPaths& paths, const PluginCatalogSource& source, const PluginManagerRequest& request,
     KdfSha256Workspace& workspace, PluginIndexWork* index_work, const PluginIndex* official_cache, PluginManagerWork* work, u64 now,
@@ -586,19 +584,8 @@ PluginManagerResult prepare_rollback(const PluginManagerPaths& paths, const Plug
     if (!CopyFileW(retained, staged, FALSE)) { r = failure(ME::storage); r.native_error = GetLastError(); return abandon(paths, r, journal); }
     const ME verified = verify_staged(paths, leaf, entry.previous_sha256, 0, true);
     if (verified != ME::none) return abandon(paths, failure(verified), journal);
-    u32 native = 0;
-    ME staged_error = stage_manifest(paths, previous, kNativePluginManifestSuffix, work, &native);
-    if (staged_error == ME::none) staged_error = stage_manifest(paths, current, kPreviousSuffix, work, &native);
-    if (staged_error != ME::none) { r = failure(staged_error); r.native_error = native; return abandon(paths, r, journal); }
-    journal.phase = Phase::staged;
-    const auto staged_saved = save_journal(paths, journal);
-    if (!staged_saved.ok()) return abandon(paths, record_failure(staged_saved), journal);
-    prepared->journal = journal;
-    prepared->options.retain_previous = true;
     reset_value(&prepared->facts);
-    if (!prepared_manifest_path(paths, request.owner, prepared)) return abandon(paths, failure(ME::storage), journal);
-    log_operation("staged", journal, 0);
-    return failure(ME::none);
+    return stage_prepared(paths, journal, previous, &current, work, prepared);
 }
 } // namespace
 

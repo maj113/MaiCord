@@ -9,8 +9,6 @@
 namespace maicord::app_detail {
 struct ApplicationQuickSwitcher;
 bool application_quick_switcher_active() noexcept;
-bool application_quick_switcher_open() noexcept;
-bool application_quick_switcher_toggle() noexcept;
 // Friend picker for a new conversation (zero) or for adding people to a DM or group.
 bool application_quick_switcher_open_picker(u64 channel_id) noexcept;
 void application_quick_switcher_close() noexcept;

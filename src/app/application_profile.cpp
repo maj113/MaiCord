@@ -561,12 +561,10 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     p->message_blink_at = 0;
     if (p->scene.note_editing)
         end_note(*p);
-    p->scene.note_editing = false;
     p->scene.edit = {
         message_composer_text(p->message), p->message.anchor, p->message.caret, false, false, false};
     p->scene.message_failed = false;
     g_app.message_composer.focused = false;
-    application_composer_text_input_suspend();
     p->anchor_kind = kind;
     // Message rows open right, the member list left (16 apart), the account panel above.
     p->scene.placement = kind == ProfileAnchor::account  ? ProfilePlacement::above
@@ -1039,6 +1037,16 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
     }
     return true;
 }
+// The pending profile or role request cannot be sent: the card shows its failed state.
+static void fail_pending_request(ApplicationProfile& p) noexcept {
+    p.pending = false;
+    p.mutation = ProfileRoleChange::none;
+    p.mutation_role = 0;
+    p.scene.roles_busy = false;
+    p.scene.phase = ProfilePhase::failed;
+    profile_scene_layout(&p.scene, p.scene.viewport, true);
+    repaint(true);
+}
 bool application_profile_submit(u64 now) noexcept {
     auto* p = g_app.profile;
     if (!p || !p->scene.active || p->retry_at > now)
@@ -1049,13 +1057,7 @@ bool application_profile_submit(u64 now) noexcept {
     auto& ui = *g_app.account_ui;
     const bool roles = p->mutation != ProfileRoleChange::none;
     if (roles && !role_editable(ui.chat_state, p->data.guild_id, p->mutation_role)) {
-        p->pending = false;
-        p->mutation = ProfileRoleChange::none;
-        p->mutation_role = 0;
-        p->scene.roles_busy = false;
-        p->scene.phase = ProfilePhase::failed;
-        profile_scene_layout(&p->scene, p->scene.viewport, true);
-        repaint(true);
+        fail_pending_request(*p);
         return true;
     }
     if (++ui.message_history_request_id == 0)
@@ -1085,13 +1087,7 @@ bool application_profile_submit(u64 now) noexcept {
         return true;
     }
     if (!result.ok()) {
-        p->pending = false;
-        p->mutation = ProfileRoleChange::none;
-        p->mutation_role = 0;
-        p->scene.roles_busy = false;
-        p->scene.phase = ProfilePhase::failed;
-        profile_scene_layout(&p->scene, p->scene.viewport, true);
-        repaint(true);
+        fail_pending_request(*p);
         return true;
     }
     p->requested_effect = effect ? effect_id : 0;

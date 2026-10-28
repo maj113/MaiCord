@@ -42,13 +42,11 @@ bool application_poll_voters(u32 answer_id, bool more = false) noexcept;
 bool application_poll_voters_previous() noexcept;
 void application_poll_voters_close() noexcept;
 bool application_poll_voters_active() noexcept;
-bool application_poll_voters_action(const UiPollVotersAction&) noexcept;
 // Received and selected timeline cards: hand on enabled answers/buttons only.
 bool application_poll_cursor(UiPoint, UiCursor*) noexcept;
 bool application_poll_window_message(UINT, WPARAM, LPARAM) noexcept;
 bool application_poll_input(UiInputKind, u32 code, bool repeated) noexcept;
 bool application_poll_consume_key_tail(UiInputKind, u32 code, bool repeated) noexcept;
-void application_poll_close() noexcept;
 bool application_poll_pending(u64 now_ms) noexcept;
 bool application_poll_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_poll_response(const RestClientResponse&, Utf8View) noexcept;

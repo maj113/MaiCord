@@ -99,6 +99,9 @@ struct MlsTreeIterator {
 };
 MlsTreeIterator mls_tree_iterate(const MlsRatchetTree& tree) noexcept;
 MlsStatus mls_tree_next(MlsTreeIterator& iterator, MlsTreeNode* node, bool* has_node) noexcept;
+// The node at `index` in order; blank trailing nodes past the encoding are synthesized.
+MlsStatus mls_tree_logical_next(const MlsRatchetTree& tree, MlsTreeIterator& iterator, u32 index,
+                                MlsTreeNode* node) noexcept;
 // Network input passes verify; locally assembled trees whose leaves were all
 // verified in immutable views may skip signatures but keep every structural check.
 MlsStatus mls_ratchet_tree_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, const u8* group_id,
@@ -117,8 +120,6 @@ MlsStatus mls_tree_resolution(const MlsTreeIndex& index, u32 subtree_root, Slice
                               u32* count) noexcept;
 MlsStatus mls_tree_filtered_direct_path(const MlsRatchetTree& tree, u32 leaf_index, Slice<u32> nodes,
                                         u32* count) noexcept;
-MlsStatus mls_tree_subtree_has_present(const MlsRatchetTree& tree, u32 subtree_root,
-                                       bool* present) noexcept;
 // RFC 9420 tree hashes, computed in one flat pass with a fixed depth stack.
 MlsStatus mls_tree_subtree_hash(KdfSha256Workspace& kdf, const MlsRatchetTree& tree, u32 subtree_root,
                                 u8* hash) noexcept;

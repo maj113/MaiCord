@@ -348,20 +348,9 @@ MlsStatus mls_tree_resolution(const MlsTreeIndex& index, u32 subtree_root, Slice
     *count = used;
     return MlsStatus::ok;
 }
-namespace {
-// Bounds of a subtree in node order, or false when it extends past the tree.
-bool subtree_span(const MlsRatchetTree& tree, u32 root, u32* first, u32* last) noexcept {
-    const u32 level = mls_tree_level(root);
-    if (level >= 31 || root >= tree.node_count)
-        return false;
-    const u32 span = 1u << level;
-    *first = root - (span - 1);
-    *last = root + (span - 1);
-    return *last < tree.node_count;
-}
-// The next logical node, synthesizing blank trailing nodes past the encoding.
-MlsStatus logical_next(const MlsRatchetTree& tree, MlsTreeIterator& iterator, u32 index,
-                       MlsTreeNode* node) noexcept {
+// The node at `index`, synthesizing blank trailing nodes past the encoding.
+MlsStatus mls_tree_logical_next(const MlsRatchetTree& tree, MlsTreeIterator& iterator, u32 index,
+                                MlsTreeNode* node) noexcept {
     if (index >= tree.encoded_node_count) {
         reset_value(node);
         node->index = index;
@@ -373,7 +362,17 @@ MlsStatus logical_next(const MlsRatchetTree& tree, MlsTreeIterator& iterator, u3
         status = MlsStatus::malformed;
     return status;
 }
-} // namespace
+namespace {
+// Bounds of a subtree in node order, or false when it extends past the tree.
+bool subtree_span(const MlsRatchetTree& tree, u32 root, u32* first, u32* last) noexcept {
+    const u32 level = mls_tree_level(root);
+    if (level >= 31 || root >= tree.node_count)
+        return false;
+    const u32 span = 1u << level;
+    *first = root - (span - 1);
+    *last = root + (span - 1);
+    return *last < tree.node_count;
+}
 MlsStatus mls_tree_subtree_has_present(const MlsRatchetTree& tree, u32 subtree_root,
                                        bool* present) noexcept {
     u32 first = 0, last = 0;
@@ -383,7 +382,7 @@ MlsStatus mls_tree_subtree_has_present(const MlsRatchetTree& tree, u32 subtree_r
     auto iterator = mls_tree_iterate(tree);
     for (u32 index = 0; index <= last && index < tree.encoded_node_count; ++index) {
         MlsTreeNode node{};
-        if (const auto status = logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
+        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
             return status;
         if (index >= first && node.present) {
             *present = true;
@@ -392,6 +391,7 @@ MlsStatus mls_tree_subtree_has_present(const MlsRatchetTree& tree, u32 subtree_r
     }
     return MlsStatus::ok;
 }
+} // namespace
 MlsStatus mls_tree_filtered_direct_path(const MlsRatchetTree& tree, u32 leaf_index, Slice<u32> nodes,
                                         u32* count) noexcept {
     if (!nodes.data || !count || leaf_index >= tree.leaf_count)
@@ -473,7 +473,7 @@ MlsStatus mls_tree_subtree_hash(KdfSha256Workspace& kdf, const MlsRatchetTree& t
     auto iterator = mls_tree_iterate(tree);
     for (u32 index = 0; index <= last; ++index) {
         MlsTreeNode node{};
-        if (const auto status = logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
+        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
             return status;
         if (index < first)
             continue;

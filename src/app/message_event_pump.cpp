@@ -1,4 +1,5 @@
 #include "maicord/model/user_activity.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/message_event_pump.hpp"
 #include "maicord/app/user_store_dispatch.hpp"
@@ -91,12 +92,6 @@ bool synchronize_thread_scope(MessageEventPump* pump) noexcept {
                                               active ? channel->id : 0);
 }
 
-constexpr bool valid_content_access(MessageContentAvailability access) noexcept {
-    return access == MessageContentAvailability::unknown ||
-           access == MessageContentAvailability::available ||
-           access == MessageContentAvailability::restricted;
-}
-
 constexpr bool is_message_dispatch(GatewayClientDispatchKind kind) noexcept {
     return kind == GatewayClientDispatchKind::message_create ||
            kind == GatewayClientDispatchKind::message_update ||
@@ -109,14 +104,6 @@ constexpr bool is_reaction_dispatch(GatewayClientDispatchKind kind) noexcept {
            kind == GatewayClientDispatchKind::message_reaction_remove ||
            kind == GatewayClientDispatchKind::message_reaction_remove_all ||
            kind == GatewayClientDispatchKind::message_reaction_remove_emoji;
-}
-
-u64 packed_u64(ConstSlice<u8> bytes, u32 offset) noexcept {
-    u64 value = 0;
-    for (u32 index = 0; index < 8; ++index) {
-        value |= static_cast<u64>(bytes[offset + index]) << (index * 8);
-    }
-    return value;
 }
 
 // The official client keeps no per-platform presence for the current user
@@ -382,7 +369,7 @@ bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event
         }
         u64 role_ids[256];
         for (u32 index = 0; index < mutation.role_count; ++index) {
-            role_ids[index] = packed_u64(roles, index * 8u);
+            role_ids[index] = byte_load_le64(roles.data + index * 8u);
             if (role_ids[index] == 0) {
                 return false;
             }
@@ -752,7 +739,7 @@ bool message_event_pump_initialize(MessageEventPump* pump, MessageTimeline* time
                                    MessageContentAvailability content_access) noexcept {
     if (!pump || !timeline || !timeline->store || !timeline->list || !payload_scratch.data ||
         payload_scratch.count < kMessageEventPumpPayloadCapacity || !bulk_id_scratch.data ||
-        bulk_id_scratch.count < kGatewayBulkDeleteMaximumIds || !valid_content_access(content_access)) {
+        bulk_id_scratch.count < kGatewayBulkDeleteMaximumIds) {
         return false;
     }
     reserved_bytes_release(&pump->large_payload);
@@ -1071,8 +1058,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             pump->read_token_reset(pump->read_ack_cancel_context);
         return result;
     }
-    if (event.kind == GatewayClientEventKind::dispatch &&
-        event.dispatch_kind == GatewayClientDispatchKind::channel_cursor_update) {
+    if (event.dispatch_kind == GatewayClientDispatchKind::channel_cursor_update) {
         // Validate the whole batch before updating even its first resident channel.
         bool valid = event.state.guild_id && event.state.fields == gateway_client_state_field_guild_id &&
             event.state.record_count <= kGatewayChannelCursorMaximumEntries &&
@@ -1211,13 +1197,10 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             return result;
         }
         if (!thread_member_store_owns(*pump->thread_members, event.thread_members.guild_id,
-                                              event.thread_members.thread_id)) {
-            if (authority.channels)
-                result.kind = MessageEventPumpConsumeKind::state_applied;
-            else {
-                ignore(pump, &result);
-            }
-        } else
+                                      event.thread_members.thread_id) &&
+            !authority.channels)
+            ignore(pump, &result);
+        else
             result.kind = MessageEventPumpConsumeKind::state_applied;
         result.repaint =
             revision != pump->thread_members->revision || member_revision != pump->members->revision ||
@@ -1427,9 +1410,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
     }
     if (event.dispatch_kind == GatewayClientDispatchKind::message_catchup_required) {
         pump->catchup_required = true;
-        if (pump->timeline) {
-            pump->timeline->newer_refetch_required = true;
-        }
+        pump->timeline->newer_refetch_required = true;
         ignore(pump, &result);
         return result;
     }
@@ -1743,7 +1724,6 @@ const char* message_event_pump_reject_reason_name(MessageEventPumpRejectReason r
     case R::reaction_decode: return "reaction_decode";
     case R::reaction_apply: return "reaction_apply";
     case R::message_decode: return "message_decode";
-    case R::message_users: return "message_users";
     case R::message_typing: return "message_typing";
     case R::message_send: return "message_send";
     case R::message_mentions: return "message_mentions";

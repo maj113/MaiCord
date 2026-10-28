@@ -141,7 +141,6 @@ bool push_frame(void* context, u32 ssrc, VoiceVideoCodec codec, ConstSlice<u8> f
     for (auto& candidate : decoders->streams)
         if (!slot && !candidate.decoder) slot = &candidate;
     if (slot) {
-        reset_value(slot);
         slot->decoder = decoder;
         slot->ssrc = ssrc;
         slot->codec = codec;

@@ -748,10 +748,7 @@ void open_target_menu(UiRect anchor) noexcept {
     const RoleRecord* roles[kGuildRoleMaximum];
     const u32 role_count = guild_settings_sorted_roles(state(), p.identity.guild_id, {roles, kGuildRoleMaximum});
     for (u32 i = 0; i < role_count && count < kPopupCapacity; ++i) {
-        if (permission_overwrite_draft_find(p.overwrite_draft, roles[i]->id) != ~0u)
-            continue;
-        const bool everyone = roles[i]->id == p.identity.guild_id;
-        if (everyone)
+        if (roles[i]->id == p.identity.guild_id || permission_overwrite_draft_find(p.overwrite_draft, roles[i]->id) != ~0u)
             continue;
         reset_value(&p.popup_items[count]);
         p.popup_items[count].label = bank.add(chat_state_store_role_name(state(), *roles[i]));

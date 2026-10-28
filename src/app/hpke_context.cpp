@@ -6,6 +6,10 @@
 
 namespace maicord {
 namespace {
+bool hpke_aliases(const HpkeContext& context, ConstSlice<u8> span) noexcept {
+    return byte_ranges_overlap(span, object_bytes(context)) ||
+           byte_ranges_overlap(span, {context.cipher.object.data, context.cipher.object.capacity});
+}
 bool initialized(const HpkeContext& context) noexcept {
     return (context.role == HpkeRole::sender || context.role == HpkeRole::recipient) && context.cipher.handle;
 }
@@ -124,10 +128,6 @@ void hpke_release(HpkeContext* context) noexcept {
         return;
     aes_gcm_release(&context->cipher);
     reset_value(context);
-}
-bool hpke_aliases(const HpkeContext& context, ConstSlice<u8> span) noexcept {
-    return byte_ranges_overlap(span, object_bytes(context)) ||
-           byte_ranges_overlap(span, {context.cipher.object.data, context.cipher.object.capacity});
 }
 HpkeResult hpke_setup_sender_parts(HpkeContext* context, KdfSha256Workspace& workspace,
                                    ConstSlice<u8> recipient, ConstSlice<ConstSlice<u8>> info,

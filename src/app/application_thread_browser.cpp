@@ -257,6 +257,10 @@ void fail_choice(ApplicationThreadBrowser& value, Utf8View notice, Utf8View save
     value.status = saved_notice;
     ++value.revision;
 }
+void fail_load(ApplicationThreadBrowser& value) noexcept {
+    fail_choice(value, utf8_literal("Couldn't load threads. Try again."),
+                utf8_literal("Showing saved threads. Couldn't refresh them."));
+}
 bool eligible(const ApplicationThreadBrowser& value, const ChannelRecord& row, bool active) noexcept {
     return row.occupied && row.guild_id == value.scope.guild && row.parent_id == value.scope.parent &&
         channel_is_thread(row.type) && !(row.flags & kChannelObfuscatedFlag) &&
@@ -802,8 +806,7 @@ bool application_thread_browser_submit(u64 id, u64 now) noexcept {
     const auto result = g_app.account.api.thread_browser(g_app.account.instance, &request, id);
     if (!result.ok()) {
         if (result.error == RestClientSubmitError::busy && ++value.busy_count <= 20) value.due = deadline_after(now, 50);
-        else fail_choice(value, utf8_literal("Couldn't load threads. Try again."),
-            utf8_literal("Showing saved threads. Couldn't refresh them."));
+        else fail_load(value);
         repaint(); return false;
     }
     value.flight = {value.scope, request, id, value.choice, value.gateway_serial, {}, true, false, false};
@@ -852,8 +855,7 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
         // Index readiness belongs to this exact choice, never the actor's 429
         // floor. Only recognized replies may omit their optional retry_after.
         if (!delay || delay > ~u64{0} - now || value.indexing_retries >= 5) {
-            fail_choice(value, utf8_literal("Couldn't load threads. Try again."),
-                utf8_literal("Showing saved threads. Couldn't refresh them."));
+            fail_load(value);
         } else {
             ++value.indexing_retries;
             value.due = now + delay;
@@ -865,8 +867,7 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
         }
     } else if (!response.transport_ok() || response.status_code < 200 || response.status_code >= 300 ||
         !body.data || body.bytes != response.body_bytes || body.bytes > kThreadBrowserMaximumBodyBytes) {
-        fail_choice(value, utf8_literal("Couldn't load threads. Try again."),
-            utf8_literal("Showing saved threads. Couldn't refresh them."));
+        fail_load(value);
     } else {
         auto& candidate = value.banks[value.bank ^ 1];
         const u32 capacity = flight.request.mode == ThreadBrowserMode::search ? kThreadBrowserSearchMaximumRows : kThreadBrowserArchivedLimit;
@@ -918,8 +919,7 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
             value.publication = ++browser_publication;
             value.projected_channels = ~u32{0};
             ++value.revision;
-        } else fail_choice(value, utf8_literal("Couldn't load threads. Try again."),
-            utf8_literal("Showing saved threads. Couldn't refresh them."));
+        } else fail_load(value);
     }
     repaint(); return true;
 }

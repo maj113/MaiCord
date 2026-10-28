@@ -166,7 +166,6 @@ void application_startup_shell_begin(const AccountPaths& paths, u64 profile_id) 
     copy_bytes(owner->path, paths.shell, (length + 1) * static_cast<u32>(sizeof(wchar_t)));
     owner->profile_id = profile_id;
     owner->now_unix_ms = clock_unix_milliseconds();
-    owner->loaded = StartupShellOpenError::format;
     g_owner = owner;
     owner->loading = allocate_shell(*owner);
     if (owner->loading)

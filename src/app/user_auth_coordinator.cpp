@@ -447,6 +447,23 @@ void record_decode(UserAuthCoordinator* coordinator, UserAuthCoordinatorEvent& e
     coordinator->state.read_error = decode.read_error;
 }
 
+// Ends a login-flow request on a transport, decode or state failure. Operations
+// that ran on retained credentials also drop them.
+bool fail_request(UserAuthCoordinator* coordinator, UserAuthCoordinatorRuntime* runtime,
+                  UserAuthCoordinatorEvent& event, UserAuthCoordinatorEventKind kind,
+                  UserAuthCoordinatorError error) noexcept {
+    event.kind = kind;
+    coordinator->state.error = error;
+    coordinator->state.phase = UserAuthCoordinatorPhase::failed;
+    runtime->active_request_id = 0;
+    clear_request(runtime);
+    if (runtime->active_operation == UserAuthOperation::verification ||
+        runtime->active_operation == UserAuthOperation::recovery ||
+        runtime->active_operation == UserAuthOperation::browser_handoff_exchange)
+        clear_retained(runtime);
+    return true;
+}
+
 // All reset responses are accepted by request id/generation before this path.
 // Classify first so auth-shaped SMS failures cannot overwrite session storage.
 bool consume_reset_response(UserAuthCoordinator* coordinator, UserAuthCoordinatorRuntime* runtime,
@@ -663,16 +680,9 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     if (runtime->phone_context_active)
         return consume_phone_response(coordinator, runtime, event, transport_response, locked_body);
 
-    if (transport_response.error != RestClientError::none) {
-        event.kind = UserAuthCoordinatorEventKind::transport_error;
-        coordinator->state.error = UserAuthCoordinatorError::transport;
-        coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-        runtime->active_request_id = 0;
-        clear_request(runtime);
-        if (runtime->active_operation == UserAuthOperation::verification || runtime->active_operation == UserAuthOperation::recovery ||
-            runtime->active_operation == UserAuthOperation::browser_handoff_exchange) clear_retained(runtime);
-        return true;
-    }
+    if (transport_response.error != RestClientError::none)
+        return fail_request(coordinator, runtime, event, UserAuthCoordinatorEventKind::transport_error,
+                            UserAuthCoordinatorError::transport);
 
     if (runtime->active_operation == UserAuthOperation::mfa_sms_send &&
         transport_response.status_code >= 200 && transport_response.status_code < 300) {
@@ -723,14 +733,8 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
             clear_request(runtime); clear_retained(runtime);
             return true;
         }
-        event.kind = UserAuthCoordinatorEventKind::protocol_error;
-        coordinator->state.error = UserAuthCoordinatorError::decode;
-        coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-        runtime->active_request_id = 0;
-        clear_request(runtime);
-        if (runtime->active_operation == UserAuthOperation::verification || runtime->active_operation == UserAuthOperation::recovery ||
-            runtime->active_operation == UserAuthOperation::browser_handoff_exchange) clear_retained(runtime);
-        return true;
+        return fail_request(coordinator, runtime, event, UserAuthCoordinatorEventKind::protocol_error,
+                            UserAuthCoordinatorError::decode);
     }
 
     if (invalid_mfa_retry) {
@@ -780,16 +784,10 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     const UserAuthTransitionResult applied =
         user_auth_state_apply(&runtime->flow, runtime->active_generation, decoded);
     if (!applied.ok()) {
-        event.kind = UserAuthCoordinatorEventKind::protocol_error;
-        coordinator->state.error = UserAuthCoordinatorError::state;
         coordinator->state.transition_error = applied.error;
         coordinator->state.response_kind = decoded.kind;
-        coordinator->state.phase = UserAuthCoordinatorPhase::failed;
-        runtime->active_request_id = 0;
-        clear_request(runtime);
-        if (runtime->active_operation == UserAuthOperation::verification || runtime->active_operation == UserAuthOperation::recovery ||
-            runtime->active_operation == UserAuthOperation::browser_handoff_exchange) clear_retained(runtime);
-        return true;
+        return fail_request(coordinator, runtime, event, UserAuthCoordinatorEventKind::protocol_error,
+                            UserAuthCoordinatorError::state);
     }
     retain_decoded(runtime, decoded, prior_phase);
     event.response = decoded;

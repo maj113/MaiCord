@@ -12,11 +12,9 @@ namespace {
 // key), the media source the picker shows, and the media size.
 struct GifStar {
     UiWidgetHandle owner;
-    UiRect star;
     Utf8View url, src;
     u32 width, height;
 };
-UiWidgetHandle g_loaded_owner{};
 
 bool available() noexcept {
     return g_app.account_ui && !g_app.login.visible && !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
@@ -74,7 +72,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                 const Utf8View url = message_rich_store_string(store, attachment.url);
                 if (!ui_rect_has_area(star) || !url.bytes || !hit(widget, *node, star))
                     continue;
-                *out = {widget, star, url, url, attachment.width, attachment.height};
+                *out = {widget, url, url, attachment.width, attachment.height};
                 return true;
             }
             for (u32 i = 0; i < rich->embed_count; ++i) {
@@ -102,7 +100,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                     url = selected.source;
                 if (!ui_rect_has_area(star) || !url.bytes || !selected.source.bytes || !hit(widget, *node, star))
                     continue;
-                *out = {widget, star, url, selected.source, selected.media->width, selected.media->height};
+                *out = {widget, url, selected.source, selected.media->width, selected.media->height};
                 return true;
             }
         }
@@ -116,15 +114,12 @@ void application_gif_favorite_star_synchronize() noexcept {
     const UiWidgetHandle hovered = g_app.message_scene.widgets.hovered;
     GifStar gif{};
     const bool found = hovered.generation && find(hovered, 0, 0, &gif);
-    ApplicationGifFavoriteState state{};
     // Refresh the source interest even when a scene reuses the same widget
     // handle after a channel or account transition.
     application_gif_favorites_set_hovered(found);
-    if (found) {
-        state = application_gif_favorites_state(gif.url);
-    }
-    g_loaded_owner = found ? gif.owner : UiWidgetHandle{};
-    renderer.gif_favorite_owner = g_loaded_owner;
+    const ApplicationGifFavoriteState state =
+        found ? application_gif_favorites_state(gif.url) : ApplicationGifFavoriteState{};
+    renderer.gif_favorite_owner = found ? gif.owner : UiWidgetHandle{};
     renderer.gif_favorite = state.confirmed;
     renderer.gif_favorite_pending = state.pending;
 }

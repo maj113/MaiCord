@@ -44,7 +44,7 @@ inline bool application_copy_text(Utf8View text, Utf8View copied, Utf8View faile
 
 // Frame step: advances the queue, publishes the scene and its opacity to the
 // renderer and requests frames only while a toast animates.
-bool application_toast_synchronize(u64 now_ms) noexcept;
+void application_toast_synchronize(u64 now_ms) noexcept;
 // The next due update; zero when no toast is queued or showing.
 u64 application_toast_next_wake() noexcept;
 // Loop tick: the hold and the handover end without a frame of their own.

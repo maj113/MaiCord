@@ -101,8 +101,6 @@ DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sen
         return {{}, 0, DaveSenderError::stale_transition};
     if (seed.count != 16 || !external(sender, seed))
         return {{}, 0, DaveSenderError::invalid_input};
-    if (sender.count == ~u32{0})
-        return {{}, ERROR_NOT_ENOUGH_MEMORY, DaveSenderError::storage};
     auto* node = static_cast<DaveReceiveNode*>(
         VirtualAlloc(nullptr, sizeof(DaveReceiveNode), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!node)

@@ -132,14 +132,12 @@ struct Pe {
         return at <= bytes && size <= bytes - at && reader.read(base + at, out, size);
     }
     bool section(u32 i, u8* out) noexcept { return read(sections + static_cast<u64>(i) * 40, out, 40); }
-    bool map(u32 rva, u64 size, u64* offset, bool executable = false) noexcept {
+    // The entry point's first byte lies in an executable section's raw data.
+    bool entry_executable(u32 rva) noexcept {
         for (u32 i = 0; i < count; ++i) {
             u8 sec[40]{}; if (!section(i, sec)) return false;
             const u64 start = dword(sec + 12), raw = dword(sec + 16);
-            if (rva >= start && rva - start < raw && size <= raw - (rva - start) &&
-                (!executable || (dword(sec + 36) & IMAGE_SCN_MEM_EXECUTE))) {
-                *offset = dword(sec + 20) + (rva - start); return true;
-            }
+            if (rva >= start && rva - start < raw && (dword(sec + 36) & IMAGE_SCN_MEM_EXECUTE)) return true;
         }
         return false;
     }
@@ -171,9 +169,7 @@ struct Pe {
                     (virtual_bytes && other_virtual && va < other_va + other_virtual && other_va < va + virtual_bytes)) return false;
             }
         }
-        u64 offset = 0;
-        if (!map(dword(nt + 40), 1, &offset, true)) return false;
-        return true;
+        return entry_executable(dword(nt + 40));
     }
 };
 bool image(Reader& reader, u64 base, u64 bytes) noexcept {

@@ -209,7 +209,6 @@ void insert(QuickSwitcherController* c, QuickSwitcherRow& row, u32 limit) noexce
 }
 void consider(QuickSwitcherController* c, QuickSwitcherRow& row, Utf8View query, Utf8View alternate, u32 limit) noexcept {
     ++c->stats.visited_candidates;
-    c->stats.name_bytes += row.label_bytes + row.detail_bytes + alternate.bytes;
     row.score = match_score(query, {row.label, row.label_bytes}, {row.detail, row.detail_bytes}, alternate, row.target.id);
     if (!row.score) return;
     ++c->stats.matched_candidates;
@@ -325,7 +324,6 @@ bool quick_switcher_synchronize(QuickSwitcherController* c, QuickSwitcherScope s
             QuickSwitcherRow row{}; Utf8View alternate{}; channel_row(sources, *channel, &row, &alternate);
             row.score = 1000 - i; row.recent = true; insert(c, row, 7);
             ++c->stats.visited_candidates; ++c->stats.matched_candidates;
-            c->stats.name_bytes += row.label_bytes + row.detail_bytes + alternate.bytes;
         }
         if (c->count) return true;
     }

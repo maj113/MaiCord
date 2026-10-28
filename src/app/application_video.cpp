@@ -151,6 +151,19 @@ void release_video_pointer_capture() noexcept {
     if (GetCapture() == g_app.window)
         ReleaseCapture();
 }
+// Capture and repaint requests every scene event can carry.
+template <typename Result> void apply_scene_result(const Result& event) noexcept {
+    if (event.request_capture)
+        SetCapture(g_app.window);
+    if (event.release_capture)
+        release_video_pointer_capture();
+    if (event.handled)
+        application_request_frame();
+}
+bool modal_overlay_covers_video() noexcept {
+    return application_downloads_active() ||
+           (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active);
+}
 // Detaches the audio and video scenes from the renderer; true when one was bound.
 bool unbind_playback_scenes() noexcept {
     const bool had_scene = g_app.renderer.video_scene != nullptr || g_app.renderer.audio_scene != nullptr;
@@ -179,8 +192,7 @@ UiRect available_video_clip(UiRect clip) noexcept {
         return {};
     // Query authority can turn stale during permission dispatch; the modal
     // still owns the underlying timeline until its active lifetime ends.
-    if ((application_downloads_active() ||
-         (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active)))
+    if (modal_overlay_covers_video())
         return {};
     if (renderer.quick_switcher_scene && renderer.quick_switcher_scene->active)
         return {};
@@ -207,8 +219,7 @@ bool video_viewer_hosted() noexcept {
 }
 bool video_surface_available() noexcept {
     return !content_surface_covers_video() &&
-           !(application_downloads_active() ||
-             (g_app.renderer.message_forward_scene && g_app.renderer.message_forward_scene->active)) &&
+           !modal_overlay_covers_video() &&
            video_session_available() && !IsIconic(g_app.window) && !application_settings_active() &&
            !application_friends_active() && !g_app.popup_scene.active && !g_app.reaction_viewer.active &&
            (!g_app.image_viewer.scene.active || video_viewer_hosted()) && !g_app.text_form &&
@@ -692,7 +703,7 @@ UiAudioPlaybackState project_audio_playback(const ApplicationVideo& video) noexc
 }
 bool send_video_command(ApplicationVideo& video, AccountVideoCommand kind, i64 seek = 0, float volume = 1,
                         bool muted = false) noexcept {
-    if (!video.selected || !video_session_available() || video.command_serial == ~u64{0})
+    if (!video.selected || !video_session_available())
         return false;
     if (video.status.playback.live && kind == AccountVideoCommand::seek) return false;
     if (video.status.playback.live && kind == AccountVideoCommand::play && video.live_started && !video.status.playback.playing) {
@@ -742,12 +753,7 @@ bool inline_media_activation_consumed(const InlineMediaSource& source,
                                       InlineMediaPolicyUse use = InlineMediaPolicyUse::activate) noexcept;
 bool switch_collection_track(ApplicationVideo&, u16 track, UiVideoControl focus) noexcept;
 void dispatch_video_event(ApplicationVideo& video, const UiVideoSceneResult& event) noexcept {
-    if (event.request_capture)
-        SetCapture(g_app.window);
-    if (event.release_capture)
-        release_video_pointer_capture();
-    if (event.handled)
-        application_request_frame();
+    apply_scene_result(event);
     if (!event.action_requested || !ui_video_action_current(project_video_playback(video), event.action))
         return;
     if (inline_media_activation_consumed(video.source))
@@ -787,8 +793,6 @@ void dispatch_video_event(ApplicationVideo& video, const UiVideoSceneResult& eve
 bool start_video_session(const InlineMediaSource& source) noexcept {
     AccountVideoIdentity retired{};
     close_video_session(&retired);
-    if (g_app.video_lifetime_serial == ~u64{0})
-        return false;
     void* allocation =
         VirtualAlloc(nullptr, sizeof(ApplicationVideo), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!allocation)
@@ -922,12 +926,7 @@ bool activate_inline_source(const InlineMediaSource& source) noexcept {
     return start_video_session(source);
 }
 void dispatch_audio_event(ApplicationVideo& video, const UiAudioSceneResult& event) noexcept {
-    if (event.request_capture)
-        SetCapture(g_app.window);
-    if (event.release_capture)
-        release_video_pointer_capture();
-    if (event.handled)
-        application_request_frame();
+    apply_scene_result(event);
     if (!event.action_requested || !video.source.audio ||
         !ui_audio_action_current(project_audio_playback(video), event.action))
         return;
@@ -983,6 +982,35 @@ bool search_video_still_current(const ApplicationVideo& video) noexcept {
         media_asset_key_equal(current.key, video.source.key))
         return true;
     application_video_close();
+    return false;
+}
+// The first visible inline media source whose clip holds `point`, with its rich record and item index.
+bool visible_source_at(UiPoint point, InlineMediaSource* source, const MessageRichRecord** rich_out,
+                       u32* item_out) noexcept {
+    for (u32 row_index = 0; row_index < g_app.message_scene.count; ++row_index) {
+        for (u32 content_scope = 0; content_scope < 2; ++content_scope) {
+            const auto& row = g_app.message_scene.rows[row_index];
+            const auto* message = message_store_resolve(g_app.message_view.store, row.message);
+            const auto& store = g_app.account_ui->message_rich_store;
+            const auto* rich = message ? (content_scope ? message_rich_store_snapshot(store, message->id)
+                                                        : message_rich_store_find(store, message->id))
+                                       : nullptr;
+            if (!rich)
+                continue;
+            for (u32 kind = 0; kind < 2; ++kind) {
+                const u32 count = kind ? rich->embed_count : rich->attachment_count;
+                for (u32 item = 0; item < count; ++item) {
+                    if (resolve_visible_video_source(message->id, message->revision, kind != 0,
+                                                     static_cast<u8>(item), source, content_scope != 0) &&
+                        ui_rect_contains(source->clip, point.x, point.y)) {
+                        *rich_out = rich;
+                        *item_out = item;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
     return false;
 }
 // Routes one pointer message into the video scene; true when a control handled it.
@@ -1752,63 +1780,37 @@ bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
         application_video_blur();
         return false;
     }
-    for (u32 row_index = 0; row_index < g_app.message_scene.count; ++row_index) {
-        for (u32 content_scope = 0; content_scope < 2; ++content_scope) {
-            const auto& row = g_app.message_scene.rows[row_index];
-            const auto* resolved_message = message_store_resolve(g_app.message_view.store, row.message);
-            const auto* rich =
-                resolved_message
-                    ? (content_scope ? message_rich_store_snapshot(g_app.account_ui->message_rich_store,
-                                                                   resolved_message->id)
-                                     : message_rich_store_find(g_app.account_ui->message_rich_store,
-                                                               resolved_message->id))
-                    : nullptr;
-            if (!rich)
-                continue;
-            for (u32 kind = 0; kind < 2; ++kind) {
-                const u32 count = kind ? rich->embed_count : rich->attachment_count;
-                for (u32 item_index = 0; item_index < count; ++item_index) {
-                    InlineMediaSource source{};
-                    if (resolve_visible_video_source(resolved_message->id, resolved_message->revision,
-                                                     kind != 0, static_cast<u8>(item_index), &source,
-                                                     content_scope != 0) &&
-                        ui_rect_contains(source.clip, point.x, point.y)) {
-                        if (inline_media_activation_consumed(source))
-                            return true;
-                        if (source.audio) {
-                            UiAudioControlsProjection controls{};
-                            if (!ui_audio_attachment_project(
-                                    g_app.account_ui->message_rich_store, rich->attachments[item_index],
-                                    video ? video->session_epoch : 1, u64{resolved_message->revision} + 1,
-                                    message_rich_record_voice(*rich), source.preview, application_theme(),
-                                    {}, &controls))
-                                return false;
-                            UiAudioAction action{};
-                            if (!ui_audio_controls_pointer_action(controls, point, &action))
-                                return false;
-                            if (action.control == UiAudioControl::download)
-                                return application_downloads_begin(source.message_id, source.key.id,
-                                                                   source.snapshot);
-                            return action.control == UiAudioControl::play_pause &&
-                                   activate_inline_source(source);
-                        }
-                        if (video && !video->source.audio &&
-                            media_asset_key_equal(source.key, video->source.key) && video->selected &&
-                            video->status.selected && !video->presentation_failed &&
-                            video->status.playback.error == AccountVideoError::none) {
-                            acquire_video_focus(*video);
-                            ui_video_scene_focus(&video->ui.video, UiVideoControl::play_pause, false);
-                            send_video_command(*video, video->status.playback.playing
-                                                           ? AccountVideoCommand::pause
-                                                           : AccountVideoCommand::play);
-                            application_request_frame();
-                            return true;
-                        }
-                        return start_video_session(source);
-                    }
-                }
-            }
+    InlineMediaSource source{};
+    const MessageRichRecord* rich = nullptr;
+    u32 item_index = 0;
+    if (visible_source_at(point, &source, &rich, &item_index)) {
+        if (inline_media_activation_consumed(source))
+            return true;
+        if (source.audio) {
+            UiAudioControlsProjection controls{};
+            if (!ui_audio_attachment_project(g_app.account_ui->message_rich_store, rich->attachments[item_index],
+                                             video ? video->session_epoch : 1, u64{source.revision} + 1,
+                                             message_rich_record_voice(*rich), source.preview,
+                                             application_theme(), {}, &controls))
+                return false;
+            UiAudioAction action{};
+            if (!ui_audio_controls_pointer_action(controls, point, &action))
+                return false;
+            if (action.control == UiAudioControl::download)
+                return application_downloads_begin(source.message_id, source.key.id, source.snapshot);
+            return action.control == UiAudioControl::play_pause && activate_inline_source(source);
         }
+        if (video && !video->source.audio && media_asset_key_equal(source.key, video->source.key) &&
+            video->selected && video->status.selected && !video->presentation_failed &&
+            video->status.playback.error == AccountVideoError::none) {
+            acquire_video_focus(*video);
+            ui_video_scene_focus(&video->ui.video, UiVideoControl::play_pause, false);
+            send_video_command(*video, video->status.playback.playing ? AccountVideoCommand::pause
+                                                                      : AccountVideoCommand::play);
+            application_request_frame();
+            return true;
+        }
+        return start_video_session(source);
     }
     if (video) {
         application_video_blur();
@@ -1856,49 +1858,27 @@ bool application_video_cursor(UiPoint point, UiCursor* cursor) noexcept {
     // Search's typed rich target owns preview activation while it plays.
     if (video && media_asset_search(video->source.key))
         return false;
-    for (u32 row_index = 0; row_index < g_app.message_scene.count; ++row_index) {
-        for (u32 content_scope = 0; content_scope < 2; ++content_scope) {
-            const auto& row = g_app.message_scene.rows[row_index];
-            const auto* message = message_store_resolve(g_app.message_view.store, row.message);
-            const auto* rich =
-                message ? (content_scope ? message_rich_store_snapshot(g_app.account_ui->message_rich_store,
-                                                                        message->id)
-                                         : message_rich_store_find(g_app.account_ui->message_rich_store,
-                                                                   message->id))
-                        : nullptr;
-            if (!rich)
-                continue;
-            for (u32 kind = 0; kind < 2; ++kind) {
-                const u32 count = kind ? rich->embed_count : rich->attachment_count;
-                for (u32 item_index = 0; item_index < count; ++item_index) {
-                    InlineMediaSource source{};
-                    if (!resolve_visible_video_source(message->id, message->revision, kind != 0,
-                                                      static_cast<u8>(item_index), &source, content_scope != 0) ||
-                        !ui_rect_contains(source.clip, point.x, point.y))
-                        continue;
-                    if (inline_media_activation_consumed(source, InlineMediaPolicyUse::cursor))
-                        return false;
-                    if (!source.audio) {
-                        *cursor = UiCursor::hand;
-                        return true;
-                    }
-                    // An unselected card activates only Play and Download.
-                    UiAudioControlsProjection controls{};
-                    const auto control =
-                        ui_audio_attachment_project(g_app.account_ui->message_rich_store,
-                                                    rich->attachments[item_index], video ? video->session_epoch : 1,
-                                                    u64{message->revision} + 1, message_rich_record_voice(*rich),
-                                                    source.preview, application_theme(), {}, &controls)
-                            ? ui_audio_controls_hit(controls, point)
-                            : UiAudioControl::none;
-                    *cursor = ui_action_cursor(control == UiAudioControl::play_pause ||
-                                               control == UiAudioControl::download);
-                    return true;
-                }
-            }
-        }
+    InlineMediaSource source{};
+    const MessageRichRecord* rich = nullptr;
+    u32 item_index = 0;
+    if (!visible_source_at(point, &source, &rich, &item_index) ||
+        inline_media_activation_consumed(source, InlineMediaPolicyUse::cursor))
+        return false;
+    if (!source.audio) {
+        *cursor = UiCursor::hand;
+        return true;
     }
-    return false;
+    // An unselected card activates only Play and Download.
+    UiAudioControlsProjection controls{};
+    const auto control =
+        ui_audio_attachment_project(g_app.account_ui->message_rich_store, rich->attachments[item_index],
+                                    video ? video->session_epoch : 1, u64{source.revision} + 1,
+                                    message_rich_record_voice(*rich), source.preview, application_theme(), {},
+                                    &controls)
+            ? ui_audio_controls_hit(controls, point)
+            : UiAudioControl::none;
+    *cursor = ui_action_cursor(control == UiAudioControl::play_pause || control == UiAudioControl::download);
+    return true;
 }
 bool application_video_viewer_cursor(UiPoint point, UiCursor* cursor) noexcept {
     const auto* video = g_app.video;

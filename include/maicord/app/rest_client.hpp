@@ -435,7 +435,6 @@ RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
 
 // Committed runtime bytes for a configured response body capacity.
 u32 rest_client_runtime_bytes(u32 response_capacity) noexcept;
-u32 rest_client_user_runtime_bytes(u32 response_capacity) noexcept;
 // Committed ordinary+locked bytes for the user-auth client.
 u32 rest_client_user_auth_runtime_bytes(u32 response_capacity) noexcept;
 

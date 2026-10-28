@@ -483,6 +483,7 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
     // reference messages outside the resident window, including deletions.
     if (event->kind == GatewayClientEventKind::dispatch && popped.payload_bytes <= payload_output.count) {
         const auto kind = event->dispatch_kind;
+        const Utf8View text{reinterpret_cast<const char*>(payload_output.data), popped.payload_bytes};
         const bool pinned_create = kind == GatewayClientDispatchKind::message_create &&
                                    (event->message.fields & gateway_message_field_pinned) &&
                                    (event->message.mention_flags & gateway_client_message_pinned);
@@ -492,26 +493,18 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
             kind == GatewayClientDispatchKind::message_delete ||
             kind == GatewayClientDispatchKind::message_bulk_delete)
             application_pinned_messages_gateway(event->message.channel_id);
-    }
-    if (event->kind == GatewayClientEventKind::dispatch &&
-        event->dispatch_kind == GatewayClientDispatchKind::command_autocomplete &&
-        popped.payload_bytes <= payload_output.count)
-        application_commands_gateway(
-            {reinterpret_cast<const char*>(payload_output.data), popped.payload_bytes});
-    if (event->kind == GatewayClientEventKind::dispatch && popped.payload_bytes <= payload_output.count) {
-        const auto kind = event->dispatch_kind;
+        if (kind == GatewayClientDispatchKind::command_autocomplete)
+            application_commands_gateway(text);
         if (kind == GatewayClientDispatchKind::interaction_create ||
             kind == GatewayClientDispatchKind::interaction_success ||
             kind == GatewayClientDispatchKind::interaction_failure ||
             kind == GatewayClientDispatchKind::interaction_modal_create)
-            application_message_components_gateway(
-                kind, {reinterpret_cast<const char*>(payload_output.data), popped.payload_bytes});
+            application_message_components_gateway(kind, text);
         else if (kind == GatewayClientDispatchKind::message_update ||
                  kind == GatewayClientDispatchKind::message_create)
             application_message_components_message(event->message.id);
         else if (kind == GatewayClientDispatchKind::user_note_update)
-            application_user_actions_note_gateway(
-                {reinterpret_cast<const char*>(payload_output.data), popped.payload_bytes});
+            application_user_actions_note_gateway(text);
     }
     if (event->kind == GatewayClientEventKind::ready) {
         if (g_app.account_ui)
@@ -793,6 +786,26 @@ bool application_hide_account_scenes() noexcept {
         .ok();
 }
 
+namespace {
+// The sign-in form after an account ended: secrets cleared, the status notice set.
+void reset_login_form(RendererLoginStatus status) noexcept {
+    secure_edit_clear(&g_app.login.password);
+    secure_edit_clear(&g_app.login.mfa);
+    g_app.login.visible = true;
+    g_app.login.status = status;
+    g_app.login.focus = LoginControl::login;
+}
+// Shows the form and starts a fresh QR flow; `ready` is whether the scenes behind it were reset.
+bool present_login(bool ready) noexcept {
+    if (!ready || !application_refresh_login_view())
+        return false;
+    if (!application_login_begin_remote_auth())
+        log_write(LogLevel::warning, "auth", "remote_auth_restart_failed");
+    application_request_frame();
+    return true;
+}
+} // namespace
+
 bool application_account_publish_logged_out(bool unconfirmed) noexcept {
     if (application_account_logout_host_owned() || g_app.account.instance || g_app.account.login_instance)
         return false;
@@ -802,11 +815,7 @@ bool application_account_publish_logged_out(bool unconfirmed) noexcept {
     if (g_app.account_ui)
         application_release_account_ui(g_app);
     const bool shell_reset = application_hide_account_scenes();
-    g_app.login.visible = true;
-    g_app.login.status =
-        unconfirmed ? RendererLoginStatus::signed_out_unconfirmed : RendererLoginStatus::signed_out;
-    secure_edit_clear(&g_app.login.password);
-    secure_edit_clear(&g_app.login.mfa);
+    reset_login_form(unconfirmed ? RendererLoginStatus::signed_out_unconfirmed : RendererLoginStatus::signed_out);
     g_app.login.remote_active = false;
     g_app.login.qr_ready = false;
     g_app.login.remote_status = LoginRemoteStatus::idle;
@@ -818,13 +827,7 @@ bool application_account_publish_logged_out(bool unconfirmed) noexcept {
     g_app.login.reset_retry = false;
     g_app.login.webauthn_post_epoch = 0;
     g_app.login.browser_launch_epoch = 0;
-    g_app.login.focus = LoginControl::login;
-    if (!shell_reset || !application_refresh_login_view())
-        return false;
-    if (!application_login_begin_remote_auth())
-        log_write(LogLevel::warning, "auth", "remote_auth_restart_failed");
-    application_request_frame();
-    return true;
+    return present_login(shell_reset);
 }
 
 bool application_account_return_to_login(bool rejected) noexcept {
@@ -845,19 +848,9 @@ bool application_account_return_to_login(bool rejected) noexcept {
                     log_write(LogLevel::warning, "auth", "invalidated_session_removal_failed");
         }
     }
-    secure_edit_clear(&g_app.login.password);
-    secure_edit_clear(&g_app.login.mfa);
-    g_app.login.visible = true;
-    g_app.login.status =
-        rejected ? RendererLoginStatus::session_expired : RendererLoginStatus::connection_failed;
-    g_app.login.focus = LoginControl::login;
-    if (!application_refresh_login_view())
-        return false;
+    reset_login_form(rejected ? RendererLoginStatus::session_expired : RendererLoginStatus::connection_failed);
     // QR login is a new unauthenticated flow; it never retries the rejected token.
-    if (!application_login_begin_remote_auth())
-        log_write(LogLevel::warning, "auth", "remote_auth_restart_failed");
-    application_request_frame();
-    return true;
+    return present_login(true);
 }
 
 bool application_account_module_load() noexcept {

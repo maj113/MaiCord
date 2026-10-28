@@ -150,14 +150,17 @@ bool accept_message_delete_response(const RestClientResponse& response) noexcept
     if (!g_app.account_ui || g_app.message_delete.message_id == 0) {
         return false;
     }
-    if (!response.transport_ok()) {
-        log_u64(LogLevel::error, "rest", "message_delete_transport_error",
-                static_cast<u64>(response.error));
+    const auto failed = [&]() noexcept {
         application_message_mutation_notice_failed(ApplicationMessageMutationKind::erase,
                                                    g_app.message_delete.channel_id,
                                                    g_app.message_delete.message_id, response);
         reset_message_delete();
         return refresh_account_text(true);
+    };
+    if (!response.transport_ok()) {
+        log_u64(LogLevel::error, "rest", "message_delete_transport_error",
+                static_cast<u64>(response.error));
+        return failed();
     }
     if (response.status_code == 429 && response.rate_limited && response.retry_at_ms != 0 &&
         !api_rejection_requires_action(response.rejection)) {
@@ -168,10 +171,7 @@ bool accept_message_delete_response(const RestClientResponse& response) noexcept
     const u64 message_id = g_app.message_delete.message_id;
     if (response.status_code != 204 && response.status_code != 404) {
         log_u64(LogLevel::error, "rest", "message_delete_http_status", response.status_code);
-        application_message_mutation_notice_failed(ApplicationMessageMutationKind::erase,
-                                                   g_app.message_delete.channel_id, message_id, response);
-        reset_message_delete();
-        return refresh_account_text(true);
+        return failed();
     }
     const MessageTimelineApplyResult removed =
         message_timeline_remove_local(&g_app.message_view.timeline, message_id);

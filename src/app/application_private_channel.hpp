@@ -16,7 +16,6 @@ bool application_private_channel_add(u64 channel_id, ConstSlice<u64> users) noex
 // Picker for a new conversation (zero) or for people joining channel_id.
 bool application_private_channel_picker(u64 channel_id) noexcept;
 bool application_private_channel_rename(u64 channel_id) noexcept;
-bool application_private_channel_leave(u64 channel_id, bool silent) noexcept;
 // Context-menu rows for a DM or group row and for a group member.
 u32 application_private_channel_menu_items(u64 channel_id, Slice<PopupItem> output) noexcept;
 u32 application_private_channel_member_items(u64 user_id, Slice<PopupItem> output) noexcept;

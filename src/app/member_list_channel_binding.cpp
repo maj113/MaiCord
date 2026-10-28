@@ -203,7 +203,7 @@ bool member_list_subscription_viewport(MemberListSubscriptionRetry* retry,
     last = minimum(last, static_cast<u64>(~0u));
     u32 first_page = first / kMemberListSubscriptionPageRows;
     const u32 last_page = static_cast<u32>(last) / kMemberListSubscriptionPageRows;
-    GatewayMemberSubscriptionRange ranges[kGatewayMemberSubscriptionMaximumRanges]{};
+    GatewayMemberSubscriptionRange ranges[kGatewayMemberSubscriptionMaximumRanges];
     u32 count = 1;
     ranges[0] = {0, kMemberListSubscriptionPageRows - 1};
     first_page = maximum(first_page, 1u);

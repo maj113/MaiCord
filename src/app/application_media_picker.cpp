@@ -190,7 +190,7 @@ struct ApplicationMediaPicker {
     bool favorites_enabled, favorites_view, gif_favorites_view;
     u64 scrollbar_scope, scrollbar_revision;
     float scrollbar_grab;
-    bool scrollbar_dragging, scrollbar_rail;
+    bool scrollbar_dragging;
     float preferred_width, resize_fixed_edge, resize_pointer_offset;
     bool resizing;
     // Reaction popout: the Emoji component targeting one message instead of
@@ -228,8 +228,7 @@ static_assert(kChatStateEmojiCapacity <= kReactionPickerCustomEmojiCapacity &&
 bool emoji_projection(ApplicationMediaPicker& p) noexcept {
     revoke_capture(p);
     if (!reaction_picker_refresh_search(&p.emoji).ok() ||
-        p.emoji.section_count > kUiMediaPickerMaximumSections ||
-        g_app.media_picker_item_serial > ~u64{0} - p.emoji.result_count - p.emoji.section_count)
+        p.emoji.section_count > kUiMediaPickerMaximumSections)
         return false;
     p.emoji_first_id = g_app.media_picker_item_serial + 1;
     g_app.media_picker_item_serial += p.emoji.result_count + p.emoji.section_count;
@@ -331,8 +330,7 @@ bool favorites_refresh(ApplicationMediaPicker& p) noexcept {
         revoke_capture(p);
     const bool data_changed = p.favorites_data_revision != view.data_revision;
     if (data_changed) {
-        if (view.records.count > kUiMediaPickerMaximumItems || p.favorite_generation == ~u32{0} ||
-            g_app.media_picker_item_serial > ~u64{0} - view.records.count)
+        if (view.records.count > kUiMediaPickerMaximumItems || p.favorite_generation == ~u32{0})
             return false;
         const u32 mask_bytes = (view.records.count + 7) / 8;
         auto* mask = mask_bytes ? static_cast<u8*>(VirtualAlloc(nullptr, mask_bytes,
@@ -406,8 +404,6 @@ bool enable_favorites(ApplicationMediaPicker& p) noexcept {
     }
     if (!g_app.account.api.gif_favorites || !application_gif_favorites_open())
         return true;
-    if (g_app.media_picker_item_serial == ~u64{0})
-        return false;
     p.favorites_enabled = true;
     p.favorite_generation = 1;
     p.tile_source_index = ~u32{0};
@@ -464,11 +460,8 @@ bool front(const ApplicationMediaPicker* p = nullptr) noexcept {
 void focus(ApplicationMediaPicker& p, bool value) noexcept {
     if (p.focused != value)
         application_composer_text_input_suspend();
-    if (value && !p.focused) {
-        if (g_app.media_picker_scope_serial == ~u64{0})
-            return;
+    if (value && !p.focused)
         p.edit_identity = ++g_app.media_picker_scope_serial;
-    }
     p.focused = p.edit.focused = value;
     p.caret_visible = value;
     p.blink_at = value ? deadline_after(clock_monotonic_milliseconds(), kDefaultCaretBlinkMilliseconds) : 0;
@@ -529,7 +522,7 @@ const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index,
         return temporary;
     }
     const CatalogBank* owner = p.kind == UiMediaPickerKind::gif ? gif_bank(p) : p.guild;
-    if (index >= p.source.count || (p.kind == UiMediaPickerKind::sticker && index >= p.filtered_count))
+    if (p.kind == UiMediaPickerKind::sticker && index >= p.filtered_count)
         return nullptr;
     u32 at = p.kind == UiMediaPickerKind::sticker && p.filtered ? p.filtered[index] : index;
     if (p.kind == UiMediaPickerKind::sticker && (!owner || at >= owner->count)) {
@@ -610,9 +603,9 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
     }
     const u32 bytes = sizeof(CatalogBank) + items * sizeof(MediaCatalogItem) + text + items * 64 +
                       servers * kNameBytes + (items + 7) / 8;
-    auto* bank = items && g_app.media_picker_item_serial <= ~u64{0} - items
-                     ? static_cast<CatalogBank*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
-                     : nullptr;
+    auto* bank = items ? static_cast<CatalogBank*>(
+                             VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+                       : nullptr;
     p.sticker_server_count = 0;
     if (bank) {
         bank->items = reinterpret_cast<MediaCatalogItem*>(bank + 1);
@@ -774,15 +767,14 @@ bool projection(ApplicationMediaPicker& p) noexcept {
         p.filtered_capacity = count;
     }
     p.filtered_count = 0;
+    const auto query = message_composer_text(p.edit);
     if (p.kind == UiMediaPickerKind::gif && p.favorites_view) {
-        const auto query = message_composer_text(p.edit);
         for (u32 i = 0; i < count; ++i)
             if (favorite_contains(favorites.records[i].url, query))
                 p.filtered[p.filtered_count++] = i;
         p.source.count = p.filtered_count;
         return true;
     }
-    const auto query = message_composer_text(p.edit);
     u64 previous = 0;
     for (u32 i = 0; i < count; ++i) {
         const auto* bank = p.guild && i < p.guild->count ? p.guild : p.packs;
@@ -1123,8 +1115,6 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target) noex
 ApplicationMediaPicker* ensure_owner() noexcept {
     if (g_app.media_picker)
         return g_app.media_picker;
-    if (g_app.media_picker_scope_serial == ~u64{0})
-        return nullptr;
     auto* p = static_cast<ApplicationMediaPicker*>(
         VirtualAlloc(nullptr, sizeof(ApplicationMediaPicker), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!p)
@@ -1146,17 +1136,15 @@ ApplicationMediaPicker* ensure_owner() noexcept {
     return p;
 }
 // A new account or channel retires every bank and saved tab of the old one.
-bool rebind(ApplicationMediaPicker& p) noexcept {
+void rebind(ApplicationMediaPicker& p) noexcept {
     if (p.account_id == g_app.account_ui->chat_state.self_user_id &&
         p.channel_id == g_app.account_ui->active_channel_id)
-        return true;
+        return;
     revoke_capture(p);
     ui_media_picker_scene_close(&p.scene);
     reaction_picker_release(&p.emoji);
     cancel(p);
     focus(p, false);
-    if (g_app.media_picker_scope_serial == ~u64{0})
-        return false;
     // The session's category cache belongs to its account.
     if (p.account_id != g_app.account_ui->chat_state.self_user_id && p.categories) {
         VirtualFree(p.categories, 0, MEM_RELEASE);
@@ -1176,7 +1164,6 @@ bool rebind(ApplicationMediaPicker& p) noexcept {
     ZeroMemory(p.tab_query_bytes, sizeof(p.tab_query_bytes));
     ZeroMemory(p.tab_scroll, sizeof(p.tab_scroll));
     message_composer_clear(&p.edit);
-    return true;
 }
 } // namespace
 bool application_media_picker_open(UiMediaPickerKind kind) noexcept {
@@ -1193,8 +1180,7 @@ bool application_media_picker_open(UiMediaPickerKind kind) noexcept {
         application_media_picker_close();
         return true;
     }
-    if (!rebind(p))
-        return false;
+    rebind(p);
     if (kind == UiMediaPickerKind::gif && !enable_favorites(p))
         return false;
     p.active = true;
@@ -1224,7 +1210,8 @@ bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexc
     }
     if (p.active)
         application_media_picker_close();
-    if (!rebind(p) || p.generation == ~u32{0})
+    rebind(p);
+    if (p.generation == ~u32{0})
         return false;
     // Keep the composer picker's query for its next open.
     const auto saved = message_composer_text(p.edit);
@@ -1562,8 +1549,7 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
             const auto measured =
                 media_catalog_measure(operation, body, {scratch, kMediaCatalogStructuralCapacity}, 32);
             // A page longer than the cap keeps its first records.
-            if (measured.ok() &&
-                g_app.media_picker_item_serial <= ~u64{0} - measured.item_count) {
+            if (measured.ok()) {
                 const bool stickers = operation == MediaCatalogOperation::guild_stickers ||
                                       operation == MediaCatalogOperation::sticker_packs;
                 const u32 preview_bytes = stickers ? measured.item_count * 64 : 0;
@@ -1868,7 +1854,6 @@ void revoke_capture(ApplicationMediaPicker& p) noexcept {
     const bool was_resizing = p.resizing;
     p.captured = p.dragging = p.scrollbar_dragging = p.resizing = false;
     ui_media_picker_scene_set_scrollbar_state(&p.scene, false, UiScrollbarVisualState::normal);
-    ui_media_picker_scene_set_scrollbar_state(&p.scene, true, UiScrollbarVisualState::normal);
     ui_media_picker_scene_cancel_capture(&p.scene);
     if (GetCapture() == g_app.window)
         ReleaseCapture();
@@ -1915,8 +1900,7 @@ bool edit_pointer(ApplicationMediaPicker& p, float x, float y, bool extend) noex
 // Scrolls the dragged bar's pane so its thumb follows the pointer at y.
 bool scrollbar_follow(ApplicationMediaPicker& p, const UiScrollbarGeometry& geometry, float y) noexcept {
     const float next = ui_scrollbar_scroll_from_pointer(geometry, y, p.scrollbar_grab);
-    const float prior = p.scrollbar_rail ? p.scene.rail_scroll_dips : p.scene.scroll_dips;
-    return ui_media_picker_scene_scroll(&p.scene, next - prior, p.scrollbar_rail);
+    return ui_media_picker_scene_scroll(&p.scene, next - p.scene.scroll_dips);
 }
 } // namespace
 
@@ -2089,8 +2073,7 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         p->hover_at = 0;
         const bool scrollbar_changed =
             !p->scrollbar_dragging &&
-            (ui_media_picker_scene_set_scrollbar_state(&p->scene, false, UiScrollbarVisualState::normal) |
-             ui_media_picker_scene_set_scrollbar_state(&p->scene, true, UiScrollbarVisualState::normal));
+            ui_media_picker_scene_set_scrollbar_state(&p->scene, false, UiScrollbarVisualState::normal);
         if (ui_widget_manager_hover(&p->scene.widgets, ui_widget_invalid_handle()) || scrollbar_changed)
             repaint(true);
         return false;
@@ -2146,13 +2129,11 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         return true;
     }
     const auto hit = inside ? ui_media_picker_scene_hit_test(p->scene, x, y) : UiMediaPickerTarget{};
-    const auto body_scrollbar = ui_media_picker_scene_scrollbar(p->scene);
+    const auto geometry = ui_media_picker_scene_scrollbar(p->scene);
     // The category rail remains wheel/keyboard scrollable without an overlay
     // thumb stealing space and hits from its icons. Only the content has a thumb.
-    const UiScrollbarGeometry rail_scrollbar{};
     if (p->scrollbar_dragging) {
         const u64 revision = (static_cast<u64>(p->generation) << 32) | p->source.revision;
-        const auto geometry = p->scrollbar_rail ? rail_scrollbar : body_scrollbar;
         if (p->scrollbar_scope != p->scope || p->scrollbar_revision != revision || !geometry.visible) {
             revoke_capture(*p);
             application_request_frame();
@@ -2171,19 +2152,15 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
     }
     const bool primary_press = message == WM_LBUTTONDOWN ||
                                (message == WM_LBUTTONDBLCLK && hit.action != UiMediaPickerAction::edit);
-    if (primary_press && inside &&
-        (ui_scrollbar_track_hit(body_scrollbar, x, y) || ui_scrollbar_track_hit(rail_scrollbar, x, y))) {
+    if (primary_press && inside && ui_scrollbar_track_hit(geometry, x, y)) {
         focus(*p, false);
         ui_scroll_host_cancel(&g_app.scroll_host);
-        p->scrollbar_rail = ui_scrollbar_track_hit(rail_scrollbar, x, y);
-        const auto geometry = p->scrollbar_rail ? rail_scrollbar : body_scrollbar;
         p->scrollbar_grab = ui_scrollbar_thumb_hit(geometry, x, y) ? y - geometry.thumb.top
                                                                    : ui_rect_height(geometry.thumb) * .5f;
         p->scrollbar_scope = p->scope;
         p->scrollbar_revision = (static_cast<u64>(p->generation) << 32) | p->source.revision;
         p->scrollbar_dragging = p->captured = true;
-        ui_media_picker_scene_set_scrollbar_state(&p->scene, p->scrollbar_rail,
-                                                  UiScrollbarVisualState::pressed);
+        ui_media_picker_scene_set_scrollbar_state(&p->scene, false, UiScrollbarVisualState::pressed);
         scrollbar_follow(*p, geometry, y);
         SetCapture(g_app.window);
         repaint(true);
@@ -2245,15 +2222,10 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         return true;
     }
     if (message == WM_MOUSEMOVE) {
-        const bool scrollbar_changed =
-            ui_media_picker_scene_set_scrollbar_state(&p->scene, false,
-                                                      ui_scrollbar_thumb_hit(body_scrollbar, x, y)
-                                                          ? UiScrollbarVisualState::hovered
-                                                          : UiScrollbarVisualState::normal) |
-            ui_media_picker_scene_set_scrollbar_state(&p->scene, true,
-                                                      ui_scrollbar_thumb_hit(rail_scrollbar, x, y)
-                                                          ? UiScrollbarVisualState::hovered
-                                                          : UiScrollbarVisualState::normal);
+        const bool scrollbar_changed = ui_media_picker_scene_set_scrollbar_state(
+            &p->scene, false,
+            ui_scrollbar_thumb_hit(geometry, x, y) ? UiScrollbarVisualState::hovered
+                                                   : UiScrollbarVisualState::normal);
         if (scrollbar_changed)
             application_request_frame();
         if (inside) {

@@ -32,11 +32,6 @@ enum class LocalVideoPosterStep : u8 {
     budget,      // the poster needed more than kLocalVideoPosterReadBudget
 };
 
-// Copies every block the range touches (block aligned, clipped to the file).
-LocalVideoPosterStep local_video_poster_read(ProgressiveSource* source, ProgressiveRange range,
-                                             LocalVideoPosterReader* reader) noexcept;
-// Walks the top-level boxes until the moov is resident (progressive_mp4_probe).
-LocalVideoPosterStep local_video_poster_metadata(ProgressiveSource* source, LocalVideoPosterReader* reader) noexcept;
 // Fetches the range the video reader was last refused, if any. False when
 // nothing was pending (the caller's failure is real) or the read failed.
 bool local_video_poster_service(ProgressiveSource* source, LocalVideoPosterReader* reader,

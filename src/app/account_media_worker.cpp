@@ -223,6 +223,22 @@ bool read_local_preview(void* opaque, u64 offset, Slice<u8> output) noexcept {
     return true;
 }
 
+// The file handle and COM apartment of one local preview, released on every exit.
+struct LocalPreviewScope {
+    HANDLE file = INVALID_HANDLE_VALUE;
+    bool apartment = false;
+    void close_file() noexcept {
+        if (file != INVALID_HANDLE_VALUE)
+            CloseHandle(file);
+        file = INVALID_HANDLE_VALUE;
+    }
+    ~LocalPreviewScope() noexcept {
+        close_file();
+        if (apartment)
+            CoUninitialize();
+    }
+};
+
 AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
                                                 const AccountMediaWorkItem& work) noexcept {
     if (local_retired(lane))
@@ -240,16 +256,15 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
         work.video_device,
         0};
     const bool video = media_asset_catalog_format(work.key) == MediaAttachmentFormat::mp4;
-    HANDLE file = INVALID_HANDLE_VALUE;
-    const HRESULT apartment =
-        work.local_content.context ? CoInitializeEx(nullptr, COINIT_MULTITHREADED) : S_FALSE;
-    bool valid = !work.local_content.context || SUCCEEDED(apartment);
+    LocalPreviewScope scope;
+    scope.apartment = work.local_content.context && SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
+    bool valid = !work.local_content.context || scope.apartment;
     FileSnapshot found{};
     if (valid && !work.local_content.context) {
-        file = CreateFileW(reinterpret_cast<const wchar_t*>(work.text), GENERIC_READ, FILE_SHARE_READ,
-                           nullptr, OPEN_EXISTING, video ? FILE_FLAG_RANDOM_ACCESS : FILE_FLAG_SEQUENTIAL_SCAN,
-                           nullptr);
-        valid = file != INVALID_HANDLE_VALUE && file_snapshot_read(file, &found) &&
+        scope.file = CreateFileW(reinterpret_cast<const wchar_t*>(work.text), GENERIC_READ, FILE_SHARE_READ,
+                                 nullptr, OPEN_EXISTING,
+                                 video ? FILE_FLAG_RANDOM_ACCESS : FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+        valid = scope.file != INVALID_HANDLE_VALUE && file_snapshot_read(scope.file, &found) &&
                 local_draft_preview_snapshot_equal(found, work.local_snapshot);
     }
     if (video) {
@@ -257,44 +272,32 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
         AccountMediaRequestResult result =
             request_result(AccountMediaRequestState::failed, AccountMediaError::invalid_input);
         if (valid && !local_retired(lane)) {
-            LocalPreviewReader reader{lane, file, work.local_content};
+            LocalPreviewReader reader{lane, scope.file, work.local_content};
             result = account_media_decode_local_video_preview(&lane->media, request, read_local_preview, &reader);
         }
-        if (file != INVALID_HANDLE_VALUE) {
-            // A file replaced while it was read publishes nothing.
-            if (result.state == AccountMediaRequestState::ready &&
-                (!file_snapshot_read(file, &found) ||
-                 !local_draft_preview_snapshot_equal(found, work.local_snapshot))) {
-                lane->media.frame_ready = false;
-                account_media_release_video(&lane->media);
-                result = request_result(AccountMediaRequestState::failed, AccountMediaError::invalid_input);
-            }
-            CloseHandle(file);
+        // A file replaced while it was read publishes nothing.
+        if (scope.file != INVALID_HANDLE_VALUE && result.state == AccountMediaRequestState::ready &&
+            (!file_snapshot_read(scope.file, &found) ||
+             !local_draft_preview_snapshot_equal(found, work.local_snapshot))) {
+            lane->media.frame_ready = false;
+            account_media_release_video(&lane->media);
+            result = request_result(AccountMediaRequestState::failed, AccountMediaError::invalid_input);
         }
-        if (work.local_content.context && SUCCEEDED(apartment))
-            CoUninitialize();
         return result;
     }
     if (valid && !local_retired(lane)) {
         const auto cached = account_media_decode_local_preview(&lane->media, request, {});
-        if (cached.state == AccountMediaRequestState::ready || cached.error != AccountMediaError::cache) {
-            if (file != INVALID_HANDLE_VALUE)
-                CloseHandle(file);
-            if (work.local_content.context && SUCCEEDED(apartment))
-                CoUninitialize();
+        if (cached.state == AccountMediaRequestState::ready || cached.error != AccountMediaError::cache)
             return cached;
-        }
         if (work.local_content.context && lane->local_retained && !local_retired(lane)) {
             const auto borrowed = work.local_content.ops->read(
                 work.local_content.context, 0, {nullptr, static_cast<u32>(work.local_snapshot.bytes)});
             if (borrowed.data && borrowed.count == work.local_snapshot.bytes) {
                 // The lane retains immutable storage through synchronous decode.
                 // Published frames use decoded output or cached source bytes.
-                const auto decoded = local_retired(lane)
+                return local_retired(lane)
                     ? request_result(AccountMediaRequestState::failed, AccountMediaError::invalid_input)
                     : account_media_decode_local_preview(&lane->media, request, borrowed);
-                CoUninitialize();
-                return decoded;
             }
         }
     }
@@ -302,14 +305,9 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
         valid ? static_cast<u8*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(work.local_snapshot.bytes),
                                               MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
               : nullptr;
-    if (!bytes) {
-        if (file != INVALID_HANDLE_VALUE)
-            CloseHandle(file);
-        if (work.local_content.context && SUCCEEDED(apartment))
-            CoUninitialize();
+    if (!bytes)
         return request_result(AccountMediaRequestState::failed,
                               valid ? AccountMediaError::memory : AccountMediaError::invalid_input);
-    }
     u32 offset = 0;
     while (valid && offset < work.local_snapshot.bytes && !local_retired(lane)) {
         const u32 count = minimum<u32>(64u * 1024u, static_cast<u32>(work.local_snapshot.bytes) - offset);
@@ -324,15 +322,15 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
             }
         } else {
             DWORD copied = 0;
-            valid = ReadFile(file, bytes + offset, count, &copied, nullptr) && copied == count;
+            valid = ReadFile(scope.file, bytes + offset, count, &copied, nullptr) && copied == count;
             if (valid)
                 offset += copied;
         }
     }
-    if (file != INVALID_HANDLE_VALUE) {
-        valid = valid && file_snapshot_read(file, &found) &&
+    if (scope.file != INVALID_HANDLE_VALUE) {
+        valid = valid && file_snapshot_read(scope.file, &found) &&
                 local_draft_preview_snapshot_equal(found, work.local_snapshot);
-        CloseHandle(file);
+        scope.close_file();
     }
     AccountMediaRequestResult result =
         request_result(AccountMediaRequestState::failed, AccountMediaError::invalid_input);
@@ -341,8 +339,6 @@ AccountMediaRequestResult execute_local_preview(AccountMediaWorkerLane* lane,
     }
     SecureZeroMemory(bytes, static_cast<SIZE_T>(work.local_snapshot.bytes));
     VirtualFree(bytes, 0, MEM_RELEASE);
-    if (work.local_content.context && SUCCEEDED(apartment))
-        CoUninitialize();
     return result;
 }
 
@@ -507,8 +503,6 @@ void publish(AccountMediaWorkerLane* lane, const AccountMediaWorkItem& completed
     lane->completed = completed;
     lane->completed_result = result;
     store_phase(lane, AccountMediaWorkerPhase::output_ready);
-    if (result.state == AccountMediaRequestState::ready)
-        InterlockedIncrement64(&lane->owner->counters.ready);
     SetEvent(lane->owner->output_event);
 }
 

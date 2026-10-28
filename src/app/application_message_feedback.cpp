@@ -184,9 +184,10 @@ void application_composer_note_sent(u64 channel_id) noexcept {
     feedback_bind_account();
     if (!seconds)
         return;
+    const u64 now_ms = clock_monotonic_milliseconds();
     feedback.slowmode_channel_id = channel_id;
-    feedback.slowmode_until_ms = clock_monotonic_milliseconds() + u64{seconds} * 1000;
-    slowmode_label_refresh(clock_monotonic_milliseconds());
+    feedback.slowmode_until_ms = now_ms + u64{seconds} * 1000;
+    slowmode_label_refresh(now_ms);
 }
 
 void application_composer_gateway_event(GatewayClientEventKind kind) noexcept {

@@ -25,8 +25,7 @@ bool touches_key(const VoicePacketCrypto& crypto, ConstSlice<u8> span) noexcept 
 }
 VoicePacketError validate(const VoicePacketCrypto& crypto, u64 generation, ConstSlice<u8> input,
                           Slice<u8> output, u32 written) noexcept {
-    if (!crypto.generation || (crypto.mode != voice_transport_aes256_gcm_rtpsize &&
-                               crypto.mode != voice_transport_xchacha20_poly1305_rtpsize))
+    if (!crypto.generation)
         return VoicePacketError::not_initialized;
     if (crypto.generation != generation)
         return VoicePacketError::stale_generation;
@@ -64,7 +63,6 @@ AeadResult voice_packet_initialize(VoicePacketCrypto* crypto, u64 generation, u3
         return result;
     crypto->generation = generation;
     crypto->mode = mode;
-    crypto->next_nonce = 0;
     return result;
 }
 void voice_packet_release(VoicePacketCrypto* crypto) noexcept {

@@ -215,37 +215,34 @@ bool live_at(float x, float y, GatewayStreamKey* key, UiRect* row, UiRect* badge
 }
 } // namespace
 
-bool application_stream_watch(const GatewayStreamKey& key) noexcept {
+void application_stream_watch(const GatewayStreamKey& key) noexcept {
     if (!g_app.account_ui || !valid(key) || key.owner_id == g_app.account_ui->chat_state.self_user_id)
-        return false;
+        return;
     if (in_channel(key.channel_id)) {
         if (!submit(key))
-            return false;
+            return;
     } else {
         // Like the official client, watching from outside joins the channel.
         stream.pending = key;
         stream.pending_ms = now_ms();
         if (!application_voice_join(key.guild_id, key.channel_id)) {
             reset_value(&stream.pending);
-            return false;
+            return;
         }
     }
     close_card();
     application_call_open(key.channel_id, application_stream_tile(key.owner_id));
     application_stream_pump();
-    return true;
 }
 
-bool application_stream_stop() noexcept {
+void application_stream_stop() noexcept {
     auto& host = g_app.account;
-    const bool active = valid(stream.requested) || valid(stream.pending);
     if (valid(stream.requested) && host.instance && host.api.stream_watch)
         host.api.stream_watch(host.instance, nullptr);
     stream.requested = stream.pending = {};
     stream.ended_ms = 0;
     reset_value(&stream.view);
     application_repaint();
-    return active;
 }
 
 StreamWatchView application_stream_view() noexcept {
@@ -267,13 +264,11 @@ MediaAssetKey application_stream_preview(const GatewayStreamKey& key, bool* load
     return stream_preview_ready(*entry) ? stream_preview_media_key(*entry) : MediaAssetKey{};
 }
 
-bool application_stream_set_volume(u32 percent) noexcept {
+void application_stream_set_volume(u32 percent) noexcept {
     auto& host = g_app.account;
     percent = percent > kGatewayStreamVolumeMaximum ? kGatewayStreamVolumeMaximum : percent;
-    if (!host.instance || !host.api.stream_volume || !host.api.stream_volume(host.instance, percent))
-        return false;
-    stream.volume = percent;
-    return true;
+    if (host.instance && host.api.stream_volume && host.api.stream_volume(host.instance, percent))
+        stream.volume = percent;
 }
 
 bool application_stream_menu_open(u64 tile_id, const UiRect& anchor, bool fullscreen) noexcept {

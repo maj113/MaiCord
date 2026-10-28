@@ -545,15 +545,16 @@ bool profile_available() noexcept {
 // from one badge to the next.
 constexpr u32 kProfileBadgeTooltip = 0x5801u;
 constexpr u32 kProfileBadgeDelayMs = 300;
-bool profile_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
-    const auto& scene = *g_app.renderer.profile_scene;
+// `plain_action` is the tooltip action of every hint except a badge's.
+bool profile_hint_target(const ProfileScene& scene, UiPoint point, bool keyboard, u64 scope, u32 plain_action,
+                         UiTooltipTarget* target) noexcept {
     const auto handle = keyboard ? scene.widgets.focused : profile_scene_hit_test(scene, point.x, point.y);
     UiRect anchor{};
     const Utf8View label = profile_scene_hint(scene, handle, &anchor);
     if (!label.bytes)
         return false;
     const auto* part = profile_scene_part(scene, handle);
-    const u32 action = part && part->media == ProfileMediaKind::badge ? kProfileBadgeTooltip : 0x5800u;
+    const u32 action = part && part->media == ProfileMediaKind::badge ? kProfileBadgeTooltip : plain_action;
     *target = {{{&scene.widgets, handle}, scope, scene.opens, handle.slot, action}, anchor, label};
     return true;
 }
@@ -565,7 +566,8 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target) noexc
                viewer_target(point, keyboard, scope, target);
     if (g_app.renderer.profile_scene && g_app.renderer.profile_scene->active)
         return profile_available() && GetCapture() != g_app.window && scope &&
-               (!keyboard || g_app.keyboard_focus_visible) && profile_target(point, keyboard, scope, target);
+               (!keyboard || g_app.keyboard_focus_visible) &&
+               profile_hint_target(*g_app.renderer.profile_scene, point, keyboard, scope, 0x5800u, target);
     // Check current host ownership before touching any old scene descriptor.
     if (!content_available() || GetCapture() == g_app.window)
         return false;
@@ -619,18 +621,8 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target) noexc
         return pinned_target(point, false, scope, target);
     // The DM profile panel's hints (badges, cut-off activity lines).
     if (const auto* panel = g_app.renderer.dm_profile_panel;
-        panel && panel->active && ui_rect_contains(panel->rectangle, point.x, point.y)) {
-        const auto handle = profile_scene_hit_test(*panel, point.x, point.y);
-        UiRect anchor{};
-        const Utf8View label = profile_scene_hint(*panel, handle, &anchor);
-        if (!label.bytes)
-            return false;
-        // Badges take the profile card's 300 ms badge delay and sweep.
-        const auto* part = profile_scene_part(*panel, handle);
-        const u32 action = part && part->media == ProfileMediaKind::badge ? kProfileBadgeTooltip : 0x5802u;
-        *target = {{{&panel->widgets, handle}, scope, panel->opens, handle.slot, action}, anchor, label};
-        return true;
-    }
+        panel && panel->active && ui_rect_contains(panel->rectangle, point.x, point.y))
+        return profile_hint_target(*panel, point, false, scope, 0x5802u, target);
     if (!application_thread_browser_read_blocked() &&
         (application_video_tooltip_target(point, false, scope, target) ||
          message_target(point, scope, target) ||

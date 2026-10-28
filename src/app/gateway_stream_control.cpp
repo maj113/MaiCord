@@ -45,6 +45,14 @@ void clear_session(GatewayStreamControl* stream, GatewayStreamEnd end) noexcept 
 bool matches(const GatewayStreamControl& stream, const GatewayStreamKey& key) noexcept {
     return gateway_stream_active(stream) && stream.key == key;
 }
+void update(GatewayStreamControl* stream, const GatewayStreamUpdate& event) noexcept {
+    if (!matches(*stream, event.key))
+        return;
+    if (event.has_viewers)
+        stream->viewer_count = event.viewer_count;
+    if (event.has_paused)
+        stream->paused = event.paused;
+}
 } // namespace
 
 bool gateway_stream_bind(GatewayStreamControl* stream, u64 user_id, Utf8View session) noexcept {
@@ -155,15 +163,6 @@ void gateway_stream_server(GatewayStreamControl* stream, const GatewayStreamServ
         stream->phase = GatewayStreamPhase::awaiting_server; // Reallocating.
 }
 
-void gateway_stream_update(GatewayStreamControl* stream, const GatewayStreamUpdate& event) noexcept {
-    if (!matches(*stream, event.key))
-        return;
-    if (event.has_viewers)
-        stream->viewer_count = event.viewer_count;
-    if (event.has_paused)
-        stream->paused = event.paused;
-}
-
 void gateway_stream_delete(GatewayStreamControl* stream, const GatewayStreamDelete& event) noexcept {
     // The media server may close the stream socket before the Gateway reports
     // the end: a late delete still explains why the stream stopped.
@@ -202,7 +201,7 @@ bool gateway_stream_dispatch(GatewayStreamControl* stream, const GatewayEnvelope
     if (json_string_equals_ascii(name, utf8_literal("STREAM_UPDATE"))) {
         GatewayStreamUpdate event{};
         if (gateway_decode_stream_update(envelope.data, scratch, maximum_depth, &event).ok())
-            gateway_stream_update(stream, event);
+            update(stream, event);
         return true;
     }
     if (json_string_equals_ascii(name, utf8_literal("STREAM_DELETE"))) {

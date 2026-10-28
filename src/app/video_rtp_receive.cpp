@@ -692,9 +692,6 @@ void video_rtp_remove_stream(VideoRtpReceiver* receiver, u32 media_ssrc) noexcep
 }
 
 const VideoRtpStream* video_rtp_find_stream(const VideoRtpReceiver& receiver, u32 media_ssrc) noexcept {
-    for (const auto& stream : receiver.streams)
-        if (stream.slots && stream.ssrc == media_ssrc)
-            return &stream;
-    return nullptr;
+    return find(const_cast<VideoRtpReceiver&>(receiver), media_ssrc);
 }
 } // namespace maicord

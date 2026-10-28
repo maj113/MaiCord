@@ -3,17 +3,6 @@
 #include "maicord/model/message_composer.hpp"
 
 namespace maicord {
-namespace {
-
-void erase(char* text, u32 bytes) noexcept {
-    volatile char* output = text;
-    for (u32 index = 0; output && index < bytes; ++index) {
-        output[index] = 0;
-    }
-}
-
-} // namespace
-
 bool message_edit_runtime_initialize(MessageEditRuntime* runtime) noexcept {
     if (!runtime || runtime->content_storage.arena.base ||
         runtime->saved_draft_storage.arena.base) {
@@ -54,8 +43,8 @@ void message_edit_runtime_reset(MessageEditRuntime* runtime) noexcept {
     if (!runtime || !runtime->content || !runtime->saved_draft) {
         return;
     }
-    erase(runtime->content, runtime->content_bytes);
-    erase(runtime->saved_draft, runtime->saved_draft_bytes);
+    secure_clear_bytes(runtime->content, runtime->content_bytes);
+    secure_clear_bytes(runtime->saved_draft, runtime->saved_draft_bytes);
     const StableStorage content_storage = runtime->content_storage;
     const StableStorage saved_draft_storage = runtime->saved_draft_storage;
     char* const content = runtime->content;

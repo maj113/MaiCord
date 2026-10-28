@@ -124,7 +124,6 @@ MlsStatus mls_proposal_parse(KdfSha256Workspace& kdf, ConstSlice<u8> input, cons
                             {input.data + 2, reader.used - 2}, {candidate.reference, kMlsHashBytes})
              .ok())
         return MlsStatus::crypto_failure;
-    candidate.verified = true;
     *proposal = candidate;
     *consumed = reader.used;
     return MlsStatus::ok;

@@ -886,7 +886,7 @@ bool application_poll_voters(u32 answer, bool more) noexcept {
         value.cursor_count = next - value.cursor_first + 1;
         return queue_page(answer, next, value.controller.after_user_id);
     }
-    value.cursor_first = value.cursor_count = value.page = 0;
+    value.cursor_first = value.page = 0;
     value.cursors[0] = 0;
     value.loaded_before[0] = 0;
     value.cursor_count = 1;
@@ -940,7 +940,7 @@ void application_poll_voters_close() noexcept {
 bool application_poll_voters_active() noexcept {
     return application_poll_active() && owner->voters_active;
 }
-void application_poll_close() noexcept {
+static void application_poll_close() noexcept {
     if (!owner)
         return;
     application_poll_voters_close();
@@ -1020,7 +1020,7 @@ bool application_poll_pending(u64 now) noexcept {
     return poll_controller_prepare(owner->controller, now, clock_unix_milliseconds(), &command);
 }
 bool application_poll_submit(u64 id, u64 now) noexcept {
-    if (!id || !application_poll_pending(now))
+    if (!id || !application_poll_synchronize() || !application_poll_active() || !connected())
         return false;
     auto& value = *owner;
     PollControllerCommand command{};
@@ -1231,7 +1231,7 @@ u64 application_poll_next_wake() noexcept {
         visible_expiry = 0;
         return 0;
     }
-    u64 wake = owner && application_poll_active() && connected()
+    u64 wake = application_poll_active() && connected()
                    ? poll_controller_next_wake(owner->controller)
                    : 0;
     const u64 unix_now = clock_unix_milliseconds();
@@ -1311,7 +1311,7 @@ ApplicationPollMetrics application_poll_metrics() noexcept {
             owner->controller.source_active,
             owner->controller.flight.active};
 }
-bool application_poll_voters_action(const UiPollVotersAction& action) noexcept {
+static bool application_poll_voters_action(const UiPollVotersAction& action) noexcept {
     if (!application_poll_voters_active() ||
         !ui_widget_manager_input_enabled(owner->widgets, owner->root.handle) ||
         action.owner != owner->source.source.message_id || action.generation != owner->publication ||

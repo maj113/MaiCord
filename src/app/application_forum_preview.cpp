@@ -105,6 +105,13 @@ void retire(PreviewEntry& entry, u64 now) noexcept {
     else
         reset_value(&entry);
 }
+PreviewEntry* current_frame_entry(const AccountMediaFrame& frame) noexcept {
+    auto* entry = find(frame.key);
+    return entry && !entry->failed && source_current(*entry) &&
+                   local_draft_preview_frame_matches(frame, entry->request)
+               ? entry
+               : nullptr;
+}
 } // namespace
 ApplicationForumPreview application_forum_preview_view(const ApplicationForumPostTicket& ticket,
                                                        u64 id) noexcept {
@@ -121,14 +128,12 @@ bool application_forum_preview_key_current(MediaAssetKey key) noexcept {
     return entry && !entry->failed && source_current(*entry);
 }
 bool application_forum_preview_frame_current(const AccountMediaFrame& frame) noexcept {
-    const auto* entry = find(frame.key);
-    return entry && !entry->failed && source_current(*entry) &&
-           local_draft_preview_frame_matches(frame, entry->request);
+    return current_frame_entry(frame) != nullptr;
 }
 void application_forum_preview_frame_uploaded(const AccountMediaFrame& frame) noexcept {
-    if (!application_forum_preview_frame_current(frame))
+    auto* entry = current_frame_entry(frame);
+    if (!entry)
         return;
-    auto* entry = find(frame.key);
     if (!entry->ready)
         changed();
     entry->ready = true;
@@ -194,7 +199,6 @@ bool application_forum_preview_request(u64 now, u64 unix_now) noexcept {
                 continue;
             const auto kind = format(row.filename);
             const auto key = media_asset_local_draft_preview(row.id, ++next_generation, kind);
-            reset_value(entry);
             changed();
             entry->occupied = true;
             entry->ticket = post.ticket;

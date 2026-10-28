@@ -105,12 +105,8 @@ VoiceSetupResult voice_setup_state(VoiceConnectionSetup* setup, const GatewayVoi
     if (!setup || setup->phase == VoiceSetupPhase::idle || setup->stream || event.user_id != setup->user_id ||
         event.guild_id != setup->guild_id)
         return VoiceSetupResult::ignored;
-    if (!json_string_equals_utf8(event.session_id,
-                                 view(setup->login_session, 0, setup->login_session.bytes))) {
-        voice_setup_leave(setup);
-        return VoiceSetupResult::disconnected;
-    }
-    if (!event.channel_id) {
+    if (!event.channel_id ||
+        !json_string_equals_utf8(event.session_id, view(setup->login_session, 0, setup->login_session.bytes))) {
         voice_setup_leave(setup);
         return VoiceSetupResult::disconnected;
     }
@@ -144,7 +140,6 @@ VoiceSetupResult assign_server(VoiceConnectionSetup* setup, JsonString token, Js
         voice_setup_leave(setup);
         return VoiceSetupResult::disconnected;
     }
-    setup->phase = VoiceSetupPhase::awaiting_events;
     clear_server(setup);
     u32 token_bytes = 0, endpoint_bytes = 0;
     if (!measured(token, &token_bytes) || !measured(endpoint, &endpoint_bytes) ||

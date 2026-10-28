@@ -44,6 +44,26 @@ bool focus_eligible(void* opaque, u32 index) noexcept {
     // conversation shortcuts continue using the activation predicate above.
     return row.id && (row.selectable || row.type == 4);
 }
+// False when the view's row list for this rail is inconsistent.
+bool rows_valid(const NavigationView& view, bool guild, u32 rows) noexcept {
+    return rows <= (guild ? view.guild_capacity : view.channel_capacity) && rows != ~0u &&
+           (!rows || (guild ? view.guild_rows != nullptr : view.channel_rows != nullptr));
+}
+// The list index (the guild rail's home entry is index 0) of `id`, else home or none.
+u32 current_index(const NavigationView& view, bool guild, u32 rows, u64 id) noexcept {
+    const u32 found = guild ? selected_row(view.guild_rows, rows, id) : selected_row(view.channel_rows, rows, id);
+    if (found != kUiListNoSelection)
+        return found + (guild ? 1u : 0u);
+    return guild && !id ? 0 : kUiListNoSelection;
+}
+NavigationTarget target_at(const NavigationView& view, bool guild, u32 index) noexcept {
+    if (index == kUiListNoSelection)
+        return {};
+    if (guild && !index)
+        return {0, 0, false, true};
+    const u32 source = index - (guild ? 1u : 0u);
+    return {guild ? view.guild_rows[source].id : view.channel_rows[source].id, source, guild, false};
+}
 
 } // namespace
 
@@ -75,45 +95,24 @@ NavigationTarget navigation_target(const NavigationView& view,
         return {};
     const bool guild = shortcut.mode == NavigationMode::guild;
     const u32 row_count = guild ? view.guild_count : view.channel_count;
-    if (row_count > (guild ? view.guild_capacity : view.channel_capacity) || row_count == ~0u ||
-        (row_count && (guild ? !view.guild_rows : !view.channel_rows)))
+    if (!rows_valid(view, guild, row_count))
         return {};
-    const u32 count = row_count + (guild ? 1u : 0u);
-    const u64 selected = guild ? view.selected_guild_id : view.selected_channel_id;
-    u32 current = guild && selected == 0 ? 0 : kUiListNoSelection;
-    const u32 found = guild ? selected_row(view.guild_rows, row_count, selected)
-                            : selected_row(view.channel_rows, row_count, selected);
-    if (found != kUiListNoSelection)
-        current = found + (guild ? 1u : 0u);
     Candidates candidates{&view, shortcut.mode};
-    const u32 index = ui_list_next(count, current, shortcut.reverse, true, eligible, &candidates);
-    if (index == kUiListNoSelection)
-        return {};
-    if (guild && index == 0)
-        return {0, 0, false, true};
-    const u32 source = index - (guild ? 1u : 0u);
-    return {guild ? view.guild_rows[source].id : view.channel_rows[source].id, source, guild, false};
+    const u32 current =
+        current_index(view, guild, row_count, guild ? view.selected_guild_id : view.selected_channel_id);
+    return target_at(view, guild,
+                     ui_list_next(row_count + (guild ? 1u : 0u), current, shortcut.reverse, true, eligible, &candidates));
 }
 
 NavigationTarget navigation_focus_target(const NavigationView& view, bool guild, u64 focused_id,
                                          UiListMove move) noexcept {
     const u32 rows = guild ? view.guild_count : view.channel_count;
-    if (rows > (guild ? view.guild_capacity : view.channel_capacity) || rows == ~0u ||
-        (rows && (guild ? !view.guild_rows : !view.channel_rows)))
+    if (!rows_valid(view, guild, rows))
         return {};
-    u32 current = guild && !focused_id ? 0 : kUiListNoSelection;
-    const u32 found = guild ? selected_row(view.guild_rows, rows, focused_id)
-                            : selected_row(view.channel_rows, rows, focused_id);
-    if (found != kUiListNoSelection)
-        current = found + (guild ? 1u : 0u);
     Candidates candidates{&view, guild ? NavigationMode::guild : NavigationMode::channel};
-    const u32 index = ui_list_move(rows + (guild ? 1u : 0u), current, move, focus_eligible, &candidates);
-    if (index == kUiListNoSelection)
-        return {};
-    if (guild && !index)
-        return {0, 0, false, true};
-    const u32 source = index - (guild ? 1u : 0u);
-    return {guild ? view.guild_rows[source].id : view.channel_rows[source].id, source, guild, false};
+    return target_at(view, guild,
+                     ui_list_move(rows + (guild ? 1u : 0u), current_index(view, guild, rows, focused_id), move,
+                                  focus_eligible, &candidates));
 }
 
 } // namespace maicord

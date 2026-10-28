@@ -50,63 +50,50 @@ AccountLoginStatus login_invalid_input() noexcept {
     return status;
 }
 
+// Indexed by UserAuthCoordinatorPhase. Failed, stopping and the browser exchange map to failed, as does
+// anything out of range.
+constexpr AccountLoginPhase kLoginPhases[] = {
+    AccountLoginPhase::empty,
+    AccountLoginPhase::idle,
+    AccountLoginPhase::password_pending,
+    AccountLoginPhase::mfa_required,
+    AccountLoginPhase::mfa_pending,
+    AccountLoginPhase::mfa_pending, // sms_send_pending
+    AccountLoginPhase::captcha_required,
+    AccountLoginPhase::authenticated,
+    AccountLoginPhase::rejected,
+    AccountLoginPhase::authenticated, // session_promoted
+    AccountLoginPhase::failed,
+    AccountLoginPhase::failed, // stopping
+    AccountLoginPhase::stopped,
+    AccountLoginPhase::verification_pending,
+    AccountLoginPhase::recovery_pending,
+    AccountLoginPhase::recovery_sent,
+    AccountLoginPhase::recovery_phone_required,
+    AccountLoginPhase::recovery_rejected,
+    AccountLoginPhase::recovery_rate_limited,
+    AccountLoginPhase::reset_pending,
+    AccountLoginPhase::reset_mfa_pending,
+    AccountLoginPhase::reset_rejected,
+    AccountLoginPhase::reset_rate_limited,
+    AccountLoginPhase::phone_verify_pending,
+    AccountLoginPhase::phone_resend_pending,
+    AccountLoginPhase::phone_rejected,
+    AccountLoginPhase::phone_rate_limited,
+    AccountLoginPhase::phone_token_ready,
+    AccountLoginPhase::phone_token_taken,
+    AccountLoginPhase::failed, // browser_exchange_pending
+};
+constexpr u32 kLoginPhaseCount = sizeof(kLoginPhases) / sizeof(kLoginPhases[0]);
+static_assert(kLoginPhaseCount == static_cast<u32>(UserAuthCoordinatorPhase::browser_exchange_pending) + 1 &&
+              static_cast<u32>(UserAuthCoordinatorPhase::sms_send_pending) == 5 &&
+              static_cast<u32>(UserAuthCoordinatorPhase::session_promoted) == 9 &&
+              static_cast<u32>(UserAuthCoordinatorPhase::stopped) == 12 &&
+              static_cast<u32>(UserAuthCoordinatorPhase::phone_token_taken) == 28);
+
 AccountLoginPhase login_phase(UserAuthCoordinatorPhase phase) noexcept {
-    switch (phase) {
-    case UserAuthCoordinatorPhase::idle:
-        return AccountLoginPhase::idle;
-    case UserAuthCoordinatorPhase::password_pending:
-        return AccountLoginPhase::password_pending;
-    case UserAuthCoordinatorPhase::verification_pending:
-        return AccountLoginPhase::verification_pending;
-    case UserAuthCoordinatorPhase::recovery_pending:
-        return AccountLoginPhase::recovery_pending;
-    case UserAuthCoordinatorPhase::recovery_sent:
-        return AccountLoginPhase::recovery_sent;
-    case UserAuthCoordinatorPhase::recovery_phone_required:
-        return AccountLoginPhase::recovery_phone_required;
-    case UserAuthCoordinatorPhase::recovery_rejected:
-        return AccountLoginPhase::recovery_rejected;
-    case UserAuthCoordinatorPhase::recovery_rate_limited:
-        return AccountLoginPhase::recovery_rate_limited;
-    case UserAuthCoordinatorPhase::reset_pending:
-        return AccountLoginPhase::reset_pending;
-    case UserAuthCoordinatorPhase::reset_mfa_pending:
-        return AccountLoginPhase::reset_mfa_pending;
-    case UserAuthCoordinatorPhase::reset_rejected:
-        return AccountLoginPhase::reset_rejected;
-    case UserAuthCoordinatorPhase::reset_rate_limited:
-        return AccountLoginPhase::reset_rate_limited;
-    case UserAuthCoordinatorPhase::phone_verify_pending:
-        return AccountLoginPhase::phone_verify_pending;
-    case UserAuthCoordinatorPhase::phone_resend_pending:
-        return AccountLoginPhase::phone_resend_pending;
-    case UserAuthCoordinatorPhase::phone_rejected:
-        return AccountLoginPhase::phone_rejected;
-    case UserAuthCoordinatorPhase::phone_rate_limited:
-        return AccountLoginPhase::phone_rate_limited;
-    case UserAuthCoordinatorPhase::phone_token_ready:
-        return AccountLoginPhase::phone_token_ready;
-    case UserAuthCoordinatorPhase::phone_token_taken:
-        return AccountLoginPhase::phone_token_taken;
-    case UserAuthCoordinatorPhase::mfa_required:
-        return AccountLoginPhase::mfa_required;
-    case UserAuthCoordinatorPhase::mfa_pending:
-    case UserAuthCoordinatorPhase::sms_send_pending:
-        return AccountLoginPhase::mfa_pending;
-    case UserAuthCoordinatorPhase::captcha_required:
-        return AccountLoginPhase::captcha_required;
-    case UserAuthCoordinatorPhase::authenticated:
-    case UserAuthCoordinatorPhase::session_promoted:
-        return AccountLoginPhase::authenticated;
-    case UserAuthCoordinatorPhase::rejected:
-        return AccountLoginPhase::rejected;
-    case UserAuthCoordinatorPhase::stopped:
-        return AccountLoginPhase::stopped;
-    case UserAuthCoordinatorPhase::empty:
-        return AccountLoginPhase::empty;
-    default:
-        return AccountLoginPhase::failed;
-    }
+    const u32 index = static_cast<u32>(phase);
+    return index < kLoginPhaseCount ? kLoginPhases[index] : AccountLoginPhase::failed;
 }
 
 AccountLoginPhase remote_login_phase(RemoteAuthClientPhase phase) noexcept {

@@ -40,12 +40,17 @@ bool guild_dirty() noexcept {
     return !guild_boost_equal(owner->boost_base, owner->boost_draft);
 }
 
-void load() noexcept {
+// The picked banner and splash with the data URIs made from them.
+void release_boost_images() noexcept {
     auto& p = *owner;
     release_picked(&p.banner);
     release_picked(&p.splash);
     release_uri(&p.banner_uri, &p.banner_uri_bytes);
     release_uri(&p.splash_uri, &p.splash_uri_bytes);
+}
+void load() noexcept {
+    auto& p = *owner;
+    release_boost_images();
     p.boost_base = p.boost_draft = stored();
     p.boost_echo = false;
     p.vanity_error = false;
@@ -333,10 +338,7 @@ void boost_saved(Op op, bool ok, const Utf8View& body, u64 now) noexcept {
     }
     if (!ok)
         return;
-    release_picked(&p.banner);
-    release_picked(&p.splash);
-    release_uri(&p.banner_uri, &p.banner_uri_bytes);
-    release_uri(&p.splash_uri, &p.splash_uri_bytes);
+    release_boost_images();
     p.boost_draft.banner = p.boost_draft.splash = GuildProfileImageEdit::keep;
     p.boost_base = p.boost_draft;
     p.boost_echo = true;

@@ -40,18 +40,17 @@ LinkTrustStore* current_store() noexcept {
     return &trust;
 }
 
-bool launch(Utf8View url) noexcept {
+void launch(Utf8View url) noexcept {
     wchar_t wide[2048]{};
     const int units = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, url.data, static_cast<int>(url.bytes),
                                           wide, static_cast<int>(sizeof(wide) / sizeof(wide[0]) - 1));
     if (units <= 0)
-        return true;
+        return;
     wide[units] = 0;
     // The official client shows nothing when the browser refuses a link; neither do we.
     const HINSTANCE opened = ShellExecuteW(g_app.window, L"open", wide, nullptr, nullptr, SW_SHOWNORMAL);
     if (reinterpret_cast<INT_PTR>(opened) <= 32)
         log_write(LogLevel::warning, "links", "link_launch_failed");
-    return true;
 }
 
 bool pending_valid(TextFormOwnerKey key) noexcept {
@@ -74,7 +73,8 @@ bool pending_accept(TextFormOwnerKey key, bool trust_link) noexcept {
             log_write(LogLevel::warning, "links", "trusted_link_not_saved");
     }
     pending.bytes = 0;
-    return launch(url);
+    launch(url);
+    return true;
 }
 } // namespace
 
@@ -103,8 +103,10 @@ bool application_link_open(Utf8View url, bool trusted_text) noexcept {
     const auto decision = link_open_decision(current_store(), url, trusted_text);
     if (decision == LinkOpenDecision::reject)
         return true;
-    if (decision == LinkOpenDecision::open)
-        return launch(url);
+    if (decision == LinkOpenDecision::open) {
+        launch(url);
+        return true;
+    }
     if (!g_app.account_ui || url.bytes > sizeof(pending.url))
         return true;
     LinkTarget target{};

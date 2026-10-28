@@ -102,7 +102,6 @@ struct MessageNotificationPolicyInput {
     bool guild_default_known, direct_mention, everyone_mention;
     bool focused, selected, sidebar_selected, current_voice_channel;
     bool self_mentionable_system;
-    bool current_voice_channel_known;
 };
 enum class MessageNotificationReason : u8 { eligible, unknown, not_live, duplicate, silent,
     self, special, dnd, quiet, muted, nothing, not_opted_in, selected, not_mentioned, not_joined };

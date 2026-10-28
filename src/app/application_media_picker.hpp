@@ -18,8 +18,6 @@ struct GatewayClientEvent;
 
 namespace maicord::app_detail {
 
-struct ApplicationMediaPicker;
-
 bool application_media_picker_open(UiMediaPickerKind kind) noexcept;
 // The official client's reaction popout: the Emoji tab without the GIF/Sticker/Emoji
 // selector, beside the anchor, adding the chosen emoji as a reaction to the

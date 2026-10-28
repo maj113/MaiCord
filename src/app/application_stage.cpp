@@ -67,13 +67,10 @@ const VoiceState* self_state(const ChannelRecord& channel) noexcept {
 // The local user's role from the roster, else the voice session's own flags.
 StageRole self_role(const ChannelRecord& channel, bool* hand = nullptr) noexcept {
     const auto* state = self_state(channel);
-    u32 flags = state ? state->flags : 0;
     const auto& s = g_app.account_ui->voice_session;
-    const bool joined = s.channel_id == channel.id && s.phase != VoiceSetupPhase::idle;
-    if (!state && joined && (s.present_flags & gateway_voice_suppress))
-        flags = s.flags;
-    const auto role = state || (joined && (s.present_flags & gateway_voice_suppress)) ? stage_role_flags(flags)
-                                                                                      : StageRole::none;
+    const bool session = s.channel_id == channel.id && s.phase != VoiceSetupPhase::idle &&
+                         (s.present_flags & gateway_voice_suppress);
+    const auto role = state || session ? stage_role_flags(state ? state->flags : s.flags) : StageRole::none;
     if (hand)
         *hand = role == StageRole::requested;
     return role;

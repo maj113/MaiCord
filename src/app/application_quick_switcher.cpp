@@ -321,7 +321,7 @@ bool application_quick_switcher_synchronize() noexcept {
     ui_widget_manager_focus(&q->scene.widgets, q->scene.edit);
     return true;
 }
-bool application_quick_switcher_open() noexcept {
+static bool application_quick_switcher_open() noexcept {
     if (!available()) return true;
     if (application_quick_switcher_active()) return true;
     application_composer_text_input_suspend();
@@ -366,7 +366,7 @@ bool application_quick_switcher_open_picker(u64 channel_id) noexcept {
     if (!application_quick_switcher_synchronize()) { application_quick_switcher_close(); return false; }
     return application_request_frame();
 }
-bool application_quick_switcher_toggle() noexcept {
+static bool application_quick_switcher_toggle() noexcept {
     if (application_quick_switcher_active()) { application_quick_switcher_close(); return true; }
     return application_quick_switcher_open();
 }

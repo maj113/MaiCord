@@ -27,6 +27,13 @@ struct VoiceAudioSettings {
     u8 reserved[4];
 };
 static_assert(sizeof(VoiceAudioSettings) == 528);
+// Endpoint IDs are equal up to the first NUL or the buffer end.
+inline bool voice_device_id_equal(const wchar_t* a, const wchar_t* b) noexcept {
+    u32 i = 0;
+    while (i < kVoiceDeviceIdCharacters && a[i] == b[i] && a[i])
+        ++i;
+    return i == kVoiceDeviceIdCharacters || a[i] == b[i];
+}
 constexpr VoiceAudioSettings voice_audio_settings_defaults() noexcept {
     VoiceAudioSettings settings{};
     settings.input_gain_percent = settings.output_gain_percent = 100;

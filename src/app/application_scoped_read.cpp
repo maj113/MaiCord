@@ -173,8 +173,7 @@ void remove_target(ApplicationScopedRead& o, u32 at) noexcept {
 bool install(const ApplicationScopedReadTicket& ticket, ConstSlice<ReadScopeTarget> plan,
              bool retry) noexcept {
     auto* o = ensure_owner(ticket);
-    if (!o || o->release_pending || (o->flight_active && o->retired) ||
-        !application_scoped_read_current(ticket))
+    if (!o || o->release_pending || (o->flight_active && o->retired))
         return false;
     if (!actor_current(o->actor)) {
         application_scoped_read_reset();

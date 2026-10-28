@@ -1,4 +1,5 @@
 #include "application_load_trace.hpp"
+#include "application_log_fields.hpp"
 #include "application_media_pump.hpp"
 #include "application_channel_authority.hpp"
 #include "application_profile.hpp"
@@ -462,7 +463,6 @@ bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexce
         return true;
     if ((key.kind == MediaAssetKind::attachment || key.kind == MediaAssetKind::embed) &&
         application.image_viewer.scene.active && application_image_viewer_key_current(key))
-
         return true;
     if (application.profile && application.profile->scene.active &&
         profile_scene_shows(application.profile->scene, key))
@@ -662,11 +662,10 @@ bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexc
             return true;
     }
     // Call view tiles keep their avatars while the picture is not resident.
-    if (const auto* call = application.renderer.call_scene; call && call->active)
+    if (const auto* call = application.renderer.call_scene; call && call->active) {
         for (u32 i = 0; i < call->tile_count; ++i)
             if (ui_call_scene_tile_visible(*call, i) && matches(call->tiles[i].user_id))
                 return true;
-    if (const auto* call = application.renderer.call_scene; call && call->active) {
         UiCallTileMedia stage_avatar{};
         for (u32 i = 0; ui_call_scene_stage_avatar(*call, i, &stage_avatar); ++i)
             if (matches(stage_avatar.user_id))
@@ -1155,25 +1154,27 @@ __declspec(noinline) void ApplicationMediaPump::log_message_media_failure(
         return;
     }
     log_write(LogLevel::warning, "media", item);
-    log_u64(LogLevel::warning, "media", "asset_kind", static_cast<u64>(key.kind));
-    log_u64(LogLevel::warning, "media", "asset_id", key.id);
-    log_u64(LogLevel::warning, "media", "request_state", static_cast<u64>(failure.state));
-    log_u64(LogLevel::warning, "media", "request_error", static_cast<u64>(failure.error));
-    log_u64(LogLevel::warning, "media", "client_error", static_cast<u64>(failure.client_error));
-    log_u64(LogLevel::warning, "media", "http_error", static_cast<u64>(failure.http_error));
-    log_u64(LogLevel::warning, "media", "attachment_url_error",
-            static_cast<u64>(failure.attachment_url_error));
+    const u64 request[] = {static_cast<u64>(key.kind),
+                           key.id,
+                           static_cast<u64>(failure.state),
+                           static_cast<u64>(failure.error),
+                           static_cast<u64>(failure.client_error),
+                           static_cast<u64>(failure.http_error),
+                           static_cast<u64>(failure.attachment_url_error)};
+    log_u64_fields(LogLevel::warning, "media", "asset_kind\0asset_id\0request_state\0request_error\0client_error\0"
+                   "http_error\0attachment_url_error",
+                   request);
     if (failure.attachment_query_error != AttachmentQueryError::none)
         log_u64(LogLevel::warning, "media", "attachment_query_error",
                 static_cast<u64>(failure.attachment_query_error));
     if (failure.video_failure != AccountMediaVideoFailure::none)
         log_u64(LogLevel::warning, "media", "video_decode_failure",
                 static_cast<u64>(failure.video_failure));
-    log_u64(LogLevel::warning, "media", "media_url_error", static_cast<u64>(failure.media_url_error));
-    log_u64(LogLevel::warning, "media", "target_error", static_cast<u64>(failure.target_error));
-    log_u64(LogLevel::warning, "media", "png_error", static_cast<u64>(failure.png_error));
-    log_u64(LogLevel::warning, "media", "webp_error", static_cast<u64>(failure.webp_error));
-    log_u64(LogLevel::warning, "media", "jpeg_error", static_cast<u64>(failure.jpeg_error));
+    const u64 results[] = {static_cast<u64>(failure.media_url_error), static_cast<u64>(failure.target_error),
+                           static_cast<u64>(failure.png_error), static_cast<u64>(failure.webp_error),
+                           static_cast<u64>(failure.jpeg_error)};
+    log_u64_fields(LogLevel::warning, "media", "media_url_error\0target_error\0png_error\0webp_error\0jpeg_error",
+                   results);
     if (failure.gif_error != GifError::none)
         log_u64(LogLevel::warning, "media", "gif_error", static_cast<u64>(failure.gif_error));
     if (failure.animated_webp_error != AnimatedWebpError::none)

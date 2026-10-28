@@ -1,4 +1,5 @@
 #include "maicord/core/win32_process.hpp"
+#include "application_log_fields.hpp"
 #include "application_login_auth.hpp"
 #include "application_browser_auth.hpp"
 #include "application_captcha_auth.hpp"
@@ -998,50 +999,57 @@ bool application_login_pump() noexcept {
             return present(LoginStatus::recovery_failed, LoginControl::back);
         return true;
     }
-    const auto trace = [](const char* key, u64 value) noexcept {
-        log_u64(LogLevel::info, "auth", key, value);
-    };
-    trace("login_phase", static_cast<u64>(host.login_status.phase));
-    trace("login_http_status", host.login_status.http_status);
-    trace("login_error", static_cast<u64>(host.login_status.error));
-    trace("login_coordinator_error", static_cast<u64>(host.login_status.coordinator_error));
-    trace("login_coordinator_decode_error", static_cast<u64>(host.login_status.coordinator_decode_error));
-    trace("login_coordinator_decode_error_offset", host.login_status.coordinator_decode_error_offset);
-    trace("login_coordinator_scan_error", static_cast<u64>(host.login_status.coordinator_scan_error));
-    trace("login_coordinator_read_error", static_cast<u64>(host.login_status.coordinator_read_error));
-    trace("login_coordinator_transport_error",
-          static_cast<u64>(host.login_status.coordinator_transport_error));
-    trace("login_coordinator_transition_error",
-          static_cast<u64>(host.login_status.coordinator_transition_error));
-    trace("login_coordinator_response_bytes", host.login_status.coordinator_response_bytes);
-    trace("login_coordinator_response_kind", static_cast<u64>(host.login_status.coordinator_response_kind));
-    trace("login_coordinator_content_type", static_cast<u64>(host.login_status.coordinator_content_type));
-    trace("login_coordinator_content_encoding",
-          static_cast<u64>(host.login_status.coordinator_content_encoding));
-    trace("login_coordinator_body_kind", static_cast<u64>(host.login_status.coordinator_body_kind));
-    trace("login_native_error", host.login_status.native_error);
-    trace("login_error_code", host.login_status.error_code);
-    trace("login_remote_event", static_cast<u64>(host.login_status.remote_event));
-    trace("login_remote_error", static_cast<u64>(host.login_status.remote_error));
-    trace("login_remote_handshake_error", static_cast<u64>(host.login_status.remote_handshake_error));
-    trace("login_remote_handshake_stage", static_cast<u64>(host.login_status.remote_handshake_stage));
-    trace("login_remote_protocol_error", static_cast<u64>(host.login_status.remote_protocol_error));
-    trace("login_remote_crypto_error", static_cast<u64>(host.login_status.remote_crypto_error));
-    trace("login_remote_base64_error", static_cast<u64>(host.login_status.remote_base64_error));
-    trace("login_remote_ticket_response_bytes", host.login_status.remote_ticket_response_bytes);
-    trace("login_remote_ticket_response_kind",
-          static_cast<u64>(host.login_status.remote_ticket_response_kind));
-    trace("login_remote_ticket_decode_error",
-          static_cast<u64>(host.login_status.remote_ticket_decode_error));
-    trace("login_remote_ticket_decode_error_offset", host.login_status.remote_ticket_decode_error_offset);
-    trace("login_remote_ticket_scan_error", static_cast<u64>(host.login_status.remote_ticket_scan_error));
-    trace("login_remote_ticket_read_error", static_cast<u64>(host.login_status.remote_ticket_read_error));
-    trace("login_remote_ticket_error_code", host.login_status.remote_ticket_error_code);
-    trace("login_remote_ticket_content_type",
-          static_cast<u64>(host.login_status.remote_ticket_content_type));
-    trace("login_remote_ticket_content_encoding",
-          static_cast<u64>(host.login_status.remote_ticket_content_encoding));
-    trace("login_remote_ticket_body_kind", static_cast<u64>(host.login_status.remote_ticket_body_kind));
+    const auto& status = host.login_status;
+    const u64 trace[] = {static_cast<u64>(status.phase),
+                         static_cast<u64>(status.http_status),
+                         static_cast<u64>(status.error),
+                         static_cast<u64>(status.coordinator_error),
+                         static_cast<u64>(status.coordinator_decode_error),
+                         static_cast<u64>(status.coordinator_decode_error_offset),
+                         static_cast<u64>(status.coordinator_scan_error),
+                         static_cast<u64>(status.coordinator_read_error),
+                         static_cast<u64>(status.coordinator_transport_error),
+                         static_cast<u64>(status.coordinator_transition_error),
+                         static_cast<u64>(status.coordinator_response_bytes),
+                         static_cast<u64>(status.coordinator_response_kind),
+                         static_cast<u64>(status.coordinator_content_type),
+                         static_cast<u64>(status.coordinator_content_encoding),
+                         static_cast<u64>(status.coordinator_body_kind),
+                         static_cast<u64>(status.native_error),
+                         static_cast<u64>(status.error_code),
+                         static_cast<u64>(status.remote_event),
+                         static_cast<u64>(status.remote_error),
+                         static_cast<u64>(status.remote_handshake_error),
+                         static_cast<u64>(status.remote_handshake_stage),
+                         static_cast<u64>(status.remote_protocol_error),
+                         static_cast<u64>(status.remote_crypto_error),
+                         static_cast<u64>(status.remote_base64_error),
+                         static_cast<u64>(status.remote_ticket_response_bytes),
+                         static_cast<u64>(status.remote_ticket_response_kind),
+                         static_cast<u64>(status.remote_ticket_decode_error),
+                         static_cast<u64>(status.remote_ticket_decode_error_offset),
+                         static_cast<u64>(status.remote_ticket_scan_error),
+                         static_cast<u64>(status.remote_ticket_read_error),
+                         static_cast<u64>(status.remote_ticket_error_code),
+                         static_cast<u64>(status.remote_ticket_content_type),
+                         static_cast<u64>(status.remote_ticket_content_encoding),
+                         static_cast<u64>(status.remote_ticket_body_kind)};
+    log_u64_fields(LogLevel::info, "auth",
+                   "login_phase\0login_http_status\0login_error\0login_coordinator_error\0"
+                   "login_coordinator_decode_error\0login_coordinator_decode_error_offset\0"
+                   "login_coordinator_scan_error\0login_coordinator_read_error\0"
+                   "login_coordinator_transport_error\0login_coordinator_transition_error\0"
+                   "login_coordinator_response_bytes\0login_coordinator_response_kind\0"
+                   "login_coordinator_content_type\0login_coordinator_content_encoding\0"
+                   "login_coordinator_body_kind\0login_native_error\0login_error_code\0login_remote_event\0"
+                   "login_remote_error\0login_remote_handshake_error\0login_remote_handshake_stage\0"
+                   "login_remote_protocol_error\0login_remote_crypto_error\0login_remote_base64_error\0"
+                   "login_remote_ticket_response_bytes\0login_remote_ticket_response_kind\0"
+                   "login_remote_ticket_decode_error\0login_remote_ticket_decode_error_offset\0"
+                   "login_remote_ticket_scan_error\0login_remote_ticket_read_error\0"
+                   "login_remote_ticket_error_code\0login_remote_ticket_content_type\0"
+                   "login_remote_ticket_content_encoding\0login_remote_ticket_body_kind",
+                   trace);
     if (host.login_status.phase == AccountLoginPhase::authenticated && host.login_status.profile_saved) {
         if (application_account_logout_locked())
             return true;

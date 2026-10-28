@@ -10,7 +10,8 @@ namespace {
 AcceptanceRecordResult fail(AcceptanceRecordError error, DWORD native = 0) noexcept { return {error, native}; }
 } // namespace
 
-bool acceptance_record_reserved_name(const wchar_t* name, u32 count) noexcept {
+// A Windows reserved device name (CON, PRN, AUX, NUL, COM0-9, LPT0-9) before any extension.
+static bool acceptance_record_reserved_name(const wchar_t* name, u32 count) noexcept {
     u32 stem = 0;
     while (stem < count && name[stem] != L'.') ++stem;
     const bool numbered = stem == 4 && name[3] >= L'0' && name[3] <= L'9';
@@ -45,7 +46,8 @@ void acceptance_record_terminate(const ConstSlice<wchar_t>& path_view, wchar_t* 
     output[path.count] = 0;
 }
 
-void acceptance_record_sibling(const wchar_t* path, u32 count, const wchar_t* ending, wchar_t* output) noexcept {
+// Copies the first count characters of path followed by the NUL-terminated ending.
+static void acceptance_record_sibling(const wchar_t* path, u32 count, const wchar_t* ending, wchar_t* output) noexcept {
     for (u32 i = 0; i < count; ++i) output[i] = path[i];
     u32 i = 0;
     do { output[count + i] = ending[i]; } while (ending[i++]);

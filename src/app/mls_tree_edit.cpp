@@ -108,19 +108,6 @@ MlsStatus edit_shape(const MlsRatchetTree& tree, ConstSlice<MlsProposal> proposa
     *additions = adds;
     return status;
 }
-// The current node at index, or a synthesized blank past the encoded nodes.
-MlsStatus current_node(MlsTreeIterator& iterator, u32 encoded_count, u32 index,
-                       MlsTreeNode* node) noexcept {
-    reset_value(node);
-    node->index = index;
-    if (index >= encoded_count)
-        return MlsStatus::ok;
-    bool has_node = false;
-    auto status = mls_tree_next(iterator, node, &has_node);
-    if (status == MlsStatus::ok && (!has_node || node->index != index))
-        status = MlsStatus::malformed;
-    return status;
-}
 bool same_leaf_key(const MlsLeafNode& leaf, const MlsKeyPackage& added) noexcept {
     return leaf.user_id == added.user_id ||
            mls_equal(leaf.encryption_key, added.leaf_encryption_key, kMlsPointBytes) ||
@@ -210,7 +197,7 @@ MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsPro
     MlsTreeNode node{};
     auto iterator = mls_tree_iterate(tree);
     for (u32 index = 0; index != tree.encoded_node_count; ++index) {
-        if (const auto status = current_node(iterator, tree.encoded_node_count, index, &node);
+        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node);
             status != MlsStatus::ok)
             return status;
         if (mls_tree_is_leaf(index) && node.present)
@@ -247,7 +234,7 @@ MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsPro
                 return MlsStatus::malformed;
     iterator = mls_tree_iterate(tree);
     for (u32 index = 0; index != tree.encoded_node_count; ++index) {
-        if (const auto status = current_node(iterator, tree.encoded_node_count, index, &node);
+        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node);
             status != MlsStatus::ok)
             return status;
         if (!node.present || !mls_tree_is_leaf(index) || occupancy[index >> 1] != 1)
@@ -287,7 +274,7 @@ MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsPro
     bool any_node = false;
     iterator = mls_tree_iterate(tree);
     for (u32 index = 0; index != final_nodes; ++index) {
-        if (const auto status = current_node(iterator, tree.encoded_node_count, index, &node);
+        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node);
             status != MlsStatus::ok)
             return status;
         u32 bytes = 1;
@@ -331,7 +318,7 @@ MlsStatus mls_tree_apply_proposals(const MlsRatchetTree& tree, ConstSlice<MlsPro
     writer.varint(encoded);
     iterator = mls_tree_iterate(tree);
     for (u32 index = 0; writer.ok() && index <= last_present; ++index) {
-        if (const auto status = current_node(iterator, tree.encoded_node_count, index, &node);
+        if (const auto status = mls_tree_logical_next(tree, iterator, index, &node);
             status != MlsStatus::ok)
             return status;
         if (mls_tree_is_leaf(index)) {
@@ -420,7 +407,7 @@ MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTr
     MlsTreeNode node{};
     auto iterator = mls_tree_iterate(tree);
     for (u32 index = 0; index != tree.node_count; ++index) {
-        if (status = current_node(iterator, tree.encoded_node_count, index, &node); status != MlsStatus::ok)
+        if (status = mls_tree_logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
             return status;
         const i32 slot = slot_of(filtered, filtered_count, index);
         u32 bytes = 1;
@@ -455,7 +442,7 @@ MlsStatus mls_tree_merge_update_path(KdfSha256Workspace& kdf, const MlsRatchetTr
     writer.varint(encoded);
     iterator = mls_tree_iterate(tree);
     for (u32 index = 0; writer.ok() && index <= last_present; ++index) {
-        if (status = current_node(iterator, tree.encoded_node_count, index, &node); status != MlsStatus::ok)
+        if (status = mls_tree_logical_next(tree, iterator, index, &node); status != MlsStatus::ok)
             return status;
         const i32 slot = slot_of(filtered, filtered_count, index);
         if (index == committer_leaf * 2) {

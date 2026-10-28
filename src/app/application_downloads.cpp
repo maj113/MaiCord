@@ -669,7 +669,7 @@ bool begin_source(const DownloadSource& source) noexcept {
                 (slot == kNoDownload || j.id < q->jobs[slot].id))
                 slot = i;
         }
-    if (slot == kNoDownload || g_app.downloads_lifetime_serial == ~u64{0})
+    if (slot == kNoDownload)
         return application_downloads_open();
     auto& j = q->jobs[slot];
     retire_job(j);
@@ -887,9 +887,10 @@ void activate(ApplicationDownloads& q, UiDownloadTarget target) noexcept {
         cancel_job(q, index);
     else if (target.action == UiDownloadAction::confirm && q.warning_id == j->id &&
              j->phase == JobPhase::warning) {
-        if (source_current(j->source) && !source_media_allowed(j->source, true))
+        const bool current = source_current(j->source);
+        if (current && !source_media_allowed(j->source, true))
             return;
-        if (!source_current(j->source))
+        if (!current)
             fail_job(q, *j, HttpsFileDownloadError::invalid_input);
         else {
             j->approved = true;
@@ -1023,24 +1024,10 @@ bool attachment_at(float x, float y, bool save_only, DownloadSource* out, UiWidg
         }
     return false;
 }
-// The attachment record behind a captured source, revalidated by identity.
-const MessageRichAttachment* source_attachment(const DownloadSource& source) noexcept {
-    if (!g_app.account_ui || !source_current(source))
-        return nullptr;
-    const auto& store = g_app.account_ui->message_rich_store;
-    const auto* rich = rich_of(store, source.message, source.snapshot);
-    for (u32 index = 0; rich && index < rich->attachment_count; ++index)
-        if (rich->attachments[index].id == source.attachment)
-            return &rich->attachments[index];
-    return nullptr;
-}
-ReceivedAttachmentKind source_kind(const DownloadSource& source, MediaAttachmentFormat* format) noexcept {
-    const auto& store = g_app.account_ui->message_rich_store;
-    const auto* attachment = source_attachment(source);
-    *format =
-        attachment ? message_rich_attachment_format(store, *attachment) : MediaAttachmentFormat::unknown;
-    const auto* rich = rich_of(store, source.message, source.snapshot);
-    switch (*format) {
+// The menu row group of attachment media: its format's kind, a voice message
+// among the audio.
+ReceivedAttachmentKind source_kind(MediaAttachmentFormat format, const MessageRichRecord* rich) noexcept {
+    switch (format) {
     case MediaAttachmentFormat::png:
     case MediaAttachmentFormat::jpeg:
     case MediaAttachmentFormat::webp:
@@ -1050,7 +1037,7 @@ ReceivedAttachmentKind source_kind(const DownloadSource& source, MediaAttachment
     case MediaAttachmentFormat::mp4:
         return ReceivedAttachmentKind::video;
     default:
-        if (media_attachment_format_audio_supported(*format))
+        if (media_attachment_format_audio_supported(format))
             return rich && message_rich_record_voice(*rich) ? ReceivedAttachmentKind::voice_message
                                                             : ReceivedAttachmentKind::audio;
         return ReceivedAttachmentKind::file;
@@ -1062,20 +1049,21 @@ bool open_context(const DownloadSource& source, UiRect anchor) noexcept {
     if (!q || !source_current(source) || !dismiss_popup())
         return false;
     q->menu_valid = false;
-    MediaAttachmentFormat format{};
-    const auto kind = source_kind(source, &format);
-    const ReceivedAttachmentMenuFacts facts{
-        kind, {source.url, source.url_bytes}, kind == ReceivedAttachmentKind::image, true};
-    const u32 count = received_attachment_menu(facts, {q->menu_items, kReceivedAttachmentMenuItems});
-    // Plugins see the attachment's index in the message, its URL and filename.
     const auto& store = g_app.account_ui->message_rich_store;
     const auto* rich = rich_of(store, source.message, source.snapshot);
     u32 index = 0;
     while (rich && index < rich->attachment_count && rich->attachments[index].id != source.attachment)
         ++index;
+    const bool attachment = rich && index < rich->attachment_count;
+    const auto format = attachment ? message_rich_attachment_format(store, rich->attachments[index])
+                                   : MediaAttachmentFormat::unknown;
+    const auto kind = source_kind(format, rich);
+    const ReceivedAttachmentMenuFacts facts{
+        kind, {source.url, source.url_bytes}, kind == ReceivedAttachmentKind::image, true};
+    const u32 count = received_attachment_menu(facts, {q->menu_items, kReceivedAttachmentMenuItems});
+    // Plugins see the attachment's index in the message, its URL and filename.
     const ApplicationPluginMenuExtra plugin{MC_MENU_ATTACHMENT, index, 0, false, {source.url, source.url_bytes},
                                             {source.filename, source.filename_bytes}};
-    const bool attachment = source.attachment && rich && index < rich->attachment_count;
     if (!count || !open_message_media_context_popup(source.message, anchor, {q->menu_items, count},
                                                     attachment ? &plugin : nullptr))
         return false;
@@ -1116,12 +1104,11 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
                 if (!hit)
                     continue;
                 const auto& sticker = rich->stickers[i];
+                if (sticker.format_type == 3)
+                    return false;
                 u8 target[64];
                 const auto written =
-                    sticker.format_type == 3
-                        ? CdnTargetResult{0, {}, CdnTargetError::unsupported_format}
-                        : write_sticker_cdn_target(sticker.id, sticker.format_type,
-                                                   {target, sizeof(target)});
+                    write_sticker_cdn_target(sticker.id, sticker.format_type, {target, sizeof(target)});
                 if (!written.ok())
                     return false;
                 // Message sticker images are served from the media proxy.
@@ -1802,7 +1789,7 @@ bool application_downloads_release(u32 timeout) noexcept {
     }
     ui_download_scene_release(&q->scene);
     for (auto& j : q->jobs)
-        retire_job(j);
+        release_path(j);
     SecureZeroMemory(q, sizeof(*q));
     VirtualFree(q, 0, MEM_RELEASE);
     g_app.downloads = nullptr;

@@ -55,9 +55,8 @@ SoundboardClip* decode_mp3(u64 sound_id, ConstSlice<u8> encoded, SoundboardDecod
     }
     const u64 limit = u64{kSoundboardClipMaximumFrames} * stream.sample_rate / kSoundboardSampleRate + 1;
     const u32 source_capacity = static_cast<u32>(minimum<u64>(stream.total_frames + kMp3MaximumFrames, limit));
-    const usize state_offset = 0;
     const usize state_bytes = align_up(mp3_decoder_storage_bytes(), 64);
-    const usize packet_offset = state_offset + state_bytes;
+    const usize packet_offset = state_bytes;
     const usize packet_bytes = align_up(usize{kMp3MaximumFrames} * 2 * sizeof(float), 64);
     const usize source_offset = packet_offset + packet_bytes;
     const usize total = source_offset + usize{source_capacity} * 2 * sizeof(float);
@@ -70,7 +69,7 @@ SoundboardClip* decode_mp3(u64 sound_id, ConstSlice<u8> encoded, SoundboardDecod
     auto* packet_pcm = reinterpret_cast<float*>(work + packet_offset);
     auto* source = reinterpret_cast<float*>(work + source_offset);
     u32 produced = 0;
-    bool ok = mp3_decoder_initialize(&decoder, {work + state_offset, static_cast<u32>(state_bytes)},
+    bool ok = mp3_decoder_initialize(&decoder, {work, static_cast<u32>(state_bytes)},
                                      stream.sample_rate, stream.channels) == Mp3Error::none;
     while (ok && produced < source_capacity) {
         const auto packet = mp3_stream_next(&stream);
@@ -128,7 +127,6 @@ SoundboardClip* decode_mp3(u64 sound_id, ConstSlice<u8> encoded, SoundboardDecod
 }
 
 SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded, SoundboardDecodeStatus* status) noexcept {
-    const usize scratch_offset = 0;
     const usize pcm_offset = align_up(kSoundboardProbeScratchBytes, 64);
     const usize state_offset = pcm_offset + align_up(usize{kOpusDecoderMaximumFrames} * 2 * sizeof(i16), 64);
     const u32 state_bytes = static_cast<u32>(align_up(opus_decoder_storage_bytes(2), 64));
@@ -137,7 +135,7 @@ SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded, SoundboardDecod
         *status = SoundboardDecodeStatus::memory;
         return nullptr;
     }
-    const Slice<u8> scratch{work + scratch_offset, kSoundboardProbeScratchBytes};
+    const Slice<u8> scratch{work, kSoundboardProbeScratchBytes};
     auto* pcm = reinterpret_cast<i16*>(work + pcm_offset);
     OggOpusDemuxer demuxer{};
     SoundboardClip* clip = nullptr;
@@ -366,7 +364,6 @@ void soundboard_cache_clear(SoundboardCache* cache) noexcept {
         return;
     while (cache->count)
         cache_drop(cache, cache->count - 1);
-    cache->bytes = 0;
 }
 
 bool soundboard_mixer_play(SoundboardMixer* mixer, SoundboardClip* clip, u32 sound_per_mille, u64 user_id) noexcept {

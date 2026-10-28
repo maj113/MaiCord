@@ -60,13 +60,15 @@ void push_completion(MessageSendTracker* tracker, const MessageSendAttempt& atte
     ++tracker->completion_count;
 }
 
+void retire_attempt(MessageSendTracker* tracker, MessageSendAttempt* attempt) noexcept {
+    --tracker->active_count;
+    reset_value<MessageSendAttempt>(attempt);
+}
+
 void finish_attempt(MessageSendTracker* tracker, MessageSendAttempt* attempt,
                     MessageSendCompletionKind kind, bool history_observed = false, bool response_observed = false) noexcept {
     push_completion(tracker, *attempt, kind, history_observed, response_observed);
-    if (tracker->active_count != 0) {
-        --tracker->active_count;
-    }
-    reset_value<MessageSendAttempt>(attempt);
+    retire_attempt(tracker, attempt);
 }
 
 u64 next_nonce(MessageSendTracker* tracker, const MessageTimeline& timeline, u64 now_unix_ms) noexcept {
@@ -111,10 +113,7 @@ MessageSendObserveResult drop_attempt(MessageSendTracker* tracker, MessageTimeli
     } else if (local.error != MessageStoreError::not_found) {
         return observe_error(MessageSendTrackerError::timeline);
     }
-    if (tracker->active_count != 0) {
-        --tracker->active_count;
-    }
-    reset_value<MessageSendAttempt>(attempt);
+    retire_attempt(tracker, attempt);
     return MessageSendObserveResult{invalidation, MessageSendTrackerError::none, false,
                                     invalidation.count != 0};
 }
@@ -155,7 +154,6 @@ MessageSendBeginResult message_send_tracker_begin(MessageSendTracker* tracker, M
     if (!inserted.ok()) {
         return MessageSendBeginResult{0, inserted.invalidation, MessageSendTrackerError::timeline};
     }
-    reset_value<MessageSendAttempt>(attempt);
     attempt->nonce = nonce;
     attempt->channel_id = channel_id;
     attempt->author_id = author_id;
@@ -363,7 +361,6 @@ bool message_send_tracker_take_completion(MessageSendTracker* tracker,
         return false;
     }
     *completion = tracker->completions[tracker->completion_read];
-    reset_value<MessageSendCompletion>(&tracker->completions[tracker->completion_read]);
     tracker->completion_read = (tracker->completion_read + 1) % kMessageSendTrackerCapacity;
     --tracker->completion_count;
     return true;

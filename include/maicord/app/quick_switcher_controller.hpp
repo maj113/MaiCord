@@ -43,7 +43,7 @@ struct QuickSwitcherSourceStamp {
     u64 selected_channel_id, selected_guild_id, self_user_id;
     u32 guilds, channels, permissions, activity, selection, users, user_revision, private_channels, relationships;
 };
-struct QuickSwitcherStats { u32 visited_candidates, matched_candidates, name_bytes; };
+struct QuickSwitcherStats { u32 visited_candidates, matched_candidates; };
 struct QuickSwitcherController {
     QuickSwitcherScope scope;
     QuickSwitcherSourceStamp stamp;

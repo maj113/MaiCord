@@ -410,8 +410,11 @@ GatewayClientDispatchRouteResult gateway_client_publish_guild_presences(JsonValu
         merged.va.kind != JsonValueKind::array)
         return {};
     Stream stream{publish, opaque, object_scratch, sequence, now_ms};
-    // About 4 KiB of guild IDs; READY_SUPPLEMENTAL lists at most a few hundred.
-    GuildPresences guilds{&document, &stream, {}, 0};
+    // About 4 KiB of guild IDs, written before they are read; READY_SUPPLEMENTAL lists at most a few hundred.
+    GuildPresences guilds;
+    guilds.document = &document;
+    guilds.stream = &stream;
+    guilds.id_count = 0;
     if (!json_visit_indexed_array(document, root.va, 64, guild_id_item, &guilds).ok()) return {};
     json_visit_indexed_array(document, merged.va, 64, guild_presences_item, &guilds);
     return stream.error;

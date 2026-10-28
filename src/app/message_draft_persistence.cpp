@@ -99,9 +99,9 @@ bool blank_after_trim(Utf8View text) noexcept {
     return true;
 }
 
-bool records_duplicate(const u8* records, u32 record_bytes, u32 record_index, u64 channel_id) noexcept {
+bool records_duplicate(const u8* records, u32 record_index, u64 channel_id) noexcept {
     for (u32 previous = 0; previous < record_index; ++previous) {
-        if (byte_load_le64(records + previous * record_bytes) == channel_id) {
+        if (byte_load_le64(records + previous * kRecordBytes) == channel_id) {
             return true;
         }
     }
@@ -255,7 +255,6 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
         return failure(MessageDraftPersistenceError::profile);
     }
     const u32 record_count = byte_load_le32(file_bytes + 20);
-    constexpr u32 record_bytes = kRecordBytes;
     const u32 text_bytes = byte_load_le32(file_bytes + 24);
     const u32 stored_revision = byte_load_le32(file_bytes + 28);
     const u64 stored_clock = byte_load_le64(file_bytes + 40);
@@ -264,7 +263,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     const u64 actual_checksum = checksum(file_bytes, file_size);
     byte_store_le64(file_bytes + kChecksumOffset, stored_checksum);
     const u64 expected_size =
-        static_cast<u64>(kHeaderBytes) + static_cast<u64>(record_count) * record_bytes + text_bytes;
+        static_cast<u64>(kHeaderBytes) + static_cast<u64>(record_count) * kRecordBytes + text_bytes;
     if (byte_load_le32(file_bytes + 12) != kHeaderBytes || byte_load_le32(file_bytes + 16) != file_size ||
         record_count > kMessageDraftStoreMaximumRecords || expected_size != file_size ||
         actual_checksum != stored_checksum || (record_count != 0 && stored_revision == 0)) {
@@ -272,13 +271,13 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     }
 
     const u8* records = file_bytes + kHeaderBytes;
-    const u8* texts = records + record_count * record_bytes;
+    const u8* texts = records + record_count * kRecordBytes;
     u32 text_cursor = 0;
     u32 accepted_records = 0;
     u32 accepted_bytes = 0;
     u32 discarded = 0;
     for (u32 index = 0; index < record_count; ++index) {
-        const u8* record = records + index * record_bytes;
+        const u8* record = records + index * kRecordBytes;
         const u64 channel_id = byte_load_le64(record);
         const u64 touched = byte_load_le64(record + 8);
         const u32 bytes = byte_load_le32(record + 16);
@@ -293,7 +292,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
             text_cursor > text_bytes || bytes > text_bytes - text_cursor || revision == 0 ||
             !reserved_valid || (flags & ~kSuppressReplyMention) != 0 ||
             (reply_message_id == 0 && flags != 0) ||
-            records_duplicate(records, record_bytes, index, channel_id)) {
+            records_duplicate(records, index, channel_id)) {
             return failure(MessageDraftPersistenceError::format);
         }
         const Utf8View text{reinterpret_cast<const char*>(texts + text_cursor), bytes};
@@ -335,7 +334,7 @@ MessageDraftPersistenceResult message_drafts_load_file(const wchar_t* path, u64 
     }
     text_cursor = 0;
     for (u32 index = 0; index < record_count; ++index) {
-        const u8* encoded = records + index * record_bytes;
+        const u8* encoded = records + index * kRecordBytes;
         const u32 bytes = byte_load_le32(encoded + 16);
         const Utf8View text{reinterpret_cast<const char*>(texts + text_cursor), bytes};
         const u64 reply_message_id = byte_load_le64(encoded + 32);

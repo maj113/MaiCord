@@ -44,16 +44,11 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
 
 NativePluginResult validate_definition(const NativePluginHost& host,
                                       const NativePluginDefinition& definition) noexcept {
-    if (!definition.owner_id || !definition.start || !definition.stop || !definition.state_alignment ||
-        (definition.state_alignment & (definition.state_alignment - 1)) || definition.state_alignment > 64)
-        return {NativePluginError::invalid_argument};
     if (definition.owner_id == host.policy.reserved_owner_id || native_plugin_host_find(host, definition.owner_id))
         return {NativePluginError::duplicate_owner};
     if (definition.required_capabilities & (~host.policy.granted_capabilities | ~native_plugin_known_capabilities))
         return {NativePluginError::capability_denied};
     if (definition.page_limit > host.policy.max_pages_per_plugin ||
-        (definition.page_limit && !(definition.required_capabilities & native_plugin_capability_pages)) ||
-        definition.state_bytes > kNativePluginModuleMaxStateBytes ||
         definition.state_bytes > host.policy.max_state_bytes_per_plugin ||
         host.state_bytes > host.policy.max_total_state_bytes ||
         definition.state_bytes > host.policy.max_total_state_bytes - host.state_bytes)

@@ -191,14 +191,14 @@ bool application_message_edit_retains_content() noexcept {
 }
 
 bool begin_message_edit(u64 message_id) noexcept {
-    if (!g_app.account_ui || message_id == 0 || g_app.message_edit.message_id != 0) {
+    if (g_app.message_edit.message_id != 0) {
         return false;
     }
-    const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);
     const MessageRecord* record = editable_record(message_id);
     if (!record) {
         return false;
     }
+    const MessageStoreResult found = message_store_find(g_app.message_view.store, message_id);
     const Utf8View content = message_store_content(g_app.message_view.store, found.handle);
     if ((content.bytes == 0 && !retained_rich_content(*record)) ||
         content.bytes > kMessageComposerMaximumBytes) {
@@ -270,8 +270,8 @@ bool queue_message_edit() noexcept {
 
 bool queue_message_edit_content(u64 message_id, Utf8View content) noexcept {
     MessageEditRuntime& edit = g_app.message_edit;
-    if (g_app.account.status.required_action != AccountRequirement::none || !g_app.account_ui ||
-        edit.message_id != 0 || edit.editor_active || !content.bytes || content.bytes > kMessageComposerMaximumBytes ||
+    if (g_app.account.status.required_action != AccountRequirement::none || edit.message_id != 0 ||
+        edit.editor_active || !content.bytes || content.bytes > kMessageComposerMaximumBytes ||
         !utf8_validate(content).valid)
         return false;
     const auto* record = editable_record(message_id);

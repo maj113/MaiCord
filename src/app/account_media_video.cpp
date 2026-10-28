@@ -462,11 +462,11 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
     }
     HANDLE range_event =
         fetch && lane->media.client_started ? cdn_client_notification_handle(&lane->media.client) : nullptr;
-    if (!initialized.ok())
-        publish_error(v, initialized);
     if (initialized.ok()) {
         v.session.source_cancelled = source_cancelled;
         v.session.source_cancel_context = v.worker;
+    } else {
+        publish_error(v, initialized);
     }
     bool exit_selection = !initialized.ok();
     // Only queued video frames need precise deadlines. This one-shot timer is
@@ -591,10 +591,8 @@ bool account_media_video_dispatch(AccountMediaWorkerLane* lane, bool* stopped) n
             : wait_video_events(handles, range_event ? 3 : 2,
                 v.session.held && !v.session.published && !v.session.status.buffering &&
                     delay == service.next_service_delay_ms ? frame_timer : nullptr, delay);
-        if (waited == WAIT_FAILED) {
+        if (waited == WAIT_FAILED)
             exit_selection = true;
-            continue;
-        }
     }
     if (frame_timer)
         CloseHandle(frame_timer);

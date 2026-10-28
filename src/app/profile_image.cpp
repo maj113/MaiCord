@@ -185,6 +185,19 @@ u32 png_frames(ConstSlice<u8> s) noexcept {
     return 1;
 }
 
+// Parses a GIF into a workspace (plus extra bytes after it) owned by memory.
+ProfileImageError gif_open(ConstSlice<u8> s, usize extra, u32 minimum_frames, Block* memory, GifWorkspace** workspace,
+                           GifImage* image) noexcept {
+    void* storage = memory->allocate(sizeof(GifWorkspace) + extra);
+    if (!storage)
+        return ProfileImageError::memory;
+    *workspace = static_cast<GifWorkspace*>(storage);
+    image->frames = (*workspace)->frames;
+    image->frame_capacity = kGifFrameCapacity;
+    return gif_parse(s, image, *workspace).ok() && image->frame_count >= minimum_frames ? ProfileImageError::none
+                                                                                         : ProfileImageError::decode;
+}
+
 ProfileImageError inspect(ConstSlice<u8> s, Source* src) noexcept {
     reset_value(src);
     src->orientation = 1;
@@ -224,15 +237,11 @@ ProfileImageError inspect(ConstSlice<u8> s, Source* src) noexcept {
     }
     case GuildImageKind::gif: {
         Block memory;
-        void* storage = memory.allocate(sizeof(GifWorkspace));
-        if (!storage)
-            return ProfileImageError::memory;
-        auto* workspace = reinterpret_cast<GifWorkspace*>(storage);
+        GifWorkspace* workspace = nullptr;
         GifImage image{};
-        image.frames = workspace->frames;
-        image.frame_capacity = kGifFrameCapacity;
-        if (!gif_parse(s, &image, workspace).ok() || !image.frame_count)
-            return ProfileImageError::decode;
+        const ProfileImageError opened = gif_open(s, 0, 1, &memory, &workspace, &image);
+        if (opened != ProfileImageError::none)
+            return opened;
         src->stored_width = image.canvas_width;
         src->stored_height = image.canvas_height;
         src->frames = image.frame_count;
@@ -491,15 +500,11 @@ ProfileImageError decode_jpeg(ConstSlice<u8> s, const Source& src, const Plan& p
 // The first frame composited on a transparent canvas, like a canvas drawImage.
 ProfileImageError decode_gif_still(ConstSlice<u8> s, const Plan& plan, Reduce* d) noexcept {
     Block workspace_memory;
-    void* storage = workspace_memory.allocate(sizeof(GifWorkspace));
-    if (!storage)
-        return ProfileImageError::memory;
-    auto* workspace = reinterpret_cast<GifWorkspace*>(storage);
+    GifWorkspace* workspace = nullptr;
     GifImage image{};
-    image.frames = workspace->frames;
-    image.frame_capacity = kGifFrameCapacity;
-    if (!gif_parse(s, &image, workspace).ok() || !image.frame_count)
-        return ProfileImageError::decode;
+    const ProfileImageError opened = gif_open(s, 0, 1, &workspace_memory, &workspace, &image);
+    if (opened != ProfileImageError::none)
+        return opened;
     const GifFrame& first = image.frames[0];
     const u64 pixels = static_cast<u64>(first.width) * first.height;
     Block memory;
@@ -731,14 +736,13 @@ ProfileImageError crop_still(ConstSlice<u8> s, const Source& src, const ImageCro
     Block pixels;
     {
         Reduce reduce{};
-        ProfileImageError error = ProfileImageError::decode;
+        ProfileImageError error;
         switch (src.kind) {
         case GuildImageKind::png:
         case GuildImageKind::apng: error = decode_png(s, plan, &reduce); break;
         case GuildImageKind::jpeg: error = decode_jpeg(s, src, plan, &reduce); break;
         case GuildImageKind::gif: error = decode_gif_still(s, plan, &reduce); break;
-        case GuildImageKind::webp: error = decode_webp(s, plan, &reduce); break;
-        default: break;
+        default: error = decode_webp(s, plan, &reduce); break;
         }
         if (error != ProfileImageError::none)
             return error;
@@ -920,16 +924,12 @@ u64 lzw_bound(u64 pixels) noexcept {
 ProfileImageError crop_gif(ConstSlice<u8> s, const ImageCropOutput& crop, GuildImageBuffer* output, u32* bytes,
                            u32* out_width, u32* out_height) noexcept {
     Block workspace_memory;
-    void* storage = workspace_memory.allocate(sizeof(GifWorkspace) + sizeof(LzwTable));
-    if (!storage)
-        return ProfileImageError::memory;
-    auto* workspace = reinterpret_cast<GifWorkspace*>(storage);
-    auto* table = reinterpret_cast<LzwTable*>(static_cast<u8*>(storage) + sizeof(GifWorkspace));
+    GifWorkspace* workspace = nullptr;
     GifImage image{};
-    image.frames = workspace->frames;
-    image.frame_capacity = kGifFrameCapacity;
-    if (!gif_parse(s, &image, workspace).ok() || image.frame_count < 2)
-        return ProfileImageError::decode;
+    const ProfileImageError opened = gif_open(s, sizeof(LzwTable), 2, &workspace_memory, &workspace, &image);
+    if (opened != ProfileImageError::none)
+        return opened;
+    auto* table = reinterpret_cast<LzwTable*>(workspace_memory.data + sizeof(GifWorkspace));
     const u32 cx = crop.x, cy = crop.y, cw = crop.width, ch = crop.height;
     const bool turned = crop.rotation % 180 != 0;
     const u32 width = turned ? ch : cw, height = turned ? cw : ch;

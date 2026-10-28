@@ -26,6 +26,27 @@ template <typename T, typename Fill> mc_status read_into(T* info, Fill fill) noe
     if (!fill(&value)) return MC_E_NOT_FOUND;
     return write_prefix(info, value);
 }
+// One id-keyed read: the permission, a nonzero id and the source accessor.
+template <typename Info, typename Member>
+mc_status read_by_id(void* handle, uint64_t generation, u64 permission, u64 id, Info* info, Member member) noexcept {
+    mc_status status{};
+    const auto* read = source_for(handle, generation, permission, &status);
+    if (!read) return status;
+    if (!id) return MC_E_INVALID;
+    return read_into(info, [&](Info* value) { return (read->*member) && (read->*member)(read->context, id, value); });
+}
+// A message-scoped read: channel, nonzero message and index.
+template <typename Info, typename Member>
+mc_status read_indexed(void* handle, uint64_t generation, u64 channel, u64 message, u32 index, Info* info,
+                       Member member) noexcept {
+    mc_status status{};
+    const auto* read = source_for(handle, generation, MC_PERM_READ_MESSAGES, &status);
+    if (!read) return status;
+    if (!message) return MC_E_INVALID;
+    return read_into(info, [&](Info* value) {
+        return (read->*member) && (read->*member)(read->context, channel, message, index, value);
+    });
+}
 mc_status MC_CALL read_context(void* handle, uint64_t generation, mc_context_info* info) {
     mc_status status{};
     const auto* read = source_for(handle, generation, MC_PERM_READ_CONTEXT, &status);
@@ -33,18 +54,10 @@ mc_status MC_CALL read_context(void* handle, uint64_t generation, mc_context_inf
     return read_into(info, [&](mc_context_info* value) { return read->context_info && read->context_info(read->context, value); });
 }
 mc_status MC_CALL read_guild(void* handle, uint64_t generation, uint64_t guild, mc_guild_info* info) {
-    mc_status status{};
-    const auto* read = source_for(handle, generation, MC_PERM_READ_GUILDS, &status);
-    if (!read) return status;
-    if (!guild) return MC_E_INVALID;
-    return read_into(info, [&](mc_guild_info* value) { return read->guild && read->guild(read->context, guild, value); });
+    return read_by_id(handle, generation, MC_PERM_READ_GUILDS, guild, info, &NativePluginSdkReadSource::guild);
 }
 mc_status MC_CALL read_channel(void* handle, uint64_t generation, uint64_t channel, mc_channel_info* info) {
-    mc_status status{};
-    const auto* read = source_for(handle, generation, MC_PERM_READ_GUILDS, &status);
-    if (!read) return status;
-    if (!channel) return MC_E_INVALID;
-    return read_into(info, [&](mc_channel_info* value) { return read->channel && read->channel(read->context, channel, value); });
+    return read_by_id(handle, generation, MC_PERM_READ_GUILDS, channel, info, &NativePluginSdkReadSource::channel);
 }
 mc_status MC_CALL read_role(void* handle, uint64_t generation, uint64_t guild, uint64_t role, mc_role_info* info) {
     mc_status status{};
@@ -75,20 +88,10 @@ mc_status MC_CALL read_user(void* handle, uint64_t generation, uint64_t user, mc
     return read_into(info, [&](mc_user_info* value) { return read.user && read.user(read.context, user, value); });
 }
 mc_status MC_CALL read_relationship(void* handle, uint64_t generation, uint64_t user, mc_relationship_info* info) {
-    mc_status status{};
-    const auto* read = source_for(handle, generation, MC_PERM_READ_MEMBERS, &status);
-    if (!read) return status;
-    if (!user) return MC_E_INVALID;
-    return read_into(info, [&](mc_relationship_info* value) {
-        return read->relationship && read->relationship(read->context, user, value);
-    });
+    return read_by_id(handle, generation, MC_PERM_READ_MEMBERS, user, info, &NativePluginSdkReadSource::relationship);
 }
 mc_status MC_CALL read_profile(void* handle, uint64_t generation, uint64_t user, mc_profile_info* info) {
-    mc_status status{};
-    const auto* read = source_for(handle, generation, MC_PERM_READ_MEMBERS, &status);
-    if (!read) return status;
-    if (!user) return MC_E_INVALID;
-    return read_into(info, [&](mc_profile_info* value) { return read->profile && read->profile(read->context, user, value); });
+    return read_by_id(handle, generation, MC_PERM_READ_MEMBERS, user, info, &NativePluginSdkReadSource::profile);
 }
 mc_status MC_CALL read_presence(void* handle, uint64_t generation, uint64_t user, uint64_t guild, mc_presence_info* info) {
     mc_status status{};
@@ -143,33 +146,15 @@ mc_status MC_CALL read_message(void* handle, uint64_t generation, uint64_t chann
 }
 mc_status MC_CALL read_attachment(void* handle, uint64_t generation, uint64_t channel, uint64_t message, uint32_t index,
                                   mc_attachment_info* info) {
-    mc_status status{};
-    const auto* read = source_for(handle, generation, MC_PERM_READ_MESSAGES, &status);
-    if (!read) return status;
-    if (!message) return MC_E_INVALID;
-    return read_into(info, [&](mc_attachment_info* value) {
-        return read->attachment && read->attachment(read->context, channel, message, index, value);
-    });
+    return read_indexed(handle, generation, channel, message, index, info, &NativePluginSdkReadSource::attachment);
 }
 mc_status MC_CALL read_embed(void* handle, uint64_t generation, uint64_t channel, uint64_t message, uint32_t index,
                              mc_embed_info* info) {
-    mc_status status{};
-    const auto* read = source_for(handle, generation, MC_PERM_READ_MESSAGES, &status);
-    if (!read) return status;
-    if (!message) return MC_E_INVALID;
-    return read_into(info, [&](mc_embed_info* value) {
-        return read->embed && read->embed(read->context, channel, message, index, value);
-    });
+    return read_indexed(handle, generation, channel, message, index, info, &NativePluginSdkReadSource::embed);
 }
 mc_status MC_CALL read_reaction(void* handle, uint64_t generation, uint64_t channel, uint64_t message, uint32_t index,
                                 mc_reaction_info* info) {
-    mc_status status{};
-    const auto* read = source_for(handle, generation, MC_PERM_READ_MESSAGES, &status);
-    if (!read) return status;
-    if (!message) return MC_E_INVALID;
-    return read_into(info, [&](mc_reaction_info* value) {
-        return read->reaction && read->reaction(read->context, channel, message, index, value);
-    });
+    return read_indexed(handle, generation, channel, message, index, info, &NativePluginSdkReadSource::reaction);
 }
 u64 list_permission(u32 list) noexcept {
     switch (list) {
@@ -657,7 +642,6 @@ bool native_plugin_sdk_event_push(NativePluginSdkRuntime* runtime, const NativeP
     copy_bytes(runtime->event_text + start + text_bytes, event.name.data, name_bytes);
     runtime->event_text_head = start + bytes;
     auto& record = runtime->events[runtime->event_head % kPluginSdkEventQueue];
-    reset_value(&record);
     record.sequence = runtime->event_head;
     record.kind = event.kind;
     record.flags = event.flags & (MC_EVENT_OWN | MC_EVENT_BOT | MC_EVENT_BULK | MC_EVENT_CACHED | MC_EVENT_TEXT);

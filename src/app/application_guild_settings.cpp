@@ -483,13 +483,8 @@ bool project_page() noexcept {
     Bank bank{p.banks[p.bank_index], kBankBytes, 0};
     p.control_count = 0;
     ops().project(bank);
-    const bool dirty = page_dirty();
-    p.footer = {footer_status(),
-                utf8_literal("Save changes"),
-                utf8_literal("Reset"),
-                dirty || (p.request_id && mutation_pending()),
-                can_save(),
-                p.request_id && mutation_pending(),
+    const bool dirty = page_dirty(), saving = p.request_id && mutation_pending();
+    p.footer = {footer_status(), utf8_literal("Save changes"), utf8_literal("Reset"), dirty || saving, can_save(), saving,
                 p.failed};
     for (u32 i = 1; i <= kPageCount; ++i) {
         auto& content = page_content(static_cast<Page>(i));
@@ -565,6 +560,19 @@ bool repaint() noexcept {
     return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
 
+namespace {
+void clear_status() noexcept {
+    owner->failed = false;
+    reset_value(&owner->status);
+}
+// The picked file's name as UTF-8, for the expression name forms.
+void set_upload_filename(ConstSlice<wchar_t> filename) noexcept {
+    auto& p = *owner;
+    const int units = WideCharToMultiByte(CP_UTF8, 0, filename.data, static_cast<int>(filename.count),
+                                          p.upload_filename, sizeof(p.upload_filename), nullptr, nullptr);
+    p.upload_filename_bytes = units > 0 ? static_cast<u32>(units) : 0;
+}
+} // namespace
 void queue(Op op, u64 target) noexcept {
     auto& r = owner->request;
     reset_value(&r);
@@ -572,8 +580,7 @@ void queue(Op op, u64 target) noexcept {
     r.target = target;
     r.queued = true;
     owner->retry_at = 0;
-    owner->failed = false;
-    reset_value(&owner->status);
+    clear_status();
     application_request_frame();
 }
 namespace {
@@ -817,8 +824,7 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
             release_uri(&p.splash_uri, &p.splash_uri_bytes);
             p.boost_draft.splash = GuildProfileImageEdit::replace;
         }
-        p.failed = false;
-        reset_value(&p.status);
+        clear_status();
         repaint();
         return;
     }
@@ -833,11 +839,8 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
         release_picked(&p.upload);
         p.upload = picked;
         p.upload.set = true;
-        p.failed = false;
-        reset_value(&p.status);
-        const int units = WideCharToMultiByte(CP_UTF8, 0, filename.data, static_cast<int>(filename.count),
-                                              p.upload_filename, sizeof(p.upload_filename), nullptr, nullptr);
-        p.upload_filename_bytes = units > 0 ? static_cast<u32>(units) : 0;
+        clear_status();
+        set_upload_filename(filename);
         next_form = form_sound_name;
         next_form_item = 0;
         repaint();
@@ -867,12 +870,9 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
         release_uri(&p.banner_uri, &p.banner_uri_bytes);
         p.boost_draft.banner = GuildProfileImageEdit::replace;
     }
-    p.failed = false;
-    reset_value(&p.status);
+    clear_status();
     if (pick == Pick::emoji || pick == Pick::sticker) {
-        const int units = WideCharToMultiByte(CP_UTF8, 0, filename.data, static_cast<int>(filename.count),
-                                              p.upload_filename, sizeof(p.upload_filename), nullptr, nullptr);
-        p.upload_filename_bytes = units > 0 ? static_cast<u32>(units) : 0;
+        set_upload_filename(filename);
         next_form = pick == Pick::emoji ? form_emoji_create : form_sticker_name;
         next_form_item = 0;
     }
@@ -977,8 +977,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
     case UiSettingsTargetKind::reset:
         if (mutation_pending())
             return;
-        p.failed = false;
-        reset_value(&p.status);
+        clear_status();
         if (ops().load)
             ops().load();
         repaint();
@@ -1110,8 +1109,7 @@ void select_page(Page page) noexcept {
     p.page = page;
     p.editing_role = 0;
     p.profile_requested = false;
-    p.failed = false;
-    reset_value(&p.status);
+    clear_status();
     release_images();
     release_picked(&p.role_icon);
     set_editor(editor_search, {});
@@ -1248,8 +1246,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.audit_filter_action_set = false;
     p.editing_role = p.open_after_create = 0;
     reset_value(&p.request);
-    p.failed = false;
-    reset_value(&p.status);
+    clear_status();
     p.menu = Menu::none;
     p.engagement_base = p.engagement_draft = {};
     p.engagement_conflict = p.engagement_echo = p.engagement_guild_sent = false;
@@ -1461,7 +1458,7 @@ bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8
     if (!guild_context_can_create_channel(s, category ? 0 : guild, category_id))
         return false;
     reset_value(&creation);
-    creation.serial = ++creation_serial ? creation_serial : ++creation_serial;
+    creation.serial = ++creation_serial;
     creation.guild_id = guild;
     creation.parent_id = category_id;
     creation.type = type;
@@ -1886,8 +1883,6 @@ bool application_guild_settings_response(const RestClientResponse& response, con
         // GUILD_EMOJIS_UPDATE refreshes the list.
         release_picked(&p.upload);
         break;
-    case Op::emoji_rename:
-    case Op::emoji_delete: break;
     case Op::sticker_list: {
         const auto decoded = guild_asset_decode_stickers(body, {p.scratch, kScratchUnits}, {p.stickers, kStickerCapacity});
         p.sticker_count = decoded.ok() ? decoded.count : 0;

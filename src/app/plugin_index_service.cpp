@@ -128,6 +128,14 @@ AcceptanceRecordResult write_cache(const PluginManagerPaths& paths, u64 provider
     if (!count) return {AcceptanceRecordError::invalid_input, 0};
     return plugin_record_write({path, count}, {work.record, 64 + work.document_bytes});
 }
+// Rewrites the cache only when it is lost or different; false when that write fails.
+bool refresh_cache(const PluginManagerPaths& paths, u64 provider, const PluginIndexWork& work, PluginIndexCheckResult* r) noexcept {
+    if (cache_current(paths, provider, work)) return true;
+    const auto written = write_cache(paths, provider, work);
+    r->record_error = written.error; r->native_error = written.native_error;
+    r->cache_written = written.ok();
+    return written.ok();
+}
 // Admission under the lock, then the cache. As in the updater, a missing
 // acceptance.bin is provisioned on first use.
 PluginIndexCheckResult admit(const PluginManagerPaths& paths, const PluginCatalogSource& source, const P256Key* key,
@@ -150,12 +158,7 @@ PluginIndexCheckResult admit(const PluginManagerPaths& paths, const PluginCatalo
     }
     r.sequence = work->index.sequence;
     r.outcome = admitted.written ? PluginIndexCheckOutcome::updated : PluginIndexCheckOutcome::up_to_date;
-    if (!cache_current(paths, source.provider, *work)) {
-        const auto written = write_cache(paths, source.provider, *work);
-        r.record_error = written.error; r.native_error = written.native_error;
-        if (!written.ok()) { *error = CE::cache; return r; }
-        r.cache_written = true;
-    }
+    if (!refresh_cache(paths, source.provider, *work, &r)) { *error = CE::cache; return r; }
     *error = CE::none;
     return r;
 }
@@ -243,12 +246,9 @@ bool plugin_catalog_file_location(const PluginCatalogSource& source, const Plugi
             const u32 version_bytes = update_version_text(listed.version_code, {version_text, sizeof(version_text)});
             const Utf8View slug = decoded(index.plugins[plugin].slug);
             if (!version_bytes || !slug.bytes) return false;
-            char slug_text[kPluginIndexSlugMaximumBytes];
-            copy_bytes(slug_text, slug.data, slug.bytes);
-            const Utf8View slug_copy{slug_text, slug.bytes};
             w.add(source.repository, source.repository_bytes);
-            w.add(utf8_literal("/releases/download/")); w.add(slug_copy); w.add(utf8_literal("-v")); w.add(version_text, version_bytes);
-            w.add("/", 1); w.add(slug_copy); w.add("-", 1); w.add(version_text, version_bytes); w.add("-", 1); w.add(arch_text);
+            w.add(utf8_literal("/releases/download/")); w.add(slug); w.add(utf8_literal("-v")); w.add(version_text, version_bytes);
+            w.add("/", 1); w.add(slug); w.add("-", 1); w.add(version_text, version_bytes); w.add("-", 1); w.add(arch_text);
             w.add(utf8_literal(".dll"));
         } else {
             w.add(decoded(file->repository)); w.add(utf8_literal("/releases/download/"));
@@ -331,12 +331,7 @@ PluginIndexCheckResult plugin_index_check(const PluginManagerPaths& paths, const
     if (verdict == PluginIndexFloorVerdict::same) {
         // No floor write; the cache is rewritten only when lost or different.
         r.outcome = PluginIndexCheckOutcome::up_to_date;
-        if (!cache_current(paths, source.provider, *work)) {
-            const auto written = write_cache(paths, source.provider, *work);
-            r.record_error = written.error; r.native_error = written.native_error;
-            if (!written.ok()) return finish(r, CE::cache, "cache", now, failures, random);
-            r.cache_written = true;
-        }
+        if (!refresh_cache(paths, source.provider, *work, &r)) return finish(r, CE::cache, "cache", now, failures, random);
         UpdateLog("plugins", "index_up_to_date").field("sequence", r.sequence).field("cache", r.cache_written).write();
         return finish(r, CE::none, "", now, failures, random);
     }

@@ -47,6 +47,5 @@ bool https_file_upload_cancel(HttpsFileUpload* upload) noexcept;
 // timeout=0 is a nonblocking reap. False keeps every buffer/handle for a
 // later call; caller storage may be destroyed only after true is returned.
 bool https_file_upload_release(HttpsFileUpload* upload, u32 timeout_ms = 0) noexcept;
-u32 https_file_upload_runtime_bytes() noexcept;
 }
 

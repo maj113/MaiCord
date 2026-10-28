@@ -131,12 +131,12 @@ bool visit_outer(void* opaque, JsonString key, JsonValue value) noexcept {
     return true;
 }
 struct Roles {
-    u64 ids[256]; u32 count; GatewayEventDecodeError error;
+    u64 ids[256]; u32 count;
 };
 bool visit_role(void* opaque, u32 index, JsonValue value) noexcept {
     auto& r = *static_cast<Roles*>(opaque);
-    if (index >= 256 || !json_value_to_snowflake(value, &r.ids[index])) return reject(&r.error);
-    for (u32 i = 0; i < index; ++i) if (r.ids[i] == r.ids[index]) return reject(&r.error);
+    if (index >= 256 || !json_value_to_snowflake(value, &r.ids[index])) return false;
+    for (u32 i = 0; i < index; ++i) if (r.ids[i] == r.ids[index]) return false;
     r.count = index + 1; return true;
 }
 struct Root {
@@ -220,7 +220,8 @@ bool append_record(Array* a, u64 id, JsonValue member_value, bool has_member,
             if (!user.avatar_seen && presence_user.avatar_seen) { user.avatar_hash = presence_user.avatar_hash; user.avatar_seen = true; user.avatar_null = presence_user.avatar_null; }
         }
     }
-    Roles roles{};
+    Roles roles;
+    roles.count = 0;
     if (member.roles_seen && !json_visit_indexed_array(*a->document, member.roles, a->depth, visit_role, &roles).ok()) return reject(&a->error);
     GatewayClientMemberListMutation m{};
     m.user_id = id; m.operation = a->operation; m.role_count = static_cast<u16>(roles.count);
