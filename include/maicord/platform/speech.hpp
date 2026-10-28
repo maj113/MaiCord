@@ -11,7 +11,6 @@ struct Speech {
     ISpVoice* voice;
     bool attempted, com_initialized;
 };
-bool speech_available(Speech*) noexcept;
 bool speech_speak(Speech*, Utf8View text) noexcept;
 void speech_release(Speech*) noexcept;
 } // namespace maicord

@@ -11,7 +11,7 @@ constexpr IID kSpVoiceInterface = {0x6C44DF74, 0x72B9, 0x4992, {0xA1, 0xEC, 0xEF
 constexpr u32 kSpeechMaximumChars = 4096;
 } // namespace
 
-bool speech_available(Speech* speech) noexcept {
+static bool speech_available(Speech* speech) noexcept {
     if (!speech)
         return false;
     if (speech->voice)

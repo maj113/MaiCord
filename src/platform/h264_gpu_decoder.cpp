@@ -128,9 +128,9 @@ HRESULT submit(State* s, const H264ReferencePlan& plan, u8 surface) noexcept {
     h264_dxva_picture_parameters(picture.sps, picture.pps, picture.header.first, picture.header.all_intra,
                                  s->references, plan.decode_order, surface, s->feedback, &p, &q);
     D3D11_VIDEO_DECODER_BUFFER_DESC buffers[4]{};
-    HRESULT status = dxva_upload_buffer(s->context, s->decoder, D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, &p,
-                                        sizeof(p), &buffers[0]);
-    if (SUCCEEDED(status)) status = dxva_upload_buffer(s->context, s->decoder,
+    HRESULT status = gpu_decoder_upload_buffer(s->context, s->decoder, D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS,
+                                               &p, sizeof(p), &buffers[0]);
+    if (SUCCEEDED(status)) status = gpu_decoder_upload_buffer(s->context, s->decoder,
         D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX, &q, sizeof(q), &buffers[1]);
     if (FAILED(status)) return status;
 
@@ -273,20 +273,8 @@ static bool initialize_decoder(H264GpuDecoder* probe, ConstSlice<u8> encoded, ID
         if (SUCCEEDED(status) && (!supported || !gpu_decoder_surfaces_supported(device)))
             status = DXGI_ERROR_UNSUPPORTED;
     }
-    if (SUCCEEDED(status)) {
-        UINT count = 0;
-        status = s->device->GetVideoDecoderConfigCount(&decoder_desc, &count);
-        bool found = false;
-        for (UINT i = 0; SUCCEEDED(status) && i < count; ++i) {
-            D3D11_VIDEO_DECODER_CONFIG candidate{};
-            status = s->device->GetVideoDecoderConfig(&decoder_desc, i, &candidate);
-            if (SUCCEEDED(status) && candidate.ConfigBitstreamRaw == 2 &&
-                bytes_equal(&candidate.guidConfigBitstreamEncryption, &DXVA_NoEncrypt, sizeof(GUID))) {
-                selected = candidate; found = true; break;
-            }
-        }
-        if (SUCCEEDED(status) && !found) status = DXGI_ERROR_UNSUPPORTED;
-    }
+    if (SUCCEEDED(status))
+        status = gpu_decoder_select_config(s->device, decoder_desc, 2, &selected);
     if (SUCCEEDED(status)) status = s->device->CreateVideoDecoder(&decoder_desc, &selected, &s->decoder);
     if (SUCCEEDED(status)) {
         // DPB plus the renderer lease and current decode. References and
@@ -339,18 +327,7 @@ u32 reference_mask(const State& s) noexcept {
     return mask;
 }
 Mp4DecodedFrame output_frame(State* s) noexcept {
-    H264Output picture{};
-    Mp4DecodedFrame frame{};
-    if (!h264_output_pop(&s->output, &picture)) { frame.error = Mp4DecodeError::sample; return frame; }
-    s->frame.subresource = picture.surface;
-    s->frame.luma = s->surfaces.luma[picture.surface];
-    s->frame.chroma = s->surfaces.chroma[picture.surface];
-    frame.gpu = &s->frame; frame.width = s->frame.width; frame.height = s->frame.height;
-    frame.display_width = s->display.width; frame.display_height = s->display.height;
-    frame.duration_us = picture.duration_us;
-    frame.source_duration_us = picture.duration_us;
-    frame.presentation_time_us = picture.presentation_time_us;
-    return frame;
+    return gpu_decoder_output_frame(&s->output, &s->frame, s->surfaces, s->display);
 }
 }
 
@@ -452,12 +429,6 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
     }
 }
 
-H264GpuDiagnostic h264_gpu_decoder_diagnostic(const H264GpuDecoder& decoder) noexcept {
-    const auto* s = static_cast<const State*>(decoder.state);
-    if (!s)
-        return {};
-    return {s->demux.sample_index, s->output.count};
-}
 H264GpuMovie h264_gpu_decoder_movie(const H264GpuDecoder& decoder) noexcept {
     const auto* s = static_cast<const State*>(decoder.state);
     if (!s || !s->demux.ready)

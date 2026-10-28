@@ -28,7 +28,6 @@ DWORD verification_requirement(
         return WEBAUTHN_USER_VERIFICATION_REQUIREMENT_REQUIRED;
     case WebAuthnUserVerification::discouraged:
         return WEBAUTHN_USER_VERIFICATION_REQUIREMENT_DISCOURAGED;
-    case WebAuthnUserVerification::preferred:
     default:
         return WEBAUTHN_USER_VERIFICATION_REQUIREMENT_PREFERRED;
     }

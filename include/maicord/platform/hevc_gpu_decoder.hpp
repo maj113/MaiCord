@@ -12,6 +12,5 @@ Mp4DemuxError hevc_gpu_decoder_seek(H264GpuDecoder*, i64, Mp4SeekPoint*) noexcep
 bool hevc_gpu_decoder_seek_start(H264GpuDecoder*) noexcept;
 H264GpuMovie hevc_gpu_decoder_movie(const H264GpuDecoder&) noexcept;
 ConstSlice<u8> hevc_gpu_decoder_source(const H264GpuDecoder&) noexcept;
-bool hevc_gpu_decoder_busy(const H264GpuDecoder&) noexcept;
 bool hevc_gpu_decoder_wait(H264GpuDecoder*, u32 timeout_ms) noexcept;
 } // namespace maicord

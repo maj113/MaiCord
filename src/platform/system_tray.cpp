@@ -3,7 +3,6 @@
 #include "maicord/platform/taskbar_attention.hpp"
 #include "maicord/core/memory.hpp"
 
-#include "maicord/sys/gdi.hpp"
 #include "maicord/sys/shell.hpp"
 
 namespace maicord {
@@ -200,7 +199,7 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
         // Mention count: the taskbar's badge in the lower-right corner.
         const u32 side = static_cast<u32>(e * .62f + .5f);
         u32 badge_pixels[kTrayIconMaximumExtent * kTrayIconMaximumExtent];
-        if (side < 8 || !taskbar_attention_render_badge(badge, side, {badge_pixels, side * side}))
+        if (!taskbar_attention_render_badge(badge, side, {badge_pixels, side * side}))
             return false;
         const float radius = static_cast<float>(side) * .5f;
         cut(pixels, extent, e - radius, e - radius, radius + e * .06f);
@@ -236,41 +235,11 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
 }
 
 HICON system_tray_create_icon(TrayIconState state, u8 badge, const TrayIconPalette& palette, u32 extent) noexcept {
-    static_assert(sizeof(BITMAPINFOHEADER) == 40);
-    ScratchPages<u8[sizeof(BITMAPINFOHEADER) + kTrayIconMaximumExtent * kTrayIconMaximumExtent * sizeof(u32) +
-                    kTrayIconMaximumExtent * 8]>
-        scratch;
-    if (!scratch.data)
+    static_assert(kTrayIconMaximumExtent == kTaskbarBadgeMaximumExtent);
+    ScratchPages<u32[kTrayIconMaximumExtent * kTrayIconMaximumExtent]> pixels;
+    if (!pixels.data || !tray_icon_render(state, badge, palette, extent, {*pixels.data, extent * extent}))
         return nullptr;
-    u8* resource = *scratch.data;
-    auto* pixels = reinterpret_cast<u32*>(resource + sizeof(BITMAPINFOHEADER));
-    if (!tray_icon_render(state, badge, palette, extent,
-                          {pixels, kTrayIconMaximumExtent * kTrayIconMaximumExtent}))
-        return nullptr;
-    // Reverse only active rows. The center row of an odd extent stays in place.
-    for (u32 y = 0; y < extent / 2; ++y) {
-        u32* top = pixels + y * extent;
-        u32* bottom = pixels + (extent - 1 - y) * extent;
-        for (u32 x = 0; x < extent; ++x) {
-            const u32 pixel = top[x];
-            top[x] = bottom[x];
-            bottom[x] = pixel;
-        }
-    }
-    BITMAPINFOHEADER header{};
-    header.biSize = sizeof(header);
-    header.biWidth = static_cast<LONG>(extent);
-    header.biHeight = static_cast<LONG>(extent * 2); // XOR image plus AND mask
-    header.biPlanes = 1;
-    header.biBitCount = 32;
-    header.biCompression = BI_RGB;
-    copy_bytes(resource, &header, sizeof(header));
-    const u32 pixel_bytes = extent * extent * static_cast<u32>(sizeof(u32));
-    const u32 mask_bytes = extent * ((extent + 31) / 32 * 4);
-    clear_bytes(resource + sizeof(header) + pixel_bytes, mask_bytes);
-    const u32 total = static_cast<u32>(sizeof(header)) + pixel_bytes + mask_bytes;
-    return CreateIconFromResourceEx(resource, total, TRUE, 0x00030000, static_cast<int>(extent),
-                                    static_cast<int>(extent), LR_DEFAULTCOLOR);
+    return taskbar_attention_create_icon({*pixels.data, extent * extent}, extent);
 }
 
 bool system_tray_initialize(SystemTray* tray, HWND window, u32 callback_message) noexcept {

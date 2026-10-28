@@ -118,10 +118,6 @@ void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept {
     if (!arena || !arena->base || bytes == 0 || !is_power_of_two(alignment)) {
         return nullptr;
     }
-
-    if (arena->offset > arena->reserved) {
-        return nullptr;
-    }
     const usize address = reinterpret_cast<usize>(arena->base) + arena->offset;
     const usize padding = (usize{0} - address) & (alignment - 1);
     const usize remaining = arena->reserved - arena->offset;

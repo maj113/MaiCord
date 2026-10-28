@@ -3,6 +3,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/wasapi.hpp"
+#include "audio_endpoint_watch.hpp"
 
 namespace maicord {namespace {
 using Error=MediaAudioError;
@@ -68,33 +69,14 @@ bool media_audio_clock_frames(u64 position,u64 frequency,u32 rate,u64* frames) n
     if(base>~u64{0}-fraction)return false;*frames=base+fraction;return true;
 }
 namespace {
-struct EndpointNotify final:IMMNotificationClient {
-    static void* operator new(usize,void* p) noexcept{return p;}
-    volatile LONG references{1},active{1},dirty{};HANDLE event{};wchar_t* id{};usize id_chars{};
-    bool matches(LPCWSTR value)const noexcept {if(!value||!id)return false;for(usize i=0;i<id_chars;++i)if(!value[i]||value[i]!=id[i])return false;return !value[id_chars];}
-    void signal(LONG flags) noexcept {if(InterlockedCompareExchange(&active,0,0)){InterlockedOr(&dirty,flags);SetEvent(event);}}
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** p) override {
-        if(!p)return E_POINTER;*p=nullptr;if(iid!=__uuidof(IUnknown)&&iid!=__uuidof(IMMNotificationClient))return E_NOINTERFACE;
-        *p=static_cast<IMMNotificationClient*>(this);AddRef();return S_OK;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() override{return static_cast<ULONG>(InterlockedIncrement(&references));}
-    ULONG STDMETHODCALLTYPE Release() override {const LONG n=InterlockedDecrement(&references);if(!n){if(event)CloseHandle(event);CoTaskMemFree(id);this->~EndpointNotify();CoTaskMemFree(this);}return static_cast<ULONG>(n);}
-    HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow flow,ERole role,LPCWSTR) override{if(flow==eRender&&role==eConsole)signal(1);return S_OK;}
-    HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR value,DWORD) override{if(matches(value))signal(2);return S_OK;}
-    HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR value) override{if(matches(value))signal(2);return S_OK;}
-    HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR) override{return S_OK;}
-    HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR value,const PROPERTYKEY key) override{
-        constexpr GUID format{0xf19f064d,0x082c,0x4e27,{0xbc,0x73,0x68,0x82,0xa1,0xbb,0x8e,0x4c}};
-        if(!key.pid&&bytes_equal(&key.fmtid,&format,sizeof(format))&&matches(value))signal(2);return S_OK;}
-};
 struct Runtime {
     SRWLOCK lock{};MediaAudioConfig config{};MediaAudioRing ring{};MediaAudioStatus status{},last_notified{};
     HANDLE thread{},command{},stop{},render{};u64 observed{},command_serial{};i64 origin{};float volume{};
     bool desired_play{},stopping{},failed{},wake_pending{},refill_pending{};u32 callback_handles{};
 };
-static_assert(sizeof(Runtime)+sizeof(EndpointNotify)<=4096);
+static_assert(sizeof(Runtime)+sizeof(PinnedEndpointNotify)<=4096);
 struct Engine {
-    IMMDeviceEnumerator* enumerator{};EndpointNotify* callback{};IAudioClient* client{};IAudioRenderClient* render{};
+    IMMDeviceEnumerator* enumerator{};PinnedEndpointNotify* callback{};IAudioClient* client{};IAudioRenderClient* render{};
     IAudioClock* clock{};ISimpleAudioVolume* volume{};GUID session{};
     u64 frequency{},anchor_position{},anchor_frames{};u32 frames{};float applied_volume{-1};bool started{},session_ready{},anchor_valid{};
 };
@@ -131,8 +113,8 @@ void failure(Runtime& r,Engine& e,u64 epoch,u64 serial,Error error,HRESULT nativ
 }
 HRESULT callback(Runtime& r,Engine& e,LPWSTR* id) noexcept {
     if(!*id||!**id)return E_UNEXPECTED;if(e.callback&&e.callback->matches(*id))return S_OK;
-    close_callback(r,e);void* memory=CoTaskMemAlloc(sizeof(EndpointNotify));if(!memory)return E_OUTOFMEMORY;
-    e.callback=new(memory)EndpointNotify;e.callback->id=*id;*id=nullptr;while(e.callback->id[e.callback->id_chars])++e.callback->id_chars;
+    close_callback(r,e);void* memory=CoTaskMemAlloc(sizeof(PinnedEndpointNotify));if(!memory)return E_OUTOFMEMORY;
+    e.callback=new(memory)PinnedEndpointNotify;e.callback->id=*id;*id=nullptr;while(e.callback->id[e.callback->id_chars])++e.callback->id_chars;
     if(!DuplicateHandle(GetCurrentProcess(),r.command,GetCurrentProcess(),&e.callback->event,0,FALSE,DUPLICATE_SAME_ACCESS))return HRESULT_FROM_WIN32(GetLastError());
     AcquireSRWLockExclusive(&r.lock);++r.callback_handles;ReleaseSRWLockExclusive(&r.lock);
     const HRESULT h=e.enumerator->RegisterEndpointNotificationCallback(e.callback);

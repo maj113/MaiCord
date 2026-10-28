@@ -12,7 +12,7 @@ namespace maicord {
 struct NameList {
     const char* at;
     u32 bytes;
-    constexpr explicit NameList(const char* names) noexcept : at(names), bytes(length(names)) {}
+    constexpr explicit NameList(const char* names) noexcept : at(names), bytes(c_string_length(names)) {}
     constexpr explicit operator bool() const noexcept {
         return bytes != 0;
     }
@@ -21,15 +21,7 @@ struct NameList {
     }
     constexpr void next() noexcept {
         at += bytes + 1;
-        bytes = length(at);
-    }
-
-private:
-    static constexpr u32 length(const char* text) noexcept {
-        u32 count{};
-        while (text[count])
-            ++count;
-        return count;
+        bytes = c_string_length(at);
     }
 };
 

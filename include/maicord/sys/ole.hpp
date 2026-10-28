@@ -114,13 +114,7 @@ enum VARENUM {
     VT_BSTR = 8,
     VT_BOOL = 11,
     VT_UNKNOWN = 13,
-    VT_UI1 = 17,
-    VT_UI4 = 19,
-    VT_I8 = 20,
-    VT_UI8 = 21,
     VT_LPWSTR = 31,
-    VT_CLSID = 72,
-    VT_VECTOR = 0x1000,
 };
 struct _tagpropertykey {
     GUID fmtid;
@@ -169,15 +163,11 @@ struct __declspec(uuid("0000000c-0000-0000-C000-000000000046")) __declspec(novta
     virtual HRESULT __stdcall Clone(IStream** ppstm) = 0;
 };
 enum _APTTYPEQUALIFIER {
-    APTTYPEQUALIFIER_NONE = 0,
 };
 typedef _APTTYPEQUALIFIER APTTYPEQUALIFIER;
 enum _APTTYPE {
     APTTYPE_CURRENT = - 1,
-    APTTYPE_STA = 0,
     APTTYPE_MTA = 1,
-    APTTYPE_NA = 2,
-    APTTYPE_MAINSTA = 3
 };
 typedef _APTTYPE APTTYPE;
 struct __declspec(uuid("0000000e-0000-0000-C000-000000000046")) __declspec(novtable) IBindCtx : IUnknown {

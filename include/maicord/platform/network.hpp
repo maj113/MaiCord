@@ -24,7 +24,6 @@ enum class NetworkError : u8 {
     resolve_start,
     resolve_cancel,
     signal_post,
-    poll,
     file_open,
     file_read,
     file_write,

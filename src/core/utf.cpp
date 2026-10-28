@@ -241,6 +241,36 @@ bool word_range(Utf8View text, u32 position, bool selection, u32* first, u32* la
     if (selected == WordClass::emoji) emoji_cluster(t, position, first, last);
     return true;
 }
+
+// Walks scalars until `utf16_position` UTF-16 units are covered; fails when the position splits a
+// surrogate pair or runs past the text, and writes the outputs only on success.
+bool walk_to_utf16_position(const Utf8View& text, u32 utf16_position, u32* byte_offset, u32* codepoints) noexcept {
+    if (!text.data && text.bytes != 0) {
+        return false;
+    }
+    u32 offset = 0;
+    u32 count = 0;
+    u32 utf16_units = 0;
+    while (offset < text.bytes && utf16_units < utf16_position) {
+        const Utf8DecodeResult decoded = utf8_decode_one(text.data + offset, text.bytes - offset);
+        if (!decoded.valid) {
+            return false;
+        }
+        const u32 width = decoded.codepoint > 0xFFFFu ? 2u : 1u;
+        if (utf16_units + width > utf16_position) {
+            return false;
+        }
+        utf16_units += width;
+        offset += decoded.width;
+        ++count;
+    }
+    if (utf16_units != utf16_position) {
+        return false;
+    }
+    *byte_offset = offset;
+    *codepoints = count;
+    return true;
+}
 } // namespace
 
 bool utf8_word_range(const Utf8View& text, u32 position, u32* first, u32* last) noexcept {
@@ -347,29 +377,8 @@ bool utf8_utf16_position_for_byte_offset(const Utf8View& text, u32 byte_offset,
 
 bool utf8_byte_offset_for_utf16_position(const Utf8View& text, u32 utf16_position,
                                          u32* byte_offset) noexcept {
-    if (!byte_offset || (!text.data && text.bytes != 0)) {
-        return false;
-    }
-    u32 offset = 0;
-    u32 utf16_units = 0;
-    while (offset < text.bytes && utf16_units < utf16_position) {
-        const Utf8DecodeResult decoded =
-            utf8_decode_one(text.data + offset, text.bytes - offset);
-        if (!decoded.valid) {
-            return false;
-        }
-        const u32 width = decoded.codepoint > 0xFFFFu ? 2u : 1u;
-        if (utf16_units + width > utf16_position) {
-            return false;
-        }
-        utf16_units += width;
-        offset += decoded.width;
-    }
-    if (utf16_units != utf16_position) {
-        return false;
-    }
-    *byte_offset = offset;
-    return true;
+    u32 codepoints = 0;
+    return byte_offset && walk_to_utf16_position(text, utf16_position, byte_offset, &codepoints);
 }
 
 bool utf8_utf16_position_for_codepoint(const Utf8View& text, u32 codepoint_index,
@@ -399,31 +408,8 @@ bool utf8_utf16_position_for_codepoint(const Utf8View& text, u32 codepoint_index
 
 bool utf8_codepoint_for_utf16_position(const Utf8View& text, u32 utf16_position,
                                        u32* codepoint_index) noexcept {
-    if (!codepoint_index || (!text.data && text.bytes != 0)) {
-        return false;
-    }
     u32 offset = 0;
-    u32 codepoints = 0;
-    u32 utf16_units = 0;
-    while (offset < text.bytes && utf16_units < utf16_position) {
-        const Utf8DecodeResult decoded =
-            utf8_decode_one(text.data + offset, text.bytes - offset);
-        if (!decoded.valid) {
-            return false;
-        }
-        const u32 width = decoded.codepoint > 0xFFFFu ? 2u : 1u;
-        if (utf16_units + width > utf16_position) {
-            return false;
-        }
-        utf16_units += width;
-        offset += decoded.width;
-        ++codepoints;
-    }
-    if (utf16_units != utf16_position) {
-        return false;
-    }
-    *codepoint_index = codepoints;
-    return true;
+    return codepoint_index && walk_to_utf16_position(text, utf16_position, &offset, codepoint_index);
 }
 
 u32 utf8_utf16_units(const Utf8View& text) noexcept {

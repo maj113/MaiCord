@@ -207,8 +207,6 @@ void commit_line(char* line, u32* length, LogLevel level, u64 second) noexcept {
 
 bool log_open() noexcept {
     g_log.file = INVALID_HANDLE_VALUE;
-    g_log.file_bytes = 0;
-    g_log.buffered = 0;
 
     wchar_t path[kPathCapacity]{};
     const DataPathResult built = data_path(path, kPathCapacity, L"logs\\maicord.log", true);

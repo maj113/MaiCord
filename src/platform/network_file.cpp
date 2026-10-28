@@ -3,6 +3,17 @@
 #include "network_native.hpp"
 
 namespace maicord {
+namespace {
+void start_operation(NetworkFile* file, NetworkOperationKind kind, u64 offset) noexcept {
+    reset_value(&file->operation);
+    file->operation.owner = file;
+    file->operation.kind = kind;
+    file->operation.generation = file->generation;
+    file->operation.overlapped.Offset = static_cast<DWORD>(offset);
+    file->operation.overlapped.OffsetHigh = static_cast<DWORD>(offset >> 32);
+    file->pending = true;
+}
+} // namespace
 NetworkResult network_file_open(NetworkLoop* loop, NetworkFile* file, const wchar_t* path) noexcept {
     if (!loop || !loop->completion_port || !file || file->handle || file->pending || !path || !path[0])
         return {ERROR_INVALID_PARAMETER, NetworkError::invalid_argument};
@@ -30,13 +41,7 @@ NetworkResult network_file_read(NetworkFile* file, u64 offset, Slice<u8> buffer)
     if (!file || !file->handle || file->pending || !buffer.data || !buffer.count ||
         offset >= file->bytes || buffer.count > file->bytes - offset)
         return {ERROR_INVALID_PARAMETER, NetworkError::invalid_argument};
-    reset_value(&file->operation);
-    file->operation.owner = file;
-    file->operation.kind = NetworkOperationKind::file_read;
-    file->operation.generation = file->generation;
-    file->operation.overlapped.Offset = static_cast<DWORD>(offset);
-    file->operation.overlapped.OffsetHigh = static_cast<DWORD>(offset >> 32);
-    file->pending = true;
+    start_operation(file, NetworkOperationKind::file_read, offset);
     if (!ReadFile(file->handle, buffer.data, buffer.count, nullptr, native(&file->operation.overlapped))) {
         const i32 error = static_cast<i32>(thread_last_error());
         if (error != ERROR_IO_PENDING) {
@@ -71,11 +76,7 @@ NetworkResult network_file_write(NetworkFile* file, u64 offset, ConstSlice<u8> b
     if (!file || !file->handle || file->pending || !buffer.data || !buffer.count ||
         offset > 0x7fffffffffffffffull || buffer.count > 0x7fffffffffffffffull - offset)
         return {ERROR_INVALID_PARAMETER, NetworkError::invalid_argument};
-    reset_value(&file->operation); file->operation.owner = file;
-    file->operation.kind = NetworkOperationKind::file_write; file->operation.generation = file->generation;
-    file->operation.overlapped.Offset = static_cast<DWORD>(offset);
-    file->operation.overlapped.OffsetHigh = static_cast<DWORD>(offset >> 32);
-    file->pending = true;
+    start_operation(file, NetworkOperationKind::file_write, offset);
     if (!WriteFile(file->handle, buffer.data, buffer.count, nullptr, native(&file->operation.overlapped))) {
         const auto error = static_cast<i32>(thread_last_error());
         if (error != ERROR_IO_PENDING) { file->pending = false; return {error, NetworkError::file_write}; }

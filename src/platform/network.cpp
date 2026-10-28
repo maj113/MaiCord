@@ -322,9 +322,13 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
     }
 
     auto* operation = reinterpret_cast<NetworkOperation*>(overlapped);
+    const auto owned = [&](const auto* owner) noexcept {
+        return owner && operation->generation == owner->generation &&
+               completion_key == reinterpret_cast<ULONG_PTR>(owner);
+    };
+    result.state = NetworkPollState::completion;
     if (operation->kind == NetworkOperationKind::signal) {
         auto* signal = static_cast<NetworkSignal*>(operation->owner);
-        result.state = NetworkPollState::completion;
         result.completion.signal = signal;
         result.completion.signal_value = signal ? signal->value : 0;
         result.completion.kind = NetworkOperationKind::signal;
@@ -337,13 +341,11 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
     }
     if (operation->kind == NetworkOperationKind::resolve) {
         auto* resolver = static_cast<NetworkResolver*>(operation->owner);
-        result.state = NetworkPollState::completion;
         result.completion.resolver = resolver;
         result.completion.native_error = resolver ? resolver->native_error : WSAEINVAL;
         result.completion.kind = NetworkOperationKind::resolve;
         result.completion.succeeded = resolver && resolver->native_error == 0;
-        result.completion.stale = !resolver || operation->generation != resolver->generation ||
-                                  completion_key != reinterpret_cast<ULONG_PTR>(resolver);
+        result.completion.stale = !owned(resolver);
         if (result.completion.stale) {
             return result;
         }
@@ -359,34 +361,26 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         return result;
     }
 
+    result.completion.transferred = transferred;
+    result.completion.native_error = succeeded ? 0 : static_cast<i32>(thread_last_error());
+    result.completion.kind = operation->kind;
+    result.completion.succeeded = succeeded != FALSE;
     if (operation->kind == NetworkOperationKind::file_read || operation->kind == NetworkOperationKind::file_write) {
         auto* file = static_cast<NetworkFile*>(operation->owner);
-        result.state = NetworkPollState::completion;
         result.completion.file = file;
-        result.completion.transferred = transferred;
-        result.completion.native_error = succeeded ? 0 : static_cast<i32>(thread_last_error());
-        result.completion.kind = operation->kind;
-        result.completion.succeeded = succeeded != FALSE;
-        result.completion.stale = !file || operation->generation != file->generation ||
-            completion_key != reinterpret_cast<ULONG_PTR>(file);
+        result.completion.stale = !owned(file);
         if (!result.completion.stale) file->pending = false;
         return result;
     }
 
     if (operation->kind == NetworkOperationKind::datagram_receive || operation->kind == NetworkOperationKind::datagram_send) {
         auto* datagram = static_cast<NetworkDatagram*>(operation->owner);
-        result.state = NetworkPollState::completion;
         result.completion.datagram = datagram;
-        result.completion.transferred = transferred;
-        result.completion.native_error = succeeded ? 0 : static_cast<i32>(thread_last_error());
-        result.completion.kind = operation->kind;
-        result.completion.succeeded = succeeded != FALSE;
-        const bool owned = datagram && operation->generation == datagram->generation &&
-            completion_key == reinterpret_cast<ULONG_PTR>(datagram);
-        result.completion.stale = !owned || !datagram->open;
+        const bool is_owned = owned(datagram);
+        result.completion.stale = !is_owned || !datagram->open;
         // Even a cancelled/closed owner's packet retires the corresponding I/O.
         // A zero-length receive is a valid datagram, never a peer-close signal.
-        if (owned) {
+        if (is_owned) {
             if (operation->kind == NetworkOperationKind::datagram_send) {
                 datagram->send_pending = false;
             } else if (operation == &datagram->receive_operation) {
@@ -400,14 +394,8 @@ NetworkPollResult network_loop_poll(NetworkLoop* loop, u32 timeout_milliseconds)
         return result;
     }
     auto* connection = static_cast<NetworkConnection*>(operation->owner);
-    result.state = NetworkPollState::completion;
     result.completion.connection = connection;
-    result.completion.transferred = transferred;
-    result.completion.native_error = succeeded ? 0 : static_cast<i32>(thread_last_error());
-    result.completion.kind = operation->kind;
-    result.completion.succeeded = succeeded != FALSE;
-    result.completion.stale = !connection || operation->generation != connection->generation ||
-                              completion_key != reinterpret_cast<ULONG_PTR>(connection);
+    result.completion.stale = !owned(connection);
     if (result.completion.stale) {
         return result;
     }

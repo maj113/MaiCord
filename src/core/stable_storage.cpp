@@ -8,27 +8,18 @@ bool valid_alignment(u32 value) noexcept {
     return value != 0 && (value & (value - 1u)) == 0;
 }
 
-inline bool storage_bytes(u32 count, u32 element_bytes, usize* bytes) noexcept {
-    // Both factors are u32; their full product always fits the x64 usize.
-    if (element_bytes == 0) {
-        return false;
-    }
-    *bytes = static_cast<usize>(count) * element_bytes;
-    return true;
-}
-
 } // namespace
 
 bool stable_storage_initialize(StableStorage* storage, u32 reserved_capacity,
                                u32 initial_capacity, u32 element_bytes,
                                u32 alignment, bool zero_new) noexcept {
-    usize reserve_bytes = 0;
     if (!storage || storage->arena.base || reserved_capacity == 0 ||
-        initial_capacity > reserved_capacity || !valid_alignment(alignment) ||
-        (element_bytes & (alignment - 1u)) != 0 ||
-        !storage_bytes(reserved_capacity, element_bytes, &reserve_bytes)) {
+        initial_capacity > reserved_capacity || !valid_alignment(alignment) || element_bytes == 0 ||
+        (element_bytes & (alignment - 1u)) != 0) {
         return false;
     }
+    // Both factors are u32; their full product always fits the x64 usize.
+    const usize reserve_bytes = static_cast<usize>(reserved_capacity) * element_bytes;
     reset_value<StableStorage>(storage);
     if (!arena_initialize(&storage->arena, reserve_bytes, 0, 4 * 1024)) {
         return false;
@@ -54,11 +45,7 @@ bool stable_storage_reserve(StableStorage* storage,
     if (required_capacity <= storage->capacity) {
         return true;
     }
-    usize bytes = 0;
-    if (!storage_bytes(required_capacity - storage->capacity,
-                       storage->element_bytes, &bytes)) {
-        return false;
-    }
+    const usize bytes = static_cast<usize>(required_capacity - storage->capacity) * storage->element_bytes;
     const ArenaMark mark = arena_mark(&storage->arena);
     void* allocation = storage->zero_new
                            ? arena_allocate_zero(&storage->arena, bytes,

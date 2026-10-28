@@ -59,14 +59,12 @@ HRESULT output_type(AacDecoder& owner, State& s) noexcept {
         }
         GUID major{}, subtype{};
         UINT32 rate{}, channels{}, bits{};
-        const bool audio = SUCCEEDED(type->GetGUID(MF_MT_MAJOR_TYPE, &major)) &&
-                           bytes_equal(&major, &MFMediaType_Audio, sizeof(GUID));
+        const bool audio = SUCCEEDED(type->GetGUID(MF_MT_MAJOR_TYPE, &major)) && major == MFMediaType_Audio;
         const bool typed = audio && SUCCEEDED(type->GetGUID(MF_MT_SUBTYPE, &subtype)) &&
                            SUCCEEDED(type->GetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, &bits));
-        const u32 format =
-            typed && bytes_equal(&subtype, &MFAudioFormat_PCM, sizeof(GUID)) && bits == 16     ? 1u
-            : typed && bytes_equal(&subtype, &MFAudioFormat_Float, sizeof(GUID)) && bits == 32 ? 2u
-                                                                                               : 0u;
+        const u32 format = typed && subtype == MFAudioFormat_PCM && bits == 16     ? 1u
+                           : typed && subtype == MFAudioFormat_Float && bits == 32 ? 2u
+                                                                                   : 0u;
         const bool exact = format && SUCCEEDED(type->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, &rate)) &&
                            rate == owner.sample_rate &&
                            SUCCEEDED(type->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &channels)) &&
@@ -102,8 +100,7 @@ HRESULT output_type(AacDecoder& owner, State& s) noexcept {
 }
 HRESULT open(AacDecoder& owner) noexcept {
     AacConfiguration configuration{};
-    if (!aac_configuration_decode({owner.asc, owner.asc_bytes}, &configuration) ||
-        configuration.sample_rate != owner.sample_rate || configuration.channels != owner.channels)
+    if (!aac_configuration_decode({owner.asc, owner.asc_bytes}, &configuration))
         return MF_E_INVALIDMEDIATYPE;
     APTTYPE apartment{};
     APTTYPEQUALIFIER qualifier{};

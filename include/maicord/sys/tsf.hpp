@@ -112,7 +112,6 @@ enum __MIDL___MIDL_itf_textstor_0000_0000_0002 {
 typedef __MIDL___MIDL_itf_textstor_0000_0000_0002 TsLayoutCode;
 enum __MIDL___MIDL_itf_textstor_0000_0000_0003 {
     TS_RT_PLAIN = 0,
-    TS_RT_HIDDEN = (TS_RT_PLAIN + 1),
 };
 typedef __MIDL___MIDL_itf_textstor_0000_0000_0003 TsRunType;
 struct TS_RUNINFO {
@@ -173,7 +172,6 @@ struct __declspec(uuid("22d44c94-a419-4542-a272-ae26093ececf")) __declspec(novta
 };
 // <msctf.h>
 enum __MIDL___MIDL_itf_msctf_0000_0000_0001 {
-    TF_ANCHOR_START = 0,
 };
 typedef __MIDL___MIDL_itf_msctf_0000_0000_0001 TfAnchor;
 struct __declspec(uuid("aa80e801-2021-11d2-93e0-0060b067b86e")) __declspec(novtable) ITfThreadMgr : IUnknown {
@@ -208,7 +206,6 @@ struct __declspec(uuid("2433bf8e-0f9b-435c-ba2c-180611978c30")) __declspec(novta
     virtual HRESULT __stdcall GetWnd(HWND* phwnd) = 0;
 };
 enum __MIDL_ITfContext_0001 {
-    TF_AE_NONE = 0,
 };
 typedef __MIDL_ITfContext_0001 TfActiveSelEnd;
 struct TF_SELECTIONSTYLE {
@@ -249,11 +246,9 @@ struct __declspec(uuid("aa80e803-2021-11d2-93e0-0060b067b86e")) __declspec(novta
     virtual HRESULT __stdcall DoEditSession(TfEditCookie ec) = 0;
 };
 enum __MIDL_ITfRange_0001 {
-    TF_GRAVITY_BACKWARD = 0,
 };
 typedef __MIDL_ITfRange_0001 TfGravity;
 enum __MIDL_ITfRange_0002 {
-    TF_SD_BACKWARD = 0,
 };
 typedef __MIDL_ITfRange_0002 TfShiftDir;
 struct TF_HALTCOND {
@@ -382,74 +377,9 @@ struct __declspec(uuid("4ea48a35-60ae-446f-8fd6-e6a8d82459f7")) __declspec(novta
 // <inputscope.h>
 enum __MIDL___MIDL_itf_inputscope_0000_0000_0001 {
     IS_DEFAULT = 0,
-    IS_URL = 1,
-    IS_FILE_FULLFILEPATH = 2,
-    IS_FILE_FILENAME = 3,
-    IS_EMAIL_USERNAME = 4,
-    IS_EMAIL_SMTPEMAILADDRESS = 5,
     IS_LOGINNAME = 6,
-    IS_PERSONALNAME_FULLNAME = 7,
-    IS_PERSONALNAME_PREFIX = 8,
-    IS_PERSONALNAME_GIVENNAME = 9,
-    IS_PERSONALNAME_MIDDLENAME = 10,
-    IS_PERSONALNAME_SURNAME = 11,
-    IS_PERSONALNAME_SUFFIX = 12,
-    IS_ADDRESS_FULLPOSTALADDRESS = 13,
-    IS_ADDRESS_POSTALCODE = 14,
-    IS_ADDRESS_STREET = 15,
-    IS_ADDRESS_STATEORPROVINCE = 16,
-    IS_ADDRESS_CITY = 17,
-    IS_ADDRESS_COUNTRYNAME = 18,
-    IS_ADDRESS_COUNTRYSHORTNAME = 19,
-    IS_CURRENCY_AMOUNTANDSYMBOL = 20,
-    IS_CURRENCY_AMOUNT = 21,
-    IS_DATE_FULLDATE = 22,
-    IS_DATE_MONTH = 23,
-    IS_DATE_DAY = 24,
-    IS_DATE_YEAR = 25,
-    IS_DATE_MONTHNAME = 26,
-    IS_DATE_DAYNAME = 27,
     IS_DIGITS = 28,
-    IS_NUMBER = 29,
-    IS_ONECHAR = 30,
     IS_PASSWORD = 31,
-    IS_TELEPHONE_FULLTELEPHONENUMBER = 32,
-    IS_TELEPHONE_COUNTRYCODE = 33,
-    IS_TELEPHONE_AREACODE = 34,
-    IS_TELEPHONE_LOCALNUMBER = 35,
-    IS_TIME_FULLTIME = 36,
-    IS_TIME_HOUR = 37,
-    IS_TIME_MINORSEC = 38,
-    IS_NUMBER_FULLWIDTH = 39,
-    IS_ALPHANUMERIC_HALFWIDTH = 40,
-    IS_ALPHANUMERIC_FULLWIDTH = 41,
-    IS_CURRENCY_CHINESE = 42,
-    IS_BOPOMOFO = 43,
-    IS_HIRAGANA = 44,
-    IS_KATAKANA_HALFWIDTH = 45,
-    IS_KATAKANA_FULLWIDTH = 46,
-    IS_HANJA = 47,
-    IS_HANGUL_HALFWIDTH = 48,
-    IS_HANGUL_FULLWIDTH = 49,
-    IS_SEARCH = 50,
-    IS_FORMULA = 51,
-    IS_SEARCH_INCREMENTAL = 52,
-    IS_CHINESE_HALFWIDTH = 53,
-    IS_CHINESE_FULLWIDTH = 54,
-    IS_NATIVE_SCRIPT = 55,
-    IS_YOMI = 56,
-    IS_TEXT = 57,
-    IS_CHAT = 58,
-    IS_NAME_OR_PHONENUMBER = 59,
-    IS_EMAILNAME_OR_ADDRESS = 60,
-    IS_PRIVATE = 61,
-    IS_MAPS = 62,
-    IS_NUMERIC_PASSWORD = 63,
-    IS_NUMERIC_PIN = 64,
-    IS_ALPHANUMERIC_PIN = 65,
-    IS_ALPHANUMERIC_PIN_SET = 66,
-    IS_FORMULA_NUMBER = 67,
-    IS_CHAT_WITHOUT_EMOJI = 68,
     IS_PHRASELIST = - 1,
     IS_REGULAREXPRESSION = - 2,
     IS_SRGS = - 3,

@@ -12,9 +12,6 @@ struct Blob {
 template <typename T> ConstSlice<u8> bytes(const T& value) noexcept {
     return {reinterpret_cast<const u8*>(&value), sizeof(value)};
 }
-bool kind_valid(P256Kind kind) noexcept {
-    return kind == P256Kind::ecdh || kind == P256Kind::ecdsa;
-}
 BCRYPT_ALG_HANDLE algorithm(P256Kind kind) noexcept {
     return kind == P256Kind::ecdh ? BCRYPT_ECDH_P256_ALG_HANDLE : BCRYPT_ECDSA_P256_ALG_HANDLE;
 }
@@ -57,7 +54,7 @@ P256Result destination(const P256Key& key, Slice<u8> output, u32 needed) noexcep
 }
 P256Result import(P256Key* key, P256Kind kind, ConstSlice<u8> point, ConstSlice<u8> scalar,
                   bool private_key) noexcept {
-    if (!key || key->handle || !kind_valid(kind) || !byte_range_valid(point) || !byte_range_valid(scalar) ||
+    if (!key || key->handle || !byte_range_valid(point) || !byte_range_valid(scalar) ||
         byte_ranges_overlap(point, bytes(*key)) || byte_ranges_overlap(scalar, bytes(*key)))
         return {0, 0, P256Error::invalid_input};
     if ((!private_key || point.count) && !public_valid(point))
@@ -121,7 +118,7 @@ void p256_release(P256Key* key) noexcept {
     reset_value(key);
 }
 P256Result p256_generate(P256Key* key, P256Kind kind) noexcept {
-    if (!key || key->handle || !kind_valid(kind))
+    if (!key || key->handle)
         return {0, 0, P256Error::invalid_input};
     void* generated = nullptr;
     auto status = BCryptGenerateKeyPair(algorithm(kind), &generated, 256, 0);

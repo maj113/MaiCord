@@ -284,57 +284,34 @@ bool skip_container_trusted(IndexedReader* reader, u32 depth) noexcept {
     return fail(reader, JsonReadError::structural_index_mismatch, reader->offset);
 }
 
-bool skip_object(IndexedReader* reader, u32 depth) noexcept {
+bool skip_composite(IndexedReader* reader, u32 depth, char open) noexcept {
+    const char close = open == '{' ? '}' : ']';
     if (depth > reader->maximum_depth) {
         return fail(reader, JsonReadError::depth_limit, reader->offset);
     }
-    if (!consume_structural(reader, '{', JsonReadError::expected_value)) {
+    if (!consume_structural(reader, open, JsonReadError::expected_value)) {
         return false;
     }
     skip_whitespace(reader);
-    if (reader->offset < reader->input.bytes && reader->input.data[reader->offset] == '}') {
-        return consume_structural(reader, '}', JsonReadError::expected_comma_or_end);
+    if (reader->offset < reader->input.bytes && reader->input.data[reader->offset] == close) {
+        return consume_structural(reader, close, JsonReadError::expected_comma_or_end);
     }
     for (;;) {
-        if (!parse_string(reader, nullptr, JsonReadError::expected_member_name)) {
-            return false;
-        }
-        skip_whitespace(reader);
-        if (!consume_structural(reader, ':', JsonReadError::expected_colon)) {
-            return false;
+        if (open == '{') {
+            if (!parse_string(reader, nullptr, JsonReadError::expected_member_name)) {
+                return false;
+            }
+            skip_whitespace(reader);
+            if (!consume_structural(reader, ':', JsonReadError::expected_colon)) {
+                return false;
+            }
         }
         if (!skip_value(reader, depth + 1, nullptr)) {
             return false;
         }
         skip_whitespace(reader);
-        if (reader->offset < reader->input.bytes && reader->input.data[reader->offset] == '}') {
-            return consume_structural(reader, '}', JsonReadError::expected_comma_or_end);
-        }
-        if (!consume_structural(reader, ',', JsonReadError::expected_comma_or_end)) {
-            return false;
-        }
-        skip_whitespace(reader);
-    }
-}
-
-bool skip_array(IndexedReader* reader, u32 depth) noexcept {
-    if (depth > reader->maximum_depth) {
-        return fail(reader, JsonReadError::depth_limit, reader->offset);
-    }
-    if (!consume_structural(reader, '[', JsonReadError::expected_value)) {
-        return false;
-    }
-    skip_whitespace(reader);
-    if (reader->offset < reader->input.bytes && reader->input.data[reader->offset] == ']') {
-        return consume_structural(reader, ']', JsonReadError::expected_comma_or_end);
-    }
-    for (;;) {
-        if (!skip_value(reader, depth + 1, nullptr)) {
-            return false;
-        }
-        skip_whitespace(reader);
-        if (reader->offset < reader->input.bytes && reader->input.data[reader->offset] == ']') {
-            return consume_structural(reader, ']', JsonReadError::expected_comma_or_end);
+        if (reader->offset < reader->input.bytes && reader->input.data[reader->offset] == close) {
+            return consume_structural(reader, close, JsonReadError::expected_comma_or_end);
         }
         if (!consume_structural(reader, ',', JsonReadError::expected_comma_or_end)) {
             return false;
@@ -366,14 +343,9 @@ bool skip_value(IndexedReader* reader, u32 depth, JsonValue* output) noexcept {
                    : first == 'n'               ? JsonValueKind::null_value
                                                 : JsonValueKind::number;
         }
-    } else if (first == '{') {
-        kind = JsonValueKind::object;
-        if (!skip_object(reader, depth)) {
-            return false;
-        }
-    } else if (first == '[') {
-        kind = JsonValueKind::array;
-        if (!skip_array(reader, depth)) {
+    } else if (first == '{' || first == '[') {
+        kind = first == '{' ? JsonValueKind::object : JsonValueKind::array;
+        if (!skip_composite(reader, depth, first)) {
             return false;
         }
     } else if (first == '"') {
@@ -491,9 +463,11 @@ bool decode_string_scalar(const JsonString& value, u32* offset, u32* codepoint) 
 
 } // namespace
 
-static JsonReadResult visit_object_range(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
-                                         JsonMemberVisitor visitor, void* context, u32 begin,
-                                         bool trusted) noexcept {
+template <bool Object, typename Visitor>
+static JsonReadResult visit_range(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth, Visitor visitor,
+                                  void* context, u32 begin, bool trusted) noexcept {
+    constexpr char open = Object ? '{' : '[';
+    constexpr char close = Object ? '}' : ']';
     if ((!input.data && input.bytes != 0) || (!structurals.data && structurals.count != 0)) {
         return JsonReadResult{0, 0, JsonReadError::invalid_input};
     }
@@ -504,33 +478,44 @@ static JsonReadResult visit_object_range(Utf8View input, ConstSlice<u32> structu
     if (maximum_depth == 0) {
         return JsonReadResult{0, reader.offset, JsonReadError::depth_limit};
     }
-    if (!consume_structural(&reader, '{', JsonReadError::expected_root_object)) {
+    if (!consume_structural(&reader, open,
+                            Object ? JsonReadError::expected_root_object : JsonReadError::expected_root_array)) {
         return JsonReadResult{0, reader.error_offset, reader.error};
     }
 
-    u32 member_count = 0;
+    u32 count = 0;
     skip_whitespace(&reader);
-    if (reader.offset < input.bytes && input.data[reader.offset] != '}') {
+    if (reader.offset < input.bytes && input.data[reader.offset] != close) {
         for (;;) {
-            JsonString name{};
-            if (!parse_string(&reader, &name, JsonReadError::expected_member_name)) {
-                break;
-            }
-            skip_whitespace(&reader);
-            if (!consume_structural(&reader, ':', JsonReadError::expected_colon)) {
-                break;
+            [[maybe_unused]] JsonString name{};
+            if constexpr (Object) {
+                if (!parse_string(&reader, &name, JsonReadError::expected_member_name)) {
+                    break;
+                }
+                skip_whitespace(&reader);
+                if (!consume_structural(&reader, ':', JsonReadError::expected_colon)) {
+                    break;
+                }
             }
             JsonValue value{};
             if (!skip_value(&reader, 2, &value)) {
                 break;
             }
-            ++member_count;
-            if (visitor && !visitor(context, name, value)) {
-                fail(&reader, JsonReadError::visitor_rejected, name.source_offset);
-                break;
+            if constexpr (Object) {
+                ++count;
+                if (visitor && !visitor(context, name, value)) {
+                    fail(&reader, JsonReadError::visitor_rejected, name.source_offset);
+                    break;
+                }
+            } else {
+                if (visitor && !visitor(context, count, value)) {
+                    fail(&reader, JsonReadError::visitor_rejected, value.source_offset);
+                    break;
+                }
+                ++count;
             }
             skip_whitespace(&reader);
-            if (reader.offset < input.bytes && input.data[reader.offset] == '}') {
+            if (reader.offset < input.bytes && input.data[reader.offset] == close) {
                 break;
             }
             if (!consume_structural(&reader, ',', JsonReadError::expected_comma_or_end)) {
@@ -541,7 +526,7 @@ static JsonReadResult visit_object_range(Utf8View input, ConstSlice<u32> structu
     }
 
     if (reader.error == JsonReadError::none) {
-        consume_structural(&reader, '}', JsonReadError::expected_comma_or_end);
+        consume_structural(&reader, close, JsonReadError::expected_comma_or_end);
     }
     if (reader.error == JsonReadError::none) {
         skip_whitespace(&reader);
@@ -551,82 +536,27 @@ static JsonReadResult visit_object_range(Utf8View input, ConstSlice<u32> structu
             fail(&reader, JsonReadError::structural_index_mismatch, reader.offset);
         }
     }
-    return JsonReadResult{member_count, reader.error_offset, reader.error};
-}
-
-static JsonReadResult visit_array_range(Utf8View input, ConstSlice<u32> structurals, u32 maximum_depth,
-                                        JsonArrayVisitor visitor, void* context, u32 begin,
-                                        bool trusted) noexcept {
-    if ((!input.data && input.bytes != 0) || (!structurals.data && structurals.count != 0)) {
-        return JsonReadResult{0, 0, JsonReadError::invalid_input};
-    }
-
-    IndexedReader reader{input, structurals, begin, 0, maximum_depth, 0, JsonReadError::none, trusted};
-    if (begin == 0) skip_optional_utf8_bom(&reader);
-    skip_whitespace(&reader);
-    if (maximum_depth == 0) {
-        return JsonReadResult{0, reader.offset, JsonReadError::depth_limit};
-    }
-    if (!consume_structural(&reader, '[', JsonReadError::expected_root_array)) {
-        return JsonReadResult{0, reader.error_offset, reader.error};
-    }
-
-    u32 item_count = 0;
-    skip_whitespace(&reader);
-    if (reader.offset < input.bytes && input.data[reader.offset] != ']') {
-        for (;;) {
-            JsonValue value{};
-            if (!skip_value(&reader, 2, &value)) {
-                break;
-            }
-            if (visitor && !visitor(context, item_count, value)) {
-                fail(&reader, JsonReadError::visitor_rejected, value.source_offset);
-                break;
-            }
-            ++item_count;
-            skip_whitespace(&reader);
-            if (reader.offset < input.bytes && input.data[reader.offset] == ']') {
-                break;
-            }
-            if (!consume_structural(&reader, ',', JsonReadError::expected_comma_or_end)) {
-                break;
-            }
-            skip_whitespace(&reader);
-        }
-    }
-
-    if (reader.error == JsonReadError::none) {
-        consume_structural(&reader, ']', JsonReadError::expected_comma_or_end);
-    }
-    if (reader.error == JsonReadError::none) {
-        skip_whitespace(&reader);
-        if (reader.offset != input.bytes) {
-            fail(&reader, JsonReadError::trailing_data, reader.offset);
-        } else if (reader.structural_index != structurals.count) {
-            fail(&reader, JsonReadError::structural_index_mismatch, reader.offset);
-        }
-    }
-    return JsonReadResult{item_count, reader.error_offset, reader.error};
+    return JsonReadResult{count, reader.error_offset, reader.error};
 }
 
 JsonReadResult json_visit_root_object(const Utf8View& input, const ConstSlice<u32>& structurals,
                                       u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
-    return visit_object_range(input, structurals, maximum_depth, visitor, context, 0, false);
+    return visit_range<true>(input, structurals, maximum_depth, visitor, context, 0, false);
 }
 
 JsonReadResult json_visit_root_array(const Utf8View& input, const ConstSlice<u32>& structurals,
                                      u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept {
-    return visit_array_range(input, structurals, maximum_depth, visitor, context, 0, false);
+    return visit_range<false>(input, structurals, maximum_depth, visitor, context, 0, false);
 }
 
 JsonReadResult json_visit_value_object(const JsonValue& value, const ConstSlice<u32>& structurals,
                                        u32 maximum_depth, JsonMemberVisitor visitor, void* context) noexcept {
-    return visit_object_range(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
+    return visit_range<true>(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
 }
 
 JsonReadResult json_visit_value_array(const JsonValue& value, const ConstSlice<u32>& structurals,
                                       u32 maximum_depth, JsonArrayVisitor visitor, void* context) noexcept {
-    return visit_array_range(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
+    return visit_range<false>(value.source, structurals, maximum_depth, visitor, context, 0, value.validated);
 }
 
 static u32 structural_lower_bound(ConstSlice<u32> offsets, u32 value) noexcept {
@@ -663,7 +593,7 @@ JsonReadResult json_visit_indexed_object(const JsonIndexedDocument& document, co
     u32 begin = 0;
     if (value.kind != JsonValueKind::object || !indexed_subview(document, value, &prefix, &offsets, &begin))
         return {0, 0, JsonReadError::invalid_input};
-    return visit_object_range(prefix, offsets, maximum_depth, visitor, context, begin, value.validated);
+    return visit_range<true>(prefix, offsets, maximum_depth, visitor, context, begin, value.validated);
 }
 
 JsonReadResult json_visit_indexed_array(const JsonIndexedDocument& document, const JsonValue& value,
@@ -673,7 +603,7 @@ JsonReadResult json_visit_indexed_array(const JsonIndexedDocument& document, con
     u32 begin = 0;
     if (value.kind != JsonValueKind::array || !indexed_subview(document, value, &prefix, &offsets, &begin))
         return {0, 0, JsonReadError::invalid_input};
-    return visit_array_range(prefix, offsets, maximum_depth, visitor, context, begin, value.validated);
+    return visit_range<false>(prefix, offsets, maximum_depth, visitor, context, begin, value.validated);
 }
 
 bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, const char* ascii_data,
@@ -831,17 +761,12 @@ bool json_value_to_bool(const JsonValue& value, bool* output) noexcept {
     if (!output || value.kind != JsonValueKind::boolean || !value.source.data) {
         return false;
     }
-    if (value.source.bytes == 4 && value.source.data[0] == 't' && value.source.data[1] == 'r' &&
-        value.source.data[2] == 'u' && value.source.data[3] == 'e') {
-        *output = true;
-        return true;
+    const bool is_true = bytes_equal(value.source.data, value.source.bytes, "true", 4);
+    if (!is_true && !bytes_equal(value.source.data, value.source.bytes, "false", 5)) {
+        return false;
     }
-    if (value.source.bytes == 5 && value.source.data[0] == 'f' && value.source.data[1] == 'a' &&
-        value.source.data[2] == 'l' && value.source.data[3] == 's' && value.source.data[4] == 'e') {
-        *output = false;
-        return true;
-    }
-    return false;
+    *output = is_true;
+    return true;
 }
 
 } // namespace maicord

@@ -1,6 +1,7 @@
 #include "maicord/platform/desktop_integration.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
 #include <stddef.h>
@@ -456,11 +457,10 @@ bool desktop_instance_name(const wchar_t* kind, ConstSlice<wchar_t> profile, wch
     if (!kind || !out || !profile.data || !profile.count)
         return false;
     // FNV-1a over the case-folded path; stable across processes.
-    u64 hash = 0xcbf29ce484222325ull;
+    u64 hash = kHash64Seed;
     for (u32 i = 0; i < profile.count; ++i) {
         const wchar_t c = ascii_lower(profile[i] == L'/' ? L'\\' : profile[i]);
-        hash = (hash ^ static_cast<u64>(c & 0xff)) * 0x100000001b3ull;
-        hash = (hash ^ static_cast<u64>(c >> 8)) * 0x100000001b3ull;
+        hash = hash64_mix(hash64_mix(hash, static_cast<u64>(c & 0xff)), static_cast<u64>(c >> 8));
     }
     wchar_t hex[17]{};
     for (u32 i = 0; i < 16; ++i)

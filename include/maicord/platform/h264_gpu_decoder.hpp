@@ -39,12 +39,6 @@ static_assert(sizeof(H264GpuMovie) == 32);
 // Ready source only. First PTS comes from one packet on a reset cursor COPY;
 // first_presentation_valid distinguishes failure/unavailable from an actual PTS of 0.
 H264GpuMovie h264_gpu_decoder_movie(const H264GpuDecoder&) noexcept;
-struct H264GpuDiagnostic {
-    u32 next_sample_index;
-    u32 queued_pictures;
-};
-// Numeric metadata only, worker-thread use; never exposes source pointers.
-H264GpuDiagnostic h264_gpu_decoder_diagnostic(const H264GpuDecoder&) noexcept;
 // Worker-only borrow of the decoder's source bytes. No second copy;
 // invalid after release/reinitialization, but survives rewind/seek.
 ConstSlice<u8> h264_gpu_decoder_source(const H264GpuDecoder&) noexcept;

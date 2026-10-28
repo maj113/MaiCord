@@ -36,24 +36,6 @@ static_assert(sizeof(State) <= 16384);
 H264Error mapped(HevcError error) noexcept {
     return static_cast<H264Error>(static_cast<u8>(error));
 }
-HRESULT upload(State& s, D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data, u32 bytes,
-               D3D11_VIDEO_DECODER_BUFFER_DESC* out) noexcept {
-    UINT capacity{};
-    void* destination{};
-    HRESULT result = s.context->GetDecoderBuffer(s.decoder, type, &capacity, &destination);
-    if (FAILED(result))
-        return result;
-    const bool fits = destination && bytes <= capacity;
-    if (fits)
-        copy_bytes(destination, data, bytes);
-    result = s.context->ReleaseDecoderBuffer(s.decoder, type);
-    if (!fits)
-        return E_OUTOFMEMORY;
-    reset_value(out);
-    out->BufferType = type;
-    out->DataSize = bytes;
-    return result;
-}
 HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
                const HevcReferencePlan& plan, u8 surface) noexcept {
     const auto& a = s.config.sps;
@@ -63,12 +45,13 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
                                       s.feedback, &p, &q))
         return E_INVALIDARG;
     D3D11_VIDEO_DECODER_BUFFER_DESC buffers[4]{};
-    HRESULT result = upload(s, D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, &p, sizeof(p), &buffers[0]);
+    HRESULT result = gpu_decoder_upload_buffer(s.context, s.decoder, D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS,
+                                               &p, sizeof(p), &buffers[0]);
     u32 buffer_count = 1;
     // DXVA HEVC forbids sending a matrix when scaling lists are disabled.
     if (SUCCEEDED(result) && a.scaling_enabled) {
-        result =
-            upload(s, D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX, &q, sizeof(q), &buffers[1]);
+        result = gpu_decoder_upload_buffer(s.context, s.decoder, D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX,
+                                           &q, sizeof(q), &buffers[1]);
         ++buffer_count;
     }
     if (FAILED(result))
@@ -118,8 +101,8 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
     if (SUCCEEDED(result))
         result = released;
     if (SUCCEEDED(result)) {
-        result = upload(s, D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL, slices, static_cast<u32>(slice_bytes),
-                        &buffers[buffer_count]);
+        result = gpu_decoder_upload_buffer(s.context, s.decoder, D3D11_VIDEO_DECODER_BUFFER_SLICE_CONTROL,
+                                           slices, static_cast<u32>(slice_bytes), &buffers[buffer_count]);
         ++buffer_count;
     }
     if (SUCCEEDED(result))
@@ -139,23 +122,7 @@ bool reset(H264GpuDecoder& handle) noexcept {
     return true;
 }
 Mp4DecodedFrame output_frame(State& s) noexcept {
-    H264Output picture{};
-    Mp4DecodedFrame frame{};
-    if (!h264_output_pop(&s.output, &picture)) {
-        frame.error = Mp4DecodeError::sample;
-        return frame;
-    }
-    s.frame.subresource = picture.surface;
-    s.frame.luma = s.surfaces.luma[picture.surface];
-    s.frame.chroma = s.surfaces.chroma[picture.surface];
-    frame.gpu = &s.frame;
-    frame.width = s.frame.width;
-    frame.height = s.frame.height;
-    frame.display_width = s.display.width;
-    frame.display_height = s.display.height;
-    frame.duration_us = frame.source_duration_us = picture.duration_us;
-    frame.presentation_time_us = picture.presentation_time_us;
-    return frame;
+    return gpu_decoder_output_frame(&s.output, &s.frame, s.surfaces, s.display);
 }
 } // namespace
 
@@ -239,23 +206,8 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
         if (SUCCEEDED(result) && (!supported || !gpu_decoder_surfaces_supported(device)))
             result = DXGI_ERROR_UNSUPPORTED;
     }
-    if (SUCCEEDED(result)) {
-        UINT count{};
-        result = s->device->GetVideoDecoderConfigCount(&desc, &count);
-        bool found{};
-        for (UINT i = 0; SUCCEEDED(result) && i < count; ++i) {
-            D3D11_VIDEO_DECODER_CONFIG candidate{};
-            result = s->device->GetVideoDecoderConfig(&desc, i, &candidate);
-            if (SUCCEEDED(result) && candidate.ConfigBitstreamRaw == 1 &&
-                bytes_equal(&candidate.guidConfigBitstreamEncryption, &DXVA_NoEncrypt, sizeof(GUID))) {
-                selected = candidate;
-                found = true;
-                break;
-            }
-        }
-        if (SUCCEEDED(result) && !found)
-            result = DXGI_ERROR_UNSUPPORTED;
-    }
+    if (SUCCEEDED(result))
+        result = gpu_decoder_select_config(s->device, desc, 1, &selected);
     if (SUCCEEDED(result))
         result = s->device->CreateVideoDecoder(&desc, &selected, &s->decoder);
     if (SUCCEEDED(result)) {
@@ -455,9 +407,6 @@ void hevc_gpu_decoder_release(H264GpuDecoder* handle) noexcept {
         VirtualFree(s, 0, MEM_RELEASE);
     }
     reset_value(handle);
-}
-bool hevc_gpu_decoder_busy(const H264GpuDecoder& handle) noexcept {
-    return h264_gpu_decoder_busy(handle);
 }
 bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32 timeout) noexcept {
     if (!handle || !handle->state || !timeout || timeout > 16)

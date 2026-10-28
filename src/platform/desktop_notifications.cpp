@@ -16,7 +16,6 @@ using toast::release;
 constexpr wchar_t kActivationPrefix[] = L"mc1:p=";
 constexpr u32 kActivationUnits = 60;
 DesktopNotificationResult failed(DesktopNotificationError e, HRESULT h) noexcept { return {e, static_cast<u32>(h)}; }
-bool same_guid(REFIID a, REFIID b) noexcept { return bytes_equal(&a, &b, sizeof(GUID)); }
 u32 bounded_length(const wchar_t* s, u32 bound) noexcept {
     if (!s) return bound + 1;
     u32 i = 0; while (i <= bound && s[i]) ++i; return i;
@@ -68,7 +67,7 @@ struct Writer {
 struct Server final : IClassFactory, INotificationActivationCallback {
     volatile LONG references{1}, server_locks{};
     SRWLOCK lock{};
-    bool active{true}, apartment{}, enrolled{};
+    bool active{true}, enrolled{};
     DWORD thread{}, cookie{};
     HWND wake_window{}; u32 wake_message{};
     wchar_t app_id[129]{}; u32 app_units{};
@@ -86,8 +85,8 @@ struct Server final : IClassFactory, INotificationActivationCallback {
     static void* operator new(usize, void* p) noexcept { return p; }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
         if(!out)return E_POINTER; *out=nullptr;
-        if(same_guid(id,__uuidof(IUnknown))||same_guid(id,__uuidof(IClassFactory))) *out=static_cast<IClassFactory*>(this);
-        else if(same_guid(id,__uuidof(INotificationActivationCallback))) *out=static_cast<INotificationActivationCallback*>(this);
+        if(id==__uuidof(IUnknown)||id==__uuidof(IClassFactory)) *out=static_cast<IClassFactory*>(this);
+        else if(id==__uuidof(INotificationActivationCallback)) *out=static_cast<INotificationActivationCallback*>(this);
         else return E_NOINTERFACE;
         AddRef(); return S_OK;
     }
@@ -222,13 +221,13 @@ DesktopNotificationResult desktop_notification_xml(const DesktopNotificationPayl
     if(!ok){reset_value(out);return failed(DesktopNotificationError::capacity,HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER));}return {};
 }
 DesktopNotificationResult desktop_notifications_initialize(DesktopNotifications* n,const DesktopNotificationConfig& c) noexcept {
-    if(!n||n->runtime||!app_id_valid(c.app_id)||same_guid(c.activator_id,GUID{})||
+    if(!n||n->runtime||!app_id_valid(c.app_id)||c.activator_id==GUID{}||
         (c.wake_window&&(c.wake_message<WM_APP||c.wake_message>0xBFFF)))return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
     // The flags RoInitialize(RO_INIT_SINGLETHREADED) passes for a desktop STA.
     HRESULT h=S_OK;if(c.register_activator)h=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED|COINIT_DISABLE_OLE1DDE);
     if(FAILED(h))return failed(DesktopNotificationError::apartment,h);
     void* allocation=CoTaskMemAlloc(sizeof(Server));if(!allocation){if(c.register_activator)CoUninitialize();return failed(DesktopNotificationError::memory,E_OUTOFMEMORY);}
-    auto* s=new(allocation) Server; s->thread=GetCurrentThreadId();s->apartment=c.register_activator;s->enrolled=c.register_activator;
+    auto* s=new(allocation) Server; s->thread=GetCurrentThreadId();s->enrolled=c.register_activator;
     LARGE_INTEGER frequency{};if(QueryPerformanceFrequency(&frequency))s->performance_frequency=frequency.QuadPart;
     s->wake_window=c.wake_window;s->wake_message=c.wake_message;s->app_units=c.app_id.count;copy_bytes(s->app_id,c.app_id.data,c.app_id.count*sizeof(wchar_t));
     if(c.register_activator)h=CoRegisterClassObject(c.activator_id,static_cast<IClassFactory*>(s),CLSCTX_LOCAL_SERVER,REGCLS_MULTIPLEUSE,&s->cookie);
@@ -337,7 +336,7 @@ void desktop_notifications_release(DesktopNotifications* n) noexcept {
     auto* s=owner(n);if(!s||s->thread!=GetCurrentThreadId())return;n->runtime=nullptr;
     AcquireSRWLockExclusive(&s->lock);s->active=false;s->wake_window=nullptr;clear_bytes(s->queue,sizeof(s->queue));s->head=s->count=0;ReleaseSRWLockExclusive(&s->lock);
     if(s->cookie)CoRevokeClassObject(s->cookie);drop_snapshot(s);clear_bytes(s->history_requests,sizeof(s->history_requests));s->history_count=0;
-    drop_transport(s);const bool apartment=s->apartment;s->Release();if(apartment)CoUninitialize();
+    drop_transport(s);const bool apartment=s->enrolled;s->Release();if(apartment)CoUninitialize();
 }
 u32 desktop_notifications_owned_bytes(const DesktopNotifications* n) noexcept {return n&&n->runtime?sizeof(Server):0;}
 }

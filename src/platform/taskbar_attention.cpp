@@ -62,33 +62,10 @@ void text(Slice<u32> pixels, u32 extent, const u8* glyphs, u32 count) noexcept {
             }
 }
 HICON create_icon(u8 badge, u32 extent) noexcept {
-    struct Scratch {
-        u32 pixels[kTaskbarBadgeMaximumExtent * kTaskbarBadgeMaximumExtent];
-        u8 resource[sizeof(BITMAPINFOHEADER) + sizeof(pixels) + kTaskbarBadgeMaximumExtent * 8];
-    };
-    ScratchPages<Scratch> scratch;
-    if (!scratch.data)
+    ScratchPages<u32[kTaskbarBadgeMaximumExtent * kTaskbarBadgeMaximumExtent]> pixels;
+    if (!pixels.data || !taskbar_attention_render_badge(badge, extent, {*pixels.data, extent * extent}))
         return nullptr;
-    u32* pixels = scratch.data->pixels;
-    u8* resource = scratch.data->resource;
-    if (!taskbar_attention_render_badge(badge, extent, {pixels, extent * extent}))
-        return nullptr;
-    BITMAPINFOHEADER header{};
-    header.biSize = sizeof(header);
-    header.biWidth = static_cast<LONG>(extent);
-    header.biHeight = static_cast<LONG>(extent * 2); // XOR image plus AND mask
-    header.biPlanes = 1;
-    header.biBitCount = 32;
-    header.biCompression = BI_RGB;
-    // Fresh scratch pages are zero, so the AND mask is already clear.
-    copy_bytes(resource, &header, sizeof(header));
-    u8* rows = resource + sizeof(header);
-    for (u32 y = 0; y < extent; ++y) // bottom-up
-        copy_bytes(rows + (extent - 1 - y) * extent * 4, pixels + y * extent, extent * 4);
-    const u32 mask_bytes = extent * ((extent + 31) / 32 * 4);
-    const u32 total = static_cast<u32>(sizeof(header)) + extent * extent * 4 + mask_bytes;
-    return CreateIconFromResourceEx(resource, total, TRUE, 0x00030000, static_cast<int>(extent),
-                                    static_cast<int>(extent), LR_DEFAULTCOLOR);
+    return taskbar_attention_create_icon({*pixels.data, extent * extent}, extent);
 }
 void flash(HWND window, bool start) noexcept {
     FLASHWINFO info{sizeof(info), window, start ? static_cast<DWORD>(FLASHW_TRAY | FLASHW_TIMERNOFG)
@@ -142,6 +119,33 @@ bool taskbar_attention_render_badge(u8 badge, u32 extent, Slice<u32> pixels) noe
     else
         text(pixels, extent, single, 1);
     return true;
+}
+
+HICON taskbar_attention_create_icon(Slice<u32> pixels, u32 extent) noexcept {
+    if (!pixels.data || !extent || extent > kTaskbarBadgeMaximumExtent || pixels.count < extent * extent)
+        return nullptr;
+    ScratchPages<u8[sizeof(BITMAPINFOHEADER) + kTaskbarBadgeMaximumExtent * kTaskbarBadgeMaximumExtent * 4 +
+                    kTaskbarBadgeMaximumExtent * 8]>
+        scratch;
+    if (!scratch.data)
+        return nullptr;
+    u8* resource = *scratch.data;
+    BITMAPINFOHEADER header{};
+    header.biSize = sizeof(header);
+    header.biWidth = static_cast<LONG>(extent);
+    header.biHeight = static_cast<LONG>(extent * 2); // XOR image plus AND mask
+    header.biPlanes = 1;
+    header.biBitCount = 32;
+    header.biCompression = BI_RGB;
+    // Fresh scratch pages are zero, so the AND mask is already clear.
+    copy_bytes(resource, &header, sizeof(header));
+    u8* rows = resource + sizeof(header);
+    for (u32 y = 0; y < extent; ++y) // bottom-up
+        copy_bytes(rows + (extent - 1 - y) * extent * 4, pixels.data + y * extent, extent * 4);
+    const u32 mask_bytes = extent * ((extent + 31) / 32 * 4);
+    const u32 total = static_cast<u32>(sizeof(header)) + extent * extent * 4 + mask_bytes;
+    return CreateIconFromResourceEx(resource, total, TRUE, 0x00030000, static_cast<int>(extent),
+                                    static_cast<int>(extent), LR_DEFAULTCOLOR);
 }
 
 bool taskbar_attention_initialize(TaskbarAttention* attention) noexcept {

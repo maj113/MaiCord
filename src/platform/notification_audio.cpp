@@ -4,6 +4,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/win32_user.hpp"
 #include "maicord/sys/wasapi.hpp"
+#include "audio_endpoint_watch.hpp"
 
 namespace maicord {
 #if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
@@ -27,9 +28,7 @@ bool notification_audio_clip_valid(NotificationAudioClip clip) noexcept {
 }
 bool notification_audio_gain_valid(float gain) noexcept {return gain>=0.0f&&gain<=1.0f;}
 bool notification_audio_endpoint_matches(const wchar_t* event_id,const wchar_t* owned_id,usize owned_chars) noexcept {
-    if(!event_id||!owned_id||!owned_chars)return false;
-    for(usize i=0;i<owned_chars;++i)if(!event_id[i]||event_id[i]!=owned_id[i])return false;
-    return !event_id[owned_chars];
+    return audio_endpoint_id_matches(event_id,owned_id,owned_chars);
 }
 bool notification_audio_record_stream_failure(NotificationAudioStatus* status,u64 closed_epoch,u32 native_error) noexcept {
     if(!status||!closed_epoch||status->desired_epoch!=closed_epoch)return false;
@@ -92,34 +91,6 @@ u32 notification_audio_mixer_played_rate(NotificationAudioMixer* m,u32 padding,u
 void notification_audio_mixer_rewind_rate(NotificationAudioMixer* m,u32 rate) noexcept {if(m&&rate_valid(rate))submitted(*m,rate)=consumed(*m,rate);}
 
 namespace {
-// No runtime/app/PCM pointer is ever borrowed by the OS notification callback.
-// Its duplicated event remains valid through its final external COM Release.
-struct EndpointNotify final:IMMNotificationClient {
-    volatile LONG references{1},active{1},dirty{};HANDLE command{};
-    // Written before registration, then immutable through final Release. OS
-    // callbacks never borrow an Engine/Runtime pointer or perform COM queries.
-    LPWSTR endpoint_id{};usize endpoint_chars{};
-    static void* operator new(usize,void* p) noexcept {return p;}
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id,void** out) override {
-        if(!out)return E_POINTER;*out=nullptr;
-        if(bytes_equal(&id,&__uuidof(IUnknown),sizeof(GUID))||bytes_equal(&id,&__uuidof(IMMNotificationClient),sizeof(GUID))){*out=this;AddRef();return S_OK;}
-        return E_NOINTERFACE;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() override {return static_cast<ULONG>(InterlockedIncrement(&references));}
-    ULONG STDMETHODCALLTYPE Release() override {const LONG n=InterlockedDecrement(&references);if(!n){if(command)CloseHandle(command);CoTaskMemFree(endpoint_id);this->~EndpointNotify();CoTaskMemFree(this);}return static_cast<ULONG>(n);}
-    void signal(LONG reason) noexcept {if(InterlockedCompareExchange(&active,0,0)){InterlockedOr(&dirty,reason);SetEvent(command);}}
-    bool matches(LPCWSTR id) const noexcept {return notification_audio_endpoint_matches(id,endpoint_id,endpoint_chars);}
-    HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow flow,ERole role,LPCWSTR) override {if(flow==eRender&&role==eConsole)signal(1);return S_OK;}
-    HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR id,DWORD) override {if(matches(id))signal(2);return S_OK;}
-    HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR) override {return S_OK;}
-    HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR id) override {if(matches(id))signal(2);return S_OK;}
-    HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR id,const PROPERTYKEY key) override {
-        // SDK PKEY_AudioEngine_DeviceFormat, local value avoids a propsys/GUID
-        // import. Volume/name property changes do not restart active playback.
-        constexpr GUID format{0xf19f064d,0x082c,0x4e27,{0xbc,0x73,0x68,0x82,0xa1,0xbb,0x8e,0x4c}};
-        if(!key.pid&&bytes_equal(&key.fmtid,&format,sizeof(format))&&matches(id))signal(2);return S_OK;
-    }
-};
 struct Runtime {
     SRWLOCK lock{};NotificationAudioConfig config{};
     HANDLE thread{},command{},stop{},render{};
@@ -129,9 +100,9 @@ struct Runtime {
     u32 head{},count{},reserved{},callback_handles{};
     bool stopping{},wake_pending{};
 };
-static_assert(sizeof(Runtime)+2*sizeof(EndpointNotify)<=16*1024,"notification audio metadata remains bounded");
+static_assert(sizeof(Runtime)+2*sizeof(PinnedEndpointNotify)<=16*1024,"notification audio metadata remains bounded");
 struct Engine {
-    IMMDeviceEnumerator* enumerator{};EndpointNotify* callback{};
+    IMMDeviceEnumerator* enumerator{};PinnedEndpointNotify* callback{};
     IAudioClient* client{};IAudioRenderClient* render{};u32 frames{};bool started{};
 };
 void notify_locked(Runtime& r) noexcept {
@@ -164,7 +135,7 @@ void close_stream(Runtime& r,Engine& e) noexcept {
         ReleaseSRWLockExclusive(&r.lock);}
 }
 void close_callback(Runtime& r,Engine& e) noexcept {
-    const bool duplicate=e.callback&&e.callback->command;
+    const bool duplicate=e.callback&&e.callback->event;
     if(e.callback)InterlockedExchange(&e.callback->active,0);
     if(e.enumerator&&e.callback)e.enumerator->UnregisterEndpointNotificationCallback(e.callback);
     com_release(e.callback);
@@ -177,12 +148,12 @@ HRESULT refresh_callback(Runtime& r,Engine& e,LPWSTR* id) noexcept {
     if(!*id||!**id)return E_UNEXPECTED;
     if(e.callback&&e.callback->matches(*id))return S_OK;
     close_callback(r,e);
-    auto* memory=CoTaskMemAlloc(sizeof(EndpointNotify));if(!memory)return E_OUTOFMEMORY;
-    e.callback=new(memory)EndpointNotify;e.callback->endpoint_id=*id;*id=nullptr;
+    auto* memory=CoTaskMemAlloc(sizeof(PinnedEndpointNotify));if(!memory)return E_OUTOFMEMORY;
+    e.callback=new(memory)PinnedEndpointNotify;e.callback->id=*id;*id=nullptr;
     // GetId supplies a terminated full opaque ID; no guessed truncation/hash.
-    while(e.callback->endpoint_id[e.callback->endpoint_chars])++e.callback->endpoint_chars;
+    while(e.callback->id[e.callback->id_chars])++e.callback->id_chars;
     HRESULT h=S_OK;
-    if(!DuplicateHandle(GetCurrentProcess(),r.command,GetCurrentProcess(),&e.callback->command,0,FALSE,DUPLICATE_SAME_ACCESS))h=HRESULT_FROM_WIN32(thread_last_error());
+    if(!DuplicateHandle(GetCurrentProcess(),r.command,GetCurrentProcess(),&e.callback->event,0,FALSE,DUPLICATE_SAME_ACCESS))h=HRESULT_FROM_WIN32(thread_last_error());
     else {AcquireSRWLockExclusive(&r.lock);++r.callback_handles;ReleaseSRWLockExclusive(&r.lock);}
     if(SUCCEEDED(h))h=e.enumerator->RegisterEndpointNotificationCallback(e.callback);
     if(FAILED(h))close_callback(r,e);return h;
@@ -439,7 +410,7 @@ u32 notification_audio_owned_handles(const NotificationAudio* owner) noexcept {
 }
 #if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
 HANDLE notification_audio_fixture_callback_event(IMMNotificationClient* callback) noexcept {
-    return callback?static_cast<EndpointNotify*>(callback)->command:nullptr;
+    return callback?static_cast<PinnedEndpointNotify*>(callback)->event:nullptr;
 }
 #endif
 } // namespace maicord

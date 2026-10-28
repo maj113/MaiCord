@@ -297,9 +297,7 @@ AeadResult crypt(const AesGcm64Key& key, ConstSlice<u8> nonce, ConstSlice<u8> aa
 AeadResult aes_gcm64_initialize(AesGcm64Key* key, ConstSlice<u8> secret, Gcm64Backend backend) noexcept {
     if (!key || key->handle || key->storage.data || key->storage.locked || secret.count != 16 ||
         !byte_range_valid(secret) ||
-        byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}) ||
-        (backend != Gcm64Backend::automatic && backend != Gcm64Backend::pclmul &&
-         backend != Gcm64Backend::portable))
+        byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}))
         return aead_result(AeadError::invalid_input);
     int cpu[4];
     __cpuid(cpu, 1);

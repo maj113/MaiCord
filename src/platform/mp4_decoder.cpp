@@ -58,7 +58,7 @@ H264GpuMovie mp4_decoder_movie(const Mp4Decoder& decoder) noexcept {
                          : H264GpuMovie{};
 }
 bool mp4_decoder_busy(const Mp4Decoder& decoder) noexcept {
-    return decoder.hevc ? hevc_gpu_decoder_busy(decoder.native) : h264_gpu_decoder_busy(decoder.native);
+    return h264_gpu_decoder_busy(decoder.native);
 }
 bool mp4_decoder_wait(Mp4Decoder* decoder, u32 timeout_ms) noexcept {
     return decoder && (decoder->hevc ? hevc_gpu_decoder_wait(&decoder->native, timeout_ms)

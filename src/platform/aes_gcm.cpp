@@ -7,15 +7,15 @@ namespace maicord {
 namespace {
 
 AeadResult crypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input,
-                 Slice<u8> output, u8* tag, bool encrypt) noexcept {
+                 Slice<u8> output, ConstSlice<u8> tag, bool encrypt) noexcept {
     if (!key.handle || !key.object.data || !key.object.locked)
         return aead_result(AeadError::not_initialized);
     const auto valid = aead_validate({reinterpret_cast<const u8*>(&key), sizeof(key)},
                                      {key.object.data, key.object.capacity}, 12, nonce, aad, input, output,
-                                     {tag, 16}, encrypt);
+                                     tag, encrypt);
     if (!valid.ok())
         return valid;
-    return aead_cng_crypt(key.handle, nonce, aad, input, output, tag, encrypt);
+    return aead_cng_crypt(key.handle, nonce, aad, input, output, const_cast<u8*>(tag.data), encrypt);
 }
 
 } // namespace
@@ -55,16 +55,12 @@ void aes_gcm_release(AesGcmKey* key) noexcept {
 
 AeadResult aes_gcm_encrypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
                            ConstSlice<u8> plaintext, Slice<u8> ciphertext, Slice<u8> tag) noexcept {
-    if (tag.count != kAesGcmTagBytes)
-        return aead_result(AeadError::invalid_input);
-    return crypt(key, nonce, aad, plaintext, ciphertext, tag.data, true);
+    return crypt(key, nonce, aad, plaintext, ciphertext, {tag.data, tag.count}, true);
 }
 
 AeadResult aes_gcm_decrypt(const AesGcmKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
                            ConstSlice<u8> ciphertext, ConstSlice<u8> tag, Slice<u8> plaintext) noexcept {
-    if (tag.count != kAesGcmTagBytes)
-        return aead_result(AeadError::invalid_input);
-    return crypt(key, nonce, aad, ciphertext, plaintext, const_cast<u8*>(tag.data), false);
+    return crypt(key, nonce, aad, ciphertext, plaintext, tag, false);
 }
 
 } // namespace maicord

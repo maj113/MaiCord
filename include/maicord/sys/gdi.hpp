@@ -23,7 +23,6 @@
 #define GetRValue(rgb) (LOBYTE(rgb))
 #define GetGValue(rgb) (LOBYTE(((WORD)(rgb)) >> 8))
 #define GetBValue(rgb) (LOBYTE((rgb)>>16))
-#define GetGlyphIndices GetGlyphIndicesW
 
 typedef long FXPT2DOT30;
 

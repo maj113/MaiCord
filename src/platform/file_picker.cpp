@@ -395,8 +395,9 @@ NativeFilePickerError native_file_picker_save_start(NativeFilePicker* picker, HW
 }
 bool native_file_picker_save_selection(const NativeFilePicker* picker, NativeFileSaveSelection* output) noexcept {
     if (output) reset_value(output);
-    if (!output || !picker || !picker->runtime || native_file_picker_status(picker).phase != NativeFilePickerPhase::complete ||
-        !native_file_picker_status(picker).ok()) return false;
+    const auto status = native_file_picker_status(picker);
+    if (!output || !picker || !picker->runtime || !status.ok())
+        return false;
     const auto* runtime = static_cast<const Runtime*>(picker->runtime);
     if (!runtime->save || !runtime->selected[0].count) return false;
     *output = {runtime->selected[0], runtime->snapshots[0], runtime->destination_exists, runtime->overwrite_authorized}; return true;

@@ -38,7 +38,6 @@ DWORD WINAPI network_worker_main(void* parameter) noexcept {
         return 1;
     }
 
-    worker->startup_error = NetworkWorkerError::none;
     worker->started = true;
     SetEvent(worker->ready_event);
     NetworkPollResult empty{};

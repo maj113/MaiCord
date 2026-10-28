@@ -32,6 +32,9 @@ struct TaskbarAttentionPlan {
 TaskbarAttentionPlan taskbar_attention_plan(TaskbarAttentionState*, const TaskbarAttentionInput&) noexcept;
 // Straight-alpha BGRA, top-down, extent x extent: a red disc with white text.
 bool taskbar_attention_render_badge(u8 badge, u32 extent, Slice<u32> pixels) noexcept;
+// A 32-bit icon from extent x extent top-down straight-alpha BGRA pixels (extent at most
+// kTaskbarBadgeMaximumExtent); the caller destroys it. Null on invalid input or allocation failure.
+HICON taskbar_attention_create_icon(Slice<u32> pixels, u32 extent) noexcept;
 
 // Win32 executor: ITaskbarList3 overlay plus FlashWindowEx. Waits for the
 // TaskbarButtonCreated message before touching the overlay.

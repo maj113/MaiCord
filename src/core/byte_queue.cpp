@@ -83,10 +83,7 @@ void byte_queue_clear(ByteQueue* queue, bool erase) noexcept {
         return;
     }
     if (erase && queue->data) {
-        volatile u8* bytes = queue->data;
-        for (u32 index = 0; index < queue->end; ++index) {
-            bytes[index] = 0;
-        }
+        secure_clear_bytes(queue->data, queue->end);
     }
     queue->begin = 0;
     queue->end = 0;

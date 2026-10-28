@@ -5,7 +5,6 @@
 namespace maicord {
 namespace {
 constexpr u32 kPathUnits=1024, kKeyUnits=512, kClassesUnits=200;
-constexpr GUID kEmptyGuid{};
 constexpr wchar_t kDefaultClasses[]=L"Software\\Classes";
 constexpr wchar_t kOwner[]=L"MaiCordOwner";
 struct Paths {
@@ -108,7 +107,7 @@ LSTATUS claim(const wchar_t* path,const wchar_t* nonce,HKEY* out,bool* created) 
 }
 bool notification_identity_valid(const NotificationIdentityConfig& c) noexcept {
     if(!token(c.app_id,128,true)||!token(c.ownership_nonce,64,false)||c.ownership_nonce.count<16||
-        bytes_equal(&c.activator_id,&kEmptyGuid,sizeof(GUID))||!absolute_path(c.executable_path)||
+        c.activator_id==GUID{}||!absolute_path(c.executable_path)||
         !c.display_name.data||!c.display_name.count||c.display_name.count>128)return false;
     for(u32 i=0;i<c.display_name.count;++i)if(c.display_name[i]<32||(c.display_name[i]>=0xD800&&c.display_name[i]<=0xDFFF))return false;
     if(c.icon_path.count&&(!absolute_path(c.icon_path)||!(extension(c.icon_path,L".png")||extension(c.icon_path,L".ico"))))return false;

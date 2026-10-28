@@ -124,11 +124,6 @@ constexpr GUID kIidScrollItem{0x2360c714, 0x4bf1, 0x4b26, {0xba, 0x65, 0x9b, 0x2
 constexpr GUID kIidText{0x3589c92c, 0x63f3, 0x4367, {0x99, 0xbb, 0xad, 0xa6, 0x53, 0xb7, 0x7c, 0xf2}};
 constexpr GUID kIidTextRange{0x5347ad7b, 0xc355, 0x46f8, {0xaf, 0xf5, 0x90, 0x90, 0x33, 0x58, 0x2f, 0x63}};
 
-bool guid_equal(const GUID& a, const GUID& b) noexcept {
-    return a.Data1 == b.Data1 && a.Data2 == b.Data2 && a.Data3 == b.Data3 &&
-           bytes_equal(a.Data4, b.Data4, static_cast<u32>(sizeof(a.Data4)));
-}
-
 // Run-time entry points.
 using ReturnRawElementProvider = LRESULT(WINAPI*)(HWND, WPARAM, LPARAM, void*);
 using HostProviderFromHwnd = HRESULT(WINAPI*)(HWND, void**);
@@ -662,7 +657,7 @@ constexpr Pattern kPatterns[]{
 
 void* pattern_interface(Element* element, const GUID& iid) noexcept {
     for (const auto& pattern : kPatterns) {
-        if (!guid_equal(iid, *pattern.iid))
+        if (iid != *pattern.iid)
             continue;
         Resolved r{};
         if (!resolve_element(element, &r) || !supports(r, pattern.id))
@@ -682,11 +677,11 @@ __declspec(noinline) HRESULT element_query(Element* element, const GUID* iid, vo
     if (!iid)
         return E_INVALIDARG;
     void* result = nullptr;
-    if (guid_equal(*iid, kIidUnknown) || guid_equal(*iid, kIidSimple)) {
+    if (*iid == kIidUnknown || *iid == kIidSimple) {
         result = &element->simple;
-    } else if (guid_equal(*iid, kIidFragment)) {
+    } else if (*iid == kIidFragment) {
         result = &element->fragment;
-    } else if (guid_equal(*iid, kIidFragmentRoot)) {
+    } else if (*iid == kIidFragmentRoot) {
         result = element->root ? &element->fragment_root : nullptr;
     } else {
         on_window_thread(element->host, [&]() noexcept -> HRESULT {
@@ -1440,7 +1435,7 @@ HRESULT STDMETHODCALLTYPE range_query_interface(void* self, const GUID* iid, voi
     *out = nullptr;
     if (!iid)
         return E_INVALIDARG;
-    if (!guid_equal(*iid, kIidUnknown) && !guid_equal(*iid, kIidTextRange))
+    if (*iid != kIidUnknown && *iid != kIidTextRange)
         return E_NOINTERFACE;
     InterlockedIncrement(&static_cast<TextRange*>(self)->references);
     *out = self;

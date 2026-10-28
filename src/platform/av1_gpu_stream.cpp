@@ -15,6 +15,22 @@ void lose(Av1GpuStreamState* state) noexcept {
     state->frame_open = false;
 }
 
+// No reference slot holds a picture.
+void clear_references(Av1GpuStreamState* state) noexcept {
+    for (auto& reference : state->references)
+        reference.valid = false;
+    for (auto& surface : state->slot_surface)
+        surface = kNoSurface;
+}
+
+// The slots header refreshes now hold surface.
+void refresh_slots(Av1GpuStreamState* state, u8 surface) noexcept {
+    av1_update_references(state->references, state->header);
+    for (u32 i = 0; i < kAv1RefFrames; ++i)
+        if (state->header.refresh_frame_flags >> i & 1)
+            state->slot_surface[i] = surface;
+}
+
 void damaged(GpuStream* stream) noexcept {
     Av1GpuStreamState* state = &stream->av1;
     saturating_increment(state->damaged);
@@ -51,11 +67,7 @@ HRESULT create_decoder(GpuStream* stream) noexcept {
     desc.bitstream_raw = 1;
     desc.surfaces = state->surfaces_wanted;
     const HRESULT status = gpu_stream_create_decoder(stream, desc);
-    for (auto& surface : state->slot_surface)
-        surface = kNoSurface;
-    // Slots no keyframe refreshes keep no picture.
-    for (auto& reference : state->references)
-        reference.valid = false;
+    clear_references(state);
     state->sequence_changed = false;
     return status;
 }
@@ -148,10 +160,7 @@ void decode_frame(GpuStream* stream, ConstSlice<u8> unit, u32 rtp_timestamp) noe
         saturating_increment(stream->stats.reinitializations);
     } else if (state->waiting) {
         // Decoding restarts at this keyframe: earlier slots are not trusted.
-        for (auto& reference : state->references)
-            reference.valid = false;
-        for (auto& slot : state->slot_surface)
-            slot = kNoSurface;
+        clear_references(state);
     }
     const u8 surface = free_surface(*stream);
     if (surface == kNoSurface) {
@@ -169,10 +178,7 @@ void decode_frame(GpuStream* stream, ConstSlice<u8> unit, u32 rtp_timestamp) noe
         damaged(stream);
         return;
     }
-    av1_update_references(state->references, header);
-    for (u32 i = 0; i < kAv1RefFrames; ++i)
-        if (header.refresh_frame_flags >> i & 1)
-            state->slot_surface[i] = surface;
+    refresh_slots(state, surface);
     saturating_increment(state->decoded);
     state->waiting = false;
     stream->last_request_ms = 0; // A keyframe arrived or the stream is healthy.
@@ -190,10 +196,7 @@ void show_existing(GpuStream* stream, u32 rtp_timestamp) noexcept {
         return;
     }
     // A shown key frame resets every slot to itself (spec 7.21).
-    av1_update_references(state->references, header);
-    for (u32 i = 0; i < kAv1RefFrames; ++i)
-        if (header.refresh_frame_flags >> i & 1)
-            state->slot_surface[i] = surface;
+    refresh_slots(state, surface);
     present(stream, surface, header, rtp_timestamp);
 }
 
@@ -226,10 +229,7 @@ bool gather_tiles(Av1GpuStreamState* state, ConstSlice<u8> unit, ConstSlice<u8> 
 void av1_gpu_stream_reset(GpuStream* stream) noexcept {
     // The sequence header and pool size survive an idle release.
     Av1GpuStreamState* state = &stream->av1;
-    for (auto& reference : state->references)
-        reference.valid = false;
-    for (auto& surface : state->slot_surface)
-        surface = kNoSurface;
+    clear_references(state);
     state->tile_count = 0;
     if (!state->surfaces_wanted)
         state->surfaces_wanted = kAv1StreamInitialReferences + kAv1StreamWorkingSurfaces;

@@ -216,9 +216,6 @@ bool select_write_bytes(TlsStream* stream, ConstSlice<u8> selected[kTlsStreamMax
                 *selected_count == kTlsStreamMaximumWriteSpans) {
                 return true;
             }
-            ++span_index;
-            span_offset = 0;
-            continue;
         }
         ++span_index;
         span_offset = 0;

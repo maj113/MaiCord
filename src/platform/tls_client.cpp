@@ -1,8 +1,6 @@
 #include "maicord/platform/tls_client.hpp"
 #include "maicord/core/memory.hpp"
 
-#if !defined(SECURITY_WIN32)
-#endif
 #include "maicord/sys/sspi.hpp"
 
 namespace maicord {
@@ -31,10 +29,7 @@ u32 copy_output_token(SecBuffer token, Slice<u8> outgoing) noexcept {
     if (!token.pvBuffer || token.cbBuffer == 0) {
         return 0;
     }
-    const auto* source = static_cast<const u8*>(token.pvBuffer);
-    for (u32 index = 0; index < token.cbBuffer; ++index) {
-        outgoing.data[index] = source[index];
-    }
+    copy_bytes(outgoing.data, token.pvBuffer, token.cbBuffer);
     return token.cbBuffer;
 }
 
@@ -228,9 +223,7 @@ TlsResult tls_client_encrypt_spans(
     u8* message = output.data + client->stream_sizes.cbHeader;
     u32 message_offset = 0;
     for (u32 span = 0; span < plaintext.count; ++span) {
-        for (u32 index = 0; index < plaintext[span].count; ++index) {
-            message[message_offset + index] = plaintext[span].data[index];
-        }
+        copy_bytes(message + message_offset, plaintext[span].data, plaintext[span].count);
         message_offset += plaintext[span].count;
     }
     SecBuffer buffers[4]{};

@@ -185,8 +185,6 @@ struct __declspec(uuid("3589c92c-63f3-4367-99bb-ada653b77cf2")) __declspec(novta
 };
 // <UIAutomationClient.h>
 enum TreeScope {
-    TreeScope_Element = 0x1,
-    TreeScope_Children = 0x2,
     TreeScope_Descendants = 0x4,
 };
 const long UIA_InvokePatternId = 10000;

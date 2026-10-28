@@ -1,5 +1,9 @@
 #include "gpu_decoder_surfaces.hpp"
-
+#include "maicord/media/h264_output_queue.hpp"
+#include "maicord/media/video_display.hpp"
+#include "maicord/platform/mp4_decoder.hpp"
+#include "maicord/sys/initguid.hpp"
+#include "maicord/sys/dxva.hpp"
 
 namespace maicord {
 
@@ -9,6 +13,64 @@ bool gpu_decoder_surfaces_supported(ID3D11Device* device) noexcept {
     UINT support = 0;
     return device && SUCCEEDED(device->CheckFormatSupport(DXGI_FORMAT_NV12, &support)) &&
            (support & required) == required;
+}
+
+HRESULT gpu_decoder_select_config(ID3D11VideoDevice* video, const D3D11_VIDEO_DECODER_DESC& description,
+                                  u8 bitstream_raw, D3D11_VIDEO_DECODER_CONFIG* selected) noexcept {
+    UINT count = 0;
+    HRESULT status = video->GetVideoDecoderConfigCount(&description, &count);
+    for (UINT i = 0; SUCCEEDED(status) && i < count; ++i) {
+        D3D11_VIDEO_DECODER_CONFIG candidate{};
+        status = video->GetVideoDecoderConfig(&description, i, &candidate);
+        if (SUCCEEDED(status) && candidate.ConfigBitstreamRaw == bitstream_raw &&
+            candidate.guidConfigBitstreamEncryption == DXVA_NoEncrypt) {
+            *selected = candidate;
+            return S_OK;
+        }
+    }
+    return FAILED(status) ? status : DXGI_ERROR_UNSUPPORTED;
+}
+
+HRESULT gpu_decoder_upload_buffer(ID3D11VideoContext* context, ID3D11VideoDecoder* decoder,
+                                  D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data, u32 bytes,
+                                  D3D11_VIDEO_DECODER_BUFFER_DESC* description) noexcept {
+    UINT capacity = 0;
+    void* destination = nullptr;
+    HRESULT status = context->GetDecoderBuffer(decoder, type, &capacity, &destination);
+    if (FAILED(status))
+        return status;
+    const bool fits = destination && bytes <= capacity;
+    if (fits)
+        copy_bytes(destination, data, bytes);
+    status = context->ReleaseDecoderBuffer(decoder, type);
+    if (!fits)
+        return E_OUTOFMEMORY;
+    reset_value(description);
+    description->BufferType = type;
+    description->DataSize = bytes;
+    return status;
+}
+
+Mp4DecodedFrame gpu_decoder_output_frame(H264OutputQueue* output, GpuVideoFrame* frame,
+                                         const GpuDecoderSurfaces& surfaces,
+                                         const VideoDisplayExtent& display) noexcept {
+    H264Output picture{};
+    Mp4DecodedFrame decoded{};
+    if (!h264_output_pop(output, &picture)) {
+        decoded.error = Mp4DecodeError::sample;
+        return decoded;
+    }
+    frame->subresource = picture.surface;
+    frame->luma = surfaces.luma[picture.surface];
+    frame->chroma = surfaces.chroma[picture.surface];
+    decoded.gpu = frame;
+    decoded.width = frame->width;
+    decoded.height = frame->height;
+    decoded.display_width = display.width;
+    decoded.display_height = display.height;
+    decoded.duration_us = decoded.source_duration_us = picture.duration_us;
+    decoded.presentation_time_us = picture.presentation_time_us;
+    return decoded;
 }
 
 HRESULT gpu_decoder_surfaces_create(GpuDecoderSurfaces* surfaces, ID3D11Device* device,

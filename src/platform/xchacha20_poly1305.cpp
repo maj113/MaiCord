@@ -1,4 +1,5 @@
 #include "maicord/platform/xchacha20_poly1305.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 #include "aead_internal.hpp"
 
@@ -7,13 +8,6 @@
 namespace maicord {
 namespace {
 
-u32 load_le32(const u8* bytes) noexcept {
-    return u32{bytes[0]} | (u32{bytes[1]} << 8) | (u32{bytes[2]} << 16) | (u32{bytes[3]} << 24);
-}
-void store_le32(u8* bytes, u32 value) noexcept {
-    for (u32 i = 0; i != 4; ++i)
-        bytes[i] = static_cast<u8>(value >> (i * 8));
-}
 u32 rotate(u32 value, u32 shift) noexcept {
     return (value << shift) | (value >> (32 - shift));
 }
@@ -48,13 +42,13 @@ void rounds(u32* state) noexcept {
 void derive(const u8* secret, const u8* nonce, u8* subkey) noexcept {
     u32 state[16]{0x61707865, 0x3320646e, 0x79622d32, 0x6b206574};
     for (u32 i = 0; i != 8; ++i)
-        state[i + 4] = load_le32(secret + i * 4);
+        state[i + 4] = byte_load_le32(secret + i * 4);
     for (u32 i = 0; i != 4; ++i)
-        state[i + 12] = load_le32(nonce + i * 4);
+        state[i + 12] = byte_load_le32(nonce + i * 4);
     rounds(state);
     for (u32 i = 0; i != 4; ++i) {
-        store_le32(subkey + i * 4, state[i]);
-        store_le32(subkey + 16 + i * 4, state[i + 12]);
+        byte_store_le32(subkey + i * 4, state[i]);
+        byte_store_le32(subkey + 16 + i * 4, state[i + 12]);
     }
     SecureZeroMemory(state, sizeof(state));
 }
@@ -71,10 +65,10 @@ void stream_initialize(ChaChaStream& stream, const u8* secret, const u8* nonce) 
     initial[2] = 0x79622d32;
     initial[3] = 0x6b206574;
     for (u32 i = 0; i != 8; ++i)
-        initial[i + 4] = load_le32(secret + i * 4);
+        initial[i + 4] = byte_load_le32(secret + i * 4);
     initial[12] = 0;
     for (u32 i = 0; i != 3; ++i)
-        initial[i + 13] = load_le32(nonce + i * 4);
+        initial[i + 13] = byte_load_le32(nonce + i * 4);
 }
 
 void stream_block(ChaChaStream& stream, u32 counter) noexcept {
@@ -82,7 +76,7 @@ void stream_block(ChaChaStream& stream, u32 counter) noexcept {
     copy_bytes(stream.state, stream.initial, sizeof(stream.state));
     rounds(stream.state);
     for (u32 i = 0; i != 16; ++i)
-        store_le32(stream.block + i * 4, stream.state[i] + stream.initial[i]);
+        byte_store_le32(stream.block + i * 4, stream.state[i] + stream.initial[i]);
 }
 
 struct Poly1305 {
@@ -92,13 +86,13 @@ struct Poly1305 {
 
 void poly_initialize(Poly1305& poly, const u8* key) noexcept {
     reset_value(&poly);
-    poly.r[0] = load_le32(key) & 0x3ffffff;
-    poly.r[1] = (load_le32(key + 3) >> 2) & 0x3ffff03;
-    poly.r[2] = (load_le32(key + 6) >> 4) & 0x3ffc0ff;
-    poly.r[3] = (load_le32(key + 9) >> 6) & 0x3f03fff;
-    poly.r[4] = (load_le32(key + 12) >> 8) & 0x00fffff;
+    poly.r[0] = byte_load_le32(key) & 0x3ffffff;
+    poly.r[1] = (byte_load_le32(key + 3) >> 2) & 0x3ffff03;
+    poly.r[2] = (byte_load_le32(key + 6) >> 4) & 0x3ffc0ff;
+    poly.r[3] = (byte_load_le32(key + 9) >> 6) & 0x3f03fff;
+    poly.r[4] = (byte_load_le32(key + 12) >> 8) & 0x00fffff;
     for (u32 i = 0; i != 4; ++i)
-        poly.pad[i] = load_le32(key + 16 + i * 4);
+        poly.pad[i] = byte_load_le32(key + 16 + i * 4);
 }
 
 // All AEAD MAC blocks are a full 16 bytes, including the zero-padded
@@ -108,11 +102,11 @@ void poly_initialize(Poly1305& poly, const u8* key) noexcept {
 void poly_block(Poly1305& poly, const u8* input) noexcept {
     auto& h = poly.h;
     const auto& r = poly.r;
-    h[0] += load_le32(input) & 0x3ffffff;
-    h[1] += (load_le32(input + 3) >> 2) & 0x3ffffff;
-    h[2] += (load_le32(input + 6) >> 4) & 0x3ffffff;
-    h[3] += (load_le32(input + 9) >> 6) & 0x3ffffff;
-    h[4] += (load_le32(input + 12) >> 8) | (1u << 24);
+    h[0] += byte_load_le32(input) & 0x3ffffff;
+    h[1] += (byte_load_le32(input + 3) >> 2) & 0x3ffffff;
+    h[2] += (byte_load_le32(input + 6) >> 4) & 0x3ffffff;
+    h[3] += (byte_load_le32(input + 9) >> 6) & 0x3ffffff;
+    h[4] += (byte_load_le32(input + 12) >> 8) | (1u << 24);
     auto& d = poly.products;
     d[0] =
         u64{h[0]} * r[0] + 5 * (u64{h[1]} * r[4] + u64{h[2]} * r[3] + u64{h[3]} * r[2] + u64{h[4]} * r[1]);
@@ -171,7 +165,7 @@ void poly_finish(Poly1305& poly, u8* tag) noexcept {
     u64 sum = 0;
     for (u32 i = 0; i != 4; ++i) {
         sum = u64{words[i]} + poly.pad[i] + (sum >> 32);
-        store_le32(tag + i * 4, static_cast<u32>(sum));
+        byte_store_le32(tag + i * 4, static_cast<u32>(sum));
     }
     SecureZeroMemory(reduced, sizeof(reduced));
     SecureZeroMemory(words, sizeof(words));
@@ -183,8 +177,8 @@ void authenticate(Poly1305& poly, ConstSlice<u8> aad, ConstSlice<u8> ciphertext,
     poly_padded(poly, ciphertext);
     u8 lengths[16]{};
     // Slice lengths are u32; the high half of each RFC 8439 u64 stays zero.
-    store_le32(lengths, aad.count);
-    store_le32(lengths + 8, ciphertext.count);
+    byte_store_le32(lengths, aad.count);
+    byte_store_le32(lengths + 8, ciphertext.count);
     poly_block(poly, lengths);
     poly_finish(poly, tag);
 }
@@ -231,9 +225,7 @@ AeadResult portable_crypt(const u8* subkey, const u8* nonce, ConstSlice<u8> aad,
 
 AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, ConstSlice<u8> input,
                  Slice<u8> output, ConstSlice<u8> tag, bool encrypt) noexcept {
-    if (!key.storage.data || !key.storage.locked || key.storage.capacity < 64 ||
-        key.object_bytes != key.storage.capacity - 64 ||
-        (key.backend != XChaChaBackend::cng && key.backend != XChaChaBackend::portable))
+    if (!key.storage.data || !key.storage.locked)
         return aead_result(AeadError::not_initialized);
     const auto valid = aead_validate({reinterpret_cast<const u8*>(&key), sizeof(key)},
                                      {key.storage.data, key.storage.capacity}, 24, nonce, aad, input,
@@ -270,9 +262,7 @@ AeadResult crypt(XChaChaKey& key, ConstSlice<u8> nonce, ConstSlice<u8> aad, Cons
 AeadResult xchacha_initialize(XChaChaKey* key, ConstSlice<u8> secret, XChaChaBackend backend) noexcept {
     if (!key || key->storage.data || key->storage.locked || secret.count != 32 ||
         !byte_range_valid(secret) ||
-        byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}) ||
-        (backend != XChaChaBackend::automatic && backend != XChaChaBackend::cng &&
-         backend != XChaChaBackend::portable))
+        byte_ranges_overlap(secret, {reinterpret_cast<const u8*>(key), sizeof(*key)}))
         return aead_result(AeadError::invalid_input);
     ULONG bytes = 0, returned = 0;
     if (backend != XChaChaBackend::portable) {

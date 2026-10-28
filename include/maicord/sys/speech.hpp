@@ -49,7 +49,6 @@ enum SPVISEMES {
     SP_VISEME_17 = (SP_VISEME_16 + 1),
     SP_VISEME_18 = (SP_VISEME_17 + 1),
     SP_VISEME_19 = (SP_VISEME_18 + 1),
-    SP_VISEME_20 = (SP_VISEME_19 + 1),
 };
 struct __declspec(uuid("BE7A9CCE-5F9E-11D2-960F-00C04F8EE628")) __declspec(novtable) ISpEventSource : ISpNotifySource {
     MAICORD_COM_UNUSED(SetInterest);
@@ -83,7 +82,6 @@ enum SPEAKFLAGS {
     SPF_PARSE_SSML = (1L << 8),
     SPF_NLP_MASK = SPF_NLP_SPEAK_PUNC,
     SPF_PARSE_MASK = (SPF_PARSE_SAPI | SPF_PARSE_SSML),
-    SPF_VOICE_MASK = (((((((SPF_ASYNC | SPF_PURGEBEFORESPEAK) | SPF_IS_FILENAME) | SPF_IS_XML) | SPF_IS_NOT_XML) | SPF_NLP_MASK) | SPF_PERSIST_XML) | SPF_PARSE_MASK),
 };
 struct __declspec(uuid("6C44DF74-72B9-4992-A1EC-EF996E0422D4")) __declspec(novtable) ISpVoice : ISpEventSource {
     MAICORD_COM_UNUSED(SetOutput);

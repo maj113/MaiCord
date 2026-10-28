@@ -2,7 +2,6 @@
 
 #include "maicord/media/h264_references.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/dxva.hpp"
 
 namespace maicord {
@@ -55,25 +54,6 @@ inline void h264_dxva_picture_parameters(const H264Sps& a, const H264Pps& b, con
     }
     copy_bytes(matrix->bScalingLists4x4, b.scaling.list4x4, sizeof(matrix->bScalingLists4x4));
     copy_bytes(matrix->bScalingLists8x8, b.scaling.list8x8, sizeof(matrix->bScalingLists8x8));
-}
-
-// Copies bytes into the driver's mapped decoder buffer of the given type and
-// describes it for SubmitDecoderBuffers.
-inline HRESULT dxva_upload_buffer(ID3D11VideoContext* context, ID3D11VideoDecoder* decoder,
-                                  D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data, u32 bytes,
-                                  D3D11_VIDEO_DECODER_BUFFER_DESC* description) noexcept {
-    UINT capacity = 0;
-    void* destination = nullptr;
-    HRESULT status = context->GetDecoderBuffer(decoder, type, &capacity, &destination);
-    if (FAILED(status)) return status;
-    const bool fits = destination && bytes <= capacity;
-    if (fits) copy_bytes(destination, data, bytes);
-    status = context->ReleaseDecoderBuffer(decoder, type);
-    if (!fits) return E_OUTOFMEMORY;
-    reset_value(description);
-    description->BufferType = type;
-    description->DataSize = bytes;
-    return status;
 }
 
 } // namespace maicord

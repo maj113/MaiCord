@@ -21,23 +21,6 @@ bool busy(HRESULT status) noexcept {
     return status == E_PENDING || status == kDrawingBusy || status == DXGI_ERROR_WAS_STILL_DRAWING;
 }
 
-// Bitstream configuration (H.264 short slices 2, HEVC short slices 1, AV1 1) without encryption.
-HRESULT select_config(ID3D11VideoDevice* video, const D3D11_VIDEO_DECODER_DESC& description,
-                      u8 bitstream_raw, D3D11_VIDEO_DECODER_CONFIG* selected) noexcept {
-    UINT count = 0;
-    HRESULT status = video->GetVideoDecoderConfigCount(&description, &count);
-    for (UINT i = 0; SUCCEEDED(status) && i < count; ++i) {
-        D3D11_VIDEO_DECODER_CONFIG candidate{};
-        status = video->GetVideoDecoderConfig(&description, i, &candidate);
-        if (SUCCEEDED(status) && candidate.ConfigBitstreamRaw == bitstream_raw &&
-            bytes_equal(&candidate.guidConfigBitstreamEncryption, &DXVA_NoEncrypt, sizeof(GUID))) {
-            *selected = candidate;
-            return S_OK;
-        }
-    }
-    return FAILED(status) ? status : DXGI_ERROR_UNSUPPORTED;
-}
-
 struct Backend {
     const GUID* profile;
     u8 bitstream_raw;
@@ -189,7 +172,7 @@ HRESULT gpu_stream_create_decoder(GpuStream* stream, const GpuStreamDecoderDesc&
     }
     D3D11_VIDEO_DECODER_CONFIG selected{};
     if (SUCCEEDED(status))
-        status = select_config(stream->video, description, desc.bitstream_raw, &selected);
+        status = gpu_decoder_select_config(stream->video, description, desc.bitstream_raw, &selected);
     if (SUCCEEDED(status))
         status = stream->video->CreateVideoDecoder(&description, &selected, &stream->decoder);
     if (SUCCEEDED(status)) {
@@ -229,21 +212,10 @@ HRESULT gpu_stream_submit(GpuStream* stream, const GpuStreamSubmission& submissi
     u64 uploaded = 0;
     const auto upload = [&](D3D11_VIDEO_DECODER_BUFFER_TYPE type, ConstSlice<u8> data,
                             D3D11_VIDEO_DECODER_BUFFER_DESC* description) noexcept {
-        UINT capacity = 0;
-        void* destination = nullptr;
-        HRESULT result = stream->context->GetDecoderBuffer(stream->decoder, type, &capacity, &destination);
-        if (FAILED(result))
-            return result;
-        const bool fits = destination && data.count <= capacity;
-        if (fits)
-            copy_bytes(destination, data.data, data.count);
-        result = stream->context->ReleaseDecoderBuffer(stream->decoder, type);
-        if (!fits)
-            return E_OUTOFMEMORY;
-        reset_value(description);
-        description->BufferType = type;
-        description->DataSize = data.count;
-        uploaded += data.count;
+        const HRESULT result = gpu_decoder_upload_buffer(stream->context, stream->decoder, type, data.data,
+                                                         data.count, description);
+        if (SUCCEEDED(result))
+            uploaded += data.count;
         return result;
     };
     if (!stream->slice_entries) {
@@ -432,8 +404,8 @@ u32 gpu_stream_decoder_codecs(ID3D11Device* device) noexcept {
         D3D11_VIDEO_DECODER_CONFIG config{};
         if (SUCCEEDED(video->CheckVideoDecoderFormat(entry.profile, DXGI_FORMAT_NV12, &supported)) &&
             supported &&
-            SUCCEEDED(select_config(video, {*entry.profile, 1920, 1080, DXGI_FORMAT_NV12},
-                                    entry.bitstream_raw, &config)))
+            SUCCEEDED(gpu_decoder_select_config(video, {*entry.profile, 1920, 1080, DXGI_FORMAT_NV12},
+                                                entry.bitstream_raw, &config)))
             codecs |= 1u << codec;
     }
     video->Release();

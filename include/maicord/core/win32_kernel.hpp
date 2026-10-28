@@ -59,7 +59,6 @@
 #define TIMER_QUERY_STATE 0x0001
 #define TIMER_MODIFY_STATE 0x0002
 #define TIMER_ALL_ACCESS (STANDARD_RIGHTS_REQUIRED|SYNCHRONIZE| TIMER_QUERY_STATE|TIMER_MODIFY_STATE)
-#define PF_AVX2_INSTRUCTIONS_AVAILABLE 40
 #define SECTION_MAP_WRITE 0x0002
 #define SECTION_MAP_READ 0x0004
 #define PAGE_NOACCESS 0x01
@@ -386,17 +385,6 @@ struct _BY_HANDLE_FILE_INFORMATION {
 };
 typedef _BY_HANDLE_FILE_INFORMATION BY_HANDLE_FILE_INFORMATION;
 typedef _BY_HANDLE_FILE_INFORMATION* LPBY_HANDLE_FILE_INFORMATION;
-// <heapapi.h>
-struct _HEAP_SUMMARY {
-    DWORD cb;
-    SIZE_T cbAllocated;
-    SIZE_T cbCommitted;
-    SIZE_T cbReserved;
-    SIZE_T cbMaxReserve;
-};
-typedef _HEAP_SUMMARY HEAP_SUMMARY;
-typedef _HEAP_SUMMARY* PHEAP_SUMMARY;
-typedef PHEAP_SUMMARY LPHEAP_SUMMARY;
 // <synchapi.h>
 typedef RTL_SRWLOCK* PSRWLOCK;
 // <sysinfoapi.h>
@@ -568,7 +556,6 @@ extern "C" __declspec(dllimport) DWORD WINAPI ResumeThread(HANDLE hThread);
 extern "C" __declspec(dllimport) DWORD WINAPI GetPriorityClass(HANDLE hProcess);
 extern "C" __declspec(dllimport) BOOL WINAPI GetThreadTimes(HANDLE hThread, LPFILETIME lpCreationTime,
     LPFILETIME lpExitTime, LPFILETIME lpKernelTime, LPFILETIME lpUserTime);
-extern "C" __declspec(dllimport) BOOL WINAPI IsProcessorFeaturePresent(DWORD ProcessorFeature);
 extern "C" __declspec(dllimport) BOOL WINAPI GetProcessHandleCount(HANDLE hProcess, PDWORD pdwHandleCount);
 
 // <sysinfoapi.h>

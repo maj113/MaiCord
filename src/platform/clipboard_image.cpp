@@ -11,6 +11,7 @@ extern "C" __declspec(dllimport) unsigned long __stdcall RtlComputeCrc32(
 namespace maicord {
 namespace {
 constexpr u32 kStoredBlock = 65535;
+constexpr u8 kPngSignature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
 bool extent_valid(u32 width, u32 height) noexcept {
     return width && height && width <= kClipboardImageMaximumExtent && height <= kClipboardImageMaximumExtent;
 }
@@ -25,11 +26,13 @@ u32 crc32_update(u32 crc, const u8* data, u64 count) noexcept {
     }
     return crc;
 }
-void put_u32_be(u8* out, u32 value) noexcept {
-    out[0] = static_cast<u8>(value >> 24);
-    out[1] = static_cast<u8>(value >> 16);
-    out[2] = static_cast<u8>(value >> 8);
-    out[3] = static_cast<u8>(value);
+// A chunk at out: length, type, data (already in place when data is out + 8) and CRC; returns its end.
+u8* chunk(u8* out, const char* type, const u8* data, u32 bytes) noexcept {
+    byte_store_be32(out, bytes);
+    copy_bytes(out + 4, type, 4);
+    if (bytes && data != out + 8) copy_bytes(out + 8, data, bytes);
+    byte_store_be32(out + 8 + bytes, crc32_update(0, out + 4, 4 + u64{bytes}));
+    return out + 12 + bytes;
 }
 u64 raw_bytes(u32 width, u32 height) noexcept {
     return u64{height} * (1 + u64{width} * 4);
@@ -48,22 +51,14 @@ u64 clipboard_image_encode_png(const u8* rgba, u32 width, u32 height, u32 stride
     const u64 total = clipboard_image_png_bytes(width, height);
     if (!rgba || !total || stride < width * 4 || !output.data || output.count < total)
         return 0;
-    u8* out = output.data;
-    static constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
-    copy_bytes(out, signature, 8);
-    u8* ihdr = out + 8;
-    put_u32_be(ihdr, 13);
-    copy_bytes(ihdr + 4, "IHDR", 4);
-    put_u32_be(ihdr + 8, width);
-    put_u32_be(ihdr + 12, height);
-    ihdr[16] = 8; // bit depth
-    ihdr[17] = 6; // truecolor with alpha
-    ihdr[18] = ihdr[19] = ihdr[20] = 0;
-    put_u32_be(ihdr + 21, crc32_update(0, ihdr + 4, 17));
+    copy_bytes(output.data, kPngSignature, 8);
+    u8 header[13]{};
+    byte_store_be32(header, width);
+    byte_store_be32(header + 4, height);
+    header[8] = 8; // bit depth
+    header[9] = 6; // truecolor with alpha
+    u8* idat = chunk(output.data + 8, "IHDR", header, 13);
     const u64 raw = raw_bytes(width, height), zlib = zlib_bytes(raw);
-    u8* idat = ihdr + 25;
-    put_u32_be(idat, static_cast<u32>(zlib));
-    copy_bytes(idat + 4, "IDAT", 4);
     u8* z = idat + 8;
     z[0] = 0x78; // deflate, 32 KiB window
     z[1] = 0x01; // no preset dictionary, fastest; 0x7801 % 31 == 0
@@ -97,13 +92,9 @@ u64 clipboard_image_encode_png(const u8* rgba, u32 width, u32 height, u32 stride
         }
         emitted += block;
     } while (emitted < raw);
-    put_u32_be(z + cursor, (adler_b << 16) | adler_a);
-    cursor += 4;
-    put_u32_be(z + cursor, crc32_update(0, idat + 4, 4 + zlib));
-    u8* iend = z + cursor + 4;
-    put_u32_be(iend, 0);
-    copy_bytes(iend + 4, "IEND", 4);
-    put_u32_be(iend + 8, crc32_update(0, iend + 4, 4));
+    byte_store_be32(z + cursor, (adler_b << 16) | adler_a);
+    u8* iend = chunk(idat, "IDAT", z, static_cast<u32>(zlib));
+    chunk(iend, "IEND", nullptr, 0);
     return total;
 }
 u64 clipboard_image_dib_bytes(u32 width, u32 height) noexcept {
@@ -329,12 +320,6 @@ void filter_row(const u8* row, const u8* above, u32 bytes, u32 bpp, u8* out) noe
     out[0] = best;
     for (u32 x = 0; x < bytes; ++x) out[1 + x] = static_cast<u8>(row[x] - predict(best, row, above, x, bpp));
 }
-u8* chunk(u8* out, const char* type, const u8* data, u32 bytes) noexcept {
-    put_u32_be(out, bytes); copy_bytes(out + 4, type, 4);
-    if (bytes && data != out + 8) copy_bytes(out + 8, data, bytes);
-    put_u32_be(out + 8 + bytes, crc32_update(0, out + 4, 4 + u64{bytes}));
-    return out + 12 + bytes;
-}
 DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcept {
     Dib dib = source;
     const u32 w = dib.width, h = dib.height;
@@ -374,10 +359,9 @@ DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcep
         filter_row(row, y ? packed[(y + 1) & 1] : nullptr, row_bytes, channels, data + u64{y} * (1 + row_bytes));
     }
     unreserve(rows);
-    static constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
-    copy_bytes(png, signature, 8);
+    copy_bytes(png, kPngSignature, 8);
     u8 header[13]{};
-    put_u32_be(header, w); put_u32_be(header + 4, h);
+    byte_store_be32(header, w); byte_store_be32(header + 4, h);
     header[8] = 8; header[9] = channels == 4 ? 6 : 2;
     u8* idat = chunk(png + 8, "IHDR", header, 13);
     u8* z = idat + 8;
@@ -403,7 +387,7 @@ DWORD encode_dib_png(const Dib& source, u64 limit, ClipboardPng* output) noexcep
         for (; i < end; ++i) { a += data[i]; b += a; }
         a %= 65521; b %= 65521;
     }
-    put_u32_be(z + 2 + body, (b << 16) | a);
+    byte_store_be32(z + 2 + body, (b << 16) | a);
     const u64 zlib = 2 + body + 4;
     unreserve(filtered);
     u8* iend = chunk(idat, "IDAT", z, static_cast<u32>(zlib));
@@ -424,8 +408,7 @@ u32 clipboard_paste_plan(ClipboardPasteFormats formats, ClipboardPasteKind (&pla
     return count;
 }
 u64 clipboard_image_png_length(ConstSlice<u8> png) noexcept {
-    static constexpr u8 signature[]{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
-    if (!png.data || png.count < 8 + 25 + 12 || !bytes_equal(png.data, signature, 8) ||
+    if (!png.data || png.count < 8 + 25 + 12 || !bytes_equal(png.data, kPngSignature, 8) ||
         byte_load_be32(png.data + 8) != 13 || !bytes_equal(png.data + 12, "IHDR", 4))
         return 0;
     u64 cursor = 8;
