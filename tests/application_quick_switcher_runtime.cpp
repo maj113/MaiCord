@@ -468,7 +468,7 @@ bool queue_private_conversation(PrivateConversationOperation operation, u64 id) 
     quick_switcher_runtime_test::private_user = id;
     return quick_switcher_runtime_test::private_allowed;
 }
-bool application_navigate_notification(u64 channel_id, u64) noexcept {
+bool application_navigate_known_message(u64 channel_id, u64) noexcept {
     ++quick_switcher_runtime_test::channel_routes;
     quick_switcher_runtime_test::routed_channel = channel_id;
     auto& state = g_app.account_ui->chat_state;

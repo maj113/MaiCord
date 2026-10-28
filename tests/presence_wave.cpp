@@ -678,15 +678,6 @@ void requests() noexcept {
               private_channel_action_route(r).method == RestMethod::delete_method,
           "requests: ignore is DELETE recipients/@me");
     r = {};
-    r.kind = PrivateChannelActionKind::ignore_requests;
-    r.recipients[0] = 50;
-    r.recipients[1] = 51;
-    r.recipient_count = 2;
-    w = private_channel_action_write(r, {target, sizeof(target)}, {body, sizeof(body)});
-    check(w.ok && same_bytes(target, w.target_bytes, utf8_literal("/api/v9/channels/recipients/@me/batch-reject")) &&
-              same_bytes(body, w.body_bytes, utf8_literal(R"({"channel_ids":["50","51"]})")),
-          "requests: ignore all uses the batch reject endpoint");
-    r = {};
     r.kind = PrivateChannelActionKind::acknowledge_safety;
     r.channel_id = 50;
     r.recipients[0] = 900;

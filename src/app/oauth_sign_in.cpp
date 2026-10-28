@@ -6,6 +6,10 @@
 
 namespace maicord {
 namespace {
+// This worker keeps its own loopback listener instead of LoopbackServer: after the callback it spends
+// the state, closes the listener, replies synchronously and only then runs the blocking token exchange
+// on the same thread. LoopbackServer flushes the reply after its request hook returns, so the exchange
+// would precede the reply, and it has no hook that runs after the reply.
 using Phase = OAuthSignInPhase;
 struct Runtime {
     SRWLOCK lock;

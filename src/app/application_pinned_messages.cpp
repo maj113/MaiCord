@@ -231,7 +231,7 @@ bool activate(UiPinnedMessagesTarget target) noexcept {
     case UiPinnedMessagesAction::jump:
         if (!pinned_message_controller_select(&value->controller, target.message_id)) return true;
         if (value->scene.overlay) application_pinned_messages_close();
-        return application_navigate_notification(target.channel_id, target.message_id);
+        return application_navigate_known_message(target.channel_id, target.message_id);
     default: return true;
     }
     return repaint();

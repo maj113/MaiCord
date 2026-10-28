@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/core/win32_process.hpp"
 #include "maicord/sys/winsock.hpp"
 #include "maicord/platform/secure_buffer.hpp"
 
@@ -70,5 +71,73 @@ void loopback_destroy(LoopbackServer* server, u32 owner_bytes) noexcept;
 // block, the owner's handle and its own descriptor.
 bool loopback_external_output(const LoopbackServer* server, const void* handle, u32 handle_bytes,
                               u32 owner_bytes, const SecureBuffer* output) noexcept;
+
+// Helpers for the owners' runtime blocks. A runtime derives from
+// LoopbackServer and holds `status` (phase, error, native_error) after it; its
+// public phase/error enums share starting, waiting, stopping and stop.
+template <typename Runtime>
+inline constexpr u32 loopback_owner_bytes = static_cast<u32>((sizeof(Runtime) + 4095) & ~usize{4095});
+template <typename Runtime>
+using LoopbackPhase = decltype(static_cast<Runtime*>(nullptr)->status.phase);
+template <typename Runtime>
+using LoopbackError = decltype(static_cast<Runtime*>(nullptr)->status.error);
+template <typename Runtime>
+auto loopback_snapshot(Runtime* runtime) noexcept {
+    AcquireSRWLockShared(&runtime->lock);
+    const auto status = runtime->status;
+    ReleaseSRWLockShared(&runtime->lock);
+    return status;
+}
+// Moves a live attempt to its terminal phase and erases its secrets. Live(phase)
+// and Erase(runtime) are the owner's; Erase runs under the exclusive lock.
+template <auto Live, auto Erase, typename Runtime>
+void loopback_terminal(Runtime* runtime, LoopbackPhase<Runtime> phase, LoopbackError<Runtime> error,
+                       u32 native) noexcept {
+    AcquireSRWLockExclusive(&runtime->lock);
+    if (Live(runtime->status.phase)) {
+        runtime->status.phase = phase; runtime->status.error = error; runtime->status.native_error = native;
+        Erase(runtime);
+    }
+    ReleaseSRWLockExclusive(&runtime->lock);
+    loopback_notify(runtime);
+}
+// The profile's bound hook: the listener is ready, so the attempt starts waiting.
+template <typename Runtime>
+void loopback_bound(LoopbackServer* server, u16 port) noexcept {
+    auto* runtime = static_cast<Runtime*>(server);
+    AcquireSRWLockExclusive(&runtime->lock);
+    if (runtime->status.phase == LoopbackPhase<Runtime>::starting) {
+        runtime->status.port = port;
+        runtime->status.phase = LoopbackPhase<Runtime>::waiting;
+    }
+    ReleaseSRWLockExclusive(&runtime->lock);
+    loopback_notify(runtime);
+}
+// Joins the worker after the owner cancelled under its lock. *joined false
+// leaves the runtime live in the stopping phase for a retry; the returned
+// status is the one to report either way.
+template <typename Runtime>
+auto loopback_stop_worker(Runtime* runtime, u32 timeout_ms, bool* joined) noexcept {
+    const DWORD waited = loopback_join(runtime, timeout_ms);
+    *joined = waited == WAIT_OBJECT_0;
+    if (*joined) return loopback_snapshot(runtime);
+    AcquireSRWLockExclusive(&runtime->lock);
+    runtime->status.phase = LoopbackPhase<Runtime>::stopping; runtime->status.error = LoopbackError<Runtime>::stop;
+    runtime->status.native_error = waited == WAIT_TIMEOUT ? WAIT_TIMEOUT : thread_last_error();
+    const auto status = runtime->status;
+    ReleaseSRWLockExclusive(&runtime->lock);
+    return status;
+}
+// Frees the runtime block behind an owner handle and clears the handle.
+template <typename Runtime, typename Owner>
+void loopback_release(Owner* owner) noexcept {
+    auto* runtime = static_cast<Runtime*>(owner->runtime);
+    if (!runtime) return;
+    loopback_destroy(runtime, loopback_owner_bytes<Runtime>); owner->runtime = nullptr;
+}
+// The copy_url/take result: success, else invalid input (or output_too_small
+// when capacity) with the bytes the writer reported.
+SecureBufferResult loopback_output_result(bool ok, bool capacity, u32 bytes) noexcept;
+inline SecureBufferResult loopback_output_error() noexcept { return loopback_output_result(false, false, 0); }
 
 } // namespace maicord

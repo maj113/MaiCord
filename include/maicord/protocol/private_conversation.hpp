@@ -25,7 +25,6 @@ enum class PrivateChannelActionKind : u8 {
     // Message requests and DM safety.
     accept_request,   // PUT /channels/{id}/recipients/@me {"consent_status":2}
     ignore_request,   // DELETE /channels/{id}/recipients/@me
-    ignore_requests,  // PUT /channels/recipients/@me/batch-reject {"channel_ids":[recipients...]}
     acknowledge_safety, // POST /channels/{id}/safety-warnings/ack {"warning_ids":[recipients...]}
 };
 struct PrivateChannelActionRequest {

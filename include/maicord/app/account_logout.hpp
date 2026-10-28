@@ -26,7 +26,6 @@ struct AccountLogoutResponse {
 
 struct AccountLogoutResult {
     RestClientSubmitError submit_error;
-    RestClientTakeError take_error;
     bool cancelled;
     bool consumed;
 };
@@ -46,6 +45,6 @@ AccountLogoutResult account_logout(RestClient* primary, AccountLogoutOperation o
 bool account_logout_request_valid(const RestClientRequest& request) noexcept;
 
 static_assert(sizeof(AccountLogoutResponse) == 32);
-static_assert(sizeof(AccountLogoutResult) == 4);
+static_assert(sizeof(AccountLogoutResult) == 3);
 
 } // namespace maicord

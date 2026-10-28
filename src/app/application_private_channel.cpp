@@ -90,8 +90,7 @@ Utf8View error_text(const PrivateChannelActionController& c) noexcept {
     case PrivateChannelActionKind::rename: return utf8_literal("Couldn't rename the group.");
     case PrivateChannelActionKind::leave: return utf8_literal("Couldn't leave the group.");
     case PrivateChannelActionKind::accept_request: return utf8_literal("Couldn't accept the message request.");
-    case PrivateChannelActionKind::ignore_request:
-    case PrivateChannelActionKind::ignore_requests: return utf8_literal("Couldn't ignore the message request.");
+    case PrivateChannelActionKind::ignore_request: return utf8_literal("Couldn't ignore the message request.");
     case PrivateChannelActionKind::acknowledge_safety: return utf8_literal("Couldn't dismiss the warning.");
     default: return utf8_literal("Something went wrong. Try again.");
     }
@@ -116,7 +115,7 @@ bool application_private_channel_submit(u64 request_id, u64 now_ms) noexcept {
     auto& c = g_private.controller;
     // Membership may have changed while the request waited for the lane.
     const auto kind = c.request.kind;
-    if (kind != PrivateChannelActionKind::create && kind != PrivateChannelActionKind::ignore_requests &&
+    if (kind != PrivateChannelActionKind::create &&
         !private_channel_member_count(state(), c.request.channel_id)) {
         reset_value(&c);
         return false;
@@ -160,8 +159,8 @@ bool application_private_channel_response(const RestClientResponse& response, Ut
         return true;
     }
     if (kind == PrivateChannelActionKind::create || kind == PrivateChannelActionKind::leave ||
-        kind == PrivateChannelActionKind::ignore_request || kind == PrivateChannelActionKind::ignore_requests ||
-        kind == PrivateChannelActionKind::accept_request || selected != ui.chat_state.selected_channel_id) {
+        kind == PrivateChannelActionKind::ignore_request || kind == PrivateChannelActionKind::accept_request ||
+        selected != ui.chat_state.selected_channel_id) {
         // The last request handled returns the list to conversations.
         if (g_private.requests_mode && !application_private_channel_request_count())
             g_private.requests_mode = false;
@@ -297,7 +296,7 @@ bool application_private_channel_menu_action(u32 action, u64 owner_id, bool shif
         if (action == popup_action_private_call_decline) {
             *applied = started(private_channel_begin_ring(&g_private.controller, state(), call, true));
         } else
-            *applied = application_voice_join(0, call) && application_navigate_notification(call, 0);
+            *applied = application_voice_join(0, call) && application_navigate_known_message(call, 0);
         return true;
     }
     if (action == popup_action_private_notice_dismiss && g_app.popup_owner_kind == PopupOwnerKind::private_notice) {

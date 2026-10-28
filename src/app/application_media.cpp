@@ -257,20 +257,23 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         return false;
     if (!visibility_only && uploads >= kMessageMediaUploadBudget)
         return true;
-    enum class Walk : u8 { next, stopped, failed };
+    // `stop` is the requests' stop-scan flag and stays false while the scan goes on. When proceed()
+    // returns false the scan ends with `outcome` (false: a request failed).
+    bool stop = false, outcome = true;
+    const auto proceed = [&](bool ok) noexcept {
+        outcome = ok;
+        return ok && !stop;
+    };
     // Requests a card's plain media parts (no banner fallback handling).
     const auto request_parts = [&](const ProfileScene& scene) noexcept {
         for (u32 i = 0; i < scene.part_count; ++i) {
             ProfileMedia media;
             if (!profile_media_resolve(scene, i, &media) || media.domain || !media.url.bytes)
                 continue;
-            bool stop = false;
-            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
-                return Walk::failed;
-            if (stop)
-                return Walk::stopped;
+            if (!proceed(request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+                return false;
         }
-        return Walk::next;
+        return true;
     };
     // Requests a card's effect layers; playback starts once every layer is resident.
     const auto request_effects = [&](ProfileScene& scene) noexcept {
@@ -279,17 +282,16 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             ProfileMedia media;
             if (!profile_effect_media_resolve(scene, i, now_ms, &media))
                 continue;
-            bool stop = false;
-            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop,
-                                       scene.effect_started_ms != 0))
-                return Walk::failed;
-            ready = ready && media_atlas_find(application.renderer.media_atlas, media.key).ok();
-            if (stop)
-                return Walk::stopped;
+            const bool requested = request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop,
+                                                         scene.effect_started_ms != 0);
+            if (requested)
+                ready = ready && media_atlas_find(application.renderer.media_atlas, media.key).ok();
+            if (!proceed(requested))
+                return false;
         }
         if (!visibility_only && scene.effect && scene.effect->count && !scene.effect_started_ms && ready)
             scene.effect_started_ms = now_ms + 500;
-        return Walk::next;
+        return true;
     };
     if (application.profile && application.profile->scene.active) {
         auto& profile = application.profile->scene;
@@ -299,7 +301,6 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             if (!profile_media_resolve(profile, i, &media) || media.domain)
                 continue;
             AccountMediaRequestResult failed{};
-            bool stop = false;
             if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop, true,
                                        &failed))
                 return false;
@@ -318,8 +319,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             if (stop)
                 return true;
         }
-        if (const auto walked = request_effects(profile); walked != Walk::next)
-            return walked == Walk::stopped;
+        if (!request_effects(profile))
+            return outcome;
     }
     // The selected server's banner: its animation first while it plays, then
     // the still it falls back to. A stopped animation gives back its playback.
@@ -339,7 +340,6 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             media.url.bytes = static_cast<u16>(banner[i].url.bytes);
             media.key = banner[i].key;
             AccountMediaRequestResult failed{};
-            bool stop = false;
             if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop, banner[i].play,
                                        &failed))
                 return false;
@@ -352,26 +352,20 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
     }
     // The DM profile panel beside a one-to-one DM (no profile effect).
     if (const auto* panel = application.renderer.dm_profile_panel; panel && panel->active && content_media_visible())
-        if (const auto walked = request_parts(*panel); walked != Walk::next)
-            return walked == Walk::stopped;
+        if (!request_parts(*panel))
+            return outcome;
     // The profile editor's preview card and its picker tiles (CDN images;
     // picked images are local previews and never fetched).
-    if (auto* preview = application_profile_editor_preview()) {
-        if (const auto walked = request_parts(*preview); walked != Walk::next)
-            return walked == Walk::stopped;
-        if (const auto walked = request_effects(*preview); walked != Walk::next)
-            return walked == Walk::stopped;
-    }
+    if (auto* preview = application_profile_editor_preview())
+        if (!request_parts(*preview) || !request_effects(*preview))
+            return outcome;
     if (const auto* dialog = application_profile_editor_dialog()) {
         ProfileMedia media;
         for (u32 i = 0; ui_profile_dialog_media(*dialog, i, &media); ++i) {
             if (media.domain || !media.url.bytes)
                 continue;
-            bool stop = false;
-            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
-                return false;
-            if (stop)
-                return true;
+            if (!proceed(request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+                return outcome;
         }
     }
     // An expanded attachment is the foreground media consumer. Reuse the
@@ -399,14 +393,11 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                                                            &selected)) {
                         const float extent = static_cast<float>(media_preview_extent_cap(selected.format, selected.animated)) *
                                              96.0f / application.renderer.dpi;
-                        bool stop = false;
-                        if (!request_visible_embed_media(*message, *rich, index, extent, extent, now_ms,
-                                                         now_seconds, &uploads, repaint, &stop,
-                                                         selected.resource == MediaEmbedResource::thumbnail,
-                                                         search_store))
-                            return false;
-                        if (stop)
-                            return true;
+                        if (!proceed(request_visible_embed_media(*message, *rich, index, extent, extent, now_ms,
+                                                                 now_seconds, &uploads, repaint, &stop,
+                                                                 selected.resource == MediaEmbedResource::thumbnail,
+                                                                 search_store)))
+                            return outcome;
                     }
                 }
             } else
@@ -416,13 +407,10 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                             static_cast<float>(media_preview_extent_cap(
                                 message_rich_attachment_format(rich_store, rich->attachments[i]))) *
                             96.0f / application.renderer.dpi;
-                        bool stop = false;
-                        if (!request_visible_attachment(*message, rich->attachments[i], extent, extent,
-                                                        now_ms, now_seconds, &uploads, repaint, &stop,
-                                                        search_store, source.snapshot))
-                            return false;
-                        if (stop)
-                            return true;
+                        if (!proceed(request_visible_attachment(*message, rich->attachments[i], extent, extent,
+                                                                now_ms, now_seconds, &uploads, repaint, &stop,
+                                                                search_store, source.snapshot)))
+                            return outcome;
                         break;
                     }
             }
@@ -440,13 +428,11 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             const auto* user = user_store_find(application.account_ui->user_store, composer.command.bot_id);
             const auto key = media_asset_user_avatar(composer.command.bot_id, composer.command.avatar_variant,
                                                      composer.command.animated);
-            bool force = false, stop = false;
+            bool force = false;
             const bool resident = composer.command.animated && animation_resident(key, now_us, &force);
-            if (user && !resident &&
-                !request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, &stop, force))
-                return false;
-            if (stop)
-                return true;
+            if (!proceed(!user || resident ||
+                         request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, &stop, force)))
+                return outcome;
         }
         for (u32 i = 0; i < composer.projection_span_count; ++i) {
             UiRect rectangle{}, clip{};
@@ -460,11 +446,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             bool force = false;
             if (span.animated && animation_resident(key, now_us, &force))
                 continue;
-            bool stop = false;
-            if (!request_visible_static_media(key, now_ms, now_seconds, &uploads, repaint, &stop, force))
-                return false;
-            if (stop)
-                return true;
+            if (!proceed(request_visible_static_media(key, now_ms, now_seconds, &uploads, repaint, &stop, force)))
+                return outcome;
         }
     }
     if (application.popup_scene.active) {
@@ -484,7 +467,6 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             bool force_request = false;
             if (animated && animation_resident(key, now_us, &force_request))
                 continue;
-            bool stop_scan = false;
             const auto* user =
                 command.avatar
                     ? user_store_find(application.account_ui->user_store, command.media_id)
@@ -493,19 +475,15 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                                     ? chat_state_store_find_guild(application.account_ui->chat_state,
                                                                      command.media_id)
                                     : nullptr;
-            if (!(command.guild_icon
-                      ? (!guild || request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads,
-                                                              repaint, &stop_scan, force_request))
-                  : command.avatar
-                      ? (!user || request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint,
-                                                              &stop_scan, force_request))
-                      : request_visible_static_media(key, now_ms, now_seconds, &uploads, repaint,
-                                                     &stop_scan, force_request))) {
-                return false;
-            }
-            if (stop_scan) {
-                return true;
-            }
+            if (!proceed(command.guild_icon
+                             ? (!guild || request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads,
+                                                                     repaint, &stop, force_request))
+                         : command.avatar
+                             ? (!user || request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint,
+                                                                     &stop, force_request))
+                             : request_visible_static_media(key, now_ms, now_seconds, &uploads, repaint,
+                                                            &stop, force_request)))
+                return outcome;
         }
     }
 
@@ -531,14 +509,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             bool force_request = false;
             if (animated && animation_resident(key, now_us, &force_request))
                 continue;
-            bool stop_scan = false;
-            if (!request_visible_static_media(key, now_ms, now_seconds, &uploads, repaint, &stop_scan,
-                                              force_request)) {
-                return false;
-            }
-            if (stop_scan) {
-                return true;
-            }
+            if (!proceed(request_visible_static_media(key, now_ms, now_seconds, &uploads, repaint, &stop,
+                                                      force_request)))
+                return outcome;
         }
         for (u32 index = viewer.first_user; index < viewer.user_count; ++index) {
             if (!ui_rect_has_area(reaction_viewer_user_rectangle(viewer, index))) {
@@ -552,14 +525,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             bool force_request = false;
             if (animated && media_asset_key_valid(key) && animation_resident(key, now_us, &force_request))
                 continue;
-            bool stop_scan = false;
-            if (!request_visible_user_avatar_value(user.id, hash, now_ms, now_seconds, &uploads, repaint,
-                                                   &stop_scan, force_request)) {
-                return false;
-            }
-            if (stop_scan) {
-                return true;
-            }
+            if (!proceed(request_visible_user_avatar_value(user.id, hash, now_ms, now_seconds, &uploads, repaint,
+                                                           &stop, force_request)))
+                return outcome;
         }
     }
 
@@ -572,33 +540,21 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
     const MessageMediaControllerCallbacks message_media_callbacks{
         &message_media_context, request_controller_attachment, request_controller_embed,
         request_controller_avatar, request_controller_asset};
-    bool friends_stop = false;
-    if (!request_friends_avatars(now_ms, now_seconds, now_us, &uploads, repaint, &friends_stop))
-        return false;
-    if (friends_stop)
-        return true;
+    if (!proceed(request_friends_avatars(now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+        return outcome;
     // Foreground results take priority for the primary preview before the underlying
     // conversation can occupy the single-flight media worker with a cold miss.
-    bool search_stop = false;
-    if (!request_search_previews(now_ms, now_seconds, &uploads, repaint, &search_stop))
-        return false;
-    if (search_stop)
-        return true;
+    if (!proceed(request_search_previews(now_ms, now_seconds, &uploads, repaint, &stop)))
+        return outcome;
     // Foreground panels (pins, search) borrow tiny author avatars. Service them
     // before the conversation underneath, whose cold media or playing animations
     // can keep the single-flight worker busy and stop this scan every frame.
     // Pins borrow author hashes from the accepted visible page through
     // the shared avatar cache, including authors absent from the live timeline.
-    bool pins_stop = false;
-    if (!request_pinned_messages_avatars(now_ms, now_seconds, now_us, &uploads, repaint, &pins_stop))
-        return false;
-    if (pins_stop)
-        return true;
-    bool forum_stop = false;
-    if (!request_forum_avatars(now_ms, now_seconds, now_us, &uploads, repaint, &forum_stop))
-        return false;
-    if (forum_stop)
-        return true;
+    if (!proceed(request_pinned_messages_avatars(now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+        return outcome;
+    if (!proceed(request_forum_avatars(now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+        return outcome;
 
     // Search uses author hashes from its accepted page, including authors that
     // have never appeared in the selected conversation's user cache, then the
@@ -615,12 +571,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
                 return true;
-            bool stop = false;
-            if (!request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, &uploads,
-                                                   repaint, &stop, force))
-                return false;
-            if (stop)
-                return true;
+            if (!proceed(request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, &uploads,
+                                                           repaint, &stop, force)))
+                return outcome;
         }
     }
 
@@ -634,28 +587,20 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
                 return true;
-            bool stop = false;
             const auto* guild = media.key.kind == MediaAssetKind::guild_icon
                                     ? chat_state_store_find_guild(state, media.key.id)
                                     : nullptr;
-            if (media.key.kind == MediaAssetKind::guild_icon
-                    ? guild && !request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads, repaint, &stop,
-                                                           false, false)
-                    : !request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, &uploads,
-                                                         repaint, &stop, false))
-                return false;
-            if (stop)
-                return true;
+            if (!proceed(media.key.kind == MediaAssetKind::guild_icon
+                             ? !guild || request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads, repaint,
+                                                                    &stop, false, false)
+                             : request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds,
+                                                                 &uploads, repaint, &stop, false)))
+                return outcome;
         }
     }
 
-    {
-        bool stop = false;
-        if (!request_forward_identities(now_ms, now_seconds, &uploads, repaint, &stop))
-            return false;
-        if (stop)
-            return true;
-    }
+    if (!proceed(request_forward_identities(now_ms, now_seconds, &uploads, repaint, &stop)))
+        return outcome;
 
     // Inbox mention cards and poll voter rows borrow their page's author hashes.
     if (d3d11_renderer_inbox_visible(application.renderer)) {
@@ -666,12 +611,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
                 return true;
-            bool stop = false;
-            if (!request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, &uploads,
-                                                   repaint, &stop, false))
-                return false;
-            if (stop)
-                return true;
+            if (!proceed(request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, &uploads,
+                                                           repaint, &stop, false)))
+                return outcome;
         }
     }
     if (d3d11_renderer_poll_voters_visible(application.renderer)) {
@@ -682,12 +624,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 continue;
             if (!visibility_only && uploads >= kMessageMediaUploadBudget)
                 return true;
-            bool stop = false;
-            if (!request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, &uploads,
-                                                   repaint, &stop, false))
-                return false;
-            if (stop)
-                return true;
+            if (!proceed(request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, &uploads,
+                                                           repaint, &stop, false)))
+                return outcome;
         }
     }
 
@@ -736,14 +675,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             // icon URL: .webp?size=N, the CDN's representative frame) and
             // swaps in the animation only while the server's own row is
             // hovered; folder previews and other rows keep the still.
-            bool stop_scan = false;
-            if (!request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads, repaint, &stop_scan, false,
-                                            false)) {
-                return false;
-            }
-            if (stop_scan) {
-                return true;
-            }
+            if (!proceed(request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads, repaint, &stop, false,
+                                                    false)))
+                return outcome;
             const bool hovered = guild_id == row.view.id &&
                                  guild_rail_scene_resolve(application.guild_rail_scene,
                                                           application.guild_rail_scene.widgets.hovered) == &row;
@@ -753,17 +687,13 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             bool force = false;
             if (animation_resident(key, now_us, &force))
                 continue;
-            if (!request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads, repaint, &stop_scan,
-                                            force, true)) {
-                return false;
-            }
-            if (stop_scan) {
-                return true;
-            }
+            if (!proceed(request_visible_guild_icon(*guild, now_ms, now_seconds, &uploads, repaint, &stop, force,
+                                                    true)))
+                return outcome;
         }
     }
     // A held avatar (play false) keeps its current frame.
-    const auto request_avatar = [&](const UserRecord* user, bool* stop_scan, bool play) noexcept {
+    const auto request_avatar = [&](const UserRecord* user, bool play) noexcept {
         if (!user || !user->avatar_hash_bytes)
             return true;
         const Utf8View hash = user_store_avatar_hash(*user);
@@ -775,22 +705,18 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             animation_resident(media_asset_user_avatar(user->id, variant, true), now_us, &force_request,
                                play))
             return true;
-        return request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, stop_scan,
+        return request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, &stop,
                                            force_request);
     };
-    bool footer_stop = false;
     // A fullscreen call covers the account panel: its avatar neither loads
     // nor keeps an animated avatar advancing frames underneath.
     const auto* covering_call = application.renderer.call_scene;
     const bool footer_covered = covering_call && covering_call->active && covering_call->fullscreen;
     // The official client's account panel requests a still (non-animated) avatar.
-    if (!footer_covered &&
-        !request_avatar(user_store_find(application.account_ui->user_store,
-                                                application.account_ui->chat_state.self_user_id),
-                        &footer_stop, false))
-        return false;
-    if (footer_stop)
-        return true;
+    if (!proceed(footer_covered || request_avatar(user_store_find(application.account_ui->user_store,
+                                                                  application.account_ui->chat_state.self_user_id),
+                                                  false)))
+        return outcome;
     // Call view tiles show avatars until a camera picture is resident. A tile
     // drawing its picture (or a stream tile) shows no avatar, so an animated
     // avatar there must not advance frames nobody sees.
@@ -806,33 +732,21 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                                  media_asset_call_video(tile_media.user_id, tile_media.video_ssrc))
                     .ok())
                 continue;
-            bool stop_scan = false;
-            if (!request_avatar(user_store_find(application.account_ui->user_store, call->tiles[i].user_id),
-                                &stop_scan, true))
-                return false;
-            if (stop_scan)
-                return true;
+            if (!proceed(request_avatar(user_store_find(application.account_ui->user_store, call->tiles[i].user_id), true)))
+                return outcome;
         }
     // Stage audience and hand-raise rows.
     if (const auto* call = application.renderer.call_scene; call && call->active) {
         UiCallTileMedia stage_avatar{};
-        for (u32 i = 0; ui_call_scene_stage_avatar(*call, i, &stage_avatar); ++i) {
-            bool stop_scan = false;
-            if (!request_avatar(user_store_find(application.account_ui->user_store, stage_avatar.user_id),
-                                &stop_scan, true))
-                return false;
-            if (stop_scan)
-                return true;
-        }
+        for (u32 i = 0; ui_call_scene_stage_avatar(*call, i, &stage_avatar); ++i)
+            if (!proceed(request_avatar(user_store_find(application.account_ui->user_store, stage_avatar.user_id), true)))
+                return outcome;
     }
     // Go Live previews: the hover card and visible stream tiles.
-    bool preview_stop = false;
-    if (!request_stream_previews(now_ms, now_seconds, &uploads, repaint, &preview_stop))
-        return false;
-    if (preview_stop)
-        return true;
+    if (!proceed(request_stream_previews(now_ms, now_seconds, &uploads, repaint, &stop)))
+        return outcome;
     // Custom group DM icons replace the generated member stack.
-    const auto request_group_icon = [&](u64 channel_id, bool* handled, bool* stop_scan, bool play) noexcept {
+    const auto request_group_icon = [&](u64 channel_id, bool* handled, bool play) noexcept {
         const Utf8View custom = ui_private_row_custom_icon(application.account_ui->chat_state, channel_id);
         *handled = custom.bytes != 0;
         if (!*handled)
@@ -842,22 +756,22 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         if ((key.flags & media_asset_flag_animated) &&
             animation_resident(key, now_us, &force_request, play))
             return true;
-        return request_visible_hashed_identity(key, custom, now_ms, now_seconds, &uploads, repaint, stop_scan,
+        return request_visible_hashed_identity(key, custom, now_ms, now_seconds, &uploads, repaint, &stop,
                                                force_request);
     };
     // A conversation's custom icon, else the avatars of its (up to two) members.
-    const auto request_conversation = [&](u64 channel_id, bool play, bool* stop_scan) noexcept {
+    const auto request_conversation = [&](u64 channel_id, bool play) noexcept {
         bool custom_icon = false;
-        if (!request_group_icon(channel_id, &custom_icon, stop_scan, play))
+        if (!request_group_icon(channel_id, &custom_icon, play))
             return false;
-        if (*stop_scan || custom_icon)
+        if (stop || custom_icon)
             return true;
         u64 people[2]{};
         const u32 count = ui_private_row_group_members(application.account_ui->chat_state, channel_id, people);
         for (u32 j = 0; j < count; ++j) {
-            if (!request_avatar(user_store_find(application.account_ui->user_store, people[j]), stop_scan, play))
+            if (!request_avatar(user_store_find(application.account_ui->user_store, people[j]), play))
                 return false;
-            if (*stop_scan)
+            if (stop)
                 return true;
         }
         return true;
@@ -867,11 +781,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         const auto& row = application.guild_rail_scene.rows[i];
         if (row.view.folder_role != GuildFolderRole::conversation)
             continue;
-        bool stop_scan = false;
-        if (!request_conversation(row.view.id, false, &stop_scan))
-            return false;
-        if (stop_scan)
-            return true;
+        if (!proceed(request_conversation(row.view.id, false)))
+            return outcome;
     }
     if (application.shell_navigation_scene.active) {
         const auto& scene = application.shell_navigation_scene;
@@ -885,19 +796,13 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 continue;
             // As in the official client's DM list: the open (selected) or hovered conversation.
             const bool row_plays = avatar_row_animates(hovered_row == &row || row.view.selected);
-            bool stop_scan = false;
-            if (!request_conversation(row.view.id, row_plays, &stop_scan))
-                return false;
-            if (stop_scan)
-                return true;
+            if (!proceed(request_conversation(row.view.id, row_plays)))
+                return outcome;
         }
         // The conversation header repeats the selected row's avatars, still.
         if (application.shell_scene.view == UiShellView::private_channels) {
-            bool stop_scan = false;
-            if (!request_conversation(application.account_ui->chat_state.selected_channel_id, false, &stop_scan))
-                return false;
-            if (stop_scan)
-                return true;
+            if (!proceed(request_conversation(application.account_ui->chat_state.selected_channel_id, false)))
+                return outcome;
         }
         for (u32 i = 0; i < scene.count; ++i) {
             const auto& row = scene.rows[i];
@@ -909,13 +814,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 if (!ui_rect_has_area(ui_rect_intersection(voice.avatar, scene.viewport)))
                     continue;
                 // Voice participant rows show still avatars in the official client.
-                bool stop_scan = false;
-                if (!request_avatar(user_store_find(application.account_ui->user_store,
-                                                            voice.state->user_id),
-                                    &stop_scan, false))
-                    return false;
-                if (stop_scan)
-                    return true;
+                if (!proceed(request_avatar(user_store_find(application.account_ui->user_store, voice.state->user_id),
+                                            false)))
+                    return outcome;
             }
         }
     }
@@ -946,11 +847,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 media.url.bytes = static_cast<u16>(resolved.url.bytes);
                 media.rectangle = node->rectangle;
                 media.clip = scene.viewport;
-                bool stop = false;
-                if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
-                    return false;
-                if (stop)
-                    return true;
+                if (!proceed(request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+                    return outcome;
             }
             // Embed author/footer icons: proxied URLs, only while visible.
             for (u32 e = 0; rich && rich->message_revision == record->revision && message_rich_display().embeds &&
@@ -978,11 +876,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                     media.url.bytes = static_cast<u16>(urls[icon].bytes);
                     media.rectangle = icons[icon];
                     media.clip = scene.viewport;
-                    bool stop = false;
-                    if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
-                        return false;
-                    if (stop)
-                        return true;
+                    if (!proceed(request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+                        return outcome;
                 }
             }
             InviteLink links[kMessageInviteCardMaximum];
@@ -1011,11 +906,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                                                         MediaAttachmentFormat::png);
                 media.rectangle = message_invite_card_geometry(node->rectangle).icon;
                 media.clip = scene.viewport;
-                bool stop = false;
-                if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
-                    return false;
-                if (stop)
-                    return true;
+                if (!proceed(request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+                    return outcome;
             }
         }
         for (u32 i = 0; i < application.message_scene.count; ++i) {
@@ -1036,11 +928,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 !user_guild_badge_media(*appearance, layout->rectangle, application.message_scene.viewport,
                                         &media))
                 continue;
-            bool stop = false;
-            if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
-                return false;
-            if (stop)
-                return true;
+            if (!proceed(request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+                return outcome;
         }
     }
     if (chat_visible && application.member_list_scene.active && application.member_list_scene.users) {
@@ -1069,12 +958,9 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
             MemberAvatarMedia media{};
             if (!member_plain_avatar_resolve(members, visible, &media))
                 continue;
-            bool stop = false;
-            if (!request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, &uploads,
-                                                   repaint, &stop, force))
-                return false;
-            if (stop)
-                return true;
+            if (!proceed(request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, &uploads,
+                                                           repaint, &stop, force)))
+                return outcome;
         }
         for (u32 visible = 0; visible < members.count; ++visible) {
             const MemberListRowWidget& row = members.rows[visible];
@@ -1098,11 +984,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
                 if (visibility_only ||
                     !member_media_resolve(members, visible, static_cast<MemberMedia>(layer), &media))
                     continue;
-                bool stop = false;
-                if (!request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop))
-                    return false;
-                if (stop)
-                    return true;
+                if (!proceed(request_profile_media(media, now_ms, now_seconds, now_us, &uploads, repaint, &stop)))
+                    return outcome;
             }
         }
     }
@@ -1120,11 +1003,8 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
         if (decorations.stopped)
             return true;
     }
-    bool decorations_stop = false;
-    if (!request_search_decorations(now_ms, now_seconds, now_us, &uploads, repaint, &decorations_stop))
-        return false;
-    if (decorations_stop || !chat_visible)
-        return true;
+    if (!proceed(request_search_decorations(now_ms, now_seconds, now_us, &uploads, repaint, &stop)) || !chat_visible)
+        return outcome;
     if (visibility_only || uploads >= kMessageMediaUploadBudget)
         return true;
     // Load a bounded neighborhood only after all visible surfaces. This pass

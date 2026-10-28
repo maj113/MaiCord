@@ -180,5 +180,9 @@ bool loopback_external_output(const LoopbackServer* server, const void* handle, 
         !byte_ranges_overlap(descriptor, storage) && !byte_ranges_overlap(descriptor, runtime) &&
         !byte_ranges_overlap(descriptor, owner);
 }
+SecureBufferResult loopback_output_result(bool ok, bool capacity, u32 bytes) noexcept {
+    if (ok) return {bytes, 0, SecureBufferError::none};
+    return {bytes, ERROR_INVALID_PARAMETER, capacity ? SecureBufferError::output_too_small : SecureBufferError::invalid_input};
+}
 
 } // namespace maicord

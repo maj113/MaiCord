@@ -1756,16 +1756,14 @@ AccountLogoutResult WINAPI module_logout(void* instance, AccountLogoutOperation 
                                          AccountLogoutResponse* response) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     if (!runtime || !request_id)
-        return {RestClientSubmitError::invalid_input, RestClientTakeError::invalid_input,
-                false, false};
+        return {RestClientSubmitError::invalid_input, false, false};
     if (operation == AccountLogoutOperation::begin) {
         if ((runtime->logout_request_id && runtime->logout_request_id != request_id) ||
             runtime->logout_submitted)
-            return {RestClientSubmitError::busy, RestClientTakeError::empty, false, false};
+            return {RestClientSubmitError::busy, false, false};
         runtime->logout_request_id = request_id;
     } else if (runtime->logout_request_id != request_id) {
-        return {RestClientSubmitError::invalid_input, RestClientTakeError::empty, false,
-                false};
+        return {RestClientSubmitError::invalid_input, false, false};
     }
     // A 401 can fail the coordinator before the UI reads this response. The
     // PRIMARY worker stays alive until module_stop joins it.

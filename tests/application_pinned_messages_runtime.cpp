@@ -389,7 +389,7 @@ bool application_settings_active() noexcept { return false; }
 bool application_friends_active() noexcept { return false; }
 void application_composer_text_input_suspend() noexcept {}
 bool application_search_close_panel() noexcept { return true; }
-bool application_navigate_notification(u64 channel, u64 message) noexcept {
+bool application_navigate_known_message(u64 channel, u64 message) noexcept {
     ++pins_runtime_test::navigations;
     pins_runtime_test::navigated_channel = channel;
     pins_runtime_test::navigated_message = message;

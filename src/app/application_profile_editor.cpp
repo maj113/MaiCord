@@ -1150,8 +1150,8 @@ bool prepare_uri(Picked& picked) noexcept {
         return true;
     if (!picked.data || !g_app.account.api.profile_image)
         return false;
-    const u32 capacity = account_profile_image_uri_capacity(picked.info);
-    auto* uri = static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* uri = static_cast<u8*>(
+        VirtualAlloc(nullptr, kAccountProfileImageUriCapacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!uri)
         return false;
     ProfileImageRequest request{};
@@ -1159,7 +1159,7 @@ bool prepare_uri(Picked& picked) noexcept {
     request.crop = image_crop_output(picked.crop);
     ProfileImageInfo info{};
     request.info = &info;
-    request.data_uri = {uri, capacity};
+    request.data_uri = {uri, kAccountProfileImageUriCapacity};
     if (!g_app.account.api.profile_image(g_app.account.instance, &request) || !request.data_uri_bytes) {
         VirtualFree(uri, 0, MEM_RELEASE);
         return false;

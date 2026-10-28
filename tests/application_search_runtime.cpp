@@ -1966,7 +1966,7 @@ void application_search_navigation_release() noexcept {
 bool application_search_navigation_begin(const ApplicationSearchSourceTicket& ticket) noexcept {
     ApplicationSearchNavigationSource source{};
     return application_search_navigation_source(ticket, &source) &&
-           application_navigate_notification(source.channel_id, ticket.message_id);
+           application_navigate_known_message(source.channel_id, ticket.message_id);
 }
 void application_pinned_messages_close() noexcept {
 }
@@ -2028,7 +2028,7 @@ void application_composer_text_input_notify_layout() noexcept {
 bool application_composer_text_input_synchronize() noexcept {
     return true;
 }
-bool application_navigate_notification(u64 channel, u64 message) noexcept {
+bool application_navigate_known_message(u64 channel, u64 message) noexcept {
     ++search_runtime_test::navigations;
     search_runtime_test::navigated_channel = channel;
     search_runtime_test::navigated_message = message;

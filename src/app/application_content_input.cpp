@@ -400,9 +400,6 @@ bool select_navigation(bool guild, u64 id, bool reveal, bool home = false) noexc
 }
 
 } // namespace
-bool application_navigate_notification(u64 channel_id, u64 message_id) noexcept {
-    return navigate_content_message(channel_id, message_id);
-}
 bool application_navigate_known_message(u64 channel_id, u64 message_id) noexcept {
     return navigate_content_message(channel_id, message_id);
 }

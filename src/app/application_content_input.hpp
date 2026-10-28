@@ -25,7 +25,6 @@ bool application_received_attachment_activate_focused() noexcept;
 // asks through the external-link confirmation.
 bool application_received_attachment_open(u64 message_id, u64 attachment_id,
                                            u64 snapshot_origin_channel = 0) noexcept;
-bool application_navigate_notification(u64 channel_id, u64 message_id) noexcept;
 // Admit only a real, readable native-model channel. False means no navigation
 // was accepted; absent metadata is hydrated by the Search navigation owner.
 bool application_navigate_known_message(u64 channel_id, u64 message_id) noexcept;

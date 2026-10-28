@@ -146,28 +146,48 @@ bool managed_leaf(const wchar_t* name,const wchar_t* prefix,u8* digest) noexcept
         digest[i/2]=static_cast<u8>(i%2?(digest[i/2]<<4)|nibble:nibble);}
     return true;
 }
-Error retention_limit(Runtime& r,bool new_file) noexcept {
+// Directory scans of the destination share this scaffold. The open and close halves are plain
+// functions; the loop caps the entries it visits (dot entries included unless skip_dots, which
+// is checked first) and ends on the first error the visitor returns.
+Error scan_open(Runtime& r,WIN32_FIND_DATAW* data) noexcept {
     auto& directory=r.destination_directory;const u32 base=directory.path_characters;
     if(base+3>=kNativePluginCatalogPathCapacity)return fail(r,Error::path);
     wchar_t pattern[kNativePluginCatalogPathCapacity]{};
     for(u32 i=0;i<base;++i)pattern[i]=directory.path[i];pattern[base]=L'\\';pattern[base+1]=L'*';
-    WIN32_FIND_DATAW data{};directory.scan=FindFirstFileExW(pattern,FindExInfoBasic,&data,FindExSearchNameMatch,nullptr,FIND_FIRST_EX_LARGE_FETCH);
+    directory.scan=FindFirstFileExW(pattern,FindExInfoBasic,data,FindExSearchNameMatch,nullptr,FIND_FIRST_EX_LARGE_FETCH);
     if(directory.scan==INVALID_HANDLE_VALUE){directory.scan=nullptr;return fail(r,Error::catalog,{NativePluginCatalogError::scan,GetLastError()});}
-    u32 visited{},count{};u64 bytes{};Error error=Error::none;wchar_t prefix[16];hexadecimal(r.installed.owner_id,prefix);
-    do{
-        if((data.cFileName[0]==L'.'&&!data.cFileName[1])||(data.cFileName[0]==L'.'&&data.cFileName[1]==L'.'&&!data.cFileName[2]))continue;
-        if(++visited>kNativePluginCatalogMaximumDirectoryEntries){error=Error::catalog;break;}
-        if(cancelled(r)){error=Error::cancelled;break;}
-        u8 digest[32];
-        if(!managed_leaf(data.cFileName,prefix,digest))continue;
-        const u64 size=(u64{data.nFileSizeHigh}<<32)|data.nFileSizeLow;
-        if(data.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT)||size>kNativePluginDllMaximumBytes){error=Error::conflict;break;}
-        ++count;bytes+=size;
-    }while(FindNextFileW(directory.scan,&data));
+    return Error::none;
+}
+Error scan_close(Runtime& r,Error error) noexcept {
+    auto& directory=r.destination_directory;
     if(error==Error::none&&GetLastError()!=ERROR_NO_MORE_FILES)error=Error::catalog;
     if(!FindClose(directory.scan))return fail(r,Error::release,{NativePluginCatalogError::release,GetLastError()});
     directory.scan=nullptr;
-    if(error!=Error::none)return fail(r,error);
+    return error==Error::none?error:fail(r,error);
+}
+template<typename Visit>
+Error scan_directory(Runtime& r,bool skip_dots,Visit visit) noexcept {
+    WIN32_FIND_DATAW data{};
+    if(const Error opened=scan_open(r,&data);opened!=Error::none)return opened;
+    u32 visited{};Error error=Error::none;
+    do{
+        if(skip_dots&&data.cFileName[0]==L'.'&&(!data.cFileName[1]||(data.cFileName[1]==L'.'&&!data.cFileName[2])))continue;
+        if(++visited>kNativePluginCatalogMaximumDirectoryEntries){error=Error::catalog;break;}
+        error=visit(data);
+        if(error!=Error::none)break;
+    }while(FindNextFileW(r.destination_directory.scan,&data));
+    return scan_close(r,error);
+}
+Error retention_limit(Runtime& r,bool new_file) noexcept {
+    u32 count{};u64 bytes{};wchar_t prefix[16];hexadecimal(r.installed.owner_id,prefix);
+    if(const Error scanned=scan_directory(r,true,[&](const WIN32_FIND_DATAW& data) noexcept->Error{
+        if(cancelled(r))return Error::cancelled;
+        u8 digest[32];
+        if(!managed_leaf(data.cFileName,prefix,digest))return Error::none;
+        const u64 size=(u64{data.nFileSizeHigh}<<32)|data.nFileSizeLow;
+        if(data.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT)||size>kNativePluginDllMaximumBytes)return Error::conflict;
+        ++count;bytes+=size;return Error::none;
+    });scanned!=Error::none)return scanned;
     // Retaining the previous version allows a third file while an update is staged.
     const u32 limit=r.retain_previous?3:2;
     if(count>limit || (new_file&&count>=limit) || bytes+(new_file?r.source_dll.bytes:0)>limit*kNativePluginDllMaximumBytes)
@@ -339,24 +359,14 @@ bool keeps(const Runtime& r,const u8* sha256) noexcept {
 // matches their name. Rescans manifests, so the staged write handle must be closed.
 Error trim(Runtime& r) noexcept {
     if(inventory(r)!=Error::none)return r.result.error;
-    auto& directory=r.destination_directory;const u32 base=directory.path_characters;
-    if(base+3>=kNativePluginCatalogPathCapacity)return fail(r,Error::path);
-    wchar_t pattern[kNativePluginCatalogPathCapacity]{};
-    for(u32 i=0;i<base;++i)pattern[i]=directory.path[i];pattern[base]=L'\\';pattern[base+1]=L'*';
-    WIN32_FIND_DATAW data{};directory.scan=FindFirstFileExW(pattern,FindExInfoBasic,&data,FindExSearchNameMatch,nullptr,FIND_FIRST_EX_LARGE_FETCH);
-    if(directory.scan==INVALID_HANDLE_VALUE){directory.scan=nullptr;return fail(r,Error::catalog,{NativePluginCatalogError::scan,GetLastError()});}
-    u32 visited{},found{};wchar_t prefix[16];hexadecimal(r.installed.owner_id,prefix);Error error=Error::none;
-    do{
-        if(++visited>kNativePluginCatalogMaximumDirectoryEntries){error=Error::catalog;break;}
+    auto& directory=r.destination_directory;
+    u32 found{};wchar_t prefix[16];hexadecimal(r.installed.owner_id,prefix);
+    if(const Error scanned=scan_directory(r,false,[&](const WIN32_FIND_DATAW& data) noexcept->Error{
         u8 digest[32];
-        if(!managed_leaf(data.cFileName,prefix,digest)||keeps(r,digest))continue;
-        if(found==8||(data.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))){++r.result.kept;continue;}
-        copy_bytes(r.candidates[found++],digest,32);
-    }while(FindNextFileW(directory.scan,&data));
-    if(error==Error::none&&GetLastError()!=ERROR_NO_MORE_FILES)error=Error::catalog;
-    if(!FindClose(directory.scan))return fail(r,Error::release,{NativePluginCatalogError::release,GetLastError()});
-    directory.scan=nullptr;
-    if(error!=Error::none)return fail(r,error);
+        if(!managed_leaf(data.cFileName,prefix,digest)||keeps(r,digest))return Error::none;
+        if(found==8||(data.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))){++r.result.kept;return Error::none;}
+        copy_bytes(r.candidates[found++],digest,32);return Error::none;
+    });scanned!=Error::none)return scanned;
     for(u32 i=0;i<found;++i){
         NativePluginManifest candidate{};candidate.owner_id=r.installed.owner_id;copy_bytes(candidate.sha256,r.candidates[i],32);
         wchar_t name[128]{};managed_name(candidate,name);
@@ -536,25 +546,15 @@ bool staged_manifest_name(const wchar_t* name,u64 owner_id) noexcept {
     return true;
 }
 Error remove_staged_manifests(Runtime& r,NativePluginBundleRecoveryResult* out) noexcept {
-    auto& directory=r.destination_directory;const u32 base=directory.path_characters;
-    if(base+3>=kNativePluginCatalogPathCapacity)return fail(r,Error::path);
-    wchar_t pattern[kNativePluginCatalogPathCapacity]{};
-    for(u32 i=0;i<base;++i)pattern[i]=directory.path[i];pattern[base]=L'\\';pattern[base+1]=L'*';
-    constexpr u32 kNameCharacters=56;wchar_t names[8][kNameCharacters+1]{};u32 found{},visited{};
-    WIN32_FIND_DATAW data{};directory.scan=FindFirstFileExW(pattern,FindExInfoBasic,&data,FindExSearchNameMatch,nullptr,FIND_FIRST_EX_LARGE_FETCH);
-    if(directory.scan==INVALID_HANDLE_VALUE){directory.scan=nullptr;return fail(r,Error::catalog,{NativePluginCatalogError::scan,GetLastError()});}
-    Error error=Error::none;
-    do{
-        if(++visited>kNativePluginCatalogMaximumDirectoryEntries){error=Error::catalog;break;}
-        if(!staged_manifest_name(data.cFileName,r.installed.owner_id))continue;
+    auto& directory=r.destination_directory;
+    constexpr u32 kNameCharacters=56;wchar_t names[8][kNameCharacters+1]{};u32 found{};
+    if(const Error scanned=scan_directory(r,false,[&](const WIN32_FIND_DATAW& data) noexcept->Error{
+        if(!staged_manifest_name(data.cFileName,r.installed.owner_id))return Error::none;
         if(found==8||(data.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))||data.nFileSizeHigh||
-            data.nFileSizeLow>kNativePluginManifestMaximumBytes){++out->kept;continue;}
+            data.nFileSizeLow>kNativePluginManifestMaximumBytes){++out->kept;return Error::none;}
         for(u32 i=0;i<=kNameCharacters;++i)names[found][i]=data.cFileName[i];++found;
-    }while(FindNextFileW(directory.scan,&data));
-    if(error==Error::none&&GetLastError()!=ERROR_NO_MORE_FILES)error=Error::catalog;
-    if(!FindClose(directory.scan))return fail(r,Error::release,{NativePluginCatalogError::release,GetLastError()});
-    directory.scan=nullptr;
-    if(error!=Error::none)return fail(r,error);
+        return Error::none;
+    });scanned!=Error::none)return scanned;
     for(u32 i=0;i<found;++i){
         const auto opened=native_plugin_pinned_file_open(directory,{names[i],kNameCharacters},&r.staged_manifest,DELETE|FILE_READ_ATTRIBUTES,FILE_SHARE_READ);
         if(opened.ok()&&final_path_equal(r.staged_manifest)&&disposition(r.staged_manifest))++out->removed_manifests;else ++out->kept;

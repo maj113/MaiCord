@@ -402,10 +402,10 @@ bool activate(UiInboxTarget target) noexcept {
         break;
     case UiInboxAction::jump:
         application_inbox_close();
-        return application_navigate_notification(target.channel_id, target.id);
+        return application_navigate_known_message(target.channel_id, target.id);
     case UiInboxAction::open_channel:
         application_inbox_close();
-        return application_navigate_notification(target.channel_id, 0);
+        return application_navigate_known_message(target.channel_id, 0);
     case UiInboxAction::mark_channel:
         application_read_state_mark(target.id, true);
         build_unreads();

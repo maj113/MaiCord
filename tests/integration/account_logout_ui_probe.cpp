@@ -239,18 +239,18 @@ AccountLogoutResult WINAPI server(void* instance, AccountLogoutOperation operati
         ++f.total_posts;
         return {};
     case AccountLogoutOperation::cancel:
-        return {RestClientSubmitError::none, RestClientTakeError::empty, true, false};
+        return {RestClientSubmitError::none, true, false};
     case AccountLogoutOperation::take:
         if (!f.receipt_ready)
-            return {RestClientSubmitError::none, RestClientTakeError::empty, false, false};
+            return {RestClientSubmitError::none, false, false};
         if (!response || f.accepted_id != id) {
             ++f.unexpected;
-            return {RestClientSubmitError::invalid_input, RestClientTakeError::empty};
+            return {RestClientSubmitError::invalid_input};
         }
         *response = f.receipt;
         response->request_id = id;
         f.receipt_ready = false;
-        return {RestClientSubmitError::none, RestClientTakeError::none, false, true};
+        return {RestClientSubmitError::none, false, true};
     default:
         ++f.unexpected;
         return {RestClientSubmitError::invalid_input};

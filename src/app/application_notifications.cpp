@@ -783,7 +783,7 @@ void application_notifications_drain(Application* a) noexcept {
         log_write(LogLevel::info,"notifications","activation_channel_unavailable"); return;
     }
     if(a->window) { ShowWindow(a->window,SW_RESTORE); SetForegroundWindow(a->window); }
-    if(!application_navigate_notification(request.channel_id,request.message_id))
+    if(!application_navigate_known_message(request.channel_id,request.message_id))
         log_write(LogLevel::warning,"notifications","activation_navigation_failed");
 }
 void application_notifications_wake(Application* a) noexcept {

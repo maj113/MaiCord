@@ -1119,7 +1119,7 @@ bool application_friends_notification_gates(u64, u32* gates) noexcept {
     *gates = notification_application_probe::fixture.relationship_flags;
     return true;
 }
-bool application_navigate_notification(u64, u64) noexcept {
+bool application_navigate_known_message(u64, u64) noexcept {
     ++notification_application_probe::fixture.navigation_calls;
     return false;
 }

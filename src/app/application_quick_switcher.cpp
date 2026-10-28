@@ -189,7 +189,7 @@ bool activate(ApplicationQuickSwitcher& q, const UiQuickSwitcherTarget& selected
     switch (target.kind) {
     case QuickSwitcherKind::text_channel:
     case QuickSwitcherKind::private_channel:
-    case QuickSwitcherKind::group_private: return application_navigate_notification(target.channel_id, 0);
+    case QuickSwitcherKind::group_private: return application_navigate_known_message(target.channel_id, 0);
     case QuickSwitcherKind::guild: return select_content_guild(target.guild_id);
     case QuickSwitcherKind::voice_channel: return application_voice_join(target.guild_id, target.channel_id);
     case QuickSwitcherKind::user:

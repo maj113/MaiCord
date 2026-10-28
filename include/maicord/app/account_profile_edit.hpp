@@ -27,8 +27,6 @@ bool account_profile_image(ProfileImageRequest* request) noexcept;
 // The caller's data URI bank: the URI rides in one large PATCH body with a
 // few hundred bytes of JSON; the bank is demand-zero, so only written pages
 // cost memory.
-inline u32 account_profile_image_uri_capacity(const ProfileImageInfo&) noexcept {
-    return kRestClientMaximumLargeRequestBodyBytes - 8192;
-}
+inline constexpr u32 kAccountProfileImageUriCapacity = kRestClientMaximumLargeRequestBodyBytes - 8192;
 
 } // namespace maicord

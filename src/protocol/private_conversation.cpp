@@ -54,7 +54,6 @@ bool private_channel_action_valid(const PrivateChannelActionRequest& r) noexcept
     case PrivateChannelActionKind::stop_ringing:
     case PrivateChannelActionKind::accept_request:
     case PrivateChannelActionKind::ignore_request: return r.channel_id != 0;
-    case PrivateChannelActionKind::ignore_requests: return r.recipient_count != 0;
     case PrivateChannelActionKind::acknowledge_safety: return r.channel_id && r.recipient_count;
     default: return false;
     }
@@ -106,11 +105,6 @@ PrivateConversationWriteResult private_channel_action_write(const PrivateChannel
     case PrivateChannelActionKind::ignore_request:
         ok = append_channel(&path, r.channel_id) && protocol_writer_append_literal(&path, "/recipients/@me");
         break;
-    case PrivateChannelActionKind::ignore_requests:
-        ok = protocol_writer_append_literal(&path, "/api/v9/channels/recipients/@me/batch-reject") &&
-            protocol_writer_append_literal(&json, "{\"channel_ids\":") &&
-            append_ids(&json, r.recipients, r.recipient_count) && protocol_writer_append_byte(&json, '}');
-        break;
     case PrivateChannelActionKind::acknowledge_safety:
         ok = append_channel(&path, r.channel_id) && protocol_writer_append_literal(&path, "/safety-warnings/ack") &&
             protocol_writer_append_literal(&json, "{\"warning_ids\":") &&
@@ -141,8 +135,6 @@ RestRouteKey private_channel_action_route(const PrivateChannelActionRequest& r) 
         return {0x444d52455141ull, r.channel_id, RestMethod::put, RestMajorParameter::channel};
     case PrivateChannelActionKind::ignore_request:
         return {0x444d52455149ull, r.channel_id, RestMethod::delete_method, RestMajorParameter::channel};
-    case PrivateChannelActionKind::ignore_requests:
-        return {0x444d52454242ull, 0, RestMethod::put, RestMajorParameter::none};
     case PrivateChannelActionKind::acknowledge_safety:
         return {0x444d534146ull, r.channel_id, RestMethod::post, RestMajorParameter::channel};
     default: return {};

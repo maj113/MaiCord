@@ -194,8 +194,8 @@ bool prepare_icon() noexcept {
         return false;
     const auto state = image_crop_begin(ImageCropUse::avatar, p.icon_info.width, p.icon_info.height,
                                         kCropEditorWidth, kCropEditorHeight);
-    const u32 capacity = account_profile_image_uri_capacity(p.icon_info);
-    auto* uri = static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* uri = static_cast<u8*>(
+        VirtualAlloc(nullptr, kAccountProfileImageUriCapacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!uri)
         return false;
     ProfileImageRequest request{};
@@ -203,7 +203,7 @@ bool prepare_icon() noexcept {
     request.crop = image_crop_output(state);
     ProfileImageInfo info{};
     request.info = &info;
-    request.data_uri = {uri, capacity};
+    request.data_uri = {uri, kAccountProfileImageUriCapacity};
     if (!g_app.account.api.profile_image(g_app.account.instance, &request) || !request.data_uri_bytes) {
         VirtualFree(uri, 0, MEM_RELEASE);
         return false;

@@ -223,15 +223,15 @@ AccountLogoutResult WINAPI server(void* instance, AccountLogoutOperation operati
     if (operation == AccountLogoutOperation::cancel) {
         ++cancels;
         cancelled_id = id;
-        return {RestClientSubmitError::none, RestClientTakeError::empty, true, false};
+        return {RestClientSubmitError::none, true, false};
     }
     ++takes;
     if (!response_ready)
-        return {RestClientSubmitError::none, RestClientTakeError::empty, false, false};
+        return {RestClientSubmitError::none, false, false};
     response_ready = false;
     *output = response;
     output->request_id = id;
-    return {RestClientSubmitError::none, RestClientTakeError::none, false, true};
+    return {RestClientSubmitError::none, false, true};
 }
 bool seed() noexcept {
     check(!application_account_logout_host_owned(),

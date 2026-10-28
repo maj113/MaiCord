@@ -2,7 +2,6 @@
 #include "maicord/app/captcha_bridge.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/core/win32_process.hpp"
 #include "maicord/platform/random.hpp"
 
 namespace maicord {
@@ -28,7 +27,7 @@ struct Runtime : LoopbackServer {
 Runtime* runtime_of(const CaptchaBridge* bridge) noexcept {
     return bridge ? static_cast<Runtime*>(bridge->runtime) : nullptr;
 }
-u32 owner_bytes() noexcept { return static_cast<u32>((sizeof(Runtime) + 4095) & ~usize{4095}); }
+constexpr u32 kOwnerBytes = loopback_owner_bytes<Runtime>;
 u8* at(Runtime* runtime, u32 offset) noexcept { return runtime->storage.data + offset; }
 Utf8View view(Runtime* runtime, u32 offset, u32 bytes) noexcept {
     return {reinterpret_cast<const char*>(runtime->storage.data + offset), bytes};
@@ -42,29 +41,14 @@ void erase_secrets(Runtime* runtime) noexcept {
     SecureZeroMemory(at(runtime, kTokenOffset), kStorageBytes - kTokenOffset);
     runtime->token_bytes = runtime->sitekey_bytes = runtime->rqdata_bytes = runtime->user_flow_bytes = 0;
 }
-CaptchaBridgeStatus snapshot(Runtime* runtime) noexcept {
-    AcquireSRWLockShared(&runtime->lock); const auto status = runtime->status; ReleaseSRWLockShared(&runtime->lock);
-    return status;
-}
 void terminal(Runtime* runtime, CaptchaBridgePhase phase, CaptchaBridgeError error, u32 native = 0) noexcept {
-    AcquireSRWLockExclusive(&runtime->lock);
-    if (live(runtime->status.phase)) {
-        runtime->status.phase = phase; runtime->status.error = error; runtime->status.native_error = native;
-        erase_secrets(runtime);
-    }
-    ReleaseSRWLockExclusive(&runtime->lock);
-    loopback_notify(runtime);
+    loopback_terminal<live, erase_secrets>(runtime, phase, error, native);
 }
 // The worker exclusively owns the wire and response partitions.
 void wipe(LoopbackServer* server) noexcept { SecureZeroMemory(server->storage.data, kTokenOffset); }
-void destroy(CaptchaBridge* bridge) noexcept {
-    auto* runtime = runtime_of(bridge);
-    if (!runtime) return;
-    loopback_destroy(runtime, owner_bytes()); bridge->runtime = nullptr;
-}
 bool step(LoopbackServer* server, LoopbackState* state) noexcept {
     auto* runtime = static_cast<Runtime*>(server);
-    const auto current = snapshot(runtime);
+    const auto current = loopback_snapshot(runtime);
     const u64 now = GetTickCount64();
     if (!live(current.phase) && current.phase != CaptchaBridgePhase::complete &&
         current.phase != CaptchaBridgePhase::failed) return false;
@@ -79,16 +63,6 @@ bool step(LoopbackServer* server, LoopbackState* state) noexcept {
 void fail(LoopbackServer* server, LoopbackFailure failure, u32 native) noexcept {
     terminal(static_cast<Runtime*>(server), CaptchaBridgePhase::failed,
              failure == LoopbackFailure::event ? CaptchaBridgeError::event : CaptchaBridgeError::network, native);
-}
-void bound(LoopbackServer* server, u16 port) noexcept {
-    auto* runtime = static_cast<Runtime*>(server);
-    AcquireSRWLockExclusive(&runtime->lock);
-    if (runtime->status.phase == CaptchaBridgePhase::starting) {
-        runtime->status.port = port;
-        runtime->status.phase = CaptchaBridgePhase::waiting;
-    }
-    ReleaseSRWLockExclusive(&runtime->lock);
-    loopback_notify(runtime);
 }
 CaptchaBridgeProvider protocol_provider(CaptchaProvider provider) noexcept {
     switch (provider) {
@@ -171,12 +145,9 @@ LoopbackRequest request(LoopbackServer* server) noexcept {
     SecureZeroMemory(at(runtime, 0), kWireBytes);
     return answered ? LoopbackRequest::respond : LoopbackRequest::close;
 }
-constexpr LoopbackProfile kProfile{step, fail, bound, request, wipe, 0, 0, kWireBytes, kResponseOffset, 2, true};
+constexpr LoopbackProfile kProfile{step, fail, loopback_bound<Runtime>, request, wipe, 0, 0, kWireBytes, kResponseOffset, 2, true};
 CaptchaBridgeStatus invalid(CaptchaBridgeError error = CaptchaBridgeError::invalid_input, u32 native = ERROR_INVALID_PARAMETER) noexcept {
     CaptchaBridgeStatus result{}; result.error = error; result.native_error = native; return result;
-}
-SecureBufferResult output_error(SecureBufferError error = SecureBufferError::invalid_input, u32 bytes = 0) noexcept {
-    return {bytes, ERROR_INVALID_PARAMETER, error};
 }
 } // namespace
 
@@ -189,7 +160,7 @@ CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, 
         !captcha_bridge_rqdata_valid(challenge.rqdata) ||
         !captcha_bridge_user_flow_valid(challenge.user_flow))
         return invalid();
-    auto* runtime = static_cast<Runtime*>(VirtualAlloc(nullptr, owner_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* runtime = static_cast<Runtime*>(VirtualAlloc(nullptr, kOwnerBytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!runtime) return invalid(CaptchaBridgeError::memory, thread_last_error());
     bridge->runtime = runtime;
     runtime->status.generation = generation;
@@ -198,7 +169,7 @@ CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, 
     runtime->provider = provider;
     runtime->invisible = challenge.invisible;
     const auto secured = secure_buffer_initialize(&runtime->storage, kStorageBytes);
-    if (!secured.ok()) { const u32 native = secured.native_error; destroy(bridge); return invalid(CaptchaBridgeError::memory, native); }
+    if (!secured.ok()) { const u32 native = secured.native_error; loopback_release<Runtime>(bridge); return invalid(CaptchaBridgeError::memory, native); }
     copy_bytes(at(runtime, kSitekeyOffset), challenge.sitekey.data, challenge.sitekey.bytes);
     runtime->sitekey_bytes = challenge.sitekey.bytes;
     if (challenge.rqdata.bytes) copy_bytes(at(runtime, kRqdataOffset), challenge.rqdata.data, challenge.rqdata.bytes);
@@ -210,24 +181,24 @@ CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, 
     const bool state = secure_random_fill({random, sizeof(random)}).ok() &&
         captcha_bridge_write_hex({random, sizeof(random)}, {at(runtime, kStateOffset), kCaptchaBridgeStateBytes}).ok();
     SecureZeroMemory(random, sizeof(random));
-    if (!state) { destroy(bridge); return invalid(CaptchaBridgeError::random); }
+    if (!state) { loopback_release<Runtime>(bridge); return invalid(CaptchaBridgeError::random); }
     u32 native = 0;
     const LoopbackStart started = loopback_start(runtime, &kProfile, false, &native);
     if (started != LoopbackStart::none) {
-        destroy(bridge);
+        loopback_release<Runtime>(bridge);
         return invalid(started == LoopbackStart::event ? CaptchaBridgeError::event : CaptchaBridgeError::thread, native);
     }
-    return snapshot(runtime);
+    return loopback_snapshot(runtime);
 }
 CaptchaBridgeStatus captcha_bridge_status(const CaptchaBridge* bridge) noexcept {
-    auto* runtime = runtime_of(bridge); return runtime ? snapshot(runtime) : CaptchaBridgeStatus{};
+    auto* runtime = runtime_of(bridge); return runtime ? loopback_snapshot(runtime) : CaptchaBridgeStatus{};
 }
 HANDLE captcha_bridge_notification_handle(const CaptchaBridge* bridge) noexcept {
     auto* runtime = runtime_of(bridge); return runtime ? runtime->notification : nullptr;
 }
 SecureBufferResult captcha_bridge_copy_url(const CaptchaBridge* bridge, u64 expected_generation, SecureBuffer* output) noexcept {
     auto* runtime = runtime_of(bridge);
-    if (!runtime || !loopback_external_output(runtime, bridge, sizeof(*bridge), owner_bytes(), output)) return output_error();
+    if (!runtime || !loopback_external_output(runtime, bridge, sizeof(*bridge), kOwnerBytes, output)) return loopback_output_error();
     AcquireSRWLockShared(&runtime->lock);
     CaptchaBridgeWriteResult written{0, CaptchaBridgeProtocolError::invalid_input};
     if (expected_generation && runtime->status.generation == expected_generation &&
@@ -237,15 +208,13 @@ SecureBufferResult captcha_bridge_copy_url(const CaptchaBridge* bridge, u64 expe
                                            {output->data, output->capacity});
     if (written.ok()) output->bytes = written.bytes;
     ReleaseSRWLockShared(&runtime->lock);
-    return written.ok() ? SecureBufferResult{written.bytes, 0, SecureBufferError::none}
-        : output_error(written.error == CaptchaBridgeProtocolError::capacity ? SecureBufferError::output_too_small
-                                                                             : SecureBufferError::invalid_input, written.bytes);
+    return loopback_output_result(written.ok(), written.error == CaptchaBridgeProtocolError::capacity, written.bytes);
 }
 SecureBufferResult captcha_bridge_take_token(CaptchaBridge* bridge, u64 expected_generation, SecureBuffer* output) noexcept {
     auto* runtime = runtime_of(bridge);
-    if (!runtime || !loopback_external_output(runtime, bridge, sizeof(*bridge), owner_bytes(), output)) return output_error();
+    if (!runtime || !loopback_external_output(runtime, bridge, sizeof(*bridge), kOwnerBytes, output)) return loopback_output_error();
     AcquireSRWLockExclusive(&runtime->lock);
-    SecureBufferResult result = output_error();
+    SecureBufferResult result = loopback_output_error();
     if (expected_generation && runtime->status.generation == expected_generation &&
         runtime->status.phase == CaptchaBridgePhase::token_ready && runtime->token_bytes) {
         result = secure_buffer_assign(output, {at(runtime, kTokenOffset), runtime->token_bytes});
@@ -268,18 +237,10 @@ CaptchaBridgeStatus captcha_bridge_stop(CaptchaBridge* bridge, u32 timeout_ms) n
     runtime->spent = true;
     erase_secrets(runtime);
     ReleaseSRWLockExclusive(&runtime->lock);
-    const DWORD joined = loopback_join(runtime, timeout_ms);
-    if (joined != WAIT_OBJECT_0) {
-        AcquireSRWLockExclusive(&runtime->lock);
-        runtime->status.phase = CaptchaBridgePhase::stopping; runtime->status.error = CaptchaBridgeError::stop;
-        runtime->status.native_error = joined == WAIT_TIMEOUT ? WAIT_TIMEOUT : thread_last_error();
-        const auto status = runtime->status;
-        ReleaseSRWLockExclusive(&runtime->lock);
-        return status;
-    }
-    const auto status = snapshot(runtime);
-    destroy(bridge);
+    bool joined;
+    const auto status = loopback_stop_worker(runtime, timeout_ms, &joined);
+    if (joined) loopback_release<Runtime>(bridge);
     return status;
 }
-u32 captcha_bridge_runtime_bytes() noexcept { return owner_bytes() + kStorageBytes; }
+u32 captcha_bridge_runtime_bytes() noexcept { return kOwnerBytes + kStorageBytes; }
 } // namespace maicord
