@@ -52,18 +52,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test   
 Local builds and CI (`.github/actions/setup-toolchain/action.yml`, used by
 `ci.yml`, `release.yml` and `analysis.yml`) fetch the same pinned release of
 the fork through `tools/resolve_llvm_toolchain.ps1`; CI puts its `bin` on
-`PATH` and in `MAICORD_LLVM_BIN`.
+`PATH` and in `MAICORD_LLVM_BIN`, and caches the extracted toolchain with
+`actions/cache` under the pinned tag and SHA-256, so a new pin fetches anew.
 
 Each toolchain release of `maj113/llvm-pe` must provide:
 
 - a tag `toolchain-YYYY.MM.DD`;
 - the asset `llvm-pe-x86_64-windows.zip`, whose root is the toolchain
-  directory: `bin\clang-cl.exe`, `bin\clang.exe`, `bin\lld-link.exe`,
-  `bin\llvm-lib.exe`, `bin\llvm-ar.exe` (`bin\llvm-rc.exe` and
-  `bin\llvm-ml.exe` optional; the build uses Visual Studio's) and clang's
-  resource headers in `lib\clang\<major>\include`, which clang-cl finds
-  relative to `bin`. The executables link the static MSVC runtime, so no
-  redistributable is needed;
+  directory: `bin\clang-cl.exe`, `bin\lld-link.exe` and `bin\llvm-lib.exe`
+  (the build uses Visual Studio's `rc`, `ml64` and `mt`) and clang's core,
+  x86 and Windows resource headers in `lib\clang\<major>\include`, which
+  clang-cl finds relative to `bin`. The executables link the static MSVC
+  runtime, so no redistributable is needed;
 - the asset `llvm-pe-x86_64-windows.zip.sha256`, the archive's hex SHA-256.
 
 To move to a new release, set `tag` and `sha256` in `tools/llvm_toolchain.json`

@@ -134,6 +134,11 @@ set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll sspicli.dll ole3
     combase.dll d2d1.dll bcrypt.dll crypt32.dll)
 list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
 target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
+# LTO code generation in parallel partitions: the fork's splitter gives each
+# partition foldable copies of the constants it reads. Three partitions link in
+# 39 s instead of 57 s at the 1-partition size; other counts land 512 B (one
+# file-alignment unit) larger on this tree. Re-check the count when it drifts.
+target_link_options(MaiCord PRIVATE /opt:lldltopartitions=3)
 add_dependencies(MaiCord maicord_app_icon maicord_sys_conformance)
 
 # Self-updater publisher. Environment variables override the official defaults,

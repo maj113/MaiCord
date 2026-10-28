@@ -70,7 +70,23 @@ runs:
         (cmake --version)[0]
 
     # The one supported compiler: the release of the LLVM fork at github.com/maj113/llvm-pe pinned in
-    # tools/llvm_toolchain.json, fetched and SHA-256 checked by the same script local builds use.
+    # tools/llvm_toolchain.json, fetched and SHA-256 checked by the same script local builds use. The
+    # extracted toolchain is cached under the pinned tag and SHA-256: a new pin misses and fetches its
+    # own; on a hit the script finds the tools in place and reuses the restored directory.
+    - name: Read the LLVM toolchain pin
+      id: llvm-pin
+      shell: powershell
+      run: |
+        $pin = Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'tools\llvm_toolchain.json') -Raw | ConvertFrom-Json
+        [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "key=llvm-pe-$($pin.tag)-$($pin.sha256)`n")
+
+    - name: Restore the LLVM toolchain
+      id: llvm-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/llvm-pe
+        key: ${{ steps.llvm-pin.outputs.key }}
+
     - name: Fetch the pinned LLVM toolchain
       shell: powershell
       run: |
@@ -80,3 +96,10 @@ runs:
         Write-Host $version
         [IO.File]::AppendAllText($env:GITHUB_PATH, "$bin`n")
         [IO.File]::AppendAllText($env:GITHUB_ENV, "MAICORD_LLVM_BIN=$bin`nMAICORD_LLVM_VERSION=$version`n")
+
+    - name: Cache the LLVM toolchain
+      if: steps.llvm-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/llvm-pe
+        key: ${{ steps.llvm-pin.outputs.key }}
