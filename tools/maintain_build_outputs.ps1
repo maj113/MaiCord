@@ -141,6 +141,7 @@ if ($RuntimeOnly) {
             'CTestTestfile.cmake', 'maicord-test-targets.txt', 'maicord-tests.txt', 'notification_sounds.rc',
             'CMakeFiles\cmake.check_cache', 'CMakeFiles\cmake.verify_globs', 'CMakeFiles\InstallScripts.json',
             'CMakeFiles\rules.ninja', 'CMakeFiles\TargetDirectories.txt', 'CMakeFiles\VerifyGlobs.cmake',
+            'CMakeFiles\feature_tests.bin',
             'CMakeFiles\ShowIncludes\foo.h', 'CMakeFiles\ShowIncludes\main.c', 'CMakeFiles\ShowIncludes\main.obj')) {
         Add-File (Join-Path $releaseRoot $name)
     }
@@ -154,6 +155,8 @@ if ($RuntimeOnly) {
     # Include empty configure-created directories without treating unknown
     # files in them as disposable products.
     foreach ($name in @('generated', 'CMakeFiles', 'third_party')) { Add-Tree (Join-Path $releaseRoot $name) { $false } }
+    # Test bundle dispatchers (maicord_finish_test_bundles); every configure writes them again.
+    Add-Tree (Join-Path $releaseRoot 'test_bundles') { param($file) $file.Name -cmatch '^MaiCord[A-Za-z0-9]+\.cpp$' }
     # The resource editor's precompiled cache is not a build input or runtime asset.
     Add-File (Join-Path $releaseRoot 'notification_sounds.aps')
     # Interrupted atomic configuration writes are disposable only after the
