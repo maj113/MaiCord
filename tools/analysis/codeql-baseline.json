@@ -6,6 +6,8 @@
  "cpp/integer-multiplication-cast-to-long|third_party/opus/silk/CNG.c|Multiplication result may overflow 'int' before it is converted to 'unsigned long long'.",
  "cpp/suspicious-allocation-size|src/app/application_settings.cpp|Allocated memory (787624 bytes) is not a multiple of the size of 'ApplicationPluginSettingsPage' (1192 bytes).",
  "cpp/suspicious-allocation-size|src/app/application_thread_browser.cpp|Allocated memory (786432 bytes) is not a multiple of the size of 'ForumPostEntry' (2976 bytes).",
+ "cpp/suspicious-allocation-size|src/app/browser_sign_in_receiver.cpp|Allocated memory (4096 bytes) is not a multiple of the size of 'Runtime' (184 bytes).",
+ "cpp/suspicious-allocation-size|src/app/captcha_bridge.cpp|Allocated memory (4096 bytes) is not a multiple of the size of 'Runtime' (200 bytes).",
  "cpp/suspicious-allocation-size|src/app/client_theme_storage.cpp|Allocated memory (339048 bytes) is not a multiple of the size of 'Workspace' (327776 bytes).",
  "cpp/suspicious-pointer-scaling|src/render/text_edit_layout.cpp|This pointer might have type [NativeEditGeometry](1) (size 112), but this pointer arithmetic is done with type NativeParagraphHitCluster * (size 24).",
  "cpp/suspicious-pointer-scaling|src/render/text_edit_layout.cpp|This pointer might have type [NativeEditGeometry](1) (size 112), but this pointer arithmetic is done with type NativeParagraphHitLine * (size 16).",
