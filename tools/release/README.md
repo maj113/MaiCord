@@ -76,6 +76,11 @@ not involved.
   *published* release. A release advances stable and the preview feed when it
   is newer there. A rerun after publishing leaves the
   release alone and only updates the channels.
+- **Release notes** (`notes`): the tagged commit's
+  `.github/release-notes/vX.Y.Z.md`, when it has one, then the commit subjects
+  since the previous tag grouped as features, fixes, performance and other.
+  Put what users must know before updating, such as manual steps, in that file
+  and commit it before tagging. The in-app changelog shows both parts.
 - **Preview** (the `preview` job of `ci.yml`): every push to master of
   `maj113/MaiCord` whose client and test jobs pass is packaged from the CI
   client artifact, signed with its changelog (`preview`) and installed on the
@@ -110,15 +115,24 @@ clients install it like any update, and from then on it reads the new
 directory, so a 0.5 client reaches 1.0 through a 0.9 bridge without ever being
 offered a package it cannot install.
 
-Two earlier updaters are not migrated. Releases up to 0.4.0 use protocol 1:
-they read `updates/maicord-*.json` and install only a `MaiCord.exe` and
-`MaiCordAccount.dll` pair, which no later release has. Master builds after
-0.4.0 that predate the in-place swap installed protocol-2 packages as
-"generations" under `%LOCALAPPDATA%\MaiCord\updates\generations` and started
+Two earlier updaters are not migrated. Releases up to 0.4.0 and master builds
+up to 0.4.1-dev.44 use protocol 1: they read `updates/maicord-stable.*` and
+`updates/preview/maicord-preview.*`, accept only `format` 1 and install only a
+`MaiCord.exe` and `MaiCordAccount.dll` pair, which no later release has.
+`channels` never touches those files, so these clients stay on 0.4.0 (or
+0.4.1-dev.43 on preview) and report an expired manifest once its signature
+lapses in January 2027. Master builds 0.4.1-dev.45 to dev.90, before the
+in-place swap, read protocol 2 but install packages as "generations" and start
 them through a dispatcher that waits for a startup handoff, which current
-builds don't perform. Replace such an install's `MaiCord.exe` once by hand
-with a current release's, then delete that `generations` folder; a bridge
-can't help either.
+builds don't perform: a newer build fails to start and they stay on their
+version. Both kinds keep installed updates under
+`%LOCALAPPDATA%\MaiCord\updates\generations` and start them through the
+`MaiCord.exe` the user launches. To move such an install on, quit MaiCord and
+replace that `MaiCord.exe` (not a copy under `generations`) with a current
+release's. Once it has started, `updates\generations`,
+`updates\enrollment.bin` and `MaiCordAccount.dll` beside the executable are
+unused and can be deleted; `updates\channel`, `updates\interval` and
+`updates\work` keep the same format and stay in use. A bridge can't help.
 
 ## Provenance
 

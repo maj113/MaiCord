@@ -942,8 +942,22 @@ def classify_commit(subject: str) -> tuple[str, str] | None:
     return "Other", subject
 
 
-def render_notes(version: ReleaseVersion, previous: str | None, commits: list[tuple[str, str]], repository: str) -> str:
-    """Markdown release notes from (sha, subject) pairs, newest first."""
+# Hand-written notes for a release: <directory>/<tag>.md in the tagged commit.
+RELEASE_NOTES_DIRECTORY = ".github/release-notes"
+
+
+def handwritten_notes(repository: Path | str, tag: str) -> str:
+    """The tagged commit's `.github/release-notes/<tag>.md`, or "" when it has none."""
+    path = f"{RELEASE_NOTES_DIRECTORY}/{tag}.md"
+    if not git("ls-tree", "--name-only", tag, "--", path, repository=repository):
+        return ""
+    return git("show", f"{tag}:{path}", repository=repository)
+
+
+def render_notes(version: ReleaseVersion, previous: str | None, commits: list[tuple[str, str]], repository: str,
+                 preface: str = "") -> str:
+    """Markdown release notes from (sha, subject) pairs, newest first, after
+    the hand-written preface."""
     base = f"https://github.com/{repository}" if repository else ""
     groups: dict[str, list[str]] = {name: [] for name in NOTE_GROUPS}
     for sha, subject in commits:
@@ -954,6 +968,8 @@ def render_notes(version: ReleaseVersion, previous: str | None, commits: list[tu
         reference = f"[`{sha[:7]}`]({base}/commit/{sha})" if base else f"`{sha[:7]}`"
         groups[group].append(f"- {text} ({reference})")
     lines = [f"## MaiCord {version.semver}", ""]
+    if preface.strip():
+        lines += [preface.strip(), ""]
     if not any(groups.values()):
         lines += ["No user-visible changes.", ""]
     for name in NOTE_GROUPS:
@@ -981,7 +997,8 @@ def command_notes(arguments) -> None:
     log = git("log", "--no-merges", "--pretty=format:%H%x1f%s", span)
     commits = [tuple(line.split(chr(0x1f), 1)) for line in log.splitlines() if chr(0x1f) in line]
     repository = arguments.repository or os.environ.get("GITHUB_REPOSITORY", "")
-    Path(arguments.output).write_text(render_notes(version, previous, commits, repository), encoding="utf-8", newline="\n")
+    notes = render_notes(version, previous, commits, repository, handwritten_notes(".", version.tag))
+    Path(arguments.output).write_text(notes, encoding="utf-8", newline="\n")
 
 
 def command_checksums(arguments) -> None:
@@ -1068,7 +1085,8 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--repository", help="repository root, to include README.md/LICENSE")
     command.set_defaults(run=command_portable)
 
-    command = sub.add_parser("notes", help="write release notes from commits since the previous tag")
+    command = sub.add_parser("notes", help="write release notes: the tag's .github/release-notes/<tag>.md, "
+                                           "then the commits since the previous tag")
     command.add_argument("--tag", required=True)
     command.add_argument("--output", required=True)
     command.add_argument("--repository", help="owner/repo for commit and compare links (default: $GITHUB_REPOSITORY)")

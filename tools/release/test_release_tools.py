@@ -462,6 +462,34 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertIn("No user-visible changes.", empty)
         self.assertNotIn("compare", empty)
 
+    def test_release_notes_start_with_the_tags_handwritten_notes(self):
+        repository = self.git_repository()
+        handwritten = repository / ".github" / "release-notes" / "v1.3.0.md"
+        handwritten.parent.mkdir(parents=True)
+        handwritten.write_bytes(b"### Before you update\r\n\r\nReplace `MaiCord.exe` by hand.\r\n")
+        self.commit(repository, "Release 1.3.0")
+        self.git(repository, "tag", "v1.3.0")
+        # The tagged commit's file counts, not the working tree's.
+        handwritten.write_text("Not in the tag.\n", encoding="utf-8")
+        output = self.root / "notes.md"
+        directory = os.getcwd()
+        os.chdir(repository)
+        try:
+            self.assertEqual(self.run_cli("notes", "--tag", "v1.3.0", "--output", str(output),
+                                          "--repository", "owner/repo"), 0)
+            self.assertEqual(release.handwritten_notes(".", "v1.2.0"), "")
+        finally:
+            os.chdir(directory)
+        notes = output.read_text(encoding="utf-8")
+        self.assertTrue(notes.startswith("## MaiCord 1.3.0\n\n### Before you update\n\nReplace `MaiCord.exe` by hand."
+                                         "\n\n### Features\n"), notes)
+        self.assertNotIn("Not in the tag", notes)
+        self.assertNotIn("\r", notes)
+        self.assertNotIn("Release 1.3.0", notes)
+        # The in-app changelog keeps the hand-written notes.
+        self.assertTrue(release.release_notes_text(notes).startswith(
+            "### Before you update\n\nReplace `MaiCord.exe` by hand.\n\n### Features"))
+
     def test_checksums_cover_every_asset(self):
         out = self.root / "dist"
         self.release_to("v1.0.0", out)
