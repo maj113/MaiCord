@@ -10,6 +10,7 @@
 #include "application_video.hpp"
 #include "application_stream.hpp"
 #include "application_guild_card.hpp"
+#include "application_expression_card.hpp"
 #include "application_guild_banner.hpp"
 #include "application_inbox.hpp"
 #include "application_cursor.hpp"
@@ -273,6 +274,7 @@ bool application_present_frame() noexcept {
     if (g_app.renderer.live_resize && !application_video_synchronize())
         return present_rejected("video_geometry");
     application_guild_card_synchronize(clock_monotonic_milliseconds());
+    application_expression_card_synchronize(clock_monotonic_milliseconds());
     // Banner animation timing (5 s autoplay) and hover; scroll is current here.
     application_guild_banner_project(clock_monotonic_milliseconds());
     if (g_app.login_scene.focus_visible != g_app.keyboard_focus_visible) {

@@ -236,8 +236,10 @@ bool select_client_cursor(i32 pixel_x, i32 pixel_y, UiCursor* out) noexcept {
     if (application_message_profile_hit_test(x, y).user_id || application_message_guild_tag_hit(x, y))
         return true;
     u32 reaction_index = 0;
+    // Every emoji in body text is clickable (its popout), Unicode included.
     if (message_scene_reaction_index(g_app.message_scene, message, &reaction_index) ||
-        renderer_content_hit_test(g_app.renderer, pixel_x, pixel_y).valid)
+        renderer_content_hit_test(g_app.renderer, pixel_x, pixel_y).valid ||
+        renderer_message_emoji_hit_test(g_app.renderer, x, y).kind != MessageEmojiHitKind::none)
         return true;
     if (application_voice_hand_cursor(x, y))
         return true;

@@ -193,6 +193,68 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3800);
     check(!scene.visible && !scene.pending && !ui_tooltip_emoji(scene, &square),
           "tooltip reaction: overlapping bold ranges are rejected");
+    // A sticker's tooltip leads its name with the 16 DIP sticker icon, painted
+    // in the label colour; the icon is content like an emoji.
+    UiTooltipStyle sticker_style{};
+    sticker_style.emoji_size = 16;
+    sticker_style.emoji_gap = 6;
+    UiTooltipEmoji sticker_icon{};
+    sticker_icon.icon = UiIcon::sticker;
+    UiTooltipTarget sticker{{target.key.owner, 7, 6, 1, 0x5b00},
+                            {12, 12, 44, 44},
+                            utf8_literal("Wave"),
+                            UiTooltipPlacement::below,
+                            {},
+                            sticker_icon};
+    PaintStream paint{};
+    struct ReleasePaint {
+        PaintStream& paint;
+        ~ReleasePaint() noexcept { paint_stream_release(&paint); }
+    } release_paint{paint};
+    bool icon_painted = false;
+    const bool sticker_shown =
+        ui_tooltip_offer(&scene, sticker, viewport, UiTooltipTrigger::pointer, 3900, sticker_style) &&
+        ui_tooltip_tick(&scene, 4400, &cache) && ui_tooltip_emoji(scene, &square) && ui_rect_width(square) == 16 &&
+        ui_rect_width(scene.rectangle) == 4 * 7 + 16 + 6 + padding_x * 2 &&
+        ui_rect_height(scene.rectangle) == 18 + padding_y * 2 && paint_stream_initialize(&paint) &&
+        paint_stream_reset(&paint, 320, 180) && ui_tooltip_paint(scene, kDefaultTheme, &paint);
+    for (u32 i = 0; sticker_shown && i < paint.count; ++i) {
+        const auto& quad = paint.quads[i];
+        icon_painted = icon_painted || (ui_icon_quad(quad) &&
+                                        ui_icon_quad_data(quad).icon == static_cast<u32>(UiIcon::sticker) &&
+                                        ui_rect_equal({quad.left, quad.top, quad.right, quad.bottom}, square));
+    }
+    check(sticker_shown && icon_painted && ui_text_command_stream_initialize(&reaction_text, {commands, 2}) &&
+              ui_tooltip_text_output(scene, kDefaultTheme, &reaction_output) && reaction_text.count == 1 &&
+              commands[0].rectangle.left == square.right + 6,
+          "tooltip sticker: a 16 DIP icon square leads the name and is painted, not shaped");
+    sticker.emoji = {};
+    check(ui_tooltip_offer(&scene, sticker, viewport, UiTooltipTrigger::pointer, 4500, sticker_style) &&
+              ui_tooltip_tick(&scene, 4500, &cache) && !ui_tooltip_emoji(scene, &square) && !scene.emoji_icon,
+          "tooltip sticker: dropping the icon is new content for the same source");
+    sticker.emoji.icon = static_cast<UiIcon>(static_cast<u32>(UiIcon::count) + 1);
+    ui_tooltip_offer(&scene, sticker, viewport, UiTooltipTrigger::pointer, 4600, sticker_style);
+    check(!scene.visible && !scene.pending, "tooltip sticker: an unknown icon is rejected");
+    // The official sticker tooltip: icon and name on one line over the grey
+    // "Click to learn more", both lines centred.
+    sticker.emoji = sticker_icon;
+    sticker.detail = utf8_literal("Click to learn more");
+    const bool detailed = ui_tooltip_offer(&scene, sticker, viewport, UiTooltipTrigger::pointer, 4700, sticker_style) &&
+                          ui_tooltip_tick(&scene, 5200, &cache) && ui_tooltip_emoji(scene, &square);
+    const float text_left = scene.rectangle.left + padding_x, line_top = scene.rectangle.top + padding_y;
+    check(detailed && ui_rect_width(scene.rectangle) == 19 * 7 + padding_x * 2 &&
+              ui_rect_height(scene.rectangle) == 18 * 2 + padding_y * 2 &&
+              square.left == text_left + (19 * 7 - (4 * 7 + 16 + 6)) * .5f && square.top == line_top + 1 &&
+              ui_text_command_stream_initialize(&reaction_text, {commands, 2}) &&
+              ui_tooltip_text_output(scene, kDefaultTheme, &reaction_output) && reaction_text.count == 2 &&
+              commands[0].rectangle.left == square.right + 6 && commands[1].rectangle.top == line_top + 18 &&
+              commands[1].rectangle.left == text_left,
+          "tooltip detail: an icon leads the name above the centred grey detail line");
+    check(!ui_tooltip_offer(&scene, sticker, viewport, UiTooltipTrigger::pointer, 5300, sticker_style),
+          "tooltip detail: the same detail is the same content");
+    sticker.detail = utf8_literal("Click to learn more about this sticker, its pack and where it comes from");
+    ui_tooltip_offer(&scene, sticker, viewport, UiTooltipTrigger::pointer, 5400, sticker_style);
+    check(!scene.visible && !scene.pending, "tooltip detail: a detail longer than its bound is rejected");
     // The reaction tooltip's wording: the emoji's name, then up to three bold
     // names joined like Discord's, and the rest counted.
     char wording[kUiTooltipMaximumTextBytes];

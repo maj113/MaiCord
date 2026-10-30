@@ -10,6 +10,7 @@
 #include "application_voice.hpp"
 #include "application_plugins.hpp"
 #include "application_reaction_tooltip.hpp"
+#include "application_emoji_tooltip.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/tooltip.hpp"
@@ -558,7 +559,10 @@ bool profile_hint_target(const ProfileScene& scene, UiPoint point, bool keyboard
     *target = {{{&scene.widgets, handle}, scope, scene.opens, handle.slot, action}, anchor, label};
     return true;
 }
-bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target) noexcept {
+// The resolver chooses the style; reactions also report themselves so their
+// reactor fetch keeps its interest.
+bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiTooltipStyle* style,
+                    bool* reaction) noexcept {
     const u64 scope = application_account_scope();
     if (g_app.image_viewer.scene.active)
         return viewer_available() && GetCapture() != g_app.window && scope &&
@@ -623,11 +627,21 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target) noexc
     if (const auto* panel = g_app.renderer.dm_profile_panel;
         panel && panel->active && ui_rect_contains(panel->rectangle, point.x, point.y))
         return profile_hint_target(*panel, point, false, scope, 0x5802u, target);
-    if (!application_thread_browser_read_blocked() &&
-        (application_video_tooltip_target(point, false, scope, target) ||
-         message_target(point, scope, target) ||
-         (!application_friends_active() && application_reaction_tooltip_target(point, scope, target))))
-        return true;
+    if (!application_thread_browser_read_blocked()) {
+        if (application_video_tooltip_target(point, false, scope, target) || message_target(point, scope, target))
+            return true;
+        if (!application_friends_active() && application_reaction_tooltip_target(point, scope, target)) {
+            // Reaction pills lead with their emoji; their names wrap beside it.
+            *reaction = media_asset_key_valid(target->emoji.media) || target->emoji.glyph.bytes;
+            if (*reaction) {
+                style->maximum_width = 260;
+                style->maximum_height = 120;
+            }
+            return true;
+        }
+        if (!application_friends_active() && application_emoji_tooltip_target(point, scope, target, style))
+            return true;
+    }
     return plugin_surface_target(point, scope, target) || composer_target(point, false, scope, target) ||
            guild_target(point, false, scope, target) || shell_target(point, false, scope, target);
 }
@@ -686,11 +700,11 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
         owner.viewport_failed = false;
     }
     UiTooltipTarget target{};
+    UiTooltipStyle style{};
+    bool reaction = false;
     const bool resolved = !owner.pressed && (owner.keyboard || owner.pointer_valid) &&
-                          resolve_target(owner.point, owner.keyboard, &target);
+                          resolve_target(owner.point, owner.keyboard, &target, &style, &reaction);
     const bool badge_shown = owner.scene.visible && owner.scene.key.action == kProfileBadgeTooltip;
-    // Reaction pills lead with their emoji; their names wrap beside it.
-    const bool reaction = resolved && (media_asset_key_valid(target.emoji.media) || target.emoji.glyph.bytes);
     if (!reaction)
         application_reaction_tooltip_leave();
     if (!resolved || ui_tooltip_key_equal(owner.dismissed, target.key) ||
@@ -700,11 +714,6 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
     } else {
         reset_value(&owner.dismissed);
         reset_value(&owner.failed);
-        UiTooltipStyle style{};
-        if (reaction) {
-            style.maximum_width = 260;
-            style.maximum_height = 120;
-        }
         if (target.key.action == kProfileBadgeTooltip) {
             if ((owner.scene.pending || owner.scene.visible) && ui_tooltip_key_equal(owner.scene.key, target.key))
                 style = owner.scene.style;
@@ -803,6 +812,8 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
     const UiPoint point{static_cast<float>(static_cast<short>(LOWORD(lparam))) * scale,
                         static_cast<float>(static_cast<short>(HIWORD(lparam))) * scale};
     UiTooltipTarget candidate{};
+    UiTooltipStyle candidate_style{};
+    bool candidate_reaction = false;
     const bool navigation =
         keyboard && (wparam == VK_TAB || wparam == VK_UP || wparam == VK_DOWN || wparam == VK_LEFT ||
                      wparam == VK_RIGHT || wparam == VK_HOME || wparam == VK_END);
@@ -811,7 +822,8 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
     // typed source after dispatch without requiring a second mouse movement.
     const bool available = content_available() || viewer_available() || profile_available();
     const bool first_pointer = pointer && available;
-    if (!g_app.tooltip && !first_pointer && !resolve_target(point, keyboard, &candidate) &&
+    if (!g_app.tooltip && !first_pointer &&
+        !resolve_target(point, keyboard, &candidate, &candidate_style, &candidate_reaction) &&
         !(navigation && available))
         return;
     auto* owner = ensure();

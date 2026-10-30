@@ -421,6 +421,14 @@ RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Rend
                                             client_y_pixels);
 }
 
+MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer& renderer, float x, float y) noexcept {
+    const MessageTextPresentation* presentation = renderer.message_text;
+    if (!presentation || !renderer.message_scene || !renderer.message_scene->active ||
+        !ui_rect_contains(renderer.message_scene->viewport, x, y))
+        return {};
+    return message_emoji_hit_test(&renderer.message_hit_test, *presentation, renderer.glyph_text.system, x, y);
+}
+
 void renderer_clear_message_text_selection(D3D11Renderer* renderer) noexcept {
     if (!renderer) {
         return;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "maicord/ui/icon.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
@@ -11,6 +12,7 @@ namespace maicord {
 inline constexpr u32 kUiTooltipMaximumTextBytes = 192;
 inline constexpr u32 kUiTooltipMaximumBold = 3;
 inline constexpr u32 kUiTooltipMaximumEmojiBytes = 48;
+inline constexpr u32 kUiTooltipMaximumDetailBytes = 48;
 inline constexpr u64 kUiTooltipPointerDelayMs = 500;
 inline constexpr u64 kUiTooltipKeyboardDelayMs = 350;
 
@@ -42,12 +44,14 @@ struct UiTooltipKey {
 };
 bool ui_tooltip_key_equal(const UiTooltipKey&, const UiTooltipKey&) noexcept;
 
-// A leading emoji (reaction tooltips): a custom emoji or flag image the host
-// draws from its media atlas when the key is valid, else a Unicode glyph
-// drawn as jumbo text.
+// A leading emoji (reaction and message emoji tooltips): a custom emoji or
+// flag image the host draws from its media atlas when the key is valid, else
+// a Unicode glyph drawn as jumbo text, else an icon (a sticker's) painted in
+// the label colour. Its square is the style's emoji_size.
 struct UiTooltipEmoji {
     MediaAssetKey media;
     Utf8View glyph;
+    UiIcon icon = UiIcon::count;
 };
 // Descriptor labels are copied during offer. The source manager must remain
 // alive until the host clears or replaces the offer. Hosts resolve current
@@ -61,6 +65,10 @@ struct UiTooltipTarget {
     // disjoint. With an emoji the label starts beside it instead of centred.
     ConstSlice<TextStyleSpan> bold{};
     UiTooltipEmoji emoji{};
+    // A second line in the muted colour below the label (the official
+    // "Click to learn more"). With one, the label keeps to one line; an icon
+    // then leads the label on its line and both lines centre.
+    Utf8View detail{};
 };
 struct UiTooltipScene {
     UiTooltipKey key;
@@ -68,6 +76,8 @@ struct UiTooltipScene {
     UiTooltipStyle style;
     UiRect anchor, viewport, rectangle;
     UiSize text_size;
+    // With a detail line: the label line's and the detail's measured sizes.
+    UiSize label_size, detail_size;
     char text[kUiTooltipMaximumTextBytes];
     // The label's style runs: plain and bold, covering every byte.
     TextStyleSpan styles[kUiTooltipMaximumBold * 2 + 1];
@@ -77,11 +87,14 @@ struct UiTooltipScene {
     u32 revision;
     u16 text_bytes;
     u8 style_count, emoji_glyph_bytes;
+    u8 emoji_icon; // UiIcon + 1; zero without one
+    u8 detail_bytes;
+    char detail[kUiTooltipMaximumDetailBytes];
     UiTooltipPlacement placement, preferred;
     UiTooltipTrigger trigger;
     bool pending, visible;
 };
-static_assert(sizeof(UiTooltipScene) <= 576);
+static_assert(sizeof(UiTooltipScene) <= 640);
 
 // Offers never capture input or allocate. Repeated identical offers retain
 // their deadline; changing source or modality requires a fresh delay. New

@@ -919,6 +919,12 @@ bool handle_content_click(LPARAM lparam) noexcept {
         return open_content_link(hit);
     case MessageMarkdownSemanticKind::command_mention:
         return insert_command_mention(hit);
+    case MessageMarkdownSemanticKind::custom_emoji:
+    case MessageMarkdownSemanticKind::regional_flag:
+        // A press on an emoji may start a text selection, as on the official
+        // client's undraggable emoji images; a click without a drag opens its
+        // popout on release (application_expression_card_pointer_up).
+        return false;
     default:
         return true;
     }

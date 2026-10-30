@@ -4,6 +4,7 @@
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/text.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
+#include "maicord/ui/emoji_presentation.hpp"
 #include "maicord/text/paragraph_hits.hpp"
 
 #include <limits.h>
@@ -86,17 +87,23 @@ bool acquire_native(MessageHitTestCacheOwner& owner,const MessageTextCommand& co
         if(unit!=units)return false;compact_geometry(owner.storage,*geometry);owner.geometry=true;return true;
     }return false;
 }
-bool native_position(const MessageHitTestCacheOwner& owner,float x,float y,u32* position) noexcept {
-    const auto& geometry=*reinterpret_cast<const NativeMessageGeometry*>(owner.storage.base);
+// Alignment moves each line inside the command's box; layout coordinates are
+// the box coordinates less these shifts. y is in box coordinates.
+__forceinline void layout_shift(const MessageHitTestCacheOwner& owner,const NativeMessageGeometry& geometry,float y,float* dx,float* dy) noexcept {
     const float extra=owner.height-geometry.measure.height;
-    if(owner.vertical_alignment==static_cast<u8>(UiTextAlignment::center))y-=extra*.5f;
-    else if(owner.vertical_alignment==static_cast<u8>(UiTextAlignment::end))y-=extra;
+    *dy=owner.vertical_alignment==static_cast<u8>(UiTextAlignment::center)?extra*.5f:
+        owner.vertical_alignment==static_cast<u8>(UiTextAlignment::end)?extra:0.f;
+    *dx=0;y-=*dy;
     if(geometry.widths){u32 first=0,last=geometry.hits.lines.count;
         while(first<last){const u32 middle=first+(last-first)/2;if(geometry.hits.lines[middle].top<=y)first=middle+1;else last=middle;}
         const float remaining=owner.width-geometry.widths[first?first-1:0];
-        x-=owner.horizontal_alignment==static_cast<u8>(UiTextAlignment::center)?remaining*.5f:remaining;}
+        *dx=owner.horizontal_alignment==static_cast<u8>(UiTextAlignment::center)?remaining*.5f:remaining;}
+}
+bool native_position(const MessageHitTestCacheOwner& owner,float x,float y,u32* position) noexcept {
+    const auto& geometry=*reinterpret_cast<const NativeMessageGeometry*>(owner.storage.base);
+    float dx=0,dy=0;layout_shift(owner,geometry,y,&dx,&dy);
     NativeParagraphHitPoint point{};
-    if(native_paragraph_hit_point(geometry.hits,x,y,&point)!=SfntStatus::ok||point.source_position>owner.utf16_units)return false;
+    if(native_paragraph_hit_point(geometry.hits,x-dx,y-dy,&point)!=SfntStatus::ok||point.source_position>owner.utf16_units)return false;
     const u32 byte=geometry.bytes[point.source_position];if(byte==0xffff)return false;*position=byte;return true;
 }
 
@@ -143,6 +150,127 @@ bool acquire_layout(MessageHitTestCacheOwner* owner, const MessageTextCommand& c
     return true;
 }
 
+// Body text: the surfaces whose emoji the official client gives a tooltip.
+bool emoji_text(const MessageTextCommand& command) noexcept {
+    switch (command.measurement_kind) {
+    case MessageTextMeasurementKind::reply:
+    case MessageTextMeasurementKind::content:
+    case MessageTextMeasurementKind::embed:
+    case MessageTextMeasurementKind::component:
+        return true;
+    default:
+        return false;
+    }
+}
+bool emoji_semantic(const MessageMarkdownSemantic& semantic) noexcept {
+    return semantic.kind == MessageMarkdownSemanticKind::custom_emoji ||
+           semantic.kind == MessageMarkdownSemanticKind::regional_flag;
+}
+// Cheap rejection before any layout: no emoji semantic and no emoji run.
+bool has_emoji(const MessageTextCommand& command) noexcept {
+    for (u32 i = 0; i < command.semantics.count; ++i)
+        if (emoji_semantic(command.semantics[i]))
+            return true;
+    TextEmojiCursor cursor{};
+    TextEmojiRange range{};
+    return text_emoji_next(command.text, &cursor, &range) == TextEmojiNext::range;
+}
+u32 style_at(const MessageTextCommand& command, u32 byte) noexcept {
+    u32 flags = 0;
+    for (u32 i = 0; i < command.styles.count; ++i) {
+        const auto& span = command.styles[i];
+        if (byte >= span.byte_offset && byte - span.byte_offset < span.byte_count)
+            flags |= span.flags;
+    }
+    return flags;
+}
+// The shaping cluster at a source position, when the emoji font draws all of it.
+bool emoji_cluster(const MessageHitTestCacheOwner& owner, const NativeMessageGeometry& geometry,
+                   const MessageTextCommand& command, u32 unit, u32* first, u32* end) noexcept {
+    NativeParagraphHitMetric cluster{};
+    float caret = 0;
+    if (native_paragraph_hit_position(geometry.hits, unit, false, &cluster, &caret) != SfntStatus::ok ||
+        cluster.source_first != unit || !cluster.source_count || cluster.source_count > owner.utf16_units - unit)
+        return false;
+    *first = geometry.bytes[unit];
+    *end = geometry.bytes[unit + cluster.source_count];
+    if (*first == 0xffff || *end == 0xffff || *end <= *first)
+        return false;
+    TextEmojiCursor cursor{};
+    TextEmojiRange range{};
+    while (text_emoji_next(command.text, &cursor, &range) == TextEmojiNext::range)
+        if (range.end_byte > *first)
+            return range.first_byte <= *first && *end <= range.end_byte;
+    return false;
+}
+MessageEmojiHit command_emoji(MessageHitTestCacheOwner* owner, const MessageTextCommand& command,
+                              const TextSystem& text_system, u32 command_index, float x, float y) noexcept {
+    if (!has_emoji(command) || !acquire_layout(owner, command, text_system, command_index))
+        return {};
+    const auto& geometry = *reinterpret_cast<const NativeMessageGeometry*>(owner->storage.base);
+    float dx = 0, dy = 0;
+    const float local_x = x - command.rectangle.left, local_y = y - command.rectangle.top;
+    layout_shift(*owner, geometry, local_y, &dx, &dy);
+    NativeParagraphHitPoint point{};
+    u32 unit = 0;
+    if (native_paragraph_hit_point(geometry.hits, local_x - dx, local_y - dy, &point, &unit) != SfntStatus::ok ||
+        !point.inside || unit >= owner->utf16_units)
+        return {};
+    const u32 byte = geometry.bytes[unit];
+    // Hidden spoilers conceal their emoji; code shows emoji as plain text.
+    if (byte == 0xffff ||
+        (style_at(command, byte) & (text_style_spoiler | text_style_monospace | text_style_code_block)))
+        return {};
+    MessageEmojiHit hit{};
+    hit.semantic_index = ~0u;
+    for (u32 i = 0; i < command.semantics.count; ++i) {
+        const auto& semantic = command.semantics[i];
+        if (emoji_semantic(semantic) && !(semantic.reserved & 2u) && byte >= semantic.byte_offset &&
+            byte - semantic.byte_offset < semantic.byte_count &&
+            semantic.byte_count <= command.text.bytes - semantic.byte_offset) {
+            hit.byte_offset = semantic.byte_offset;
+            hit.byte_count = semantic.byte_count;
+            hit.semantic_index = i;
+            hit.kind = MessageEmojiHitKind::semantic;
+            break;
+        }
+    }
+    if (hit.kind == MessageEmojiHitKind::none) {
+        u32 first = 0, end = 0;
+        if (!emoji_cluster(*owner, geometry, command, unit, &first, &end))
+            return {};
+        hit.byte_offset = first;
+        hit.byte_count = end - first;
+        hit.kind = MessageEmojiHitKind::unicode;
+    }
+    u32 first_unit = 0, end_unit = 0;
+    if (!utf8_utf16_position_for_byte_offset(command.text, hit.byte_offset, &first_unit) ||
+        !utf8_utf16_position_for_byte_offset(command.text, hit.byte_offset + hit.byte_count, &end_unit) ||
+        end_unit <= first_unit)
+        return {};
+    // A glyph sits on one line; a semantic wrapped across lines has a part per line.
+    NativeParagraphHitMetric parts[4]{};
+    u32 count = 0;
+    const auto status =
+        native_paragraph_hit_range(geometry.hits, first_unit, end_unit - first_unit, 0, 0, {parts, 4}, &count);
+    if (status != SfntStatus::ok && status != SfntStatus::output_too_small)
+        return {};
+    for (u32 i = 0; i < minimum(count, 4u); ++i) {
+        const auto& part = parts[i];
+        const float left = command.rectangle.left + dx + part.left, top = command.rectangle.top + dy + part.top;
+        const UiRect cell =
+            ui_rect_intersection({left, top, left + part.width, top + part.height}, command.clip);
+        if (x < cell.left || x >= cell.right || y < cell.top || y >= cell.bottom)
+            continue;
+        hit.message_id = command.message_id;
+        hit.rectangle = cell;
+        hit.message_revision = command.message_revision;
+        hit.command_index = command_index;
+        return hit;
+    }
+    return {};
+}
+
 } // namespace
 
 MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
@@ -184,6 +312,26 @@ MessagePositionHit message_position_hit_test(MessageHitTestCacheOwner* owner,
                                   true};
     }
     return MessagePositionHit{};
+}
+
+MessageEmojiHit message_emoji_hit_test(MessageHitTestCacheOwner* owner, const MessageTextPresentation& presentation,
+                                       const TextSystem& text_system, float x, float y) noexcept {
+    if (!owner || !presentation.active || presentation.command_count > presentation.commands.count ||
+        !ui_coordinate_valid(x) || !ui_coordinate_valid(y))
+        return {};
+    for (u32 cursor = presentation.command_count; cursor != 0; --cursor) {
+        const u32 command_index = cursor - 1;
+        const MessageTextCommand& command = presentation.commands[command_index];
+        if (command.message_id == 0 || command.text.bytes == 0 || !command.text.data || !emoji_text(command) ||
+            !ui_rect_has_area(command.rectangle) || !ui_rect_has_area(command.clip) ||
+            x < command.rectangle.left || x >= command.rectangle.right || y < command.rectangle.top ||
+            y >= command.rectangle.bottom || x < command.clip.left || x >= command.clip.right ||
+            y < command.clip.top || y >= command.clip.bottom || command.text.bytes > static_cast<u32>(INT_MAX))
+            continue;
+        // Body text commands do not overlap: the one under the point decides.
+        return command_emoji(owner, command, text_system, command_index, x, y);
+    }
+    return {};
 }
 
 void message_hit_test_cache_invalidate(MessageHitTestCacheOwner* owner) noexcept {

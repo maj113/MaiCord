@@ -2353,6 +2353,38 @@ bool message_scene_reaction_index(const MessageScene& scene, MessageSceneHit hit
     return false;
 }
 
+bool message_scene_sticker_hit(const MessageScene& scene, float x, float y, MessageStickerHit* hit) noexcept {
+    if (!hit)
+        return false;
+    *hit = {};
+    const auto at = message_scene_hit_test(scene, x, y);
+    const MessageSceneRowWidget* row = at.message_id ? message_scene_find_row(scene, at.source_index) : nullptr;
+    if (!row || row->message_id != at.message_id)
+        return false;
+    for (u32 snapshot = 0; snapshot < 2; ++snapshot) {
+        const MessageSceneRowWidget* items = snapshot ? message_scene_snapshot_row(scene, *row) : row;
+        for (u32 index = 0; items && index < items->sticker_item_count; ++index) {
+            const UiWidgetHandle widget =
+                message_scene_rich_item_widget(*items, MessageSceneRichItemKind::sticker, index);
+            if (!ui_widget_handle_matches(widget, at.widget))
+                continue;
+            const UiLayoutNode* node = message_scene_layout_node(scene, widget);
+            if (!node)
+                return false;
+            // Drawn at the item's origin (message_presentation.cpp).
+            const float extent = kDefaultMessageStickerLayoutMetrics.preview_extent;
+            const UiRect preview = ui_rect_intersection(
+                {node->rectangle.left, node->rectangle.top, node->rectangle.left + extent, node->rectangle.top + extent},
+                node->clip_rectangle);
+            if (!ui_rect_has_area(preview) || !ui_rect_contains(preview, x, y))
+                return false;
+            *hit = {row->message_id, preview, widget, index, snapshot != 0};
+            return true;
+        }
+    }
+    return false;
+}
+
 bool message_scene_focus_message(MessageScene* scene, u64 message_id) noexcept {
     if (!scene) {
         return false;

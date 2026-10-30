@@ -399,7 +399,7 @@ maicord_library(maicord_ui
     src/ui/guild_card_scene.cpp
     src/ui/guild_banner.cpp src/ui/profile_activity.cpp src/ui/caption_bar.cpp src/ui/activity_status.cpp
     src/ui/typing_indicator.cpp src/ui/dm_profile_panel.cpp
-    src/ui/toast.cpp src/ui/theme.cpp
+    src/ui/toast.cpp src/ui/theme.cpp src/ui/expression_card_scene.cpp
     # The spell tokenizer classifies letters with the Unicode property tables;
     # deflate.cpp checks gzip members with png_crc32 from maicord_media_codec.
     LIBS maicord_core maicord_model maicord_media_core maicord_unicode maicord_compression maicord_media_codec

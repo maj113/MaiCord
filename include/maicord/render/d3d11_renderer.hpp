@@ -72,6 +72,7 @@ struct UiSearchScene;
 struct UiSettingsScene;
 struct UiShortcutsScene;
 struct UiStreamCardScene;
+struct UiExpressionCardScene;
 struct UiTextMeasureCache;
 struct UiTextMeasureRequest;
 struct UiTextMeasureValue;
@@ -403,6 +404,9 @@ struct D3D11Renderer {
     // Server tag popout (popup layer), opened from a server tag chip.
     const UiGuildCardScene* guild_card_scene;
     u32 interaction_text_guild_card_revision;
+    // Emoji and sticker popout beside a message's emoji or sticker (popup layer).
+    const UiExpressionCardScene* expression_card_scene;
+    u32 interaction_text_expression_card_revision;
     // The selected server's banner over the channel list (shell layer).
     const UiGuildBannerView* guild_banner;
     const UiMediaPickerScene* media_picker_scene;
@@ -637,7 +641,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120600);
+static_assert(sizeof(D3D11Renderer) == 120616);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.
@@ -848,6 +852,8 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 clie
 RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Renderer& renderer,
                                                                        i32 client_x_pixels,
                                                                        i32 client_y_pixels) noexcept;
+// The emoji under a DIP point in the visible message timeline's body text.
+MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer& renderer, float x, float y) noexcept;
 void renderer_set_message_text_selection(D3D11Renderer* renderer,
                                          const RendererMessageTextPositionHit& command, u32 anchor,
                                          u32 caret) noexcept;

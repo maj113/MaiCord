@@ -170,6 +170,7 @@ enum class MessageHistoryRequestOwner : u8 {
     reaction_tooltip,
     dm_profile,
     startup_history,
+    expression_card,
     count,
 };
 

@@ -5,6 +5,7 @@
 #include "maicord/ui/scene.hpp"
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
 #include "maicord/media/asset.hpp"
+#include "maicord/ui/expression_card_scene.hpp"
 
 namespace maicord {
 namespace {
@@ -33,6 +34,117 @@ bool native_emoji_centered(const D3D11Renderer& renderer, const UiTooltipScene& 
         }
     }
     return count && emoji_bounds_centered(ink, square);
+}
+// Media quads drawn from the main atlas for one resident key.
+u32 media_quads(const D3D11Renderer& renderer, MediaAssetKey key) noexcept {
+    const auto allocation = media_atlas_peek(renderer.media_atlas, key);
+    u32 count = 0;
+    for (u32 q = 0; allocation.ok() && q < renderer.media_quad_count; ++q) {
+        const auto handle = renderer.media_draw.handle_data[q];
+        count += !renderer.media_draw.domain_data[q] && handle.slot == allocation.handle.slot &&
+                 handle.generation == allocation.handle.generation;
+    }
+    return count;
+}
+// Glyph quads drawn inside a rectangle.
+u32 text_quads(const D3D11Renderer& renderer, UiRect area) noexcept {
+    u32 count = 0;
+    for (u32 b = 0; b < renderer.content_text->batch_count; ++b) {
+        const auto& batch = renderer.content_text->batches[b];
+        for (u32 i = 0; i < batch.quad_count; ++i) {
+            const auto& q = renderer.content_text->quads[batch.first_quad + i];
+            count += q.left >= area.left && q.right <= area.right && q.top >= area.top && q.bottom <= area.bottom;
+        }
+    }
+    return count;
+}
+// The emoji and sticker popouts with synthetic pictures: a Unicode emoji, a
+// custom emoji from a joined server, a standard sticker's pack and the loader.
+bool expression_card_stages(D3D11Renderer& renderer, UiRect viewport, UiTextMeasureCache* measure,
+                            bool (*capture)(const wchar_t*) noexcept) noexcept {
+    UiExpressionCardScene card{};
+    struct Detach {
+        D3D11Renderer& renderer;
+        UiExpressionCardScene& card;
+        ~Detach() noexcept {
+            ui_expression_card_close(&card);
+            renderer.expression_card_scene = nullptr;
+        }
+    } detach{renderer, card};
+    renderer.expression_card_scene = &card;
+    const UiRect anchor{viewport.left + 220, viewport.top + 200, viewport.left + 242, viewport.top + 222};
+    // The popout draws in the popup layer, right of its source, with its text inside it.
+    const auto shown = [&](u64 identity, const UiExpressionCardContent& content, const wchar_t* name) noexcept {
+        renderer.retained_presentation.valid = false;
+        return ui_expression_card_show(&card, identity, content, anchor, viewport, 1000, true, measure) &&
+               renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme) &&
+               d3d11_renderer_interaction_text_state_current(renderer) &&
+               d3d11_renderer_expression_card_visible(renderer) &&
+               card.settled.left >= anchor.right + kUiExpressionCardGap - .01f &&
+               (content.layout == UiExpressionCardLayout::loading || text_quads(renderer, card.panel) > 0) &&
+               (!capture || capture(name));
+    };
+    UiExpressionCardContent unicode{};
+    unicode.layout = UiExpressionCardLayout::head;
+    unicode.glyph = utf8_literal("\xF0\x9F\x98\x82");
+    unicode.title = utf8_literal(":joy:");
+    unicode.description = utf8_literal("A default emoji. You can use this emoji everywhere on Discord.");
+    bool valid = shown(1, unicode, L"emoji-popout-unicode.bmp");
+    if (!valid)
+        log_u64(LogLevel::error, "probe", "expression_card_failure_stage", 1);
+
+    // Original synthetic pictures in distinct tints.
+    u8 pixels[32 * 32 * 4];
+    const auto upload = [&](MediaAssetKey key, u8 red, u8 green, u8 blue) noexcept {
+        for (u32 i = 0; i < sizeof(pixels); i += 4) {
+            pixels[i] = red;
+            pixels[i + 1] = green;
+            pixels[i + 2] = blue;
+            pixels[i + 3] = 255;
+        }
+        return renderer_upload_media_straight_rgba8(&renderer, key, 32, 32, 32 * 4, {pixels, sizeof(pixels)}).ok();
+    };
+    const auto emoji = media_asset_custom_emoji(0x63617264, false);
+    UiExpressionCardContent custom{};
+    custom.layout = UiExpressionCardLayout::head;
+    custom.picture = emoji;
+    custom.title = utf8_literal(":spinner:");
+    custom.description = utf8_literal("This emoji is from this server. Get Nitro to use it everywhere.");
+    custom.guild_heading = utf8_literal("This emoji is from");
+    custom.guild_name = utf8_literal("MaiCord Lab");
+    custom.guild_subtitle = utf8_literal("Invite-Only Server");
+    custom.guild_acronym = utf8_literal("ML");
+    custom.guild_link = true;
+    valid = valid && upload(emoji, 88, 101, 242) && shown(2, custom, L"emoji-popout-custom.bmp") &&
+            media_quads(renderer, emoji) == 1;
+    if (!valid)
+        log_u64(LogLevel::error, "probe", "expression_card_failure_stage", 2);
+
+    UiExpressionCardContent pack{};
+    pack.layout = UiExpressionCardLayout::pack;
+    pack.title = utf8_literal("Wave");
+    pack.description = utf8_literal("This is a Wumpus Beyond sticker.");
+    pack.emphasis_offset = 10;
+    pack.emphasis_bytes = 13;
+    pack.preview_count = kUiExpressionCardPreviews;
+    pack.button = utf8_literal("View More Stickers");
+    for (u32 i = 0; i < kUiExpressionCardPreviews && valid; ++i) {
+        pack.previews[i] = media_asset_sticker(0x5000 + i, 1);
+        valid = upload(pack.previews[i], static_cast<u8>(60 + 80 * i), 180, static_cast<u8>(220 - 70 * i));
+    }
+    valid = valid && shown(3, pack, L"sticker-popout-pack.bmp") && card.preview_count == kUiExpressionCardPreviews &&
+            ui_rect_width(card.previews[0]) == kUiExpressionCardPreview && ui_rect_has_area(card.button);
+    for (u32 i = 0; i < kUiExpressionCardPreviews && valid; ++i)
+        valid = media_quads(renderer, pack.previews[i]) == 1;
+    if (!valid)
+        log_u64(LogLevel::error, "probe", "expression_card_failure_stage", 3);
+
+    UiExpressionCardContent loading{};
+    loading.layout = UiExpressionCardLayout::loading;
+    valid = valid && shown(4, loading, L"sticker-popout-loading.bmp") && ui_rect_has_area(card.skeleton);
+    if (!valid)
+        log_u64(LogLevel::error, "probe", "expression_card_failure_stage", 4);
+    return valid;
 }
 } // namespace
 bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept {
@@ -203,6 +315,63 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
                 ++matches;
             }
             valid = valid && matches == 1;
+        }
+        // A message emoji's rich tooltip: the jumbo emoji beside its bold name.
+        if (valid) {
+            ui_tooltip_clear(&scene);
+            ++target.key.action;
+            const TextStyleSpan name{0, 5, text_style_bold};
+            target.label = utf8_literal(":joy:");
+            target.bold = {&name, 1};
+            target.emoji = {{}, utf8_literal("\xF0\x9F\x98\x82")};
+            target.detail = utf8_literal("Click to learn more");
+            UiTooltipStyle rich{};
+            rich.padding_x = 12;
+            rich.padding_y = 8;
+            rich.emoji_gap = 8;
+            rich.maximum_width = 272;
+            valid = ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 4000, rich) &&
+                    ui_tooltip_tick(&scene, 4500, &measure) && present() && native_emoji_centered(renderer, scene) &&
+                    (!capture || capture(L"tooltip-message-emoji.bmp"));
+            target.bold = {};
+            if (!valid)
+                log_u64(LogLevel::error, "probe", "tooltip_native_failure_stage", 6);
+        }
+        // A sticker's icon is paint in the tooltip's own pass, inside its square.
+        if (valid) {
+            ui_tooltip_clear(&scene);
+            ++target.key.action;
+            const TextStyleSpan name{0, 4, text_style_bold};
+            target.label = utf8_literal("Wave");
+            target.bold = {&name, 1};
+            target.emoji = {};
+            target.emoji.icon = UiIcon::sticker;
+            target.detail = utf8_literal("Click to learn more");
+            UiTooltipStyle sticker_style{};
+            sticker_style.emoji_size = 16;
+            sticker_style.emoji_gap = 6;
+            UiRect square{};
+            valid = ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 5000, sticker_style) &&
+                    ui_tooltip_tick(&scene, 5500, &measure) && present() && ui_tooltip_emoji(scene, &square) &&
+                    (!capture || capture(L"tooltip-sticker.bmp"));
+            u32 icons = 0;
+            for (u32 q = 0; q < renderer.paint_stream.count && valid; ++q) {
+                const auto& quad = renderer.paint_stream.quads[q];
+                const float x = (quad.left + quad.right) * .5f, y = (quad.top + quad.bottom) * .5f;
+                if (ui_icon_quad(quad) && ui_icon_quad_data(quad).icon == static_cast<u32>(UiIcon::sticker) &&
+                    x > square.left && x < square.right && y > square.top && y < square.bottom)
+                    ++icons;
+            }
+            valid = valid && icons == 1;
+            if (!valid)
+                log_u64(LogLevel::error, "probe", "tooltip_native_failure_stage", 7);
+        }
+        // The emoji and sticker popouts, drawn by the renderer from their scene.
+        if (valid) {
+            ui_tooltip_clear(&scene);
+            valid = expression_card_stages(renderer, viewport, &measure, capture);
+            if (!valid)
+                log_u64(LogLevel::error, "probe", "tooltip_native_failure_stage", 8);
         }
         if (wrapping_passed && !valid)
             log_u64(LogLevel::error, "probe", "tooltip_native_failure_stage", 5);

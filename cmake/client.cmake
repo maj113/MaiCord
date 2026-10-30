@@ -51,6 +51,7 @@ maicord_program(MaiCord WIN32 ENTRY maicord_entry
     src/app/application_login_auth.cpp src/app/application_login_input.cpp src/app/application_login_ui.cpp
     src/app/application_ui_runtime.cpp src/app/account_permission_storage.cpp src/app/application_media.cpp
     src/app/application_video.cpp src/app/application_tooltip.cpp src/app/application_reaction_tooltip.cpp
+    src/app/application_emoji_tooltip.cpp src/app/application_expression_card.cpp
     src/app/application_toast.cpp
     src/app/application_account_menu.cpp
     src/app/application_account_switch.cpp src/app/application_search.cpp src/app/application_search_content.cpp

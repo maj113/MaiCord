@@ -336,6 +336,11 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(stamp.structural ? 0 : renderer.guild_card_scene->spinner_phase)
             .push(renderer.interaction_text_guild_card_revision)
             .bytes(&renderer.guild_card_scene->panel, sizeof(renderer.guild_card_scene->panel));
+    if (d3d11_renderer_expression_card_visible(renderer))
+        s.pointer(renderer.expression_card_scene)
+            .push(renderer.expression_card_scene->revision)
+            .push(renderer.interaction_text_expression_card_revision)
+            .bytes(&renderer.expression_card_scene->panel, sizeof(renderer.expression_card_scene->panel));
     if (d3d11_renderer_shortcuts_visible(renderer)) {
         const auto& shortcuts = *renderer.shortcuts_scene;
         s.pointer(renderer.shortcuts_scene)

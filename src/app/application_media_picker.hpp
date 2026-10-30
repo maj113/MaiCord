@@ -19,6 +19,11 @@ struct GatewayClientEvent;
 namespace maicord::app_detail {
 
 bool application_media_picker_open(UiMediaPickerKind kind) noexcept;
+// The composer's Stickers tab scrolled to a pack once it has loaded (the
+// sticker popout's View More Stickers, as the official client opens it).
+bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept;
+// The joined server whose session sticker list holds the sticker; zero when none.
+u64 application_media_picker_sticker_server(u64 sticker_id) noexcept;
 // The official client's reaction popout: the Emoji tab without the GIF/Sticker/Emoji
 // selector, beside the anchor, adding the chosen emoji as a reaction to the
 // message (Shift keeps it open). Opening on the open message toggles it shut.

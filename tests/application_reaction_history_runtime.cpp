@@ -1115,6 +1115,7 @@ bool application_pinned_messages_response(const RestClientResponse&, Utf8View) n
     return true;
 }
 INACTIVE_REQUEST_OWNER(media_picker, true)
+INACTIVE_REQUEST_OWNER(expression_card, true)
 INACTIVE_REQUEST_OWNER(emoji_preferences, true)
 void application_emoji_preferences_response_drained() noexcept {
 }

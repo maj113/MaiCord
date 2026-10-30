@@ -597,7 +597,7 @@ maicord_test(MaiCordDrawSubmissionTests ENTRY maicord_draw_submission_entry SOUR
     BUNDLE MaiCordCoreUnitTests TIMEOUT 5 TEST maicord_draw_submission)
 maicord_test(MaiCordTooltipRuntimeTests ENTRY maicord_tooltip_runtime_entry
     SOURCES tests/application_tooltip_runtime.cpp src/app/application_tooltip.cpp src/app/application_state.cpp
-        tests/application_reaction_tooltip_runtime.cpp src/core/log.cpp
+        tests/application_reaction_tooltip_runtime.cpp tests/application_emoji_tooltip_runtime.cpp src/core/log.cpp
     LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 10 TEST maicord_tooltip_runtime)

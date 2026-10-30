@@ -127,6 +127,28 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     query.guild_id = 0;
     check(!media_catalog_write_target(query, {target, sizeof(target)}).ok(),
           "media catalog: absent guild identity never routes to a foreign catalog");
+    // The emoji/sticker popout's lookups: one sticker, one pack, each by ID
+    // without a locale, as the official client requests them.
+    query.operation = MediaCatalogOperation::sticker;
+    query.object_id = 749054660769218631;
+    written = media_catalog_write_target(query, {target, sizeof(target)});
+    check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
+                               utf8_literal("/api/v10/stickers/749054660769218631")),
+          "media catalog: one sticker by ID");
+    query.operation = MediaCatalogOperation::sticker_pack;
+    query.object_id = 847199849233514549;
+    written = media_catalog_write_target(query, {target, sizeof(target)});
+    check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
+                               utf8_literal("/api/v10/sticker-packs/847199849233514549")),
+          "media catalog: one sticker pack by ID");
+    query.object_id = 0;
+    const bool missing = !media_catalog_write_target(query, {target, sizeof(target)}).ok();
+    query.operation = MediaCatalogOperation::sticker_packs;
+    query.object_id = 7;
+    query.locale = utf8_literal("en-US");
+    check(missing && !media_catalog_write_target(query, {target, sizeof(target)}).ok(),
+          "media catalog: an object ID belongs to exactly the sticker and pack lookups");
+    query.object_id = 0;
 
     auto input = array_fixture(1, gif);
     auto result = decode(MediaCatalogOperation::gif_search, input);
@@ -285,6 +307,32 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     result = decode(MediaCatalogOperation::sticker_packs, covered, 128);
     check(result.ok() && result.item_count == 3 && !items[0].cover && items[1].cover && !items[2].cover,
           "media catalog: a pack's cover_sticker_id marks its rail icon sticker");
+    constexpr auto standard = utf8_literal(
+        R"({"id":"749054660769218631","name":"Wave","tags":"wave","type":1,"format_type":3,)"
+        R"("description":"Wumpus waves","asset":"","pack_id":"847199849233514549","sort_value":12})");
+    result = decode(MediaCatalogOperation::sticker, standard, 128);
+    check(result.ok() && result.item_count == 1 && items[0].sticker_id == 749054660769218631 &&
+              items[0].pack_id == 847199849233514549 && !items[0].guild_id && items[0].sticker_format == 3 &&
+              same(items[0].name, utf8_literal("Wave")),
+          "media catalog: a standard sticker names its pack");
+    constexpr auto guild = utf8_literal(
+        " \r\n{\"id\":\"9\",\"name\":\"Vibing\",\"tags\":\"dance\",\"type\":2,\"format_type\":1,\"description\":null,"
+        "\"available\":true,\"guild_id\":\"77\",\"user\":{\"id\":\"5\"}}\n");
+    result = decode(MediaCatalogOperation::sticker, guild, 128);
+    check(result.ok() && result.item_count == 1 && items[0].guild_id == 77 && !items[0].pack_id &&
+              items[0].available,
+          "media catalog: a server sticker names its server");
+    constexpr auto retired = utf8_literal(
+        R"({"id":"42","name":"Old Pack","cover_sticker_id":"8","stickers":[)"
+        R"({"id":"7","name":"First","format_type":1},{"id":"8","name":"Cover","format_type":1}]})");
+    result = decode(MediaCatalogOperation::sticker_pack, retired, 128);
+    check(result.ok() && result.item_count == 2 && items[0].pack_id == 42 && items[1].cover &&
+              same(items[0].pack_name, utf8_literal("Old Pack")),
+          "media catalog: one pack decodes like a pack of the list");
+    sentinel();
+    result = decode(MediaCatalogOperation::sticker, utf8_literal(R"([{"id":"9","name":"x","format_type":1}])"), 128);
+    check(result.error == MediaCatalogError::schema && untouched(),
+          "media catalog: a sticker lookup answered with a list is rejected whole");
     using S = StickerSendability;
     const bool own = guild_sticker_sendability(5, 5, true, false, 0) == S::sendable;
     const bool dm = guild_sticker_sendability(5, 0, true, false, 0) == S::premium &&

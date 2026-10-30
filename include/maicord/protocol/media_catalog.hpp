@@ -28,6 +28,10 @@ enum class MediaCatalogOperation : u8 {
     gif_suggestions,
     sticker_packs,
     guild_stickers,
+    // GET /stickers/{id}: one sticker, its pack_id (standard) or guild_id.
+    sticker,
+    // GET /sticker-packs/{id}: one pack, including one no longer offered.
+    sticker_pack,
 };
 // The catalog offers these two formats. Native previews default to
 // its tinywebp path; selecting a format does not change the item's send URL.
@@ -49,6 +53,8 @@ struct MediaCatalogQuery {
     u64 guild_id;
     u32 limit;
     MediaCatalogFormat format;
+    // The sticker or pack of sticker / sticker_pack; zero for the others.
+    u64 object_id = 0;
 };
 
 // These views belong to caller-provided output text, never the response body.

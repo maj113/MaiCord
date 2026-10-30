@@ -874,6 +874,7 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     renderer->call_scene = nullptr;
     renderer->stream_card_scene = nullptr;
     renderer->guild_card_scene = nullptr;
+    renderer->expression_card_scene = nullptr;
     renderer->guild_banner = nullptr;
     reset_value(&renderer->media_picker_edit_geometry);
     text_edit_layout_release(&renderer->login_edit);

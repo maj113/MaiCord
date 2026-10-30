@@ -96,30 +96,6 @@ bool append_visible(const UiWidgetManager& manager, UiWidgetHandle owner, const 
     return !ui_rect_has_area(clip) || append_command(manager, owner, text, rectangle, clip, color, stream, look);
 }
 
-// The server acronym: the first character of each word ("MaiCord Lab"
-// -> "ML"). The length selects a smaller face for longer acronyms.
-Utf8View guild_acronym(Utf8View name, Slice<char> storage, u32* characters) noexcept {
-    u32 used = 0;
-    *characters = 0;
-    bool boundary = true;
-    for (u32 offset = 0; offset < name.bytes && *characters < 6;) {
-        const auto scalar = utf8_decode_one(name.data + offset, name.bytes - offset);
-        if (!scalar.valid)
-            break;
-        const bool space = scalar.codepoint == ' ' || scalar.codepoint == '\t';
-        if (boundary && !space) {
-            if (used + scalar.width > storage.count)
-                break;
-            copy_bytes(storage.data + used, name.data + offset, scalar.width);
-            used += scalar.width;
-            ++*characters;
-        }
-        boundary = space;
-        offset += scalar.width;
-    }
-    return {storage.data, used};
-}
-
 // A rejected output drops every command it holds; callers `return reject(...)`.
 bool reject(UiTextOutput* stream) noexcept {
     ui_text_output_reject(stream);
@@ -147,6 +123,30 @@ UiTextEffect member_role_effect(const MemberListScene& scene, const MemberListRo
 }
 
 } // namespace
+
+// The server acronym: the first character of each word ("MaiCord Lab"
+// -> "ML"). The length selects a smaller face for longer acronyms.
+Utf8View ui_guild_acronym(Utf8View name, Slice<char> storage, u32* characters) noexcept {
+    u32 used = 0;
+    *characters = 0;
+    bool boundary = true;
+    for (u32 offset = 0; offset < name.bytes && *characters < 6;) {
+        const auto scalar = utf8_decode_one(name.data + offset, name.bytes - offset);
+        if (!scalar.valid)
+            break;
+        const bool space = scalar.codepoint == ' ' || scalar.codepoint == '\t';
+        if (boundary && !space) {
+            if (used + scalar.width > storage.count)
+                break;
+            copy_bytes(storage.data + used, name.data + offset, scalar.width);
+            used += scalar.width;
+            ++*characters;
+        }
+        boundary = space;
+        offset += scalar.width;
+    }
+    return {storage.data, used};
+}
 
 bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateStore& state,
                                           const NavigationView& navigation, const Theme& theme,
@@ -284,7 +284,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 char storage[32];
                 u32 characters = 0;
                 const auto acronym =
-                    guild_acronym(chat_state_store_guild_name(state, *guild), {storage, sizeof(storage)}, &characters);
+                    ui_guild_acronym(chat_state_store_guild_name(state, *guild), {storage, sizeof(storage)}, &characters);
                 const auto clip = ui_rect_intersection(guild_navigation->rectangle, guild_scene->viewport);
                 TextLook look = kLookCentered;
                 look.style_flags = characters <= 2 ? text_style_heading_3 : characters <= 4 ? text_style_none : text_style_subtext;

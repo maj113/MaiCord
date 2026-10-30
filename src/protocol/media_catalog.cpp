@@ -11,7 +11,12 @@ namespace {
 using E = MediaCatalogError;
 bool sticker_operation(MediaCatalogOperation operation) noexcept {
     return operation == MediaCatalogOperation::sticker_packs ||
-           operation == MediaCatalogOperation::guild_stickers;
+           operation == MediaCatalogOperation::guild_stickers || operation == MediaCatalogOperation::sticker ||
+           operation == MediaCatalogOperation::sticker_pack;
+}
+// One object addressed by its ID (no locale): a sticker or a pack.
+bool object_operation(MediaCatalogOperation operation) noexcept {
+    return operation == MediaCatalogOperation::sticker || operation == MediaCatalogOperation::sticker_pack;
 }
 u32 item_limit(MediaCatalogOperation operation) noexcept {
     return sticker_operation(operation)                          ? kMediaCatalogMaximumStickerItems
@@ -367,6 +372,17 @@ bool root_member(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 bool visit(Context& c, MediaCatalogOperation operation) noexcept {
+    if (object_operation(operation)) {
+        // The root object itself is the sticker or the pack.
+        if (!c.document.structurals.count || c.document.input.data[c.document.structurals[0]] != '{')
+            return fail(c, E::schema, 0);
+        const u32 at = c.document.structurals[0];
+        const JsonValue root{{c.document.input.data + at, c.document.input.bytes - at}, at, JsonValueKind::object};
+        if (operation == MediaCatalogOperation::sticker_pack)
+            return pack(&c, 0, root);
+        c.kind = MediaCatalogItemKind::sticker;
+        return item(&c, 0, root);
+    }
     if (operation == MediaCatalogOperation::gif_categories ||
         operation == MediaCatalogOperation::sticker_packs) {
         Root root{&c, operation};
@@ -422,7 +438,8 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
                              query.operation == MediaCatalogOperation::gif_trending;
     const bool search = query.operation == MediaCatalogOperation::gif_search ||
                         query.operation == MediaCatalogOperation::gif_suggestions;
-    if (((query.operation != MediaCatalogOperation::guild_stickers || query.locale.bytes) &&
+    if ((((query.operation != MediaCatalogOperation::guild_stickers && !object_operation(query.operation)) ||
+          query.locale.bytes) &&
          !locale_valid(query.locale)) ||
         !text_valid(query.query, kMediaCatalogMaximumQueryBytes, search) ||
         (!search && query.query.bytes) ||
@@ -432,7 +449,8 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
          (!query.limit || query.limit > kMediaCatalogMaximumSuggestions)) ||
         (query.operation == MediaCatalogOperation::gif_categories &&
          query.limit > kMediaCatalogMaximumPageItems) ||
-        ((query.operation == MediaCatalogOperation::guild_stickers) != (query.guild_id != 0)))
+        ((query.operation == MediaCatalogOperation::guild_stickers) != (query.guild_id != 0)) ||
+        (object_operation(query.operation) != (query.object_id != 0)))
         return {0, E::invalid_query};
     const ConstSlice<u8> target{output.data, output.count},
         q{reinterpret_cast<const u8*>(query.query.data), query.query.bytes},
@@ -465,8 +483,16 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
         route_append_u64(&w, query.guild_id);
         route_append(&w, utf8_literal("/stickers"));
         break;
+    case MediaCatalogOperation::sticker:
+        route_append(&w, utf8_literal("/stickers/"));
+        route_append_u64(&w, query.object_id);
+        break;
+    case MediaCatalogOperation::sticker_pack:
+        route_append(&w, utf8_literal("/sticker-packs/"));
+        route_append_u64(&w, query.object_id);
+        break;
     }
-    if (query.operation != MediaCatalogOperation::guild_stickers) {
+    if (query.operation != MediaCatalogOperation::guild_stickers && !object_operation(query.operation)) {
         route_append(&w, utf8_literal("?locale="));
         route_append_path_component(&w, query.locale);
         if (search) {

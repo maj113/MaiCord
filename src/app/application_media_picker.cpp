@@ -211,6 +211,9 @@ struct ApplicationMediaPicker {
     u64 sticker_store_revision;
     // Packs-bank index of each section's cover sticker; ~0 when none.
     u32 section_cover[kUiMediaPickerMaximumSections];
+    // A pack the Stickers tab scrolls to once its section exists (the
+    // sticker popout's View More Stickers); zero for none.
+    u64 jump_section;
 };
 namespace {
 constexpr auto kReactionHint = utf8_literal("Shift-click to add more reactions");
@@ -1190,6 +1193,42 @@ bool application_media_picker_open(UiMediaPickerKind kind) noexcept {
     application_media_picker_close();
     return false;
 }
+bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept {
+    if (!pack_id)
+        return false;
+    // Already on the Stickers tab: stay open (a reopen would toggle it shut).
+    auto* p = g_app.media_picker;
+    const bool shown = p && p->active && p->scene.active && owns_current(*p) && p->kind == UiMediaPickerKind::sticker &&
+                       !p->reaction_message_id;
+    if (!shown && !application_media_picker_open(UiMediaPickerKind::sticker))
+        return false;
+    if (!g_app.media_picker)
+        return false;
+    g_app.media_picker->jump_section = pack_id;
+    return repaint();
+}
+u64 application_media_picker_sticker_server(u64 sticker_id) noexcept {
+    if (!sticker_id)
+        return 0;
+    // Server lists are the API's JSON: an ID appears as "<id>".
+    char needle[24];
+    u32 bytes = 0;
+    needle[bytes++] = '"';
+    char digits[20];
+    u32 count = 0;
+    for (u64 value = sticker_id; value; value /= 10)
+        digits[count++] = static_cast<char>('0' + value % 10);
+    while (count)
+        needle[bytes++] = digits[--count];
+    needle[bytes++] = '"';
+    for (u32 i = 0; i < g_sticker_store.count; ++i) {
+        const auto& list = g_sticker_store.lists[i];
+        for (u32 at = 0; list.json && at + bytes <= list.bytes; ++at)
+            if (list.json[at] == '"' && bytes_equal(list.json + at, needle, bytes))
+                return list.guild_id;
+    }
+    return 0;
+}
 bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexcept {
     auto* ui = g_app.account_ui;
     if (!message_id || !ui_rect_valid(anchor) || !account_ready() || !unobstructed())
@@ -1255,6 +1294,7 @@ void application_media_picker_close() noexcept {
         p->tab_scroll[static_cast<u32>(p->kind)] = p->scene.scroll_dips;
     cancel(*p);
     p->active = p->wanted = false;
+    p->jump_section = 0;
     focus(*p, false);
     if (p->reaction_message_id) {
         // Return the shared search field and kind to the composer picker.
@@ -1449,6 +1489,15 @@ bool application_media_picker_synchronize() noexcept {
             ui_media_picker_scene_hover(&p->scene, pointer.x * scale, pointer.y * scale,
                                         clock_monotonic_milliseconds());
         }
+    }
+    // View More Stickers: the pack's section, once the packs have arrived.
+    if (p->jump_section && p->kind == UiMediaPickerKind::sticker && p->phase == UiMediaPickerPhase::ready) {
+        for (u32 i = 0; i < p->section_count; ++i)
+            if (p->sections[i].id == p->jump_section) {
+                ui_media_picker_scene_scroll_section(&p->scene, p->jump_section);
+                break;
+            }
+        p->jump_section = 0;
     }
     g_app.renderer.media_picker_scene = &p->scene;
     return true;

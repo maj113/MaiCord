@@ -2363,6 +2363,10 @@ RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Rend
     ++settings_runtime_test::observed.text_hits;
     return {};
 }
+// Settings own the surface: the message view's emoji are never consulted.
+MessageEmojiHit renderer_message_emoji_hit_test(D3D11Renderer&, float, float) noexcept {
+    return {};
+}
 void renderer_set_live_resize(D3D11Renderer* renderer, bool live_resize) noexcept {
     renderer->live_resize = live_resize;
 }

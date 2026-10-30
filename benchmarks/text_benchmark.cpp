@@ -62,6 +62,27 @@ u64 message_hit_rebuild_per_second(MessageHitTestCacheOwner* owner,
     return per_second(kMessageHitRebuildIterations, elapsed);
 }
 
+// The tooltip host's per-frame emoji probe on a cached layout, alternating
+// between the emoji and plain text of the same command.
+u64 message_emoji_hit_cached_per_second(MessageHitTestCacheOwner* owner,
+                                        const MessageTextPresentation& presentation,
+                                        const TextSystem& system, const Clock& clock, float emoji_x) noexcept {
+    const i64 begin = clock_now();
+    u64 checksum = 0;
+    for (u32 iteration = 0; iteration < kTextBenchmarkIterations; ++iteration) {
+        const bool on_emoji = (iteration & 1u) != 0;
+        const MessageEmojiHit hit =
+            message_emoji_hit_test(owner, presentation, system, on_emoji ? emoji_x : 12.0f, 18.0f);
+        if ((hit.kind == MessageEmojiHitKind::unicode) != on_emoji) {
+            return 0;
+        }
+        checksum += hit.byte_offset + hit.byte_count + 1;
+    }
+    const u64 elapsed = clock_microseconds(clock, begin, clock_now());
+    g_text_checksum ^= checksum;
+    return per_second(kTextBenchmarkIterations, elapsed);
+}
+
 u64 shape_per_second(TextSystem* system, ShapedText* shaped, Utf8View input,
                      const Clock& clock) noexcept {
     const i64 begin = clock_now();
@@ -281,12 +302,23 @@ int run() noexcept {
         &message_hit_owner, message_hit_presentation, system, clock);
     const u32 builds_after_rebuild = message_hit_owner.builds;
     const u32 rejected_after_rebuild = message_hit_owner.rejected;
+    // The text's emoji, found once; the measured probes reuse that layout.
+    float emoji_x = 0.0f;
+    for (float x = 0.0f; x < 640.0f && emoji_x == 0.0f; x += 1.0f)
+        if (message_emoji_hit_test(&message_hit_owner, message_hit_presentation, system, x, 18.0f).kind ==
+            MessageEmojiHitKind::unicode)
+            emoji_x = x + 2.0f;
+    const u32 builds_before_emoji = message_hit_owner.builds;
+    const u64 message_emoji_hit_cached = emoji_x == 0.0f ? 0 : message_emoji_hit_cached_per_second(
+        &message_hit_owner, message_hit_presentation, system, clock, emoji_x);
+    const bool emoji_hits_cached = message_hit_owner.builds == builds_before_emoji;
     message_hit_test_cache_release(&message_hit_owner);
     shaped_text_reset(&shaped);
     text_system_release(&system);
     if (latin == 0 || arabic == 0 || emoji == 0 || styled == 0 ||
         interactive == 0 || measure == 0 || message_hit_cached == 0 ||
-        message_hit_rebuild == 0 || builds_after_cached != 1 ||
+        message_hit_rebuild == 0 || message_emoji_hit_cached == 0 || !emoji_hits_cached ||
+        builds_after_cached != 1 ||
         hits_after_cached != kTextBenchmarkIterations - 1 ||
         builds_after_rebuild != 1 + kMessageHitRebuildIterations ||
         rejected_after_rebuild != 0 || g_text_checksum == 0) {
@@ -300,6 +332,7 @@ int run() noexcept {
     write_metric("text_measure_latin", measure, "runs/s");
     write_metric("message_hit_cached", message_hit_cached, "runs/s");
     write_metric("message_hit_rebuild", message_hit_rebuild, "runs/s");
+    write_metric("message_emoji_hit_cached", message_emoji_hit_cached, "runs/s");
     write_value("message_hit_cache_owner_bytes", sizeof(MessageHitTestCacheOwner));
     write_value("message_hit_cached_speedup_x1000",
                 message_hit_rebuild == 0 ? 0 : message_hit_cached * 1'000ull / message_hit_rebuild);

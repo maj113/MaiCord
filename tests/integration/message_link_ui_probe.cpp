@@ -687,6 +687,75 @@ bool message_style_boundaries() noexcept {
     return !message_position_hit_test(&cache, presentation, g_app.renderer.glyph_text.system, 96, 8, 8).valid;
 }
 
+// Emoji hits on real shaped text: Unicode emoji are whole shaping clusters
+// (skin tones and ZWJ sequences included), custom emoji and flags are their
+// semantics, and code, hidden spoilers, letters and author lines miss.
+bool message_emoji_hits() noexcept {
+    MessageHitTestCacheOwner cache{};
+    struct Release {
+        MessageHitTestCacheOwner& cache;
+        ~Release() noexcept { message_hit_test_cache_release(&cache); }
+    } release{cache};
+    constexpr Utf8View text = utf8_literal(
+        "a\xF0\x9F\x98\x82" "b \xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD \xEF\xBF\xBC \xF0\x9F\x87\xBA\xF0\x9F\x87\xB8 "
+        "\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7 \xF0\x9F\x98\x80 \xF0\x9F\x98\x80");
+    const TextStyleSpan styles[]{{16, 3, text_style_custom_emoji}, {20, 8, text_style_custom_emoji},
+                                 {48, 4, text_style_monospace}, {53, 4, text_style_spoiler}};
+    const MessageMarkdownSemantic semantics[]{{77, 16, 3, 0, 0, MessageMarkdownSemanticKind::custom_emoji, 0},
+                                              {504, 20, 8, 0, 0, MessageMarkdownSemanticKind::regional_flag, 0}};
+    MessageTextCommand command{};
+    command.text = text;
+    command.styles = {styles, 4};
+    command.semantics = {semantics, 2};
+    command.rectangle = command.clip = {20, 20, 620, 60};
+    command.message_id = 1;
+    command.measurement_kind = MessageTextMeasurementKind::content;
+    MessageTextPresentation presentation{};
+    presentation.commands = {&command, 1};
+    presentation.command_count = 1;
+    presentation.active = true;
+    const auto& system = g_app.renderer.glyph_text.system;
+    struct Expected {
+        MessageEmojiHitKind kind;
+        u32 offset, bytes;
+    };
+    constexpr Expected expected[]{{MessageEmojiHitKind::unicode, 1, 4},
+                                  {MessageEmojiHitKind::unicode, 7, 8},
+                                  {MessageEmojiHitKind::semantic, 16, 3},
+                                  {MessageEmojiHitKind::semantic, 20, 8},
+                                  {MessageEmojiHitKind::unicode, 29, 18}};
+    u32 seen = 0, misses = 0;
+    MessageEmojiHit last{};
+    // Sweep the first line: each emoji is hit once as a run of points inside its cell.
+    for (float x = 20; x < 620 && seen <= 5; x += .5f) {
+        const auto hit = message_emoji_hit_test(&cache, presentation, system, x, 30);
+        if (hit.kind == MessageEmojiHitKind::none) {
+            ++misses;
+            last = {};
+            continue;
+        }
+        if (hit.kind == last.kind && hit.byte_offset == last.byte_offset)
+            continue;
+        last = hit;
+        if (seen == 5 || hit.kind != expected[seen].kind || hit.byte_offset != expected[seen].offset ||
+            hit.byte_count != expected[seen].bytes || hit.message_id != 1 || !ui_rect_contains(hit.rectangle, x, 30) ||
+            (hit.kind == MessageEmojiHitKind::semantic) != (hit.semantic_index != ~0u))
+            return false;
+        ++seen;
+    }
+    const u32 builds = cache.builds;
+    command.measurement_kind = MessageTextMeasurementKind::none;
+    const bool author_line = message_emoji_hit_test(&cache, presentation, system, 25, 30).kind ==
+                             MessageEmojiHitKind::none;
+    command.measurement_kind = MessageTextMeasurementKind::content;
+    command.text = utf8_literal("plain words only");
+    command.styles = {};
+    command.semantics = {};
+    const bool plain = message_emoji_hit_test(&cache, presentation, system, 25, 30).kind == MessageEmojiHitKind::none &&
+                       cache.builds == builds;
+    return seen == 5 && misses && author_line && plain;
+}
+
 bool scenarios() noexcept {
     if (!require(gallery_activation(), 11))
         return false;
@@ -840,7 +909,7 @@ bool message_link_ui_probe() noexcept {
     return require(renderer_initialize(&g_app.renderer, window) &&
                        initialize(window),
                    100) &&
-           require(message_style_boundaries(), 101) && scenarios();
+           require(message_style_boundaries(), 101) && require(message_emoji_hits(), 102) && scenarios();
 }
 } // namespace maicord
 

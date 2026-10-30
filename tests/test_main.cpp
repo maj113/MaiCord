@@ -3344,6 +3344,36 @@ void test_message_text_presentation() noexcept {
                rich_item_hit.widget.slot == retained_rich_items[0].slot &&
                rich_item_hit.widget.generation == retained_rich_items[0].generation,
            "message_rich_items_own_hierarchy_text_and_hit_testing");
+    // A sticker's tooltip anchors to its 64 DIP preview; its caption misses.
+    // The stickers lie below this viewport: lay the row out whole meanwhile.
+    bool sticker_previews_hit = row && message_scene_update(&scene, {0.0f, 0.0f, 720.0f, 4000.0f}).ok();
+    for (u32 index = 0; index < 2 && sticker_previews_hit; ++index) {
+        const UiLayoutNode* node = message_scene_layout_node(scene, retained_rich_items[4 + index]);
+        MessageStickerHit sticker{}, caption{};
+        const float extent = kDefaultMessageStickerLayoutMetrics.preview_extent;
+        sticker_previews_hit =
+            node && ui_rect_height(node->rectangle) > extent + 4 &&
+            message_scene_sticker_hit(scene, node->rectangle.left + extent * .5f,
+                                      node->rectangle.top + extent * .5f, &sticker) &&
+            sticker.index == index && !sticker.snapshot && sticker.message_id == row->message_id &&
+            ui_widget_handle_equal(sticker.widget, retained_rich_items[4 + index]) &&
+            ui_rect_equal(sticker.preview, ui_rect_intersection({node->rectangle.left, node->rectangle.top,
+                                                                 node->rectangle.left + extent,
+                                                                 node->rectangle.top + extent},
+                                                                node->clip_rectangle)) &&
+            !message_scene_sticker_hit(scene, node->rectangle.left + 2, node->rectangle.top + extent + 2, &caption) &&
+            !caption.message_id;
+    }
+    const UiLayoutNode* attachment_node =
+        row ? message_scene_rich_item_layout_node(scene, *row, MessageSceneRichItemKind::attachment, 0) : nullptr;
+    MessageStickerHit attachment_sticker{};
+    sticker_previews_hit = sticker_previews_hit && attachment_node &&
+                           !message_scene_sticker_hit(
+                               scene, (attachment_node->rectangle.left + attachment_node->rectangle.right) * .5f,
+                               (attachment_node->rectangle.top + attachment_node->rectangle.bottom) * .5f,
+                               &attachment_sticker);
+    expect(sticker_previews_hit && message_scene_update(&scene, viewport).ok(),
+           "message_sticker_preview_hit_is_the_preview_square_not_its_caption_or_other_items");
     const auto* downloadable = ui_widget_manager_resolve(scene.widgets, retained_rich_items[0]);
     const auto* unavailable = ui_widget_manager_resolve(scene.widgets, retained_rich_items[1]);
     expect(downloadable && unavailable && (downloadable->flags & ui_widget_focusable) &&

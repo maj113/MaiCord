@@ -6,6 +6,7 @@
 #include "application_call.hpp"
 #include "application_stream.hpp"
 #include "application_guild_card.hpp"
+#include "application_expression_card.hpp"
 #include "application_stage.hpp"
 #include "application_voice_channels.hpp"
 #include "application_soundboard.hpp"
@@ -147,6 +148,7 @@ void release_overlay_owners() noexcept {
     application_call_release();
     application_stream_release();
     application_guild_card_release();
+    application_expression_card_release();
     application_stage_release();
     application_voice_channels_release();
     application_soundboard_release();

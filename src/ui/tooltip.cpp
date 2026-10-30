@@ -70,15 +70,29 @@ bool valid_bold(ConstSlice<TextStyleSpan> bold, u32 bytes) noexcept {
     return true;
 }
 bool valid_emoji(const UiTooltipEmoji& emoji) noexcept {
-    return !emoji.glyph.bytes ||
-           (emoji.glyph.data && emoji.glyph.bytes <= kUiTooltipMaximumEmojiBytes && utf8_validate(emoji.glyph).valid);
+    return emoji.icon <= UiIcon::count &&
+           (!emoji.glyph.bytes || (emoji.glyph.data && emoji.glyph.bytes <= kUiTooltipMaximumEmojiBytes &&
+                                   utf8_validate(emoji.glyph).valid));
+}
+bool valid_detail(Utf8View detail) noexcept {
+    return !detail.bytes ||
+           (detail.data && detail.bytes <= kUiTooltipMaximumDetailBytes && valid_label(detail));
+}
+u8 icon_slot(UiIcon icon) noexcept {
+    return icon < UiIcon::count ? static_cast<u8>(static_cast<u32>(icon) + 1) : u8{0};
 }
 bool has_emoji(const UiTooltipScene& scene) noexcept {
-    return media_asset_key_valid(scene.emoji_media) || scene.emoji_glyph_bytes;
+    return media_asset_key_valid(scene.emoji_media) || scene.emoji_glyph_bytes || scene.emoji_icon;
+}
+// An icon with a detail line leads the label on its own line (the official
+// sticker tooltip) instead of standing in a column beside both lines.
+bool inline_icon(const UiTooltipScene& scene) noexcept {
+    return scene.emoji_icon && scene.detail_bytes && !media_asset_key_valid(scene.emoji_media) &&
+           !scene.emoji_glyph_bytes;
 }
 // The emoji column before the label: the square and its gap.
 float leading(const UiTooltipScene& scene) noexcept {
-    return has_emoji(scene) ? scene.style.emoji_size + scene.style.emoji_gap : 0;
+    return has_emoji(scene) && !inline_icon(scene) ? scene.style.emoji_size + scene.style.emoji_gap : 0;
 }
 // Plain and bold runs covering the whole label.
 u8 label_runs(u32 bytes, ConstSlice<TextStyleSpan> bold, TextStyleSpan* runs) noexcept {
@@ -100,7 +114,9 @@ bool same_content(const UiTooltipScene& scene, const UiTooltipTarget& target) no
     return utf8_equal({scene.text, scene.text_bytes}, target.label) && count == scene.style_count &&
            bytes_equal(runs, scene.styles, count * static_cast<u32>(sizeof(TextStyleSpan))) &&
            media_asset_key_equal(scene.emoji_media, target.emoji.media) &&
-           utf8_equal({scene.emoji_glyph, scene.emoji_glyph_bytes}, target.emoji.glyph);
+           utf8_equal({scene.emoji_glyph, scene.emoji_glyph_bytes}, target.emoji.glyph) &&
+           scene.emoji_icon == icon_slot(target.emoji.icon) &&
+           utf8_equal({scene.detail, scene.detail_bytes}, target.detail);
 }
 // Copies the target's label, runs and emoji; the target may borrow the
 // scene's own text.
@@ -118,16 +134,39 @@ void set_content(UiTooltipScene* scene, const UiTooltipTarget& target) noexcept 
     scene->emoji_media = target.emoji.media;
     copy_bytes(scene->emoji_glyph, glyph, target.emoji.glyph.bytes);
     scene->emoji_glyph_bytes = static_cast<u8>(target.emoji.glyph.bytes);
+    scene->emoji_icon = icon_slot(target.emoji.icon);
+    char detail[kUiTooltipMaximumDetailBytes];
+    copy_bytes(detail, target.detail.data, target.detail.bytes);
+    copy_bytes(scene->detail, detail, target.detail.bytes);
+    scene->detail_bytes = static_cast<u8>(target.detail.bytes);
+}
+// The top of the label line: the text block centres in the box.
+float text_top(const UiTooltipScene& scene) noexcept {
+    const auto r = scene.rectangle;
+    const float inner = ui_rect_height(r) - scene.style.padding_y * 2;
+    return r.top + scene.style.padding_y + (inner - scene.text_size.height) * .5f;
+}
+// The label line's left edge when an icon leads it, centred in the box.
+float inline_left(const UiTooltipScene& scene) noexcept {
+    const auto r = scene.rectangle;
+    const float line = scene.style.emoji_size + scene.style.emoji_gap + scene.label_size.width;
+    return (r.left + r.right - line) * .5f;
 }
 UiRect emoji_square(const UiTooltipScene& scene) noexcept {
     const auto r = scene.rectangle;
-    const float size = scene.style.emoji_size, left = r.left + scene.style.padding_x,
-                top = (r.top + r.bottom - size) * .5f;
+    const float size = scene.style.emoji_size;
+    if (inline_icon(scene)) {
+        const float left = inline_left(scene),
+                    top = text_top(scene) + (scene.label_size.height - size) * .5f;
+        return {left, top, left + size, top + size};
+    }
+    const float left = r.left + scene.style.padding_x, top = (r.top + r.bottom - size) * .5f;
     return {left, top, left + size, top + size};
 }
 UiRect placed(const UiTooltipScene& scene, UiTooltipPlacement placement) noexcept {
     const float width = scene.text_size.width + scene.style.padding_x * 2 + leading(scene),
-                height = maximum(scene.text_size.height, has_emoji(scene) ? scene.style.emoji_size : 0.f) +
+                height = maximum(scene.text_size.height,
+                                 has_emoji(scene) && !inline_icon(scene) ? scene.style.emoji_size : 0.f) +
                          scene.style.padding_y * 2;
     const float gap = scene.style.gap;
     const float x = (scene.anchor.left + scene.anchor.right) * .5f;
@@ -225,7 +264,7 @@ bool ui_tooltip_offer(UiTooltipScene* scene, const UiTooltipTarget& target, UiRe
         return ui_tooltip_clear(scene);
     const auto anchor = ui_rect_intersection(target.anchor, viewport);
     if (!source_current(target.key) || !valid_label(target.label) || !valid_style(style) ||
-        !valid_bold(target.bold, target.label.bytes) || !valid_emoji(target.emoji) ||
+        !valid_bold(target.bold, target.label.bytes) || !valid_emoji(target.emoji) || !valid_detail(target.detail) ||
         !ui_rect_valid(viewport) || ui_rect_width(viewport) < 64 || ui_rect_height(viewport) < 48 ||
         !ui_rect_has_area(anchor) ||
         ui_rect_width(viewport) < style.margin * 2 + style.padding_x * 2 + 12 ||
@@ -292,6 +331,9 @@ bool ui_tooltip_offer(UiTooltipScene* scene, const UiTooltipTarget& target, UiRe
     scene->emoji_media = copied.emoji_media;
     copy_bytes(scene->emoji_glyph, copied.emoji_glyph, copied.emoji_glyph_bytes);
     scene->emoji_glyph_bytes = copied.emoji_glyph_bytes;
+    scene->emoji_icon = copied.emoji_icon;
+    copy_bytes(scene->detail, copied.detail, copied.detail_bytes);
+    scene->detail_bytes = copied.detail_bytes;
     scene->trigger = trigger;
     scene->preferred = target.placement;
     scene->style = offered_style;
@@ -320,23 +362,45 @@ bool ui_tooltip_tick(UiTooltipScene* scene, u64 now_ms, UiTextMeasureCache* meas
     const float height =
         minimum(scene->style.maximum_height, ui_rect_height(scene->viewport) - scene->style.margin * 2) -
         scene->style.padding_y * 2;
+    const bool detail = scene->detail_bytes != 0;
+    // An icon leading the label on its line narrows that line.
+    const float label_width = width - (inline_icon(*scene) ? scene->style.emoji_size + scene->style.emoji_gap : 0);
     const Utf8View label{scene->text, scene->text_bytes};
     UiTextMeasureValue value{};
     const UiTextMeasureRequest request{
         {0x544f4f4c544950ull,
          hash64_bytes(hash64_bytes(kHash64Seed, label.data, label.bytes), scene->styles,
                       scene->style_count * static_cast<u32>(sizeof(TextStyleSpan))),
-         0, 0, 0},
+         0, static_cast<u16>(detail ? 1 : 0), 0},
         label,
         {scene->styles, scene->style_count},
-        {width, height},
-        false};
-    if (!(width >= 12) || !measure || !ui_text_measure_cache_measure(measure, request, &value).ok() ||
+        {label_width, height},
+        detail};
+    if (!(label_width >= 12) || !measure || !ui_text_measure_cache_measure(measure, request, &value).ok() ||
         !ui_coordinate_valid(value.size.width) || !ui_coordinate_valid(value.size.height) ||
         value.size.width <= 0 || value.size.height <= 0)
         return ui_tooltip_clear(scene);
-    scene->text_size = {maximum(12.f, minimum(value.size.width, width)),
-                        minimum(value.size.height, height)};
+    scene->label_size = {maximum(12.f, minimum(value.size.width, label_width)), minimum(value.size.height, height)};
+    scene->text_size = scene->label_size;
+    reset_value(&scene->detail_size);
+    if (detail) {
+        const TextStyleSpan muted{0, scene->detail_bytes, text_style_subtext};
+        const UiTextMeasureRequest second{
+            {0x544f4f4c444554ull, hash64_bytes(kHash64Seed, scene->detail, scene->detail_bytes), 0, 0, 0},
+            {scene->detail, scene->detail_bytes},
+            {&muted, 1},
+            {width, height},
+            true};
+        UiTextMeasureValue line{};
+        if (!ui_text_measure_cache_measure(measure, second, &line).ok() || !ui_coordinate_valid(line.size.width) ||
+            !ui_coordinate_valid(line.size.height) || line.size.width <= 0 || line.size.height <= 0)
+            return ui_tooltip_clear(scene);
+        scene->detail_size = {minimum(line.size.width, width), line.size.height};
+        const float first = scene->label_size.width +
+                            (inline_icon(*scene) ? scene->style.emoji_size + scene->style.emoji_gap : 0);
+        scene->text_size = {maximum(first, scene->detail_size.width),
+                            minimum(scene->label_size.height + scene->detail_size.height, height)};
+    }
     place(scene);
     scene->pending = false;
     scene->visible = true;
@@ -383,7 +447,11 @@ bool ui_tooltip_paint(const UiTooltipScene& scene, const Theme& theme, PaintStre
         return true;
     if (!paint || !paint_stream_push_clip(paint, scene.viewport))
         return false;
-    const bool painted = paint_box(scene, theme, paint);
+    // An icon is paint, drawn in the label colour; images and glyphs are not.
+    bool painted = paint_box(scene, theme, paint);
+    if (painted && scene.emoji_icon && !media_asset_key_valid(scene.emoji_media) && !scene.emoji_glyph_bytes)
+        painted = ui_icon_paint(paint, static_cast<UiIcon>(scene.emoji_icon - 1), emoji_square(scene),
+                                theme.text_primary);
     return paint_stream_pop_clip(paint) && painted;
 }
 bool ui_tooltip_text_output(const UiTooltipScene& scene, const Theme& theme,
@@ -406,22 +474,56 @@ bool ui_tooltip_text_output(const UiTooltipScene& scene, const Theme& theme,
         return false;
     const float lead = leading(scene);
     // Plain labels keep the single subtext style; bold runs travel with the text.
-    const bool runs = scene.style_count > 1;
+    const bool runs = scene.style_count > 1 || (scene.style_count == 1 && (scene.styles[0].flags & text_style_bold));
+    const ConstSlice<TextStyleSpan> styles =
+        runs ? ConstSlice<TextStyleSpan>{scene.styles, scene.style_count} : ConstSlice<TextStyleSpan>{};
+    const float left = r.left + scene.style.padding_x + lead, right = r.right - scene.style.padding_x;
+    if (!scene.detail_bytes)
+        return ui_text_output_push(output, {{scene.text, scene.text_bytes},
+                                            scene.text_owner,
+                                            {left, r.top + scene.style.padding_y, right,
+                                             r.bottom - scene.style.padding_y},
+                                            scene.viewport,
+                                            theme.text_primary,
+                                            text_style_subtext,
+                                            lead > 0 ? UiTextAlignment::start : UiTextAlignment::center,
+                                            UiTextAlignment::center,
+                                            UiTextWrapping::wrap,
+                                            UiTextOverflow::ellipsis,
+                                            UiTextFace::normal,
+                                            {},
+                                            styles});
+    // Two lines: the label on one line, the muted detail below it. An icon
+    // leads the label and both lines centre; beside an emoji they start.
+    const float top = text_top(scene), middle = top + scene.label_size.height;
+    const bool inline_lead = inline_icon(scene);
+    const float label_left =
+        inline_lead ? inline_left(scene) + scene.style.emoji_size + scene.style.emoji_gap : left;
+    const float label_right = inline_lead ? minimum(right, label_left + scene.label_size.width + 1) : right;
+    const auto align = lead > 0 ? UiTextAlignment::start : UiTextAlignment::center;
     return ui_text_output_push(output, {{scene.text, scene.text_bytes},
                                         scene.text_owner,
-                                        {r.left + scene.style.padding_x + lead, r.top + scene.style.padding_y,
-                                         r.right - scene.style.padding_x, r.bottom - scene.style.padding_y},
+                                        {label_left, top, label_right, middle},
                                         scene.viewport,
                                         theme.text_primary,
                                         text_style_subtext,
-                                        lead > 0 ? UiTextAlignment::start : UiTextAlignment::center,
+                                        inline_lead ? UiTextAlignment::start : align,
                                         UiTextAlignment::center,
-                                        UiTextWrapping::wrap,
+                                        UiTextWrapping::no_wrap,
                                         UiTextOverflow::ellipsis,
                                         UiTextFace::normal,
                                         {},
-                                        runs ? ConstSlice<TextStyleSpan>{scene.styles, scene.style_count}
-                                             : ConstSlice<TextStyleSpan>{}});
+                                        styles}) &&
+           ui_text_output_push(output, {{scene.detail, scene.detail_bytes},
+                                        scene.text_owner,
+                                        {left, middle, right, middle + scene.detail_size.height},
+                                        scene.viewport,
+                                        theme.tokens.text.muted,
+                                        text_style_subtext,
+                                        align,
+                                        UiTextAlignment::center,
+                                        UiTextWrapping::no_wrap,
+                                        UiTextOverflow::ellipsis});
 }
 bool ui_tooltip_emoji(const UiTooltipScene& scene, UiRect* square) noexcept {
     if (!square || !has_emoji(scene) || !ui_tooltip_visible(scene))

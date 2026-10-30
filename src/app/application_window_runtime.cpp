@@ -6,6 +6,7 @@
 #include "application_call.hpp"
 #include "application_stream.hpp"
 #include "application_guild_card.hpp"
+#include "application_expression_card.hpp"
 #include "application_guild_banner.hpp"
 #include "application_inbox.hpp"
 #include "application_cursor.hpp"
@@ -291,6 +292,9 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         // The server tag popout traps clicks outside it while open.
         if (application_guild_card_window_message(message, wparam, lparam))
             return consumed(0);
+        // The emoji/sticker popout; a click outside closes it and still acts.
+        if (application_expression_card_window_message(message, wparam, lparam))
+            return consumed(0);
         // Go Live preview card over voice channel rows (and LIVE badge clicks).
         if (application_stream_window_message(message, wparam, lparam))
             return consumed(0);
@@ -464,6 +468,10 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
         if (application_profile_pointer(UiButtonPointerEvent::release,
                                         {client_dip_x(lparam), client_dip_y(lparam)}))
             return 0;
+        // A click on an emoji or sticker without a drag opens its popout; the
+        // release still ends a text selection begun on it.
+        if (g_app.renderer_ready)
+            application_expression_card_pointer_up({client_dip_x(lparam), client_dip_y(lparam)});
         if (g_app.message_text_pointer_selection) {
             end_message_text_selection();
             return 0;
@@ -525,6 +533,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             SetFocus(window);
             return 0;
         }
+        application_expression_card_pointer_down({client_dip_x(lparam), client_dip_y(lparam)});
         if (application_gif_favorite_star_press(client_dip_x(lparam), client_dip_y(lparam)) ||
             application_message_media_reveal_at(client_dip_x(lparam), client_dip_y(lparam)) ||
             application_image_viewer_open_at(client_dip_x(lparam), client_dip_y(lparam)) ||

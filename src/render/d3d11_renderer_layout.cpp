@@ -2266,6 +2266,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (d3d11_renderer_stream_card_visible(*renderer) &&
         !ui_stream_card_paint(*renderer->stream_card_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
+    if (d3d11_renderer_expression_card_visible(*renderer) &&
+        !ui_expression_card_paint(*renderer->expression_card_scene, theme, &renderer->paint_stream))
+        return layout_step_failed(__LINE__);
     // The server tag popout: card and banner colour, then (after its banner
     // picture, see below) the foreground under its icon and badge.
     renderer->guild_card_foreground_first_batch = ~0u;
@@ -2424,6 +2427,23 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                     return layout_step_failed(__LINE__);
                 first_interaction_media = false;
             }
+        }
+    }
+    // The emoji/sticker popout's picture, the pack's stickers and the server icon.
+    if (d3d11_renderer_expression_card_visible(*renderer) && renderer->media_atlas &&
+        renderer->media_gpu.texture_view) {
+        UiExpressionCardMedia media{};
+        for (u32 index = 0; index < kUiExpressionCardMediaCount; ++index, media = {}) {
+            if (!ui_expression_card_media(*renderer->expression_card_scene, index, &media))
+                continue;
+            const MediaAtlasResult allocation = media_atlas_find(renderer->media_atlas, media.key);
+            if (!allocation.ok() || !allocation.width || !allocation.height)
+                continue;
+            if (!queue_media_quad(renderer, allocation, fit_in(media.rectangle, allocation.width, allocation.height, false),
+                                  media.clip, false, first_interaction_media,
+                                  MediaQuadStyle{{}, media.opacity, media.radius, 0.f, 0.f, 0}))
+                return layout_step_failed(__LINE__);
+            first_interaction_media = false;
         }
     }
     // The server tag popout's icon and tag badge cover their plates.

@@ -14,6 +14,7 @@
 
 namespace maicord::app_detail {
 void test_reaction_tooltip_owner(void (*)(bool, const char*) noexcept) noexcept;
+void test_emoji_tooltip_owner(void (*)(bool, const char*) noexcept) noexcept;
 }
 
 namespace maicord::tooltip_runtime_test {
@@ -55,6 +56,7 @@ void run() noexcept {
               ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
                                            kGuildChannelShellLayoutMetrics, 1000, 700),
           "tooltip runtime: actual shell widgets and shared measurement cache initialize");
+    test_emoji_tooltip_owner(check);
     const auto gear =
         ui_widget_manager_find(g_app.shell_scene.widgets, static_cast<u32>(UiSemantic::settings) + 1);
     const auto* node = ui_widget_manager_layout_node(g_app.shell_scene.widgets, gear);

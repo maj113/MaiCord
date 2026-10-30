@@ -1034,7 +1034,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
           d3d11_renderer_message_forward_visible(*renderer) || d3d11_renderer_download_visible(*renderer) ||
           d3d11_renderer_shortcuts_visible(*renderer) || d3d11_renderer_media_picker_visible(*renderer) ||
           d3d11_renderer_call_visible(*renderer) || d3d11_renderer_stream_card_visible(*renderer) ||
-          d3d11_renderer_guild_card_visible(*renderer) ||
+          d3d11_renderer_guild_card_visible(*renderer) || d3d11_renderer_expression_card_visible(*renderer) ||
           d3d11_renderer_active(renderer->message_action_bar) ||
           d3d11_renderer_active(renderer->popup_scene) ||
           d3d11_renderer_form_active(*renderer) ||

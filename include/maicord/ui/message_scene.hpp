@@ -159,6 +159,17 @@ struct MessageReplyHit {
     u64 message_id;
 };
 
+// A sticker preview under a point: its message, rich item widget, the
+// sticker's index in its record (a forwarded message's snapshot record when
+// snapshot) and the preview square, clipped. The caption below misses.
+struct MessageStickerHit {
+    u64 message_id;
+    UiRect preview;
+    UiWidgetHandle widget;
+    u32 index;
+    bool snapshot;
+};
+
 // Message display (text_and_images.message_display_compact) and the
 // local group spacing code: 0 = mode default, 1..5 = 0, 4, 8, 16, 24 px.
 // Compact rows drop the avatar, put the timestamp in a 5em hanging-indent
@@ -427,6 +438,7 @@ const UiLayoutNode* message_scene_layout_node(const MessageScene& scene, UiWidge
 MessageSceneHit message_scene_hit_test(const MessageScene& scene, float x, float y) noexcept;
 MessageReplyHit message_scene_reply_hit_test(const MessageScene& scene, float x, float y) noexcept;
 bool message_scene_reaction_index(const MessageScene& scene, MessageSceneHit hit, u32* index) noexcept;
+bool message_scene_sticker_hit(const MessageScene& scene, float x, float y, MessageStickerHit* hit) noexcept;
 bool message_scene_focus_message(MessageScene* scene, u64 message_id) noexcept;
 bool message_scene_reveal_message(MessageScene* scene, u64 message_id) noexcept;
 MessageSceneHit message_scene_navigate(MessageScene* scene, UiListMove move) noexcept;

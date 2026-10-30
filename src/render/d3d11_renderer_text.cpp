@@ -1672,6 +1672,9 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     if (d3d11_renderer_guild_card_visible(*renderer) &&
         !ui_guild_card_text_output(*renderer->guild_card_scene, theme, &output))
         return false;
+    if (d3d11_renderer_expression_card_visible(*renderer) &&
+        !ui_expression_card_text_output(*renderer->expression_card_scene, theme, &output))
+        return false;
     if (d3d11_renderer_quick_switcher_visible(*renderer) &&
         !ui_quick_switcher_scene_text_output(*renderer->quick_switcher_scene, theme, &output,
                                              &renderer->media_picker_edit_geometry))
@@ -2490,6 +2493,7 @@ constexpr u32 kInteractionTextSourceOffsets[]{
     offsetof(D3D11Renderer, interaction_text_stream_card_revision),
     offsetof(D3D11Renderer, interaction_text_guild_card_revision),
     offsetof(D3D11Renderer, interaction_text_media_picker_revision),
+    offsetof(D3D11Renderer, interaction_text_expression_card_revision),
 };
 constexpr u32 kInteractionTextSourceCount = sizeof(kInteractionTextSourceOffsets) / sizeof(u32);
 // Sources 5 to 9 are 64-bit fields; the rest are 32-bit.
@@ -2527,6 +2531,7 @@ void interaction_text_source_values(const D3D11Renderer& renderer, u64* values) 
     values[21] = d3d11_renderer_stream_card_visible(renderer) ? renderer.stream_card_scene->revision : 0;
     values[22] = d3d11_renderer_guild_card_visible(renderer) ? renderer.guild_card_scene->revision : 0;
     values[23] = d3d11_renderer_media_picker_visible(renderer) ? renderer.media_picker_scene->revision : 0;
+    values[24] = d3d11_renderer_expression_card_visible(renderer) ? renderer.expression_card_scene->revision : 0;
 }
 } // namespace
 

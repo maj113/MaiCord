@@ -22,6 +22,7 @@
 #include "maicord/ui/stream_card_scene.hpp"
 #include "maicord/ui/theme_editor.hpp"
 #include "maicord/ui/guild_card_scene.hpp"
+#include "maicord/ui/expression_card_scene.hpp"
 #include "maicord/ui/profile_dialog_scene.hpp"
 #include "maicord/ui/video_scene.hpp"
 #include "maicord/ui/member_list_scene.hpp"
@@ -127,6 +128,12 @@ inline bool d3d11_renderer_guild_card_visible(const D3D11Renderer& renderer) noe
 inline bool d3d11_renderer_stream_card_visible(const D3D11Renderer& renderer) noexcept {
     return d3d11_renderer_active(renderer.stream_card_scene) && !d3d11_renderer_page_open(renderer) &&
            !d3d11_renderer_active(renderer.profile_scene) &&
+           !d3d11_renderer_active(renderer.image_viewer) && !d3d11_renderer_active(renderer.popup_scene) &&
+           !d3d11_renderer_form_active(renderer);
+}
+// Emoji and sticker popout (popup layer); menus and modal surfaces hide it.
+inline bool d3d11_renderer_expression_card_visible(const D3D11Renderer& renderer) noexcept {
+    return d3d11_renderer_active(renderer.expression_card_scene) && !d3d11_renderer_page_open(renderer) &&
            !d3d11_renderer_active(renderer.image_viewer) && !d3d11_renderer_active(renderer.popup_scene) &&
            !d3d11_renderer_form_active(renderer);
 }
@@ -447,6 +454,8 @@ inline u32 d3d11_renderer_interaction_text_active_mask(const D3D11Renderer& rend
         mask |= 1u << 22;
     if (d3d11_renderer_guild_card_visible(renderer))
         mask |= 1u << 23;
+    if (d3d11_renderer_expression_card_visible(renderer))
+        mask |= 1u << 25;
     if (d3d11_renderer_video_scene_visible(renderer))
         mask |= 1u << 9;
     if (d3d11_renderer_audio_scene_visible(renderer))

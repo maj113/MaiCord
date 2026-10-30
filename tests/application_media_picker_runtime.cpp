@@ -369,6 +369,19 @@ void test_server_stickers(ApplicationMediaPicker& p) noexcept {
               utf8_equal(cover.url, utf8_literal("https://cdn.discordapp.com/stickers/72.png")) &&
               cover.key.id == rail.asset_id && application_media_picker_preview_visible(cover.key),
           "picker stickers: the rail requests and resolves the pack cover's preview");
+    // The emoji/sticker popout's hooks: a sticker's joined server, and View
+    // More Stickers opening this tab at a pack.
+    check(application_media_picker_sticker_server(81) == 8 && application_media_picker_sticker_server(82) == 8 &&
+              application_media_picker_sticker_server(71) == 7 && !application_media_picker_sticker_server(99) &&
+              !application_media_picker_sticker_server(0),
+          "picker stickers: a sticker's server is found in the session lists");
+    const u64 pack = p.sections[2].id;
+    application_media_picker_close();
+    check(pack && application_media_picker_open_sticker_pack(pack) && application_media_picker_synchronize() &&
+              p.active && p.kind == UiMediaPickerKind::sticker && p.phase == UiMediaPickerPhase::ready &&
+              !p.jump_section && application_media_picker_open_sticker_pack(pack) && p.active &&
+              application_media_picker_synchronize() && !p.jump_section,
+          "picker stickers: View More Stickers opens the Stickers tab at its pack, and keeps an open one open");
     const u32 stored = g_sticker_store.count, stored_bytes = g_sticker_store.bytes;
     application_media_picker_gateway(sticker_update(9, utf8_literal("[]")), utf8_literal("[]"));
     check(g_sticker_store.count == stored + 1 && g_sticker_store.bytes == stored_bytes && sticker_list(9) &&

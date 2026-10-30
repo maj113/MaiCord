@@ -5,6 +5,8 @@
 #include "application_profile.hpp"
 #include "application_profile_editor.hpp"
 #include "application_guild_card.hpp"
+#include "application_expression_card.hpp"
+#include "maicord/ui/expression_card_scene.hpp"
 #include "application_guild_banner.hpp"
 #include "application_media_picker.hpp"
 #include "application_composer_preview.hpp"
@@ -957,6 +959,14 @@ bool ApplicationMediaPump::request_stream_previews(u64 now_ms, u64 now_seconds, 
             return false;
         application_guild_card_media_failed(cards[i].key, failure);
     }
+    // The emoji/sticker popout's picture and pack stickers by key, and its server's icon.
+    MediaAssetKey expressions[1 + kUiExpressionCardPreviews];
+    const u32 expression_count = application_expression_card_media(expressions, 1 + kUiExpressionCardPreviews);
+    for (u32 i = 0; i < expression_count && !*stop; ++i)
+        if (!request_visible_static_media(expressions[i], now_ms, now_seconds, uploads, repaint, stop, false, true))
+            return false;
+    if (const auto* guild = application_expression_card_guild(); guild && !*stop)
+        return request_visible_guild_icon(*guild, now_ms, now_seconds, uploads, repaint, stop, false);
     return true;
 }
 

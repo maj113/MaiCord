@@ -3932,7 +3932,11 @@ bool message_text_presentation_set_hover(MessageTextPresentation* presentation, 
     if (!presentation || !changed) {
         return false;
     }
-    const bool has_hover = hit.valid && hit.kind != MessageMarkdownSemanticKind::none;
+    // Emoji and flags restyle nothing on hover, so they count as no hover and
+    // moving over them rebuilds no text.
+    const bool has_hover = hit.valid && hit.kind != MessageMarkdownSemanticKind::none &&
+                           hit.kind != MessageMarkdownSemanticKind::custom_emoji &&
+                           hit.kind != MessageMarkdownSemanticKind::regional_flag;
     *changed = presentation->has_hover != has_hover ||
                (has_hover && (presentation->hovered_message_id != hit.message_id ||
                               presentation->hovered_source_offset != hit.source_offset ||
