@@ -71,13 +71,11 @@ struct AreaSink final : ID2D1SimplifiedGeometrySink {
     double area = 0, length = 0;
     float top, scale;
     i32 depth[kBins + 1]{};
-    // Heights are binned across the outline's bounds, which contain every segment.
     explicit AreaSink(const D2D1_RECT_F& bounds) noexcept
         : top(bounds.top), scale(bounds.bottom > bounds.top ? kBins / (bounds.bottom - bounds.top) : 0) {
     }
     i32 bin(float y) const noexcept {
-        const float at = (y - top) * scale;
-        return at <= 0 ? 0 : at >= kBins - 1 ? kBins - 1 : static_cast<i32>(at);
+        return lottie_height_bin(y, top, scale, kBins);
     }
     // A line segment crosses a horizontal line once and a cubic at most three times, and only where its
     // control points reach that height; bins widen the span by one on each side against rounding.

@@ -335,6 +335,12 @@ bool colr_program_tests() noexcept {
     bool vector_ok=compile(vector,0) && vector_program.mask_count==1 &&
         vector_program.bounds.has_bounds && vector_program.bounds.maximum_x==1;
     constexpr auto moving=utf8_literal(R"({"w":320,"h":320,"fr":60,"ip":0,"op":11,"layers":[{"ty":4,"shapes":[{"ty":"rc","p":{"a":1,"k":[{"t":0,"s":[64,160],"e":[256,160],"o":{"x":0.333333,"y":0.333333},"i":{"x":0.666667,"y":0.666667}},{"t":10,"s":[256,160]}]},"s":{"k":[64,64]}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
+    // Bounds Direct2D reports as infinite and inverted make a height NaN.
+    volatile float infinite=1e30f;
+    const float top=infinite*infinite;
+    i32 (*volatile height_bin)(float,float,float,i32) noexcept=lottie_height_bin;
+    vector_ok=vector_ok && height_bin(.69f,top,0,256)==0 && height_bin(-1,0,1,256)==0 &&
+        height_bin(12.5f,0,1,256)==12 && height_bin(1000,0,1,256)==255;
     i32 positions[3]{};
     for(u32 i=0;i<3 && vector_ok;++i){
         vector_ok=compile(moving,i*5);
