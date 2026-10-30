@@ -155,6 +155,11 @@
       "badge_progress": "{semantic.accent.brand}",
       "badge_ready": "{semantic.accent.success}",
       "badge_ready_fill": [0.14, 0.65, 0.38, 0.16]
+    },
+    "option": {
+      "fill": "{semantic.fill.muted}",
+      "key": "{colors.surface_high}",
+      "border": "{colors.base_lowest}"
     }
   },
   "scale": {

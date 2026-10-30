@@ -25,6 +25,7 @@ struct MessageComposerPresentationStorage {
     MessageComposerAttachmentStrip attachment_strip;
     char typing_label[kMessageTypingLabelMaximumBytes];
     char placeholder[kMessageComposerPlaceholderBytes];
+    char command_bar[kMessageComposerCommandBarBytes];
     MessageComposerProjectionSpan projection_spans[kMessageComposerProjectionSpanCapacity];
 };
 
@@ -49,6 +50,7 @@ bool initialize_owned_storage(MessageComposerScene* scene) noexcept {
     storage->attachment_strip.hovered = kUiComposerAttachmentNoTile;
     scene->typing_label = storage->typing_label;
     scene->placeholder = storage->placeholder;
+    scene->command_bar_text = storage->command_bar;
     scene->projection_spans = storage->projection_spans;
     scene->atomic_spans = storage->atomic_spans;
     scene->source_styles = storage->source_styles;
@@ -71,6 +73,8 @@ inline constexpr u32 kComposerStickerId = 12;
 inline constexpr u32 kComposerReplyMentionId = 13;
 inline constexpr u32 kComposerReplyCancelId = 14;
 inline constexpr u32 kComposerPluginId = 15; // through 15 + kMessageComposerPluginSlots - 1
+inline constexpr u32 kComposerCommandBarId = kComposerPluginId + kMessageComposerPluginSlots;
+inline constexpr u32 kComposerCommandCloseId = kComposerCommandBarId + 1;
 inline constexpr float kComposerRowGap = kUiComposerPadding;
 
 const UiThemeMetrics& composer_metrics(const UiResolvedThemeStyles* styles) noexcept {
@@ -321,6 +325,12 @@ u64 projection_input_signature(const MessageComposerScene& scene, const MessageC
     signature = hash64_mix(signature, model.caret);
     signature = hash64_mix(signature, context ? context->guild_id : 0);
     signature = hash64_mix(signature, context ? context->command.name_bytes : 0);
+    for (u32 n = 0; context && n < context->option_chip_count; ++n) {
+        const auto& chip = context->option_chips[n];
+        signature = hash64_mix(signature, (u64{chip.head_first} << 48) | (u64{chip.name_first} << 32) |
+                                              (u64{chip.key_last} << 16) | chip.value_last);
+        signature = hash64_mix(signature, (u64{chip.end_last} << 8) | chip.flags);
+    }
     signature = hash64_mix(signature, context ? reinterpret_cast<usize>(context->users) : 0);
     signature = hash64_mix(signature, context ? reinterpret_cast<usize>(context->state) : 0);
     if (context && context->users)
@@ -393,6 +403,8 @@ UiWidgetHandle control_handle(const MessageComposerScene& scene, MessageComposer
         return scene.send;
     case MessageComposerControl::cancel_reply:
         return scene.reply_cancel;
+    case MessageComposerControl::command_close:
+        return scene.command_close;
     case MessageComposerControl::reply_mention:
         return scene.reply_mention;
     case MessageComposerControl::typing_indicator:
@@ -627,15 +639,60 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                        scene->source_styles[style_index].byte_count <=
                    cursor)
             ++style_index;
-        bool option_key = false;
-        for (u32 key = 0; context && key < context->option_key_count && !option_key; ++key)
-            option_key = cursor >= context->option_key_first[key] && cursor < context->option_key_last[key];
         const u32 style = (context && cursor < context->command.name_bytes ? text_style_bold : 0) |
-                          (option_key ? text_style_command_option : 0) |
                           (style_index < scene->source_style_count &&
                                   scene->source_styles[style_index].byte_offset <= cursor
                               ? scene->source_styles[style_index].flags
                               : 0);
+        // A typed option of the selected command: its head (blank and "name:")
+        // shows the name between no-break spaces that pad it, its end marker the
+        // value's end padding.
+        u32 chip = 0;
+        bool head = false;
+        while (context && chip < context->option_chip_count) {
+            const auto& option = context->option_chips[chip];
+            if (option.head_first == cursor || (option.end_last > option.value_last && option.value_last == cursor)) {
+                head = option.head_first == cursor;
+                break;
+            }
+            ++chip;
+        }
+        if (context && chip < context->option_chip_count) {
+            const auto& option = context->option_chips[chip];
+            const Utf8View name{source.data + option.name_first, option.key_last - option.name_first - 1u};
+            const u32 last = head ? option.key_last : option.end_last;
+            const u32 spaces = head ? kMessageComposerChipMargin + 3 * kMessageComposerChipPadding
+                                    : kMessageComposerChipPadding + kMessageComposerChipMargin;
+            if (last <= end && option.key_last > option.name_first &&
+                scene->projection_span_count < kMessageComposerProjectionSpanCapacity &&
+                spaces * 2 + (head ? name.bytes : 0) <= kMessageComposerDisplayBytes - scene->display_bytes) {
+                const u32 display_first = scene->display_bytes;
+                const auto space = [&](u32 count) noexcept {
+                    for (u32 n = 0; n < count; ++n) {
+                        scene->display[scene->display_bytes++] = '\xC2';
+                        scene->display[scene->display_bytes++] = '\xA0';
+                    }
+                };
+                if (head) {
+                    space(kMessageComposerChipMargin + kMessageComposerChipPadding);
+                    copy_bytes(scene->display + scene->display_bytes, name.data, name.bytes);
+                    scene->display_bytes += name.bytes;
+                    space(2 * kMessageComposerChipPadding);
+                } else {
+                    space(kMessageComposerChipPadding + kMessageComposerChipMargin);
+                }
+                signature = hash64_bytes(signature, scene->display + display_first, scene->display_bytes - display_first);
+                scene->projection_spans[scene->projection_span_count] = MessageComposerProjectionSpan{
+                    cursor, last, display_first, scene->display_bytes, 0,
+                    head ? MessageComposerProjectionKind::command_option
+                         : MessageComposerProjectionKind::command_option_end,
+                    option.flags, false};
+                scene->atomic_spans[scene->projection_span_count++] = MessageComposerAtomicSpan{cursor, last};
+                append_display_style(scene, display_first, scene->display_bytes - display_first, style);
+                cursor = last;
+                continue;
+            }
+        }
         ProjectedToken token{};
         const bool flag_token = have_flag && flag.first_byte == cursor && flag.end_byte <= end;
         if (flag_token)
@@ -686,8 +743,13 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
             break;
         }
         append_display_style(scene, scene->display_bytes, decoded.width, style);
+        // A command option end marker (U+2063) outside a chip, until the next
+        // command sync removes it, shows as a hair space of the same UTF-8 and
+        // UTF-16 length: the edit layout cannot place a caret after a hidden
+        // default-ignorable character.
+        const bool marker = decoded.codepoint == 0x2063u;
         for (u32 byte = 0; byte < decoded.width; ++byte) {
-            const char value = model.text[cursor + byte];
+            const char value = marker ? "\xE2\x80\x8A"[byte] : model.text[cursor + byte];
             scene->display[scene->display_bytes++] = value;
             signature = hash64_mix(signature, static_cast<u8>(value));
         }
@@ -709,8 +771,6 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
         signature = hash64_mix(signature, span.animated);
     }
     signature = hash64_mix(signature, context ? context->command.name_bytes : 0);
-    for (u32 key = 0; context && key < context->option_key_count; ++key)
-        signature = hash64_mix(hash64_mix(signature, context->option_key_first[key]), context->option_key_last[key]);
     scene->display_signature = hash64_mix(signature, scene->projection_span_count);
 }
 
@@ -803,6 +863,15 @@ bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidg
                                             UiWidgetKind::container, ui_widget_none, surface_style());
     UiLayoutStyle banner_style = reply_style();
     banner_style.padding = UiInsets{kUiMenuRowHorizontalPadding, 0.f, 0.f, 0.f};
+    // The option bar leads the client's stacked bars (845207 tB before the reply bar).
+    const UiWidgetResult command_bar = b.widget(surface.handle, {kComposerCommandBarId, utf8_literal("CommandBar")},
+                                                UiWidgetKind::container, ui_widget_none, banner_style);
+    UiLayoutStyle command_close_style = fixed_control_style(kMessageComposerCommandBarHeight);
+    command_close_style.height = ui_layout_fixed(kMessageComposerCommandBarHeight);
+    command_close_style.horizontal_alignment = UiLayoutAlignment::end;
+    command_close_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
+    const UiWidgetResult command_close = b.widget(command_bar.handle, {kComposerCommandCloseId, utf8_literal("Close")},
+                                                  UiWidgetKind::button, ui_widget_none, command_close_style);
     const UiWidgetResult reply = b.widget(surface.handle, {kComposerReplyId, utf8_literal("ReplyBanner")},
                                           UiWidgetKind::container, ui_widget_none, banner_style);
     // The "@ ON" switch is padded 8x12: 16 DIP icon, 4 DIP gap, bold label.
@@ -851,6 +920,8 @@ bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidg
     scene->reply = reply.handle;
     scene->reply_mention = mention.handle;
     scene->reply_cancel = cancel.handle;
+    scene->command_bar = command_bar.handle;
+    scene->command_close = command_close.handle;
     scene->attachments = attachments.handle;
     scene->controls = controls.handle;
     scene->add_attachment = attachment.handle;
@@ -931,9 +1002,9 @@ static float composer_row_height(float natural, const UiResolvedThemeStyles* sty
 float message_composer_scene_measured_height(const MessageComposerScene& scene,
                                              float text_height) noexcept {
     const auto* styles = scene.theme_styles;
-    const float extras =
-        message_composer_scene_chrome_height(scene.reply_message_id != 0, scene.typing_label_bytes != 0,
-                                             message_composer_scene_attachment_row(scene), styles);
+    const float extras = message_composer_scene_chrome_height(
+        scene.reply_message_id != 0, scene.typing_label_bytes != 0, message_composer_scene_attachment_row(scene),
+        styles, scene.command_bar_name_bytes != 0);
     return composer_row_height(text_height + editor_padding_height(styles), styles) +
            message_composer_scene_toolbar_height(ui_rect_width(scene.viewport), styles) + extras;
 }
@@ -950,12 +1021,12 @@ float message_composer_scene_preferred_height(const MessageComposer& model, floa
 }
 
 float message_composer_scene_cached_height(const MessageComposerScene& scene, bool reply, bool typing,
-                                           u8 attachments, float composer_width) noexcept {
+                                           u8 attachments, float composer_width, bool command_bar) noexcept {
     const auto* styles = scene.theme_styles;
     const float width = composer_width > 0.f ? composer_width : ui_rect_width(scene.viewport);
     return composer_row_height(scene.measured_row_height, styles) +
            message_composer_scene_toolbar_height(width, styles) +
-           message_composer_scene_chrome_height(reply, typing, attachments, styles);
+           message_composer_scene_chrome_height(reply, typing, attachments, styles, command_bar);
 }
 
 MessageComposerSceneResult message_composer_scene_update(
@@ -1067,10 +1138,33 @@ MessageComposerSceneResult message_composer_scene_update(
     UiLayoutNode* attachment_layout =
         attachment_widget ? ui_layout_engine_resolve(&scene->widgets.layout, attachment_widget->layout)
                           : nullptr;
+    UiWidget* command_bar = ui_widget_manager_resolve(&scene->widgets, scene->command_bar);
+    UiLayoutNode* command_bar_layout =
+        command_bar ? ui_layout_engine_resolve(&scene->widgets.layout, command_bar->layout) : nullptr;
+    UiWidget* command_close = ui_widget_manager_resolve(&scene->widgets, scene->command_close);
     if (!reply || !reply_layout || !mention || !mention_layout || !cancel || !typing || !typing_layout ||
-        !attachment_widget || !attachment_layout) {
+        !attachment_widget || !attachment_layout || !command_bar || !command_bar_layout || !command_close) {
         return failure(scene, MessageComposerSceneError::widget);
     }
+    // The option bar keeps a copy of its name and detail.
+    const Utf8View bar_name = projection ? projection->command_bar_name : Utf8View{};
+    const Utf8View bar_detail = projection ? projection->command_bar_detail : Utf8View{};
+    const bool bar_error = projection && projection->command_bar_error;
+    const bool bar_resized = (scene->command_bar_name_bytes != 0) != (bar_name.bytes != 0);
+    const bool bar_changed = !utf8_equal(message_composer_scene_command_bar_name(*scene), bar_name) ||
+                             !utf8_equal(message_composer_scene_command_bar_detail(*scene), bar_detail) ||
+                             scene->command_bar_error != bar_error;
+    if (bar_changed) {
+        const u32 name_bytes = utf8_copy_truncated(scene->command_bar_text, kMessageComposerCommandBarBytes / 4,
+                                                   bar_name);
+        scene->command_bar_name_bytes = static_cast<u16>(name_bytes);
+        scene->command_bar_detail_bytes = static_cast<u16>(utf8_copy_truncated(
+            scene->command_bar_text + name_bytes, kMessageComposerCommandBarBytes - name_bytes, bar_detail));
+        scene->command_bar_error = bar_error;
+    }
+    banner_row(command_bar_layout, scene->command_bar_name_bytes != 0, kMessageComposerCommandBarHeight);
+    command_bar->flags = ui_widget_none;
+    command_close->flags = scene->command_bar_name_bytes != 0 ? kComposerInteractiveFlags : ui_widget_none;
     const bool reply_changed =
         scene->reply_message_id != reply_message_id || !reply_label_equal(*scene, reply_label);
     reply_mention_visible &= reply_message_id != 0;
@@ -1102,14 +1196,14 @@ MessageComposerSceneResult message_composer_scene_update(
     ui_widget_manager_reconcile_input(&scene->widgets);
     const bool attachments_resized = previous_attachment_row != attachment_row;
     const bool relayout = scene->geometry_dirty || !scene->active || reply_changed || plugins_changed ||
-                          mention_visibility_changed || typing_changed || attachments_resized ||
+                          mention_visibility_changed || typing_changed || attachments_resized || bar_resized ||
                           !ui_rect_equal(scene->viewport, viewport);
     bool changed = relayout || scene->model != model || scene->observed_revision != model->revision ||
                    scene->command.name_bytes != (projection ? projection->command.name_bytes : 0) ||
                    scene->command.bot_id != (projection ? projection->command.bot_id : 0) ||
                    scene->command.avatar_variant != (projection ? projection->command.avatar_variant : 0) ||
                    scene->command.animated != (projection && projection->command.animated) ||
-                   scene->channel_allows_send != can_send || reply_changed || typing_changed ||
+                   scene->channel_allows_send != can_send || reply_changed || typing_changed || bar_changed ||
                    attachments_changed || scene->mention_reply_author != mention_reply_author ||
                    scene->status_is_error != status_is_error || scene->reply_sendable != reply_sendable ||
                    scene->status_tone != status_tone;
@@ -1117,7 +1211,8 @@ MessageComposerSceneResult message_composer_scene_update(
     if (relayout && (!configure_controls(scene, viewport,
                                          message_composer_scene_chrome_height(
                                              reply_message_id != 0, typing_label.bytes != 0,
-                                             attachment_row, scene->theme_styles)) ||
+                                             attachment_row, scene->theme_styles,
+                                             scene->command_bar_name_bytes != 0)) ||
                      !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok())) {
         return failure(scene, MessageComposerSceneError::layout);
     }
@@ -1195,6 +1290,8 @@ MessageComposerControl message_composer_scene_hit_test(const MessageComposerScen
         return MessageComposerControl::send;
     case kComposerReplyCancelId:
         return MessageComposerControl::cancel_reply;
+    case kComposerCommandCloseId:
+        return MessageComposerControl::command_close;
     case kComposerReplyMentionId:
         return MessageComposerControl::reply_mention;
     case kComposerAttachmentsId:
@@ -1348,7 +1445,8 @@ MessageComposerControl message_composer_scene_focused_control(const MessageCompo
     if (!widget || !(widget->flags & ui_widget_focusable))
         return MessageComposerControl::none;
     const MessageComposerControl controls[] = {
-        MessageComposerControl::cancel_reply, MessageComposerControl::reply_mention,
+        MessageComposerControl::command_close, MessageComposerControl::cancel_reply,
+        MessageComposerControl::reply_mention,
         MessageComposerControl::edit,         MessageComposerControl::gif,
         MessageComposerControl::sticker,      MessageComposerControl::emoji,
         MessageComposerControl::send,         MessageComposerControl::add_attachment,
@@ -1445,6 +1543,24 @@ UiRect message_composer_scene_reply_text_rectangle(const MessageComposerScene& s
     return rectangle;
 }
 
+Utf8View message_composer_scene_command_bar_name(const MessageComposerScene& scene) noexcept {
+    return scene.command_bar_text ? Utf8View{scene.command_bar_text, scene.command_bar_name_bytes} : Utf8View{};
+}
+Utf8View message_composer_scene_command_bar_detail(const MessageComposerScene& scene) noexcept {
+    return scene.command_bar_text
+               ? Utf8View{scene.command_bar_text + scene.command_bar_name_bytes, scene.command_bar_detail_bytes}
+               : Utf8View{};
+}
+UiRect message_composer_scene_command_bar_text_rectangle(const MessageComposerScene& scene) noexcept {
+    const auto* bar = ui_widget_manager_layout_node(scene.widgets, scene.command_bar);
+    const auto* close = message_composer_scene_layout_node(scene, MessageComposerControl::command_close);
+    if (!bar || !close || !scene.command_bar_name_bytes)
+        return {};
+    auto rectangle = bar->content_rectangle;
+    rectangle.right = maximum(rectangle.left, close->rectangle.left - composer_metrics(scene.theme_styles).menu_gap);
+    return rectangle;
+}
+
 Utf8View message_composer_scene_typing_label(const MessageComposerScene& scene) noexcept {
     return Utf8View{scene.typing_label, scene.typing_label_bytes};
 }
@@ -1505,6 +1621,46 @@ bool message_composer_scene_composition_range(const MessageComposerScene& scene,
            utf8_utf16_position_for_byte_offset(
                display, message_composer_scene_display_offset_from_model(scene, end), last) &&
            *first < *last;
+}
+
+u32 message_composer_scene_chip_ranges(const MessageComposerScene& scene,
+                                       Slice<MessageComposerChipRange> output) noexcept {
+    if (!scene.model || !output.data)
+        return 0;
+    const auto display = message_composer_scene_display_text(scene);
+    // The value of the window's last chip ends past the text only when the
+    // window holds the end of the draft.
+    const bool window_end = scene.display_source_last >= scene.model->bytes;
+    u32 count = 0;
+    for (u32 index = 0; index < scene.projection_span_count && count < output.count; ++index) {
+        const auto& span = scene.projection_spans[index];
+        if (span.kind != MessageComposerProjectionKind::command_option)
+            continue;
+        const u8 flags = static_cast<u8>(span.target);
+        u32 first = 0, last = 0;
+        if (!utf8_utf16_position_for_byte_offset(display, span.display_first, &first) ||
+            !utf8_utf16_position_for_byte_offset(display, span.display_last, &last))
+            return count;
+        // A terminated value ends at its marker's end padding; one not
+        // terminated yet at the next chip's head, else at the end of the text.
+        u32 value_last = utf8_utf16_units(display);
+        bool open_end = window_end;
+        for (u32 next = index + 1; next < scene.projection_span_count; ++next) {
+            const auto& following = scene.projection_spans[next];
+            if (following.kind != MessageComposerProjectionKind::command_option &&
+                following.kind != MessageComposerProjectionKind::command_option_end)
+                continue;
+            if (!utf8_utf16_position_for_byte_offset(display, following.display_first, &value_last))
+                return count;
+            if (following.kind == MessageComposerProjectionKind::command_option_end)
+                value_last += kMessageComposerChipPadding;
+            open_end = false;
+            break;
+        }
+        output[count++] = {first + kMessageComposerChipMargin, last - kMessageComposerChipPadding, value_last, flags,
+                           open_end};
+    }
+    return count;
 }
 
 } // namespace maicord

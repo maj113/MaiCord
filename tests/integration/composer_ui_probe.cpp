@@ -67,6 +67,8 @@ struct Fixture {
     GatewayMemberRequestOwner member_requests;
     u32 member_calls, member_cancels;
     bool commands_handled;
+    // A selected command's chips and option bar, as application_commands_composer projects them.
+    const MessageComposerProjectionContext* command;
     bool ready, refresh_ok;
     float expected_width;
 };
@@ -126,10 +128,19 @@ bool project() noexcept {
     if (r.width * 96.f / r.dpi < 632.f)
         metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_navigation);
     const float full_width = ui_scene_composer_width(metrics, r.width * 96.f / r.dpi);
+    const bool command_bar = fixture->command && fixture->command->command_bar_name.bytes;
     metrics.composer_height = message_composer_scene_cached_height(
         g_app.message_composer_scene, reply.message_id != 0, fixture->typing.bytes != 0,
-        fixture->attachments.bytes != 0, full_width);
-    const MessageComposerProjectionContext projection{&ui.user_store, &ui.chat_state, kGuild};
+        fixture->attachments.bytes != 0, full_width, command_bar);
+    MessageComposerProjectionContext projection{&ui.user_store, &ui.chat_state, kGuild};
+    if (const auto* command = fixture->command) {
+        projection.command = command->command;
+        projection.option_chip_count = command->option_chip_count;
+        copy_bytes(projection.option_chips, command->option_chips, sizeof(projection.option_chips));
+        projection.command_bar_name = command->command_bar_name;
+        projection.command_bar_detail = command->command_bar_detail;
+        projection.command_bar_error = command->command_bar_error;
+    }
     bool settled = false;
     for (u32 pass = 0; pass < 3; ++pass) {
         metrics.revision = 8100u + metrics.flags + ui_extent_units(metrics.composer_height) * 31u;
@@ -158,7 +169,7 @@ bool project() noexcept {
         g_app.message_composer_scene.measured_row_height =
             measured -
             message_composer_scene_chrome_height(reply.message_id != 0, fixture->typing.bytes != 0,
-                                                 fixture->attachments.bytes != 0) -
+                                                 fixture->attachments.bytes != 0, nullptr, command_bar) -
             message_composer_scene_toolbar_height(width);
         if (measured == metrics.composer_height) {
             settled = true;
@@ -363,7 +374,10 @@ bool geometry() noexcept {
                      224))
             return false;
         const bool send = controls[i] == MessageComposerControl::send;
-        const bool enabled = !send || message_composer_scene_can_send(scene);
+        // A selected command's icon replaces Add and takes no input.
+        const bool command_icon =
+            controls[i] == MessageComposerControl::add_attachment && scene.command.name_bytes != 0;
+        const bool enabled = (!send || message_composer_scene_can_send(scene)) && !command_icon;
         if (send && !require(ui_widget_manager_input_enabled(scene.widgets, scene.send) == enabled, 225))
             return false;
         const auto expected = enabled ? controls[i] : MessageComposerControl::none;
@@ -1075,6 +1089,44 @@ bool typing_dots_steps() noexcept {
     return require(project() && full(), 253, "restore");
 }
 
+// A selected command as application_commands_composer projects it: the
+// client's option bar stacked over the editor (here the active option's failed
+// check in the danger colour) and the typed options as chips, each value
+// ending at its end marker (U+2063): a plain one and the active, failed one.
+bool option_chips() noexcept {
+    static MessageComposerProjectionContext command{};
+    command.command.name_bytes = 5;
+    command.option_chip_count = 2;
+    // "/pick" " mode:" "Two" marker " count:" "x" marker
+    command.option_chips[0] = {5, 6, 11, 14, 17, 0};
+    command.option_chips[1] = {17, 18, 24, 25, 28,
+                               static_cast<u8>(message_composer_chip_active | message_composer_chip_error)};
+    command.command_bar_name = utf8_literal("count");
+    command.command_bar_detail = utf8_literal("Input a valid integer.");
+    command.command_bar_error = true;
+    fixture->typing = fixture->attachments = {};
+    const auto& scene = g_app.message_composer_scene;
+    MessageComposerChipRange chips[2]{};
+    // An end marker outside every chip (no command yet) still lays out with the
+    // caret after it.
+    const bool stray = text(utf8_literal("a\xE2\x81\xA3"), L"a\u2063");
+    // The chips name the typed draft's positions: the command applies once it is typed.
+    const bool typed = stray && text(utf8_literal("/pick mode:Two\xE2\x81\xA3 count:x\xE2\x81\xA3"),
+                                     L"/pick mode:Two\u2063 count:x\u2063");
+    fixture->command = &command;
+    const bool failed =
+        typed && project() && scene.command_bar_error &&
+        ui_rect_has_area(message_composer_scene_command_bar_text_rectangle(scene)) &&
+        message_composer_scene_chip_ranges(scene, {chips, 2}) == 2 && !chips[0].open_end &&
+        (chips[1].flags & message_composer_chip_error) && capture(L"composer-command-option-error-dark96.bmp");
+    command.option_chips[1].flags = message_composer_chip_active;
+    command.command_bar_detail = utf8_literal("How many to pick");
+    command.command_bar_error = false;
+    const bool active = project() && !scene.command_bar_error && capture(L"composer-command-option-active-dark96.bmp");
+    fixture->command = nullptr;
+    return require(failed, 16, "option chips with a failed check") &&
+           require(active, 16, "option chips with the active option") && text({}, L"") && project();
+}
 // Spelling squiggles: a synthetic misspelling span paints danger-token quads
 // under the word inside the edit box (no spell checker involved).
 bool spelling_marks() noexcept {
@@ -1237,6 +1289,8 @@ bool scenarios() noexcept {
         return false;
     if (!require(typing_dots_steps(), 15))
         return false;
+    if (!require(option_chips(), 16))
+        return false;
     log_u64(LogLevel::info, "composer_native", "unexpected_completions", fixture->unexpected_completions);
     log_u64(LogLevel::info, "composer_native", "attachment_queue_notices",
             fixture->attachment_queue_notices);
@@ -1384,6 +1438,11 @@ bool application_plugins_compose(bool* handled) noexcept {
     return true;
 }
 void application_commands_dismiss() noexcept {
+}
+void application_commands_prepare_delete(bool) noexcept {
+}
+bool application_commands_close() noexcept {
+    return true;
 }
 void application_plugins_menu_dismissed() noexcept {
 }

@@ -26,8 +26,10 @@ enum class EmojiPreferencesError : u8 {
 
 struct EmojiPreferencesSnapshot {
     // Concatenated occurrences of each group in merge order; borrowed from
-    // the caller's owned output.
-    ConstSlice<u8> favorites, frecency, reaction_frecency;
+    // the caller's owned output. sticker_frecency (field 4, map<string,
+    // FrecencyItem> stickers = 1 keyed by sticker ID) is read only and empty
+    // when malformed; it never makes the decode fail.
+    ConstSlice<u8> favorites, frecency, reaction_frecency, sticker_frecency;
     u32 data_version;
     bool versions_present;
 };

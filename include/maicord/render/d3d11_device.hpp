@@ -83,6 +83,9 @@ HRESULT d3d11_device_owner_present(D3D11DeviceOwner* owner,
                                    u32 sync_interval,
                                    const RECT* dirty_rectangles,
                                    u32 dirty_count = 1) noexcept;
+// Moves the whole window content by (x, y) physical pixels on the composition
+// visual, without presenting a new frame (the app shake).
+HRESULT d3d11_device_owner_set_offset(D3D11DeviceOwner* owner, float x, float y) noexcept;
 void d3d11_device_owner_release(D3D11DeviceOwner* owner) noexcept;
 
 } // namespace maicord

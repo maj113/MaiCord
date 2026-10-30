@@ -1,6 +1,7 @@
 #include "application_profile.hpp"
 #include "maicord/core/memory.hpp"
 #include "application_account_presentation.hpp"
+#include "application_commands.hpp"
 #include "application_composer.hpp"
 #include "application_content_input.hpp"
 #include "application_friends.hpp"
@@ -257,6 +258,11 @@ bool handle_content_focus_key(u32 key) noexcept {
         return channel_header_button(widget) && activate_focused_navigation();
     }
     if (key == VK_TAB) {
+        // With a slash command selected, Tab moves between its option chips.
+        if (pane == composer &&
+            message_composer_scene_focused_control(g_app.message_composer_scene) == MessageComposerControl::edit &&
+            application_commands_option_tab(reverse))
+            return true;
         move_tab_focus(pane, reverse);
         return true;
     }

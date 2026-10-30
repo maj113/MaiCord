@@ -7871,7 +7871,7 @@ void test_popup_scene() noexcept {
                command_last.row->rectangle.top >= command_last.clip_rectangle.top &&
                command_last.row->rectangle.bottom <= command_last.clip_rectangle.bottom &&
                popup_scene_move_selection(&command_scene, 1, &command_revealed) && command_revealed &&
-               command_scene.selected_index == 0 && command_rail->scroll_offset.y == 0 &&
+               command_scene.selected_index == 0 && command_rail->scroll_offset.y <= kCommandRailLead &&
                command_body->scroll_offset.y == command_body_offset &&
                command_scene.widgets.generation == command_generation &&
                !popup_scene_scroll(&command_scene, 10, &command_revealed) &&

@@ -4,6 +4,7 @@
 #include "maicord/ui/emoji_catalog.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/regional_flag.hpp"
+#include "maicord/sys/simd.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 
@@ -190,6 +191,38 @@ bool picker_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* s
     }
     return false;
 }
+// Inline results sit the anchor's width directly above it: the heading, then
+// the GIF strip or up to eight sticker rows, then the list's bottom padding.
+// While the first results load only the spinner shows (8 DIP above it). The
+// panel shrinks to the viewport, clipping the rows it cannot hold.
+bool inline_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* source,
+                   const UiMediaPickerContent& content, UiRect viewport, UiRect anchor,
+                   PickerLayout* output) noexcept {
+    const auto& m = style.metrics;
+    const bool ready = content.phase == UiMediaPickerPhase::ready && source && source->count;
+    const bool gif = content.kind == UiMediaPickerKind::gif;
+    const float pad = kUiInlineResultsPadding;
+    const float body = !ready ? pad + kUiInlineResultsArrowExtent
+                       : gif  ? kUiInlineResultsGifExtent + pad * 2
+                              : minimum(source->count, kUiInlineResultsStickerLimit) *
+                                   (kUiInlineResultsStickerExtent + kUiComposerPadding * 2);
+    const float heading = ready ? kUiInlineResultsHeadingHeight : 0;
+    const float bottom = anchor.top - m.anchor_gap;
+    const float top = maximum(viewport.top + m.viewport_inset, bottom - heading - body - pad);
+    if (ui_rect_width(anchor) < kUiInlineResultsGifExtent || bottom - top < heading + pad * 2)
+        return false;
+    PickerLayout layout{};
+    layout.panel = {anchor.left, top, anchor.right, bottom};
+    // No tabs, search field, rail or footer: empty rectangles at the corner.
+    layout.tabs = layout.field = layout.text = layout.rail = layout.footer = {anchor.left, top, anchor.left, top};
+    layout.body = {anchor.left, top + heading, anchor.right, bottom - pad};
+    layout.columns = 1;
+    layout.cell_width = layout.cell_height = layout.cell_pitch = layout.column_pitch =
+        gif ? kUiInlineResultsGifExtent : kUiInlineResultsStickerExtent;
+    layout.grid_left = layout.body.left;
+    *output = layout;
+    return true;
+}
 bool label_valid(Utf8View text) noexcept {
     return text.bytes <= 256 && (!text.bytes || text.data) && utf8_validate(text).valid;
 }
@@ -272,7 +305,7 @@ bool item_valid(const UiMediaPickerItem& item) noexcept {
             return false;
     }
     return item.id && item.kind <= UiMediaPickerItemKind::emoji && label_valid(item.label) &&
-           label_valid(item.detail) && item.width <= 65536 && item.height <= 65536 &&
+           label_valid(item.detail) && label_valid(item.note) && item.width <= 65536 && item.height <= 65536 &&
            ((!item.width && !item.height) || (item.width && item.height));
 }
 // GIF masonry: each tile goes to the currently shortest column. Aspects are
@@ -313,6 +346,26 @@ bool layout_tiles(UiMediaPickerScene& scene) noexcept {
         }
         scene.tile_count = count;
         scene.tile_source_revision = scene.source_revision;
+    }
+    if (scene.variant == UiMediaPickerVariant::inline_results) {
+        // The inline strip: tiles side by side at its height, each inside its
+        // padding, after the strip's own leading padding. Never cached as a
+        // column layout (tile_columns stays zero).
+        float left = 0;
+        for (u32 i = 0; i < count; ++i) {
+            auto& tile = scene.tiles[i];
+            tile.column = 0;
+            tile.top = 0;
+            tile.height = kUiInlineResultsGifExtent;
+            tile.left = left;
+            tile.width = kUiInlineResultsGifExtent / tile.aspect;
+            left += tile.width + kUiInlineResultsPadding * 2;
+        }
+        scene.tile_extent = count ? left + kUiInlineResultsPadding * 2 : 0;
+        scene.tile_tallest = kUiInlineResultsGifExtent;
+        scene.tile_width = scene.cell_width;
+        scene.tile_columns = 0;
+        return true;
     }
     float heights[kMasonryColumns];
     for (u32 c = 0; c < scene.columns; ++c)
@@ -387,12 +440,15 @@ UiRect grid_cell(const UiMediaPickerScene& scene, u32 column, float top) noexcep
     const float left = scene.grid_left + column * scene.column_pitch;
     return {left, top, left + scene.cell_width, top + scene.cell_height};
 }
+// hit: the cell's widget area when it is larger than its art (inline rows
+// and tiles keep their padding clickable); the art's clip stays the cell's.
 bool cell(UiMediaPickerScene& scene, u32 index, UiRect rectangle, const UiMediaPickerCell* prior,
-          u32 prior_count) noexcept {
+          u32 prior_count, const UiRect* hit = nullptr) noexcept {
     auto visible = scene.body;
     visible.top = maximum(visible.top, scene.pinned_bottom);
     const auto clip = ui_rect_intersection(rectangle, visible);
-    if (!ui_rect_has_area(clip))
+    const auto area = hit ? ui_rect_intersection(*hit, visible) : clip;
+    if (!ui_rect_has_area(area))
         return true;
     if (scene.cell_count == kUiMediaPickerVisibleCells)
         return false;
@@ -427,7 +483,7 @@ bool cell(UiMediaPickerScene& scene, u32 index, UiRect rectangle, const UiMediaP
             return false;
     const auto action = item.kind == UiMediaPickerItemKind::category ? UiMediaPickerAction::category
                                                                      : UiMediaPickerAction::item;
-    const auto widget = add(scene, clip, {index, 0, action, scene.content->kind}, item.label, item.enabled);
+    const auto widget = add(scene, area, {index, 0, action, scene.content->kind}, item.label, item.enabled);
     if (!widget.generation)
         return false;
     scene.projection->cells[scene.cell_count++] = {item, rectangle, clip, widget, index};
@@ -515,6 +571,73 @@ void refresh_footer(UiMediaPickerScene& scene) noexcept {
             static_cast<u8>(append(scene.footer_detail, detail, sizeof(scene.footer_detail), item.detail));
     }
 }
+bool inline_results(const UiMediaPickerScene& scene) noexcept {
+    return scene.variant == UiMediaPickerVariant::inline_results;
+}
+// The scroll axis: the inline GIF strip scrolls sideways, every other body down.
+float body_extent(const UiMediaPickerScene& scene) noexcept {
+    return inline_results(scene) && scene.kind == UiMediaPickerKind::gif ? ui_rect_width(scene.body)
+                                                                        : ui_rect_height(scene.body);
+}
+// Inline results: the sticker rows (art 4 DIP inside its row, 8 DIP from the
+// row's start) or the GIF strip's visible tiles, then the strip's arrows.
+bool project_inline(UiMediaPickerScene& scene, const UiMediaPickerCell* prior, u32 prior_count) noexcept {
+    for (auto& tab : scene.tab_widgets)
+        tab = ui_widget_invalid_handle();
+    scene.edit = scene.back = scene.page_widgets[0] = scene.page_widgets[1] = ui_widget_invalid_handle();
+    scene.content_height = 0;
+    if (!scene.source || scene.content->phase != UiMediaPickerPhase::ready)
+        return true;
+    constexpr float pad = kUiInlineResultsPadding;
+    if (scene.kind == UiMediaPickerKind::sticker) {
+        const u32 count = minimum(scene.source->count, kUiInlineResultsStickerLimit);
+        const float pitch = kUiInlineResultsStickerExtent + kUiComposerPadding * 2;
+        scene.content_height = count * pitch;
+        scene.scroll_dips =
+            minimum(scene.scroll_dips, maximum(0.f, scene.content_height - ui_rect_height(scene.body)));
+        for (u32 i = 0; i < count; ++i) {
+            const float top = scene.body.top + i * pitch - scene.scroll_dips;
+            const UiRect row{scene.body.left + pad, top, scene.body.right - pad, top + pitch};
+            const float left = row.left + pad, art_top = top + kUiComposerPadding;
+            const UiRect art{left, art_top, left + kUiInlineResultsStickerExtent,
+                             art_top + kUiInlineResultsStickerExtent};
+            if (!cell(scene, i, art, prior, prior_count, &row))
+                return false;
+        }
+        return true;
+    }
+    if (!layout_tiles(scene))
+        return false;
+    scene.content_height = scene.tile_extent;
+    const float last = maximum(0.f, scene.content_height - ui_rect_width(scene.body));
+    scene.scroll_dips = minimum(scene.scroll_dips, last);
+    for (u32 i = 0; i < scene.tile_count; ++i) {
+        const auto& tile = scene.tiles[i];
+        const float left = scene.body.left + pad + tile.left - scene.scroll_dips;
+        if (left >= scene.body.right)
+            break;
+        const UiRect box{left, scene.body.top, left + tile.width + pad * 2,
+                         scene.body.top + kUiInlineResultsGifExtent + pad * 2};
+        const UiRect art{box.left + pad, box.top + pad, box.right - pad, box.bottom - pad};
+        if (box.right > scene.body.left && !cell(scene, i, art, prior, prior_count, &box))
+            return false;
+    }
+    // The client's arrows: centred on the strip, 8 DIP inside its ends, only
+    // toward content past that end.
+    const float middle = (scene.body.top + scene.body.bottom) * .5f, half = kUiInlineResultsArrowExtent * .5f;
+    if (scene.scroll_dips > 0)
+        scene.page_widgets[0] = add(scene,
+                                    {scene.body.left + pad, middle - half,
+                                     scene.body.left + pad + kUiInlineResultsArrowExtent, middle + half},
+                                    {0, 0, UiMediaPickerAction::page_back, scene.kind}, utf8_literal("Scroll left"));
+    if (scene.scroll_dips < last)
+        scene.page_widgets[1] = add(scene,
+                                    {scene.body.right - pad - kUiInlineResultsArrowExtent, middle - half,
+                                     scene.body.right - pad, middle + half},
+                                    {0, 0, UiMediaPickerAction::page_forward, scene.kind},
+                                    utf8_literal("Scroll right"));
+    return true;
+}
 bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
     const auto& m = scene.style.metrics;
     ++scene.counters.rebuilds;
@@ -540,6 +663,14 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
     if (!root.ok() || !ui_widget_manager_layout_rectangle(&scene.widgets, scene.panel).ok())
         return false;
     scene.root = root.handle;
+    if (inline_results(scene)) {
+        if (!project_inline(scene, prior, prior_count) ||
+            !ui_widget_manager_layout_rectangle(&scene.widgets, scene.panel).ok())
+            return false;
+        synchronize_focus(scene);
+        ++scene.revision;
+        return true;
+    }
     float x = scene.tabs.left;
     u32 tab_count = 0;
     for (u32 i = 0; i < 3; ++i)
@@ -715,6 +846,19 @@ bool item_position(const UiMediaPickerScene& scene, u32 index, float* top, float
         index >= scene.source->count)
         return false;
     *height = scene.cell_pitch;
+    if (inline_results(scene)) {
+        // Offsets along the scroll axis: GIF tiles with their padding, or sticker rows.
+        if (scene.kind == UiMediaPickerKind::sticker) {
+            *height = kUiInlineResultsStickerExtent + kUiComposerPadding * 2;
+            *top = index * *height;
+            return index < kUiInlineResultsStickerLimit;
+        }
+        if (index >= scene.tile_count)
+            return false;
+        *top = kUiInlineResultsPadding + scene.tiles[index].left;
+        *height = scene.tiles[index].width + kUiInlineResultsPadding * 2;
+        return true;
+    }
     if (scene.masonry) {
         if (index >= scene.tile_count)
             return false;
@@ -749,11 +893,13 @@ bool select_index(UiMediaPickerScene& scene, u32 index, float top, float height)
     const auto& m = scene.style.metrics;
     scene.selected_index = index;
     // Keep the row clear of a pinned section header and the list's leading inset.
-    const float lead = (scene.source && scene.source->sections.count ? m.section_height : 0) + content_top(scene);
+    const float lead = inline_results(scene) ? 0
+                       : (scene.source && scene.source->sections.count ? m.section_height : 0) + content_top(scene);
+    const float extent = body_extent(scene);
     if (top < scene.scroll_dips + lead)
         scene.scroll_dips = maximum(0.f, top - lead);
-    else if (top + height > scene.scroll_dips + ui_rect_height(scene.body))
-        scene.scroll_dips = top + height - ui_rect_height(scene.body);
+    else if (top + height > scene.scroll_dips + extent)
+        scene.scroll_dips = top + height - extent;
     return safe_rebuild(scene);
 }
 bool select_available(UiMediaPickerScene& scene, u32 first, i32 direction) noexcept {
@@ -912,27 +1058,39 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
     if (!content || !content->account_scope || !content->query_generation ||
         content->kind > UiMediaPickerKind::emoji || content->phase > UiMediaPickerPhase::failed ||
         !(content->available_tabs & ui_media_picker_tab_bit(content->kind)) ||
-        (content->available_tabs & ~7u) || content->variant > UiMediaPickerVariant::reaction ||
+        (content->available_tabs & ~7u) || content->variant > UiMediaPickerVariant::inline_results ||
         (content->variant == UiMediaPickerVariant::reaction &&
          (content->kind != UiMediaPickerKind::emoji ||
           content->available_tabs != ui_media_picker_tab_bit(UiMediaPickerKind::emoji))) ||
-        !content->edit.active || !label_valid(content->placeholder) ||
+        // Inline results type into the composer: no search field, tabs or Back.
+        (content->variant == UiMediaPickerVariant::inline_results &&
+         (content->kind == UiMediaPickerKind::emoji || content->edit.active || content->back ||
+          content->available_tabs != ui_media_picker_tab_bit(content->kind) || !label_valid(content->heading) ||
+          content->heading_plain > content->heading.bytes)) ||
+        (content->variant != UiMediaPickerVariant::inline_results && !content->edit.active) ||
+        !label_valid(content->placeholder) ||
         !label_valid(content->status) || !ui_rect_valid(viewport) || !ui_rect_valid(anchor) ||
         (!admitted_source && !source_valid(source, *content)))
         return false;
-    const UiMediaPickerStyle defaults = content->variant == UiMediaPickerVariant::reaction
-                                            ? ui_media_picker_reaction_style()
-                                            : ui_media_picker_style();
+    const bool inline_variant = content->variant == UiMediaPickerVariant::inline_results;
+    const UiMediaPickerStyle defaults = content->variant == UiMediaPickerVariant::reaction ? ui_media_picker_reaction_style()
+                                        : inline_variant ? ui_media_picker_inline_style()
+                                                         : ui_media_picker_style();
     UiMediaPickerStyle effective =
         override_style && ui_media_picker_style_valid(*override_style) ? *override_style : defaults;
     PickerLayout layout{};
-    if (!picker_layout(effective, source, content->kind, content->variant, content->back, viewport, anchor,
-                       preferred_width, &layout)) {
+    if (inline_variant) {
+        if (!inline_layout(effective, source, *content, viewport, anchor, &layout))
+            return false;
+    } else if (!picker_layout(effective, source, content->kind, content->variant, content->back, viewport, anchor,
+                              preferred_width, &layout)) {
         effective = defaults;
         if (!picker_layout(effective, source, content->kind, content->variant, content->back, viewport,
                            anchor, preferred_width, &layout))
             return false;
     }
+    const u32 plain = minimum(content->heading_plain, content->heading.bytes);
+    scene->heading_span = {plain, content->heading.bytes - plain, text_style_bold, 0, {}};
     const bool same_style = bytes_equal(&scene->style, &effective, sizeof(effective));
     const u16 flags = static_cast<u16>(content->available_tabs | (content->back ? 8 : 0) |
                                        (static_cast<u16>(content->phase) << 4) |
@@ -1014,6 +1172,7 @@ void ui_media_picker_scene_close(UiMediaPickerScene* scene) noexcept {
     if (!scene)
         return;
     ui_media_picker_scene_cancel_capture(scene);
+    scene->page_duration_ms = 0;
     ui_widget_manager_reset(&scene->widgets);
     scene->active = false;
     scene->body_scrollbar_state = scene->rail_scrollbar_state = UiScrollbarVisualState::normal;
@@ -1098,12 +1257,14 @@ UiMediaPickerTarget ui_media_picker_scene_pointer_up(UiMediaPickerScene* scene, 
     return valid ? hit : UiMediaPickerTarget{};
 }
 bool ui_media_picker_scene_scroll(UiMediaPickerScene* scene, float delta, bool rail) noexcept {
+    if (scene)
+        scene->page_duration_ms = 0;
     if (!scene || !ui_media_picker_scene_current(*scene) ||
         scene->content->phase != UiMediaPickerPhase::ready ||
         !bounded(delta, -kMaximumPaintCoordinate, kMaximumPaintCoordinate))
         return false;
     const float maximum_scroll = rail ? maximum(0.f, scene->rail_extent - ui_rect_height(scene->rail))
-                                      : maximum(0.f, scene->content_height - ui_rect_height(scene->body));
+                                      : maximum(0.f, scene->content_height - body_extent(*scene));
     float& scroll = rail ? scene->rail_scroll_dips : scene->scroll_dips;
     const float next = clamped(scroll + delta, 0.f, maximum_scroll);
     if (next == scroll)
@@ -1196,6 +1357,106 @@ bool ui_media_picker_scene_row_edge_selection(UiMediaPickerScene* scene, bool la
         minimum<u32>(scene->columns, section_items(*scene, at.section) - at.row * scene->columns);
     const u32 index = last ? first + length - 1 : first;
     return index != scene->selected_index && select_available(*scene, index, last ? -1 : 1);
+}
+bool ui_media_picker_scene_step_selection(UiMediaPickerScene* scene, i32 direction) noexcept {
+    if (scene)
+        scene->page_duration_ms = 0;
+    if (!scene || !ui_media_picker_scene_current(*scene) || !inline_results(*scene) || !scene->source ||
+        scene->content->phase != UiMediaPickerPhase::ready || (direction != 1 && direction != -1))
+        return false;
+    const u32 count = scene->kind == UiMediaPickerKind::sticker
+                          ? minimum(scene->source->count, kUiInlineResultsStickerLimit)
+                          : scene->source->count;
+    if (!count)
+        return false;
+    const u32 selected = scene->selected_index;
+    const u32 index = selected >= count ? (direction > 0 ? 0 : count - 1)
+                      : direction > 0   ? (selected + 1 == count ? 0 : selected + 1)
+                                        : (selected ? selected - 1 : count - 1);
+    float top = 0, height = 0;
+    return item_position(*scene, index, &top, &height) && select_index(*scene, index, top, height);
+}
+bool ui_media_picker_scene_clear_selection(UiMediaPickerScene* scene) noexcept {
+    if (!scene || !ui_media_picker_scene_current(*scene) || scene->selected_index == ~u32{0})
+        return false;
+    scene->selected_index = ~u32{0};
+    ui_widget_manager_focus(&scene->widgets, ui_widget_invalid_handle());
+    ++scene->revision;
+    return true;
+}
+namespace {
+// Chromium's programmatic smooth scroll (cc ScrollOffsetAnimationCurve,
+// kDeltaBased): cubic-bezier(.4, 0, 0, 1), so x(t) = 1.2(1-t)^2 t + t^3 and
+// y(t) = 3t^2 - 2t^3; x is solved by bisection before sampling y.
+float page_eased(float progress) noexcept {
+    float low = 0, high = 1;
+    for (u32 i = 0; i < 16; ++i) {
+        const float t = (low + high) * .5f;
+        const float x = 1.2f * (1 - t) * (1 - t) * t + t * t * t;
+        if (x < progress)
+            low = t;
+        else
+            high = t;
+    }
+    const float t = (low + high) * .5f;
+    return t * t * (3 - 2 * t);
+}
+} // namespace
+bool ui_media_picker_scene_page(UiMediaPickerScene* scene, bool forward, u64 now_ms, float pixels_per_dip,
+                                bool reduced_motion) noexcept {
+    if (!scene || !ui_media_picker_scene_current(*scene) || !inline_results(*scene) ||
+        scene->kind != UiMediaPickerKind::gif || scene->content->phase != UiMediaPickerPhase::ready ||
+        !bounded(pixels_per_dip, .25f, 8.f))
+        return false;
+    const float step = ui_rect_width(scene->body) * .8f;
+    const float from = scene->scroll_dips;
+    const float to = clamped(from + (forward ? step : -step), 0.f,
+                             maximum(0.f, scene->content_height - body_extent(*scene)));
+    if (to == from)
+        return false;
+    // min(sqrt(|delta px|), kMaxAnimationDuration 1.5 s * 60) / 60 seconds.
+    const double pixels = static_cast<double>((to > from ? to - from : from - to) * pixels_per_dip);
+    const double frames = minimum(_mm_cvtsd_f64(_mm_sqrt_sd(_mm_setzero_pd(), _mm_set_sd(pixels))), 90.0);
+    const u32 duration = static_cast<u32>(frames * 1000.0 / 60.0);
+    if (reduced_motion || !duration)
+        return ui_media_picker_scene_scroll(scene, to - from);
+    scene->page_from = from;
+    scene->page_to = to;
+    scene->page_started_ms = now_ms;
+    scene->page_duration_ms = duration;
+    scene->page_source_revision = scene->source_revision;
+    return true;
+}
+bool ui_media_picker_scene_page_tick(UiMediaPickerScene* scene, u64 now_ms) noexcept {
+    if (!scene || !scene->page_duration_ms)
+        return false;
+    const u32 duration = scene->page_duration_ms;
+    if (!ui_media_picker_scene_current(*scene) || scene->source_revision != scene->page_source_revision) {
+        scene->page_duration_ms = 0;
+        return false;
+    }
+    const u64 elapsed = now_ms > scene->page_started_ms ? now_ms - scene->page_started_ms : 0;
+    const bool done = elapsed >= duration;
+    const float value = done ? scene->page_to
+                             : scene->page_from + (scene->page_to - scene->page_from) *
+                                                      page_eased(static_cast<float>(elapsed) / duration);
+    // Scrolling ends a page animation, so this frame's own step restores it.
+    const bool moved = ui_media_picker_scene_scroll(scene, value - scene->scroll_dips);
+    scene->page_duration_ms = done ? 0 : duration;
+    return moved;
+}
+bool ui_media_picker_scene_paging(const UiMediaPickerScene& scene) noexcept {
+    return scene.page_duration_ms != 0;
+}
+UiMediaPickerTarget ui_media_picker_scene_selected_target(const UiMediaPickerScene& scene) noexcept {
+    for (u32 i = 0; ui_media_picker_scene_current(scene) && i < scene.cell_count; ++i)
+        if (scene.projection->cells[i].source_index == scene.selected_index)
+            return target(scene, scene.projection->cells[i].widget);
+    return {};
+}
+bool ui_media_picker_scene_spinner_visible(const UiMediaPickerScene& scene) noexcept {
+    return ui_media_picker_scene_current(scene) && inline_results(scene) &&
+           scene.content->phase == UiMediaPickerPhase::loading;
 }
 bool ui_media_picker_scene_favorite(const UiMediaPickerScene& scene, u32 index, UiRect* rectangle,
                                     UiRect* full_rectangle) noexcept {
@@ -1294,7 +1555,8 @@ bool media_slot(const UiMediaPickerScene& scene, const UiMediaPickerCell& cell, 
                cell.item.asset_id,
                rectangle,
                ui_rect_intersection(rectangle, clip),
-               scene.style.control_radius,
+               // The client's inline tiles and stickers are square-cornered.
+               inline_results(scene) ? 0.f : scene.style.control_radius,
                cell.item.kind == UiMediaPickerItemKind::category ? scene.style.category_opacity : 1.f,
                cell.item.variant,
                cell.item.width,
@@ -1361,7 +1623,9 @@ Utf8View ui_media_picker_scene_footer_detail(const UiMediaPickerScene& scene) no
                                                 : Utf8View{};
 }
 UiScrollbarGeometry ui_media_picker_scene_scrollbar(const UiMediaPickerScene& scene, bool rail) noexcept {
-    if (!ui_media_picker_scene_current(scene) || scene.content->phase != UiMediaPickerPhase::ready)
+    // Inline results page with their arrows (GIFs) or fit (stickers): no bar.
+    if (!ui_media_picker_scene_current(scene) || scene.content->phase != UiMediaPickerPhase::ready ||
+        inline_results(scene))
         return {};
     return rail ? ui_scrollbar_geometry(scene.rail, scene.rail_scroll_dips, scene.rail_extent)
                 : ui_scrollbar_geometry(scene.body, scene.scroll_dips, scene.content_height);

@@ -59,7 +59,7 @@ void replace_groups(Broker& p, u8* groups, u32 bytes, const EmojiPreferencesSnap
     // An account without emoji groups still has a data version to write against.
     p.snapshot = snapshot;
     if (!groups)
-        p.snapshot.favorites = p.snapshot.frecency = p.snapshot.reaction_frecency = {};
+        p.snapshot.favorites = p.snapshot.frecency = p.snapshot.reaction_frecency = p.snapshot.sticker_frecency = {};
 }
 void clear_scope(Broker& p) noexcept {
     if (!++p.generation)
@@ -114,7 +114,7 @@ bool decode_settings(Utf8View settings, u8** groups, u32* group_bytes, EmojiPref
     ok = ok && (bank || !size.group_bytes) &&
          emoji_preferences_decode(proto, {bank, size.group_bytes}, snapshot).ok();
     if (ok && !bank) {
-        snapshot->favorites = snapshot->frecency = snapshot->reaction_frecency = {};
+        snapshot->favorites = snapshot->frecency = snapshot->reaction_frecency = snapshot->sticker_frecency = {};
     }
     dispose(raw, measured.bytes);
     if (!ok) {
@@ -281,6 +281,11 @@ void application_emoji_preferences_track_message(const ApplicationEmojiUse& uses
         reaction_preferences_track_emoji(preferences, ReactionPreferenceKind::message, uses.emoji[i], now);
     if (ensure())
         application_emoji_preferences_synchronize();
+}
+
+ConstSlice<u8> application_emoji_preferences_sticker_frecency() noexcept {
+    const auto* p = broker;
+    return p && scope(*p) ? p->snapshot.sticker_frecency : ConstSlice<u8>{};
 }
 
 void application_emoji_preferences_open() noexcept {

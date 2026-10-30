@@ -121,8 +121,13 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
                          : nullptr;
     // The media viewer while neither of its image tiers is resident.
     auto* viewer = ui_image_viewer_spinner_visible(g_app.image_viewer.scene) ? &g_app.image_viewer.scene : nullptr;
+    // The composer's inline /gif results while their search loads.
+    auto* gallery = d3d11_renderer_media_picker_visible(renderer) &&
+                            ui_media_picker_scene_spinner_visible(*renderer.media_picker_scene)
+                        ? const_cast<UiMediaPickerScene*>(renderer.media_picker_scene)
+                        : nullptr;
     const bool visible = g_app.renderer_ready && !renderer.live_resize &&
-                         (pins || inbox || browser || call || card || guild || settings || viewer);
+                         (pins || inbox || browser || call || card || guild || settings || viewer || gallery);
     ui_spinner_clock_tick(&g_loading_spinner, now_ms, visible, g_app.preferences.reduced_motion);
     // The phase is part of each panel's presentation stamp, so a new phase
     // repaints that panel without rebuilding its text or widgets.
@@ -142,6 +147,8 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
         settings->spinner_phase = g_loading_spinner.phase;
     if (viewer)
         viewer->spinner_phase = g_loading_spinner.phase;
+    if (gallery)
+        gallery->spinner_phase = g_loading_spinner.phase;
 }
 
 UiTypingDotsClock g_typing_dots{};

@@ -20,6 +20,26 @@ inline constexpr float kPopupQuickReactionGap = 4.0f;
 inline constexpr float kPopupQuickReactionTop = 10.0f;
 inline constexpr float kPopupQuickReactionBottomGap = 8.0f;
 inline constexpr float kPopupContextSeparatorGap = 16.0f;
+// The command picker (the official client's application command browser,
+// all.css .wrapper_d1405b / .wrapper_b1e4f3 / .wrapper__920ab): a fixed
+// 420-DIP panel; a 48-DIP rail of 32-DIP section icons 40 DIPs apart below a
+// 16-DIP lead, with 8 more DIPs and a divider before Built-in; a body of
+// 32-DIP section headers and 56-DIP rows inset 8 DIPs, sections 16 DIPs apart.
+// Query results drop the rail: a 40-DIP title, then the rows.
+inline constexpr float kCommandPickerHeight = 420.0f;
+inline constexpr float kCommandRailWidth = 48.0f;
+inline constexpr float kCommandRailLead = 16.0f;
+inline constexpr float kCommandRailIcon = 32.0f;
+inline constexpr float kCommandRailStride = 40.0f;
+inline constexpr float kCommandRailDivider = 8.0f;
+inline constexpr float kCommandListInset = 8.0f;
+inline constexpr float kCommandSectionHeight = 32.0f;
+inline constexpr float kCommandRowHeight = 56.0f;
+inline constexpr float kCommandSectionGap = 16.0f;
+inline constexpr float kCommandTitleHeight = 40.0f;
+// The client's Generic autocomplete row and its Loading row (659280 ex/eE).
+inline constexpr float kCommandGenericRowHeight = 36.0f;
+inline constexpr float kCommandGenericLoadingHeight = 40.0f;
 
 enum class PopupKind : u8 {
     none,
@@ -57,12 +77,16 @@ enum PopupItemFlag : u16 {
     popup_item_danger = 1u << 1,
     popup_item_separator_before = 1u << 2,
     popup_item_checked = 1u << 3,
-    popup_item_command_header = 1u << 4,
-    popup_item_command_close = 1u << 5,
     popup_item_emoji = 1u << 6,
     popup_item_custom_emoji = 1u << 7,
     popup_item_quick_reaction = 1u << 8,
     popup_item_avatar = 1u << 9,
+    // The command picker's section header (an app, Frequently Used, Built-in) or,
+    // without a category rail, its "Commands matching" title. Never actionable.
+    popup_item_command_section = 1u << 10,
+    // A section header pinned to the top of the picker body over the rows it
+    // leads (the client's sticky header); listed after the scrolled items.
+    popup_item_command_pinned = 1u << 11,
     popup_item_emoji_preview = 1u << 12,
     popup_item_guild_icon = 1u << 13,
     popup_item_command_row = 1u << 14,
@@ -103,6 +127,13 @@ static_assert(sizeof(PopupItem) == 64);
 // media_flags bit for rows without media: media_variant is a 0xRRGGBB tint
 // for the leading menu icon (a role colour). Zero keeps the theme colour.
 inline constexpr u8 kPopupItemMediaIconTint = 1u << 1;
+// media_flags bit: a loading placeholder row (the client's skeleton). It is
+// never actionable, draws rounded bars instead of text and needs no media;
+// media_variant seeds the bar widths so a row keeps its look between frames.
+inline constexpr u8 kPopupItemPlaceholder = 1u << 2;
+constexpr bool popup_item_placeholder(const PopupItem& item) noexcept {
+    return (item.media_flags & kPopupItemPlaceholder) != 0 && !(item.flags & popup_item_enabled);
+}
 static_assert(__is_trivial(PopupItem) && __is_standard_layout(PopupItem));
 static_assert(offsetof(PopupItem, media_flags) == 32 && offsetof(PopupItem, regional_flag) == 34);
 static_assert(offsetof(PopupItem, detail) == 40 && offsetof(PopupItem, media_variant) == 56);
@@ -110,8 +141,25 @@ static_assert(offsetof(PopupItem, status) == 60 && offsetof(PopupItem, presentat
 
 constexpr bool popup_item_menu_row(const PopupItem& item) noexcept {
     constexpr u16 specialized = popup_item_emoji | popup_item_custom_emoji | popup_item_quick_reaction |
-                                popup_item_command_category | popup_item_command_header | popup_item_command_close;
+                                popup_item_command_category | popup_item_command_section;
     return (item.flags & specialized) == 0;
+}
+// The command picker: discovery (led by its category rail) or query results
+// (led by their title). A selected command's option header is not the picker.
+constexpr bool popup_items_command_picker(ConstSlice<PopupItem> items) noexcept {
+    return items.count && (items[0].flags & (popup_item_command_category | popup_item_command_section));
+}
+// A loading placeholder row: in the command picker (popup_item_command_row)
+// the client's command skeleton (usage, description and source bars, 524007);
+// elsewhere its generic Loading row (one 60-120 DIP bar, 659280 `eE`).
+constexpr PopupItem popup_placeholder_row(u32 action, u32 seed, u16 flags = popup_item_none) noexcept {
+    PopupItem item{};
+    item.label = Utf8View{"Loading", 7};
+    item.action = action;
+    item.flags = static_cast<u16>(flags & ~popup_item_enabled);
+    item.media_flags = kPopupItemPlaceholder;
+    item.media_variant = seed;
+    return item;
 }
 
 constexpr UiMenuRowPresentation popup_item_menu_presentation(const PopupItem& item) noexcept {
@@ -216,6 +264,10 @@ struct PopupScene {
     float preferred_width;
     float scroll_offset;
     float scroll_max;
+    // The command picker's body scrolls in its owner (virtual rows); the owner
+    // publishes its offset and content height here for the thin scrollbar.
+    float picker_scroll_offset;
+    float picker_scroll_extent;
     PopupKind kind;
     bool prefer_above;
     bool active;
@@ -251,6 +303,8 @@ PopupSceneResult popup_scene_open_below(PopupScene* scene, PopupKind kind, u64 o
                                         ConstSlice<PopupItem> items, const UiRect& anchor, const UiRect& viewport,
                                         float preferred_width) noexcept;
 UiRect popup_feedback_rectangle(const PopupScene&) noexcept;
+// The command picker's scrolling body column (empty for any other popup).
+UiRect popup_scene_picker_body(const PopupScene&) noexcept;
 bool popup_scene_set_feedback(PopupScene*, Utf8View text, bool error = false) noexcept;
 // Footer slider track area (empty without a slider) and value update.
 UiRect popup_feedback_slider(const PopupScene&) noexcept;

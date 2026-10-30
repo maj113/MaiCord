@@ -93,12 +93,6 @@ enum TextStyleFlag : u32 {
 // Picker emoji plus one heading bit: the expression picker grid sizes.
 inline constexpr u32 text_style_picker_grid_emoji = text_style_picker_emoji | text_style_heading_1;
 inline constexpr u32 text_style_picker_large_emoji = text_style_picker_emoji | text_style_heading_2;
-// A slash command option key ("name:") in the composer: a neutral pill (no
-// list or mention meaning; list depth needs text_style_list).
-inline constexpr u32 text_style_command_option = text_style_mention | text_style_list_depth_2;
-constexpr bool text_style_is_command_option(u32 flags) noexcept {
-    return (flags & text_style_command_option) == text_style_command_option && !(flags & text_style_list);
-}
 constexpr float text_style_picker_emoji_size(u32 flags) noexcept {
     return flags & text_style_heading_1   ? kPickerGridEmojiEmSize
            : flags & text_style_heading_2 ? kPickerLargeEmojiEmSize

@@ -2,6 +2,7 @@
 #include "maicord/ui/edit_field.hpp"
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/scrollbar.hpp"
+#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 // Visible cells bound the widest pane: a wider request shrinks to the columns
@@ -99,6 +100,27 @@ constexpr UiMediaPickerStyle ui_media_picker_reaction_style() noexcept {
     style.metrics.anchor_gap = 8;
     return style;
 }
+// Inline results float like the composer's other autocomplete popups: the
+// menu corner radius, 8 DIP above their anchor.
+constexpr UiMediaPickerStyle ui_media_picker_inline_style() noexcept {
+    auto style = ui_media_picker_style();
+    style.panel_radius = kUiMenuCornerRadius;
+    style.metrics.anchor_gap = kUiFloatingSurfaceInset;
+    return style;
+}
+// The composer's inline /gif and /sticker results, as the official client's
+// autocomplete draws them above the composer: a heading, then one row of GIF
+// tiles 150 DIP high (scrolled sideways, with paging arrows) or a list of at
+// most eight 40 DIP stickers with their names and packs.
+inline constexpr float kUiInlineResultsGifExtent = 150;
+inline constexpr float kUiInlineResultsStickerExtent = kUiMediaControlHeight;
+inline constexpr u32 kUiInlineResultsStickerLimit = 8;
+// Rows and tiles pad their art by 8 DIP (stickers 4 DIP vertically); the
+// heading adds 4 DIP above and below its 18 DIP line; the paging arrows are
+// 32 DIP squares 8 DIP inside the strip's ends.
+inline constexpr float kUiInlineResultsPadding = kUiFloatingSurfaceInset;
+inline constexpr float kUiInlineResultsHeadingHeight = kUiFloatingSurfaceInset * 3 + 18;
+inline constexpr float kUiInlineResultsArrowExtent = kUiMenuCompactRowHeight;
 enum class UiMediaPickerKind : u8 {
     gif,
     sticker,
@@ -125,7 +147,10 @@ enum class UiMediaPickerAction : u8 {
     category,
     section,
     section_jump,
-    favorite
+    favorite,
+    // The inline GIF strip's paging arrows (toward its start or its end).
+    page_back,
+    page_forward
 };
 constexpr u8 ui_media_picker_tab_bit(UiMediaPickerKind kind) noexcept {
     return static_cast<u8>(1u << static_cast<u8>(kind));
@@ -145,6 +170,9 @@ struct UiMediaPickerItem {
     bool favoritable = false, favorite = false, favorite_pending = false, favorite_failed = false;
     Utf8View glyph;
     u32 regional_flag;
+    // Inline sticker rows: the client's "Similar to: <match>" line under the
+    // name when a tag, pack or server name matched instead of the name.
+    Utf8View note{};
 };
 enum class UiMediaPickerSectionVisual : u8 {
     generic,
@@ -170,9 +198,12 @@ Utf8View ui_media_picker_section_glyph(UiMediaPickerSectionVisual) noexcept;
 // expression: the GIF/Sticker/Emoji picker above the composer.
 // reaction: the same emoji picker without the tab selector, beside the anchor
 // (a message's Add Reaction control).
+// inline_results: the composer's /gif or /sticker results row (no tabs,
+// search field, rail or footer), the anchor's width directly above it.
 enum class UiMediaPickerVariant : u8 {
     expression,
-    reaction
+    reaction,
+    inline_results
 };
 struct UiMediaPickerSection {
     u64 id;
@@ -203,6 +234,10 @@ struct UiMediaPickerContent {
     u8 available_tabs;
     bool back;
     UiMediaPickerVariant variant;
+    // Inline results: "<kind> matching <query>", the bytes from heading_plain
+    // on drawn bold.
+    Utf8View heading;
+    u32 heading_plain;
 };
 struct UiMediaPickerTarget {
     u64 account_scope, query_generation, item_id;
@@ -267,6 +302,8 @@ struct UiMediaPickerTile {
     // Category tiles keep a fixed height; media scale with the column width.
     bool fixed;
     float aspect;
+    // Inline strips place tiles left to right at a fixed height instead.
+    float left, width;
 };
 // Work counters for resize/scroll cost tests.
 struct UiMediaPickerCounters {
@@ -309,6 +346,17 @@ struct UiMediaPickerScene {
     u16 layout_flags;
     bool active, favorite_hovered;
     UiScrollbarVisualState body_scrollbar_state{}, rail_scrollbar_state{};
+    // Inline results: the GIF strip's paging arrows (shown only while the
+    // strip can scroll that way), the heading's bold query span, and the
+    // shared loading spinner's phase while the first results load.
+    UiWidgetHandle page_widgets[2]{};
+    TextStyleSpan heading_span{};
+    u8 spinner_phase{};
+    // An arrow's page animation (page_duration_ms nonzero while it runs) for
+    // the result set it started on.
+    float page_from{}, page_to{};
+    u64 page_started_ms{};
+    u32 page_duration_ms{}, page_source_revision{};
 };
 // Placement shrinks into the available viewport. Fixed storage commits only on
 // first use and remains bounded independently of the source item count.
@@ -343,6 +391,24 @@ bool ui_media_picker_scene_page_selection(UiMediaPickerScene*, bool reverse) noe
 // Home/End reach the row's ends, edge selection the grid's.
 bool ui_media_picker_scene_edge_selection(UiMediaPickerScene*, bool last) noexcept;
 bool ui_media_picker_scene_row_edge_selection(UiMediaPickerScene*, bool last) noexcept;
+// Inline results, as the client's autocomplete navigator: Up/Down step through
+// the results and wrap at either end, the selected tile scrolled into view;
+// the host clears it when the pointer moves onto a result. An arrow pages the
+// strip by 80% of its width with the client's smooth scrollBy, Chromium's
+// programmatic scroll curve: cubic-bezier(.4, 0, 0, 1) over
+// min(sqrt(|delta px|), 90) / 60 s, instant under reduced motion. Any other
+// scroll, a step or a new result set ends it. The selected target is the
+// visible selected result, if any.
+bool ui_media_picker_scene_step_selection(UiMediaPickerScene*, i32 direction) noexcept;
+bool ui_media_picker_scene_clear_selection(UiMediaPickerScene*) noexcept;
+bool ui_media_picker_scene_page(UiMediaPickerScene*, bool forward, u64 now_ms, float pixels_per_dip,
+                                bool reduced_motion) noexcept;
+// Moves a running page animation to now_ms; true when the strip moved.
+bool ui_media_picker_scene_page_tick(UiMediaPickerScene*, u64 now_ms) noexcept;
+bool ui_media_picker_scene_paging(const UiMediaPickerScene&) noexcept;
+UiMediaPickerTarget ui_media_picker_scene_selected_target(const UiMediaPickerScene&) noexcept;
+// True while inline results paint their loading spinner.
+bool ui_media_picker_scene_spinner_visible(const UiMediaPickerScene&) noexcept;
 // Reuses a cell's widget and returns only the visible inset button hit region.
 // Pending remains visible but cannot activate or fall through to item Send.
 bool ui_media_picker_scene_favorite(const UiMediaPickerScene&, u32 visible_cell, UiRect* rectangle,

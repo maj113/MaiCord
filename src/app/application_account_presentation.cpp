@@ -482,18 +482,20 @@ bool synchronize_shell_layout() noexcept {
          (g_app.account_ui && typing_store_channel_count(
                                   g_app.account_ui->typing_store, g_app.account_ui->active_channel_id,
                                   g_app.account_ui->chat_state.self_user_id) != 0));
+    const bool command_bar = !friends && application_commands_bar_visible();
     const float composer_chrome =
         friends ? 0.f
                 : message_composer_scene_chrome_height(
                       application_reply_draft().message_id != 0 || g_app.message_edit.editor_active,
-                      typing_visible, message_composer_attachment_row(application_attachment_input()), styles);
+                      typing_visible, message_composer_attachment_row(application_attachment_input()), styles,
+                      command_bar);
     metrics.composer_height =
         friends ? 0.f
                 : message_composer_scene_cached_height(
                       g_app.message_composer_scene,
                       application_reply_draft().message_id != 0 || g_app.message_edit.editor_active,
                       typing_visible, message_composer_attachment_row(application_attachment_input()),
-                      ui_scene_composer_width(metrics, width_dip));
+                      ui_scene_composer_width(metrics, width_dip), command_bar);
     const auto update_metrics_revision = [&]() noexcept {
         metrics.revision = 1'000u + ui_extent_units(metrics.composer_height) * 31u +
                            ui_extent_units(metrics.navigation_width) * 131u +
@@ -779,7 +781,7 @@ bool refresh_shell_text(bool force) noexcept {
     const float required_composer_height = message_composer_scene_cached_height(
         g_app.message_composer_scene,
         application_reply_draft().message_id != 0 || g_app.message_edit.editor_active, typing_visible,
-        message_composer_attachment_row(application_attachment_input()));
+        message_composer_attachment_row(application_attachment_input()), 0.f, application_commands_bar_visible());
     const bool composer_height_changed =
         g_app.message_composer_scene.active &&
         ui_extent_units(ui_rect_height(g_app.message_composer_scene.viewport)) !=

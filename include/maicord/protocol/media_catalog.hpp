@@ -33,11 +33,14 @@ enum class MediaCatalogOperation : u8 {
     // GET /sticker-packs/{id}: one pack, including one no longer offered.
     sticker_pack,
 };
-// The catalog offers these two formats. Native previews default to
-// its tinywebp path; selecting a format does not change the item's send URL.
+// The catalog offers these formats. Native previews default to its tinywebp
+// path; the composer's inline /gif strip asks for webp as the official
+// client's integration search does. Selecting a format does not change the
+// item's send URL.
 enum class MediaCatalogFormat : u8 {
     tiny_webp,
-    webm
+    webm,
+    webp
 };
 enum class MediaCatalogItemKind : u8 {
     category,

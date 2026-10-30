@@ -390,6 +390,9 @@ u64 application_profile_next_wake() noexcept {
 u64 application_commands_next_wake() noexcept {
     return command_wake;
 }
+bool application_commands_bar_visible() noexcept {
+    return false;
+}
 u64 application_video_next_wake() noexcept {
     return video_wake;
 }

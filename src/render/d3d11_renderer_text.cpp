@@ -1313,7 +1313,10 @@ bool measure_media_picker(D3D11Renderer* renderer) noexcept {
     auto& layout = renderer->media_picker_layout;
     const bool quick = d3d11_renderer_quick_switcher_visible(*renderer);
     const bool forward = d3d11_renderer_message_forward_visible(*renderer);
-    if (!quick && !forward && !d3d11_renderer_media_picker_visible(*renderer)) {
+    // Inline results (the composer's /gif and /sticker rows) have no search field.
+    if (!quick && !forward &&
+        (!d3d11_renderer_media_picker_visible(*renderer) ||
+         renderer->media_picker_scene->variant == UiMediaPickerVariant::inline_results)) {
         text_edit_layout_invalidate(&layout);
         return true;
     }
@@ -1508,7 +1511,7 @@ bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
             *renderer->ui_scene, *renderer->chat_state, *renderer->navigation_view, theme,
             *renderer->shell_navigation_scene, hidden ? nullptr : renderer->message_composer_scene, nullptr,
             composer, &output, renderer->user_store, renderer->guild_rail_scene,
-            browser ? renderer->thread_browser_scene->view->parent_id : 0))
+            browser ? renderer->thread_browser_scene->view->parent_id : 0, renderer->message_measure_cache))
         return false;
     output.emitter = emitter;
     const bool projected =

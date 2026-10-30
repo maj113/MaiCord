@@ -5,6 +5,7 @@
 #include "application_message_history.hpp"
 #include "application_state.hpp"
 #include "application_read_state.hpp"
+#include "application_commands.hpp"
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
@@ -122,7 +123,11 @@ static UiScrollbarGeometry application_scrollbar_geometry(ScrollbarDragKind kind
         return ui_scrollbar_geometry(g_app.member_list_scene.viewport, g_app.member_list_scene.scroll_dips,
                                      g_app.member_list_scene.content_height);
     }
-    // The scrollable menu's bar, as popup presentation paints it.
+    // The scrollable menu's bar, as popup presentation paints it; the command
+    // picker's bar spans its virtual body, which its owner scrolls.
+    if (kind == ScrollbarDragKind::popup && g_app.popup_scene.active && g_app.popup_scene.picker_scroll_extent > 0)
+        return ui_scrollbar_geometry(popup_scene_picker_body(g_app.popup_scene),
+                                     g_app.popup_scene.picker_scroll_offset, g_app.popup_scene.picker_scroll_extent);
     if (kind == ScrollbarDragKind::popup && g_app.popup_scene.active && g_app.popup_scene.scroll_max > 0) {
         return ui_scrollbar_geometry(g_app.popup_scene.rectangle, g_app.popup_scene.scroll_offset,
                                      ui_rect_height(g_app.popup_scene.rectangle) + g_app.popup_scene.scroll_max);
@@ -156,7 +161,10 @@ static bool apply_scrollbar_pointer(float pointer_y) noexcept {
     if (kind == ScrollbarDragKind::popup) {
         // The thumb tracks the pointer directly, like every other list.
         ui_scroll_host_cancel(&g_app.scroll_host);
-        if (!popup_scene_scroll(&g_app.popup_scene, target - g_app.popup_scene.scroll_offset, &changed))
+        if (g_app.popup_scene.picker_scroll_extent > 0) {
+            if (!application_commands_scroll(false, target, &changed))
+                return false;
+        } else if (!popup_scene_scroll(&g_app.popup_scene, target - g_app.popup_scene.scroll_offset, &changed))
             return false;
     } else if (kind == ScrollbarDragKind::channels) {
         ui_scroll_host_cancel(&g_app.scroll_host);

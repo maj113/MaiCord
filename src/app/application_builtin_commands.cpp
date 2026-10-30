@@ -302,11 +302,9 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
         return text->bytes ? BuiltinCommandRun::text : BuiltinCommandRun::failed;
     case gif:
     case sticker:
-        return application_media_picker_open_search(command.id == gif ? UiMediaPickerKind::gif
-                                                                      : UiMediaPickerKind::sticker,
-                                                    option_text(options, utf8_literal("query"), value_slice))
-                   ? BuiltinCommandRun::handled
-                   : BuiltinCommandRun::failed;
+        // The client's integration commands send only a chosen result; Enter
+        // shakes the app and keeps the draft (all.js @108589682).
+        return BuiltinCommandRun::rejected;
     case leave: {
         bool silent = false;
         json_value_to_bool(option(options, utf8_literal("silent")), &silent);
@@ -345,12 +343,12 @@ BuiltinCommandRun builtin_command_run(const ApplicationCommand& command, Utf8Vie
         } else {
             char name_storage[512];
             // The client's body: name, a public thread, the channel's default
-            // archive duration (three days unless set) and the location.
+            // archive duration (three days unless set, 268761 Gl) and the location.
             ok = protocol_writer_append_literal(&body, "{\"name\":") &&
                  protocol_writer_append_json_string(
                      &body, option_text(options, utf8_literal("name"), {name_storage, sizeof(name_storage)})) &&
                  protocol_writer_append_literal(&body, ",\"type\":11,\"auto_archive_duration\":") &&
-                 protocol_writer_append_u64(&body, kThreadCreationDefaultArchiveDuration) &&
+                 protocol_writer_append_u64(&body, channel_default_archive_minutes(*channel)) &&
                  protocol_writer_append_literal(&body, ",\"location\":\"Slash Command\"}");
             clear_message();
             ok = ok && hold_message(message, channel_id);
@@ -498,8 +496,9 @@ bool builtin_commands_response(const RestClientResponse& response, Utf8View body
                   : utf8_literal("Oops! We encountered an error when trying to ban that user.");
         break;
     case Action::timeout: {
+        // The client formats the seconds as a number: "86,400 seconds."
         char tail[48];
-        u32 digits = decimal_write(tail, s.seconds);
+        u32 digits = decimal_write_grouped(tail, s.seconds);
         digits += utf8_copy_truncated(tail + digits, 48u - digits, utf8_literal(" seconds."));
         text = ok ? join(storage, named, utf8_literal(" timed out for "), view(tail, digits))
                   : utf8_literal("Oops! We encountered an error when trying to time out that user.");
@@ -557,5 +556,19 @@ void builtin_commands_release() noexcept {
     message_composer_release(&g_builtins.message);
     command_index_release(&g_builtins.index);
     reset_value(&g_builtins);
+}
+
+bool builtin_command_results(const ApplicationCommand* command, Utf8View query, UiRect anchor) noexcept {
+    if (!command || command->application_id != kBuiltinCommandApplication ||
+        (command->id != gif && command->id != sticker)) {
+        application_media_picker_inline_close();
+        return true;
+    }
+    return application_media_picker_inline(command->id == gif ? UiMediaPickerKind::gif : UiMediaPickerKind::sticker,
+                                           trim(query), anchor);
+}
+
+bool builtin_command_results_key(u32 key, bool* handled) noexcept {
+    return application_media_picker_inline_key(key, handled);
 }
 } // namespace maicord::app_detail

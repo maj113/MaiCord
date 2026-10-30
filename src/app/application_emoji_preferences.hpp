@@ -19,6 +19,9 @@ void application_emoji_preferences_track_message(const ApplicationEmojiUse&) noe
 // Picker open: refresh a stale snapshot.
 void application_emoji_preferences_open() noexcept;
 void application_emoji_preferences_synchronize() noexcept;
+// The account's synced sticker frecency group (settings-proto/2 field 4) for
+// emoji_preferences_visit_frecency; empty when not loaded for this account.
+ConstSlice<u8> application_emoji_preferences_sticker_frecency() noexcept;
 bool application_emoji_preferences_pending(u64 now_ms) noexcept;
 bool application_emoji_preferences_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_emoji_preferences_response(const RestClientResponse&, Utf8View body) noexcept;

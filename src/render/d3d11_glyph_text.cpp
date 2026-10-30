@@ -261,11 +261,6 @@ Color text_style_color(const Theme* theme, const Color& base, u32 flags,
     if ((flags & text_style_spoiler) != 0) {
         return theme->interactive;
     }
-    // A slash command option key in the composer keeps the text colour on a
-    // neutral pill (the official option pill key).
-    if (text_style_is_command_option(flags)) {
-        return base;
-    }
     // A hovered mention or link chip is an accent pill with on-accent text
     // (the official .interactive:hover); role mentions keep their colour.
     constexpr u32 hovered_mention = text_style_mention | text_style_interactive_hover;
@@ -305,9 +300,6 @@ Color text_decoration_color(const Theme* theme, const Color& base,
     }
     if ((decoration.style_flags & text_style_spoiler) != 0) {
         return theme->interactive;
-    }
-    if (text_style_is_command_option(decoration.style_flags)) {
-        return theme->surface_high;
     }
     if ((decoration.style_flags & text_style_mention) != 0) {
         return (decoration.style_flags & text_style_interactive_hover) ? theme->tokens.emphasis.fill

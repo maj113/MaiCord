@@ -1470,18 +1470,37 @@ bool handle_popup_click(WPARAM wparam, LPARAM lparam) noexcept {
 
 bool handle_popup_key(WPARAM key) noexcept {
     if (!g_app.popup_scene.active) {
-        return false;
+        // A selected command without a list (only its option bar shows) still
+        // hands its built-in's inline results their keys; Escape dismisses them.
+        if (!g_app.message_composer.focused || !application_commands_bar_visible())
+            return false;
+        if (key == VK_ESCAPE)
+            return application_commands_escape();
+        bool handled = false;
+        return application_media_picker_inline_key(static_cast<u32>(key), &handled) && handled &&
+               refresh_popup_text();
     }
     if (key == VK_ESCAPE) {
+        // The command picker's rail hands Escape back to its list first.
+        if (g_app.popup_owner_kind == PopupOwnerKind::commands && application_commands_key(VK_ESCAPE))
+            return refresh_popup_text();
         return dismiss_popup();
     }
     // The soundboard picker filters by typed letters, digits and spaces.
     if (g_app.popup_owner_kind == PopupOwnerKind::soundboard && application_soundboard_menu_key(static_cast<u32>(key)))
         return true;
     if (g_app.popup_owner_kind == PopupOwnerKind::commands) {
-        if ((GetKeyState(VK_SHIFT) & 0x8000) || (GetKeyState(VK_CONTROL) & 0x8000) ||
-            (GetKeyState(VK_MENU) & 0x8000))
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if ((GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000))
             return false;
+        // Shift+Tab selects the previous option chip (the client's editor key).
+        if (shift) {
+            if (key != VK_TAB || !application_commands_option_tab(true))
+                return false;
+            if (!g_app.popup_scene.active)
+                g_app.composer_menu_held_key = static_cast<u32>(key);
+            return refresh_popup_text();
+        }
         if (application_commands_key(static_cast<u32>(key))) {
             if (!g_app.popup_scene.active && (key == VK_RETURN || key == VK_TAB))
                 g_app.composer_menu_held_key = static_cast<u32>(key);

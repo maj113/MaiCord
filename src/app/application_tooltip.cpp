@@ -220,6 +220,10 @@ bool composer_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* t
         label = g_app.message_edit.editor_active ? utf8_literal("Cancel edit") : utf8_literal("Cancel reply");
         handle = scene.reply_cancel;
         break;
+    case MessageComposerControl::command_close:
+        label = utf8_literal("Close");
+        handle = scene.command_close;
+        break;
     case MessageComposerControl::reply_mention:
         label = scene.mention_reply_author ? utf8_literal("Click to disable pinging the original author.")
                                           : utf8_literal("Click to enable pinging the original author.");
@@ -434,7 +438,8 @@ bool browser_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* ta
 }
 bool gallery_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
     const auto* scene = g_app.renderer.media_picker_scene;
-    if (!scene || !ui_media_picker_scene_current(*scene))
+    // The client's inline /gif and /sticker results carry no tooltips.
+    if (!scene || !ui_media_picker_scene_current(*scene) || scene->variant == UiMediaPickerVariant::inline_results)
         return false;
     const auto handle =
         keyboard ? scene->widgets.focused : ui_widget_manager_hit_test(scene->widgets, point.x, point.y);
@@ -586,6 +591,20 @@ bool profile_hint_target(const ProfileScene& scene, UiPoint point, bool keyboard
     *target = {{{&scene.widgets, handle}, scope, scene.opens, handle.slot, action}, anchor, label};
     return true;
 }
+// A command picker rail entry under the pointer, or the one the keyboard
+// moved into (the selected entry while it is a rail entry).
+bool command_rail_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
+    const auto& scene = g_app.popup_scene;
+    const u32 index = keyboard ? scene.selected_index : popup_scene_hit_test(scene, point.x, point.y).source_index;
+    if (index >= scene.item_count || !(scene.items[index].flags & popup_item_command_category))
+        return false;
+    const auto& item = scene.items[index];
+    if (!widget_target(scene.widgets, scene.rows[index].widget, scope, item.action, scene.owner_id, 0xc0d0u,
+                       item.label, target))
+        return false;
+    target->placement = UiTooltipPlacement::right;
+    return true;
+}
 // The resolver chooses the style; reactions also report themselves so their
 // reactor fetch keeps its interest.
 bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiTooltipStyle* style,
@@ -599,6 +618,11 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target, UiToo
         return profile_available() && GetCapture() != g_app.window && scope &&
                (!keyboard || g_app.keyboard_focus_visible) &&
                profile_hint_target(*g_app.renderer.profile_scene, point, keyboard, scope, 0x5800u, target);
+    // The command picker's rail entries name their sections at the right
+    // (845207 `ei`: Tooltip position "right" around each section button).
+    if (g_app.popup_scene.active && g_app.popup_owner_kind == PopupOwnerKind::commands)
+        return g_app.renderer_ready && scope && GetCapture() != g_app.window && !IsIconic(g_app.window) &&
+               command_rail_target(point, keyboard, scope, target);
     // Check current host ownership before touching any old scene descriptor.
     if (!content_available() || GetCapture() == g_app.window)
         return false;

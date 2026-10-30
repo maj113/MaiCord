@@ -64,14 +64,14 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
         written.ok() &&
             same({reinterpret_cast<const char*>(target), written.bytes},
                  utf8_literal("/api/v10/gifs/"
-                              "search?locale=en-US&q=hello%20%26%2B%C3%A9&media_format=tinywebp&limit=20")),
-        "media catalog: actual GIF search query encodes UTF8, delimiters, locale, native format and "
-        "minimum provider limit");
+                              "search?q=hello%20%26%2B%C3%A9&media_format=tinywebp&locale=en-US&limit=20")),
+        "media catalog: GIF search query encodes UTF8 and delimiters, in the client's {q, media_format, "
+        "locale, limit} order with the minimum provider limit");
     query.limit = 0;
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
                                utf8_literal("/api/v10/gifs/"
-                                            "search?locale=en-US&q=hello%20%26%2B%C3%A9&media_format=tinywebp")),
+                                            "search?q=hello%20%26%2B%C3%A9&media_format=tinywebp&locale=en-US")),
           "media catalog: zero limit omits the parameter like the official client");
     constexpr u32 rejected_limits[]{1u, 19u, kMediaCatalogMaximumPageItems + 1};
     for (u32 rejected : rejected_limits) {
@@ -81,6 +81,16 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
             !media_catalog_write_target(query, {target, sizeof(target)}).ok() && target[0] == 0x55,
             "media catalog: unsupported provider result counts fail atomically before request submission");
     }
+    // The composer's inline /gif strip: the client's integration search
+    // (all.js @16137249) asks for animated WebP and 20 results.
+    query.limit = kMediaCatalogMinimumGifPageItems;
+    query.format = MediaCatalogFormat::webp;
+    query.query = utf8_literal("dap");
+    written = media_catalog_write_target(query, {target, sizeof(target)});
+    check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
+                               utf8_literal("/api/v10/gifs/search?q=dap&media_format=webp&locale=en-US&limit=20")),
+          "media catalog: inline /gif search target is the client's integration request");
+    target[0] = 0x55;
     query.limit = 50;
     query.format = MediaCatalogFormat::webm;
     written = media_catalog_write_target(query, {target, 1});
@@ -94,8 +104,8 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     query.limit = 5;
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() && same({reinterpret_cast<const char*>(target), written.bytes},
-                               utf8_literal("/api/v10/gifs/suggest?locale=en-US&q=cat&limit=5")),
-          "media catalog: suggestions use actual separate endpoint without media_format");
+                               utf8_literal("/api/v10/gifs/suggest?q=cat&limit=5&locale=en-US")),
+          "media catalog: suggestions use their separate endpoint without media_format, {q, limit, locale}");
     query.operation = MediaCatalogOperation::gif_categories;
     query.query = {};
     query.format = MediaCatalogFormat::tiny_webp;
@@ -108,8 +118,8 @@ void test_media_catalog(void (*check)(bool, const char*) noexcept) noexcept {
     written = media_catalog_write_target(query, {target, sizeof(target)});
     check(written.ok() &&
               same({reinterpret_cast<const char*>(target), written.bytes},
-                   utf8_literal("/api/v10/gifs/trending-gifs?locale=en-US&media_format=tinywebp&limit=50")),
-          "media catalog: Trending results use their separate provider route");
+                   utf8_literal("/api/v10/gifs/trending-gifs?media_format=tinywebp&locale=en-US&limit=50")),
+          "media catalog: Trending results use their separate provider route, {media_format, locale, limit}");
     query.operation = MediaCatalogOperation::sticker_packs;
     query.query = {};
     query.limit = 4096;

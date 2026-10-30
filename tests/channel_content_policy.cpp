@@ -54,6 +54,16 @@ void test_channel_content_policy(void (*check)(bool, const char*) noexcept) noex
         f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"80","guild_id":"7","type":0,"rate_limit_per_user":0}})")) &&
         channel_slowmode_seconds(*parent) == 0,
         "slowmode is stored from channel updates, kept when omitted and ignored when malformed");
+    check(channel_default_archive_minutes(*parent) == 4320 &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"80","guild_id":"7","type":0,"default_auto_archive_duration":10080}})")) &&
+        channel_default_archive_minutes(*parent) == 10080 &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"80","guild_id":"7","type":0,"name":"Weekly"}})")) &&
+        channel_default_archive_minutes(*parent) == 10080 &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"80","guild_id":"7","type":0,"default_auto_archive_duration":60}})")) &&
+        channel_default_archive_minutes(*parent) == 60 &&
+        f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"80","guild_id":"7","type":0,"default_auto_archive_duration":4320}})")) &&
+        channel_default_archive_minutes(*parent) == 4320,
+        "a channel's default thread archive is stored from channel updates and kept when omitted");
     check(f.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"80","guild_id":"7","type":0,"nsfw":false}})")) &&
         !chat_state_store_channel_age_restricted(f.state, *thread), "explicit false removes parent age restriction without mutating every thread");
     const Utf8View malformed[] = {

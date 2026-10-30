@@ -1,7 +1,10 @@
 #include "maicord/protocol/application_commands.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/protocol/user_settings_proto.hpp"
 #include "proto_wire.hpp"
 
@@ -327,7 +330,7 @@ struct ArgumentSchema {
     Utf8View names[25];
     char decoded_names[25][128];
     u32 types[25];
-    bool required[25];
+    bool required[25], autocomplete[25];
     u32 count;
 };
 bool argument_schema(void* opaque, u32, JsonValue value) noexcept {
@@ -352,13 +355,85 @@ bool argument_schema(void* opaque, u32, JsonValue value) noexcept {
     if (!schema.names[n].bytes)
         return false;
     schema.types[n] = static_cast<u32>(type);
-    bool required = false;
-    json_value_to_bool(field(doc, value, "required"), &required);
-    schema.required[n] = required;
+    bool flag = false;
+    json_value_to_bool(field(doc, value, "required"), &flag);
+    schema.required[n] = flag;
+    flag = false;
+    json_value_to_bool(field(doc, value, "autocomplete"), &flag);
+    schema.autocomplete[n] = flag;
     return true;
+}
+bool load_schema(const CommandIndex& index, const ApplicationCommand& command, ArgumentSchema* schema) noexcept {
+    schema->index = &index;
+    schema->count = 0;
+    return !command.options.source.bytes ||
+           json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, schema).ok();
 }
 bool blank(char c) noexcept {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+// The client trims option text (String.trim) before using it.
+Utf8View trimmed(Utf8View input, u32 first, u32 last) noexcept {
+    while (first < last && blank(input.data[first]))
+        ++first;
+    while (last > first && blank(input.data[last - 1]))
+        --last;
+    return {input.data + first, last - first};
+}
+bool option_end_at(Utf8View input, u32 at) noexcept {
+    return at + kCommandOptionEndBytes <= input.bytes &&
+           bytes_equal(input.data + at, kCommandOptionEnd, kCommandOptionEndBytes);
+}
+// The unused option whose key starts at `at` (start of the arguments, after a
+// blank or right after an option's end), or schema.count.
+u32 key_at(const ArgumentSchema& schema, Utf8View input, u32 at, const bool* used) noexcept {
+    if (at >= input.bytes || blank(input.data[at]) ||
+        (at && !blank(input.data[at - 1]) &&
+         !(at >= kCommandOptionEndBytes && option_end_at(input, at - kCommandOptionEndBytes))))
+        return schema.count;
+    for (u32 n = 0; n < schema.count; ++n) {
+        const auto& name = schema.names[n];
+        if (!used[n] && name.bytes < input.bytes - at && input.data[at + name.bytes] == ':' &&
+            bytes_equal(input.data + at, name.data, name.bytes))
+            return n;
+    }
+    return schema.count;
+}
+u32 scan_spans(const ArgumentSchema& schema, Utf8View input, CommandArgumentSpan* spans, u32 capacity) noexcept {
+    bool used[25]{};
+    u32 count = 0, at = 0;
+    while (at < input.bytes && count < capacity) {
+        u32 slot = schema.count;
+        while (at < input.bytes && (slot = key_at(schema, input, at, used)) == schema.count)
+            ++at;
+        if (slot == schema.count)
+            break;
+        used[slot] = true;
+        const u32 key_first = at, value_first = at + schema.names[slot].bytes + 1;
+        // A terminated value runs to its end; an unterminated one to the blank
+        // before the next key, or the end.
+        u32 value_last = value_first;
+        while (value_last < input.bytes && !option_end_at(input, value_last))
+            ++value_last;
+        u32 end_last = value_last;
+        if (value_last < input.bytes) {
+            end_last = at = value_last + kCommandOptionEndBytes;
+        } else {
+            at = value_first;
+            while (at < input.bytes && key_at(schema, input, at, used) == schema.count)
+                ++at;
+            value_last = end_last = at < input.bytes ? at - 1 : input.bytes;
+        }
+        spans[count++] = {schema.options[slot],    {input.data + key_first, schema.names[slot].bytes},
+                          {},                      key_first,
+                          value_first,             value_last,
+                          end_last,                slot,
+                          schema.types[slot],      schema.required[slot],
+                          schema.autocomplete[slot]};
+    }
+    for (u32 n = 0; n < count; ++n)
+        spans[n].value = trimmed(input, spans[n].value_first, spans[n].value_last);
+    return count;
 }
 struct ChoiceMatch {
     const JsonIndexedDocument* document;
@@ -377,289 +452,332 @@ bool match_choice(void* opaque, u32, JsonValue choice) noexcept {
     }
     return true;
 }
-// Like the official client, a typed choice name sends that choice's value
-// (strings for string options, numbers for numeric ones); other text is sent as typed.
-Utf8View choice_value(const JsonIndexedDocument& doc, JsonValue option, u32 type, Utf8View value,
-                      Slice<char> scratch) noexcept {
+// The choice whose display name is exactly value (the client's $7/Bk), or none.
+bool find_choice(const JsonIndexedDocument& doc, JsonValue option, Utf8View value, JsonValue* output) noexcept {
     const auto choices = field(doc, option, "choices");
     if (choices.kind != JsonValueKind::array || !value.bytes)
-        return value;
+        return false;
     ChoiceMatch match{&doc, value, {}, false};
     json_visit_indexed_array(doc, choices, depth_limit, match_choice, &match);
-    Utf8View mapped{};
-    if (match.found && type == 3 && match.value.kind == JsonValueKind::string &&
-        command_json_text(match.value, scratch, &mapped))
-        return mapped;
-    if (match.found && (type == 4 || type == 10) && match.value.kind == JsonValueKind::number)
-        return match.value.source;
-    return value;
+    *output = match.value;
+    return match.found;
 }
-
-struct ScannedArgument {
-    CommandArgumentFocus span;
-    u32 slot;
+const CommandAcceptedChoice* accepted_choice(ConstSlice<CommandAcceptedChoice> accepted, Utf8View option,
+                                             Utf8View value) noexcept {
+    for (u32 n = 0; n < accepted.count; ++n)
+        if (utf8_equal(accepted[n].option, option) && utf8_equal(accepted[n].name, value))
+            return accepted.data + n;
+    return nullptr;
+}
+// A typed number as the client reads it: Number(normalizeNumericString(text))
+// with the en-US group separator ',' dropped. Decimal literals (sign, digits,
+// fraction, exponent), unsigned 0x/0o/0b integers and a signed Infinity.
+struct NumberText {
+    double value;
+    Utf8View whole, fraction, exponent;
+    bool negative, exponent_negative, has_exponent;
+    char text[64];
 };
-bool scan_arguments(const ArgumentSchema& schema, Utf8View input, ScannedArgument* spans, u32* count,
-                    bool partial, Utf8View* error) noexcept {
-    *count = 0;
-    bool seen[25]{};
-    u32 at = 0;
-    while (at < input.bytes) {
-        while (at < input.bytes && blank(input.data[at]))
-            ++at;
-        if (at == input.bytes)
-            break;
-        const u32 start = at;
-        while (at < input.bytes && input.data[at] != ':' && !blank(input.data[at]))
-            ++at;
-        if (at == input.bytes || input.data[at] != ':') {
-            if (partial)
-                break;
-            *error = utf8_literal("Use option:value for command arguments");
-            return false;
-        }
-        const Utf8View name{input.data + start, at - start};
-        ++at;
-        u32 slot = 0;
-        while (slot < schema.count && !utf8_equal(schema.names[slot], name))
-            ++slot;
-        if (slot == schema.count || seen[slot]) {
-            *error = utf8_literal("Unknown or repeated command option");
-            return false;
-        }
-        seen[slot] = true;
-        const u32 after_colon = at;
-        while (at < input.bytes && blank(input.data[at]))
-            ++at;
-        bool next_option = false;
-        if (at > after_colon) {
-            u32 key_end = at;
-            while (key_end < input.bytes && !blank(input.data[key_end]) && input.data[key_end] != ':')
-                ++key_end;
-            if (key_end < input.bytes && input.data[key_end] == ':') {
-                const Utf8View key{input.data + at, key_end - at};
-                for (u32 n = 0; n < schema.count; ++n)
-                    if (utf8_equal(key, schema.names[n])) {
-                        next_option = true;
-                        break;
-                    }
-            }
-        }
-        if (next_option) {
-            // An ATTACHMENT option may stay empty: it takes the next staged upload.
-            if (!partial && schema.types[slot] != 11) {
-                *error = utf8_literal("Enter a value for the selected option");
-                return false;
-            }
-            spans[(*count)++] = {{schema.options[slot],
-                                  name,
-                                  {input.data + after_colon, 0},
-                                  after_colon,
-                                  after_colon,
-                                  false,
-                                  true},
-                                 slot};
-            continue;
-        }
-        const u32 begin = at;
-        const bool quoted = at < input.bytes && input.data[at] == '"';
-        bool closed = !quoted;
-        if (quoted) {
-            ++at;
-            bool escaped = false;
-            while (at < input.bytes) {
-                const char ch = input.data[at++];
-                if (!escaped && ch == '"') {
-                    closed = true;
-                    break;
-                }
-                escaped = !escaped && ch == '\\';
-            }
-            if ((!closed && !partial) || (at < input.bytes && !blank(input.data[at]))) {
-                *error = utf8_literal("Close the quoted option value");
-                return false;
-            }
-        } else {
-            while (at < input.bytes) {
-                if (blank(input.data[at])) {
-                    u32 next = at;
-                    while (next < input.bytes && blank(input.data[next]))
-                        ++next;
-                    u32 end = next;
-                    while (end < input.bytes && !blank(input.data[end]) && input.data[end] != ':')
-                        ++end;
-                    if (end < input.bytes && input.data[end] == ':')
-                        break;
-                }
-                ++at;
-            }
-        }
-        u32 end = at;
-        if (!quoted)
-            while (end > begin && blank(input.data[end - 1]))
-                --end;
-        if (end == begin && !partial && schema.types[slot] != 11) {
-            *error = utf8_literal("Enter a value for the selected option");
-            return false;
-        }
-        spans[(*count)++] = {{schema.options[slot],
-                              name,
-                              {input.data + begin, end - begin},
-                              begin,
-                              end,
-                              quoted,
-                              closed},
-                             slot};
-    }
-    return true;
+bool digit(char c) noexcept {
+    return c >= '0' && c <= '9';
 }
-bool argument_lookup(const CommandIndex& index, const ApplicationCommand& command,
-                     Utf8View input, u32 caret, Utf8View name,
-                     CommandArgumentFocus* output) noexcept {
-    if (!output || !utf8_validate(input).valid || caret > input.bytes ||
-        (caret < input.bytes && (static_cast<u8>(input.data[caret]) & 0xc0) == 0x80))
-        return false;
-    reset_value(output);
-    ArgumentSchema schema;
-    schema.index = &index;
-    schema.count = 0;
-    if (command.options.source.bytes &&
-        !json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, &schema)
-             .ok())
-        return false;
-    ScannedArgument spans[25];
-    u32 count = 0;
-    Utf8View error{};
-    if (!scan_arguments(schema, input, spans, &count, true, &error))
-        return false;
-    for (u32 n = 0; n < count; ++n) {
-        const auto& span = spans[n].span;
-        if (name.bytes ? utf8_equal(name, span.name)
-                       : (caret >= span.value_begin && caret <= span.value_end)) {
-            *output = span;
+bool parse_number(Utf8View input, NumberText* out) noexcept {
+    *out = {};
+    u32 bytes = 0;
+    for (u32 n = 0; n < input.bytes; ++n) {
+        if (input.data[n] == ',')
+            continue;
+        if (bytes == sizeof(out->text))
+            return false;
+        out->text[bytes++] = input.data[n];
+    }
+    const Utf8View text{out->text, bytes};
+    if (bytes > 2 && text.data[0] == '0') {
+        const char prefix = ascii_lower(text.data[1]);
+        const u32 base = prefix == 'x' ? 16 : prefix == 'o' ? 8 : prefix == 'b' ? 2 : 0;
+        if (base) {
+            double value = 0;
+            for (u32 n = 2; n < bytes; ++n) {
+                const i32 d = ascii_hex_value(text.data[n]);
+                if (d < 0 || static_cast<u32>(d) >= base)
+                    return false;
+                value = value * base + d;
+            }
+            out->value = value;
             return true;
         }
     }
-    return false;
-}
-// JSON number grammar plus the API's finite numeric range. Accumulate only
-// significant digits; a long mantissa with a negative exponent need not overflow.
-bool command_number(Utf8View value, bool integer) noexcept {
-    if (!value.data || !value.bytes)
+    u32 pos = 0;
+    if (pos < text.bytes && (text.data[pos] == '+' || text.data[pos] == '-'))
+        out->negative = text.data[pos++] == '-';
+    // Infinity only has to compare beyond every safe number.
+    if (utf8_equal({text.data + pos, text.bytes - pos}, utf8_literal("Infinity"))) {
+        out->value = out->negative ? -1e300 : 1e300;
+        return true;
+    }
+    const u32 whole = pos;
+    while (pos < text.bytes && digit(text.data[pos]))
+        ++pos;
+    out->whole = {text.data + whole, pos - whole};
+    if (pos < text.bytes && text.data[pos] == '.') {
+        const u32 fraction = ++pos;
+        while (pos < text.bytes && digit(text.data[pos]))
+            ++pos;
+        out->fraction = {text.data + fraction, pos - fraction};
+    }
+    if (!out->whole.bytes && !out->fraction.bytes)
         return false;
-    u32 pos = value.data[0] == '-' ? 1u : 0u;
-    if (pos == value.bytes || value.data[pos] < '0' || value.data[pos] > '9')
+    if (pos < text.bytes && (text.data[pos] == 'e' || text.data[pos] == 'E')) {
+        ++pos;
+        if (pos < text.bytes && (text.data[pos] == '+' || text.data[pos] == '-'))
+            out->exponent_negative = text.data[pos++] == '-';
+        const u32 first = pos;
+        while (pos < text.bytes && digit(text.data[pos]))
+            ++pos;
+        if (pos == first)
+            return false;
+        out->exponent = {text.data + first, pos - first};
+        out->has_exponent = true;
+    }
+    if (pos != text.bytes)
         return false;
-    const u32 first = pos;
+    // Accumulate only significant digits; a long mantissa with a negative
+    // exponent need not overflow.
     double mantissa = 0;
     u32 significant = 0;
     i32 exponent = 0;
-    while (pos < value.bytes && value.data[pos] >= '0' && value.data[pos] <= '9') {
-        const u32 digit = static_cast<u32>(value.data[pos++] - '0');
+    for (u32 n = 0; n < out->whole.bytes; ++n) {
         if (significant < 18) {
-            mantissa = mantissa * 10 + digit;
-            if (mantissa != 0)
-                ++significant;
+            mantissa = mantissa * 10 + (out->whole.data[n] - '0');
+            significant += mantissa != 0 ? 1u : 0u;
         } else
             ++exponent;
     }
-    if (pos - first > 1 && value.data[first] == '0')
-        return false;
-    if (pos < value.bytes && value.data[pos] == '.' && !integer) {
-        const u32 dot = pos++;
-        while (pos < value.bytes && value.data[pos] >= '0' && value.data[pos] <= '9') {
-            const u32 digit = static_cast<u32>(value.data[pos++] - '0');
-            if (significant < 18) {
-                mantissa = mantissa * 10 + digit;
-                --exponent;
-                if (mantissa != 0)
-                    ++significant;
-            }
-        }
-        if (pos == dot + 1)
-            return false;
+    for (u32 n = 0; n < out->fraction.bytes && significant < 18; ++n) {
+        mantissa = mantissa * 10 + (out->fraction.data[n] - '0');
+        significant += mantissa != 0 ? 1u : 0u;
+        --exponent;
     }
-    if (pos < value.bytes && (value.data[pos] == 'e' || value.data[pos] == 'E') && !integer) {
-        ++pos;
-        bool negative = false;
-        if (pos < value.bytes && (value.data[pos] == '+' || value.data[pos] == '-'))
-            negative = value.data[pos++] == '-';
-        const u32 begin = pos;
-        u32 magnitude = 0;
-        while (pos < value.bytes && value.data[pos] >= '0' && value.data[pos] <= '9')
-            magnitude = minimum(100000u, magnitude * 10 + static_cast<u32>(value.data[pos++] - '0'));
-        if (pos == begin)
-            return false;
-        exponent += negative ? -static_cast<i32>(magnitude) : static_cast<i32>(magnitude);
-    }
-    if (pos != value.bytes)
-        return false;
-    const double maximum_value = integer ? 9007199254740991.0 : 9007199254740992.0;
-    while (exponent > 0 && mantissa && mantissa <= maximum_value) {
+    i32 magnitude = 0;
+    for (u32 n = 0; n < out->exponent.bytes; ++n)
+        magnitude = minimum(100000, magnitude * 10 + (out->exponent.data[n] - '0'));
+    exponent += out->exponent_negative ? -magnitude : magnitude;
+    // Past 1e300 the value only has to compare beyond every safe number.
+    while (exponent > 0 && mantissa != 0 && mantissa < 1e300) {
         mantissa *= 10;
         --exponent;
     }
-    while (exponent < 0 && mantissa) {
-        mantissa *= 0.1;
+    while (exponent < 0 && mantissa != 0) {
+        mantissa /= 10;
         ++exponent;
     }
-    return mantissa <= maximum_value;
-}
-
-} // namespace
-bool command_argument_focus(const CommandIndex& index,
-                            const ApplicationCommand& command, Utf8View input, u32 caret,
-                            CommandArgumentFocus* output) noexcept {
-    return argument_lookup(index, command, input, caret, {}, output);
-}
-bool command_argument_find(const CommandIndex& index,
-                           const ApplicationCommand& command, Utf8View input, Utf8View name,
-                           CommandArgumentFocus* output) noexcept {
-    return name.bytes && argument_lookup(index, command, input, input.bytes, name, output);
-}
-u32 command_argument_keys(const CommandIndex& index, const ApplicationCommand& command, Utf8View input,
-                          Slice<CommandArgumentKey> output) noexcept {
-    if (!output.data || !utf8_validate(input).valid || !command.options.source.bytes)
-        return 0;
-    ArgumentSchema schema;
-    schema.index = &index;
-    schema.count = 0;
-    if (!json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, &schema).ok())
-        return 0;
-    ScannedArgument spans[25];
-    u32 count = 0;
-    Utf8View error{};
-    scan_arguments(schema, input, spans, &count, true, &error);
-    u32 keys = 0;
-    for (u32 n = 0; n < count && keys < output.count; ++n) {
-        const auto& name = spans[n].span.name;
-        const u32 first = static_cast<u32>(name.data - input.data);
-        output[keys++] = {first, first + name.bytes + 1};
-    }
-    return keys;
-}
-bool command_argument_query(const CommandArgumentFocus& focus, Slice<char> scratch,
-                            Utf8View* output) noexcept {
-    if (!output)
-        return false;
-    if (!focus.quoted) {
-        *output = focus.value;
-        return true;
-    }
-    const u32 trim = focus.closed ? 2u : 1u;
-    if (focus.value.bytes < trim)
-        return false;
-    const JsonString string{{focus.value.data + 1, focus.value.bytes - trim}, 0, true};
-    const auto result = json_string_decode_utf8(string, scratch);
-    if (!result.ok())
-        return false;
-    *output = {scratch.data, result.bytes};
+    out->value = out->negative ? -mantissa : mantissa;
     return true;
+}
+constexpr double max_safe_integer = 9007199254740991.0;
+bool safe_integer(double value) noexcept {
+    return value >= -max_safe_integer && value <= max_safe_integer &&
+           static_cast<double>(static_cast<i64>(value)) == value;
+}
+Utf8View join(Slice<char> output, Utf8View a, Utf8View b = {}, Utf8View c = {}, Utf8View d = {},
+              Utf8View e = {}) noexcept {
+    u32 used = 0;
+    const Utf8View parts[] = {a, b, c, d, e};
+    for (const auto part : parts) {
+        if (part.bytes > output.count - used)
+            return {};
+        copy_bytes(output.data + used, part.data, part.bytes);
+        used += part.bytes;
+    }
+    return {output.data, used};
+}
+// The client's per-type message for a value that does not check out (73510 tE).
+Utf8View invalid_text(const JsonIndexedDocument& doc, JsonValue option, u64 type) noexcept {
+    if (field(doc, option, "choices").kind == JsonValueKind::array)
+        return utf8_literal("Not a valid choice.");
+    switch (type) {
+    case 5:
+        return utf8_literal("Pick either true or false.");
+    case 7:
+        return utf8_literal("Not a valid channel.");
+    case 4:
+        return utf8_literal("Input a valid integer.");
+    case 10:
+        return utf8_literal("Input a valid number.");
+    case 8:
+        return utf8_literal("Not a valid role.");
+    case 6:
+        return utf8_literal("Not a valid user.");
+    case 9:
+        return utf8_literal("Not a valid user or role.");
+    default:
+        return utf8_literal("Not a valid value.");
+    }
+}
+// The id of a user, channel or role value: its digits, or a mention of the
+// option's kind (<@id>, <@!id>, <#id>, <@&id>).
+bool mention_id(Utf8View value, u64 type, Utf8View* id) noexcept {
+    Utf8View digits = value;
+    if (value.bytes > 3 && value.data[0] == '<' && value.data[value.bytes - 1] == '>') {
+        const bool user = value.data[1] == '@' && value.data[2] != '&';
+        const bool role = value.data[1] == '@' && value.data[2] == '&';
+        const bool channel = value.data[1] == '#';
+        const bool kind = type == 6 ? user : type == 7 ? channel : type == 8 ? role : type == 9 && (user || role);
+        if (!kind)
+            return false;
+        u32 first = 2 + (role || (user && value.data[2] == '!') ? 1u : 0u);
+        digits = {value.data + first, value.bytes - first - 1};
+    }
+    u64 parsed = 0;
+    for (u32 n = 0; n < digits.bytes; ++n)
+        if (!digit(digits.data[n]))
+            return false;
+    if (!json_string_to_u64({{digits.data, digits.bytes}, 0, false}, &parsed) || !parsed)
+        return false;
+    *id = digits;
+    return true;
+}
+Utf8View number_range(const JsonIndexedDocument& doc, JsonValue option, double value, Slice<char> message) noexcept {
+    const auto low = field(doc, option, "min_value"), high = field(doc, option, "max_value");
+    NumberText bound{};
+    const bool has_low = low.kind == JsonValueKind::number && parse_number(low.source, &bound);
+    const double minimum_value = bound.value;
+    const bool has_high = high.kind == JsonValueKind::number && parse_number(high.source, &bound);
+    const double maximum_value = bound.value;
+    if (!((has_low && value < minimum_value) || (has_high && value > maximum_value)))
+        return {};
+    if (has_low && has_high)
+        return join(message, utf8_literal("Enter a number between "), low.source, utf8_literal(" and "), high.source,
+                    utf8_literal("."));
+    if (has_low)
+        return join(message, utf8_literal("Enter a number greater than or equal to "), low.source, utf8_literal("."));
+    return join(message, utf8_literal("Enter a number less than or equal to "), high.source, utf8_literal("."));
+}
+Utf8View length_range(const JsonIndexedDocument& doc, JsonValue option, Utf8View value, Slice<char> message) noexcept {
+    u64 low = 0, high = 0;
+    const bool has_low = json_value_to_u64(field(doc, option, "min_length"), &low);
+    const bool has_high = json_value_to_u64(field(doc, option, "max_length"), &high);
+    // The client counts JavaScript string length: UTF-16 units.
+    const u64 length = utf8_utf16_units(value);
+    if (!((has_low && length < low) || (has_high && length > high)))
+        return {};
+    char low_text[24], high_text[24];
+    const Utf8View low_view{low_text, decimal_write(low_text, low)}, high_view{high_text, decimal_write(high_text, high)};
+    if (has_low && has_high && low == high)
+        return join(message, utf8_literal("Enter "), low_view, utf8_literal(" characters."));
+    if (has_low && has_high)
+        return join(message, utf8_literal("Enter between "), low_view, utf8_literal(" and "), high_view,
+                    utf8_literal(" characters."));
+    if (has_low)
+        return join(message, utf8_literal("Enter "), low_view, utf8_literal(" or more characters."));
+    return join(message, utf8_literal("Enter "), high_view, utf8_literal(" or fewer characters."));
+}
+} // namespace
+u32 command_argument_spans(const CommandIndex& index, const ApplicationCommand& command, Utf8View input,
+                           Slice<CommandArgumentSpan> output) noexcept {
+    ArgumentSchema schema;
+    if (!output.data || !utf8_validate(input).valid || !command.options.source.bytes ||
+        !load_schema(index, command, &schema))
+        return 0;
+    return scan_spans(schema, input, output.data, minimum<u32>(output.count, 25));
+}
+Utf8View command_option_check(const CommandIndex& index, JsonValue option, bool present, Utf8View value,
+                              bool allow_empty, Slice<char> message,
+                              ConstSlice<CommandAcceptedChoice> accepted) noexcept {
+    const auto& doc = index.document;
+    u64 type = 0;
+    bool required = false;
+    json_value_to_u64_or_string(field(doc, option, "type"), &type);
+    json_value_to_bool(field(doc, option, "required"), &required);
+    constexpr auto required_text = utf8_literal("This option is required. Specify a value.");
+    // ATTACHMENT options take the channel's staged uploads when the command is
+    // sent (command_arguments asks for a file then).
+    if (type == 11)
+        return {};
+    if (!present)
+        return required ? required_text : Utf8View{};
+    if (!value.bytes)
+        return allow_empty ? Utf8View{} : required ? required_text : invalid_text(doc, option, type);
+    bool autocomplete = false;
+    json_value_to_bool(field(doc, option, "autocomplete"), &autocomplete);
+    char name[128];
+    Utf8View option_name{};
+    command_json_text(field(doc, option, "name"), {name, sizeof(name)}, &option_name);
+    const auto* taken = autocomplete ? accepted_choice(accepted, option_name, value) : nullptr;
+    JsonValue choice{};
+    const bool has_choices = field(doc, option, "choices").kind == JsonValueKind::array;
+    switch (type) {
+    case 3:
+        if (has_choices)
+            return find_choice(doc, option, value, &choice) && choice.kind == JsonValueKind::string
+                       ? Utf8View{}
+                       : invalid_text(doc, option, type);
+        if (taken && taken->kind == JsonValueKind::string)
+            return {};
+        return length_range(doc, option, value, message);
+    case 4:
+    case 10: {
+        if (has_choices)
+            return find_choice(doc, option, value, &choice) && choice.kind == JsonValueKind::number
+                       ? Utf8View{}
+                       : invalid_text(doc, option, type);
+        if (taken && taken->kind == JsonValueKind::number)
+            return {};
+        NumberText number{};
+        if (!parse_number(value, &number) ||
+            (type == 4 ? !safe_integer(number.value)
+                       : number.value > max_safe_integer || number.value < -max_safe_integer))
+            return invalid_text(doc, option, type);
+        return number_range(doc, option, number.value, message);
+    }
+    case 5:
+        return ascii_equal_ignore_case(value, utf8_literal("true")) ||
+                       ascii_equal_ignore_case(value, utf8_literal("false"))
+                   ? Utf8View{}
+                   : invalid_text(doc, option, type);
+    case 6:
+    case 7:
+    case 8:
+    case 9: {
+        Utf8View id{};
+        return mention_id(value, type, &id) ? Utf8View{} : invalid_text(doc, option, type);
+    }
+    default:
+        return invalid_text(doc, option, type);
+    }
+}
+u32 command_choice_score(Utf8View name, Utf8View query) noexcept {
+    if (query.bytes <= name.bytes && ascii_equal_ignore_case({name.data, query.bytes}, query))
+        return name.bytes == query.bytes ? 10 : 7;
+    if (ascii_contains_ignore_case(name, query))
+        return 5;
+    // Every comma- or space-separated word of the query.
+    bool words = query.bytes != 0;
+    for (u32 at = 0; at < query.bytes && words;) {
+        while (at < query.bytes && (query.data[at] == ' ' || query.data[at] == ','))
+            ++at;
+        u32 end = at;
+        while (end < query.bytes && query.data[end] != ' ' && query.data[end] != ',')
+            ++end;
+        words = ascii_contains_ignore_case(name, {query.data + at, end - at});
+        at = end;
+    }
+    if (words)
+        return 3;
+    // fuzzysearch: the query's characters in order.
+    u32 at = 0;
+    for (u32 n = 0; n < query.bytes; ++n) {
+        while (at < name.bytes && ascii_lower(name.data[at]) != ascii_lower(query.data[n]))
+            ++at;
+        if (at++ >= name.bytes)
+            return 0;
+    }
+    return 1;
 }
 bool command_arguments(const CommandIndex& index, const ApplicationCommand& command,
                        Utf8View input, ProtocolWriter* writer, Utf8View* error,
                        Utf8View focused_name, Utf8View focused_query, ConstSlice<Utf8View> files,
-                       CommandAttachmentPlan* plan) noexcept {
+                       CommandAttachmentPlan* plan, ConstSlice<CommandAcceptedChoice> accepted) noexcept {
     if (!writer || !error || !utf8_validate(input).valid || !utf8_validate(focused_name).valid ||
         !utf8_validate(focused_query).valid || files.count > 10)
         return false;
@@ -667,61 +785,48 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
     if (plan)
         plan->count = 0;
     ArgumentSchema schema;
-    schema.index = &index;
-    schema.count = 0;
-    if (command.options.source.bytes &&
-        !json_visit_indexed_array(index.document, command.options, depth_limit, argument_schema, &schema)
-             .ok()) {
+    if (!load_schema(index, command, &schema)) {
         *error = utf8_literal("Unable to read command options");
         return false;
     }
+    CommandArgumentSpan spans[25];
+    const u32 count = scan_spans(schema, input, spans, 25);
     Utf8View values[25];
     bool supplied[25]{};
-    ScannedArgument spans[25];
-    u32 count = 0;
-    if (!scan_arguments(schema, input, spans, &count, focused_name.bytes != 0, error))
-        return false;
     for (u32 n = 0; n < count; ++n) {
-        const auto& argument = spans[n];
-        if (!utf8_equal(argument.span.name, focused_name) &&
-            (!argument.span.closed || (!argument.span.value.bytes && schema.types[argument.slot] != 11))) {
-            if (focused_name.bytes)
-                continue;
-            *error = utf8_literal("Enter a complete option value");
-            return false;
-        }
-        values[argument.slot] = argument.span.value;
-        supplied[argument.slot] = true;
+        values[spans[n].slot] = spans[n].value;
+        supplied[spans[n].slot] = true;
     }
+    u32 focused = schema.count;
     if (focused_name.bytes) {
-        u32 slot = 0;
-        while (slot < schema.count && !utf8_equal(schema.names[slot], focused_name))
-            ++slot;
-        bool enabled = false;
-        if (slot == schema.count ||
-            (schema.types[slot] != 3 && schema.types[slot] != 4 && schema.types[slot] != 10) ||
-            !json_value_to_bool(field(index.document, schema.options[slot], "autocomplete"), &enabled) ||
-            !enabled) {
+        focused = 0;
+        while (focused < schema.count && !utf8_equal(schema.names[focused], focused_name))
+            ++focused;
+        if (focused == schema.count ||
+            (schema.types[focused] != 3 && schema.types[focused] != 4 && schema.types[focused] != 10) ||
+            !schema.autocomplete[focused]) {
             *error = utf8_literal("Option does not support autocomplete");
             return false;
         }
-        supplied[slot] = true;
-        values[slot] = focused_query;
+        supplied[focused] = true;
+        values[focused] = focused_query;
     }
     const u32 mark = writer->used;
+    const auto fail = [&](Utf8View text) noexcept {
+        *error = text;
+        writer->used = mark;
+        return false;
+    };
     if (!protocol_writer_append_byte(writer, '['))
         return false;
     bool comma = false;
     for (u32 n = 0; n < schema.count; ++n) {
-        if (focused_name.bytes && schema.types[n] == 11)
+        const u32 type = schema.types[n];
+        if (focused_name.bytes && type == 11)
             continue;
-        if (schema.types[n] == 11 && (supplied[n] || schema.required[n])) {
+        if (type == 11 && (supplied[n] || schema.required[n])) {
             // The upload whose name the value gives, else the next unused one.
-            Utf8View wanted = supplied[n] ? values[n] : Utf8View{};
-            char decoded_name[1024];
-            if (wanted.bytes && wanted.data[0] == '"' &&
-                !command_json_text({wanted, 0, JsonValueKind::string}, {decoded_name, sizeof(decoded_name)}, &wanted))
-                wanted = {};
+            const Utf8View wanted = supplied[n] ? values[n] : Utf8View{};
             u32 chosen = files.count;
             for (u32 file = 0; plan && file < files.count && plan->count < 10; ++file) {
                 bool used = false;
@@ -732,11 +837,8 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
                 chosen = file;
                 break;
             }
-            if (chosen == files.count) {
-                *error = utf8_literal("Please attach a file");
-                writer->used = mark;
-                return false;
-            }
+            if (chosen == files.count)
+                return fail(utf8_literal("Please attach a file"));
             if ((comma && !protocol_writer_append_byte(writer, ',')) ||
                 !protocol_writer_append_literal(writer, "{\"name\":") ||
                 !protocol_writer_append_json_string(writer, schema.names[n]) ||
@@ -749,78 +851,89 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
             plan->file[plan->count++] = static_cast<u8>(chosen);
             continue;
         }
-        if (!supplied[n]) {
-            if (schema.required[n] && !focused_name.bytes) {
-                *error = utf8_literal("Missing a required command option");
-                writer->used = mark;
-                return false;
+        if (n != focused) {
+            char message[160];
+            const Utf8View failure = command_option_check(index, schema.options[n], supplied[n], values[n], false,
+                                                          {message, sizeof(message)}, accepted);
+            if (failure.bytes) {
+                if (focused_name.bytes)
+                    continue;
+                // A formatted range message lives in local storage; the caller
+                // checks options itself first, so this keeps the type's text.
+                return fail(failure.data == message ? invalid_text(index.document, schema.options[n], type)
+                                                    : failure);
             }
+        }
+        if (!supplied[n])
             continue;
-        }
         Utf8View value = values[n];
-        char decoded[16384];
-        const bool focused = focused_name.bytes && utf8_equal(schema.names[n], focused_name);
-        if (!focused && value.bytes && value.data[0] == '"') {
-            if (!command_json_text({value, 0, JsonValueKind::string}, {decoded, sizeof(decoded)}, &value)) {
-                *error = utf8_literal("Invalid quoted option value");
-                writer->used = mark;
-                return false;
-            }
-        }
-        char choice_text[512];
-        if (!focused)
-            value = choice_value(index.document, schema.options[n], schema.types[n], value,
-                                 {choice_text, sizeof(choice_text)});
-        const auto fail = [&]() noexcept {
-            *error = utf8_literal("Invalid command option value");
-            writer->used = mark;
-            return false;
-        };
-        if (comma && !protocol_writer_append_byte(writer, ','))
-            return fail();
-        comma = true;
-        if (!protocol_writer_append_literal(writer, "{\"name\":") ||
+        const auto* taken = n != focused ? accepted_choice(accepted, schema.names[n], value) : nullptr;
+        JsonValue choice{};
+        const bool chosen =
+            n != focused && !taken && find_choice(index.document, schema.options[n], value, &choice);
+        if ((comma && !protocol_writer_append_byte(writer, ',')) || !protocol_writer_append_byte(writer, '{') ||
+            !protocol_writer_append_literal(writer, "\"name\":") ||
             !protocol_writer_append_json_string(writer, schema.names[n]) ||
-            !protocol_writer_append_literal(writer, ",\"type\":") ||
-            !protocol_writer_append_u64(writer, schema.types[n]) ||
+            !protocol_writer_append_literal(writer, ",\"type\":") || !protocol_writer_append_u64(writer, type) ||
             !protocol_writer_append_literal(writer, ",\"value\":"))
-            return fail();
-        const u32 type = schema.types[n];
-        if (type == 3 || focused) {
-            if (!protocol_writer_append_json_string(writer, value))
-                return fail();
+            return fail(utf8_literal("Command is too large to send"));
+        comma = true;
+        bool ok = true;
+        char decoded[512];
+        char number_text[48];
+        if (n == focused) {
+            ok = protocol_writer_append_json_string(writer, value);
+        } else if (taken || chosen) {
+            // A choice sends its value: a string for STRING, a number otherwise.
+            const JsonValueKind kind = taken ? taken->kind : choice.kind;
+            Utf8View mapped = taken ? taken->value : choice.source;
+            if (!taken && kind == JsonValueKind::string && !command_json_text(choice, {decoded, sizeof(decoded)}, &mapped))
+                return fail(invalid_text(index.document, schema.options[n], type));
+            ok = kind == JsonValueKind::string
+                     ? protocol_writer_append_json_string(writer, mapped)
+                     : protocol_writer_append_bytes(writer, {reinterpret_cast<const u8*>(mapped.data), mapped.bytes});
+        } else if (type == 3) {
+            ok = protocol_writer_append_json_string(writer, value);
         } else if (type == 4 || type == 10) {
-            if (!command_number(value, type == 4))
-                return fail();
-            if (!protocol_writer_append_bytes(writer,
-                                              {reinterpret_cast<const u8*>(value.data), value.bytes}))
-                return fail();
-        } else if (type == 5) {
-            // The official client accepts either case ("True" is its choice label).
-            const bool truth = ascii_equal_ignore_case(value, utf8_literal("true"));
-            if (!truth && !ascii_equal_ignore_case(value, utf8_literal("false")))
-                return fail();
-            if (truth ? !protocol_writer_append_literal(writer, "true")
-                      : !protocol_writer_append_literal(writer, "false"))
-                return fail();
-        } else {
-            if (value.bytes > 3 && value.data[0] == '<' && value.data[value.bytes - 1] == '>') {
-                u32 first = 1;
-                while (first < value.bytes && (value.data[first] == '@' || value.data[first] == '#' ||
-                                               value.data[first] == '&' || value.data[first] == '!'))
-                    ++first;
-                value = {value.data + first, value.bytes - first - 1};
+            NumberText number{};
+            parse_number(value, &number);
+            u32 used = 0;
+            // The client sends the Number itself: whole values as integers.
+            if (safe_integer(number.value)) {
+                used = decimal_write_signed(number_text, static_cast<i64>(number.value));
+            } else {
+                // A fraction in JSON form: no '+', no leading zeros, a whole
+                // part before the point and no trailing zeros after it.
+                Utf8View whole = number.whole, fraction = number.fraction;
+                while (whole.bytes > 1 && whole.data[0] == '0')
+                    whole = {whole.data + 1, whole.bytes - 1};
+                while (fraction.bytes && fraction.data[fraction.bytes - 1] == '0')
+                    --fraction.bytes;
+                const Utf8View parts[] = {number.negative ? utf8_literal("-") : Utf8View{},
+                                          whole.bytes ? whole : utf8_literal("0"),
+                                          fraction.bytes ? utf8_literal(".") : Utf8View{}, fraction,
+                                          number.has_exponent ? (number.exponent_negative ? utf8_literal("e-")
+                                                                                          : utf8_literal("e"))
+                                                              : Utf8View{},
+                                          number.exponent};
+                for (const auto part : parts) {
+                    if (part.bytes > sizeof(number_text) - used)
+                        return fail(invalid_text(index.document, schema.options[n], type));
+                    copy_bytes(number_text + used, part.data, part.bytes);
+                    used += part.bytes;
+                }
             }
-            JsonString id{{value.data, value.bytes}, 0, false};
-            u64 parsed = 0;
-            if (!json_string_to_u64(id, &parsed) || !parsed ||
-                !protocol_writer_append_json_string(writer, value))
-                return fail();
+            ok = protocol_writer_append_bytes(writer, {reinterpret_cast<const u8*>(number_text), used});
+        } else if (type == 5) {
+            ok = ascii_equal_ignore_case(value, utf8_literal("true")) ? protocol_writer_append_literal(writer, "true")
+                                                                       : protocol_writer_append_literal(writer, "false");
+        } else {
+            Utf8View id{};
+            ok = mention_id(value, type, &id) && protocol_writer_append_json_string(writer, id);
         }
-        if (focused && !protocol_writer_append_literal(writer, ",\"focused\":true"))
-            return fail();
-        if (!protocol_writer_append_byte(writer, '}'))
-            return fail();
+        if (!ok || (n == focused && !protocol_writer_append_literal(writer, ",\"focused\":true")) ||
+            !protocol_writer_append_byte(writer, '}'))
+            return fail(utf8_literal("Command is too large to send"));
     }
     return protocol_writer_append_byte(writer, ']');
 }
@@ -853,7 +966,10 @@ bool suggestion_choice(void* opaque, u32, JsonValue value) noexcept {
     const auto label = suggestion_text(output, name);
     const auto text =
         choice.kind == JsonValueKind::string ? suggestion_text(output, choice) : choice.source;
-    if ((choice.kind == JsonValueKind::number && !command_number(text, false)) || !label.data ||
+    NumberText number{};
+    if ((choice.kind == JsonValueKind::number &&
+         (!parse_number(text, &number) || number.value > max_safe_integer + 1 || number.value < -max_safe_integer - 1)) ||
+        !label.data ||
         !label.bytes || !text.data || label.bytes > 400 || text.bytes > 400 ||
         utf8_validate(label).codepoints > 100 ||
         (choice.kind == JsonValueKind::string && utf8_validate(text).codepoints > 100))
@@ -1269,6 +1385,70 @@ bool command_frecency_patch_valid(Utf8View json) noexcept {
             return false;
         p = stop;
     }
+    return true;
+}
+namespace {
+constexpr u8 kPendingMagic[] = {'M', 'C', 'C', 'F'};
+constexpr u8 kPendingVersion = 1;
+}
+u32 command_frecency_pending_encode(ConstSlice<CommandFrecencyUse> uses, Slice<u8> output) noexcept {
+    if (uses.count > kCommandFrecencyPendingUses || !output.data || output.count < 10)
+        return 0;
+    u32 used = 0;
+    const auto put = [&](const void* data, u32 bytes) noexcept {
+        if (bytes > output.count - used)
+            return false;
+        copy_bytes(output.data + used, data, bytes);
+        used += bytes;
+        return true;
+    };
+    const u8 header[] = {kPendingMagic[0], kPendingMagic[1], kPendingMagic[2], kPendingMagic[3], kPendingVersion,
+                         static_cast<u8>(uses.count)};
+    if (!put(header, sizeof(header)))
+        return 0;
+    for (u32 n = 0; n < uses.count; ++n) {
+        const auto& use = uses[n];
+        u8 at[8];
+        for (u32 b = 0; b < 8; ++b)
+            at[b] = static_cast<u8>(use.at >> (8 * b));
+        if (!use.key_bytes || use.key_bytes > kCommandFrecencyKeyBytes || !put(at, 8) || !put(&use.key_bytes, 1) ||
+            !put(use.key, use.key_bytes))
+            return 0;
+    }
+    const u32 hash = hash32_bytes(output.data, used);
+    const u8 tail[] = {static_cast<u8>(hash), static_cast<u8>(hash >> 8), static_cast<u8>(hash >> 16),
+                       static_cast<u8>(hash >> 24)};
+    return put(tail, 4) ? used : 0;
+}
+bool command_frecency_pending_decode(ConstSlice<u8> record, Slice<CommandFrecencyUse> uses, u32* count) noexcept {
+    if (!count || !uses.data || !record.data || record.count < 10 || record.count > kCommandFrecencyPendingFileBytes)
+        return false;
+    const u32 body = record.count - 4;
+    const u32 stored = record[body] | (u32{record[body + 1]} << 8) | (u32{record[body + 2]} << 16) |
+                       (u32{record[body + 3]} << 24);
+    const u32 listed = record[5];
+    if (!bytes_equal(record.data, kPendingMagic, 4) || record[4] != kPendingVersion ||
+        listed > kCommandFrecencyPendingUses || listed > uses.count || stored != hash32_bytes(record.data, body))
+        return false;
+    u32 at = 6;
+    for (u32 n = 0; n < listed; ++n) {
+        if (body - at < 9)
+            return false;
+        u64 time = 0;
+        for (u32 b = 0; b < 8; ++b)
+            time |= u64{record[at + b]} << (8 * b);
+        const u32 bytes = record[at + 8];
+        at += 9;
+        if (!bytes || bytes > kCommandFrecencyKeyBytes || bytes > body - at)
+            return false;
+        uses[n].at = time;
+        uses[n].key_bytes = static_cast<u8>(bytes);
+        copy_bytes(uses[n].key, record.data + at, bytes);
+        at += bytes;
+    }
+    if (at != body)
+        return false;
+    *count = listed;
     return true;
 }
 } // namespace maicord

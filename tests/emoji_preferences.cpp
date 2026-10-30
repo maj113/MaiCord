@@ -249,10 +249,13 @@ void test_protocol(Check check) noexcept {
     frecency_entry(frecency, utf8_literal("future_name_unknown"), 2, {recent, 1});
     frecency.scalar(9, 3);
     frecency_entry(reaction, utf8_literal("123456789012345678"), 3, {recent, 2});
+    Wire stickers{};
+    frecency_entry(stickers, utf8_literal("749054660769218631"), 2, {recent, 2});
     versions.scalar(1, 5);
     versions.scalar(3, 41);
     root.message(1, versions.view());
     root.string(2, utf8_literal("gifs-are-opaque"));
+    root.message(4, stickers.view());
     root.message(5, favorites.view());
     root.message(6, frecency.view());
     root.message(13, reaction.view());
@@ -263,8 +266,24 @@ void test_protocol(Check check) noexcept {
     const auto decoded = emoji_preferences_decode(root.view(), {bank, measured.group_bytes}, &snapshot);
     check(measured.ok() && decoded.ok() && snapshot.data_version == 41 && snapshot.versions_present &&
               snapshot.favorites.count == favorites.used && snapshot.frecency.count == frecency.used &&
-              snapshot.reaction_frecency.count == reaction.used,
-          "emoji preferences: decode isolates groups 5, 6 and 13 with the data version");
+              snapshot.reaction_frecency.count == reaction.used && snapshot.sticker_frecency.count == stickers.used,
+          "emoji preferences: decode isolates groups 4, 5, 6 and 13 with the data version");
+    Items sticker_items{};
+    check(emoji_preferences_visit_frecency(snapshot.sticker_frecency, collect_item, &sticker_items) ==
+                  EmojiPreferencesError::none &&
+              sticker_items.keys.count == 1 && sticker_items.items[0].recent_count == 2,
+          "emoji preferences: sticker frecency entries decode by sticker ID");
+    Wire bad_stickers{}, tolerant{};
+    bad_stickers.scalar(1, 5);
+    tolerant.message(4, bad_stickers.view());
+    tolerant.message(6, frecency.view());
+    EmojiPreferencesSnapshot partial{};
+    u8 partial_bank[1024]{};
+    const auto partial_size = emoji_preferences_decode(tolerant.view(), {}, &partial);
+    check(partial_size.ok() && partial_size.group_bytes == frecency.used &&
+              emoji_preferences_decode(tolerant.view(), {partial_bank, partial_size.group_bytes}, &partial).ok() &&
+              !partial.sticker_frecency.count && partial.frecency.count == frecency.used,
+          "emoji preferences: a malformed sticker group is dropped without failing the emoji groups");
     Keys keys{};
     Items items{};
     check(emoji_preferences_visit_favorites(snapshot.favorites, collect, &keys) == EmojiPreferencesError::none &&

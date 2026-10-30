@@ -12,7 +12,8 @@ namespace maicord {
 namespace {
 using namespace protocol_detail;
 using E = EmojiPreferencesError;
-constexpr u32 kFavorites = 5, kFrecency = 6, kReactionFrecency = 13;
+// sticker_frecency (4) is read only; patches never write it.
+constexpr u32 kStickerFrecency = 4, kFavorites = 5, kFrecency = 6, kReactionFrecency = 13;
 
 struct Reader {
     const u8* data;
@@ -512,10 +513,11 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
         return result;
     }
     reset_value(snapshot);
-    u32 sizes[3]{};
+    u32 sizes[4]{};
+    bool sticker_ok = true;
     // Pass 0 validates and measures; pass 1 copies once everything fits.
     for (u32 pass = 0; pass < 2; ++pass) {
-        u32 offsets[3]{0, sizes[0], sizes[0] + sizes[1]}, written[3]{};
+        u32 offsets[4]{0, sizes[0], sizes[0] + sizes[1], sizes[0] + sizes[1] + sizes[2]}, written[4]{};
         Reader r{proto.data, 0, proto.count};
         while (r.at < r.end) {
             u32 f = 0, t = 0;
@@ -523,8 +525,12 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
                 result.error = E::protobuf;
                 return result;
             }
-            const u32 slot = f == kFavorites ? 0 : f == kFrecency ? 1 : f == kReactionFrecency ? 2 : 3;
-            if ((slot < 3 || f == 1) && t == 2) {
+            const u32 slot = f == kFavorites           ? 0
+                             : f == kFrecency          ? 1
+                             : f == kReactionFrecency  ? 2
+                             : f == kStickerFrecency   ? 3
+                                                       : 4;
+            if ((slot < 4 || f == 1) && t == 2) {
                 u32 stop = 0;
                 if (!r.length(stop)) {
                     result.error = E::protobuf;
@@ -537,11 +543,15 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
                     }
                 } else if (!pass) {
                     const ConstSlice<u8> part{r.data + r.at, stop - r.at};
-                    result.error = slot == 0 ? check_favorites(part) : check_frecency(part);
-                    if (part.count > kEmojiPreferencesMaximumGroupBytes - sizes[slot])
-                        result.error = E::capacity;
+                    const E checked = slot == 0 ? check_favorites(part) : check_frecency(part);
+                    const bool fits = part.count <= kEmojiPreferencesMaximumGroupBytes - sizes[slot];
+                    // Sticker frecency only weighs results: a bad group is dropped, never fatal.
+                    if (slot == 3 && (checked != E::none || !fits))
+                        sticker_ok = false;
+                    else
+                        result.error = !fits ? E::capacity : checked;
                     sizes[slot] += part.count;
-                } else {
+                } else if (slot != 3 || sticker_ok) {
                     copy_bytes(output.data + offsets[slot] + written[slot], r.data + r.at, stop - r.at);
                     written[slot] += stop - r.at;
                 }
@@ -553,7 +563,9 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
                 return result;
             }
         }
-        result.group_bytes = sizes[0] + sizes[1] + sizes[2];
+        if (!sticker_ok)
+            sizes[3] = 0;
+        result.group_bytes = sizes[0] + sizes[1] + sizes[2] + sizes[3];
         if (!pass) {
             if (!output.data)
                 return result;
@@ -565,6 +577,7 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
             snapshot->favorites = {output.data, sizes[0]};
             snapshot->frecency = {output.data + offsets[1], sizes[1]};
             snapshot->reaction_frecency = {output.data + offsets[2], sizes[2]};
+            snapshot->sticker_frecency = {output.data + offsets[3], sizes[3]};
         }
     }
     return result;

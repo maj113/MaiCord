@@ -846,6 +846,11 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
     record.type = input.type;
     if (input.rate_limit_known)
         record.slowmode_code = slowmode_encode(input.rate_limit_per_user);
+    // Codes 1..4 (hour, day, three days, week) map to the record's two bits.
+    if (input.default_archive_code)
+        record.default_archive = static_cast<u8>(input.default_archive_code == 4   ? 3
+                                                 : input.default_archive_code == 3 ? 0
+                                                                                   : input.default_archive_code);
     if (input.thread_archived_known) {
         record.thread_archived = input.thread_archived;
         record.thread_archived_known = true;

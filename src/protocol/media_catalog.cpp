@@ -493,21 +493,61 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
         break;
     }
     if (query.operation != MediaCatalogOperation::guild_stickers && !object_operation(query.operation)) {
-        route_append(&w, utf8_literal("?locale="));
-        route_append_path_component(&w, query.locale);
-        if (search) {
-            route_append(&w, utf8_literal("&q="));
+        // Each route's parameters in the order of the official client's query
+        // objects (all.js @101785078 and @16137249): trending {locale,
+        // media_format}, trending-gifs {media_format, locale, limit}, search
+        // {q, media_format, locale, limit}, suggest {q, limit, locale}.
+        bool first = true;
+        const auto key = [&](Utf8View name) noexcept {
+            route_append(&w, first ? utf8_literal("?") : utf8_literal("&"));
+            route_append(&w, name);
+            first = false;
+        };
+        const auto locale = [&]() noexcept {
+            key(utf8_literal("locale="));
+            route_append_path_component(&w, query.locale);
+        };
+        const auto text = [&]() noexcept {
+            key(utf8_literal("q="));
             route_append_path_component(&w, query.query);
-        }
-        if (query.operation <= MediaCatalogOperation::gif_search) {
-            route_append(&w, utf8_literal("&media_format="));
+        };
+        const auto format = [&]() noexcept {
+            key(utf8_literal("media_format="));
             route_append(&w, query.format == MediaCatalogFormat::tiny_webp ? utf8_literal("tinywebp")
+                             : query.format == MediaCatalogFormat::webp    ? utf8_literal("webp")
                                                                            : utf8_literal("webm"));
-        }
+        };
         // Zero omits the limit (the server default), as the official client does.
-        if ((result_page || query.operation == MediaCatalogOperation::gif_suggestions) && query.limit) {
-            route_append(&w, utf8_literal("&limit="));
+        const auto limit = [&]() noexcept {
+            if (!query.limit)
+                return;
+            key(utf8_literal("limit="));
             route_append_u64(&w, query.limit);
+        };
+        switch (query.operation) {
+        case MediaCatalogOperation::gif_categories:
+            locale();
+            format();
+            break;
+        case MediaCatalogOperation::gif_trending:
+            format();
+            locale();
+            limit();
+            break;
+        case MediaCatalogOperation::gif_search:
+            text();
+            format();
+            locale();
+            limit();
+            break;
+        case MediaCatalogOperation::gif_suggestions:
+            text();
+            limit();
+            locale();
+            break;
+        default:
+            locale();
+            break;
         }
     }
     if (!w.valid || w.bytes > output.count)

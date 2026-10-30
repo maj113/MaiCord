@@ -261,6 +261,50 @@ bool composer_composition_geometry(const D3D11Renderer& renderer, Slice<TextComp
     }
     return true;
 }
+// The selected command's option chips, per line: the name segment and the
+// value segment. A value that runs to the end of the draft keeps its end
+// padding past the last glyph (the padding before the value is as wide).
+bool composer_chip_geometry(const D3D11Renderer& renderer, Slice<MessageComposerChipGeometry> output,
+                            u32* written) noexcept {
+    *written = 0;
+    const auto* scene = renderer.message_composer_scene;
+    if (!scene || !scene->model || !renderer.composer_layout.active)
+        return true;
+    const auto& layout = renderer.composer_layout;
+    MessageComposerChipRange ranges[25];
+    const u32 count = message_composer_scene_chip_ranges(*scene, {ranges, 25});
+    for (u32 i = 0; i < count; ++i) {
+        const auto& range = ranges[i];
+        TextEditMetric keys[kTextEditSelectionCapacity], values[kTextEditSelectionCapacity], padding[2];
+        u32 key_count = 0, value_count = 0, padding_count = 0;
+        if (!text_edit_layout_range_geometry(layout, range.first, range.key_last, {keys, kTextEditSelectionCapacity},
+                                             &key_count) ||
+            !text_edit_layout_range_geometry(layout, range.key_last, range.value_last,
+                                             {values, kTextEditSelectionCapacity}, &value_count) ||
+            !text_edit_layout_range_geometry(layout, range.key_last, range.key_last + kMessageComposerChipPadding,
+                                             {padding, 2}, &padding_count) ||
+            !key_count || !value_count || !padding_count)
+            continue;
+        const auto rect = [](const TextEditMetric& m) noexcept {
+            return UiRect{m.left, m.top, m.left + m.width, m.top + m.height};
+        };
+        // A long name may wrap: each name line is a chip piece of its own.
+        for (u32 k = 0; k + 1 < key_count && *written < output.count; ++k)
+            output[(*written)++] = {rect(keys[k]), {}, range.flags};
+        const UiRect key = rect(keys[key_count - 1]);
+        for (u32 v = 0; v < value_count && *written < output.count; ++v) {
+            UiRect value = rect(values[v]);
+            if (range.open_end && v + 1 == value_count)
+                value.right += padding[0].width;
+            const bool head = v == 0 && values[v].top == keys[key_count - 1].top;
+            if (v == 0 && !head)
+                output[(*written)++] = {key, {}, range.flags};
+            if (*written < output.count)
+                output[(*written)++] = {head ? key : UiRect{}, value, range.flags};
+        }
+    }
+    return true;
+}
 D3D11_RECT physical_damage_rect(const D3D11Renderer& renderer, const PresentationDamageRect& rectangle) noexcept {
     const float pixel_scale = static_cast<float>(maximum(renderer.dpi, 1u)) / 96.0f;
     const RasterClipRect clip =
@@ -1004,6 +1048,10 @@ u64 shell_segment_key(const RendererPresentationStamp& stamp, const MessageCompo
     key = hash64_mix(key, (composer.geometry_active ? 1u : 0u) | (composer.caret_visible ? 2u : 0u));
     key = hash64_counted_bytes(key, composer.composition.data,
                                composer.composition.count * static_cast<u32>(sizeof(TextCompositionMark)));
+    for (u32 i = 0; i < composer.chips.count; ++i) {
+        key = hash64_counted_bytes(key, &composer.chips[i].key, 2 * static_cast<u32>(sizeof(UiRect)));
+        key = hash64_mix(key, composer.chips[i].flags);
+    }
     key = hash64_counted_bytes(key, &paint.scrollbar_viewport, sizeof(paint.scrollbar_viewport));
     return key | 1;
 }
@@ -1770,6 +1818,12 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         !composer_composition_geometry(*renderer, {composer_marks, kTextCompositionSpanCapacity},
                                        &composer_mark_count))
         return layout_step_failed(__LINE__);
+    MessageComposerChipGeometry composer_chips[kMessageComposerChipGeometryCapacity];
+    u32 composer_chip_count = 0;
+    if (!content_hidden &&
+        !composer_chip_geometry(*renderer, {composer_chips, kMessageComposerChipGeometryCapacity},
+                                &composer_chip_count))
+        return layout_step_failed(__LINE__);
     const MessageComposerPresentationInput composer_presentation{
         ConstSlice<UiRect>{composer_selections,
                            content_hidden ? 0u : renderer->composer_layout.selection_count},
@@ -1778,7 +1832,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         !content_hidden && renderer->composer_layout.active,
         !content_hidden && renderer->composer_layout.active && renderer->message_composer_scene &&
             renderer->message_composer_scene->caret_visible,
-        {composer_marks, composer_mark_count}};
+        {composer_marks, composer_mark_count},
+        {composer_chips, composer_chip_count}};
     // A frame whose inputs differ from the last build only in the message
     // timeline replays everything painted before it (see RendererShellSegment).
     const u64 segment_key =
@@ -2481,7 +2536,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             return layout_step_failed(__LINE__);
     }
     if (d3d11_renderer_active(renderer->popup_scene) &&
-        !popup_presentation_build(*renderer->popup_scene, theme, &renderer->paint_stream))
+        !popup_presentation_build(*renderer->popup_scene, theme, &renderer->paint_stream,
+                                  renderer->message_measure_cache))
         return layout_step_failed(__LINE__);
     renderer->popup_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
     if (d3d11_renderer_active(renderer->reaction_viewer) &&
@@ -2703,12 +2759,16 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 continue;
             }
             const u32 before = renderer->media_quad_count;
+            // A morphing picker rail icon carries its own corner radius.
+            const bool shaped = command.corner_radius > 0;
             if (!queue_media_quad(renderer, allocation, command.rectangle, command.clip,
-                                  command.avatar || command.guild_icon, first_interaction_media)) {
+                                  (command.avatar || command.guild_icon) && !shaped, first_interaction_media,
+                                  shaped ? MediaQuadStyle{{}, 1.f, command.corner_radius, 0.f, 0.f, 0}
+                                         : kPlainMediaQuad)) {
                 return layout_step_failed(__LINE__);
             }
-            if (command.avatar && (popup.items[index].flags &
-                                   (popup_item_command_row | popup_item_command_category)))
+            if (command.avatar && (popup.items[index].flags & (popup_item_command_row | popup_item_command_category |
+                                                                popup_item_command_section)))
                 reveal_media_underlay(*renderer, before, command.rectangle, theme.interactive);
             first_interaction_media = false;
         }

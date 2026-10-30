@@ -6,6 +6,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/spinner.hpp"
+#include "maicord/ui/background_presentation.hpp"
 
 namespace maicord {
 namespace {
@@ -98,11 +100,123 @@ bool paint_band(PaintStream* paint, UiRect band, UiRect panel, const Theme& them
                                        UiBackgroundSurfaceMode::gradient, UiBackgroundTier::lower) &&
            paint_stream_pop_clip(paint);
 }
+bool same_widget(UiWidgetHandle a, UiWidgetHandle b) noexcept {
+    return a.generation && a.slot == b.slot && a.generation == b.generation;
+}
+// Inline results: the popover plate, the loading spinner, the hovered and the
+// keyboard-selected result's highlight (the client's autocomplete row fill),
+// missing-art placeholders and the GIF strip's paging arrows.
+bool paint_inline(const UiMediaPickerScene& scene, const Theme& theme, PaintStream* paint) noexcept {
+    const auto panel = scene.panel;
+    const float radius = scene.style.panel_radius;
+    if (!ui_surface_shadow_paint_isolated(paint, panel, theme, UiElevation::popover, radius) ||
+        !paint_stream_push_clip(paint, panel))
+        return false;
+    bool ok = ui_surface_paint_plate(paint, panel, theme, UiElevation::popover, radius);
+    if (ok && scene.content->phase == UiMediaPickerPhase::loading) {
+        const float x = (scene.body.left + scene.body.right) * .5f, half = kUiInlineResultsArrowExtent * .5f;
+        const float top = scene.body.top + kUiInlineResultsPadding;
+        ok = ui_spinner_paint(paint, {x - half, top, x + half, top + kUiInlineResultsArrowExtent},
+                              theme.text_secondary, scene.spinner_phase);
+    }
+    ok = ok && paint_stream_push_clip(paint, scene.body);
+    const Color highlight = ui_background_hover_color(theme, theme.surface_high, .28f);
+    const auto& m = scene.style.metrics;
+    for (u32 i = 0; ok && i < scene.cell_count; ++i) {
+        const auto& cell = scene.projection->cells[i];
+        if (same_widget(scene.widgets.hovered, cell.widget) || cell.source_index == scene.selected_index)
+            ok = paint_stream_push_rounded(paint, widget_rectangle(scene, cell.widget), highlight,
+                                           theme.scale.radius_sm);
+        if (ok && (!cell.item.enabled || !cell.item.asset_id)) {
+            const auto r = cell.rectangle;
+            const float extent = minimum(m.icon_extent, ui_rect_height(r) * .5f);
+            const float x = (r.left + r.right - extent) * .5f, y = (r.top + r.bottom - extent) * .5f;
+            auto color = theme.text_secondary;
+            color.alpha *= .65f;
+            ok = ui_icon_paint(paint, UiIcon::image, {x, y, x + extent, y + extent}, color);
+        }
+    }
+    ok = paint_stream_pop_clip(paint) && ok;
+    return paint_stream_pop_clip(paint) && ok;
+}
+// The GIF strip's paging arrows, over the tiles (the foreground pass follows
+// the media). They sit on a dark overlay whatever the theme (as the image
+// viewer's paging buttons): light ink, stronger fill while pointed at.
+bool paint_inline_arrows(const UiMediaPickerScene& scene, const Theme& theme, PaintStream* paint) noexcept {
+    const auto& m = scene.style.metrics;
+    bool ok = paint_stream_push_clip(paint, scene.body);
+    for (u32 i = 0; ok && i < 2; ++i) {
+        const auto widget = scene.page_widgets[i];
+        if (!widget.generation)
+            continue;
+        const auto r = widget_rectangle(scene, widget);
+        const bool hot = same_widget(scene.widgets.hovered, widget) || same_widget(scene.widgets.captured, widget);
+        const float extent = m.icon_extent, x = (r.left + r.right - extent) * .5f,
+                    y = (r.top + r.bottom - extent) * .5f;
+        ok = paint_stream_push_rounded_border(paint, r,
+                                              hot ? theme.tokens.overlay.scrim_strong
+                                                  : theme.tokens.overlay.scrim_light,
+                                              theme.tokens.border.subtle, theme.scale.radius_md, 1) &&
+             ui_icon_paint(paint, i ? UiIcon::chevron_right : UiIcon::chevron_left, {x, y, x + extent, y + extent},
+                           kDefaultTheme.text_primary);
+    }
+    return paint_stream_pop_clip(paint) && ok;
+}
+// The heading "<kind> matching **query**" (14 DIP, the query bold), then each
+// sticker row's name (16 DIP) over its "Similar to:" line and, at the row's
+// end, its pack or server (12 DIP), as the client's autocomplete rows.
+bool text_inline(const UiMediaPickerScene& scene, const Theme& theme, UiTextOutput* output) noexcept {
+    const float pad = kUiInlineResultsPadding;
+    if (scene.content->phase == UiMediaPickerPhase::ready && scene.content->heading.bytes) {
+        // The 18 DIP line centres in its 26 DIP block (4 DIP padding around it).
+        const UiRect r{scene.panel.left + pad, scene.panel.top + pad, scene.panel.right - pad, scene.body.top - pad};
+        if (!ui_text_output_push(output, {scene.content->heading,
+                                          {&scene.widgets, scene.root},
+                                          r,
+                                          ui_rect_intersection(r, scene.panel),
+                                          theme.text_secondary,
+                                          kTextStyleSizeCodeSm,
+                                          UiTextAlignment::start,
+                                          UiTextAlignment::center,
+                                          TextWrapping::no_wrap,
+                                          TextOverflow::ellipsis,
+                                          UiTextFace::normal,
+                                          {},
+                                          {&scene.heading_span, scene.heading_span.byte_count ? 1u : 0u}}))
+            return false;
+    }
+    if (scene.kind != UiMediaPickerKind::sticker)
+        return true;
+    for (u32 i = 0; i < scene.cell_count; ++i) {
+        const auto& cell = scene.projection->cells[i];
+        const auto row = widget_rectangle(scene, cell.widget);
+        const float left = cell.rectangle.right + pad, right = row.right - pad;
+        // The pack column ends the row; the name keeps the rest.
+        const float detail = cell.item.detail.bytes
+                                 ? minimum(kUiMenuDetailMaximumWidth, (right - left) * kUiMenuDetailWidthFraction)
+                                 : 0;
+        const float name_right = right - (detail ? detail + pad * 2 : 0);
+        const float middle = (row.top + row.bottom) * .5f;
+        const bool note = cell.item.note.bytes != 0;
+        if (!text(output, scene, cell.widget, cell.item.label,
+                  {left, note ? row.top + kUiComposerPadding : row.top, name_right, note ? middle + 2 : row.bottom},
+                  scene.body, theme.text_primary) ||
+            (note && !text(output, scene, cell.widget, cell.item.note,
+                           {left, middle + 2, name_right, row.bottom - kUiComposerPadding}, scene.body,
+                           theme.text_secondary, kTextStyleSizeCodeXs)) ||
+            (detail && !text(output, scene, cell.widget, cell.item.detail, {right - detail, row.top, right, row.bottom},
+                             scene.body, theme.text_secondary, kTextStyleSizeCodeXs, UiTextAlignment::end)))
+            return false;
+    }
+    return true;
+}
 } // namespace
 bool ui_media_picker_scene_paint(const UiMediaPickerScene& scene, const Theme& theme, PaintStream* paint,
                                  const UiEditGeometry* edit, u32 dpi) noexcept {
     if (!ui_media_picker_scene_current(scene))
         return true;
+    if (scene.variant == UiMediaPickerVariant::inline_results)
+        return paint_inline(scene, theme, paint);
     const auto& style = scene.style;
     const auto& m = style.metrics;
     const auto panel = scene.panel;
@@ -246,6 +360,9 @@ bool ui_media_picker_scene_paint_foreground(const UiMediaPickerScene& scene, con
                                             PaintStream* paint) noexcept {
     if (!ui_media_picker_scene_current(scene))
         return true;
+    // Inline results draw no tile outline or favorite button: only the GIF strip's arrows.
+    if (scene.variant == UiMediaPickerVariant::inline_results)
+        return paint_inline_arrows(scene, theme, paint);
     const auto grid = grid_region(scene);
     if (!paint_stream_push_clip(paint, grid))
         return false;
@@ -291,6 +408,8 @@ bool ui_media_picker_scene_text_output(const UiMediaPickerScene& scene, const Th
                                        UiTextOutput* output, const UiEditGeometry* edit) noexcept {
     if (!ui_media_picker_scene_current(scene))
         return true;
+    if (scene.variant == UiMediaPickerVariant::inline_results)
+        return text_inline(scene, theme, output);
     const auto& m = scene.style.metrics;
     const Utf8View labels[]{utf8_literal("GIFs"), utf8_literal("Stickers"), utf8_literal("Emoji")};
     for (u32 i = 0; i < 3; ++i)

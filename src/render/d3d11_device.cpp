@@ -343,6 +343,15 @@ void d3d11_device_prestart_finish() noexcept {
     reset_value<DevicePrestart>(&g_prestart);
 }
 
+HRESULT d3d11_device_owner_set_offset(D3D11DeviceOwner* owner, float x, float y) noexcept {
+    if (!owner || !owner->composition_visual || !owner->composition_device)
+        return E_POINTER;
+    HRESULT result = owner->composition_visual->SetOffsetX(x);
+    if (SUCCEEDED(result))
+        result = owner->composition_visual->SetOffsetY(y);
+    return SUCCEEDED(result) ? owner->composition_device->Commit() : result;
+}
+
 void d3d11_device_owner_release(D3D11DeviceOwner* owner) noexcept {
     if (!owner) {
         return;

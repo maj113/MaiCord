@@ -1,6 +1,8 @@
 #include "maicord/protocol/application_commands.hpp"
 #include "maicord/media/asset.hpp"
 #include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/popup_presentation.hpp"
+#include "maicord/ui/theme.hpp"
 #include "maicord/core/memory.hpp"
 #include "../src/app/application_command_request.hpp"
 namespace maicord {
@@ -148,7 +150,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
     check(
         command_arguments(
             index, command,
-            utf8_literal(R"(user:<@123> reason:"a \"quote\" and spaces" count:-2 enabled:true ratio:1.5)"),
+            utf8_literal(R"(user:<@123> reason:a "quote" and spaces count:-2 enabled:true ratio:1.5)"),
             &w, &error),
         "command_named_arguments_typed_and_escaped");
     const auto expected = utf8_literal(
@@ -170,7 +172,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
     const Utf8View invalid[] = {
         utf8_literal("reason:missing user"),    utf8_literal("user:123 user:456"),
         utf8_literal("user:123 count:2.2"),     utf8_literal("user:123 enabled:yes"),
-        utf8_literal("user:123 unknown:hello"), utf8_literal("user:123 reason:\"unfinished")};
+        utf8_literal("user:123 unknown:hello"), utf8_literal("user:123 ratio:")};
     for (const auto input : invalid) {
         w.used = 0;
         check(!command_arguments(index, command, input, &w, &error) && error.bytes,
@@ -195,17 +197,16 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
         w.used = 0;
         check(choices.command_count == 1 &&
                   command_arguments(choices, choices.commands[0],
-                                    utf8_literal(R"(size:"Extra large" count:Two flag:True)"), &w, &error) &&
+                                    utf8_literal(R"(size:Extra large count:Two flag:True)"), &w, &error) &&
                   utf8_equal({reinterpret_cast<const char*>(data), w.used},
                              utf8_literal(R"([{"name":"size","type":3,"value":"xl"},{"name":"count","type":4,"value":2},{"name":"flag","type":5,"value":true}])")),
               "choice names send their values and booleans accept the official True/False labels");
         w.used = 0;
         check(choices.command_count == 1 &&
-                  command_arguments(choices, choices.commands[0], utf8_literal("size:custom count:3"), &w,
-                                    &error) &&
-                  utf8_equal({reinterpret_cast<const char*>(data), w.used},
-                             utf8_literal(R"([{"name":"size","type":3,"value":"custom"},{"name":"count","type":4,"value":3}])")),
-              "text that names no choice is sent as typed");
+                  !command_arguments(choices, choices.commands[0], utf8_literal("size:custom count:3"), &w,
+                                     &error) &&
+                  utf8_equal(error, utf8_literal("Not a valid choice.")),
+              "text that names no choice is refused like the client");
         command_index_release(&choices);
     }
     {
@@ -266,6 +267,24 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
                   !command_frecency_patch_valid(utf8_literal(R"({"settings":"OgA=","extra":1})")),
               "a command frecency save may carry only application_command_frecency");
     }
+    {
+        // Unsaved uses survive a restart in a small checked record.
+        static CommandFrecencyUse uses[kCommandFrecencyPendingUses], read[kCommandFrecencyPendingUses];
+        uses[0] = {1700000000123ull, 2, {'-', '1'}};
+        uses[1] = {1700000000456ull, 3, {'1', '0', '1'}};
+        u8 record[kCommandFrecencyPendingFileBytes];
+        const u32 bytes = command_frecency_pending_encode({uses, 2}, {record, sizeof(record)});
+        u32 count = 0;
+        const bool decoded = bytes && command_frecency_pending_decode({record, bytes}, {read, 16}, &count);
+        check(decoded && count == 2 && read[0].at == uses[0].at && read[1].key_bytes == 3 &&
+                  bytes_equal(read[1].key, "101", 3),
+              "pending command uses round-trip through their record");
+        record[7] ^= 1;
+        u32 untouched = 9;
+        check(!command_frecency_pending_decode({record, bytes}, {read, 16}, &untouched) && untouched == 9 &&
+                  !command_frecency_pending_encode({uses, kCommandFrecencyPendingUses + 1}, {record, sizeof(record)}),
+              "a damaged pending-use record is ignored and an oversized list is not written");
+    }
     const auto video = media_asset_attachment(70, MediaAttachmentFormat::mp4);
     check(media_asset_key_valid(video) && (video.flags & media_asset_flag_animated),
           "mp4_attachment_reaches_timed_decoder");
@@ -296,6 +315,199 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
               rail.clip_rectangle.right <= row.clip_rectangle.left &&
               row.row->rectangle.top < row.clip_rectangle.top,
           "command_rail_and_rows_clip_independently_at_fractional_scroll");
+    {
+        // The client's discovery browser: a 420-DIP panel, 32-DIP rail icons
+        // from 16 DIPs down 40 apart (8 more before Built-in after an app),
+        // 32-DIP section headers and 56-DIP rows inset 8, sections 16 apart.
+        PopupItem picker[] = {
+            {utf8_literal("Frequently Used"), 1, popup_item_enabled | popup_item_command_category},
+            {utf8_literal("App"), 2, popup_item_enabled | popup_item_command_category | popup_item_checked},
+            {utf8_literal("Built-in"), 3,
+             popup_item_enabled | popup_item_command_category | popup_item_separator_before},
+            {utf8_literal("Frequently Used"), 10, popup_item_command_section},
+            {utf8_literal("/ban"), 11, popup_item_enabled | popup_item_command_row},
+            {utf8_literal("App"), 12, popup_item_command_section},
+            {utf8_literal("/wordle"), 13, popup_item_enabled | popup_item_command_row},
+            {utf8_literal("Built-in"), 14, popup_item_command_section},
+            {utf8_literal("/gif"), 15, popup_item_enabled | popup_item_command_row}};
+        picker[0].presentation = ui_menu_row_presentation(UiIcon::recent);
+        picker[2].presentation = ui_menu_row_presentation(UiIcon::command);
+        picker[3].presentation = picker[0].presentation;
+        picker[7].presentation = picker[2].presentation;
+        picker[4].detail = utf8_literal("Ban user\x1F" "Built-in\x1Fuser\x1E+1 optional");
+        picker[6].detail = utf8_literal("Play wordle\x1F" "App\x1F");
+        picker[8].detail = utf8_literal("Search Animated GIFs on the Web\x1F" "Built-in\x1Fquery");
+        const UiRect anchor{20, 540, 780, 590}, viewport{0, 0, 800, 600};
+        const auto opened = popup_scene_open(&scene, PopupKind::autocomplete, 7, {picker, 9}, anchor, viewport,
+                                             760, true, 0.f, 0.f);
+        PopupItemLayout layout[9]{};
+        bool resolved = opened.ok();
+        for (u32 n = 0; resolved && n < 9; ++n)
+            resolved = popup_scene_resolve_item_layout(scene, n, layout + n);
+        const UiRect panel = scene.rectangle;
+        const auto at = [&](u32 n) noexcept { return layout[n].row->rectangle; };
+        check(resolved && ui_rect_height(panel) == kCommandPickerHeight && scene.selected_index == ~0u,
+              "the picker opens at the client's fixed height without a selection");
+        check(resolved && at(0).left == panel.left + 8 && at(0).top == panel.top + 16 && ui_rect_width(at(0)) == 32 &&
+                  ui_rect_height(at(0)) == 32 && at(1).top == panel.top + 56 && at(2).top == panel.top + 104,
+              "rail icons sit 40 DIPs apart with the divider's 8 DIPs before Built-in");
+        check(resolved && at(3).left == panel.left + 56 && at(3).top == panel.top + 8 && ui_rect_height(at(3)) == 32 &&
+                  at(4).top == at(3).bottom && ui_rect_height(at(4)) == 56 && at(4).right == panel.right - 8 &&
+                  at(5).top == at(4).bottom + 16 && at(6).top == at(5).bottom && at(7).top == at(6).bottom + 16,
+              "sections stack header and rows inset 8 DIPs with 16 DIPs between sections");
+        UiTextCommand commands[16]{};
+        UiTextCommandStream stream{};
+        UiTextOutput output{&stream, nullptr};
+        bool texts = ui_text_command_stream_initialize(&stream, {commands, 16}) &&
+                     popup_text_presentation_build_output(scene, kDefaultTheme, &output);
+        bool rail_text = false, summary = false, header_icon_gap = false, row_text_inset = false;
+        for (u32 n = 0; texts && n < stream.count; ++n) {
+            const auto& command = commands[n];
+            rail_text = rail_text ||
+                        (utf8_equal(command.text, utf8_literal("App")) && command.rectangle.right <= at(3).left);
+            summary = summary || utf8_equal(command.text, utf8_literal("+1 optional"));
+            header_icon_gap = header_icon_gap || (utf8_equal(command.text, utf8_literal("Built-in")) &&
+                                                  command.rectangle.left == at(7).left + 28);
+            row_text_inset = row_text_inset ||
+                             (utf8_equal(command.text, utf8_literal("/wordle")) && command.rectangle.left == at(6).left + 8);
+        }
+        check(texts && !rail_text && !summary && header_icon_gap && row_text_inset,
+              "rows draw no per-row icon, headers carry the icon, rail entries draw no text, and the usage "
+              "summary waits for selection");
+        scene.selected_index = 4;
+        ui_text_command_stream_reset(&stream);
+        texts = popup_text_presentation_build_output(scene, kDefaultTheme, &output);
+        UiRect name{}, chip{}, optional{};
+        for (u32 n = 0; texts && n < stream.count; ++n) {
+            if (utf8_equal(commands[n].text, utf8_literal("/ban")))
+                name = commands[n].rectangle;
+            if (utf8_equal(commands[n].text, utf8_literal("user")))
+                chip = commands[n].rectangle;
+            if (utf8_equal(commands[n].text, utf8_literal("+1 optional")))
+                optional = commands[n].rectangle;
+        }
+        bool source_end = false;
+        for (u32 n = 0; texts && n < stream.count; ++n)
+            source_end = source_end || (utf8_equal(commands[n].text, utf8_literal("App")) &&
+                                        commands[n].horizontal_alignment == UiTextAlignment::end &&
+                                        commands[n].rectangle.right == at(6).right - 8);
+        check(texts && ui_rect_has_area(chip) && chip.left >= name.right + 8 && optional.left > chip.right &&
+                  source_end,
+              "the selected row shows its required options as chips, then the optional count, and every "
+              "row its app right-aligned");
+        // The rail gap before Built-in holds a divider unless only the clock leads.
+        const auto rail_divider = [&](ConstSlice<PopupItem> rail_items) noexcept {
+            PaintStream rail_paint{};
+            bool line = false;
+            if (popup_scene_open(&scene, PopupKind::autocomplete, 7, rail_items, anchor, viewport, 760, true, 0.f,
+                                 0.f)
+                    .ok() &&
+                paint_stream_initialize(&rail_paint) && paint_stream_reset(&rail_paint, 800, 600) &&
+                popup_presentation_build(scene, kDefaultTheme, &rail_paint))
+                for (u32 n = 0; n < rail_paint.count; ++n) {
+                    const auto& q = rail_paint.quads[n];
+                    line = line || (q.bottom - q.top == 1 && q.right <= scene.rectangle.left + kCommandRailWidth &&
+                                    bytes_equal(&q.fill, &kDefaultTheme.tokens.border.subtle, sizeof(Color)));
+                }
+            paint_stream_release(&rail_paint);
+            return line;
+        };
+        const PopupItem clock_only[] = {picker[0], picker[2], picker[8]};
+        check(rail_divider({picker, 9}) && !rail_divider({clock_only, 3}),
+              "Built-in's rail divider shows after an app, and only the gap after Frequently Used");
+        // Loading: the client's skeleton rows draw bars and no text.
+        PopupItem loading[] = {{utf8_literal("COMMANDS MATCHING /B"), 30, popup_item_command_section},
+                               popup_placeholder_row(31, 0, popup_item_command_row),
+                               popup_placeholder_row(32, 1, popup_item_command_row)};
+        PaintStream skeleton{};
+        u32 bars = 0;
+        if (popup_scene_open(&scene, PopupKind::autocomplete, 7, {loading, 3}, anchor, viewport, 760, true, 0.f, 0.f)
+                .ok() &&
+            paint_stream_initialize(&skeleton) && paint_stream_reset(&skeleton, 800, 600) &&
+            popup_presentation_build(scene, kDefaultTheme, &skeleton))
+            for (u32 n = 0; n < skeleton.count; ++n)
+                bars += skeleton.quads[n].bottom - skeleton.quads[n].top == 16 && skeleton.quads[n].radius == 8 ? 1u : 0u;
+        paint_stream_release(&skeleton);
+        ui_text_command_stream_reset(&stream);
+        check(bars == 6 && popup_text_presentation_build_output(scene, kDefaultTheme, &output) && stream.count == 1 &&
+                  !popup_scene_hit_test(scene, (scene.rectangle.left + scene.rectangle.right) * .5f,
+                                        scene.rectangle.top + 60)
+                       .enabled,
+              "placeholder rows show the client's usage, description and source bars, no text, and never act");
+        // The selected command's lists: Generic rows (36 DIPs) under a title.
+        PopupItem options[] = {{utf8_literal("OPTIONS"), 40, popup_item_command_section},
+                               {utf8_literal("reason"), 41, popup_item_enabled},
+                               popup_placeholder_row(42, 0)};
+        options[1].detail = utf8_literal("The reason for banning, if any");
+        PopupItemLayout option{}, option_loading{};
+        ui_text_command_stream_reset(&stream);
+        bool option_text = false, option_detail = false;
+        const bool listed =
+            popup_scene_open(&scene, PopupKind::autocomplete, 7, {options, 3}, anchor, viewport, 760, true, 0.f, 0.f)
+                .ok() &&
+            popup_scene_resolve_item_layout(scene, 1, &option) &&
+            popup_scene_resolve_item_layout(scene, 2, &option_loading) &&
+            popup_text_presentation_build_output(scene, kDefaultTheme, &output);
+        for (u32 n = 0; listed && n < stream.count; ++n) {
+            option_text = option_text || (utf8_equal(commands[n].text, utf8_literal("reason")) &&
+                                           commands[n].rectangle.left == option.row->rectangle.left + 8);
+            option_detail = option_detail || (utf8_equal(commands[n].text, options[1].detail) &&
+                                               commands[n].horizontal_alignment == UiTextAlignment::end);
+        }
+        check(listed && ui_rect_height(option.row->rectangle) == kCommandGenericRowHeight &&
+                  ui_rect_height(option_loading.row->rectangle) == kCommandGenericLoadingHeight &&
+                  ui_rect_height(scene.rectangle) == 40 + 36 + 40 + 8 && option_text && option_detail,
+              "option lists use the client's Generic and Loading rows under their title");
+        // Scrolled into App's rows: its header stays pinned and hides the row
+        // part beneath it, until the next section pushes it up.
+        PopupItem scrolled[] = {picker[0], picker[1], picker[2], picker[6], picker[7], picker[8], picker[5]};
+        scrolled[6].action = 20;
+        scrolled[6].flags |= popup_item_command_pinned;
+        const auto pinned = popup_scene_open(&scene, PopupKind::autocomplete, 7, {scrolled, 7}, anchor, viewport,
+                                             760, true, 20.f, 0.f);
+        PopupItemLayout row{}, header{}, next{};
+        check(pinned.ok() && popup_scene_resolve_item_layout(scene, 3, &row) &&
+                  popup_scene_resolve_item_layout(scene, 6, &header) && popup_scene_resolve_item_layout(scene, 4, &next) &&
+                  header.row->rectangle.top == scene.rectangle.top && row.row->rectangle.top < header.row->rectangle.bottom &&
+                  row.clip_rectangle.top == header.row->rectangle.bottom && next.row->rectangle.top > header.row->rectangle.bottom,
+              "a pinned section header stays on top and clips the rows scrolled beneath it");
+        const auto pushed = popup_scene_open(&scene, PopupKind::autocomplete, 7, {scrolled, 7}, anchor, viewport,
+                                             760, true, 50.f, 0.f);
+        check(pushed.ok() && popup_scene_resolve_item_layout(scene, 6, &header) &&
+                  popup_scene_resolve_item_layout(scene, 4, &next) &&
+                  header.row->rectangle.bottom == next.row->rectangle.top - 16 &&
+                  header.row->rectangle.top < scene.rectangle.top,
+              "the next section pushes the pinned header up");
+        check(!popup_scene_open(&scene, PopupKind::autocomplete, 7, {picker, 9}, anchor, viewport, 760, true, 80.f,
+                                0.f)
+                   .ok(),
+              "the body fraction stays within a row, its gap and the list inset");
+        // Query results: the title, then every ranked row; no rail.
+        PopupItem results[] = {{utf8_literal("COMMANDS MATCHING"), 30, popup_item_command_section},
+                               picker[4], picker[8]};
+        results[0].detail = utf8_literal("/ba");
+        PopupItemLayout title{}, first{};
+        check(popup_scene_open(&scene, PopupKind::autocomplete, 7, {results, 3}, anchor, viewport, 760, true, 0.f,
+                               0.f)
+                      .ok() &&
+                  ui_rect_height(scene.rectangle) == 40 + 2 * 56 + 8 &&
+                  popup_scene_resolve_item_layout(scene, 0, &title) &&
+                  popup_scene_resolve_item_layout(scene, 1, &first) && title.row->rectangle.left == scene.rectangle.left &&
+                  first.row->rectangle.top == scene.rectangle.top + 40 &&
+                  first.row->rectangle.left == scene.rectangle.left + 8,
+              "query results lead with the client's title and drop the rail");
+        PopupItem misplaced = results[0];
+        misplaced.flags |= popup_item_command_pinned;
+        PopupItem orphan[] = {{utf8_literal("Menu"), 40, popup_item_enabled}, results[0]};
+        orphan[1].action = 41;
+        check(!popup_scene_open(&scene, PopupKind::autocomplete, 7, {&misplaced, 1}, anchor, viewport, 760, true, 0.f,
+                                0.f)
+                       .ok() &&
+                  !popup_scene_open(&scene, PopupKind::autocomplete, 7, {orphan, 2}, anchor, viewport, 760, true, 0.f,
+                                    0.f)
+                       .ok(),
+              "pinned headers belong to discovery and section rows to the picker");
+    }
     popup_scene_release(&scene);
 }
 } // namespace maicord

@@ -125,32 +125,107 @@ float context_item_top(ConstSlice<PopupItem> items, u32 target) noexcept {
     return top;
 }
 
+// Command picker geometry (see kCommandPicker*). Discovery leads with its
+// rail; query results lead with their title and have no rail.
+bool picker_discovery(ConstSlice<PopupItem> items) noexcept {
+    return (items[0].flags & popup_item_command_category) != 0;
+}
+bool picker_flow_item(const PopupItem& item) noexcept {
+    return !(item.flags & (popup_item_command_category | popup_item_command_pinned));
+}
+// Section headers are 32 DIPs (the query title 40); command rows 56. Other
+// rows are the client's Generic autocomplete row (the selected command's
+// option and choice lists: base padding 8 around a text-md line, 36 DIPs) or
+// its Loading row (a 16-DIP bar 8 DIPs down that line, 40 DIPs).
+float picker_item_height(const PopupItem& item, bool discovery) noexcept {
+    if (item.flags & popup_item_command_section)
+        return discovery ? kCommandSectionHeight : kCommandTitleHeight;
+    if (item.flags & popup_item_command_row)
+        return kCommandRowHeight;
+    return popup_item_placeholder(item) ? kCommandGenericLoadingHeight : kCommandGenericRowHeight;
+}
+// Content top of a body item in the scrolled flow: the list's top inset,
+// then each item, with the section gap before every header but the first.
+float picker_flow_top(ConstSlice<PopupItem> items, u32 target, bool discovery) noexcept {
+    float y = discovery ? kCommandListInset : 0.f;
+    bool any = false;
+    for (u32 n = 0; n < items.count; ++n) {
+        if (!picker_flow_item(items[n]))
+            continue;
+        if (any && (items[n].flags & popup_item_command_section))
+            y += kCommandSectionGap;
+        if (n == target)
+            return y;
+        y += picker_item_height(items[n], discovery);
+        any = true;
+    }
+    return y;
+}
+// A pinned header stays at the body top until the end of its section (where
+// the next header's gap begins) pushes it up, as a CSS sticky header does.
+// The first scrolled item is its own section (its header or a row of it).
+float picker_pinned_top(ConstSlice<PopupItem> items, float fraction) noexcept {
+    bool first = true;
+    for (u32 n = 0; n < items.count; ++n) {
+        if (!picker_flow_item(items[n]))
+            continue;
+        if (!first && (items[n].flags & popup_item_command_section)) {
+            const float section_end = picker_flow_top(items, n, true) - kCommandSectionGap;
+            return fraction + minimum(0.f, section_end - fraction - kCommandSectionHeight);
+        }
+        first = false;
+    }
+    return fraction;
+}
+float picker_rail_top(ConstSlice<PopupItem> items, u32 target) noexcept {
+    float y = kCommandRailLead;
+    for (u32 n = 0; n < items.count; ++n) {
+        if (!(items[n].flags & popup_item_command_category))
+            continue;
+        if (items[n].flags & popup_item_separator_before)
+            y += kCommandRailDivider;
+        if (n == target)
+            return y;
+        y += kCommandRailStride;
+    }
+    return y;
+}
+// Content height of query results and option lists: the flow (titles, rows
+// and the gap before every later title) and the list's bottom padding;
+// discovery is the client's fixed panel.
+float picker_height(ConstSlice<PopupItem> items) noexcept {
+    if (picker_discovery(items))
+        return kCommandPickerHeight;
+    return picker_flow_top(items, items.count, false) + kCommandListInset;
+}
+UiLayoutStyle picker_row_style(ConstSlice<PopupItem> items, u32 index, float body_width,
+                               float fraction) noexcept {
+    UiLayoutStyle style = ui_layout_style();
+    style.horizontal_alignment = UiLayoutAlignment::start;
+    const PopupItem& item = items[index];
+    const bool discovery = picker_discovery(items);
+    if (item.flags & popup_item_command_category) {
+        style.width = ui_layout_fixed(kCommandRailIcon);
+        style.height = ui_layout_fixed(kCommandRailIcon);
+        style.margin.left = (kCommandRailWidth - kCommandRailIcon) * .5f;
+        style.margin.top = picker_rail_top(items, index);
+        return style;
+    }
+    // The query title spans the body; rows and discovery headers sit in the
+    // list's horizontal inset.
+    const bool title = !discovery && (item.flags & popup_item_command_section);
+    const float inset = title ? 0.f : kCommandListInset;
+    style.width = ui_layout_fixed(maximum(1.f, body_width - 2.f * inset));
+    style.height = ui_layout_fixed(picker_item_height(item, discovery));
+    style.margin.left = inset;
+    style.margin.top = (item.flags & popup_item_command_pinned) ? picker_pinned_top(items, fraction)
+                                                               : picker_flow_top(items, index, discovery);
+    return style;
+}
+
 UiLayoutStyle row_style(const PopupItem& item, u32 index, bool quick_strip, ConstSlice<PopupItem> items,
                         float content_width, const UiResolvedThemeStyles* styles = nullptr) noexcept {
     UiLayoutStyle style = ui_layout_style();
-    if (items.count && (items[0].flags & popup_item_command_header)) {
-        const auto& metrics = menu_metrics(styles);
-        const bool close = (item.flags & popup_item_command_close) != 0;
-        style.width = ui_layout_fixed(close ? metrics.menu_row_height : content_width);
-        style.height = ui_layout_fixed(index < 2 ? metrics.menu_row_height : metrics.menu_detail_height);
-        style.margin.left = close ? maximum(0.f, content_width - metrics.menu_row_height) : 0.f;
-        style.margin.top = index < 2 ? 0.f : (index - 2) * metrics.menu_detail_height;
-        style.horizontal_alignment = UiLayoutAlignment::start;
-        return style;
-    }
-    if (items.count && (items[0].flags & popup_item_command_category)) {
-        const bool rail = (item.flags & popup_item_command_category) != 0;
-        u32 ordinal = 0;
-        for (u32 n = 0; n < index; ++n)
-            if (((items[n].flags & popup_item_command_category) != 0) == rail)
-                ++ordinal;
-        style.width = ui_layout_fixed(rail ? 40.0f : maximum(1.0f, content_width - 48.0f));
-        style.height = ui_layout_fixed(rail ? 40.0f : kUiMenuDetailRowHeight);
-        style.margin.left = 0.0f;
-        style.margin.top = ordinal * (rail ? 40.0f : kUiMenuDetailRowHeight);
-        style.horizontal_alignment = UiLayoutAlignment::start;
-        return style;
-    }
     if (quick_strip) {
         style.horizontal_alignment = UiLayoutAlignment::start;
         if (index < kPopupQuickReactionCount) {
@@ -228,11 +303,8 @@ PopupSceneResult failure(PopupScene* scene, PopupSceneError error) noexcept {
 }
 
 float popup_height(ConstSlice<PopupItem> items, const UiResolvedThemeStyles* styles = nullptr) noexcept {
-    if (items.count && (items[0].flags & popup_item_command_header))
-        return 2.f * menu_metrics(styles).menu_padding + menu_metrics(styles).menu_row_height +
-               (items.count > 2 ? items.count - 2 : 0) * menu_metrics(styles).menu_detail_height;
-    if (items.count && (items[0].flags & popup_item_command_category))
-        return 420.0f;
+    if (popup_items_command_picker(items))
+        return picker_height(items);
     if (quick_reaction_strip(items)) {
         float height = 2.0f * menu_metrics(styles).menu_padding + kPopupQuickReactionTop +
                        kPopupQuickReactionExtent + kPopupQuickReactionBottomGap;
@@ -431,7 +503,6 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
     // Reuse the retained rows directly. Reopening would reset input authority,
     // selection, edit state and a descriptor slice which may alias scene.items.
     const ConstSlice<PopupItem> items{scene->items.data, scene->item_count};
-    const bool command_selected = items.count && (items[0].flags & popup_item_command_header);
     const auto layout = [&](UiWidgetHandle handle) noexcept {
         auto* widget = ui_widget_manager_resolve(&scene->widgets, handle);
         return widget ? ui_layout_engine_resolve(&scene->widgets.layout, widget->layout) : nullptr;
@@ -451,17 +522,8 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
         return false;
     panel->spec.style =
         panel_style(rectangle.left - scene->viewport.left, rectangle.top - scene->viewport.top,
-                    ui_rect_width(rectangle), ui_rect_height(rectangle), command_selected,
-                    !command_selected && scrollable_menu(scene->kind), feedback_height, styles);
-    if (command_selected) {
-        auto* body = layout(ui_widget_manager_find(scene->widgets, 0x10001u));
-        if (!body)
-            return false;
-        body->spec.style.width = ui_layout_fixed(maximum(1.f, ui_rect_width(rectangle) - 2.f * padding));
-        body->spec.style.height = ui_layout_fixed(maximum(0.f,
-            ui_rect_height(rectangle) - 2.f * padding - menu_metrics(styles).menu_row_height));
-        body->spec.style.margin.top = menu_metrics(styles).menu_row_height;
-    }
+                    ui_rect_width(rectangle), ui_rect_height(rectangle), false, scrollable_menu(scene->kind),
+                    feedback_height, styles);
     for (u32 i = 0; i < items.count; ++i) {
         layout(scene->rows[i].widget)->spec.style =
             row_style(items[i], i, false, items, ui_rect_width(rectangle) - 2.f * padding, styles);
@@ -470,7 +532,7 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
     if (!ui_widget_manager_layout_rectangle(&scene->widgets, scene->viewport).ok())
         return false;
     UiWidgetScrollGeometry scroll{};
-    if (!command_selected && scrollable_menu(scene->kind) &&
+    if (scrollable_menu(scene->kind) &&
         !ui_widget_scroll_geometry(scene->widgets, scene->panel, &scroll))
         return false;
     scene->scroll_max = scroll.maximum.y;
@@ -489,25 +551,29 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
                             const UiPopupFeedback* feedback, bool below_request) noexcept {
     const u32 available_items =
         scene && scene->items.data ? scene->items.count : (scene ? scene->owned_capacity : 0);
+    const bool picker = items.data && items.count && popup_items_command_picker(items);
+    const bool discovery = picker && picker_discovery(items);
     if (!scene || kind == PopupKind::none || kind > PopupKind::settings_choice || owner_id == 0 ||
         !items.data || items.count == 0 || items.count > available_items ||
         !ui_rect_valid_or_empty(anchor) || !ui_rect_valid_or_empty(viewport) ||
         !ui_rect_has_area(viewport) || !ui_coordinate_valid(preferred_width) ||
         (kind != PopupKind::autocomplete && preferred_width < 96.0f) ||
-        // Command palette pitches: 56 DIP body rows, 40 DIP category rail.
+        // Fractions of the first scrolled item: a picker body item with the
+        // gap after it plus the list inset, a rail slot plus its lead; query
+        // results and option lists scroll as a whole.
         !ui_coordinate_valid(grid_scroll_fraction) || grid_scroll_fraction < 0.0f ||
-        (!(items[0].flags & popup_item_command_header) && grid_scroll_fraction >= 56.0f) ||
-        !ui_coordinate_valid(category_scroll_fraction) ||
-        category_scroll_fraction < 0 || category_scroll_fraction >= 40.0f) {
+        (discovery && grid_scroll_fraction >= kCommandRowHeight + kCommandSectionGap + kCommandListInset) ||
+        (!picker && grid_scroll_fraction >= 56.0f) ||
+        !ui_coordinate_valid(category_scroll_fraction) || category_scroll_fraction < 0 ||
+        category_scroll_fraction >= (discovery ? kCommandRailStride + kCommandRailDivider + kCommandRailLead : 40.0f) ||
+        (picker && !discovery && category_scroll_fraction != 0)) {
         return failure(scene, PopupSceneError::invalid_input);
     }
-    const bool commands = (items[0].flags & popup_item_command_category) != 0;
-    const bool command_selected = (items[0].flags & popup_item_command_header) != 0;
     UiPopupFeedback admitted_feedback = feedback ? *feedback : UiPopupFeedback{};
     if (feedback && admitted_feedback.style.height == 0 && admitted_feedback.style.text_inset == 0)
         admitted_feedback.style = ui_popup_feedback_style();
     if (feedback &&
-        (commands || kind == PopupKind::autocomplete || (!feedback->text.data && feedback->text.bytes) ||
+        (picker || kind == PopupKind::autocomplete || (!feedback->text.data && feedback->text.bytes) ||
          feedback->text.bytes > 256 || !utf8_validate(feedback->text).valid ||
          !ui_coordinate_valid(admitted_feedback.style.height) || admitted_feedback.style.height < 24 ||
          admitted_feedback.style.height > 96 || !ui_coordinate_valid(admitted_feedback.style.text_inset) ||
@@ -517,21 +583,27 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     const float feedback_height = feedback ? admitted_feedback.style.height : 0;
     // Command autocomplete adds independent rail/body viewports. Preflight the
     // whole tree before resetting a retained popup or materializing its arrays.
-    const u32 fixed_widgets = commands ? 4u : command_selected ? 3u : 2u;
+    const u32 fixed_widgets = discovery ? 4u : picker ? 3u : 2u;
     if (items.count > (kInvalidUiWidgetSlot - fixed_widgets) / kPopupWidgetsPerItem)
         return failure(scene, PopupSceneError::capacity);
     bool has_quick_reaction = false;
     for (u32 index = 0; index < items.count; ++index) {
         const PopupItem& item = items[index];
-        // A command rail category may carry a leading icon instead of an avatar.
-        const bool rail_icon = (item.flags & popup_item_command_category) && item.presentation.icon_plus_one &&
-                               !item.presentation.secondary_line && !item.presentation.trailing_icon;
+        // A picker rail category or section header may carry a leading icon
+        // instead of an avatar; a pinned header is a discovery section header.
+        const bool picker_icon = (item.flags & (popup_item_command_category | popup_item_command_section)) &&
+                                 item.presentation.icon_plus_one && !item.presentation.secondary_line &&
+                                 !item.presentation.trailing_icon;
         if (!ui_menu_row_presentation_valid(item.presentation) ||
-            (!popup_item_menu_row(item) && !rail_icon &&
+            (!popup_item_menu_row(item) && !picker_icon &&
              (item.presentation.icon_plus_one || item.presentation.secondary_line ||
               item.presentation.trailing_icon)) ||
             (item.presentation.icon_plus_one &&
-             (item.flags & (popup_item_avatar | popup_item_emoji_preview | popup_item_guild_icon)))) {
+             (item.flags & (popup_item_avatar | popup_item_emoji_preview | popup_item_guild_icon))) ||
+            ((item.flags & popup_item_command_category) && !picker) ||
+            ((item.flags & popup_item_command_section) && !picker) ||
+            ((item.flags & popup_item_command_pinned) &&
+             (!discovery || !(item.flags & popup_item_command_section)))) {
             return failure(scene, PopupSceneError::invalid_input);
         }
         if (item.regional_flag) {
@@ -548,8 +620,8 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
                                 popup_item_checked | popup_item_emoji | popup_item_custom_emoji |
                                 popup_item_quick_reaction | popup_item_avatar | popup_item_emoji_preview |
                                 popup_item_guild_icon | popup_item_command_row |
-                                popup_item_command_category | popup_item_command_header |
-                                popup_item_command_close))) != 0 ||
+                                popup_item_command_category | popup_item_command_section |
+                                popup_item_command_pinned))) != 0 ||
             ((!item.detail.data && item.detail.bytes) || !utf8_validate(item.detail).valid) ||
             item.status > 4 ||
             (item.status && !(item.flags & popup_item_avatar) &&
@@ -568,9 +640,9 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         }
     }
     const bool quick_strip = quick_reaction_strip(items);
-    const auto* styles = !commands && !quick_strip ? scene->theme_styles : nullptr;
-    const float padding = menu_metrics(styles).menu_padding;
-    const bool scrollable = !commands && !command_selected && scrollable_menu(kind);
+    const auto* styles = !picker && !quick_strip ? scene->theme_styles : nullptr;
+    const float padding = picker ? 0.f : menu_metrics(styles).menu_padding;
+    const bool scrollable = !picker && scrollable_menu(kind);
     if (has_quick_reaction && (kind != PopupKind::context_menu || !quick_strip)) {
         return failure(scene, PopupSceneError::invalid_input);
     }
@@ -583,7 +655,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     }
     UiRect rectangle{};
     // A follow-up menu replacing a header popout keeps its placement.
-    bool below = kind != PopupKind::autocomplete && !commands && !quick_strip &&
+    bool below = kind != PopupKind::autocomplete && !picker && !quick_strip &&
                  (below_request || (scene->anchored_below && ui_rect_equal(anchor, scene->anchor)));
     if (!popup_rectangle(kind, items, styles, anchor, viewport, preferred_width, prefer_above, feedback_height, &below,
                          &rectangle))
@@ -596,32 +668,31 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     const float width = ui_rect_width(rectangle);
     const float height = ui_rect_height(rectangle);
     ui_widget_manager_reset(&scene->widgets);
+    // The picker's rail and body run to the panel edges; their rows own the insets.
+    UiLayoutStyle panel_layout =
+        panel_style(rectangle.left - viewport.left, rectangle.top - viewport.top, width, height,
+                    quick_strip || picker, scrollable, feedback_height, styles);
+    if (picker)
+        panel_layout.padding = UiInsets{};
     const UiWidgetResult root = ui_widget_manager_add_keyed(
         &scene->widgets, ui_widget_invalid_handle(), kPopupRootId, UiWidgetKind::container, ui_widget_none,
         "PopupRoot", root_style());
     const UiWidgetResult panel =
-        root.ok() ? ui_widget_manager_add_keyed(
-                        &scene->widgets, root.handle, kPopupPanelId,
-                        scrollable ? UiWidgetKind::scroll_view : UiWidgetKind::container, ui_widget_none,
-                        "PopupPanel",
-                        panel_style(rectangle.left - viewport.left, rectangle.top - viewport.top, width, height,
-                                    quick_strip || commands || (items[0].flags & popup_item_command_header),
-                                    scrollable, feedback_height, styles))
+        root.ok() ? ui_widget_manager_add_keyed(&scene->widgets, root.handle, kPopupPanelId,
+                                                scrollable ? UiWidgetKind::scroll_view : UiWidgetKind::container,
+                                                ui_widget_none, "PopupPanel", panel_layout)
                   : UiWidgetResult{};
     if (!root.ok() || !panel.ok()) {
         return failure(scene, PopupSceneError::widget);
     }
     UiWidgetHandle command_rail{}, command_body{};
-    if (commands || command_selected) {
-        for (u32 column = command_selected ? 1u : 0u; column != 2; ++column) {
+    const float rail_width = discovery ? kCommandRailWidth : 0.f;
+    if (picker) {
+        for (u32 column = discovery ? 0u : 1u; column != 2; ++column) {
             auto style = ui_layout_style();
-            style.width =
-                ui_layout_fixed(command_selected ? maximum(1.f, width - 2.f * padding) :
-                    column ? maximum(1.0f, width - 2 * kPopupPanelPadding - 48) : 48.0f);
-            style.height = ui_layout_fixed(maximum(0.f, height - 2.f * padding -
-                (command_selected ? menu_metrics(styles).menu_row_height : 0.f)));
-            style.margin.left = column && !command_selected ? 48.0f : 0.0f;
-            style.margin.top = command_selected ? menu_metrics(styles).menu_row_height : 0.f;
+            style.width = ui_layout_fixed(column ? maximum(1.f, width - rail_width) : rail_width);
+            style.height = ui_layout_fixed(maximum(0.f, height));
+            style.margin.left = column ? rail_width : 0.0f;
             style.horizontal_alignment = UiLayoutAlignment::start;
             style.flags = ui_layout_node_visible | ui_layout_node_clip_children |
                           ui_layout_node_scroll_vertical | ui_layout_node_allow_overlap |
@@ -642,12 +713,13 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         const Utf8View row_name = quick ? utf8_literal("QuickReaction") : utf8_literal("PopupItem");
         const UiWidgetResult row = ui_widget_manager_add_keyed(
             &scene->widgets,
-            commands ? ((items[index].flags & popup_item_command_category) ? command_rail : command_body)
-                     : command_selected && index >= 2 ? command_body : panel.handle,
+            picker ? ((items[index].flags & popup_item_command_category) ? command_rail : command_body)
+                   : panel.handle,
             id, UiWidgetKind::button,
             static_cast<u16>(ui_widget_hit_test | ui_widget_focusable | (enabled ? ui_widget_enabled : 0)),
             row_name.data, row_name.bytes,
-            row_style(items[index], index, quick_strip, items, width - 2.0f * padding, styles));
+            picker ? picker_row_style(items, index, width - rail_width, grid_scroll_fraction)
+                   : row_style(items[index], index, quick_strip, items, width - 2.0f * padding, styles));
         const Utf8View label_name = quick ? utf8_literal("QuickReactionLabel") : utf8_literal("PopupItemLabel");
         const UiWidgetResult label =
             row.ok() ? ui_widget_manager_add_keyed(&scene->widgets, row.handle, id + 1u, UiWidgetKind::text,
@@ -662,10 +734,10 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     if (!ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
         return failure(scene, PopupSceneError::layout);
     }
-    if (commands || command_selected) {
+    if (picker) {
         const auto* rail = ui_widget_manager_resolve(&scene->widgets, command_rail);
         const auto* body = ui_widget_manager_resolve(&scene->widgets, command_body);
-        if ((!command_selected && (!rail ||
+        if ((discovery && (!rail ||
             !ui_layout_engine_set_scroll(&scene->widgets.layout, rail->layout,
                                          {0, category_scroll_fraction}))) || !body ||
             !ui_layout_engine_set_scroll(&scene->widgets.layout, body->layout, {0, grid_scroll_fraction}) ||
@@ -685,12 +757,14 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     scene->feedback = admitted_feedback;
     scene->feedback_reserved = feedback != nullptr;
     scene->item_count = items.count;
-    scene->selected_index = first_enabled(*scene);
+    // The picker's owner places its own keyboard selection (none on open).
+    scene->selected_index = picker ? ~0u : first_enabled(*scene);
     scene->preferred_width = preferred_width;
     scene->scroll_offset = 0.0f;
+    scene->picker_scroll_offset = scene->picker_scroll_extent = 0.0f;
     scene->scroll_max = scroll_geometry.maximum.y;
     scene->kind = kind;
-    scene->themed_menu = styles != nullptr || (!commands && !quick_strip);
+    scene->themed_menu = styles != nullptr || (!picker && !quick_strip);
     scene->theme_geometry_revision = scene->theme_styles ? scene->theme_styles->geometry_revision : 0;
     scene->panel_material = PopupPanelMaterial::tinted;
     scene->prefer_above = prefer_above;
@@ -749,6 +823,7 @@ bool popup_scene_close(PopupScene* scene) noexcept {
     scene->item_count = 0;
     scene->selected_index = ~0u;
     scene->scroll_offset = 0.0f;
+    scene->picker_scroll_offset = scene->picker_scroll_extent = 0.0f;
     scene->scroll_max = 0.0f;
     ui_widget_manager_reset(&scene->widgets);
     if (changed) {
@@ -909,6 +984,17 @@ const UiLayoutNode* popup_scene_layout_node(const PopupScene& scene, UiWidgetHan
     return ui_widget_manager_layout_node(scene.widgets, widget);
 }
 
+UiRect popup_scene_picker_body(const PopupScene& scene) noexcept {
+    const ConstSlice<PopupItem> items{scene.items.data, scene.item_count};
+    const auto* panel = scene.active ? popup_scene_layout_node(scene, scene.panel) : nullptr;
+    if (!panel || !popup_items_command_picker(items))
+        return {};
+    UiRect body = panel->rectangle;
+    if (picker_discovery(items))
+        body.left = minimum(body.right, body.left + kCommandRailWidth);
+    return body;
+}
+
 UiRect popup_feedback_rectangle(const PopupScene& scene) noexcept {
     if (!scene.active || !scene.feedback_reserved)
         return {};
@@ -972,19 +1058,30 @@ bool popup_scene_resolve_item_layout(const PopupScene& scene, u32 index, PopupIt
     UiRect clip = ui_rect_intersection(panel->rectangle, label->clip_rectangle);
     if (scene.feedback_reserved)
         clip.bottom = minimum(clip.bottom, popup_feedback_rectangle(scene).top);
-    if (scene.item_count && (scene.items[0].flags & popup_item_command_category)) {
-        UiRect body = panel->rectangle;
-        body.left += kPopupPanelPadding;
-        body.right -= kPopupPanelPadding;
-        body.top += kPopupPanelPadding;
-        body.bottom -= kPopupPanelPadding;
-        if (scene.items[index].flags & popup_item_command_category)
-            body.right = minimum(body.right, body.left + 48);
-        else
-            body.left += 48;
-        clip = ui_rect_intersection(clip, body);
+    const ConstSlice<PopupItem> items{scene.items.data, scene.item_count};
+    const bool picker = popup_items_command_picker(items);
+    if (picker) {
+        // Rail and body columns run to the panel edges; rows scrolled under a
+        // pinned section header are hidden (and unhittable) beneath it.
+        UiRect column = panel->rectangle;
+        const bool rail = (scene.items[index].flags & popup_item_command_category) != 0;
+        if (picker_discovery(items)) {
+            if (rail)
+                column.right = minimum(column.right, column.left + kCommandRailWidth);
+            else
+                column.left = minimum(column.right, column.left + kCommandRailWidth);
+        }
+        if (!rail && !(scene.items[index].flags & popup_item_command_pinned))
+            for (u32 n = 0; n < items.count; ++n)
+                if (items[n].flags & popup_item_command_pinned) {
+                    if (const auto* pinned = popup_scene_layout_node(scene, scene.rows[n].widget))
+                        column.top = minimum(column.bottom, maximum(column.top, pinned->rectangle.bottom));
+                    break;
+                }
+        clip = ui_rect_intersection(clip, column);
     }
-    const UiRect visible = ui_rect_intersection(label->rectangle, clip);
+    // A picker row shows its own background, so any visible part counts.
+    const UiRect visible = ui_rect_intersection(picker ? row->rectangle : label->rectangle, clip);
     *layout = PopupItemLayout{row, label, visible, clip, ui_rect_has_area(visible)};
     return true;
 }

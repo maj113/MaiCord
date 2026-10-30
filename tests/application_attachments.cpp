@@ -30,6 +30,11 @@ UiRect application_viewport_dips() noexcept { return {0, 0, 800, 600}; }
 void set_popup_owner(PopupOwnerKind owner) noexcept { g_app.popup_owner_kind = owner; }
 bool application_poll_create_available(u64) noexcept { return false; }
 bool application_poll_create_open(u64) noexcept { return false; }
+// The scrollbar drag code reaches the command picker's virtual scroll.
+bool application_commands_scroll(bool, double, bool* changed) noexcept {
+    *changed = false;
+    return true;
+}
 }
 namespace maicord {
 namespace {

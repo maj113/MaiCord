@@ -14,6 +14,26 @@ bool application_commands_response(const RestClientResponse&, Utf8View body) noe
 bool application_commands_scroll_range(bool rail, UiScrollRange*) noexcept;
 bool application_commands_scroll(bool rail, double offset, bool* changed) noexcept;
 bool application_commands_key(u32 key) noexcept;
+// Tab/Shift+Tab with a command selected (the client's selectNext/Previous
+// CommandOption): selects the next or previous option chip's value, else moves
+// the caret to the end or after the command name. False without a command.
+bool application_commands_option_tab(bool reverse) noexcept;
+// Backspace (forward false) or Delete about to run in the composer: a caret
+// just past a chip's end steps back into its value first (the client deletes
+// the value's last character), one at a value's end steps past the end.
+void application_commands_prepare_delete(bool forward) noexcept;
+// The option bar's close button: ends the selected command and clears the draft.
+bool application_commands_close() noexcept;
+// The composer shows the option bar (a command is selected in the draft).
+bool application_commands_bar_visible() noexcept;
+// Escape while the selected command shows no list: dismisses its built-in's
+// inline results (its autocomplete) until the draft changes. False when there
+// is nothing to dismiss, so Escape keeps its composer meaning.
+bool application_commands_escape() noexcept;
+// A built-in's inline result was used (a GIF or sticker sent, or a GIF link
+// put in the draft): records the command use, ends the selected command and
+// replaces the whole draft with replacement (empty clears it).
+bool application_commands_builtin_used(Utf8View replacement) noexcept;
 // The pointer hovered a picker row; the keyboard selection is dropped.
 void application_commands_hover() noexcept;
 void application_commands_gateway(Utf8View body) noexcept;

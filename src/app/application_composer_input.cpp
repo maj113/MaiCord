@@ -1,6 +1,7 @@
 #include "application_guild_community.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
+#include "application_commands.hpp"
 #include "application_media_picker.hpp"
 
 #include "application_composer.hpp"
@@ -65,6 +66,8 @@ bool activate_composer_control(MessageComposerControl control) noexcept {
         return application_media_picker_open(UiMediaPickerKind::emoji);
     if (control == MessageComposerControl::reply_mention || control == MessageComposerControl::cancel_reply)
         return application_reply_draft_activate(control);
+    if (control == MessageComposerControl::command_close)
+        return application_commands_close();
     return false;
 }
 
@@ -306,11 +309,13 @@ bool handle_composer_key(WPARAM key) noexcept {
         return application_composer_edit_command(TextEditCommand::cut);
     switch (key) {
     case VK_BACK:
+        application_commands_prepare_delete(false);
         return composer_apply_result(
             control ? message_composer_delete_word(&composer, false, clock_monotonic_milliseconds())
                     : message_composer_backspace(&composer, clock_monotonic_milliseconds()),
             true);
     case VK_DELETE:
+        application_commands_prepare_delete(true);
         return composer_apply_result(
             control ? message_composer_delete_word(&composer, true, clock_monotonic_milliseconds())
                     : message_composer_delete_forward(&composer, clock_monotonic_milliseconds()),

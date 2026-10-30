@@ -26,6 +26,15 @@
 #include "maicord/protocol/guild_admin.hpp"
 #include "maicord/ui/media_picker.hpp"
 
+namespace maicord {
+// The app shake moves the composition visual; the fixture counts the moves.
+u32 shake_offsets, shake_rests;
+HRESULT d3d11_device_owner_set_offset(D3D11DeviceOwner*, float x, float y) noexcept {
+    ++(x == 0 && y == 0 ? shake_rests : shake_offsets);
+    return 0;
+}
+} // namespace maicord
+
 namespace maicord::app_detail {
 void test_activity_retry(void (*)(bool, const char*) noexcept) noexcept;
 void test_custom_status_retry(void (*)(bool, const char*) noexcept) noexcept;
@@ -56,7 +65,7 @@ void set_popup_owner(PopupOwnerKind owner) noexcept {
         application_commands_dismiss();
     g_app.popup_owner_kind = owner;
 }
-bool reveal_command_row(float, float) noexcept { return true; }
+bool reveal_command_row(float, float, bool) noexcept { return true; }
 // No plugins are loaded in this fixture.
 u32 application_plugins_commands(Utf8View, Slice<NativePluginSdkCommandView>) noexcept { return 0; }
 bool application_plugins_command_pending() noexcept { return false; }
@@ -118,14 +127,21 @@ bool application_composer_fill_command(Utf8View name) noexcept {
                                                                 {text, name.bytes + 2}),
                                  true);
 }
-// Built-in commands: the picker searches, group leave and DM open they start.
+// Built-in commands: the inline results, group leave and DM open they start.
 UiMediaPickerKind searched_kind;
 char searched[64];
-u32 searched_bytes, searches;
-bool application_media_picker_open_search(UiMediaPickerKind kind, Utf8View query) noexcept {
+u32 searched_bytes, searches, inline_closes;
+bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect) noexcept {
     searched_kind = kind;
     searched_bytes = utf8_copy_truncated(searched, query);
     ++searches;
+    return true;
+}
+void application_media_picker_inline_close() noexcept {
+    ++inline_closes;
+}
+bool application_media_picker_inline_key(u32, bool* handled) noexcept {
+    *handled = false;
     return true;
 }
 u64 left_group;
@@ -152,13 +168,6 @@ char payload[65536];
 u32 payload_bytes;
 u64 submitted_channel, submitted_guild, submitted_application, submitted_nonce, submitted_request;
 RestClientSubmitError submit_error;
-bool measure_header_name(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
-    if (!request.no_wrap || request.styles.count != 1 ||
-        request.styles[0].byte_count != request.text.bytes || request.styles[0].flags != text_style_bold)
-        return false;
-    *value = {{47, 20}, 16, 1};
-    return true;
-}
 void check(bool ok, const char* label) noexcept {
     test_check(&failures, ok, label);
 }
@@ -674,12 +683,21 @@ void builtin_cases() noexcept {
             edit(typed);
             return true;
         };
+        // The discovery list shows 420 DIPs at a time; each name's query shows
+        // whether this channel lists it.
+        const auto listed = [](Utf8View query, Utf8View name) noexcept {
+            edit(query);
+            return action_named(name) != 0;
+        };
         edit(utf8_literal("/"));
-        check(action_named(utf8_literal("/shrug")) && action_named(utf8_literal("/gif")) &&
-                  action_named(utf8_literal("/nick")) && action_named(utf8_literal("/thread")) &&
-                  action_named(utf8_literal("/kick")) && !action_named(utf8_literal("/ban")) &&
-                  !action_named(utf8_literal("/timeout")) && !action_named(utf8_literal("/leave")) &&
-                  action_named(utf8_literal("Built-in")),
+        check(action_named(utf8_literal("Built-in")) && listed(utf8_literal("/shrug"), utf8_literal("/shrug")) &&
+                  listed(utf8_literal("/gif"), utf8_literal("/gif")) &&
+                  listed(utf8_literal("/nick"), utf8_literal("/nick")) &&
+                  listed(utf8_literal("/thread"), utf8_literal("/thread")) &&
+                  listed(utf8_literal("/kick"), utf8_literal("/kick")) &&
+                  !listed(utf8_literal("/ban"), utf8_literal("/ban")) &&
+                  !listed(utf8_literal("/timeout"), utf8_literal("/timeout")) &&
+                  !listed(utf8_literal("/leave"), utf8_literal("/leave")),
               "the picker lists the client's built-in commands this channel allows, in their own section");
         check(pick(utf8_literal("/shrug"), utf8_literal("/shrug message:hello")) &&
                   application_commands_key(VK_RETURN) &&
@@ -688,6 +706,15 @@ void builtin_cases() noexcept {
         bool handled = true;
         check(application_commands_send(&handled) && !handled,
               "the rewritten message sends as typed rather than as a command");
+        edit(utf8_literal("/shrug "));
+        check(g_app.message_composer_scene.command.name_bytes == 6 &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("/shrug ")),
+              "typing a command's whole name and a space selects it, like the client");
+        edit(utf8_literal("/shrug hi"));
+        // The option's value ends at its end marker (U+2063), the caret before it.
+        check(utf8_equal(message_composer_text(composer), utf8_literal("/shrug message:hi\xE2\x81\xA3")) &&
+                  composer.caret == composer.bytes - 3,
+              "text after a command whose only option is optional becomes that option's value");
         check(pick(utf8_literal("/tableflip"), utf8_literal("/tableflip")) && application_commands_key(VK_RETURN) &&
                   utf8_equal(message_composer_text(composer),
                              utf8_literal("(\xE2\x95\xAF\xC2\xB0\xE2\x96\xA1\xC2\xB0)\xE2\x95\xAF\xEF\xB8\xB5 "
@@ -700,10 +727,11 @@ void builtin_cases() noexcept {
                   application_commands_key(VK_RETURN) &&
                   utf8_equal(message_composer_text(composer), utf8_literal("||ending||")),
               "/spoiler marks the message as a spoiler");
-        check(pick(utf8_literal("/gif"), utf8_literal("/gif query:cats")) && application_commands_key(VK_RETURN) &&
-                  searches == 1 && searched_kind == UiMediaPickerKind::gif &&
-                  utf8_equal({searched, searched_bytes}, utf8_literal("cats")) && !composer.bytes,
-              "/gif opens the GIF search for its query");
+        check(pick(utf8_literal("/gif"), utf8_literal("/gif query:cats")) && searches &&
+                  searched_kind == UiMediaPickerKind::gif && utf8_equal({searched, searched_bytes}, utf8_literal("cats")) &&
+                  application_commands_key(VK_RETURN) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("/gif query:cats\xE2\x81\xA3")),
+              "/gif shows its inline results for the query; Enter without a chosen result keeps the draft");
         const u32 before_nick = calls;
         check(pick(utf8_literal("/nick"), utf8_literal("/nick new_nick:Maj")) && application_commands_key(VK_RETURN) &&
                   !composer.bytes && application_commands_pending(clock_monotonic_milliseconds()) &&
@@ -718,13 +746,16 @@ void builtin_cases() noexcept {
         check(application_commands_response(response, utf8_literal(R"({"nick":"Maj"})")) &&
                   notice_says(utf8_literal("Your nickname on this server has been changed to **Maj**.")),
               "a changed nickname is answered with the client's local notice");
+        // The channel's own default archive (a day) replaces the three-day default.
+        channels[0].default_archive = 2;
         check(pick(utf8_literal("/thread"), utf8_literal("/thread name:Plans message:first")) &&
                   application_commands_key(VK_RETURN) && application_commands_submit(clock_monotonic_milliseconds()) &&
                   operation == 8 && submitted_channel == 9 &&
                   utf8_equal({payload, payload_bytes},
                              utf8_literal(
-                                 R"({"name":"Plans","type":11,"auto_archive_duration":4320,"location":"Slash Command"})")),
-              "/thread creates a public thread with the client's body");
+                                 R"({"name":"Plans","type":11,"auto_archive_duration":1440,"location":"Slash Command"})")),
+              "/thread creates a public thread with the client's body and the channel's default archive");
+        channels[0].default_archive = 0;
         response.request_id = submitted_request;
         response.status_code = 201;
         const u32 requests_before = ui.message_composer_controller.request_count;
@@ -758,9 +789,8 @@ void builtin_cases() noexcept {
               "a DM that could not open reports the client's error notice");
         reset_value(&ui.private_conversation);
         channels[0].type = 3;
-        edit(utf8_literal("/"));
         // Enter first takes the highlighted True choice, then runs the command.
-        check(action_named(utf8_literal("/leave")) && pick(utf8_literal("/leave"), utf8_literal("/leave silent:true")) &&
+        check(pick(utf8_literal("/leave"), utf8_literal("/leave silent:true")) &&
                   application_commands_key(VK_RETURN) && application_commands_key(VK_RETURN) && left_group == 9 &&
                   left_silent,
               "/leave asks to leave the group, silently when asked");
@@ -873,65 +903,32 @@ void run() noexcept {
         edit(utf8_literal("/word"));
         check(application_commands_key(VK_RETURN) && utf8_equal(message_composer_text(composer),
               utf8_literal("/wordle ")), "Enter selects command without submitting");
-        check(g_app.popup_scene.item_count == 2 &&
-              (g_app.popup_scene.items[0].flags & popup_item_command_header) &&
-              utf8_equal(g_app.popup_scene.items[0].detail, utf8_literal("Play wordle")) &&
-              ui_rect_height(g_app.popup_scene.rectangle) <= kUiMenuRowHeight + 2 * kPopupPanelPadding,
-              "selected no-option command collapses into a compact description and close header");
         const auto& selected_scene = g_app.message_composer_scene;
+        check(!g_app.popup_scene.active &&
+                  utf8_equal(message_composer_scene_command_bar_name(selected_scene), utf8_literal("/wordle")) &&
+                  utf8_equal(message_composer_scene_command_bar_detail(selected_scene), utf8_literal("Play wordle")) &&
+                  !selected_scene.command_bar_error &&
+                  ui_rect_has_area(message_composer_scene_command_bar_text_rectangle(selected_scene)),
+              "a selected command without options shows only the composer's option bar, as in the client");
         check(selected_scene.command.name_bytes == 7 && selected_scene.command.bot_id == 11 &&
               selected_scene.display_style_count == 1 && selected_scene.display_styles[0].byte_offset == 0 &&
               selected_scene.display_styles[0].byte_count == 7 &&
               (selected_scene.display_styles[0].flags & text_style_bold) &&
               ui_rect_has_area(message_composer_scene_command_avatar(selected_scene)),
               "selected command projects its bot avatar and bold editable name into the composer");
-        const auto* close_layout = popup_scene_layout_node(g_app.popup_scene, g_app.popup_scene.rows[1].widget);
-        bool hover_changed = false;
-        check(close_layout && popup_scene_set_hover(&g_app.popup_scene,
-              (close_layout->rectangle.left + close_layout->rectangle.right) * .5f,
-              (close_layout->rectangle.top + close_layout->rectangle.bottom) * .5f, &hover_changed) &&
-              popup_scene_selected_action(g_app.popup_scene) == action_named(utf8_literal("Clear command")),
-              "compact close control owns only its trailing hit target");
-        command_viewport.right = 240;
-        check(refresh_message_composer_ui() && g_app.popup_scene.rectangle.right <= 240 &&
-              ui_rect_height(g_app.popup_scene.rectangle) <= kUiMenuRowHeight + 2 * kPopupPanelPadding,
-              "compact command header stays inside a narrow composer viewport");
-        command_viewport.right = 800;
-        check(refresh_message_composer_ui(), "restore command viewport");
-        UiResolvedThemeStyles command_styles{};
-        command_styles.ready = true;
-        command_styles.geometry_revision = 1;
-        command_styles.metrics.menu_row_height = 44;
-        command_styles.metrics.menu_padding = 8;
-        check(popup_scene_bind_theme_styles(&g_app.popup_scene, &command_styles) &&
-              ui_rect_height(g_app.popup_scene.rectangle) == 60,
-              "compact command header follows resolved menu geometry");
-        check(popup_scene_bind_theme_styles(&g_app.popup_scene, nullptr), "restore command menu geometry");
-        UiTextMeasureRecord header_measure_records[4]{};
-        UiTextMeasureCache header_measure{};
-        UiTextCommand header_text[4]{}; UiTextCommandStream header_stream{};
-        UiTextOutput header_stream_output{&header_stream, nullptr};
-        const auto original_header_name = g_app.popup_scene.items[0].label;
-        g_app.popup_scene.items[0].label = utf8_literal("/caf\xC3\xA9");
-        bool measured_name = false, measured_description = false;
-        const bool header_shaped = ui_text_measure_cache_initialize(&header_measure, {header_measure_records, 4},
-            measure_header_name, nullptr) && ui_text_command_stream_initialize(&header_stream, {header_text, 4}) &&
-            popup_text_presentation_build_output(g_app.popup_scene, kDefaultTheme, &header_stream_output, &header_measure);
-        float name_right = 0, description_left = 0;
-        for (u32 i = 0; header_shaped && i < header_stream.count; ++i) {
-            const auto& item = header_text[i];
-            if (utf8_equal(item.text, g_app.popup_scene.items[0].label)) {
-                measured_name = ui_rect_width(item.rectangle) == 47;
-                name_right = item.rectangle.right;
-            } else if (utf8_equal(item.text, g_app.popup_scene.items[0].detail)) {
-                measured_description = true;
-                description_left = item.rectangle.left;
-            }
-        }
-        check(header_shaped && measured_name && measured_description && header_measure.backend_calls == 1 &&
-              description_left - name_right == UiThemeMetrics{}.menu_gap,
-              "command summary joins Unicode bold name and description using shaped width and theme gap");
-        g_app.popup_scene.items[0].label = original_header_name;
+        const auto* bar_layout = ui_widget_manager_layout_node(selected_scene.widgets, selected_scene.command_bar);
+        const auto* close_layout =
+            message_composer_scene_layout_node(selected_scene, MessageComposerControl::command_close);
+        const auto* edit_layout = message_composer_scene_layout_node(selected_scene, MessageComposerControl::edit);
+        check(bar_layout && close_layout && edit_layout &&
+                  ui_rect_height(bar_layout->rectangle) == kMessageComposerCommandBarHeight &&
+                  bar_layout->rectangle.bottom <= edit_layout->rectangle.top &&
+                  close_layout->rectangle.right <= bar_layout->rectangle.right &&
+                  message_composer_scene_hit_test(selected_scene,
+                                                  (close_layout->rectangle.left + close_layout->rectangle.right) * .5f,
+                                                  (close_layout->rectangle.top + close_layout->rectangle.bottom) * .5f) ==
+                      MessageComposerControl::command_close,
+              "the option bar stacks above the editor with its trailing close button");
         const u32 before = calls, modals_before = modal_nonces;
         check(application_commands_key(VK_RETURN) && !g_app.popup_scene.active && !composer.bytes &&
               calls == before && modal_nonces == modals_before + 1,
@@ -1039,14 +1036,14 @@ void run() noexcept {
               "inserting over a written draft asks to clear it first");
         check(confirm_request.save && confirm_request.valid(confirm_request.owner) &&
                   confirm_request.save(confirm_request.owner, {}) &&
-                  utf8_equal(message_composer_text(composer), utf8_literal("/echo ")) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("/echo text:\xE2\x81\xA3")) &&
                   g_app.message_composer_scene.command.name_bytes == 5,
-              "confirming the clear inserts and selects the command");
+              "confirming the clear inserts and selects the command with its required option as a chip");
         reset_value(&confirm_request);
         confirm_opens = false;
         edit({});
         check(application_commands_insert(0, 103, utf8_literal("admin group run")) &&
-                  utf8_equal(message_composer_text(composer), utf8_literal("/admin group run ")) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("/admin group run count:\xE2\x81\xA3")) &&
                   g_app.message_composer_scene.command.name_bytes == 16,
               "a command mention selects its subcommand by id and full name");
         edit({});
@@ -1061,13 +1058,13 @@ void run() noexcept {
               "Escape-style popup dismissal keeps the selected editable command identity");
         edit(utf8_literal("/wor"));
         check(g_app.popup_scene.active && !g_app.message_composer_scene.command.name_bytes &&
-              (g_app.popup_scene.items[0].flags & popup_item_command_category),
-              "backspacing through a selected command name restores discovery and clears its decoration");
+              popup_items_command_picker({g_app.popup_scene.items.data, g_app.popup_scene.item_count}),
+              "backspacing through a selected command name restores the picker and clears its decoration");
         application_commands_key(VK_RETURN);
-        const u32 clear_action = action_named(utf8_literal("Clear command"));
-        check(clear_action && application_commands_activate(clear_action) && !composer.bytes &&
-              !g_app.popup_scene.active && !g_app.message_composer_scene.command.name_bytes,
-              "close clears selected command and restores the empty composer");
+        check(application_commands_close() && !composer.bytes && !g_app.popup_scene.active &&
+                  !g_app.message_composer_scene.command.name_bytes &&
+                  !message_composer_scene_command_bar_name(g_app.message_composer_scene).bytes,
+              "the option bar's close button clears the selected command and restores the empty composer");
 
         edit(utf8_literal("/echo \t"));
         check(action_named(utf8_literal("/echo")) != 0,
@@ -1097,59 +1094,68 @@ void run() noexcept {
             for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
                 if (utf8_equal(g_app.popup_scene.items[i].label, utf8_literal("/search")))
                     pick_row = &g_app.popup_scene.items[i];
-            check(pick_row && utf8_equal(pick_row->detail, utf8_literal("Search\x1FTest\x1Fquery  +1 optional")),
+            check(pick_row && utf8_equal(pick_row->detail, utf8_literal("Search\x1FTest\x1Fquery\x1E+1 optional")),
                   "optional options collapse into the client's +N optional");
         }
         edit(utf8_literal("/"));
-        edit(utf8_literal("/echo text:\"keep quoted value\""));
+        edit(utf8_literal("/echo text:keep \"quoted\" value"));
         const u32 echo_action = action_named(utf8_literal("/echo"));
         check(echo_action && application_commands_activate(echo_action) &&
-              utf8_equal(message_composer_text(composer), utf8_literal("/echo text:\"keep quoted value\"")),
+              utf8_equal(message_composer_text(composer), utf8_literal("/echo text:keep \"quoted\" value\xE2\x81\xA3")),
               "selecting an exact typed command preserves its existing named arguments");
         {
             refresh_message_composer_ui();
+            // The option is the client's chip: its blank and name project to the
+            // chip's head and the value runs to its end marker.
             const auto& scene = g_app.message_composer_scene;
-            bool key_pill = false, value_plain = true;
-            for (u32 i = 0; i < scene.display_style_count; ++i) {
-                const auto& span = scene.display_styles[i];
-                if (text_style_is_command_option(span.flags))
-                    key_pill |= span.byte_offset == 6 && span.byte_count == 5;
-                if (text_style_is_command_option(span.flags) && span.byte_offset + span.byte_count > 11)
-                    value_plain = false;
-            }
-            check(key_pill && value_plain, "the selected command's typed option key draws as an option pill");
+            bool head = false;
+            for (u32 i = 0; i < scene.projection_span_count; ++i)
+                head |= scene.projection_spans[i].kind == MessageComposerProjectionKind::command_option &&
+                        scene.projection_spans[i].source_first == 5 && scene.projection_spans[i].source_last == 11 &&
+                        (scene.projection_spans[i].target & message_composer_chip_active);
+            MessageComposerChipRange chips[2]{};
+            check(head && message_composer_scene_chip_ranges(scene, {chips, 2}) == 1 && !chips[0].open_end &&
+                      chips[0].first < chips[0].key_last && chips[0].key_last < chips[0].value_last &&
+                      (chips[0].flags & message_composer_chip_active),
+                  "the selected command's typed option draws as the client's active option chip");
         }
         check(application_commands_key(VK_RETURN) && application_commands_submit(1000) && operation == 2 &&
-              payload_contains(utf8_literal("\"value\":\"keep quoted value\"")),
-              "typed arguments survive discovery, selection and interaction serialization");
+              payload_contains(utf8_literal("\"value\":\"keep \\\"quoted\\\" value\"")),
+              "typed values are sent as typed, quotes included, like the client's pill text");
         respond(204);
 
         edit(utf8_literal("/pick"));
         application_commands_key(VK_RETURN);
-        const u32 old_option_action = action_named(utf8_literal("mode"));
-        application_commands_key(VK_TAB);
-        check((g_app.popup_scene.items[0].flags & popup_item_command_header) &&
-              utf8_equal(g_app.popup_scene.items[0].label, utf8_literal("mode")) &&
-              g_app.popup_scene.item_count == 4 && ui_rect_height(g_app.popup_scene.rectangle) < 200,
-              "focused option shows its compact summary above only its two choices");
+        // The client sets a chosen command up with its required options as
+        // empty chips, the caret in the first: its choices list right away.
+        check(utf8_equal(message_composer_text(composer), utf8_literal("/pick mode:\xE2\x81\xA3")) &&
+              composer.caret == composer.bytes - 3 && g_app.popup_scene.item_count == 3 &&
+              (g_app.popup_scene.items[0].flags & popup_item_command_section) &&
+              utf8_equal(g_app.popup_scene.items[0].label, utf8_literal("OPTIONS")) &&
+              !(g_app.popup_scene.items[1].flags & popup_item_command_row) &&
+              utf8_equal(message_composer_scene_command_bar_name(g_app.message_composer_scene), utf8_literal("mode")) &&
+              ui_rect_height(g_app.popup_scene.rectangle) == kCommandTitleHeight + 2 * kCommandGenericRowHeight +
+                                                                    kCommandListInset,
+              "a chosen command's required option becomes the active chip with its choices under the option bar");
         const u32 choice_action = action_named(utf8_literal("Two"));
         check(choice_action && application_commands_activate(choice_action) &&
-              utf8_equal(message_composer_text(composer), utf8_literal("/pick mode:Two ")),
+              utf8_equal(message_composer_text(composer), utf8_literal("/pick mode:Two\xE2\x81\xA3")) &&
+              composer.caret == composer.bytes,
               "static choice shows its name in the draft like the official client");
         check(application_commands_key(VK_RETURN) && application_commands_submit(1001) &&
               payload_contains(utf8_literal("\"type\":4,\"value\":2")),
               "chosen numeric choice name executes as its JSON number value");
         respond(204);
-        check(old_option_action && application_commands_activate(old_option_action) && !composer.bytes,
-              "a retired option action cannot dereference or edit a completed command");
+        check(application_commands_activate(choice_action) && !composer.bytes,
+              "a retired choice action cannot dereference or edit a completed command");
 
         edit(utf8_literal("/upload"));
         application_commands_key(VK_RETURN);
-        const u32 file_option = action_named(utf8_literal("file"));
+        const u32 file_option = action_named(utf8_literal("Drag and drop or click to upload file"));
         const u32 opens = picker_opens;
         check(file_option && application_commands_activate(file_option) && picker_opens == opens + 1 &&
-                  utf8_equal(message_composer_text(composer), utf8_literal("/upload file:")),
-              "an attachment option asks for its file like the client's upload pill");
+                  utf8_equal(message_composer_text(composer), utf8_literal("/upload file:\xE2\x81\xA3")),
+              "an attachment chip asks for its file like the client's upload area");
         const u32 before_upload = calls;
         check(application_commands_key(VK_RETURN) && composer.bytes && calls == before_upload &&
                   !application_commands_pending(1100),
@@ -1192,12 +1198,60 @@ void run() noexcept {
 
         check(application_commands_tick(1) && application_commands_next_wake() != 1,
               "sent commands' local messages repaint before the next picker");
+        {
+            // The end marker is the client's pill end: "name:" typed inside a
+            // value stays text, Tab leaves the chip, a key typed after it makes
+            // the next chip, and Backspace after a chip deletes its last character.
+            edit(utf8_literal("/search"));
+            application_commands_key(VK_RETURN);
+            const bool set_up = utf8_equal(message_composer_text(composer), utf8_literal("/search query:\xE2\x81\xA3")) &&
+                                composer.caret == 14;
+            composer_apply_result(message_composer_insert_utf8(&composer, utf8_literal("a count:")), true);
+            MessageComposerChipRange chips[3]{};
+            check(set_up &&
+                      utf8_equal(message_composer_text(composer),
+                                 utf8_literal("/search query:a count:\xE2\x81\xA3")) &&
+                      composer.caret == 22 &&
+                      message_composer_scene_chip_ranges(g_app.message_composer_scene, {chips, 3}) == 1,
+                  "an option name typed inside a chip's value stays part of that value");
+            check(application_commands_option_tab(false) && composer.caret == 25 &&
+                      composer_apply_result(message_composer_insert_utf8(&composer, utf8_literal(" count:")), true) &&
+                      utf8_equal(message_composer_text(composer),
+                                 utf8_literal("/search query:a count:\xE2\x81\xA3 count:\xE2\x81\xA3")) &&
+                      composer.caret == composer.bytes - 3 &&
+                      message_composer_scene_chip_ranges(g_app.message_composer_scene, {chips, 3}) == 2,
+                  "after the chip's end a typed option name starts the next chip with the caret in it");
+            message_composer_set_selection(&composer, 25, 25);
+            application_commands_prepare_delete(false);
+            check(composer_apply_result(message_composer_backspace(&composer), true) &&
+                      utf8_equal(message_composer_text(composer),
+                                 utf8_literal("/search query:a count\xE2\x81\xA3 count:\xE2\x81\xA3")) &&
+                      composer.caret == 21,
+                  "Backspace right after a chip deletes its value's last character, like the client");
+            // Back in the autocomplete option: the client's five Loading rows
+            // under the title while the suggestions are on their way.
+            check(g_app.popup_scene.active && g_app.popup_scene.item_count == 6 &&
+                      (g_app.popup_scene.items[0].flags & popup_item_command_section) &&
+                      popup_item_placeholder(g_app.popup_scene.items[1]) &&
+                      popup_item_placeholder(g_app.popup_scene.items[5]) &&
+                      ui_rect_height(g_app.popup_scene.rectangle) ==
+                          kCommandTitleHeight + 5 * kCommandGenericLoadingHeight + kCommandListInset,
+                  "a loading autocomplete option lists the client's placeholder rows");
+            edit({});
+        }
         edit(utf8_literal("/search"));
         application_commands_key(VK_RETURN);
-        edit(utf8_literal("/search query:\"old\" count:2"));
-        const u32 query_action = action_named(utf8_literal("query"));
-        check(query_action && application_commands_activate(query_action),
-              "an existing middle option can be focused without duplicating it");
+        edit(utf8_literal("/search query:old count:2"));
+        // Shift+Tab selects the previous chip's value (the client's
+        // selectPreviousCommandOption); Tab the next one, then the end.
+        // Typed options get end markers: "/search query:old⁣ count:2⁣".
+        check(composer.caret == 28 && application_commands_option_tab(true) && composer.anchor == 14 &&
+                  composer.caret == 17 && application_commands_option_tab(false) && composer.anchor == 27 &&
+                  composer.caret == 28 && application_commands_option_tab(false) && composer.anchor == 31 &&
+                  composer.caret == 31 && application_commands_option_tab(true) && composer.anchor == 27 &&
+                  composer.caret == 28 && application_commands_option_tab(true) && composer.anchor == 14 &&
+                  composer.caret == 17,
+              "Tab and Shift+Tab move between the option chips like the client");
         const u64 suggestion_due = application_commands_next_wake();
         check(suggestion_due && application_commands_submit(suggestion_due) && operation == 3 &&
               submitted_nonce && payload_contains(utf8_literal("\"value\":\"old\",\"focused\":true")) &&
@@ -1215,8 +1269,10 @@ void run() noexcept {
               "controlled Gateway autocomplete completion updates the active option picker");
         const u32 dynamic_action = action_named(utf8_literal("Picked"));
         check(dynamic_action && application_commands_activate(dynamic_action) &&
-              utf8_equal(message_composer_text(composer), utf8_literal("/search query:\"picked value\" count:2")),
-              "dynamic choice replaces only the middle value and preserves later arguments");
+              utf8_equal(message_composer_text(composer),
+                         utf8_literal("/search query:Picked\xE2\x81\xA3 count:2\xE2\x81\xA3")) &&
+              composer.anchor == 30 && composer.caret == 31,
+              "a suggestion's name replaces only its value, then the next chip is selected");
         check(application_commands_key(VK_RETURN) && application_commands_submit(clock_monotonic_milliseconds()) &&
               operation == 2 && payload_contains(utf8_literal("\"value\":\"picked value\"")),
               "accepted dynamic choice is execution data rather than another autocomplete request");
@@ -1224,13 +1280,32 @@ void run() noexcept {
 
         edit(utf8_literal("/echo")); application_commands_key(VK_RETURN);
         const u32 unchanged = calls;
-        check(application_commands_key(VK_RETURN) && composer.bytes && g_app.popup_scene.active && calls == unchanged,
-              "invalid arguments preserve editor and never submit");
-        UiTextCommand command_text[96]{}; UiTextCommandStream stream{};
-        UiTextOutput stream_output{&stream, nullptr};
-        ui_text_command_stream_initialize(&stream, {command_text, 96});
-        check(popup_text_presentation_build_output(g_app.popup_scene, kDefaultTheme, &stream_output) && stream.count,
-              "command error picker retains visible text commands");
+        check(utf8_equal(message_composer_text(composer), utf8_literal("/echo text:\xE2\x81\xA3")) &&
+                  application_commands_key(VK_RETURN) && composer.bytes && calls == unchanged &&
+                  g_app.message_composer_scene.command_bar_error &&
+                  utf8_equal(message_composer_scene_command_bar_name(g_app.message_composer_scene),
+                             utf8_literal("text")) &&
+                  utf8_equal(message_composer_scene_command_bar_detail(g_app.message_composer_scene),
+                             utf8_literal("This option is required. Specify a value.")),
+              "an empty required option stops the send and the option bar shows the client's message");
+        {
+            // The refused send shakes the app: a move on every other frame for
+            // 200 ms, then the content rests again.
+            const u64 shake_at = clock_monotonic_milliseconds();
+            const u32 moves = shake_offsets, rests = shake_rests;
+            check(application_commands_next_wake() && application_commands_tick(shake_at) &&
+                      shake_offsets == moves && application_commands_tick(shake_at + 16) &&
+                      shake_offsets == moves + 1 && application_commands_tick(shake_at + 32) &&
+                      shake_offsets == moves + 1 && application_commands_tick(shake_at + 400) &&
+                      shake_rests == rests + 1 && application_commands_tick(shake_at + 416) &&
+                      shake_rests == rests + 1,
+                  "a refused send shakes the app like the client, then lets it rest");
+        }
+        edit(utf8_literal("/echo text:hi"));
+        check(!g_app.message_composer_scene.command_bar_error &&
+                  utf8_equal(message_composer_scene_command_bar_name(g_app.message_composer_scene),
+                             utf8_literal("text")),
+              "a failed option is checked again as its value changes");
 
         // Frequently Used: settings-proto/2 command frecency, read and saved like the client.
         {
@@ -1259,7 +1334,7 @@ void run() noexcept {
             check(first_row < g_app.popup_scene.item_count &&
                       utf8_equal(g_app.popup_scene.items[first_row].label, utf8_literal("/wordle")) &&
                       utf8_equal(g_app.popup_scene.items[first_row + 1].label, utf8_literal("/echo")) &&
-                      action_named(utf8_literal("/wordle"), 1) && action_named(utf8_literal("/echo"), 1),
+                      first_row && (g_app.popup_scene.items[first_row - 1].flags & popup_item_command_section),
                   "Frequently Used leads the picker by frecency score, replaying uses not saved yet");
             check(application_commands_tick(1), "pending local-message repaints drain first");
             const u64 save = application_commands_next_wake();
@@ -1276,28 +1351,96 @@ void run() noexcept {
             check(!application_commands_pending(save + 60000) && application_commands_next_wake() != save,
                   "a confirmed save leaves no pending frecency work");
             {
-                const PopupItem* frequent_rail = nullptr;
-                for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
-                    if (utf8_equal(g_app.popup_scene.items[i].label, utf8_literal("Frequently Used")))
-                        frequent_rail = &g_app.popup_scene.items[i];
-                check(frequent_rail && (frequent_rail->flags & popup_item_command_category) &&
-                          ui_menu_row_icon(frequent_rail->presentation) == UiIcon::recent,
-                      "the rail offers the client's clock entry for Frequently Used");
-                u32 rows = 0;
-                if (frequent_rail && application_commands_activate(frequent_rail->action))
+                const auto rail_item = [](Utf8View label) noexcept -> const PopupItem* {
                     for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
-                        rows += (g_app.popup_scene.items[i].flags & popup_item_command_row) ? 1u : 0u;
-                check(rows >= 2 && rows <= 5 && action_named(utf8_literal("/wordle")) &&
-                          !action_named(utf8_literal("/wordle"), 1),
-                      "the clock entry shows only the frequently used commands");
-                const u32 all_rail = action_named(utf8_literal("All"));
-                check(all_rail && application_commands_activate(all_rail) &&
-                          action_named(utf8_literal("/wordle"), 1),
-                      "All restores the full list led by Frequently Used");
+                        if ((g_app.popup_scene.items[i].flags & popup_item_command_category) &&
+                            utf8_equal(g_app.popup_scene.items[i].label, label))
+                            return &g_app.popup_scene.items[i];
+                    return nullptr;
+                };
+                const auto section = [](Utf8View label) noexcept {
+                    for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
+                        if ((g_app.popup_scene.items[i].flags & popup_item_command_section) &&
+                            utf8_equal(g_app.popup_scene.items[i].label, label))
+                            return true;
+                    return false;
+                };
+                const PopupItem* frequent_rail = rail_item(utf8_literal("Frequently Used"));
+                check(frequent_rail && ui_menu_row_icon(frequent_rail->presentation) == UiIcon::recent &&
+                          (frequent_rail->flags & popup_item_checked) && section(utf8_literal("Frequently Used")) &&
+                          rail_item(utf8_literal("Test")) && !rail_item(utf8_literal("All")),
+                      "the rail leads with the clock, highlights the section in view and has no All entry");
+                const PopupItem* app_rail = rail_item(utf8_literal("Test"));
+                const u32 app_action = app_rail ? app_rail->action : 0;
+                check(app_action && application_commands_activate(app_action) && !section(utf8_literal("Frequently Used")) &&
+                          section(utf8_literal("Test")) && !section(utf8_literal("Other")) &&
+                          action_named(utf8_literal("/wordle")) && rail_item(utf8_literal("Test")) &&
+                          (rail_item(utf8_literal("Test"))->flags & popup_item_checked),
+                      "a rail entry shows its section alone, Frequently Used commands included, and stays highlighted");
+                check(app_action && application_commands_activate(app_action) &&
+                          section(utf8_literal("Frequently Used")) && section(utf8_literal("Other")),
+                      "clicking the filtered entry again lists every section");
+                check(application_commands_activate(app_action) &&
+                          application_commands_activate(action_named(utf8_literal("Frequently Used"))) &&
+                          section(utf8_literal("Frequently Used")) && section(utf8_literal("Other")),
+                      "the clock clears a filter and returns to the top, as in the client");
+                // MaiCord's rail keys: Left enters the rail at the highlighted
+                // section, Up/Down move, Enter clicks, Right returns to the list.
+                const auto selected_item = [] noexcept -> const PopupItem* {
+                    const u32 n = g_app.popup_scene.selected_index;
+                    return n < g_app.popup_scene.item_count ? &g_app.popup_scene.items[n] : nullptr;
+                };
+                check(application_commands_key(VK_LEFT) && selected_item() &&
+                          (selected_item()->flags & popup_item_command_category) &&
+                          utf8_equal(selected_item()->label, utf8_literal("Frequently Used")),
+                      "Left moves the keyboard into the rail at the highlighted section");
+                check(application_commands_key(VK_DOWN) && selected_item() &&
+                          utf8_equal(selected_item()->label, utf8_literal("Other")) && application_commands_key(VK_UP) &&
+                          application_commands_key(VK_UP) && utf8_equal(selected_item()->label,
+                                                                         utf8_literal("Frequently Used")),
+                      "Up and Down move through the rail and stop at its ends");
+                check(application_commands_key(VK_DOWN) && application_commands_key(VK_DOWN) &&
+                          application_commands_key(VK_RETURN) && selected_item() &&
+                          utf8_equal(selected_item()->label, utf8_literal("Test")) &&
+                          !section(utf8_literal("Frequently Used")) && section(utf8_literal("Test")) &&
+                          g_app.composer_menu_held_key == VK_RETURN,
+                      "Enter in the rail filters to the focused section and keeps the rail focus");
+                g_app.composer_menu_held_key = 0;
+                const auto first_row = [] noexcept {
+                    for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
+                        if ((g_app.popup_scene.items[i].flags & popup_item_command_row) &&
+                            (g_app.popup_scene.items[i].flags & popup_item_enabled))
+                            return g_app.popup_scene.items[i].action;
+                    return 0u;
+                };
+                check(application_commands_key(VK_RIGHT) && first_row() &&
+                          popup_scene_selected_action(g_app.popup_scene) == first_row(),
+                      "Right returns to the list at the section's first row");
+                check(application_commands_key(VK_LEFT) && application_commands_key(VK_ESCAPE) &&
+                          popup_scene_selected_action(g_app.popup_scene) == first_row() &&
+                          !application_commands_key(VK_ESCAPE),
+                      "Escape leaves the rail first and only then belongs to the popup");
+                application_commands_activate(app_action);
             }
             edit(utf8_literal("/wor"));
-            check(action_named(utf8_literal("/wordle")) && !action_named(utf8_literal("/wordle"), 1),
-                  "a query hides the Frequently Used section, as in the client");
+            check(action_named(utf8_literal("/wordle")) && !action_named(utf8_literal("/wordle"), 1) &&
+                      (g_app.popup_scene.items[0].flags & popup_item_command_section) &&
+                      utf8_equal(g_app.popup_scene.items[0].label, utf8_literal("COMMANDS MATCHING /WOR")),
+                  "a query lists ranked results under the client's title without the rail or Frequently Used");
+            edit(utf8_literal("/zzzz"));
+            check(!g_app.popup_scene.active, "a query matching nothing hides the results, as in the client");
+            // The client counts built-ins too (APPLICATION_COMMAND_USED before
+            // execute, keyed by the negative id): a used /shrug joins Frequently Used.
+            // Five uses outrank the fixture's earlier commands.
+            for (u32 use = 0; use < 5; ++use) {
+                edit(utf8_literal("/shrug"));
+                bool shrug_handled = false;
+                check(application_commands_key(VK_RETURN) && application_commands_send(&shrug_handled),
+                      "built-in use: send");
+            }
+            edit(utf8_literal("/"));
+            check(action_named(utf8_literal("/shrug")) != 0,
+                  "a used built-in command is listed under Frequently Used");
             g_app.account.status.running = false;
         }
 

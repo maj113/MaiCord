@@ -23,10 +23,14 @@ struct PopupMediaCommand {
     bool avatar;
     bool guild_icon;
     u16 regional_flag;
+    // Corner radius of an avatar quad; zero keeps the round avatar mask.
+    float corner_radius;
 };
 using PopupEditGeometry = UiEditGeometry;
 
-bool popup_presentation_build(const PopupScene& scene, const Theme& theme, PaintStream* paint) noexcept;
+// measure (optional) lays out the command picker's usage chips.
+bool popup_presentation_build(const PopupScene& scene, const Theme& theme, PaintStream* paint,
+                              UiTextMeasureCache* measure = nullptr) noexcept;
 PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& scene, u32 index,
                                                               PopupMediaCommand* command) noexcept;
 bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& theme,

@@ -204,7 +204,9 @@ inline const UiWidgetManager* d3d11_renderer_visible_focus_owner(const D3D11Rend
         return owner == &renderer.shortcuts_scene->widgets ? owner : nullptr;
     if (d3d11_renderer_download_visible(renderer))
         return owner == &renderer.download_scene->widgets ? owner : nullptr;
-    if (d3d11_renderer_media_picker_visible(renderer)) {
+    // Inline results never take focus: the composer (and its popup) keep it.
+    if (d3d11_renderer_media_picker_visible(renderer) &&
+        renderer.media_picker_scene->variant != UiMediaPickerVariant::inline_results) {
         const UiWidgetManager* front = &renderer.media_picker_scene->widgets;
         if (d3d11_renderer_active(renderer.profile_scene))
             front = &renderer.profile_scene->widgets;

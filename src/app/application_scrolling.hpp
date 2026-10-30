@@ -15,7 +15,8 @@ bool application_message_jump_to_present() noexcept;
 bool handle_scrollbar_begin(float pointer_x, float pointer_y) noexcept;
 bool handle_scrollbar_drag(WPARAM buttons, float pointer_y) noexcept;
 void end_scrollbar_drag() noexcept;
-bool reveal_command_row(float top, float bottom) noexcept;
+// Scrolls the command picker's body (or rail) to show [top, bottom).
+bool reveal_command_row(float top, float bottom, bool rail = false) noexcept;
 bool queue_profile_scroll(bool right, i32 delta) noexcept;
 bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept;
 bool handle_message_key(WPARAM key) noexcept;

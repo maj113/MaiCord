@@ -10,6 +10,7 @@ struct MemberListScene;
 struct MessageComposerScene;
 struct ShellNavigationScene;
 struct UserStore;
+struct UiTextMeasureCache;
 
 inline constexpr u32 kMaximumShellChromeTextCommands = 384;
 
@@ -63,7 +64,9 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                    const MemberListScene* member_scene,
                                    const UiRect* composer_text_rectangle, UiTextOutput* stream,
                                    const UserStore* users, const GuildRailScene* guild_scene,
-                                   u64 visual_selected_channel_id = 0) noexcept;
+                                   u64 visual_selected_channel_id = 0,
+                                   // Places the composer option bar's detail after its name.
+                                   UiTextMeasureCache* measure = nullptr) noexcept;
 // The member list rows alone: the commands that end build_output's stream
 // when it is given the member scene. Appends without resetting the output.
 bool shell_text_presentation_member_output(const MemberListScene& member_scene, const Theme& theme,

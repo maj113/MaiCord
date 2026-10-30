@@ -143,7 +143,8 @@ ChannelInput channel_input(const GatewayClientStateMutation& state, Utf8View nam
                                // Aliases a role's colour, so only a joined thread carries it.
                                state.thread_self_joined && channel_is_thread(state.type)
                                    ? state.thread_join_seconds
-                                   : 0u};
+                                   : 0u,
+                               state.default_archive_code};
 }
 
 bool validate_channel_state(const GatewayClientStateMutation& state, bool allow_new_thread = false) noexcept {

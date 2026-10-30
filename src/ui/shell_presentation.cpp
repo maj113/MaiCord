@@ -822,6 +822,19 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             !shell_presentation_paint_reply_mention(*composer_scene, theme, stream))
             return false;
     }
+    // The client's option bar, stacked over the editor like the reply bar,
+    // with its close button.
+    if (message_composer_scene_command_bar_name(*composer_scene).bytes) {
+        const auto* bar = ui_widget_manager_layout_node(composer_scene->widgets, composer_scene->command_bar);
+        if (!bar ||
+            !ui_background_paint_surface(stream, bar->rectangle, theme, theme.base_lower, theme.interactive,
+                                         ui_theme_metrics(theme.styles).compact_radius, 0, 1,
+                                         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
+                                         UiBackgroundBorderTone::palette) ||
+            !ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->command_close, UiIcon::circle_x,
+                                  theme, false, true, UiButtonSurface::palette))
+            return false;
+    }
     // Typing dots animate in the composer overlay; a notice keeps resting ones.
     if (message_composer_scene_typing_label(*composer_scene).bytes != 0 && !composer_scene->typing_dots &&
         !ui_typing_dots_paint(stream, ui_typing_dots_row(typing->rectangle),
@@ -832,6 +845,40 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                                                  : theme.text_primary,
                               kUiTypingDotsRest))
         return false;
+    // The selected command's option chips (the client's optionPill, r4, 1 DIP
+    // border): the value segment frames the chip and the name segment sits on
+    // its leading end. The active chip's border is the focus colour, a chip
+    // that failed its check the danger colour.
+    if (composer_presentation && composer_presentation->geometry_active && composer_presentation->chips.count) {
+        if (!paint_stream_push_clip(stream, edit->content_rectangle))
+            return false;
+        const float radius = theme.scale.radius_sm;
+        for (u32 i = 0; i < composer_presentation->chips.count; ++i) {
+            const auto& chip = composer_presentation->chips[i];
+            const bool key = ui_rect_has_area(chip.key), value = ui_rect_has_area(chip.value);
+            const UiRect box = !key     ? chip.value
+                               : !value ? chip.key
+                                        : UiRect{minimum(chip.key.left, chip.value.left),
+                                                 minimum(chip.key.top, chip.value.top),
+                                                 maximum(chip.key.right, chip.value.right),
+                                                 maximum(chip.key.bottom, chip.value.bottom)};
+            const Color border = chip.flags & message_composer_chip_error    ? theme.tokens.text.danger
+                                 : chip.flags & message_composer_chip_active ? theme.tokens.border.focus
+                                                                             : theme.tokens.option.border;
+            if (!paint_stream_push_rounded_border(stream, box, theme.tokens.option.fill, border, radius, 1))
+                return false;
+            if (!key)
+                continue;
+            const UiRect name{chip.key.left + 1, chip.key.top + 1, value ? chip.key.right : chip.key.right - 1,
+                              chip.key.bottom - 1};
+            if (!paint_stream_push_rounded(stream, name, theme.tokens.option.key, maximum(0.f, radius - 1)) ||
+                (value && !paint_stream_push(stream, minimum(name.right, name.left + radius), name.top, name.right,
+                                             name.bottom, theme.tokens.option.key)))
+                return false;
+        }
+        if (!paint_stream_pop_clip(stream))
+            return false;
+    }
     if (composer_presentation && composer_presentation->geometry_active && composer_scene->model->focused) {
         for (u32 i = 0; i < composer_presentation->composition.count; ++i) {
             auto mark = composer_presentation->composition[i];

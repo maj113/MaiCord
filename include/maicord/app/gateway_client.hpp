@@ -696,8 +696,13 @@ struct GatewayClientStateMutation {
         // READY only: AccountContentFlag bits.
         u8 account_content_flags;
     };
-    // The current member's GuildSelfMember bits (with guild_settings_self_member).
-    u8 self_member;
+    union {
+        // The current member's GuildSelfMember bits (with guild_settings_self_member).
+        u8 self_member;
+        // Channel: default_auto_archive_duration as a channel_archive_code (1
+        // hour, 1 day, 3 days, 1 week: 1..4); zero when absent or unsupported.
+        u8 default_archive_code;
+    };
     // Role objects: enhanced colours (colors.secondary_color/tertiary_color),
     // RGB | kRoleColorPresent, or zero when absent.
     u32 secondary_color;

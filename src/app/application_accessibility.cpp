@@ -473,17 +473,28 @@ void describe_popup(void*, const UiWidgetManager&, UiWidgetHandle handle, const 
         info->item = row.source_index;
         g_name.bytes = 0;
         g_name.add(item.label);
-        // Command rows join description, app and option summary with U+001F.
+        // Command rows join description, app and option summary with U+001F,
+        // the summary's option names and optional count with U+001E.
         for (u32 at = 0, begin = 0; item.detail.bytes && at <= item.detail.bytes; ++at)
-            if (at == item.detail.bytes || item.detail.data[at] == '\x1F') {
+            if (at == item.detail.bytes || item.detail.data[at] == '\x1F' || item.detail.data[at] == '\x1E') {
                 if (at > begin)
                     g_name.add(", ").add(Utf8View{item.detail.data + begin, at - begin});
                 begin = at + 1;
             }
         info->name = g_name.view();
-        if (item.flags & popup_item_command_category) {
+        // The command picker's section headers and query title are headings;
+        // its rail entries are the client's labelled section buttons.
+        if (item.flags & popup_item_command_section) {
             info->role = UiAccessRole::header;
             info->actions = ui_access_action_none;
+            return;
+        }
+        if (item.flags & popup_item_command_category) {
+            info->role = UiAccessRole::button;
+            info->actions = ui_access_action_invoke;
+            info->state |= ui_access_focusable;
+            if (scene.selected_index == row.source_index)
+                info->state |= ui_access_focused;
             return;
         }
         info->role = scene.kind == PopupKind::context_menu ? UiAccessRole::menu_item : UiAccessRole::list_item;

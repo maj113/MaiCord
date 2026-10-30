@@ -20,6 +20,28 @@ namespace maicord::app_detail {
 // No voice message recording in this runtime.
 void application_voice_message_pointer(UiButtonPointerEvent, bool, bool) noexcept {}
 } // namespace maicord::app_detail
+namespace maicord::media_picker_runtime_test {
+extern u32 builtin_uses;
+extern char builtin_replacement[];
+extern u32 builtin_replacement_bytes;
+extern ConstSlice<u8> sticker_frecency;
+extern bool command_bar;
+} // namespace maicord::media_picker_runtime_test
+namespace maicord::app_detail {
+// The commands owner ends a built-in command whose inline result was used.
+bool application_commands_builtin_used(Utf8View replacement) noexcept {
+    using namespace media_picker_runtime_test;
+    ++builtin_uses;
+    builtin_replacement_bytes = utf8_copy_truncated(builtin_replacement, kMediaCatalogMaximumUrlBytes, replacement);
+    return true;
+}
+ConstSlice<u8> application_emoji_preferences_sticker_frecency() noexcept {
+    return media_picker_runtime_test::sticker_frecency;
+}
+bool application_commands_bar_visible() noexcept {
+    return media_picker_runtime_test::command_bar;
+}
+} // namespace maicord::app_detail
 
 namespace maicord::media_picker_runtime_test {
 using namespace app_detail;
@@ -403,6 +425,290 @@ void test_server_stickers(ApplicationMediaPicker& p) noexcept {
     ui.active_channel_id = 70;
     g_app.message_composer.channel_id = 70;
 }
+// The commands owner's hook after an inline result is used.
+u32 builtin_uses;
+char builtin_replacement[kMediaCatalogMaximumUrlBytes];
+u32 builtin_replacement_bytes;
+// The synced sticker_frecency group application_emoji_preferences would hold.
+ConstSlice<u8> sticker_frecency;
+// Whether the composer shows a command's option bar (application_commands).
+bool command_bar;
+u8 sticker_frecency_bytes[64];
+// One stickers map entry: {key: id, value: {recent_uses: uses at used_ms}}.
+ConstSlice<u8> sticker_frecency_group(Utf8View id, u32 uses, u64 used_ms) noexcept {
+    u8 item[48];
+    u32 item_bytes = 0;
+    for (u32 use = 0; use < uses; ++use) {
+        item[item_bytes++] = 0x10;
+        for (u64 value = used_ms; ; value >>= 7) {
+            item[item_bytes++] = static_cast<u8>((value & 0x7f) | (value > 0x7f ? 0x80 : 0));
+            if (value <= 0x7f)
+                break;
+        }
+    }
+    auto* out = sticker_frecency_bytes;
+    u32 at = 0;
+    out[at++] = 0x0a;
+    out[at++] = static_cast<u8>(4 + id.bytes + item_bytes);
+    out[at++] = 0x0a;
+    out[at++] = static_cast<u8>(id.bytes);
+    copy_bytes(out + at, id.data, id.bytes);
+    at += id.bytes;
+    out[at++] = 0x12;
+    out[at++] = static_cast<u8>(item_bytes);
+    copy_bytes(out + at, item, item_bytes);
+    return {out, at + item_bytes};
+}
+constexpr auto strip_body = utf8_literal(
+    R"([{"id":"a","title":"A","width":640,"height":128,"src":"https://static.klipy.com/ii/00000000000000000000000000000000/00/00/a.webp","url":"https://klipy.com/gifs/a"},)"
+    R"({"id":"b","title":"B","width":640,"height":128,"src":"https://static.klipy.com/ii/00000000000000000000000000000000/00/00/b.webp","url":"https://klipy.com/gifs/b"},)"
+    R"({"id":"c","title":"C","width":640,"height":128,"src":"https://static.klipy.com/ii/00000000000000000000000000000000/00/00/c.webp","url":"https://klipy.com/gifs/c"}])");
+// The heading text command and its bold query span, if published.
+bool inline_heading(const UiMediaPickerScene& scene, Utf8View heading, u32 plain) noexcept {
+    static UiTextCommand commands[64];
+    UiTextCommandStream stream{};
+    UiTextOutput output{&stream, nullptr};
+    if (!ui_text_command_stream_initialize(&stream, {commands, 64}) ||
+        !ui_media_picker_scene_text_output(scene, kDefaultTheme, &output, nullptr))
+        return false;
+    for (u32 i = 0; i < stream.count; ++i)
+        if (utf8_equal(commands[i].text, heading))
+            return commands[i].styles.count == 1 && commands[i].styles[0].byte_offset == plain &&
+                   commands[i].styles[0].byte_count == heading.bytes - plain &&
+                   commands[i].styles[0].flags == text_style_bold;
+    return false;
+}
+// Text commands naming a sticker row's name, note and source.
+bool inline_row(const UiMediaPickerScene& scene, Utf8View name, Utf8View note, Utf8View source) noexcept {
+    static UiTextCommand commands[64];
+    UiTextCommandStream stream{};
+    UiTextOutput output{&stream, nullptr};
+    if (!ui_text_command_stream_initialize(&stream, {commands, 64}) ||
+        !ui_media_picker_scene_text_output(scene, kDefaultTheme, &output, nullptr))
+        return false;
+    bool named = false, noted = !note.bytes, sourced = false;
+    for (u32 i = 0; i < stream.count; ++i) {
+        named |= utf8_equal(commands[i].text, name);
+        noted |= note.bytes && utf8_equal(commands[i].text, note);
+        sourced |= utf8_equal(commands[i].text, source) && commands[i].horizontal_alignment == UiTextAlignment::end;
+    }
+    return named && noted && sourced;
+}
+// The composer's /gif strip and /sticker list (the client's integration
+// autocomplete): request, first-result selection, keys, pointer and sends.
+void test_inline_results(ApplicationMediaPicker& p) noexcept {
+    auto& ui = *g_app.account_ui;
+    const UiRect anchor{320, 560, 1280, 610};
+    const auto pointer = [](float x, float y) noexcept {
+        return MAKELPARAM(static_cast<short>(x), static_cast<short>(y));
+    };
+    check(p.active && !p.inline_mode && application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dap"), anchor) &&
+              !p.inline_mode && p.kind == UiMediaPickerKind::gif,
+          "inline results: the open expression picker suppresses them, as the client's autocomplete");
+    application_media_picker_close();
+    const auto composer_kind = p.kind;
+    const auto composer_query = message_composer_text(p.edit);
+    char kept[256];
+    const u32 kept_bytes = utf8_copy_truncated(kept, sizeof(kept), composer_query);
+    // They sit above the commands popup (or the composer) while the command's option bar shows.
+    command_bar = true;
+    g_app.popup_scene.active = true;
+    g_app.popup_owner_kind = PopupOwnerKind::commands;
+    const u64 opened = clock_monotonic_milliseconds();
+    check(application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dap"), anchor) && p.inline_mode &&
+              p.active && p.phase == UiMediaPickerPhase::loading && p.due_at >= opened + 300 &&
+              p.due_at <= clock_monotonic_milliseconds() + 300 && !application_media_picker_pending(p.due_at - 1) &&
+              application_media_picker_synchronize() && g_app.renderer.media_picker_scene == &p.scene &&
+              p.scene.variant == UiMediaPickerVariant::inline_results && ui_media_picker_scene_spinner_visible(p.scene) &&
+              p.scene.panel.left == anchor.left && p.scene.panel.right == anchor.right &&
+              p.scene.panel.bottom == anchor.top - kUiFloatingSurfaceInset && !application_media_picker_active(),
+          "inline results: /gif loads behind the client's 300 ms debounce with a spinner above the option bar, "
+          "never taking the keyboard");
+    check(send_pending(501) &&
+              utf8_equal({reinterpret_cast<const char*>(account.target), account.target_bytes},
+                         utf8_literal("/api/v10/gifs/search?q=dap&media_format=webp&locale=en-US&limit=20")),
+          "inline results: the strip asks GET /gifs/search as the client's integration search");
+    check(response(501, strip_body) && application_media_picker_synchronize() &&
+              p.phase == UiMediaPickerPhase::ready && p.scene.cell_count && p.scene.selected_index == 0 &&
+              !ui_media_picker_scene_spinner_visible(p.scene) &&
+              ui_rect_height(p.scene.panel) ==
+                  kUiInlineResultsHeadingHeight + kUiInlineResultsGifExtent + kUiInlineResultsPadding * 3 &&
+              inline_heading(p.scene, utf8_literal("Gif content matching dap"), 21),
+          "inline results: 150 DIP tiles under \"Gif content matching **dap**\", the first result selected");
+    bool handled = false;
+    check(application_media_picker_inline_key(VK_DOWN, &handled) && handled && p.scene.selected_index == 1 &&
+              application_media_picker_inline_key(VK_UP, &handled) &&
+              application_media_picker_inline_key(VK_UP, &handled) && p.scene.selected_index == 2 &&
+              p.scene.scroll_dips > 0,
+          "inline results: Up/Down step and wrap through the strip, scrolling the selected tile into view");
+    check(application_media_picker_inline_key('A', &handled) && !handled,
+          "inline results: other keys keep their composer meaning");
+    auto& controller = ui.message_composer_controller;
+    // Earlier picks fill the fixture's timeline and send tracker; these sends start afresh.
+    auto& view = g_app.message_view;
+    check(message_store_initialize(&view.store, {records, 16}, {order, 16}, {message_text, sizeof(message_text)}) &&
+              ui_variable_list_initialize(&view.list, {heights, 16}, {prefixes, 16}, 0, ui_extent_units(57)) &&
+              message_timeline_initialize(&view.timeline, &view.store, &view.list, ui_extent_units(57),
+                                          ui_extent_units(480), true) &&
+              message_composer_controller_initialize(&controller, &g_app.message_composer, &drafts, &view.timeline,
+                                                     {request_text, sizeof(request_text)}),
+          "inline results: the durable send queue starts empty");
+    const auto requests = controller.request_count;
+    check(application_media_picker_inline_key(VK_RETURN, &handled) && handled &&
+              controller.request_count == requests + 1,
+          "inline results: Enter sends the selected GIF");
+    check(builtin_uses == 1 && !builtin_replacement_bytes && !p.active && !p.inline_mode &&
+              !g_app.renderer.media_picker_scene,
+          "inline results: a sent GIF ends the command and closes the strip");
+    check(p.kind == composer_kind && utf8_equal(message_composer_text(p.edit), {kept, kept_bytes}),
+          "inline results: the expression picker keeps its tab and query");
+    // The session keeps each query's results, as the client's IntegrationQueryStore.
+    const auto open_strip = [&]() noexcept {
+        return application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dap"), anchor) &&
+               application_media_picker_synchronize() && p.phase == UiMediaPickerPhase::ready;
+    };
+    const auto submissions = account.submissions;
+    check(open_strip() && !p.wanted && !application_media_picker_next_wake() && p.scene.selected_index == 0 &&
+              account.submissions == submissions,
+          "inline results: a query answered this session shows its results at once, without asking again");
+    check(application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dapp"), anchor) &&
+              p.phase == UiMediaPickerPhase::loading && send_pending(502) &&
+              utf8_equal({reinterpret_cast<const char*>(account.target), account.target_bytes},
+                         utf8_literal("/api/v10/gifs/search?q=dapp&media_format=webp&locale=en-US&limit=20")) &&
+              response(502, strip_body) && application_media_picker_synchronize() &&
+              p.phase == UiMediaPickerPhase::ready && open_strip() && !p.wanted &&
+              application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dapp"), anchor) &&
+              application_media_picker_synchronize() && p.phase == UiMediaPickerPhase::ready && !p.wanted &&
+              account.submissions == submissions + 1,
+          "inline results: each query keeps its own results; returning to either asks nothing");
+    check(open_strip() && application_media_picker_inline_key(VK_TAB, &handled) && handled &&
+              controller.request_count == requests + 1 && builtin_uses == 2 &&
+              utf8_equal({builtin_replacement, builtin_replacement_bytes}, utf8_literal("https://klipy.com/gifs/a")),
+          "inline results: Tab inserts the GIF's link in place of the draft (the client's INSERT)");
+    check(open_strip() && p.scene.page_widgets[1].generation && !p.scene.page_widgets[0].generation,
+          "inline results: a strip wider than the composer offers only its forward arrow");
+    const auto* forward = ui_widget_manager_layout_node(p.scene.widgets, p.scene.page_widgets[1]);
+    const float fx = forward ? (forward->rectangle.left + forward->rectangle.right) * .5f : 0;
+    const float fy = forward ? (forward->rectangle.top + forward->rectangle.bottom) * .5f : 0;
+    const float paged = ui_rect_width(p.scene.body) * .8f;
+    const bool started = forward && application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pointer(fx, fy)) &&
+                         application_media_picker_window_message(WM_LBUTTONUP, 0, pointer(fx, fy)) &&
+                         ui_media_picker_scene_paging(p.scene) && p.scene.scroll_dips == 0 &&
+                         p.scene.page_to == paged && p.scene.page_duration_ms > kUiTransitionFrameMs &&
+                         p.scene.page_duration_ms <= 1'500 && p.page_at &&
+                         application_media_picker_caret_wake() == p.page_at;
+    application_media_picker_tick(p.page_at);
+    const bool eased = ui_media_picker_scene_paging(p.scene) && p.scene.scroll_dips > 0 &&
+                       p.scene.scroll_dips < paged && application_media_picker_caret_wake() == p.page_at;
+    application_media_picker_tick(p.scene.page_started_ms + p.scene.page_duration_ms);
+    check(started && eased && !ui_media_picker_scene_paging(p.scene) && p.scene.scroll_dips == paged &&
+              !application_media_picker_caret_wake() && p.scene.page_widgets[0].generation &&
+              controller.request_count == requests + 1,
+          "inline results: the arrow eases the strip 80% of its width over the client's smooth scroll, "
+          "waking each frame only while it moves, and sends nothing");
+    const auto* back = ui_widget_manager_layout_node(p.scene.widgets, p.scene.page_widgets[0]);
+    const float bx = back ? (back->rectangle.left + back->rectangle.right) * .5f : 0;
+    const float by = back ? (back->rectangle.top + back->rectangle.bottom) * .5f : 0;
+    g_app.preferences.reduced_motion = true;
+    check(back && application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pointer(bx, by)) &&
+              application_media_picker_window_message(WM_LBUTTONUP, 0, pointer(bx, by)) &&
+              !ui_media_picker_scene_paging(p.scene) && p.scene.scroll_dips == 0 &&
+              !application_media_picker_caret_wake(),
+          "inline results: reduced motion pages at once, as the client's scrollBy behavior auto");
+    g_app.preferences.reduced_motion = false;
+    // Back to the forward page for the pointer checks below.
+    const bool reopened = ui_media_picker_scene_page(&p.scene, true, 0, 1, true) && application_media_picker_synchronize();
+    check(reopened && p.scene.scroll_dips == paged, "inline results: the strip pages forward again");
+    // The widest visible tile after paging.
+    UiRect tile{};
+    for (u32 i = 0; i < p.scene.cell_count; ++i)
+        if (ui_rect_width(p.scene.projection->cells[i].clip) > ui_rect_width(tile))
+            tile = p.scene.projection->cells[i].clip;
+    const float tx = (tile.left + tile.right) * .5f, ty = (tile.top + tile.bottom) * .5f;
+    check(p.scene.selected_index == 0 &&
+              application_media_picker_window_message(WM_MOUSEMOVE, 0, pointer(tx, ty)) &&
+              p.scene.selected_index == ~u32{0} &&
+              !application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pointer(tx, anchor.bottom + 4)) &&
+              p.active,
+          "inline results: pointing at a result drops the keyboard selection; clicks elsewhere pass through");
+    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, pointer(tx, ty)) &&
+              application_media_picker_window_message(WM_LBUTTONUP, 0, pointer(tx, ty)) &&
+              controller.request_count == requests + 2 && builtin_uses == 3 && !builtin_replacement_bytes &&
+              !p.active,
+          "inline results: clicking a tile sends it");
+    check(application_media_picker_inline(UiMediaPickerKind::gif, utf8_literal("dap"), anchor) && p.inline_mode &&
+              (g_app.popup_scene.active = false, application_media_picker_synchronize()) && p.active &&
+              (command_bar = false, application_media_picker_synchronize()) && !p.active &&
+              !g_app.renderer.media_picker_scene,
+          "inline results: they outlast a hidden commands list and close with the command's option bar");
+    command_bar = true;
+    g_app.popup_scene.active = true;
+    // /sticker: the eight best sendable stickers by the client's field scores.
+    application_media_picker_gateway(sticker_update(7, guild_body), guild_body);
+    const bool listed = application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("wave"), anchor) &&
+                        p.inline_mode && p.kind == UiMediaPickerKind::sticker;
+    if (listed && p.wanted && p.operation == MediaCatalogOperation::sticker_packs)
+        send_pending(504) && response(504, full_packs());
+    check(listed && application_media_picker_synchronize() && p.phase == UiMediaPickerPhase::ready &&
+              p.source.count == kUiInlineResultsStickerLimit && p.scene.cell_count == kUiInlineResultsStickerLimit &&
+              item_at(p, 0)->sticker_id == 71 && item_at(p, 1)->sticker_id == 72 && p.scene.selected_index == 0 &&
+              inline_heading(p.scene, utf8_literal("Stickers matching wave"), 18) &&
+              inline_row(p.scene, utf8_literal("Server wave"), {}, utf8_literal("Fixture guild")) &&
+              inline_row(p.scene, utf8_literal("Pack wave"), {}, utf8_literal("Fixture pack")),
+          "inline results: /sticker lists eight matches with their server or pack, equal scores in catalog order");
+    check(application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("Fixture"), anchor) &&
+              application_media_picker_synchronize() && p.source.count == kUiInlineResultsStickerLimit &&
+              inline_row(p.scene, utf8_literal("Server wave"), utf8_literal("Similar to: fixture guild"),
+                         utf8_literal("Fixture guild")),
+          "inline results: a sticker found by its server or pack notes the match as the client does");
+    // U+1F44B waving hand, the server sticker's tag "wave", then its medium skin tone.
+    check(application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("\xF0\x9F\x91\x8B"), anchor) &&
+              application_media_picker_synchronize() && p.source.count && item_at(p, 0)->sticker_id == 71 &&
+              inline_row(p.scene, utf8_literal("Server wave"), utf8_literal("Similar to: \xF0\x9F\x91\x8B"),
+                         utf8_literal("Fixture guild")) &&
+              application_media_picker_inline(UiMediaPickerKind::sticker,
+                                              utf8_literal("\xF0\x9F\x91\x8B\xF0\x9F\x8F\xBD"), anchor) &&
+              application_media_picker_synchronize() && p.source.count && item_at(p, 0)->sticker_id == 71,
+          "inline results: a server sticker matches its tag's emoji and skin-tone variants");
+    const u64 now_ms = clock_unix_milliseconds();
+    sticker_frecency = sticker_frecency_group(utf8_literal("72"), 2, now_ms);
+    u32 entries = 0;
+    const auto entry = [](void* context, Utf8View key, const EmojiFrecencyItem& item) noexcept {
+        *static_cast<u32*>(context) += utf8_equal(key, utf8_literal("72")) && item.recent_count == 2 ? 1 : 100;
+        return true;
+    };
+    check(emoji_preferences_visit_frecency(sticker_frecency, entry, &entries) == EmojiPreferencesError::none &&
+              entries == 1,
+          "inline results: the sticker frecency fixture is one settings entry with two uses");
+    // Every "Pack wave" in the fixture shares ID 72, so its weight moves them all.
+    check(application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("wave"), anchor) &&
+              application_media_picker_synchronize() && p.source.count == kUiInlineResultsStickerLimit &&
+              item_at(p, 0)->sticker_id == 72 && item_at(p, kUiInlineResultsStickerLimit - 1)->sticker_id == 72,
+          "inline results: synced sticker frecency weighs matches by score / 100 (two uses today double it)");
+    sticker_frecency = sticker_frecency_group(utf8_literal("71"), 1, now_ms - 100ull * 86'400'000ull);
+    // Another spelling is a new search, scored again (case never changes a score).
+    bool dropped = application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("Wave"), anchor) &&
+                   application_media_picker_synchronize() && p.source.count == kUiInlineResultsStickerLimit;
+    for (u32 i = 0; dropped && i < kUiInlineResultsStickerLimit; ++i)
+        dropped = item_at(p, i)->sticker_id != 71;
+    check(dropped, "inline results: one use 100 days ago keeps a hundredth of a sticker's score");
+    sticker_frecency = {};
+    check(application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("needle"), anchor) &&
+              application_media_picker_synchronize() && p.active && !p.source.count &&
+              !g_app.renderer.media_picker_scene,
+          "inline results: no match shows nothing (pack sticker tags are not searched)");
+    const auto sticker_requests = controller.request_count;
+    check(application_media_picker_inline(UiMediaPickerKind::sticker, utf8_literal("wave"), anchor) &&
+              application_media_picker_synchronize() && application_media_picker_inline_key(VK_TAB, &handled) &&
+              handled && controller.request_count == sticker_requests + 1 && builtin_uses == 4 &&
+              !builtin_replacement_bytes && !p.active,
+          "inline results: Enter or Tab sends the selected sticker");
+    check(application_media_picker_inline(UiMediaPickerKind::gif, {}, anchor) && !p.active,
+          "inline results: an empty query shows nothing");
+    g_app.popup_scene.active = false;
+    g_app.popup_owner_kind = PopupOwnerKind::none;
+    command_bar = false;
+}
 void run() noexcept {
     if (!initialize()) {
         check(false, "picker runtime: hidden host, native scene and durable queue initialize");
@@ -469,7 +775,7 @@ void run() noexcept {
             application_media_picker_next_wake() == due && application_media_picker_submit(102, due) &&
             !account.query.limit &&
             utf8_equal({reinterpret_cast<const char*>(account.target), account.target_bytes},
-                 utf8_literal("/api/v10/gifs/search?locale=en-US&q=hello%20%26%2B&media_format=tinywebp")),
+                 utf8_literal("/api/v10/gifs/search?q=hello%20%26%2B&media_format=tinywebp&locale=en-US")),
         "picker runtime: content debounce gates the exact encoded search target with the server's page size");
     const auto admitted_generation = p.generation;
     const auto admitted_submissions = account.submissions;
@@ -1271,6 +1577,7 @@ void run() noexcept {
               ui_rect_width(g_app.media_picker->scene.panel) == persisted_width &&
               preference_saves == saves_before_release,
           "picker runtime: a recreated owner restores saved width without another preference write");
+    test_inline_results(*g_app.media_picker);
     release();
     check(!g_app.media_picker && !g_app.renderer.media_picker_scene &&
               !application_media_picker_next_wake() && !application_media_picker_caret_wake(),

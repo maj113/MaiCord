@@ -12,7 +12,9 @@
 #include "maicord/ui/navigation_foreground.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
 #include "maicord/ui/voice_panel.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/plugin_slot_surfaces.hpp"
@@ -156,7 +158,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                           const UiRect* composer_text_rectangle, UiTextOutput* stream,
                                           const UserStore* users,
                                           const GuildRailScene* guild_scene,
-                                          u64 visual_selected_channel_id) noexcept {
+                                          u64 visual_selected_channel_id, UiTextMeasureCache* measure) noexcept {
     if (!ui_text_output_valid(stream) || scene.count == 0 ||
         navigation.channel_count > navigation.channel_capacity ||
         (navigation.channel_count != 0 && !navigation.channel_rows) ||
@@ -516,6 +518,38 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                        message_composer_scene_reply_text_rectangle(*composer_scene), reply->clip_rectangle,
                                        theme.text_secondary, stream, kLookLine)))
             return reject(stream);
+        // The option bar: the name in the strong face, then its detail muted
+        // (a failed check in the danger colour), 8 DIPs apart (811559 commandInfo).
+        const Utf8View bar_name = message_composer_scene_command_bar_name(*composer_scene);
+        if (bar_name.bytes) {
+            const auto* bar = ui_widget_manager_layout_node(composer_scene->widgets, composer_scene->command_bar);
+            const UiRect text = message_composer_scene_command_bar_text_rectangle(*composer_scene);
+            const TextStyleSpan name_style{0, bar_name.bytes, text_style_bold};
+            UiTextMeasureValue measured{};
+            float name_width = ui_rect_width(text) * .5f;
+            if (measure &&
+                ui_text_measure_cache_measure(
+                    measure,
+                    {{0x434F4D4D414E44ull, hash64_bytes(kHash64Seed, bar_name.data, bar_name.bytes), 0, 0, 0},
+                     bar_name, {&name_style, 1}, {maximum(1.f, ui_rect_width(text)), kMessageComposerCommandBarHeight},
+                     true},
+                    &measured)
+                    .ok())
+                name_width = minimum(ui_rect_width(text), measured.size.width);
+            UiRect name_rectangle = text, detail_rectangle = text;
+            name_rectangle.right = minimum(text.right, text.left + name_width + 1.f);
+            detail_rectangle.left = minimum(text.right, name_rectangle.right + 8.f);
+            const Color detail_color =
+                composer_scene->command_bar_error ? theme.tokens.text.danger : ui_background_muted_text_color(theme);
+            if (!bar ||
+                !append_command(composer_scene->widgets, composer_scene->command_bar, bar_name, name_rectangle,
+                                bar->clip_rectangle, theme.text_primary, stream, kLookBold) ||
+                (ui_rect_has_area(detail_rectangle) &&
+                 !append_command(composer_scene->widgets, composer_scene->command_bar,
+                                 message_composer_scene_command_bar_detail(*composer_scene), detail_rectangle,
+                                 bar->clip_rectangle, detail_color, stream, kLookLine)))
+                return reject(stream);
+        }
         const auto mention_text = message_composer_scene_reply_mention_label(*composer_scene);
         if (mention_text.bytes) {
             const auto* mention = message_composer_scene_layout_node(

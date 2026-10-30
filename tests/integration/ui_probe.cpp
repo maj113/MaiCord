@@ -6604,16 +6604,18 @@ bool probe_autocomplete_identity() noexcept {
             u8 actual[10][4]{};
             for (u32 i = 0; i < 2; ++i) {
                 const auto r = artwork[i].rectangle;
-                const float y = (r.top + r.bottom) * .5f;
+                const float y = (r.top + r.bottom) * .5f, w = ui_rect_width(r);
                 points[i * 5] = {r.left - 4, y};
-                points[i * 5 + 1] = {r.left + 6, y};
-                points[i * 5 + 2] = {r.left + 12, y};
-                points[i * 5 + 3] = {r.left + 18, y};
+                points[i * 5 + 1] = {r.left + w * .25f, y};
+                points[i * 5 + 2] = {r.left + w * .5f, y};
+                points[i * 5 + 3] = {r.left + w * .75f, y};
                 points[i * 5 + 4] = {r.right + 4.5f, r.bottom - 6};
             }
             if (!probe_read_pixels(kDefaultTheme, {points, 10}, actual))
                 return false;
-            for (u32 i = 0; i < 2; ++i)
+            // A selected rail entry sits on its own selection plate, which
+            // only the row's surface (full width) shares with its outside.
+            for (u32 i = selected == 0 ? 1u : 0u; i < 2; ++i)
                 for (u32 channel = 0; channel < 3; ++channel) {
                     const u32 background = actual[i * 5][channel];
                     const u32 opaque = channel == 1 ? 80 : 240;
@@ -6628,31 +6630,85 @@ bool probe_autocomplete_identity() noexcept {
         }
         popup_scene_close(&g_probe.popup_scene);
     }
-    for (u32 pass = 0; pass < 2; ++pass) {
-        PopupItem items[]{{utf8_literal("All"), 200000, popup_item_enabled | popup_item_command_category},
-                          {pass ? utf8_literal("Command failed. Try again.") : utf8_literal("/wordle"),
-                           100000,
-                           static_cast<u16>(pass ? popup_item_command_row
-                                                 : popup_item_command_row | popup_item_enabled)}};
-        if (!pass)
-            items[1].detail = utf8_literal("Play wordle");
-        if (!popup_scene_open(&g_probe.popup_scene, PopupKind::autocomplete, 77, {items, 2}, anchor,
-                              viewport, ui_rect_width(anchor), true)
-                 .ok() ||
-            !rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme))
-            return false;
-        UiTextCommand text_commands[4]{};
-        UiTextCommandStream stream{};
-        UiTextOutput stream_output{&stream, nullptr};
-        UiRect rectangles[4]{};
-        if (!ui_text_command_stream_initialize(&stream, {text_commands, 4}) ||
-            !popup_text_presentation_build_output(g_probe.popup_scene, kDefaultTheme, &stream_output) || !stream.count)
-            return false;
-        for (u32 i = 0; i < stream.count; ++i)
-            rectangles[i] = text_commands[i].rectangle;
-        if (!probe_capture_frame(pass ? L"commands-error.bmp" : L"commands-picker.bmp") ||
-            !probe_text_pixels({rectangles, stream.count}, 70))
-            return false;
+    {
+        // The client's discovery browser: clock, app and Built-in rail; section
+        // headers carry the pictures, rows don't (Frequently Used rows show their
+        // app); the selected row adds its usage summary.
+        PopupItem picker[]{
+            {utf8_literal("Frequently Used"), 200000, popup_item_enabled | popup_item_command_category},
+            {.label = utf8_literal("Test app"), .action = 200001,
+             .flags = popup_item_enabled | popup_item_command_category | popup_item_avatar | popup_item_checked,
+             .media_id = 9918, .media_variant = 118},
+            {utf8_literal("Built-in"), 200002,
+             popup_item_enabled | popup_item_command_category | popup_item_separator_before},
+            {utf8_literal("Frequently Used"), 600000, popup_item_command_section},
+            {.label = utf8_literal("/wordle"), .action = 100000,
+             .flags = popup_item_enabled | popup_item_command_row | popup_item_avatar, .media_id = 9918,
+             .detail = utf8_literal("Play wordle\x1FTest app\x1F"), .media_variant = 118},
+            {utf8_literal("/shrug"), 100001, popup_item_enabled | popup_item_command_row},
+            {.label = utf8_literal("Test app"), .action = 600001, .flags = popup_item_command_section | popup_item_avatar,
+             .media_id = 9918, .media_variant = 118},
+            {utf8_literal("/echo"), 100002, popup_item_enabled | popup_item_command_row},
+            {utf8_literal("/wordle"), 100003, popup_item_enabled | popup_item_command_row},
+            {utf8_literal("Built-in"), 600002, popup_item_command_section},
+            {utf8_literal("/gif"), 100004, popup_item_enabled | popup_item_command_row}};
+        picker[0].presentation = ui_menu_row_presentation(UiIcon::recent);
+        picker[2].presentation = ui_menu_row_presentation(UiIcon::command);
+        picker[3].presentation = picker[0].presentation;
+        picker[5].presentation = picker[2].presentation;
+        picker[5].detail = utf8_literal("Appends \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF to your message.\x1F" "Built-in\x1F");
+        picker[7].detail = utf8_literal("Echo\x1FTest app\x1Ftext\x1E+2 optional");
+        picker[8].detail = utf8_literal("Play wordle\x1FTest app\x1F");
+        picker[9].presentation = picker[2].presentation;
+        picker[10].detail = utf8_literal("Search Animated GIFs on the Web\x1F" "Built-in\x1Fquery");
+        PopupItem results[]{
+            {utf8_literal("COMMANDS MATCHING /W"), 599999, popup_item_command_section}, picker[4], picker[7]};
+        results[2].flags |= popup_item_avatar;
+        results[2].media_id = 9918;
+        results[2].media_variant = 118;
+        PopupItem failed[]{picker[0], picker[1], picker[2],
+                           {utf8_literal("Couldn't load commands"), 99999, popup_item_command_row}};
+        PopupItem loading[]{{utf8_literal("COMMANDS MATCHING /W"), 599999, popup_item_command_section}, picker[4],
+                            popup_placeholder_row(800000, 0, popup_item_command_row),
+                            popup_placeholder_row(800001, 1, popup_item_command_row),
+                            popup_placeholder_row(800002, 2, popup_item_command_row)};
+        loading[1].flags |= popup_item_avatar;
+        const struct {
+            ConstSlice<PopupItem> items;
+            u32 selected;
+            float scroll_extent;
+            const wchar_t* capture;
+        } passes[]{{{picker, 11}, 7, 900, L"commands-picker.bmp"},
+                   {{picker, 11}, 0, 900, L"commands-picker-rail-focus.bmp"},
+                   {{results, 3}, 1, 0, L"commands-query.bmp"},
+                   {{loading, 5}, ~0u, 0, L"commands-loading.bmp"},
+                   {{failed, 4}, ~0u, 0, L"commands-error.bmp"}};
+        for (const auto& pass : passes) {
+            if (!popup_scene_open(&g_probe.popup_scene, PopupKind::autocomplete, 77, pass.items, anchor, viewport,
+                                  ui_rect_width(anchor), true)
+                     .ok())
+                return false;
+            g_probe.popup_scene.selected_index = pass.selected;
+            g_probe.popup_scene.picker_scroll_extent = pass.scroll_extent;
+            ++g_probe.popup_scene.revision;
+            if (!rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme))
+                return false;
+            UiTextCommand text_commands[24]{};
+            UiTextCommandStream stream{};
+            UiTextOutput stream_output{&stream, nullptr};
+            UiRect rectangles[24]{};
+            if (!ui_text_command_stream_initialize(&stream, {text_commands, 24}) ||
+                !popup_text_presentation_build_output(g_probe.popup_scene, kDefaultTheme, &stream_output,
+                                                      g_probe.renderer.message_measure_cache) ||
+                !stream.count)
+                return false;
+            u32 visible = 0;
+            for (u32 i = 0; i < stream.count; ++i)
+                if (ui_rect_has_area(text_commands[i].clip))
+                    rectangles[visible++] = ui_rect_intersection(text_commands[i].rectangle, text_commands[i].clip);
+            if (!probe_capture_frame(pass.capture) || !probe_text_pixels({rectangles, visible}, 70))
+                return false;
+        }
     }
     popup_scene_close(&g_probe.popup_scene);
     if (!rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme))

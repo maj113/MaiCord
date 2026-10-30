@@ -117,7 +117,159 @@ inline bool distinct_rail_ink(const UiMediaPickerScene& scene,
         }
     return false;
 }
+// The composer's inline /gif strip and /sticker list (the official client's
+// integration autocomplete rows) from one original fixture: GIF tiles as
+// catalog previews (solid green), sticker rows with their name, a
+// "Similar to:" note and the pack, the heading with its bold query.
+struct InlineSource {
+    UiMediaPickerKind kind;
+};
+inline bool inline_resolve(void* opaque, u32 i, UiMediaPickerItem* out) noexcept {
+    const auto& source = *static_cast<InlineSource*>(opaque);
+    if (!out || i >= 6)
+        return false;
+    *out = {};
+    out->id = 0x7100 + i;
+    // The catalog preview key the host draws (its format lives in the flags).
+    const auto key = media_asset_catalog_preview(0x7100 + i, 1, source.kind == UiMediaPickerKind::gif
+                                                                    ? MediaAttachmentFormat::webp
+                                                                    : MediaAttachmentFormat::png);
+    out->asset_id = key.id;
+    out->variant = key.variant;
+    out->asset_flags = key.flags;
+    out->enabled = true;
+    if (source.kind == UiMediaPickerKind::gif) {
+        out->kind = UiMediaPickerItemKind::gif;
+        out->label = utf8_literal("Original fixture GIF");
+        out->width = 48 + i * 16;
+        out->height = 32;
+    } else {
+        out->kind = UiMediaPickerItemKind::sticker;
+        out->label = i ? utf8_literal("Original sticker") : utf8_literal("Original wave");
+        out->detail = utf8_literal("Original pack");
+        if (i == 1)
+            out->note = utf8_literal("Similar to: original pack");
+        out->width = out->height = 32;
+    }
+    return true;
+}
 } // namespace unified_picker_probe_detail
+inline bool inline_results_ui_probe(D3D11Renderer& renderer, surface_motion_probe_detail::Readback& rb,
+                                    bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept {
+    using namespace unified_picker_probe_detail;
+    using channel_overview_probe_detail::ink;
+    const auto bad = [](u32 step) noexcept {
+        log_u64(LogLevel::error, "probe", "inline_results_failure_step", step);
+        return false;
+    };
+    const auto* composer = renderer.message_composer_scene
+                               ? ui_widget_manager_layout_node(renderer.message_composer_scene->widgets,
+                                                              renderer.message_composer_scene->surface)
+                               : nullptr;
+    if (!composer)
+        return bad(1);
+    const float scale = static_cast<float>(renderer.dpi) / 96.f;
+    const UiRect viewport{0, 0, renderer.width / scale, renderer.height / scale};
+    // The commands popup's option bar sits on the composer; results float above it.
+    const UiRect anchor{composer->rectangle.left, composer->rectangle.top - 48, composer->rectangle.right,
+                        composer->rectangle.top};
+    u8 green[16 * 16 * 4]{};
+    for (u32 i = 0; i < 16 * 16; ++i) {
+        green[i * 4] = 48;
+        green[i * 4 + 1] = 184;
+        green[i * 4 + 2] = 128;
+        green[i * 4 + 3] = 255;
+    }
+    const MediaAttachmentFormat formats[]{MediaAttachmentFormat::webp, MediaAttachmentFormat::png};
+    for (u32 i = 0; i < 6; ++i)
+        for (const auto format : formats)
+            if (!renderer_upload_media_straight_rgba8(&renderer, media_asset_catalog_preview(0x7100 + i, 1, format),
+                                                      16, 16, 64, {green, sizeof(green)})
+                     .ok())
+                return bad(2);
+    UiMediaPickerScene scene{};
+    struct Restore {
+        D3D11Renderer& r;
+        UiMediaPickerScene& scene;
+        const UiMediaPickerScene* gallery;
+        ~Restore() noexcept {
+            r.media_picker_scene = gallery;
+            r.retained_presentation.valid = false;
+            ui_media_picker_scene_release(&scene);
+        }
+    } restore{renderer, scene, renderer.media_picker_scene};
+    InlineSource fixture{UiMediaPickerKind::gif};
+    UiMediaPickerSource source{&fixture, 0x72, 1, 6, 1, {}, inline_resolve};
+    UiMediaPickerContent content{};
+    content.account_scope = source.account_scope;
+    content.query_generation = source.query_generation;
+    content.revision = 1;
+    content.kind = UiMediaPickerKind::gif;
+    content.available_tabs = ui_media_picker_tab_bit(UiMediaPickerKind::gif);
+    content.variant = UiMediaPickerVariant::inline_results;
+    content.phase = UiMediaPickerPhase::loading;
+    content.heading = utf8_literal("Gif content matching original");
+    content.heading_plain = 21;
+    const auto render = [&](u32 image) noexcept {
+        renderer.retained_presentation.valid = false;
+        return renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+               probe_present(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme) &&
+               surface_motion_probe_detail::draw_fixed(renderer) && rb.read(renderer, image);
+    };
+    // Loading: only the spinner, 48 DIP above the option bar's 8 DIP gap.
+    if (!ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) ||
+        !ui_media_picker_scene_spinner_visible(scene) || ui_rect_height(scene.panel) != 48 ||
+        scene.panel.bottom != anchor.top - kUiFloatingSurfaceInset || scene.panel.left != anchor.left ||
+        scene.panel.right != anchor.right)
+        return bad(3);
+    renderer.media_picker_scene = &scene;
+    if (!render(0) || (capture && !capture(L"inline-gif-loading.bmp", kDefaultTheme)))
+        return bad(4);
+    content.phase = UiMediaPickerPhase::ready;
+    ++content.revision;
+    if (!ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) ||
+        !ui_media_picker_scene_select(&scene, 0) || !scene.cell_count ||
+        ui_rect_height(scene.panel) !=
+            kUiInlineResultsHeadingHeight + kUiInlineResultsGifExtent + kUiInlineResultsPadding * 3)
+        return bad(5);
+    const auto& first = scene.projection->cells[0];
+    if (ui_rect_height(first.rectangle) != kUiInlineResultsGifExtent ||
+        ui_rect_width(first.rectangle) != kUiInlineResultsGifExtent * 48 / 32 || !render(1) ||
+        !text_ink(scene, renderer, rb, 1, content.heading) ||
+        !ink(rb, 1, ui_rect_inset(first.clip, {8, 8, 8, 8}), scale, {48.f / 255, 184.f / 255, 128.f / 255, 1}, 8) ||
+        (capture && !capture(L"inline-gif.bmp", kDefaultTheme)))
+        return bad(6);
+    // Paged by its arrow: the strip eases there (captured halfway), and the
+    // back arrow appears with the strip scrolled.
+    if (!scene.page_widgets[1].generation || !ui_media_picker_scene_page(&scene, true, 1'000, 1, false) ||
+        !ui_media_picker_scene_paging(scene) ||
+        !ui_media_picker_scene_page_tick(&scene, 1'000 + scene.page_duration_ms / 2) ||
+        !(scene.scroll_dips > 0 && scene.scroll_dips < scene.page_to) || !scene.page_widgets[0].generation ||
+        !render(2) || (capture && !capture(L"inline-gif-paging.bmp", kDefaultTheme)))
+        return bad(7);
+    if (!ui_media_picker_scene_page_tick(&scene, 1'000 + scene.page_duration_ms) ||
+        ui_media_picker_scene_paging(scene) || scene.scroll_dips != scene.page_to || !render(2) ||
+        (capture && !capture(L"inline-gif-paged.bmp", kDefaultTheme)))
+        return bad(9);
+    fixture.kind = content.kind = UiMediaPickerKind::sticker;
+    content.available_tabs = ui_media_picker_tab_bit(UiMediaPickerKind::sticker);
+    content.heading = utf8_literal("Stickers matching original");
+    content.heading_plain = 18;
+    ++source.revision;
+    ++source.query_generation;
+    content.query_generation = source.query_generation;
+    ++content.revision;
+    if (!ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) ||
+        !ui_media_picker_scene_select(&scene, 0) || scene.cell_count != 6 ||
+        ui_rect_height(scene.panel) != kUiInlineResultsHeadingHeight + 6 * 48 + kUiInlineResultsPadding ||
+        !render(3) || !text_ink(scene, renderer, rb, 3, utf8_literal("Original wave")) ||
+        !text_ink(scene, renderer, rb, 3, utf8_literal("Similar to: original pack")) ||
+        !text_ink(scene, renderer, rb, 3, utf8_literal("Original pack")) ||
+        (capture && !capture(L"inline-sticker.bmp", kDefaultTheme)))
+        return bad(8);
+    log_write(LogLevel::info, "probe", "inline_results_native_gpu_passed");
+    return true;
+}
 
 // Native GPU fixture with optional original-content capture. Uses borrowed
 // production adapters and solid RGBA samples, never account/provider resources.
@@ -407,6 +559,7 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
             cell = scene.cell_width;
         }
     }
+    if (!inline_results_ui_probe(renderer, rb, capture)) return fail();
     if (!picker_text_capacity_probe(renderer)) return fail();
     log_write(LogLevel::info, "probe", "unified_picker_native_gpu_passed");
     return true;

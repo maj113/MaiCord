@@ -420,8 +420,9 @@ bool handle_scroll_wheel(WPARAM wparam, LPARAM lparam) noexcept {
     return false;
 }
 
-bool reveal_command_row(float top, float bottom) noexcept {
-    return ui_scroll_host_reveal(&g_app.scroll_host, {nullptr, suggestions, read_surface, write_surface},
+bool reveal_command_row(float top, float bottom, bool rail) noexcept {
+    return ui_scroll_host_reveal(&g_app.scroll_host,
+                                 {nullptr, rail ? command_categories : suggestions, read_surface, write_surface},
                                  top, bottom, application_now_us(),
                                  96.0 / maximum(g_app.renderer.dpi, 1u)) != UiScrollDispatch::failed;
 }

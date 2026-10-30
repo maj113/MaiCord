@@ -42,14 +42,25 @@ void test_command_autocomplete(void (*check)(bool, const char*) noexcept) noexce
                             &error),
           "selected scientific numeric suggestions remain usable in command invocation");
     const Utf8View bad_numbers[] = {
-        utf8_literal("required:123 number:01"), utf8_literal("required:123 number:1e"),
-        utf8_literal("required:123 number:1e1000"), utf8_literal("required:123 number:9007199254740994"),
-        utf8_literal("required:123 number:.5")};
+        utf8_literal("required:123 number:1e"), utf8_literal("required:123 number:1e1000"),
+        utf8_literal("required:123 number:9007199254740994"), utf8_literal("required:123 number:1.2.3")};
     for (auto input : bad_numbers) {
         writer.used = 0;
         check(!command_arguments(index, index.commands[0], input, &writer, &error),
               "malformed or out-of-range numeric suggestions cannot reach interactions");
     }
+    // The client reads typed numbers with Number(): leading zeros and a bare
+    // fraction are numbers, sent in JSON form.
+    writer.used = 0;
+    check(command_arguments(index, index.commands[0], utf8_literal("required:123 number:01"), &writer, &error) &&
+              utf8_equal({reinterpret_cast<const char*>(output), writer.used},
+                         utf8_literal(R"([{"name":"required","type":6,"value":"123"},{"name":"number","type":10,"value":1}])")),
+          "a number with leading zeros is sent in JSON form");
+    writer.used = 0;
+    check(command_arguments(index, index.commands[0], utf8_literal("required:123 number:-.5"), &writer, &error) &&
+              utf8_equal({reinterpret_cast<const char*>(output), writer.used},
+                         utf8_literal(R"([{"name":"required","type":6,"value":"123"},{"name":"number","type":10,"value":-0.5}])")),
+          "a bare fraction is sent with its leading zero");
     command_index_release(&index);
 
     CommandAutocomplete state{};

@@ -63,7 +63,7 @@ bool paint_menu_row_check(const PopupScene& scene, u32 index, const Theme& theme
 }
 
 Color menu_row_foreground(const PopupItem& item, const Theme& theme) noexcept {
-    if (item.flags & (popup_item_command_row | popup_item_command_header))
+    if (item.flags & popup_item_command_row)
         return theme.text_primary;
     if (!(item.flags & popup_item_enabled))
         return theme.text_secondary;
@@ -109,9 +109,344 @@ UiRect popup_avatar_rectangle(const UiLayoutNode& row) noexcept {
     const float y = (row.rectangle.top + row.rectangle.bottom) * .5f - 12;
     return {row.rectangle.left + 8, y, row.rectangle.left + 32, y + 24};
 }
+
+// The command picker (all.css .wrapper__920ab, .categoryHeader_d1405b,
+// .wrapper_b1e4f3, .selected__1a58a): rows pad their 40-DIP content by 8
+// DIPs, an app image is 32 DIPs 4 DIPs below the content top with 16 DIPs
+// after it, headers show a 16-DIP icon 8 DIPs in and their label 4 DIPs
+// after it, and rail icons fill their 32-DIP slot (Built-in and Frequently
+// Used glyphs 24 DIPs inside it).
+constexpr float kPickerRowPadding = 8, kPickerImage = 32, kPickerImageGap = 16, kPickerHeaderIcon = 16,
+                kPickerHeaderGap = 4, kPickerRailGlyph = 24, kPickerTitleLine = 20, kPickerLineGap = 4;
+// Usage chips (.option__a19535, .option__920ab): 8 DIPs apart, 4 DIPs of
+// padding, a text-sm line; the optional count follows a 1-DIP divider
+// (.optionals__920ab) with 8 DIPs on both sides.
+constexpr float kPickerChipGap = 8, kPickerChipPadding = 4, kPickerChipHeight = 18;
+// Loading skeletons (.wrapper__78aa3, .autocompletePlaceholder__13533):
+// 16-DIP pill bars, 8 DIPs apart.
+constexpr float kPickerBar = 16, kPickerBarGap = 8;
+bool picker_discovery(const PopupScene& scene) noexcept {
+    return (scene.items[0].flags & popup_item_command_category) != 0;
+}
+bool picker_scene(const PopupScene& scene) noexcept {
+    return popup_items_command_picker({scene.items.data, scene.item_count});
+}
+// Where a picker item's avatar or glyph goes.
+UiRect picker_media_rectangle(const PopupItem& item, const UiLayoutNode& row) noexcept {
+    const UiRect r = row.rectangle;
+    if (item.flags & popup_item_command_category)
+        return r;
+    if (item.flags & popup_item_command_section) {
+        const float y = (r.top + r.bottom - kPickerHeaderIcon) * .5f;
+        return {r.left + kPickerRowPadding, y, r.left + kPickerRowPadding + kPickerHeaderIcon, y + kPickerHeaderIcon};
+    }
+    const float top = r.top + kPickerRowPadding + kPickerLineGap;
+    return {r.left + kPickerRowPadding, top, r.left + kPickerRowPadding + kPickerImage, top + kPickerImage};
+}
+// A rail app icon is a circle that becomes a rounded square (30%) while
+// hovered or selected (213404: SQUIRCLE mask when selectable and selected or
+// hovered), as a server icon does.
+float picker_media_radius(const PopupScene& scene, u32 index, UiRect media) noexcept {
+    const PopupItem& item = scene.items[index];
+    const float extent = minimum(ui_rect_width(media), ui_rect_height(media));
+    const bool morph = (item.flags & popup_item_command_category) &&
+                       ((item.flags & popup_item_checked) || scene.selected_index == index);
+    return extent * (morph ? .3f : .5f);
+}
+// Text starts after the header icon or row image.
+float picker_text_left(const PopupItem& item, const UiLayoutNode& row) noexcept {
+    if (item.flags & popup_item_command_section)
+        return item.presentation.icon_plus_one || (item.flags & popup_item_avatar)
+                   ? row.rectangle.left + kPickerRowPadding + kPickerHeaderIcon + kPickerHeaderGap
+                   : row.rectangle.left + kPickerRowPadding;
+    return row.rectangle.left + kPickerRowPadding +
+           ((item.flags & popup_item_avatar) || item.presentation.icon_plus_one ? kPickerImage + kPickerImageGap
+                                                                                 : 0.f);
+}
+bool picker_keyboard_focus(const PopupScene& scene, u32 index) noexcept {
+    return scene.selected_index == index &&
+           !ui_widget_handle_equal(scene.widgets.hovered, scene.rows[index].widget);
+}
+float picker_measure(UiTextMeasureCache* measure, const PopupScene& scene, Utf8View value, u32 flags,
+                     float limit, u16 tag) noexcept {
+    if (!measure || !value.bytes)
+        return limit;
+    const TextStyleSpan span{0, value.bytes, flags};
+    UiTextMeasureValue measured{};
+    if (!ui_text_measure_cache_measure(
+             measure,
+             {{scene.owner_id, hash64_bytes(kHash64Seed, value.data, value.bytes), 0, tag, 0}, value, {&span, 1},
+              {maximum(1.f, limit), kCommandRowHeight}, true},
+             &measured)
+             .ok())
+        return limit;
+    return minimum(limit, measured.size.width);
+}
+// A loading bar's width: the client draws each between lo and hi at random;
+// the seed keeps a row's bars steady from frame to frame.
+float placeholder_width(u32 seed, u32 bar, float lo, float hi) noexcept {
+    const u64 mixed = hash64_mix(hash64_mix(kHash64Seed, seed), bar);
+    return lo + static_cast<float>(mixed % 1000u) * (hi - lo) / 999.f;
+}
+// The skeleton bars of a placeholder row: in the picker the command skeleton
+// (524007: usage 60-120 on the strong fill, description 200-600, source
+// 45-90), elsewhere the generic Loading row (one 60-120 bar).
+bool paint_placeholder(PaintStream* paint, const PopupItem& item, UiRect content, bool command,
+                       const Theme& theme) noexcept {
+    const u32 seed = item.media_variant;
+    const float radius = kPickerBar * .5f;
+    const auto bar = [&](float left, float top, float width, const Color& color) noexcept {
+        const float right = minimum(content.right, left + width);
+        return right <= left || paint_stream_push_rounded(paint, {left, top, right, top + kPickerBar}, color, radius);
+    };
+    if (!command)
+        return bar(content.left, (content.top + content.bottom - kPickerBar) * .5f,
+                   placeholder_width(seed, 0, 60, 120), theme.base_low);
+    const float source = placeholder_width(seed, 2, 45, 90);
+    const float info_right = content.right - source - kPickerImageGap;
+    return bar(content.right - source, (content.top + content.bottom - kPickerBar) * .5f, source, theme.base_low) &&
+           bar(content.left, content.top, minimum(info_right - content.left, placeholder_width(seed, 0, 60, 120)),
+               theme.tokens.fill.muted) &&
+           bar(content.left, content.top + kPickerBar + kPickerBarGap,
+               minimum(info_right - content.left, placeholder_width(seed, 1, 200, 600)), theme.base_low);
+}
+// A command row's columns: description, source and usage summary from the
+// detail ("description\x1Fsource\x1Fsummary", summary parts \x1E-separated:
+// the required option names, then "+N optional"); the summary shows only on
+// the selected row, as the client shows it on hover or keyboard selection.
+inline constexpr u32 kPickerChipCapacity = 8;
+struct PickerRow {
+    Utf8View description, source;
+    UiRect source_rectangle, title, description_rectangle;
+    // The usage summary: the chips (required names), the optional count and
+    // the divider before it; chip_count is zero when the summary is hidden.
+    Utf8View chips[kPickerChipCapacity], optional;
+    UiRect chip_rectangles[kPickerChipCapacity], optional_rectangle;
+    u32 chip_count;
+    float divider;
+    bool summary;
+};
+PickerRow picker_row(const PopupScene& scene, u32 index, const PopupItemLayout& layout,
+                     UiTextMeasureCache* measure) noexcept {
+    const PopupItem& item = scene.items[index];
+    PickerRow row{};
+    Utf8View summary{};
+    Utf8View* parts[] = {&row.description, &row.source, &summary};
+    for (u32 at = 0, begin = 0, part = 0; at <= item.detail.bytes && part < 3; ++at)
+        if (at == item.detail.bytes || item.detail.data[at] == '\x1F') {
+            *parts[part++] = {item.detail.data + begin, at - begin};
+            begin = at + 1;
+        }
+    const UiRect r = layout.row->rectangle;
+    const float left = picker_text_left(item, *layout.row);
+    const float top = r.top + kPickerRowPadding, bottom = r.bottom - kPickerRowPadding;
+    float right = r.right - kPickerRowPadding;
+    if (row.source.bytes) {
+        // The app column takes its text's width, at most 40% of the row.
+        const float width = picker_measure(measure, scene, row.source, kTextStyleSizeCodeXs,
+                                           (right - r.left - kPickerRowPadding) * .4f, 0x4353);
+        row.source_rectangle = {right - width, top, right, bottom};
+        right = maximum(left, right - width - kPickerImageGap);
+    }
+    row.title = {left, top, right, top + kPickerTitleLine};
+    row.description_rectangle = {left, row.title.bottom + kPickerLineGap, right, bottom};
+    if (!summary.bytes || scene.selected_index != index)
+        return row;
+    row.summary = true;
+    // Without a shaper the name and summary take bounded halves, never byte estimates.
+    const float name = measure ? picker_measure(measure, scene, item.label, text_style_bold, right - left, 0x4352)
+                               : (right - left) * .5f;
+    float x = minimum(right, left + name);
+    row.title.right = x;
+    u32 parts_count = 0;
+    for (u32 at = 0, begin = 0; at <= summary.bytes; ++at)
+        if (at == summary.bytes || summary.data[at] == '\x1E') {
+            const Utf8View part{summary.data + begin, at - begin};
+            begin = at + 1;
+            if (part.bytes && part.data[0] == '+')
+                row.optional = part;
+            else if (part.bytes && row.chip_count < kPickerChipCapacity)
+                row.chips[row.chip_count++] = part;
+            ++parts_count;
+        }
+    const float slot = parts_count ? maximum(0.f, right - x) / static_cast<float>(parts_count) : 0.f;
+    const float chip_top = (row.title.top + row.title.bottom - kPickerChipHeight) * .5f;
+    for (u32 n = 0; n < row.chip_count; ++n) {
+        const float text = measure ? picker_measure(measure, scene, row.chips[n], kTextStyleSizeCodeSm,
+                                                    maximum(1.f, right - x), 0x434F)
+                                   : maximum(0.f, slot - kPickerChipGap - 2 * kPickerChipPadding);
+        const float chip_left = minimum(right, x + kPickerChipGap);
+        const float chip_right = minimum(right, chip_left + text + 2 * kPickerChipPadding);
+        row.chip_rectangles[n] = {chip_left, chip_top, chip_right, chip_top + kPickerChipHeight};
+        x = chip_right;
+    }
+    if (row.optional.bytes) {
+        row.divider = minimum(right, x + kPickerChipGap);
+        row.optional_rectangle = {minimum(right, row.divider + 1 + kPickerChipGap), row.title.top, right,
+                                  row.title.bottom};
+    }
+    return row;
+}
+bool paint_picker_item(const PopupScene& scene, u32 index, const PopupItemLayout& layout, const Theme& theme,
+                       PaintStream* paint, UiTextMeasureCache* measure) noexcept {
+    const PopupItem& item = scene.items[index];
+    const UiRect r = layout.row->rectangle;
+    if (!paint_stream_push_clip(paint, layout.clip_rectangle))
+        return false;
+    bool ok = true;
+    const bool pointed = scene.selected_index == index && (item.flags & popup_item_enabled);
+    if (item.flags & popup_item_command_category) {
+        // Built-in's extra 8 DIPs hold the divider unless only Frequently Used
+        // (itself a built-in section) leads (845207 `ei`).
+        const bool after_clock = index && (scene.items[index - 1].flags & popup_item_command_category) &&
+                                 scene.items[index - 1].presentation.icon_plus_one &&
+                                 ui_menu_row_icon(scene.items[index - 1].presentation) == UiIcon::recent;
+        if ((item.flags & popup_item_separator_before) && !after_clock)
+            ok = paint_stream_push(paint, r.left, r.top - kCommandRailDivider * .5f, r.right,
+                                   r.top - kCommandRailDivider * .5f + 1, theme.tokens.border.subtle);
+        const bool active = (item.flags & popup_item_checked) != 0;
+        if (ok && (active || pointed))
+            ok = paint_stream_push_rounded(paint, r, active ? theme.base_low : theme.tokens.state.hover,
+                                           theme.scale.radius_md);
+        if (ok && picker_keyboard_focus(scene, index))
+            ok = paint_stream_push_rounded_border(paint, r.left - 2, r.top - 2, r.right + 2, r.bottom + 2, Color{},
+                                                  theme.tokens.border.focus, theme.scale.radius_md + 2, 2);
+        if (ok && (item.flags & popup_item_avatar))
+            ok = paint_stream_push_rounded(paint, r, theme.interactive, picker_media_radius(scene, index, r));
+        else if (ok && item.presentation.icon_plus_one) {
+            const float inset = (kCommandRailIcon - kPickerRailGlyph) * .5f;
+            ok = ui_icon_paint(paint, ui_menu_row_icon(item.presentation),
+                               {r.left + inset, r.top + inset, r.right - inset, r.bottom - inset},
+                               active ? theme.text_primary : pointed ? theme.text_primary : theme.text_secondary);
+        }
+    } else if (item.flags & popup_item_command_section) {
+        const UiRect icon = picker_media_rectangle(item, *layout.row);
+        if (item.flags & popup_item_avatar)
+            ok = paint_stream_push_rounded(paint, icon, theme.interactive, kPickerHeaderIcon * .5f);
+        else if (item.presentation.icon_plus_one)
+            ok = ui_icon_paint(paint, ui_menu_row_icon(item.presentation), icon, theme.text_primary);
+    } else if (popup_item_placeholder(item)) {
+        const bool command = (item.flags & popup_item_command_row) != 0;
+        // The Loading row's bar sits 8 DIPs down its text line.
+        ok = paint_placeholder(paint, item,
+                               {r.left + kPickerRowPadding, r.top + kPickerRowPadding + (command ? 0.f : kPickerBarGap),
+                                r.right - kPickerRowPadding,
+                                command ? r.bottom - kPickerRowPadding : r.top + kPickerRowPadding + kPickerBarGap +
+                                                                             kPickerBar},
+                               command, theme);
+    } else if (!(item.flags & popup_item_command_row)) {
+        // A Generic row (the selected command's option and choice lists).
+        if (pointed)
+            ok = paint_stream_push_rounded(paint, r, ui_background_hover_color(theme, theme.surface_high, .28f),
+                                           theme.scale.radius_sm);
+    } else {
+        if (pointed)
+            ok = paint_stream_push_rounded(paint, r, ui_background_hover_color(theme, theme.surface_high, .28f),
+                                           theme.scale.radius_sm);
+        if (ok && (item.flags & popup_item_avatar))
+            ok = paint_stream_push_rounded(paint, picker_media_rectangle(item, *layout.row), theme.interactive,
+                                           kPickerImage * .5f);
+        else if (ok && item.presentation.icon_plus_one)
+            ok = ui_icon_paint(paint, ui_menu_row_icon(item.presentation), picker_media_rectangle(item, *layout.row),
+                               theme.text_secondary);
+        // The usage summary's chips (the composer option chip's fill) and the
+        // divider before the optional count.
+        const PickerRow row = ok && measure ? picker_row(scene, index, layout, measure) : PickerRow{};
+        for (u32 n = 0; ok && n < row.chip_count; ++n)
+            if (ui_rect_has_area(row.chip_rectangles[n]))
+                ok = paint_stream_push_rounded(paint, row.chip_rectangles[n], theme.tokens.option.fill,
+                                               theme.scale.radius_sm);
+        if (ok && row.optional.bytes && ui_rect_has_area(row.optional_rectangle))
+            ok = paint_stream_push(paint, row.divider, (row.title.top + row.title.bottom - kPickerChipHeight) * .5f,
+                                   row.divider + 1, (row.title.top + row.title.bottom + kPickerChipHeight) * .5f,
+                                   theme.tokens.border.subtle);
+    }
+    return paint_stream_pop_clip(paint) && ok;
+}
+// One picker text run clipped to its item.
+bool push_picker_text(UiTextOutput* text, const PopupScene& scene, u32 index, const PopupItemLayout& layout,
+                      Utf8View value, UiRect rectangle, Color color, u32 flags,
+                      UiTextAlignment horizontal = UiTextAlignment::start) noexcept {
+    if (!value.bytes || rectangle.right <= rectangle.left)
+        return true;
+    return ui_text_output_push(text, {value,
+                                      {&scene.widgets, scene.rows[index].label},
+                                      rectangle,
+                                      ui_rect_intersection(layout.clip_rectangle, rectangle),
+                                      color,
+                                      flags,
+                                      horizontal,
+                                      UiTextAlignment::center,
+                                      TextWrapping::no_wrap,
+                                      TextOverflow::ellipsis});
+}
+// Section headers, the query title and command rows.
+bool picker_text(const PopupScene& scene, u32 index, const Theme& theme, UiTextOutput* text,
+                 UiTextMeasureCache* measure) noexcept {
+    const PopupItem& item = scene.items[index];
+    PopupItemLayout layout{};
+    if (!popup_scene_resolve_item_layout(scene, index, &layout))
+        return false;
+    if (!layout.visible || (item.flags & popup_item_command_category) || popup_item_placeholder(item))
+        return true;
+    const UiRect r = layout.row->rectangle;
+    const float left = picker_text_left(item, *layout.row);
+    if (item.flags & popup_item_command_section) {
+        if (picker_discovery(scene))
+            return push_picker_text(text, scene, index, layout, item.label,
+                                    {left, r.top, r.right - kPickerRowPadding, r.bottom}, theme.text_primary,
+                                    text_style_bold | kTextStyleSizeCodeSm);
+        // The client's title ("COMMANDS MATCHING /QUERY"), with an optional
+        // emphasised detail after it.
+        constexpr u32 flags = text_style_bold | kTextStyleSizeCodeXs;
+        const float right = r.right - kPickerRowPadding;
+        const float width = item.detail.bytes ? picker_measure(measure, scene, item.label, flags,
+                                                               (right - left) * .5f, 0x4354)
+                                              : right - left;
+        return push_picker_text(text, scene, index, layout, item.label, {left, r.top, left + width, r.bottom},
+                                theme.text_secondary, flags) &&
+               push_picker_text(text, scene, index, layout, item.detail, {left + width, r.top, right, r.bottom},
+                                theme.text_primary, flags);
+    }
+    if (!(item.flags & popup_item_enabled))
+        return push_picker_text(text, scene, index, layout, item.label,
+                                {left, r.top + kPickerRowPadding, r.right - kPickerRowPadding,
+                                 r.bottom - kPickerRowPadding},
+                                theme.text_secondary, text_style_none);
+    if (!(item.flags & popup_item_command_row)) {
+        // The Generic row: its text, then the description right-aligned and
+        // muted in the rest of the line (.autocompleteRowContentSecondary__13533:
+        // 16 DIPs after the text, at least ten characters).
+        const float right = r.right - kPickerRowPadding;
+        const float detail_minimum = item.detail.bytes ? 70.f : 0.f;
+        const float width = picker_measure(measure, scene, item.label, text_style_none,
+                                           maximum(1.f, right - left - detail_minimum), 0x4347);
+        const float detail_left = minimum(right, left + width + kPickerImageGap);
+        return push_picker_text(text, scene, index, layout, item.label, {left, r.top, left + width, r.bottom},
+                                theme.text_primary, text_style_none) &&
+               push_picker_text(text, scene, index, layout, item.detail, {detail_left, r.top, right, r.bottom},
+                                theme.text_secondary, kTextStyleSizeCodeXs, UiTextAlignment::end);
+    }
+    const PickerRow row = picker_row(scene, index, layout, measure);
+    bool ok = push_picker_text(text, scene, index, layout, row.source, row.source_rectangle, theme.text_secondary,
+                               kTextStyleSizeCodeXs, UiTextAlignment::end) &&
+              push_picker_text(text, scene, index, layout, item.label, row.title, theme.text_primary,
+                               text_style_bold) &&
+              push_picker_text(text, scene, index, layout, row.description, row.description_rectangle,
+                               theme.text_secondary, kTextStyleSizeCodeXs);
+    for (u32 n = 0; ok && n < row.chip_count; ++n) {
+        const UiRect chip = row.chip_rectangles[n];
+        ok = push_picker_text(text, scene, index, layout, row.chips[n],
+                              {chip.left + kPickerChipPadding, chip.top, chip.right - kPickerChipPadding, chip.bottom},
+                              theme.text_primary, kTextStyleSizeCodeSm);
+    }
+    return ok && push_picker_text(text, scene, index, layout, row.optional, row.optional_rectangle,
+                                  theme.text_secondary, kTextStyleSizeCodeSm);
+}
 } // namespace
 
-bool popup_presentation_build(const PopupScene& scene, const Theme& theme, PaintStream* paint) noexcept {
+bool popup_presentation_build(const PopupScene& scene, const Theme& theme, PaintStream* paint,
+                              UiTextMeasureCache* measure) noexcept {
     if (!paint || !scene.active || scene.item_count == 0 || scene.item_count > scene.items.count ||
         scene.item_count > scene.rows.count) {
         return !scene.active;
@@ -130,6 +465,11 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
     // merge into the last base batch and draw under media/text sharing the root
     // clip. Every popup kind shares the popover elevation material on gradient themes.
     bool success = ui_surface_paint_plate(paint, panel->rectangle, theme, UiElevation::popover, panel_radius);
+    const bool picker = picker_scene(scene);
+    // The picker rail is the client's darkest surface, following the panel's left corners.
+    if (picker && picker_discovery(scene))
+        success = success && paint_stream_push_edge_strip(paint, panel->rectangle, kCommandRailWidth,
+                                                          theme.base_lowest, panel_radius);
     // Rows sit the panel padding inside its corners, so their fills share its corner centres.
     const float row_radius = ui_inner_radius(panel_radius, popup_metrics(scene).menu_padding);
     for (u32 index = 0; success && index < scene.item_count; ++index) {
@@ -140,6 +480,10 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
             break;
         }
         if (!item_layout.visible) {
+            continue;
+        }
+        if (picker) {
+            success = paint_picker_item(scene, index, item_layout, theme, paint, measure);
             continue;
         }
         const UiLayoutNode* layout = item_layout.row;
@@ -174,7 +518,7 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
             const auto avatar = popup_avatar_rectangle(*layout);
             if (!paint_stream_push_rounded(paint, avatar.left, avatar.top, avatar.right, avatar.bottom,
                                            theme.interactive, theme.scale.radius_lg) ||
-                (!(item.flags & (popup_item_command_row | popup_item_command_category)) && !paint_popup_presence(
+                (!(item.flags & popup_item_command_row) && !paint_popup_presence(
                     paint, {avatar.right + 1, avatar.bottom - 7, avatar.right + 8, avatar.bottom},
                     static_cast<UiPresence>(item.status),
                     (item.flags & popup_item_enabled) &&
@@ -184,32 +528,6 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
                     (item.flags & popup_item_enabled) &&
                         (scene.selected_index == index || (item.flags & popup_item_checked)),
                     theme))) {
-                success = false;
-                break;
-            }
-        }
-        // A command rail category with an icon (Frequently Used) shows the icon alone.
-        if ((item.flags & popup_item_command_category) && item.presentation.icon_plus_one) {
-            const float extent = minimum(popup_paint_metrics(scene, theme).menu_icon,
-                                         minimum(ui_rect_width(layout->rectangle), ui_rect_height(layout->rectangle)));
-            const float x = (layout->rectangle.left + layout->rectangle.right - extent) * .5f;
-            const float y = (layout->rectangle.top + layout->rectangle.bottom - extent) * .5f;
-            const Color color = (item.flags & popup_item_checked) || scene.selected_index == index
-                                    ? theme.text_primary
-                                    : theme.text_secondary;
-            if (!ui_icon_paint(paint, ui_menu_row_icon(item.presentation), {x, y, x + extent, y + extent}, color)) {
-                success = false;
-                break;
-            }
-        }
-        if (item.flags & popup_item_command_close) {
-            const float inset = popup_paint_metrics(scene, theme).menu_gap;
-            auto icon = layout->rectangle;
-            icon.left += inset;
-            icon.top += inset;
-            icon.right -= inset;
-            icon.bottom -= inset;
-            if (!ui_icon_paint(paint, UiIcon::close, icon, theme.text_secondary)) {
                 success = false;
                 break;
             }
@@ -237,6 +555,14 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
                                                      ui_rect_height(scene.rectangle) + scene.scroll_max),
                                theme) &&
             success;
+    // The picker list's thin scrollbar over its body column (the owner
+    // publishes the virtual offset and content height).
+    if (picker && scene.picker_scroll_extent > 0)
+        success = ui_scrollbar_paint(paint,
+                                     ui_scrollbar_geometry(popup_scene_picker_body(scene), scene.picker_scroll_offset,
+                                                           scene.picker_scroll_extent),
+                                     theme) &&
+                  success;
     return paint_stream_pop_clip(paint) && success;
 }
 
@@ -246,10 +572,14 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
         scene.item_count > scene.items.count || scene.item_count > scene.rows.count) {
         return !scene.active;
     }
+    const bool picker = popup_items_command_picker({scene.items.data, scene.item_count});
     for (u32 index = 0; index < scene.item_count; ++index) {
         const PopupItem& item = scene.items[index];
-        if (item.flags & popup_item_command_close)
+        if (picker) {
+            if (!picker_text(scene, index, theme, text, measure))
+                return false;
             continue;
+        }
         if ((item.flags & popup_item_custom_emoji) != 0 ||
             ((item.flags & popup_item_emoji) &&
              !(item.flags & (popup_item_custom_emoji | popup_item_avatar | popup_item_guild_icon)) &&
@@ -280,10 +610,6 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
         const auto hint =
             !centered && item.shortcut < popup_shortcut_count ? hints[item.shortcut] : Utf8View{};
         UiRect label_rectangle = label->content_rectangle;
-        const bool command_header = (item.flags & popup_item_command_header) != 0;
-        if (command_header)
-            label_rectangle.right = maximum(label_rectangle.left,
-                label_rectangle.right - popup_metrics(scene).menu_row_height);
         const bool shared_row = popup_item_menu_row(item);
         UiMenuRowGeometry menu_geometry{};
         if (shared_row) {
@@ -293,101 +619,14 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
         }
         if (!shared_row && (item.flags & (popup_item_avatar | popup_item_emoji_preview)))
             label_rectangle.left = item_layout.row->rectangle.left + 48;
-        if (item.flags & popup_item_command_category)
-            label_rectangle = label->content_rectangle;
-        // Command rows carry "description\x1Fapp\x1Foptions": like the official
-        // picker, the app name takes a right column and the option summary
-        // follows the command name.
-        Utf8View detail_text = item.detail, source{}, summary{};
-        if (item.flags & popup_item_command_row) {
-            Utf8View* parts[] = {&detail_text, &source, &summary};
-            u32 part = 0, begin = 0;
-            for (u32 at = 0; at <= item.detail.bytes && part < 3; ++at)
-                if (at == item.detail.bytes || item.detail.data[at] == '\x1F') {
-                    *parts[part++] = {item.detail.data + begin, at - begin};
-                    begin = at + 1;
-                }
-        }
-        if (source.bytes || summary.bytes) {
-            Color muted = theme.text_primary;
-            muted.alpha *= .65f;
-            const UiRect row_text = shared_row ? UiRect{menu_geometry.primary.left, menu_geometry.primary.top,
-                                                        menu_geometry.primary.right,
-                                                        maximum(menu_geometry.primary.bottom,
-                                                                menu_geometry.detail.bottom)}
-                                               : label_rectangle;
-            if (source.bytes) {
-                const float column = minimum(ui_rect_width(row_text) * .4f, 160.0f);
-                const UiRect app{row_text.right - column, row_text.top, row_text.right, row_text.bottom};
-                if (!ui_text_output_push(text, {source,
-                                                {&scene.widgets, row.label},
-                                                app,
-                                                shared_row ? ui_menu_row_slot_clip(menu_geometry, app)
-                                                           : item_layout.clip_rectangle,
-                                                muted,
-                                                text_style_subtext,
-                                                UiTextAlignment::end,
-                                                UiTextAlignment::center,
-                                                TextWrapping::no_wrap,
-                                                TextOverflow::ellipsis}))
-                    return false;
-                const float right = maximum(label_rectangle.left, app.left - 16.0f);
-                label_rectangle.right = minimum(label_rectangle.right, right);
-                if (shared_row)
-                    menu_geometry.detail.right = minimum(menu_geometry.detail.right, right);
-            }
-            if (summary.bytes) {
-                UiTextMeasureValue measured{};
-                const bool shaped = measure && ui_text_measure_cache_measure(measure,
-                    {{scene.owner_id, hash64_bytes(kHash64Seed, item.label.data, item.label.bytes), 0, 0x4352, 0},
-                     item.label, {},
-                     {maximum(1.f, ui_rect_width(label_rectangle)), ui_rect_height(label_rectangle)}, true},
-                    &measured).ok();
-                const float name_width = minimum(ui_rect_width(label_rectangle) * (shaped ? 1.f : .5f),
-                                                 shaped ? measured.size.width : ui_rect_width(label_rectangle));
-                const UiRect options{minimum(label_rectangle.right, label_rectangle.left + name_width + 8.0f),
-                                     label_rectangle.top, label_rectangle.right, label_rectangle.bottom};
-                label_rectangle.right = options.left;
-                if (!ui_text_output_push(text, {summary,
-                                                {&scene.widgets, row.label},
-                                                options,
-                                                shared_row ? ui_menu_row_slot_clip(menu_geometry, options)
-                                                           : item_layout.clip_rectangle,
-                                                muted,
-                                                text_style_none,
-                                                UiTextAlignment::start,
-                                                UiTextAlignment::center,
-                                                TextWrapping::no_wrap,
-                                                TextOverflow::ellipsis}))
-                    return false;
-            }
-        }
+        const Utf8View detail_text = item.detail;
         if (detail_text.bytes) {
             Color detail_color = theme.text_primary;
             detail_color.alpha *= .65f;
             UiRect detail = shared_row ? menu_geometry.detail : label_rectangle;
-            if (command_header) {
-                const float available = ui_rect_width(label_rectangle) * .5f;
-                const TextStyleSpan name_style{0, item.label.bytes, text_style_bold};
-                UiTextMeasureValue measured{};
-                const bool shaped = measure && ui_text_measure_cache_measure(measure,
-                    {{scene.owner_id, hash64_bytes(kHash64Seed, item.label.data, item.label.bytes),
-                      0, 0x4348, 0}, item.label, {&name_style, 1},
-                     {maximum(1.f, ui_rect_width(label_rectangle)), ui_rect_height(label_rectangle)}, true},
-                    &measured).ok();
-                // The renderer supplies its normal text backend. A caller
-                // without shaping uses two bounded slots, never byte estimates.
-                const float name_width = shaped ? minimum(available, measured.size.width) : available;
-                label_rectangle.right = label_rectangle.left + name_width;
-                detail.left = minimum(detail.right, label_rectangle.right + popup_metrics(scene).menu_gap);
-            } else if (!shared_row) {
-                if (item.flags & popup_item_command_row) {
-                    detail.top += 25;
-                    label_rectangle.bottom = label_rectangle.top + 25;
-                } else {
-                    detail.left = detail.right - minimum(180.0f, ui_rect_width(label_rectangle) * .42f);
-                    label_rectangle.right = maximum(label_rectangle.left, detail.left - 12);
-                }
+            if (!shared_row) {
+                detail.left = detail.right - minimum(180.0f, ui_rect_width(label_rectangle) * .42f);
+                label_rectangle.right = maximum(label_rectangle.left, detail.left - 12);
             }
             if (!ui_text_output_push(
                     text,
@@ -397,8 +636,7 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                      shared_row ? ui_menu_row_slot_clip(menu_geometry, detail) : item_layout.clip_rectangle,
                      detail_color,
                      text_style_none,
-                     command_header || (shared_row && popup_item_menu_presentation(item).secondary_line) ||
-                             (item.flags & popup_item_command_row)
+                     shared_row && popup_item_menu_presentation(item).secondary_line
                          ? UiTextAlignment::start
                          : UiTextAlignment::end,
                      UiTextAlignment::center,
@@ -427,16 +665,12 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                                       TextOverflow::ellipsis}))
                 return false;
         }
-        if ((item.flags & popup_item_command_category) &&
-            ((item.flags & popup_item_avatar) || item.presentation.icon_plus_one))
-            continue;
         if (!ui_text_output_push(
                 text, UiTextCommand{
                           item.label, UiWidgetReference{&scene.widgets, row.label}, label_rectangle,
                           shared_row ? ui_menu_row_slot_clip(menu_geometry, label_rectangle)
                                      : item_layout.clip_rectangle,
                           color,
-                          command_header ? text_style_bold :
                           (item.flags & popup_item_emoji) != 0 ? text_style_picker_emoji : text_style_none,
                           centered ? UiTextAlignment::center : UiTextAlignment::start,
                           UiTextAlignment::center, TextWrapping::no_wrap, TextOverflow::ellipsis})) {
@@ -509,8 +743,12 @@ PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& 
         const float x = (r.left + r.right) * .5f, y = (r.top + r.bottom) * .5f;
         command->rectangle = {x - 16.0f, y - 16.0f, x + 16.0f, y + 16.0f};
     }
-    if (command->avatar || (item.flags & popup_item_emoji_preview))
-        command->rectangle = popup_avatar_rectangle(*layout.row);
+    if (command->avatar || (item.flags & popup_item_emoji_preview)) {
+        const bool picker = picker_scene(scene);
+        command->rectangle = picker ? picker_media_rectangle(item, *layout.row) : popup_avatar_rectangle(*layout.row);
+        if (picker && command->avatar && (item.flags & popup_item_command_category))
+            command->corner_radius = picker_media_radius(scene, index, command->rectangle);
+    }
     return PopupMediaPresentationStatus::ready;
 }
 } // namespace maicord

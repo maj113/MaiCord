@@ -8,6 +8,7 @@
 #include "application_account_presentation.hpp"
 #include "application_composer.hpp"
 #include "application_composer_text_input.hpp"
+#include "application_commands.hpp"
 #include "application_friends.hpp"
 #include "application_message_history.hpp"
 #include "application_message_mutation_notice.hpp"
@@ -20,6 +21,11 @@
 #include "application_retained_projection.hpp"
 #include "catalog_preview_log.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/model/reaction_preferences.hpp"
+#include "maicord/protocol/emoji_preferences.hpp"
+#include "maicord/ui/emoji_catalog.hpp"
+#include "maicord/ui/transition.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/clipboard.hpp"
@@ -52,6 +58,10 @@ struct CatalogBank {
     u32 count, text_bytes, generation;
     MediaCatalogOperation operation;
 };
+// The client's IntegrationQueryStore (all.js @16136700) keeps every /gif
+// query's results for the session and asks again only after a failure; this
+// keeps the most recent queries' banks.
+constexpr u32 kInlineGifCacheCapacity = 16;
 bool preview_admitted(const CatalogBank& bank, u32 index) noexcept {
     return index < bank.count && bank.preview_mask && (bank.preview_mask[index >> 3] & (1u << (index & 7)));
 }
@@ -214,17 +224,122 @@ struct ApplicationMediaPicker {
     // A pack the Stickers tab scrolls to once its section exists (the
     // sticker popout's View More Stickers); zero for none.
     u64 jump_section;
+    // Inline results: the composer's /gif strip or /sticker list. The query is
+    // the command's option (kept in edit, never focused); the panel sits above
+    // inline_anchor (the commands popup, else the composer) while the command's
+    // option bar shows. The first result of each new set is selected, as the
+    // client's autocomplete does. Entering keeps the expression picker's tab
+    // and query (composer_kind, tab_query).
+    bool inline_mode, inline_select;
+    UiRect inline_anchor;
+    u32 inline_heading_bytes, inline_heading_plain;
+    char inline_heading[320];
+    // Each shown sticker's "Similar to: <match>" line.
+    u16 inline_note_bytes[kUiInlineResultsStickerLimit];
+    char inline_notes[kUiInlineResultsStickerLimit][160];
+    // The next frame of the strip's page animation; zero when none runs.
+    u64 page_at;
+    // This account's /gif results by query, most recent first; gif may borrow
+    // one, so a bank is freed only once neither holds it.
+    CatalogBank* inline_cache[kInlineGifCacheCapacity];
+    u16 inline_cache_query_bytes[kInlineGifCacheCapacity];
+    char inline_cache_query[kInlineGifCacheCapacity][kMediaCatalogMaximumQueryBytes];
 };
 namespace {
 constexpr auto kReactionHint = utf8_literal("Shift-click to add more reactions");
 // Search-as-you-type waits for typing to pause before one request.
 constexpr u32 kSearchDebounceMs = 250;
+// The client's inline /gif search waits 300 ms (a trailing debounce).
+constexpr u32 kInlineSearchDebounceMs = 300;
 // Rate-limited catalog requests retry at most this often, never sooner than
 // the server's Retry-After.
 constexpr u32 kCatalogRateRetries = 3;
 constexpr u64 kCatalogLocalRateRetryMs = 1000;
 bool projection(ApplicationMediaPicker&) noexcept;
 void revoke_capture(ApplicationMediaPicker&) noexcept;
+// Frees a bank the /gif cache does not hold.
+void release_bank(const ApplicationMediaPicker& p, CatalogBank* bank) noexcept {
+    for (const auto* cached : p.inline_cache)
+        if (bank == cached)
+            return;
+    if (bank)
+        VirtualFree(bank, 0, MEM_RELEASE);
+}
+// Removes a cached query's bank, freed unless the current results borrow it.
+void inline_cache_drop(ApplicationMediaPicker& p, u32 at) noexcept {
+    auto* bank = p.inline_cache[at];
+    for (u32 i = at; i + 1 < kInlineGifCacheCapacity; ++i) {
+        p.inline_cache[i] = p.inline_cache[i + 1];
+        p.inline_cache_query_bytes[i] = p.inline_cache_query_bytes[i + 1];
+        CopyMemory(p.inline_cache_query[i], p.inline_cache_query[i + 1], p.inline_cache_query_bytes[i]);
+    }
+    p.inline_cache[kInlineGifCacheCapacity - 1] = nullptr;
+    p.inline_cache_query_bytes[kInlineGifCacheCapacity - 1] = 0;
+    if (bank != p.gif)
+        release_bank(p, bank);
+}
+u32 inline_cache_index(const ApplicationMediaPicker& p, Utf8View query) noexcept {
+    for (u32 i = 0; i < kInlineGifCacheCapacity && p.inline_cache[i]; ++i)
+        if (utf8_equal({p.inline_cache_query[i], p.inline_cache_query_bytes[i]}, query))
+            return i;
+    return kInlineGifCacheCapacity;
+}
+// Keeps a query's results first, evicting the least recently used.
+void inline_cache_keep(ApplicationMediaPicker& p, Utf8View query, CatalogBank* bank) noexcept {
+    if (!bank || query.bytes > kMediaCatalogMaximumQueryBytes)
+        return;
+    u32 at = inline_cache_index(p, query);
+    if (at < kInlineGifCacheCapacity && p.inline_cache[at] == bank)
+        return;
+    if (at < kInlineGifCacheCapacity)
+        inline_cache_drop(p, at);
+    if (p.inline_cache[kInlineGifCacheCapacity - 1])
+        inline_cache_drop(p, kInlineGifCacheCapacity - 1);
+    for (u32 i = kInlineGifCacheCapacity - 1; i; --i) {
+        p.inline_cache[i] = p.inline_cache[i - 1];
+        p.inline_cache_query_bytes[i] = p.inline_cache_query_bytes[i - 1];
+        CopyMemory(p.inline_cache_query[i], p.inline_cache_query[i - 1], p.inline_cache_query_bytes[i]);
+    }
+    p.inline_cache[0] = bank;
+    p.inline_cache_query_bytes[0] = static_cast<u16>(query.bytes);
+    CopyMemory(p.inline_cache_query[0], query.data, query.bytes);
+}
+// A cached query's bank, moved first; null when the query was never answered.
+CatalogBank* inline_cache_take(ApplicationMediaPicker& p, Utf8View query) noexcept {
+    const u32 at = inline_cache_index(p, query);
+    if (at == kInlineGifCacheCapacity)
+        return nullptr;
+    auto* bank = p.inline_cache[at];
+    for (u32 i = at; i; --i) {
+        p.inline_cache[i] = p.inline_cache[i - 1];
+        p.inline_cache_query_bytes[i] = p.inline_cache_query_bytes[i - 1];
+        CopyMemory(p.inline_cache_query[i], p.inline_cache_query[i - 1], p.inline_cache_query_bytes[i]);
+    }
+    p.inline_cache[0] = bank;
+    p.inline_cache_query_bytes[0] = static_cast<u16>(query.bytes);
+    CopyMemory(p.inline_cache_query[0], query.data, query.bytes);
+    return bank;
+}
+// The account's cache goes with it; current results keep their own bank.
+void inline_cache_clear(ApplicationMediaPicker& p) noexcept {
+    while (p.inline_cache[0])
+        inline_cache_drop(p, 0);
+}
+// Installs a bank as its slot's current results and projects them.
+bool show_bank(ApplicationMediaPicker& p, CatalogBank** slot, CatalogBank* bank) noexcept {
+    auto* old = *slot;
+    revoke_capture(p);
+    ui_media_picker_scene_close(&p.scene);
+    *slot = bank;
+    if (old != bank)
+        release_bank(p, old);
+    ++p.source.revision;
+    if (!projection(p))
+        return false;
+    p.phase = p.source.count ? UiMediaPickerPhase::ready : UiMediaPickerPhase::empty;
+    p.status = p.source.count ? utf8_literal("Choose an item") : utf8_literal("No matches");
+    return true;
+}
 // The emoji picker holds every emoji the chat state can.
 static_assert(kChatStateEmojiCapacity <= kReactionPickerCustomEmojiCapacity &&
               kReactionPickerResultCapacity <= kUiMediaPickerMaximumItems);
@@ -452,13 +567,20 @@ bool owns_current(const ApplicationMediaPicker& p) noexcept {
     return available(&p) && p.account_id == g_app.account_ui->chat_state.self_user_id &&
            p.channel_id == g_app.account_ui->active_channel_id;
 }
-bool unobstructed() noexcept {
-    return !application_settings_active() && !g_app.text_form && !g_app.popup_scene.active &&
+// Inline results belong to the commands popup's option bar and show beside it.
+bool unobstructed(bool inline_results = false) noexcept {
+    return !application_settings_active() && !g_app.text_form &&
+           (!g_app.popup_scene.active || (inline_results && g_app.popup_owner_kind == PopupOwnerKind::commands)) &&
            !(g_app.profile && g_app.profile->scene.active) && !g_app.image_viewer.scene.active &&
            !g_app.reaction_viewer.active;
 }
 bool front(const ApplicationMediaPicker* p = nullptr) noexcept {
-    return available(p) && unobstructed();
+    return available(p) && unobstructed(p && p->inline_mode);
+}
+// Open and current on screen, the inline results included (these never take
+// the keyboard: application_media_picker_active is the expression picker).
+bool shown(const ApplicationMediaPicker* p) noexcept {
+    return p && p->active && owns_current(*p) && front(p);
 }
 void focus(ApplicationMediaPicker& p, bool value) noexcept {
     if (p.focused != value)
@@ -680,6 +802,144 @@ bool build_server_stickers(ApplicationMediaPicker& p) noexcept {
     ++p.source.revision;
     return true;
 }
+// A server sticker's server name, else its pack's name: the inline row's
+// trailing column (the client's pack or guild name).
+Utf8View sticker_source(const ApplicationMediaPicker& p, const MediaCatalogItem& item) noexcept {
+    if (!item.guild_id)
+        return item.pack_name;
+    for (u32 s = 0; s < p.sticker_server_count; ++s)
+        if (p.sticker_servers[s].id == item.guild_id)
+            return p.sticker_servers[s].label;
+    return {};
+}
+// The client's /sticker results (queryStickers, all.js @166232562): every
+// sendable sticker scores its best field, a field's weight (name 11, server or
+// pack name 8, a server sticker's correlated emoji 6 and tag 1) times 10 when
+// it equals the query, 7 when it starts with it, or 5 when a name contains it.
+// The correlated emoji is the tag's emoji and its skin-tone variants
+// (GuildStickersStore metadata, @164408638). A sticker with synced frecency
+// (StickersPersistedStore 931959) then weighs by its score / 100. The eight
+// best show, equal scores in catalog order (server stickers, then packs). A
+// sticker found by another field than its name notes that field, lowercase as
+// the client keeps it. Not kept: this session's unsaved sticker uses.
+constexpr u32 kStickerFrecencyCapacity = 256;
+struct StickerFrecency {
+    u64 id[kStickerFrecencyCapacity];
+    u32 score[kStickerFrecencyCapacity];
+    u32 count;
+    u64 now_ms;
+};
+bool sticker_frecency_entry(void* context, Utf8View key, const EmojiFrecencyItem& item) noexcept {
+    auto& table = *static_cast<StickerFrecency*>(context);
+    u64 id = 0;
+    if (!snowflake_parse(key, &id))
+        return true;
+    u32 score = 0;
+    for (u32 i = 0; i < item.recent_count; ++i)
+        if (item.recent_uses[i])
+            score += frecency_age_weight(table.now_ms, item.recent_uses[i]);
+    u32 at = 0;
+    while (at < table.count && table.id[at] != id)
+        ++at;
+    // The last duplicate is authoritative; past capacity an entry is unweighted.
+    if (at == table.count) {
+        if (table.count == kStickerFrecencyCapacity)
+            return true;
+        ++table.count;
+    }
+    table.id[at] = id;
+    table.score[at] = score;
+    return true;
+}
+bool inline_stickers(ApplicationMediaPicker& p, u32 count, Utf8View query) noexcept {
+    u32 scores[kUiInlineResultsStickerLimit]{};
+    Utf8View matches[kUiInlineResultsStickerLimit]{};
+    u32 shown = 0;
+    StickerFrecency frecency;
+    frecency.count = 0;
+    frecency.now_ms = clock_unix_milliseconds();
+    if (query.bytes)
+        emoji_preferences_visit_frecency(application_emoji_preferences_sticker_frecency(), sticker_frecency_entry,
+                                         &frecency);
+    for (u32 i = 0; query.bytes && i < count; ++i) {
+        const bool guild = p.guild && i < p.guild->count;
+        const auto& item = guild ? p.guild->items[i] : p.packs->items[i - (p.guild ? p.guild->count : 0)];
+        if (!item.available)
+            continue;
+        u32 score = 0;
+        Utf8View match{};
+        const auto consider = [&](Utf8View value, u32 weight, bool contains) noexcept {
+            const u32 points = value.bytes == query.bytes && ascii_equal_ignore_case(value, query) ? 10 * weight
+                               : value.bytes >= query.bytes &&
+                                       ascii_equal_ignore_case({value.data, query.bytes}, query)
+                                   ? 7 * weight
+                               : contains && ascii_contains_ignore_case(value, query) ? 5 * weight
+                                                                                      : 0;
+            if (points > score) {
+                score = points;
+                match = value;
+            }
+        };
+        consider(item.name, 11, true);
+        consider(sticker_source(p, item), 8, true);
+        if (guild && item.tags.bytes) {
+            consider(item.tags, 1, false);
+            consider(emoji_shortcode_glyph(item.tags), 6, false);
+            char toned[128];
+            if (item.tags.bytes + 6 <= sizeof(toned)) {
+                copy_bytes(toned, item.tags.data, item.tags.bytes);
+                copy_bytes(toned + item.tags.bytes, "_tone", 5);
+                for (char tone = '1'; tone <= '5'; ++tone) {
+                    toned[item.tags.bytes + 5] = tone;
+                    consider(emoji_shortcode_glyph({toned, item.tags.bytes + 6}), 6, false);
+                }
+            }
+        }
+        if (!score)
+            continue;
+        // Integer form of score * frecency / 100: unweighted stickers count 100.
+        u32 weight = 100;
+        for (u32 f = 0; f < frecency.count; ++f)
+            if (frecency.id[f] == item.sticker_id) {
+                weight = frecency.score[f] ? frecency.score[f] : 100;
+                break;
+            }
+        score *= weight;
+        u32 at = shown < kUiInlineResultsStickerLimit ? shown++ : kUiInlineResultsStickerLimit;
+        while (at && scores[at - 1] < score) {
+            if (at < kUiInlineResultsStickerLimit) {
+                scores[at] = scores[at - 1];
+                matches[at] = matches[at - 1];
+                p.filtered[at] = p.filtered[at - 1];
+            }
+            --at;
+        }
+        if (at < kUiInlineResultsStickerLimit) {
+            scores[at] = score;
+            matches[at] = match;
+            p.filtered[at] = i;
+        }
+    }
+    for (u32 n = 0; n < shown; ++n) {
+        const u32 i = p.filtered[n];
+        const auto& item = p.guild && i < p.guild->count ? p.guild->items[i]
+                                                          : p.packs->items[i - (p.guild ? p.guild->count : 0)];
+        u32 bytes = 0;
+        if (matches[n].bytes != item.name.bytes || !ascii_equal_ignore_case(matches[n], item.name)) {
+            auto* note = p.inline_notes[n];
+            bytes = utf8_copy_truncated(note, sizeof(p.inline_notes[n]), utf8_literal("Similar to: "));
+            const u32 start = bytes;
+            bytes += utf8_copy_truncated(note + bytes, sizeof(p.inline_notes[n]) - bytes, matches[n]);
+            for (u32 k = start; k < bytes; ++k)
+                note[k] = ascii_lower(note[k]);
+        }
+        p.inline_note_bytes[n] = static_cast<u16>(bytes);
+    }
+    p.filtered_count = shown;
+    p.source.count = shown;
+    p.inline_select = true;
+    return true;
+}
 bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
     const auto& p = *static_cast<ApplicationMediaPicker*>(context);
     if (!out || index >= p.source.count)
@@ -723,7 +983,12 @@ bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
         categories && item->kind == MediaCatalogItemKind::gif ? utf8_literal("Trending GIFs") : item->name;
     out->detail = item->description.bytes ? item->description : item->name;
     // Stickers name their source (server or pack) in the footer.
-    if (p.kind == UiMediaPickerKind::sticker) {
+    if (p.kind == UiMediaPickerKind::sticker && p.inline_mode) {
+        // Inline rows end with the sticker's server or pack name.
+        out->detail = sticker_source(p, *item);
+        if (index < kUiInlineResultsStickerLimit)
+            out->note = {p.inline_notes[index], p.inline_note_bytes[index]};
+    } else if (p.kind == UiMediaPickerKind::sticker) {
         reset_value(&out->detail);
         for (u32 s = 0; s < p.section_count; ++s)
             if (index >= p.sections[s].first && index - p.sections[s].first < p.sections[s].count) {
@@ -737,7 +1002,7 @@ bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
                 : categories                         ? UiMediaPickerItemKind::category
                                                      : UiMediaPickerItemKind::gif;
     out->enabled = item->available;
-    if (out->kind == UiMediaPickerItemKind::gif && p.favorites_enabled) {
+    if (out->kind == UiMediaPickerItemKind::gif && p.favorites_enabled && !p.inline_mode) {
         const auto favorite = application_gif_favorites_state(item->send_url);
         out->favoritable = item->send_url.bytes && item->send_url.bytes <= kMediaCatalogMaximumUrlBytes;
         out->favorite = favorite.confirmed;
@@ -752,6 +1017,7 @@ bool projection(ApplicationMediaPicker& p) noexcept {
     if (p.kind == UiMediaPickerKind::gif) {
         if (!p.favorites_view) {
             p.source.count = (gif_bank(p) ? gif_bank(p)->count : 0) + (landing(p) && p.favorites_enabled ? 1 : 0);
+            p.inline_select = p.inline_mode;
             return true;
         }
     }
@@ -778,6 +1044,8 @@ bool projection(ApplicationMediaPicker& p) noexcept {
         p.source.count = p.filtered_count;
         return true;
     }
+    if (p.inline_mode)
+        return inline_stickers(p, count, query);
     u64 previous = 0;
     for (u32 i = 0; i < count; ++i) {
         const auto* bank = p.guild && i < p.guild->count ? p.guild : p.packs;
@@ -859,9 +1127,34 @@ void request(ApplicationMediaPicker& p, MediaCatalogOperation operation, bool de
         return;
     }
     p.wanted = true;
-    p.due_at = deadline_after(clock_monotonic_milliseconds(), delayed ? kSearchDebounceMs : 0);
+    p.due_at = deadline_after(clock_monotonic_milliseconds(),
+                              !delayed ? 0 : p.inline_mode ? kInlineSearchDebounceMs : kSearchDebounceMs);
     p.phase = UiMediaPickerPhase::loading;
     p.status = utf8_literal("Loading…");
+}
+// /sticker results for the query: the session's server stickers and the
+// standard packs (the current server's list and the packs fetched once when
+// missing, the results scored again as they land).
+bool inline_sticker_search(ApplicationMediaPicker& p) noexcept {
+    revoke_capture(p);
+    cancel(p);
+    if (p.generation == ~u32{0})
+        return false;
+    ++p.generation;
+    if ((!p.guild || p.sticker_store_revision != g_sticker_store.revision) && !build_server_stickers(p))
+        return false;
+    const bool server_unknown = p.guild_id && !sticker_list(p.guild_id) && !p.sticker_guild_done;
+    p.wanted = !p.packs || server_unknown;
+    p.operation = server_unknown ? MediaCatalogOperation::guild_stickers : MediaCatalogOperation::sticker_packs;
+    p.due_at = 1;
+    if (!projection(p))
+        return false;
+    p.phase = p.source.count ? UiMediaPickerPhase::ready
+              : p.wanted     ? UiMediaPickerPhase::loading
+                             : UiMediaPickerPhase::empty;
+    p.scene.scroll_dips = 0;
+    ++p.source.revision;
+    return true;
 }
 bool switch_tab(ApplicationMediaPicker& p, UiMediaPickerKind kind) noexcept {
     if (kind > UiMediaPickerKind::emoji)
@@ -959,7 +1252,8 @@ bool react(ApplicationMediaPicker& p, const ReactionPickerSelection& selection) 
     p.reaction_error = error;
     return repaint();
 }
-bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target) noexcept {
+// insert: the inline strip's Tab (a GIF's link replaces the draft).
+bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target, bool insert = false) noexcept {
     if (!owns_current(p) || !front(&p) || target.account_scope != p.scope ||
         target.query_generation != p.generation || target.source_revision != p.source.revision ||
         target.scene_generation != p.scene.generation || !ui_media_picker_scene_current(p.scene))
@@ -977,6 +1271,16 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target) noex
     if (target.action == UiMediaPickerAction::back) {
         message_composer_clear(&p.edit);
         request(p, MediaCatalogOperation::gif_categories);
+        return repaint();
+    }
+    if (target.action == UiMediaPickerAction::page_back || target.action == UiMediaPickerAction::page_forward) {
+        // The client's scrollBy({behavior: smooth}), ticked each frame only while it runs.
+        const u64 now = clock_monotonic_milliseconds();
+        if (ui_media_picker_scene_page(&p.scene, target.action == UiMediaPickerAction::page_forward, now,
+                                       static_cast<float>(maximum(g_app.renderer.dpi, 1u)) / 96.f,
+                                       g_app.preferences.reduced_motion) &&
+            ui_media_picker_scene_paging(p.scene))
+            p.page_at = deadline_after(now, kUiTransitionFrameMs);
         return repaint();
     }
     if (target.action == UiMediaPickerAction::section_jump) {
@@ -1080,7 +1384,14 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target) noex
     if (target.action != UiMediaPickerAction::item)
         return true;
     focus(p, false);
-    if (p.kind == UiMediaPickerKind::gif && (GetKeyState(VK_SHIFT) & 0x8000)) {
+    // The inline strip's Tab: the GIF's link replaces the draft (the client's
+    // INSERT), which counts as a use of /gif.
+    if (p.inline_mode && insert && p.kind == UiMediaPickerKind::gif) {
+        const auto url = item->send_url;
+        application_media_picker_close();
+        return application_commands_builtin_used(url);
+    }
+    if (!p.inline_mode && p.kind == UiMediaPickerKind::gif && (GetKeyState(VK_SHIFT) & 0x8000)) {
         const auto inserted = message_composer_insert_utf8(&g_app.message_composer, item->send_url);
         application_media_picker_close();
         return composer_apply_result(inserted, true);
@@ -1111,7 +1422,12 @@ bool activate(ApplicationMediaPicker& p, const UiMediaPickerTarget& target) noex
         p.status = utf8_literal("Couldn't send. Try again.");
         return repaint();
     }
+    // A result sent from the inline strip or list ends its command: the
+    // draft clears, as after the client's sendMessage/sendSticker.
+    const bool inline_results = p.inline_mode;
     application_media_picker_close();
+    if (inline_results && !application_commands_builtin_used({}))
+        return false;
     return refresh_message_composer_ui() && pump_message_history();
 }
 
@@ -1148,10 +1464,12 @@ void rebind(ApplicationMediaPicker& p) noexcept {
     reaction_picker_release(&p.emoji);
     cancel(p);
     focus(p, false);
-    // The session's category cache belongs to its account.
-    if (p.account_id != g_app.account_ui->chat_state.self_user_id && p.categories) {
-        VirtualFree(p.categories, 0, MEM_RELEASE);
+    // The session's category and /gif caches belong to its account.
+    if (p.account_id != g_app.account_ui->chat_state.self_user_id) {
+        if (p.categories)
+            VirtualFree(p.categories, 0, MEM_RELEASE);
         p.categories = nullptr;
+        inline_cache_clear(p);
     }
     p.scope = ++g_app.media_picker_scope_serial;
     p.favorites_enabled = p.favorites_view = p.gif_favorites_view = false;
@@ -1207,16 +1525,90 @@ bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept {
     g_app.media_picker->jump_section = pack_id;
     return repaint();
 }
-bool application_media_picker_open_search(UiMediaPickerKind kind, Utf8View query) noexcept {
-    // Already on that tab: stay open (a reopen would toggle it shut).
-    const auto* shown = g_app.media_picker;
-    if (!(shown && shown->active && shown->scene.active && owns_current(*shown) && shown->kind == kind &&
-          !shown->reaction_message_id) &&
-        !application_media_picker_open(kind))
+bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor) noexcept {
+    auto* open = g_app.media_picker;
+    // The client hides its autocomplete while the expression picker is open.
+    if (open && open->active && !open->inline_mode)
+        return true;
+    if (!query.bytes || kind == UiMediaPickerKind::emoji || !ui_rect_valid(anchor) || !available()) {
+        application_media_picker_inline_close();
+        return true;
+    }
+    auto* owner = ensure_owner();
+    if (!owner)
         return false;
+    auto& p = *owner;
+    rebind(p);
+    if (p.generation == ~u32{0})
+        return false;
+    const bool fresh = !p.active || !p.inline_mode || p.kind != kind;
+    if (fresh) {
+        if (p.active)
+            application_media_picker_close();
+        // Keep the composer picker's tab and query for its next open.
+        const auto saved = message_composer_text(p.edit);
+        p.composer_kind = p.kind;
+        p.tab_query_bytes[static_cast<u32>(p.kind)] = static_cast<u16>(saved.bytes);
+        CopyMemory(p.tab_query[static_cast<u32>(p.kind)], saved.data, saved.bytes);
+        message_composer_clear(&p.edit);
+        p.kind = kind;
+        p.favorites_view = p.wanted = false;
+        p.due_at = 0;
+        p.inline_mode = p.active = true;
+    }
+    p.inline_anchor = anchor;
+    // The search field's capacity bounds the query, as the catalog does.
+    char bounded[kMediaCatalogMaximumQueryBytes];
+    query = {bounded, utf8_copy_truncated(bounded, sizeof(bounded), query)};
+    if (fresh || !utf8_equal(message_composer_text(p.edit), query)) {
+        if (!message_composer_restore(&p.edit, 0, query, query.bytes, query.bytes))
+            return false;
+        // "Gif content matching **q**" / "Stickers matching **q**".
+        const Utf8View lead = kind == UiMediaPickerKind::gif ? utf8_literal("Gif content matching ")
+                                                             : utf8_literal("Stickers matching ");
+        p.inline_heading_plain = utf8_copy_truncated(p.inline_heading, sizeof(p.inline_heading), lead);
+        p.inline_heading_bytes =
+            p.inline_heading_plain + utf8_copy_truncated(p.inline_heading + p.inline_heading_plain,
+                                                         sizeof(p.inline_heading) - p.inline_heading_plain, query);
+        if (kind == UiMediaPickerKind::gif) {
+            request(p, MediaCatalogOperation::gif_search, true);
+            // A query answered this session shows at once without asking again.
+            if (auto* cached = inline_cache_take(p, query)) {
+                p.wanted = false;
+                p.due_at = 0;
+                if (!show_bank(p, &p.gif, cached))
+                    return false;
+            }
+        } else if (!inline_sticker_search(p)) {
+            return false;
+        }
+    }
+    return application_request_frame();
+}
+void application_media_picker_inline_close() noexcept {
+    if (g_app.media_picker && g_app.media_picker->inline_mode)
+        application_media_picker_close();
+}
+bool application_media_picker_inline_key(u32 key, bool* handled) noexcept {
+    *handled = false;
     auto* p = g_app.media_picker;
-    return p && message_composer_restore(&p->edit, 0, query, query.bytes, query.bytes) &&
-           application_media_picker_edit_changed(true);
+    if (!p || !p->inline_mode || !shown(p) || !ui_media_picker_scene_current(p->scene) ||
+        p->phase != UiMediaPickerPhase::ready)
+        return true;
+    if (key == VK_UP || key == VK_DOWN) {
+        *handled = true;
+        ui_media_picker_scene_step_selection(&p->scene, key == VK_UP ? -1 : 1);
+        return repaint();
+    }
+    if (key != VK_RETURN && key != VK_TAB)
+        return true;
+    // The client's onTabOrEnter: without a selected result the key keeps its
+    // composer meaning; Tab inserts a GIF's link where Enter sends it.
+    const auto target = ui_media_picker_scene_selected_target(p->scene);
+    if (target.action != UiMediaPickerAction::item)
+        return true;
+    *handled = true;
+    return activate(*p, target, key == VK_TAB);
 }
 u64 application_media_picker_sticker_server(u64 sticker_id) noexcept {
     if (!sticker_id)
@@ -1301,13 +1693,13 @@ void application_media_picker_close() noexcept {
         return;
     application_surface_motion_retire(RendererLayerSurface::gallery);
     // The scene's storage is released below; its tab keeps the scroll offset.
-    if (!p->reaction_message_id && p->scene.active)
+    if (!p->reaction_message_id && !p->inline_mode && p->scene.active)
         p->tab_scroll[static_cast<u32>(p->kind)] = p->scene.scroll_dips;
     cancel(*p);
     p->active = p->wanted = false;
     p->jump_section = 0;
     focus(*p, false);
-    if (p->reaction_message_id) {
+    if (p->reaction_message_id || p->inline_mode) {
         // Return the shared search field and kind to the composer picker.
         const u32 kind = static_cast<u32>(p->composer_kind);
         message_composer_restore(&p->edit, 0, {p->tab_query[kind], p->tab_query_bytes[kind]},
@@ -1315,7 +1707,7 @@ void application_media_picker_close() noexcept {
         p->kind = p->composer_kind;
         p->reaction_message_id = 0;
         reset_value(&p->reaction_scope);
-        p->reaction_error = false;
+        p->reaction_error = p->inline_mode = p->inline_select = false;
     }
     revoke_capture(*p);
     p->hover_at = 0;
@@ -1338,6 +1730,8 @@ void application_media_picker_release() noexcept {
     ui_media_picker_scene_release(&p->scene);
     reaction_picker_release(&p->emoji);
     message_composer_release(&p->edit);
+    // Emptying the /gif cache frees every cached bank but the current results'.
+    inline_cache_clear(*p);
     CatalogBank* banks[]{p->gif, p->categories, p->guild, p->packs};
     for (auto* bank : banks)
         if (bank)
@@ -1370,8 +1764,7 @@ void application_media_picker_gateway(const GatewayClientEvent& event, Utf8View 
         application_request_frame();
 }
 bool application_media_picker_active() noexcept {
-    return g_app.media_picker && g_app.media_picker->active && owns_current(*g_app.media_picker) &&
-           front(g_app.media_picker);
+    return shown(g_app.media_picker) && !g_app.media_picker->inline_mode;
 }
 void application_media_picker_emoji_preferences_changed() noexcept {
     auto* p = g_app.media_picker;
@@ -1397,8 +1790,11 @@ bool application_media_picker_synchronize() noexcept {
         g_app.renderer.media_picker_scene = nullptr;
         return true;
     }
+    // Inline results go with the command (its option bar); another popup
+    // obstructs them (front).
     if (!front(p) || p->account_id != g_app.account_ui->chat_state.self_user_id ||
-        p->channel_id != g_app.account_ui->active_channel_id) {
+        p->channel_id != g_app.account_ui->active_channel_id ||
+        (p->inline_mode && !application_commands_bar_visible())) {
         application_media_picker_close();
         return true;
     }
@@ -1451,16 +1847,34 @@ bool application_media_picker_synchronize() noexcept {
         const auto status = application_message_reaction_status(p->reaction_message_id, &error);
         p->status = status.bytes ? status : kReactionHint;
     }
-    content.available_tabs = reaction ? ui_media_picker_tab_bit(UiMediaPickerKind::emoji) : 7;
-    content.variant = reaction ? UiMediaPickerVariant::reaction : UiMediaPickerVariant::expression;
+    // The client's inline results show only while loading or with results.
+    if (p->inline_mode && (p->phase == UiMediaPickerPhase::empty || p->phase == UiMediaPickerPhase::failed ||
+                           (p->phase == UiMediaPickerPhase::ready && !p->source.count))) {
+        revoke_capture(*p);
+        ui_media_picker_scene_close(&p->scene);
+        g_app.renderer.media_picker_scene = nullptr;
+        return true;
+    }
+    content.available_tabs = reaction ? ui_media_picker_tab_bit(UiMediaPickerKind::emoji)
+                             : p->inline_mode ? ui_media_picker_tab_bit(p->kind)
+                                              : 7;
+    content.variant = reaction         ? UiMediaPickerVariant::reaction
+                      : p->inline_mode ? UiMediaPickerVariant::inline_results
+                                       : UiMediaPickerVariant::expression;
+    if (p->inline_mode) {
+        reset_value(&content.edit);
+        content.heading = {p->inline_heading, p->inline_heading_bytes};
+        content.heading_plain = p->inline_heading_plain;
+    }
     content.placeholder =
-        p->kind == UiMediaPickerKind::gif
+        p->inline_mode ? Utf8View{}
+        : p->kind == UiMediaPickerKind::gif
             ? (p->favorites_view ? utf8_literal("Search favorites") : utf8_literal("Search Klipy"))
         : p->kind == UiMediaPickerKind::emoji
             ? (reaction ? utf8_literal("Find the perfect reaction") : utf8_literal("Find the perfect emoji"))
                                               : utf8_literal("Search stickers");
     content.status = p->status;
-    content.back = p->kind == UiMediaPickerKind::gif &&
+    content.back = p->kind == UiMediaPickerKind::gif && !p->inline_mode &&
                    (p->favorites_view || p->operation != MediaCatalogOperation::gif_categories);
     auto& prior = p->content;
     const auto revision = prior.revision;
@@ -1477,20 +1891,31 @@ bool application_media_picker_synchronize() noexcept {
             ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::title_bar)))
         viewport.top = maximum(viewport.top, title->rectangle.bottom);
     // The composer picker sits above the composer; the reaction popout may
-    // use the whole client area below the title bar beside its message.
+    // use the whole client area below the title bar beside its message;
+    // inline results sit above their anchor (the commands popup).
+    const UiRect anchor = reaction         ? p->reaction_anchor
+                          : p->inline_mode ? p->inline_anchor
+                          : composer       ? composer->rectangle
+                                           : UiRect{};
     if (reaction) {
         viewport.left = 0;
         viewport.bottom = static_cast<float>(g_app.renderer.height) * 96.f / maximum(g_app.renderer.dpi, 1u);
-    } else if (composer)
+    } else if (p->inline_mode)
+        viewport.bottom = minimum(viewport.bottom, anchor.top);
+    else if (composer)
         viewport.bottom = minimum(viewport.bottom, composer->rectangle.top);
     if (p->resizing && !ui_rect_equal(viewport, p->scene.viewport))
         revoke_capture(*p);
     const u32 prior_generation = p->scene.generation;
-    if ((!reaction && !composer) ||
-        !ui_media_picker_scene_update(&p->scene, &p->source, &p->content, viewport,
-                                      reaction ? p->reaction_anchor : composer->rectangle, nullptr,
+    if ((!reaction && !p->inline_mode && !composer) ||
+        !ui_media_picker_scene_update(&p->scene, &p->source, &p->content, viewport, anchor, nullptr,
                                       p->preferred_width))
         return false;
+    // A new result set starts with its first result selected.
+    if (p->inline_mode && p->inline_select && p->phase == UiMediaPickerPhase::ready) {
+        p->inline_select = false;
+        ui_media_picker_scene_select(&p->scene, 0);
+    }
     // A saved-state response rebuilds cell handles. Restore pointer state
     // once for that update so a stationary cursor keeps its action hint.
     if (prior_generation != p->scene.generation && !g_app.keyboard_focus_visible) {
@@ -1525,12 +1950,15 @@ bool application_media_picker_submit(u64 id, u64 now) noexcept {
     CopyMemory(p.submitted_query, text.data, text.bytes);
     const bool search = p.operation == MediaCatalogOperation::gif_search ||
                         p.operation == MediaCatalogOperation::gif_suggestions;
+    // The inline /gif strip asks as the client's integration search does:
+    // animated WebP, 20 results.
+    const bool strip = p.inline_mode && p.operation == MediaCatalogOperation::gif_search;
     MediaCatalogQuery query{p.operation,
                             search ? Utf8View{p.submitted_query, text.bytes} : Utf8View{},
                             utf8_literal("en-US"),
                             p.operation == MediaCatalogOperation::guild_stickers ? p.guild_id : 0,
-                            0u,
-                            MediaCatalogFormat::tiny_webp};
+                            strip ? kMediaCatalogMinimumGifPageItems : 0u,
+                            strip ? MediaCatalogFormat::webp : MediaCatalogFormat::tiny_webp};
     const auto submitted = g_app.account.api.media_catalog(
         g_app.account.instance, AccountMediaCatalogOperation::submit, &query, id);
     if (!submitted.ok()) {
@@ -1661,17 +2089,11 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
         auto** slot = operation == MediaCatalogOperation::sticker_packs    ? &p->packs
                       : operation == MediaCatalogOperation::gif_categories ? &p->categories
                                                                            : &p->gif;
-        auto* old = *slot;
-        revoke_capture(*p);
-        ui_media_picker_scene_close(&p->scene);
-        *slot = candidate;
-        if (old)
-            VirtualFree(old, 0, MEM_RELEASE);
-        ++p->source.revision;
-        if (!projection(*p))
+        if (!show_bank(*p, slot, candidate))
             return false;
-        p->phase = p->source.count ? UiMediaPickerPhase::ready : UiMediaPickerPhase::empty;
-        p->status = p->source.count ? utf8_literal("Choose an item") : utf8_literal("No matches");
+        // The query is unchanged since the request, or its generation would differ.
+        if (p->inline_mode && operation == MediaCatalogOperation::gif_search)
+            inline_cache_keep(*p, message_composer_text(p->edit), candidate);
     } else {
         p->phase = UiMediaPickerPhase::failed;
         p->status = utf8_literal("Couldn't load. Press Enter to retry.");
@@ -1728,8 +2150,10 @@ u64 application_media_picker_next_wake() noexcept {
 }
 u64 application_media_picker_caret_wake() noexcept {
     const auto* p = g_app.media_picker;
-    return application_media_picker_active() ? earliest_deadline(p->focused ? p->blink_at : 0, p->hover_at)
-                                             : 0;
+    const u64 paging = p && ui_media_picker_scene_paging(p->scene) ? p->page_at : 0;
+    return earliest_deadline(
+        application_media_picker_active() ? earliest_deadline(p->focused ? p->blink_at : 0, p->hover_at) : 0,
+        paging);
 }
 void application_media_picker_tick(u64 now) noexcept {
     auto* p = g_app.media_picker;
@@ -1742,10 +2166,15 @@ void application_media_picker_tick(u64 now) noexcept {
         p->hover_at = 0;
         repaint();
     }
+    if (p && ui_media_picker_scene_paging(p->scene) && deadline_due(now, p->page_at)) {
+        if (ui_media_picker_scene_page_tick(&p->scene, now))
+            repaint(true);
+        p->page_at = ui_media_picker_scene_paging(p->scene) ? deadline_after(now, kUiTransitionFrameMs) : 0;
+    }
 }
 bool application_media_picker_preview_request(u32 cell, AccountMediaCatalogPreviewRequest* out) noexcept {
     const auto* p = g_app.media_picker;
-    if (!out || !p || !application_media_picker_active() || p->kind == UiMediaPickerKind::emoji)
+    if (!out || !shown(p) || p->kind == UiMediaPickerKind::emoji)
         return false;
     const CatalogBank* bank = nullptr;
     u32 local = 0;
@@ -1790,13 +2219,13 @@ bool application_media_picker_preview_request(u32 cell, AccountMediaCatalogPrevi
 }
 bool application_media_picker_preview_current(MediaAssetKey key, u64 scope, u32 generation) noexcept {
     const auto* p = g_app.media_picker;
-    if (!p || p->scope != scope || key.variant != generation || !application_media_picker_active())
+    if (!p || p->scope != scope || key.variant != generation || !shown(p))
         return false;
     return application_media_picker_preview_visible(key);
 }
 bool application_media_picker_preview_visible(MediaAssetKey key) noexcept {
     const auto* p = g_app.media_picker;
-    if (!p || !application_media_picker_active())
+    if (!shown(p))
         return false;
     for (u32 i = 0; i < p->scene.cell_count + p->scene.rail_count; ++i) {
         AccountMediaCatalogPreviewRequest request{};
@@ -1809,7 +2238,7 @@ bool application_media_picker_preview_visible(MediaAssetKey key) noexcept {
 
 bool application_media_picker_preview_owner_current(MediaAssetKey key, u64 scope, u32 generation) noexcept {
     const auto* p = g_app.media_picker;
-    if (!p || !application_media_picker_active() || p->kind == UiMediaPickerKind::emoji ||
+    if (!shown(p) || p->kind == UiMediaPickerKind::emoji ||
         p->scope != scope || !key.id || !generation || key.variant != generation)
         return false;
     const CatalogBank* banks[]{p->kind == UiMediaPickerKind::gif ? (p->favorites_view ? &p->saved : gif_bank(*p))
@@ -2106,6 +2535,90 @@ bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) no
         application_media_picker_edit_changed(revision != p->edit.text_revision);
     return true;
 }
+namespace {
+// Inline results take the pointer only over their panel (the composer keeps
+// the keyboard): hover highlights a result and drops the keyboard selection
+// as the client's onResultHover does, a click sends it or pages the strip,
+// and the wheel scrolls the GIF strip sideways (the client turns vertical
+// wheel motion into horizontal scrolling).
+bool inline_pointer(ApplicationMediaPicker& p, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    if (!shown(&p) || !ui_media_picker_scene_current(p.scene))
+        return false;
+    if (message == WM_MOUSELEAVE) {
+        if (ui_widget_manager_hover(&p.scene.widgets, ui_widget_invalid_handle()))
+            repaint(true);
+        return false;
+    }
+    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+    if (message == WM_SETCURSOR &&
+        (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !application_screen_to_content(&point)))
+        return false;
+    if ((message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) && !application_screen_to_content(&point))
+        return false;
+    const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
+    const float x = point.x * scale, y = point.y * scale;
+    const bool inside = ui_rect_contains(ui_rect_intersection(p.scene.panel, p.scene.viewport), x, y);
+    if (message == WM_SETCURSOR) {
+        if (!inside)
+            return false;
+        application_set_cursor(ui_media_picker_scene_cursor(p.scene, x, y));
+        return true;
+    }
+    if (message == WM_MOUSEMOVE) {
+        if (!inside) {
+            if (ui_widget_manager_hover(&p.scene.widgets, ui_widget_invalid_handle()))
+                repaint(true);
+            return p.captured;
+        }
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, g_app.window, 0};
+        TrackMouseEvent(&track);
+        if (ui_media_picker_scene_hover(&p.scene, x, y, clock_monotonic_milliseconds())) {
+            if (ui_media_picker_scene_hit_test(p.scene, x, y).action == UiMediaPickerAction::item)
+                ui_media_picker_scene_clear_selection(&p.scene);
+            repaint(true);
+        }
+        return true;
+    }
+    if (message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK) {
+        if (!inside)
+            return false;
+        revoke_capture(p);
+        ui_media_picker_scene_pointer_down(&p.scene, x, y);
+        p.captured = true;
+        SetCapture(g_app.window);
+        application_request_frame();
+        return true;
+    }
+    if (message == WM_LBUTTONUP) {
+        if (!p.captured && !inside)
+            return false;
+        const auto selected = inside ? ui_media_picker_scene_pointer_up(&p.scene, x, y) : UiMediaPickerTarget{};
+        revoke_capture(p);
+        if (selected.action != UiMediaPickerAction::none)
+            activate(p, selected);
+        else
+            application_request_frame();
+        return true;
+    }
+    if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) {
+        if (!inside)
+            return false;
+        u32 lines = 3;
+        SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+        const float notches = static_cast<float>(static_cast<short>(HIWORD(wparam))) / WHEEL_DELTA;
+        // Wheel up scrolls back; tilting right scrolls forward.
+        const float delta = (message == WM_MOUSEWHEEL ? -notches : notches) *
+                            (lines == WHEEL_PAGESCROLL ? ui_rect_width(p.scene.body) : lines * kUiScrollLineDips);
+        if (p.kind == UiMediaPickerKind::gif && ui_media_picker_scene_scroll(&p.scene, delta))
+            repaint(true);
+        return true;
+    }
+    return inside && (message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
+                      message == WM_RBUTTONDBLCLK || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP ||
+                      message == WM_MBUTTONDBLCLK || message == WM_XBUTTONDOWN || message == WM_XBUTTONUP ||
+                      message == WM_XBUTTONDBLCLK);
+}
+} // namespace
 
 bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     auto* p = g_app.media_picker;
@@ -2127,6 +2640,8 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
         revoke_capture(*p);
         return false;
     }
+    if (p->inline_mode)
+        return inline_pointer(*p, message, wparam, lparam);
     if (!application_media_picker_active())
         return false;
     if (message == WM_MOUSELEAVE) {

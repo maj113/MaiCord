@@ -16,12 +16,15 @@ struct ChatStateStore;
 
 // Plugin composer-toolbar buttons sit before the GIF button.
 inline constexpr u32 kMessageComposerPluginSlots = 4;
-inline constexpr u32 kMessageComposerWidgetCapacity = 14 + kMessageComposerPluginSlots;
+inline constexpr u32 kMessageComposerWidgetCapacity = 16 + kMessageComposerPluginSlots;
 inline constexpr u32 kMessageComposerDisplayBytes = kMessageComposerMaximumBytes;
 inline constexpr u32 kMessageComposerSelectionRectangleCapacity = 48;
 inline constexpr u32 kMessageComposerProjectionSpanCapacity = 128;
 inline constexpr u32 kMessageComposerReplyLabelBytes = 256;
 inline constexpr u32 kMessageComposerPlaceholderBytes = 512;
+inline constexpr u32 kMessageComposerCommandBarBytes = 1536;
+// The client's slash command option bar, stacked over the editor like the reply bar.
+inline constexpr float kMessageComposerCommandBarHeight = 32.0f;
 
 enum class MessageComposerProjectionKind : u8 {
     user,
@@ -29,7 +32,30 @@ enum class MessageComposerProjectionKind : u8 {
     channel,
     emoji,
     regional_flag,
+    // A slash command option's "name:" key (with its separating blank, if
+    // any), drawn as the head of the client's option chip (target:
+    // message_composer_chip_*).
+    command_option,
+    // The end marker of an option's value (kCommandOptionEnd): the chip's end
+    // padding; text after it is outside the chip.
+    command_option_end,
 };
+
+// One typed option of the selected command, in source bytes: the head's start
+// (the blank before the key, or the key), the name's start, the key's end
+// (after ':'), the value's end and the end of its end marker (equal while the
+// value is not terminated yet).
+struct MessageComposerOptionChip {
+    u16 head_first, name_first, key_last, value_last, end_last;
+    u8 flags;
+};
+inline constexpr u8 message_composer_chip_active = 1;
+inline constexpr u8 message_composer_chip_error = 2;
+// A chip's head shows the margin, then padding, the name and padding, and the
+// value's start padding; its end marker the value's end padding and the
+// margin; all in no-break spaces (one UTF-16 unit each).
+inline constexpr u32 kMessageComposerChipMargin = 1;
+inline constexpr u32 kMessageComposerChipPadding = 2;
 
 struct MessageComposerCommand {
     u64 bot_id;
@@ -47,10 +73,15 @@ struct MessageComposerProjectionContext {
     // Replaces the "Message #channel" placeholder while non-empty.
     Utf8View placeholder_override{};
     MessageComposerCommand command{};
-    // Source byte ranges [first, last) of the selected command's option keys
-    // ("name:"), drawn as the client's option pills.
-    u32 option_key_count{};
-    u16 option_key_first[25]{}, option_key_last[25]{};
+    // The selected command's typed options, in source order, drawn as the
+    // client's option chips.
+    u32 option_chip_count{};
+    MessageComposerOptionChip option_chips[25]{};
+    // The client's option bar over the editor while a command is selected:
+    // the active option's name and description (its failed check instead when
+    // error), else "/command" and its description. Empty name: no bar.
+    Utf8View command_bar_name{}, command_bar_detail{};
+    bool command_bar_error{};
 };
 
 struct MessageComposerProjectionSpan {
@@ -77,6 +108,8 @@ enum class MessageComposerControl : u8 {
     sticker,
     reply_mention,
     plugin_slot,
+    // The option bar's close button: ends the selected command.
+    command_close,
 };
 
 enum class MessageComposerSceneError : u8 {
@@ -95,12 +128,21 @@ struct MessageComposerSceneResult {
     }
 };
 
+// One line's piece of a slash command option chip in edit-content DIPs: the
+// option name segment (empty on a continuation line) and the value segment.
+struct MessageComposerChipGeometry {
+    UiRect key, value;
+    u8 flags;
+};
+inline constexpr u32 kMessageComposerChipGeometryCapacity = 32;
+
 struct MessageComposerPresentationInput {
     ConstSlice<UiRect> selections;
     UiRect caret;
     bool geometry_active;
     bool caret_visible;
     ConstSlice<TextCompositionMark> composition;
+    ConstSlice<MessageComposerChipGeometry> chips{};
 };
 
 struct MessageComposerAttachmentInput {
@@ -163,6 +205,8 @@ struct MessageComposerScene {
     UiWidgetHandle reply;
     UiWidgetHandle reply_mention;
     UiWidgetHandle reply_cancel;
+    // The selected slash command's option bar and its close button.
+    UiWidgetHandle command_bar, command_close;
     UiWidgetHandle attachments;
     UiWidgetHandle add_attachment;
     UiWidgetHandle edit;
@@ -177,6 +221,8 @@ struct MessageComposerScene {
     MessageComposerAttachmentStrip* attachment_strip;
     char* typing_label;
     char* placeholder;
+    // The option bar's name then detail (its failed check when command_bar_error).
+    char* command_bar_text;
     MessageComposerProjectionSpan* projection_spans;
     u32 display_bytes;
     u32 display_first;
@@ -200,6 +246,8 @@ struct MessageComposerScene {
     u16 attachment_label_bytes;
     u16 typing_label_bytes;
     u16 placeholder_bytes;
+    u16 command_bar_name_bytes, command_bar_detail_bytes;
+    bool command_bar_error;
     u32 layout_passes;
     u32 projection_passes;
     u32 rejected;
@@ -261,16 +309,24 @@ float message_composer_scene_preferred_height(const MessageComposer& model, floa
                                               u8 attachments_visible = 0,
                                               const UiResolvedThemeStyles* styles = nullptr) noexcept;
 float message_composer_scene_measured_height(const MessageComposerScene& scene, float text_height) noexcept;
+// command_bar: the selected slash command's option bar (stacked first).
 constexpr float message_composer_scene_chrome_height(
-    bool reply, bool typing, u8 attachments, const UiResolvedThemeStyles* styles = nullptr) noexcept {
+    bool reply, bool typing, u8 attachments, const UiResolvedThemeStyles* styles = nullptr,
+    bool command_bar = false) noexcept {
     const float gap = styles && styles->ready ? styles->metrics.composer_padding : 4.f;
-    return (reply ? 28.f + gap : 0.f) + (typing ? 20.f + gap : 0.f) +
+    return (command_bar ? kMessageComposerCommandBarHeight + gap : 0.f) + (reply ? 28.f + gap : 0.f) +
+           (typing ? 20.f + gap : 0.f) +
            (attachments == message_composer_attachment_row_strip ? ui_composer_attachment_strip_height() + gap
             : attachments                                         ? 28.f + gap
                                                                   : 0.f);
 }
 float message_composer_scene_cached_height(const MessageComposerScene& scene, bool reply, bool typing,
-                                           u8 attachments, float composer_width = 0.f) noexcept;
+                                           u8 attachments, float composer_width = 0.f,
+                                           bool command_bar = false) noexcept;
+// The option bar's name, its detail, and where both are drawn (empty without a bar).
+Utf8View message_composer_scene_command_bar_name(const MessageComposerScene& scene) noexcept;
+Utf8View message_composer_scene_command_bar_detail(const MessageComposerScene& scene) noexcept;
+UiRect message_composer_scene_command_bar_text_rectangle(const MessageComposerScene& scene) noexcept;
 MessageComposerSceneResult message_composer_scene_update(
     MessageComposerScene* scene, MessageComposer* model, UiRect viewport, bool channel_allows_send,
     u64 reply_message_id = 0, Utf8View reply_label = {},
@@ -332,14 +388,27 @@ u32 message_composer_scene_model_offset_from_display(const MessageComposerScene&
 bool message_composer_scene_composition_range(const MessageComposerScene& scene,
                                               const TextCompositionSpan& span, u32* first,
                                               u32* last) noexcept;
+// The visible option chips in UTF-16 units of the display text: the chip's
+// start (after the margin), the end of its name segment and of its value.
+// open_end: the value runs to the end of the text, so its end padding lies past
+// the last glyph. Returns the count.
+struct MessageComposerChipRange {
+    u32 first, key_last, value_last;
+    u8 flags;
+    bool open_end;
+};
+u32 message_composer_scene_chip_ranges(const MessageComposerScene& scene,
+                                       Slice<MessageComposerChipRange> output) noexcept;
 
 // Size budget: 512 bytes plus the plugin slot handles and count, the spelling
 // slice and its revision, the voice view, the status tone (one aligned word)
 // and the widget manager's hit filter (function and context). Selected command
-// identity adds exactly one 16-byte inline record, without another allocation.
+// identity adds exactly one 16-byte inline record, without another allocation,
+// and its option bar two widget handles, its text pointer and one aligned word.
 static_assert(sizeof(MessageComposerScene) < 512 + sizeof(UiWidgetHandle) * kMessageComposerPluginSlots + 8 +
                                                  sizeof(ConstSlice<TextCompositionSpan>) + 8 +
                                                  sizeof(const UiComposerVoiceView*) + 8 + 2 * sizeof(void*) +
-                                                 sizeof(MessageComposerCommand));
+                                                 sizeof(MessageComposerCommand) + 2 * sizeof(UiWidgetHandle) +
+                                                 sizeof(char*) + 8);
 
 } // namespace maicord

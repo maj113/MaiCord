@@ -256,7 +256,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             s.widgets(gallery.widgets)
                 .bytes(&gallery.panel, sizeof(gallery.panel))
                 .bytes(&renderer.media_picker_edit_geometry, sizeof(renderer.media_picker_edit_geometry))
-                .push(renderer.interaction_text_media_picker_revision);
+                .push(renderer.interaction_text_media_picker_revision)
+                .push(gallery.spinner_phase);
     }
     if (d3d11_renderer_search_visible(renderer)) {
         s.pointer(renderer.search_scene)

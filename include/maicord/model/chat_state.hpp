@@ -157,7 +157,14 @@ struct ChannelInput {
     bool rate_limit_known = false;
     // Thread only: join time in Unix seconds; zero keeps the stored one.
     u32 thread_join_seconds = 0;
+    // Text/announcement/forum default thread archive (channel_archive_code); zero keeps the stored one.
+    u8 default_archive_code = 0;
 };
+// default_auto_archive_duration minutes as a code: 1 hour, 1 day, 3 days, 1 week
+// are 1..4; any other value is 0 (unknown).
+constexpr u8 channel_archive_code(u64 minutes) noexcept {
+    return minutes == 60 ? 1 : minutes == 1440 ? 2 : minutes == 4320 ? 3 : minutes == 10080 ? 4 : 0;
+}
 
 // Unix seconds in 32 bits are enough for join times; a time outside that range is unknown.
 constexpr u32 thread_join_seconds_from_ms(u64 timestamp_ms) noexcept {
@@ -256,12 +263,21 @@ struct ChannelRecord {
     // Own post creation has already updated its forum/media parent read state.
     // Retained metadata updates preserve this receipt; deleting the thread clears it.
     bool thread_parent_creation_noted : 1;
+    // default_auto_archive_duration in two padding bits: 0 three days (the
+    // client's default when the channel names none), 1 an hour, 2 a day, 3 a
+    // week; see channel_default_archive_minutes.
+    u8 default_archive : 2;
     // Slowmode in slowmode_encode form; fits existing padding.
     u8 slowmode_code;
     u32 read_last_viewed;
     u32 read_flags;
 };
 static_assert(sizeof(ChannelRecord) == 104);
+// The thread archive a new thread in the channel takes by default (minutes).
+constexpr u16 channel_default_archive_minutes(const ChannelRecord& channel) noexcept {
+    return channel.default_archive == 1 ? 60 : channel.default_archive == 2 ? 1440
+           : channel.default_archive == 3 ? 10080 : 4320;
+}
 // Exact to 60 s, then 10 s / 60 s / 600 s steps (rounded down) up to 6 h.
 // Every slowmode value the official client's settings offer encodes exactly.
 constexpr u8 slowmode_encode(u32 seconds) noexcept {

@@ -306,7 +306,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
                          "rate_limit_per_user", "nsfw", "nsfw_level", "member", "thread_metadata", "newly_created",
                          "member_list_id", "animated", "available", "require_colons", "joined_at", "unavailable",
                          "role", "nicks", "recipients", "recipient_ids", "properties", "is_message_request",
-                         "is_spam", "safety_warnings">(name)) {
+                         "is_spam", "safety_warnings", "default_auto_archive_duration">(name)) {
     case 0:
     case 20:
         return snowflake_member(context, gateway_client_state_field_id, value, &context->mutation.id);
@@ -537,6 +537,13 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
             context->safety_warnings = value;
         }
         return true;
+    case 50: {
+        // Presentation-only like slowmode: an unexpected value keeps the default.
+        u64 minutes = 0;
+        if (json_value_to_u64(value, &minutes))
+            context->mutation.default_archive_code = channel_archive_code(minutes);
+        return true;
+    }
     default: return true;
     }
 }

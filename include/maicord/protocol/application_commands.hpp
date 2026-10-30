@@ -45,14 +45,24 @@ struct CommandAttachmentPlan {
     u8 file[10];
     u32 count;
 };
-// Parses named composer arguments (name:value, with optional JSON-quoted strings).
-// Values retain their declared wire type; unknown/duplicate/missing arguments fail.
-// ATTACHMENT options take the channel's staged uploads (files: their names in
-// order): the one whose name the value gives, else the next unused one; a
-// required one is filled even when not typed. Without a plan they are invalid.
+// A choice the user took from an option's autocomplete suggestions: its name
+// stands in the draft, its value is sent (the client's last choices per option).
+struct CommandAcceptedChoice {
+    Utf8View option, name, value;
+    JsonValueKind kind;
+};
+// Builds the options array from the composer's arguments (command_argument_spans):
+// each typed value, checked like the client (command_option_check), with its
+// declared wire type in definition order. A failing option sets *error to the
+// client's message. ATTACHMENT options take the channel's staged uploads (files:
+// their names in order): the one whose name the value gives, else the next unused
+// one; a required one is filled even when not typed. Without a plan they are invalid.
+// focused_name marks an autocomplete request: that option sends focused_query and
+// options that do not check out are left out instead of failing.
 bool command_arguments(const CommandIndex&, const ApplicationCommand&, Utf8View arguments, ProtocolWriter*,
                        Utf8View* error, Utf8View focused_name = {}, Utf8View focused_query = {},
-                       ConstSlice<Utf8View> files = {}, CommandAttachmentPlan* plan = nullptr) noexcept;
+                       ConstSlice<Utf8View> files = {}, CommandAttachmentPlan* plan = nullptr,
+                       ConstSlice<CommandAcceptedChoice> accepted = {}) noexcept;
 // An application command interaction the API refused: the message the official
 // client shows (the first nested _errors entry of an Invalid Form Body, else the
 // top-level message) and whether the index must be refetched (stale command
@@ -64,25 +74,39 @@ struct CommandInteractionFailure {
 };
 bool command_interaction_failure(Utf8View body, Slice<u32> scratch, Slice<char> message,
                                  CommandInteractionFailure*) noexcept;
-struct CommandArgumentFocus {
+// The end of an option chip in the composer's draft: U+2063 INVISIBLE
+// SEPARATOR after a value marks where the client's option pill ends, so text
+// typed after it is outside the option and "name:" typed inside the value
+// stays value text. It is never sent: values exclude it.
+inline constexpr char kCommandOptionEnd[] = "\xE2\x81\xA3";
+inline constexpr u32 kCommandOptionEndBytes = 3;
+// The client's composer option (module 317681 pY): outside every option, a
+// known option name not used yet, followed by ':' at the start of the
+// arguments, after a blank or right after an option's end. A terminated value
+// runs to its kCommandOptionEnd; an unterminated one (text not yet turned into
+// chips) to the blank before the next such key, or the end. Byte ranges borrow
+// the arguments; value is the trimmed value text. Other text belongs to no option.
+struct CommandArgumentSpan {
     JsonValue option;
     Utf8View name, value;
-    u32 value_begin, value_end;
-    bool quoted, closed;
+    // key_first..value_first is "name:"; value_first..value_last the raw value;
+    // value_last..end_last the end marker (empty while unterminated).
+    u32 key_first, value_first, value_last, end_last;
+    u32 slot, type;
+    bool required, autocomplete;
 };
-// Byte ranges borrow the input. Tolerates a partially typed final argument.
-bool command_argument_focus(const CommandIndex&, const ApplicationCommand&, Utf8View arguments, u32 caret,
-                            CommandArgumentFocus*) noexcept;
-bool command_argument_find(const CommandIndex&, const ApplicationCommand&, Utf8View arguments,
-                           Utf8View name, CommandArgumentFocus*) noexcept;
-bool command_argument_query(const CommandArgumentFocus&, Slice<char> scratch, Utf8View*) noexcept;
-// Byte ranges of the typed option keys ("name:") of a partly typed argument
-// list, in input order, for the composer's option pills. Returns the count.
-struct CommandArgumentKey {
-    u32 first, last;
-};
-u32 command_argument_keys(const CommandIndex&, const ApplicationCommand&, Utf8View arguments,
-                          Slice<CommandArgumentKey> output) noexcept;
+u32 command_argument_spans(const CommandIndex&, const ApplicationCommand&, Utf8View arguments,
+                           Slice<CommandArgumentSpan> output) noexcept;
+// The client's check of one option value (module 203779): an absent option
+// passes unless required; an empty one passes while allow_empty (a command being
+// set up). Returns the message to show, empty on success; range messages are
+// formatted into message. accepted maps autocomplete choice names to values.
+Utf8View command_option_check(const CommandIndex&, JsonValue option, bool present, Utf8View value, bool allow_empty,
+                              Slice<char> message, ConstSlice<CommandAcceptedChoice> accepted = {}) noexcept;
+// The client's choice ranking (queryChoice): 10 for the whole name, 7 for a
+// prefix, 5 for a substring, 3 when every word of the query occurs, 1 for a
+// subsequence, else 0 (dropped). ASCII letters compare case-insensitively.
+u32 command_choice_score(Utf8View name, Utf8View query) noexcept;
 struct CommandChoice {
     Utf8View name, value;
     JsonValueKind kind;
@@ -132,4 +156,19 @@ u32 command_frecency_write_patch(ConstSlice<CommandFrecencyEntry> entries, u32 d
                                  Slice<u8> json) noexcept;
 // Accepts only such a body (root field 7 alone).
 bool command_frecency_patch_valid(Utf8View json) noexcept;
+// Uses not yet saved, kept on disk as the client persists them
+// (ApplicationCommandFrecencyV2 pendingUsages {key, timestamp}) so a restart
+// replays them over the next fetched copy. A record: "MCCF", version 1, the
+// count, each use (unix ms u64 LE, key length, key), and a 32-bit hash.
+inline constexpr u32 kCommandFrecencyPendingUses = 16;
+inline constexpr u32 kCommandFrecencyPendingFileBytes =
+    10 + kCommandFrecencyPendingUses * (9 + kCommandFrecencyKeyBytes);
+struct CommandFrecencyUse {
+    u64 at;
+    u8 key_bytes;
+    char key[kCommandFrecencyKeyBytes];
+};
+u32 command_frecency_pending_encode(ConstSlice<CommandFrecencyUse> uses, Slice<u8> output) noexcept;
+// Rejects a damaged or foreign record, leaving *count untouched.
+bool command_frecency_pending_decode(ConstSlice<u8> record, Slice<CommandFrecencyUse> uses, u32* count) noexcept;
 } // namespace maicord

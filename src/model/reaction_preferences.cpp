@@ -2,6 +2,17 @@
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
+u16 frecency_age_weight(u64 now_ms, u64 timestamp_ms) noexcept {
+    constexpr u64 day_ms = 24ull * 60ull * 60ull * 1'000ull;
+    const u64 age_days = now_ms > timestamp_ms ? (now_ms - timestamp_ms) / day_ms : 0;
+    return static_cast<u16>(age_days <= 3    ? 100
+                            : age_days <= 15 ? 70
+                            : age_days <= 30 ? 50
+                            : age_days <= 45 ? 30
+                            : age_days <= 80 ? 10
+                                             : 1);
+}
+
 namespace {
 
 constexpr ReactionEmojiRef kNoEmoji = reaction_emoji_unicode(kReactionPreferenceInvalidCatalogIndex);
@@ -38,24 +49,6 @@ u32 find_empty(const ReactionPreferenceTable& table) noexcept {
         if (!table.usage[index].occupied)
             return index;
     return kReactionPreferenceUsageCapacity;
-}
-
-u16 age_weight(u64 now_ms, u64 timestamp_ms) noexcept {
-    constexpr u64 day_ms = 24ull * 60ull * 60ull * 1'000ull;
-    const u64 age_days = now_ms > timestamp_ms ? (now_ms - timestamp_ms) / day_ms : 0;
-    if (age_days <= 3) {
-        return 100;
-    }
-    if (age_days <= 15) {
-        return 70;
-    }
-    if (age_days <= 30) {
-        return 50;
-    }
-    if (age_days <= 45) {
-        return 30;
-    }
-    return age_days <= 80 ? 10 : 1;
 }
 
 bool precedes(const ReactionPreferenceUsage& left, const ReactionPreferenceUsage& right) noexcept {
@@ -119,7 +112,7 @@ void recompute_table(ReactionPreferenceTable& table, ReactionPreferenceKind kind
             continue;
         u32 score = 0;
         for (u32 recent = 0; recent < usage.recent_count; ++recent)
-            score += age_weight(now_ms, usage.recent_uses[recent]);
+            score += frecency_age_weight(now_ms, usage.recent_uses[recent]);
         usage.score = static_cast<u16>(minimum(score, 1'000u));
         if (kind == ReactionPreferenceKind::reaction) {
             // trunc(1000 * (total / max_total * 0.2 + score / 1000 * 0.8))

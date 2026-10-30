@@ -22,8 +22,18 @@ bool application_media_picker_open(UiMediaPickerKind kind) noexcept;
 // The composer's Stickers tab scrolled to a pack once it has loaded (the
 // sticker popout's View More Stickers, as the official client opens it).
 bool application_media_picker_open_sticker_pack(u64 pack_id) noexcept;
-// The GIF or Stickers tab searching for query (the built-in /gif and /sticker).
-bool application_media_picker_open_search(UiMediaPickerKind kind, Utf8View query) noexcept;
+// The composer's inline /gif strip or /sticker list for query, above anchor
+// (the commands popup, else the composer); it lasts while the command's option
+// bar shows. The client's integration results: a 300 ms debounced GET
+// /gifs/search (animated WebP, 20 results; a query answered this session
+// shows again without a request), or the eight best sendable stickers. An
+// empty query hides them; the open expression picker suppresses them.
+bool application_media_picker_inline(UiMediaPickerKind kind, Utf8View query, UiRect anchor) noexcept;
+void application_media_picker_inline_close() noexcept;
+// While inline results show: Up/Down step the selection (wrapping), Enter
+// sends the selected result and Tab inserts a GIF's link (sends a sticker).
+// *handled is false when the key keeps its composer meaning.
+bool application_media_picker_inline_key(u32 key, bool* handled) noexcept;
 // The joined server whose session sticker list holds the sticker; zero when none.
 u64 application_media_picker_sticker_server(u64 sticker_id) noexcept;
 // The official client's reaction popout: the Emoji tab without the GIF/Sticker/Emoji
