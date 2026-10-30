@@ -2,10 +2,11 @@
 // avatars, server tags, an image, a link embed, reactions, a reply, the full
 // header and the member list, under the caption, in dark, light and gradient
 // themes; the profile popout and full profile with an activity; Settings >
-// Appearance; a theme-switch loop; and an animated hero where typing,
-// messages and reactions arrive through the timeline and rich store as the
-// Gateway path applies them. Every name, message and image is invented and
-// generated here. Opt-in (label showcase); frames go to
+// Appearance; the slash command picker; a bot's answer with buttons; a
+// theme-switch loop; and an animated hero where typing, messages, reactions and
+// a slash command arrive through the timeline and rich store as the Gateway
+// path applies them. Every name, message and image is invented and generated
+// here. Opt-in (label showcase); frames go to
 // MAICORD_UI_PROBE_CAPTURE_DIR as showcase-*.bmp, at 1440x900 DIP and 1x/2x.
 #include "probe_capture.hpp"
 #include "probe_present.hpp"
@@ -46,6 +47,7 @@
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/page_registry.hpp"
+#include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/presence.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/profile_scene.hpp"
@@ -65,7 +67,7 @@ namespace {
 // 2026-10-18 13:00 UTC; every message is earlier the same day.
 constexpr u64 kNowSeconds = 1'792'328'400ull;
 constexpr u64 kSnowflakeEpochMs = 1'420'070'400'000ull;
-constexpr u64 kGuild = 100, kChannel = 311, kSelf = 1, kList = 1;
+constexpr u64 kGuild = 100, kChannel = 311, kSelf = 1, kBot = 30, kList = 1;
 constexpr u64 kRoleMaintainers = 901, kRoleDesigners = 902, kRoleContributors = 903;
 constexpr u32 kWidth = 1440, kHeight = 900;
 constexpr u32 kMessages = 16, kUsers = 16, kMembers = 16;
@@ -362,7 +364,7 @@ constexpr Person kPeople[]{
      kRoleMaintainers,
      GuildMemberStatus::online,
      {0x5865f2, 0x9b6bff},
-     "Shipping 0.3",
+     "Shipping 0.6",
      nullptr},
     {11,
      "Ada Park",
@@ -424,7 +426,7 @@ constexpr Person kPeople[]{
     {19, "Kai", "kai.dev", 0, GuildMemberStatus::dnd, {0x30cfd0, 0x330867}, nullptr, nullptr},
     {20, "Rosa Lima", "rosa.lima", 0, GuildMemberStatus::offline, {0xfa709a, 0xfee140}, nullptr, nullptr},
     {21, "Noor", "noor", 0, GuildMemberStatus::offline, {0x96fbc4, 0x4fa3a5}, nullptr, nullptr},
-    {22, "Iris Chen", "iris.chen", 0, GuildMemberStatus::offline, {0xc471f5, 0xfa71cd}, nullptr, nullptr},
+    {kBot, "Lab Bot", "labbot", 0, GuildMemberStatus::online, {0xc471f5, 0x5b6cf0}, "Watching the builds", nullptr},
 };
 constexpr u32 kPeopleCount = sizeof(kPeople) / sizeof(kPeople[0]);
 
@@ -443,14 +445,8 @@ struct Line {
     const char* text;
 };
 constexpr Line kLines[]{
-    {15, 70, 0, "Quick tip for plugin authors: background effects are just a pixel shader."},
-    {15, 69, 1,
-     "```cpp\n// Fade the stars in with the theme's intensity.\nfloat glow = saturate(intensity * 0.8f);\n"
-     "return float4(tint * glow, 1);\n```"},
     {11, 52, 0,
-     "Morning, everyone! \xE2\x98\x80\xEF\xB8\x8F The 0.3 nightly is up: the theme gallery, faster image "
-     "decoding and the new title bar."},
-    {11, 51, 1, "Release notes are pinned in <#302>."},
+     "Morning, everyone! \xE2\x98\x80\xEF\xB8\x8F The 0.5 release notes are pinned in <#302>."},
     {12, 20, 0,
      "Tried the **Aurora** gradient on my laptop and it idles at basically 0% CPU. "
      "Here's a palette study for the website:"},
@@ -510,6 +506,9 @@ struct Fixture {
     ShellNavigationRowWidget navigation_rows[kChannels];
     UiWidget navigation_widgets[kChannels * 4 + 2];
     UiLayoutNode navigation_nodes[kChannels * 4 + 2];
+    PopupScene popup;
+    UiWidget popup_widgets[70];
+    UiLayoutNode popup_nodes[70];
     MessageScene messages;
     UiWidget message_widgets[kRows * kMessageSceneWidgetsPerRow + 1];
     UiLayoutNode message_nodes[kRows * kMessageSceneWidgetsPerRow + 1];
@@ -718,6 +717,13 @@ bool build_people(Fixture& f, D3D11Renderer& r) noexcept {
              guild_member_store_upsert(&f.members, f.state, kGuild, p.id, {}, {roles, p.role ? 1u : 0u},
                                        true, p.status, i, kList)
                  .ok();
+        if (ok && p.id == kBot) {
+            UserAppearance bot{};
+            bot.user_id = p.id;
+            bot.fields = appearance_bot;
+            bot.bot = true;
+            ok = user_appearance_upsert(&f.users.appearance, bot);
+        }
         if (ok && p.activity) {
             UserAppearance appearance{};
             appearance.user_id = p.id;
@@ -793,7 +799,7 @@ bool build_messages(Fixture& f) noexcept {
     photo.url = utf8_literal("https://cdn.discordapp.com/attachments/311/6029312/palette-study.png");
     // Shown at its own size: small enough to keep the reply in view.
     photo.width = 480;
-    photo.height = 270;
+    photo.height = 250;
     photo.has_width = photo.has_height = true;
     GatewayMessageReaction photo_reactions[3]{};
     photo_reactions[0] = {0, utf8_literal("\xF0\x9F\x98\x8D"), 4, 4, 0, true};
@@ -1299,14 +1305,110 @@ bool react(Fixture& f, u64 id, Utf8View emoji, bool self) noexcept {
                  "reaction_add_failed");
 }
 
-// The animated hero: 8 s at 12.5 fps under Aurora with its effect running.
-// Juniper finishes typing and posts, reactions land, Ada starts typing and
-// replies, and reactions land on that. The clock and effect phase are fixed
-// per frame, so every run draws the same frames.
+// The bot's answer to /release: the attribution header, a release card and
+// link buttons under it.
+bool arrive_release(Fixture& f, u64 id) noexcept {
+    GatewayMessageEmbed card{};
+    card.type = GatewayMessageEmbedType::rich;
+    card.title = utf8_literal("MaiCord 0.5.2");
+    card.url = utf8_literal("https://lab.example/releases/0.5.2");
+    card.description = utf8_literal("Slash commands, bot buttons and sticker popouts. Voice encrypts in hardware "
+                                    "and Opus decodes up to 25% faster.");
+    card.color = 0x7c5cff;
+    card.has_color = card.has_title = true;
+    GatewayMessageComponent components[3]{};
+    components[0].type = gateway_component_action_row;
+    components[0].parent = 0xFFFFu;
+    components[1].type = components[2].type = gateway_component_button;
+    components[1].style = components[2].style = 5;
+    components[1].label = utf8_literal("Release notes");
+    components[1].url = utf8_literal("https://lab.example/releases/0.5.2");
+    components[2].label = utf8_literal("Download");
+    components[2].url = utf8_literal("https://lab.example/download");
+    components[2].order = 1;
+    GatewayMessageEvent m{};
+    m.id = id;
+    m.channel_id = kChannel;
+    m.author_id = kBot;
+    m.author_bot = true;
+    m.timestamp_ms = snowflake_timestamp_ms(id);
+    m.fields = gateway_message_field_id | gateway_message_field_channel_id | gateway_message_field_author_id |
+               gateway_message_field_content | gateway_message_field_timestamp | gateway_message_field_type |
+               gateway_message_field_interaction | gateway_message_field_embeds | gateway_message_field_components;
+    m.type = 20;
+    m.interaction = {id + 1, kSelf, utf8_literal("Mai"), {f.avatar_hashes[0], 32}, utf8_literal("release"), 2};
+    m.embeds = {&card, 1};
+    m.components = {components, 3};
+    return check(message_timeline_apply_created(&f.timeline, m).ok(), "bot_message_failed");
+}
+
+// The composer's picker as a slash opens it: the bot's commands and the
+// built-in ones beside their rail, or once a query narrows it, the matches.
+bool open_commands(Fixture& f, D3D11Renderer& r, bool query) noexcept {
+    const UiLayoutNode* compose = node(f.shell, UiSemantic::composer);
+    if (!check(compose != nullptr, "picker_anchor_missing"))
+        return false;
+    const auto picture = [&](PopupItem& item) noexcept {
+        item.flags |= popup_item_avatar;
+        item.media_id = kBot;
+        item.media_variant = user_avatar_variant({f.avatar_hashes[kPeopleCount - 1], 32});
+    };
+    const auto command = [](PopupItem& item, u32 action, Utf8View name, Utf8View detail) noexcept {
+        item = {name, action, popup_item_enabled | popup_item_command_row, 0};
+        item.detail = detail;
+    };
+    const auto release = utf8_literal("/release"),
+               release_detail = utf8_literal("Post the release notes\x1FLab Bot\x1Fversion");
+    PopupItem items[9]{};
+    u32 count = 0;
+    if (query) {
+        items[count++] = {utf8_literal("Commands matching /rel"), 1, popup_item_command_section, 0};
+        command(items[count], 2, release, release_detail);
+        picture(items[count++]);
+    } else {
+        items[count] = {utf8_literal("Lab Bot"), 1,
+                        popup_item_enabled | popup_item_command_category | popup_item_checked, 0};
+        picture(items[count++]);
+        items[count] = {utf8_literal("Built-in"), 2,
+                        popup_item_enabled | popup_item_command_category | popup_item_separator_before, 0};
+        items[count++].presentation = ui_menu_row_presentation(UiIcon::command);
+        items[count] = {utf8_literal("Lab Bot"), 3, popup_item_command_section, 0};
+        picture(items[count++]);
+        command(items[count++], 4, release, release_detail);
+        command(items[count++], 5, utf8_literal("/nightly"),
+                utf8_literal("Show the latest nightly build\x1FLab Bot"));
+        command(items[count++], 6, utf8_literal("/poll"),
+                utf8_literal("Ask the channel a question\x1FLab Bot\x1Fquestion answers"));
+        items[count] = {utf8_literal("Built-in"), 7, popup_item_command_section, 0};
+        items[count++].presentation = ui_menu_row_presentation(UiIcon::command);
+        command(items[count++], 8, utf8_literal("/shrug"),
+                utf8_literal("Appends \xC2\xAF\\_(\xE3\x83\x84)_/\xC2\xAF to your message.\x1F"
+                             "Built-in\x1Fmessage"));
+    }
+    const UiRect viewport{0, 0, r.width * 96.f / r.dpi, r.height * 96.f / r.dpi};
+    if (!check(popup_scene_open(&f.popup, PopupKind::autocomplete, kChannel, {items, count}, compose->rectangle,
+                                viewport, ui_rect_width(compose->rectangle), true)
+                   .ok(),
+               "picker_open_failed"))
+        return false;
+    f.popup.selected_index = query ? 1 : 3;
+    renderer_set_layer_opacity(&r, RendererLayerSurface::popup, 1);
+    return check(renderer_bind_popup_scene(&r, &f.popup), "picker_bind_failed");
+}
+void close_commands(Fixture& f, D3D11Renderer& r) noexcept {
+    renderer_bind_popup_scene(&r, nullptr);
+    popup_scene_close(&f.popup);
+    message_composer_clear(&f.composer);
+}
+
+// The animated hero: 12 s at 12.5 fps under Aurora with its effect running.
+// Juniper finishes typing and posts, reactions land, Ada replies, then Mai
+// types a slash, picks /release and the bot answers. The clock and effect phase
+// are fixed per frame, so every run draws the same frames.
 void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
-    constexpr u32 kFrames = 100;
+    constexpr u32 kFrames = 150;
     constexpr float kStep = .08f;
-    const u64 juniper = snowflake(0, 10), ada = snowflake(0, 20);
+    const u64 juniper = snowflake(0, 10), ada = snowflake(0, 20), release = snowflake(0, 30);
     constexpr Utf8View fire = utf8_literal("\xF0\x9F\x94\xA5"), eyes = utf8_literal("\xF0\x9F\x98\x8D");
     constexpr Utf8View rocket = utf8_literal("\xF0\x9F\x9A\x80"), party = utf8_literal("\xF0\x9F\x8E\x89");
     constexpr Utf8View juniper_text =
@@ -1348,11 +1450,32 @@ void hero_loop(Fixture& f, D3D11Renderer& r) noexcept {
         case 86:
             react(f, ada, rocket, false);
             break;
+        case 92:
+            message_composer_insert_utf8(&f.composer, utf8_literal("/"));
+            break;
+        case 104:
+            message_composer_insert_utf8(&f.composer, utf8_literal("rel"));
+            break;
+        case 116:
+            close_commands(f, r);
+            arrive_release(f, release);
+            break;
+        case 128:
+            react(f, release, party, false);
+            break;
+        case 133:
+            react(f, release, rocket, false);
+            break;
+        case 138:
+            react(f, release, party, false);
+            break;
         default:
             changed = false;
         }
         if (changed && !project(f, r))
             return;
+        if (frame == 92 || frame == 104)
+            open_commands(f, r, frame == 104);
         shot(f, r, frame_name(L"hero", frame), 6.f + frame * kStep);
     }
 }
@@ -1383,7 +1506,8 @@ bool setup(Fixture& f, D3D11Renderer& r, MessageTextPresentation& presentation) 
          message_composer_initialize(&f.composer, {f.composer_text, sizeof(f.composer_text)}) &&
          message_composer_scene_initialize_owned(&f.composer_scene) &&
          member_list_scene_initialize(&f.member_scene, {f.member_scene_rows, 48}, {f.member_widgets, 193},
-                                      {f.member_nodes, 193});
+                                      {f.member_nodes, 193}) &&
+         popup_scene_initialize_owned(&f.popup, 32, {f.popup_widgets, 70}, {f.popup_nodes, 70});
     if (!check(ok, "scene_initialize_failed"))
         return false;
     message_composer_reset(&f.composer, kChannel, false);
@@ -1438,6 +1562,10 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
                 shot(f, r,
                      two ? L"showcase-settings-appearance@2x.bmp" : L"showcase-settings-appearance@1x.bmp");
             renderer_bind_settings_scene(&r, nullptr);
+            message_composer_insert_utf8(&f.composer, utf8_literal("/"));
+            if (project(f, r) && open_commands(f, r, false))
+                shot(f, r, two ? L"showcase-commands@2x.bmp" : L"showcase-commands@1x.bmp");
+            close_commands(f, r);
         }
         if (two)
             continue;
@@ -1449,9 +1577,13 @@ bool showcase_ui_probe(D3D11Renderer& r, MessageTextPresentation& presentation) 
                           i >= 2 ? BackgroundEffect::stars_and_comets : BackgroundEffect::none))
                 shot(f, r, frame_name(L"themes", i));
     }
-    // Last, since it changes the conversation: the animated hero at 1x.
+    // Last, since it changes the conversation: the animated hero at 1x, then
+    // where it ends, with the bot's answer on screen.
     if (size_window(f, r, 96))
         hero_loop(f, r);
+    for (u32 dpi : kDpis)
+        if (size_window(f, r, dpi) && set_theme(f, r, ClientTheme::sunset, BackgroundEffect::stars_and_comets))
+            shot(f, r, dpi == 192 ? L"showcase-bot@2x.bmp" : L"showcase-bot@1x.bmp");
     log_u64(g_failures ? LogLevel::error : LogLevel::info, "showcase", "failures", g_failures);
     return g_failures == 0;
 }
