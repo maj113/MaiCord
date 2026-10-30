@@ -37,6 +37,23 @@ bool apply_spelling(u32 action) noexcept {
     return composer_apply_result(
         message_composer_replace_range(&composer, activation.first, activation.last, activation.replacement), true);
 }
+// Its own frame: the clipboard buffer (16 KiB) must not weigh on every composer edit command.
+__declspec(noinline) MessageComposerResult paste_text(MessageComposer* composer, const ComposerEditClipboard* clipboard) noexcept {
+    char text[kMessageComposerMaximumBytes]{};
+    MessageComposerResult result = MessageComposerResult::unchanged;
+    const auto copied = clipboard ? clipboard->read ? clipboard->read(clipboard->context, {text, sizeof(text)}) :
+        ClipboardTextResult{0, ClipboardTextError::unavailable} : clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+    if (copied.ok() && copied.bytes) {
+        u32 bytes = 0;
+        for (u32 i = 0; i < copied.bytes; ++i) {
+            if (text[i] == '\r' && i + 1 < copied.bytes && text[i + 1] == '\n') continue;
+            text[bytes++] = text[i] == '\r' ? '\n' : text[i];
+        }
+        result = message_composer_insert_utf8(composer, {text, bytes});
+    } else if (!copied.ok()) log_write(LogLevel::warning, "ui", "composer_clipboard_read_failed");
+    SecureZeroMemory(text, sizeof(text));
+    return result;
+}
 }
 bool application_composer_edit_command(TextEditCommand command, const ComposerEditClipboard* clipboard) noexcept {
     if (!ready()) return false;
@@ -66,18 +83,7 @@ bool application_composer_edit_command(TextEditCommand command, const ComposerEd
     }
     case TextEditCommand::paste: {
         if (!clipboard && clipboard_attachment_available()) return application_paste_attachments();
-        char text[kMessageComposerMaximumBytes]{};
-        const auto copied = clipboard ? clipboard->read ? clipboard->read(clipboard->context, {text, sizeof(text)}) :
-            ClipboardTextResult{0, ClipboardTextError::unavailable} : clipboard_read_utf8(g_app.window, {text, sizeof(text)});
-        if (copied.ok() && copied.bytes) {
-            u32 bytes = 0;
-            for (u32 i = 0; i < copied.bytes; ++i) {
-                if (text[i] == '\r' && i + 1 < copied.bytes && text[i + 1] == '\n') continue;
-                text[bytes++] = text[i] == '\r' ? '\n' : text[i];
-            }
-            result = message_composer_insert_utf8(&composer, {text, bytes});
-        } else if (!copied.ok()) log_write(LogLevel::warning, "ui", "composer_clipboard_read_failed");
-        SecureZeroMemory(text, sizeof(text));
+        result = paste_text(&composer, clipboard);
         break;
     }
     default: return false;

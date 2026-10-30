@@ -152,19 +152,11 @@ void choose(Menu menu, u32 action) noexcept {
 }
 
 bool ensure_data() noexcept {
-    if (owner->audit_requested)
-        return false;
-    owner->audit_requested = true;
-    owner->audit_failed = false;
-    queue(Op::audit_page);
-    return true;
+    return request_read(owner->audit_requested, owner->audit_failed, Op::audit_page);
 }
 
 void notice_action() noexcept {
-    if (!owner->audit_failed || busy() || !connected())
-        return;
-    owner->audit_requested = false;
-    ensure_data();
+    retry_read(owner->audit_requested, owner->audit_failed, Op::audit_page);
 }
 
 } // namespace

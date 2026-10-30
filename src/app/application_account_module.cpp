@@ -320,28 +320,12 @@ static u16 g_author_user_pin_epoch;
 // The people whose pins were last applied (authors, voice users, list rows).
 static u64 g_author_people;
 
-void synchronize_visible_author_hydration(u64 now_ms, bool pins_reset) noexcept {
-    if (!g_app.account_ui)
-        return;
-    auto& ui = *g_app.account_ui;
-    pins_reset = pins_reset || g_author_member_pin_epoch != ui.guild_member_store.user_pin_epoch ||
-                 g_author_user_pin_epoch != ui.user_store.pin_epoch;
+// The pin and request work, with the large ID scratch. Kept out of line so the per-frame caller
+// returns on an unchanged interest without a stack probe.
+__declspec(noinline) static void apply_visible_author_interest(AccountUiRuntime& ui, const ChannelRecord* selected,
+                                                        bool eligible, const VisibleAuthorInterestKey& key,
+                                                        u64 voice_guild, u64 now_ms, bool pins_reset) noexcept {
     auto& owner = ui.author_hydration;
-    const auto* selected =
-        chat_state_store_find_channel(ui.chat_state, ui.chat_state.selected_channel_id);
-    const bool eligible = author_hydration_visible() && selected && selected->guild_id &&
-                          ui.active_channel_id == selected->id;
-    const auto key = visible_author_interest_key(g_app.message_scene, selected ? selected->guild_id : 0,
-                                                 selected ? selected->id : 0, eligible);
-    // The selected server's voice participants show in the sidebar whatever
-    // the content column holds.
-    const u64 voice_guild = selected && selected->guild_id && g_app.account.instance && !g_app.login.visible
-                                ? selected->guild_id
-                                : 0;
-    if (!pins_reset && owner.voice_revision == ui.voice_states.revision &&
-        visible_author_hydration_interest_current(owner, key, ui.guild_member_store.revision,
-                                                  ui.user_store.revision, now_ms))
-        return;
     const auto retain_interest = [&]() noexcept {
         owner.interest = key;
         owner.member_pin_revision = ui.guild_member_store.revision;
@@ -435,6 +419,31 @@ void synchronize_visible_author_hydration(u64 now_ms, bool pins_reset) noexcept 
         visible_author_hydration_complete(&owner, request, now_ms, admitted);
     } while (false);
     retain_interest();
+}
+
+void synchronize_visible_author_hydration(u64 now_ms, bool pins_reset) noexcept {
+    if (!g_app.account_ui)
+        return;
+    auto& ui = *g_app.account_ui;
+    pins_reset = pins_reset || g_author_member_pin_epoch != ui.guild_member_store.user_pin_epoch ||
+                 g_author_user_pin_epoch != ui.user_store.pin_epoch;
+    const auto& owner = ui.author_hydration;
+    const auto* selected =
+        chat_state_store_find_channel(ui.chat_state, ui.chat_state.selected_channel_id);
+    const bool eligible = author_hydration_visible() && selected && selected->guild_id &&
+                          ui.active_channel_id == selected->id;
+    const auto key = visible_author_interest_key(g_app.message_scene, selected ? selected->guild_id : 0,
+                                                 selected ? selected->id : 0, eligible);
+    // The selected server's voice participants show in the sidebar whatever
+    // the content column holds.
+    const u64 voice_guild = selected && selected->guild_id && g_app.account.instance && !g_app.login.visible
+                                ? selected->guild_id
+                                : 0;
+    if (!pins_reset && owner.voice_revision == ui.voice_states.revision &&
+        visible_author_hydration_interest_current(owner, key, ui.guild_member_store.revision,
+                                                  ui.user_store.revision, now_ms))
+        return;
+    apply_visible_author_interest(ui, selected, eligible, key, voice_guild, now_ms, pins_reset);
 }
 
 bool synchronize_member_subscription(u64 now_ms) noexcept {

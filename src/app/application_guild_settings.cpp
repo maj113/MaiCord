@@ -356,31 +356,6 @@ void image_summary(Bank& bank, const GuildImageInfo& info) noexcept {
         bank.number(info.source_height);
     }
 }
-namespace {
-Utf8View image_error_text(GuildImageProfile profile, GuildImageError error) noexcept {
-    const bool sticker = profile == GuildImageProfile::sticker;
-    switch (error) {
-    case GuildImageError::format:
-        return sticker ? utf8_literal("Choose a PNG, APNG, GIF or Lottie JSON file.")
-                       : utf8_literal("Choose a PNG, GIF, JPEG or WebP image.");
-    case GuildImageError::kind:
-        return sticker ? utf8_literal("Stickers must be PNG, APNG, GIF or Lottie JSON.")
-               : profile == GuildImageProfile::role_icon
-                   ? utf8_literal("Role icons must be a still PNG, JPEG or WebP image.")
-                   : utf8_literal("This image type isn't supported here.");
-    case GuildImageError::dimensions:
-        return sticker ? utf8_literal("Stickers must be 320×320 pixels.")
-                       : utf8_literal("Role icons need at least 64×64 pixels.");
-    case GuildImageError::too_large:
-        return profile == GuildImageProfile::emoji || profile == GuildImageProfile::role_icon
-                   ? utf8_literal("This image is over 256 KB. Choose a smaller file or a PNG to resize.")
-               : sticker ? utf8_literal("Stickers must be 512 KB or smaller.")
-                         : utf8_literal("This image is over 8 MB. Choose a smaller file.");
-    case GuildImageError::decode: return utf8_literal("This image couldn't be read.");
-    default: return utf8_literal("This image couldn't be prepared.");
-    }
-}
-} // namespace
 // Description of an image row: the pending change, or the current state.
 Utf8View picked_text(Bank& bank, const Picked& picked, const Utf8View& current) noexcept {
     if (picked.clear)
@@ -584,6 +559,20 @@ void queue(Op op, u64 target) noexcept {
     clear_status();
     application_request_frame();
 }
+bool request_read(bool& requested, bool& failed, Op op) noexcept {
+    if (requested)
+        return false;
+    requested = true;
+    failed = false;
+    queue(op);
+    return true;
+}
+void retry_read(bool& requested, bool& failed, Op op) noexcept {
+    if (!failed || busy() || !connected())
+        return;
+    requested = false;
+    request_read(requested, failed, op);
+}
 namespace {
 Utf8View failure_text(const RestClientResponse& response) noexcept {
     if (response.error != RestClientError::none)
@@ -757,19 +746,10 @@ bool read_picked_file(ConstSlice<wchar_t> path, Picked* out, Utf8View* error) no
 }
 // Validates through the account module; the same preparation runs at submit.
 bool probe_picked(GuildImageProfile profile, Picked* picked, Utf8View* error) noexcept {
-    GuildAssetRequest request{};
-    request.operation = GuildAssetOperation::image_probe;
-    request.profile = profile;
-    request.image = {picked->data, picked->bytes};
-    request.info = &picked->info;
-    reset_value(&picked->info);
-    const auto probed = g_app.account.api.guild_assets && g_app.account.instance
-                            ? g_app.account.api.guild_assets(g_app.account.instance, &request, 0)
-                            : RestClientSubmitResult{RestClientSubmitError::invalid_input};
-    if (probed.ok() && picked->info.error == GuildImageError::none)
+    if (application_guild_image_probe(profile, {picked->data, picked->bytes}, &picked->info))
         return true;
-    *error = image_error_text(profile, picked->info.error == GuildImageError::none ? GuildImageError::input
-                                                                                   : picked->info.error);
+    *error = application_guild_image_error_text(
+        profile, picked->info.error == GuildImageError::none ? GuildImageError::input : picked->info.error);
     return false;
 }
 // Server icon and invite background: the official chooser's checks (10 MB,
@@ -792,7 +772,6 @@ bool probe_profile_image(Picked* picked, ProfileImageInfo* info, Utf8View* error
 }
 void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filename) noexcept {
     auto& p = *owner;
-    const auto profile = pick_profile(pick);
     Picked* slot = pick == Pick::icon       ? &p.icon
                    : pick == Pick::banner   ? &p.banner
                    : pick == Pick::splash   ? &p.splash
@@ -801,82 +780,63 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
     if (pick == Pick::role_icon && p.pick_role != p.editing_role)
         return;
     Picked picked{};
+    ProfileImageInfo info{};
     Utf8View error{};
-    if (pick == Pick::icon || pick == Pick::splash) {
-        ProfileImageInfo info{};
-        if (!read_picked_file(path, &picked, &error) || !probe_profile_image(&picked, &info, &error)) {
-            release_picked(&picked);
-            show_failure(error);
-            return;
-        }
-        release_picked(slot);
-        *slot = picked;
-        slot->set = true;
-        if (pick == Pick::icon) {
-            p.icon_info = info;
-            release_uri(&p.icon_uri, &p.icon_uri_bytes);
-            p.profile_draft.icon = GuildProfileImageEdit::replace;
-        } else {
-            slot->info.source_kind = info.kind;
-            slot->info.width = info.width;
-            slot->info.height = info.height;
-            slot->info.kind = info.kind;
-            slot->info.bytes = slot->bytes;
-            release_uri(&p.splash_uri, &p.splash_uri_bytes);
-            p.boost_draft.splash = GuildProfileImageEdit::replace;
-        }
-        clear_status();
-        repaint();
-        return;
-    }
-    if (pick == Pick::sound) {
+    bool ok = read_picked_file(path, &picked, &error);
+    if (ok && (pick == Pick::icon || pick == Pick::splash))
+        ok = probe_profile_image(&picked, &info, &error);
+    else if (ok && pick == Pick::sound)
         // MP3/Ogg checked by the account module's demuxers (size, length).
-        if (!read_picked_file(path, &picked, &error) ||
-            !application_soundboard_probe({picked.data, picked.bytes}, nullptr, &error)) {
-            release_picked(&picked);
-            show_failure(error);
-            return;
+        ok = application_soundboard_probe({picked.data, picked.bytes}, nullptr, &error);
+    else if (ok) {
+        ok = probe_picked(pick_profile(pick), &picked, &error);
+        // A GIF banner needs ANIMATED_BANNER; the official chooser takes 10 MB.
+        if (ok && pick == Pick::banner && picked.info.source_kind == GuildImageKind::gif &&
+            !(guild_features() & guild_feature_animated_banner)) {
+            error = utf8_literal("Animated server banners need boost level 3.");
+            ok = false;
+        } else if (ok && pick == Pick::banner && picked.bytes > kProfileImageSourceMaximumBytes) {
+            error = utf8_literal("Your files are too powerful. Max file size is 10.00 MB.");
+            ok = false;
         }
-        release_picked(&p.upload);
-        p.upload = picked;
-        p.upload.set = true;
-        clear_status();
-        set_upload_filename(filename);
-        next_form = form_sound_name;
-        next_form_item = 0;
-        repaint();
-        return;
     }
-    if (!read_picked_file(path, &picked, &error) || !probe_picked(profile, &picked, &error)) {
+    if (!ok) {
         release_picked(&picked);
         show_failure(error);
-        return;
-    }
-    // A GIF banner needs ANIMATED_BANNER; the official chooser takes 10 MB.
-    if (pick == Pick::banner && picked.info.source_kind == GuildImageKind::gif &&
-        !(guild_features() & guild_feature_animated_banner)) {
-        release_picked(&picked);
-        show_failure(utf8_literal("Animated server banners need boost level 3."));
-        return;
-    }
-    if (pick == Pick::banner && picked.bytes > kProfileImageSourceMaximumBytes) {
-        release_picked(&picked);
-        show_failure(utf8_literal("Your files are too powerful. Max file size is 10.00 MB."));
         return;
     }
     release_picked(slot);
     *slot = picked;
     slot->set = true;
-    if (pick == Pick::banner) {
+    switch (pick) {
+    case Pick::icon:
+        p.icon_info = info;
+        release_uri(&p.icon_uri, &p.icon_uri_bytes);
+        p.profile_draft.icon = GuildProfileImageEdit::replace;
+        break;
+    case Pick::splash:
+        slot->info.source_kind = info.kind;
+        slot->info.kind = info.kind;
+        slot->info.width = info.width;
+        slot->info.height = info.height;
+        slot->info.bytes = slot->bytes;
+        release_uri(&p.splash_uri, &p.splash_uri_bytes);
+        p.boost_draft.splash = GuildProfileImageEdit::replace;
+        break;
+    case Pick::banner:
         release_uri(&p.banner_uri, &p.banner_uri_bytes);
         p.boost_draft.banner = GuildProfileImageEdit::replace;
+        break;
+    case Pick::sound:
+    case Pick::emoji:
+    case Pick::sticker:
+        set_upload_filename(filename);
+        next_form = pick == Pick::emoji ? form_emoji_create : pick == Pick::sticker ? form_sticker_name : form_sound_name;
+        next_form_item = 0;
+        break;
+    default: break;
     }
     clear_status();
-    if (pick == Pick::emoji || pick == Pick::sticker) {
-        set_upload_filename(filename);
-        next_form = pick == Pick::emoji ? form_emoji_create : form_sticker_name;
-        next_form_item = 0;
-    }
     repaint();
 }
 void poll_picker() noexcept {
@@ -1181,6 +1141,44 @@ bool application_image_file_read(ConstSlice<wchar_t> path, u8** data, u32* bytes
     return true;
 }
 
+bool application_guild_image_probe(GuildImageProfile profile, ConstSlice<u8> image, GuildImageInfo* info,
+                                   Slice<u8> data_uri) noexcept {
+    GuildAssetRequest request{};
+    request.operation = GuildAssetOperation::image_probe;
+    request.profile = profile;
+    request.image = image;
+    request.info = info;
+    request.data_uri = data_uri;
+    reset_value(info);
+    return g_app.account.api.guild_assets && g_app.account.instance &&
+           g_app.account.api.guild_assets(g_app.account.instance, &request, 0).ok() &&
+           info->error == GuildImageError::none;
+}
+
+Utf8View application_guild_image_error_text(GuildImageProfile profile, GuildImageError error) noexcept {
+    const bool sticker = profile == GuildImageProfile::sticker;
+    switch (error) {
+    case GuildImageError::format:
+        return sticker ? utf8_literal("Choose a PNG, APNG, GIF or Lottie JSON file.")
+                       : utf8_literal("Choose a PNG, GIF, JPEG or WebP image.");
+    case GuildImageError::kind:
+        return sticker ? utf8_literal("Stickers must be PNG, APNG, GIF or Lottie JSON.")
+               : profile == GuildImageProfile::role_icon
+                   ? utf8_literal("Role icons must be a still PNG, JPEG or WebP image.")
+                   : utf8_literal("This image type isn't supported here.");
+    case GuildImageError::dimensions:
+        return sticker ? utf8_literal("Stickers must be 320×320 pixels.")
+                       : utf8_literal("Role icons need at least 64×64 pixels.");
+    case GuildImageError::too_large:
+        return profile == GuildImageProfile::emoji || profile == GuildImageProfile::role_icon
+                   ? utf8_literal("This image is over 256 KB. Choose a smaller file or a PNG to resize.")
+               : sticker ? utf8_literal("Stickers must be 512 KB or smaller.")
+                         : utf8_literal("This image is over 8 MB. Choose a smaller file.");
+    case GuildImageError::decode: return utf8_literal("This image couldn't be read.");
+    default: return utf8_literal("This image couldn't be prepared.");
+    }
+}
+
 bool application_guild_settings_available(u64 guild_id) noexcept {
     if (!g_app.account_ui)
         return false;
@@ -1422,16 +1420,8 @@ bool application_guild_settings_synchronize() noexcept {
            renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
 
-bool application_guild_settings_input(UiInputKind kind, u32 key, bool repeated) noexcept {
-    return owner && settings_layer_input(&owner->layer, kind, key, repeated);
-}
-
 SettingsLayer* application_guild_settings_settings_layer() noexcept {
     return owner ? &owner->layer : nullptr;
-}
-
-bool application_guild_settings_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    return application_guild_settings_active() && settings_layer_window_message(&owner->layer, message, wparam, lparam);
 }
 
 u64 application_guild_settings_next_wake() noexcept {
@@ -1759,8 +1749,7 @@ bool application_guild_settings_response(const RestClientResponse& response, con
     if (creation.request_id == response.request_id) {
         creation.request_id = 0;
         ++creation.revision;
-        if (response.error == RestClientError::none && response.status_code >= 200 &&
-            response.status_code < 300)
+        if (response.succeeded())
             creation.done = true;
         else
             creation.status = failure_text(response);
@@ -1770,8 +1759,7 @@ bool application_guild_settings_response(const RestClientResponse& response, con
     auto& p = *owner;
     p.request_id = 0;
     const Op op = p.request.op;
-    const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
-                    response.status_code < 300;
+    const bool ok = response.succeeded();
     if (!p.scene.active || !scope_current())
         return true;
     if (op == Op::members_search) {
@@ -2095,39 +2083,6 @@ void application_guild_settings_tick(u64 now) noexcept {
 
 HANDLE application_guild_settings_notification() noexcept {
     return owner && owner->picker.runtime && !owner->picker_consumed ? owner->picker.notification : nullptr;
-}
-
-bool application_guild_settings_edit_focused() noexcept {
-    return application_guild_settings_active() && settings_layer_editor(&owner->layer, nullptr, nullptr, nullptr, nullptr);
-}
-
-MessageComposer* application_guild_settings_edit_model() noexcept {
-    MessageComposer* model = nullptr;
-    return application_guild_settings_active() &&
-                   settings_layer_editor(&owner->layer, nullptr, &model, nullptr, nullptr)
-               ? model
-               : nullptr;
-}
-
-TextInputTarget application_guild_settings_edit_target() noexcept {
-    BoundedEdit* binding = nullptr;
-    return application_guild_settings_active() &&
-                   settings_layer_editor(&owner->layer, nullptr, nullptr, &binding, nullptr)
-               ? bounded_edit_input_target(binding)
-               : TextInputTarget{};
-}
-
-void application_guild_settings_edit_cancel_native_group(TextInputTarget target) noexcept {
-    if (owner)
-        settings_layer_cancel_native_group(&owner->layer, target);
-}
-
-UiRect application_guild_settings_edit_bounds() noexcept {
-    return application_guild_settings_active() ? settings_layer_edit_bounds(&owner->layer) : UiRect{};
-}
-
-bool application_guild_settings_edit_changed(bool content) noexcept {
-    return application_guild_settings_active() && settings_layer_edit_changed(&owner->layer, content);
 }
 
 u32 application_guild_settings_owner_bytes() noexcept {

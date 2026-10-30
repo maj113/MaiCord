@@ -6865,6 +6865,19 @@ void test_message_composer() noexcept {
             write_message_typing_target(0, Slice<u8>{typing_target, sizeof(typing_target)}).error ==
                 MessageTypingWriteError::invalid_input,
         "message_typing_route_and_validation");
+    {
+        u32 structurals[32];
+        u64 cooldown = 7;
+        expect(decode_message_typing_cooldown(utf8_literal("{\"message_send_cooldown_ms\":4200,\"thread_create_cooldown_ms\":0}"),
+                                              {structurals, 32}, &cooldown) &&
+                   cooldown == 4200 &&
+                   decode_message_typing_cooldown(utf8_literal("{}"), {structurals, 32}, &cooldown) && cooldown == 0 &&
+                   !decode_message_typing_cooldown(utf8_literal("{\"message_send_cooldown_ms\":\"x\"}"),
+                                                   {structurals, 32}, &cooldown) &&
+                   !decode_message_typing_cooldown(utf8_literal("[1]"), {structurals, 32}, &cooldown) &&
+                   !decode_message_typing_cooldown(Utf8View{}, {structurals, 32}, &cooldown),
+               "message_typing_cooldown_decode");
+    }
     expect(write_message_create_target(0, Slice<u8>{target, 96}).error ==
                    MessageCreateWriteError::invalid_input &&
                write_message_create_body(Utf8View{}, 99, Slice<u8>{body, 256}).error ==
@@ -20484,11 +20497,10 @@ void test_message_history_protocol() noexcept {
     constexpr Utf8View page_body = utf8_literal(
         R"([{"id":"300","channel_id":"7","author":{"id":"11"},"nonce":"1234567890123456789","content":"three","timestamp":"2024-08-30T12:00:00Z","flags":1},{"id":"200","channel_id":"7","author":{"id":"12"},"nonce":1234567890123456788,"content":"tw\u006f","timestamp":"2024-08-30T11:00:00Z"},{"id":"100","channel_id":"7","author":{"id":"13"},"content":"","timestamp":"2024-08-30T10:00:00Z","future":{"nested":true}}])");
     u32 page_structurals[256]{};
-    u32 message_structurals[128]{};
     char content[32]{};
     GatewayMessageEvent messages[3]{};
     const MessageHistoryDecodeResult decoded = decode_message_history_page(
-        page_body, Slice<u32>{page_structurals, 256}, Slice<u32>{message_structurals, 128}, 16,
+        page_body, Slice<u32>{page_structurals, 256}, 16,
         Slice<char>{content, 32}, Slice<GatewayMessageEvent>{messages, 3});
     expect(decoded.ok() && decoded.page.count == 3 && decoded.page.channel_id == 7 &&
                decoded.page.newest_id == 300 && decoded.page.oldest_id == 100 &&
@@ -20504,7 +20516,7 @@ void test_message_history_protocol() noexcept {
         "message_history_optional_string_and_integer_nonces_preserve_exact_identity");
     const auto opaque_nonce_page = decode_message_history_page(utf8_literal(
         R"([{"id":"300","channel_id":"7","author":{"id":"11"},"nonce":"other-client-request","content":"three","timestamp":"2024-08-30T12:00:00Z"},{"id":"200","channel_id":"7","author":{"id":"12"},"nonce":"9999999999999999999999999","content":"two","timestamp":"2024-08-30T11:00:00Z"},{"id":"100","channel_id":"7","author":{"id":"13"},"nonce":0,"content":"","timestamp":"2024-08-30T10:00:00Z"}])"),
-        {page_structurals, 256}, {message_structurals, 128}, 16, {content, 32}, {messages, 3});
+        {page_structurals, 256}, 16, {content, 32}, {messages, 3});
     expect(opaque_nonce_page.ok() && opaque_nonce_page.page.count == 3 &&
         !messages[0].nonce && !messages[1].nonce && !messages[2].nonce,
         "message_history_opaque_overflow_and_zero_nonces_are_valid_but_cannot_match_outbox");
@@ -20515,7 +20527,7 @@ void test_message_history_protocol() noexcept {
     GatewayMessageEvent named_messages[1]{};
     GatewayMessageNamedUser named_users[2]{};
     const MessageHistoryDecodeResult named_decoded = decode_message_history_page(
-        named_page_body, Slice<u32>{page_structurals, 256}, Slice<u32>{message_structurals, 128}, 16,
+        named_page_body, Slice<u32>{page_structurals, 256}, 16,
         Slice<char>{named_content, 64}, Slice<GatewayMessageEvent>{named_messages, 1},
         Slice<GatewayMessageNamedUser>{named_users, 2});
     expect(named_decoded.ok() && named_messages[0].content.bytes == 2 &&
@@ -20530,7 +20542,6 @@ void test_message_history_protocol() noexcept {
     constexpr Utf8View rich_page_body = utf8_literal(
         R"([{"id":"500","channel_id":"7","author":{"id":"21","username":"alpha"},"content":"rich","timestamp":"2024-08-30T14:00:00Z","reactions":[{"count":2,"count_details":{"normal":2,"burst":0},"me":true,"emoji":{"id":"44","name":"party","animated":true}}],"attachments":[{"id":"70","filename":"clip.mp4","width":0,"height":null,"size":123,"url":"https://cdn.discordapp.com/attachments/7/70/clip.mp4"}],"embeds":[{"title":"Build","type":"rich","thumbnail":{"url":"https://example.com/thumb.png","width":null,"height":0},"fields":[{"name":"Target","value":"Release"}]}],"sticker_items":[{"id":"88","name":"Wave","format_type":2}],"components":[{"type":10,"id":1,"content":"Component"}]},{"id":"450","channel_id":"7","author":{"id":"22","username":"beta"},"content":"reply","timestamp":"2024-08-30T13:30:00Z","message_reference":{"message_id":"400","channel_id":"7"},"referenced_message":null,"reactions":[{"count":1,"me":false,"emoji":{"id":null,"name":"🔥"}}],"attachments":[],"embeds":[],"sticker_items":[],"components":[]}])");
     u32 rich_page_structurals[1'024]{};
-    u32 rich_message_structurals[1'024]{};
     char rich_page_text[8 * 1024]{};
     GatewayMessageEvent rich_messages[2]{};
     GatewayMessageNamedUser rich_named_users[4]{};
@@ -20548,8 +20559,7 @@ void test_message_history_protocol() noexcept {
         Slice<GatewayMessageSticker>{rich_stickers, 2},
         Slice<GatewayMessageComponent>{rich_components, 4}};
     const MessageHistoryDecodeResult rich_history_decoded = decode_message_history_page(
-        rich_page_body, Slice<u32>{rich_page_structurals, 1'024},
-        Slice<u32>{rich_message_structurals, 1'024}, 32, Slice<char>{rich_page_text, 8 * 1024},
+        rich_page_body, Slice<u32>{rich_page_structurals, 1'024}, 32, Slice<char>{rich_page_text, 8 * 1024},
         Slice<GatewayMessageEvent>{rich_messages, 2}, Slice<GatewayMessageNamedUser>{rich_named_users, 4},
         history_rich_scratch);
     expect(rich_history_decoded.ok() && rich_history_decoded.page.count == 2 &&
@@ -20570,15 +20580,15 @@ void test_message_history_protocol() noexcept {
 
     GatewayMessageEvent small_messages[2]{};
     expect(decode_message_history_page(
-               page_body, Slice<u32>{page_structurals, 256}, Slice<u32>{message_structurals, 128}, 16,
+               page_body, Slice<u32>{page_structurals, 256}, 16,
                Slice<char>{content, 32}, Slice<GatewayMessageEvent>{small_messages, 2})
                        .error == MessageHistoryDecodeError::message_capacity &&
                decode_message_history_page(
-                   page_body, Slice<u32>{page_structurals, 256}, Slice<u32>{message_structurals, 128}, 16,
+                   page_body, Slice<u32>{page_structurals, 256}, 16,
                    Slice<char>{content, 4}, Slice<GatewayMessageEvent>{messages, 3})
                        .message_error == GatewayEventDecodeError::message_content_capacity &&
                decode_message_history_page(
-                   page_body, Slice<u32>{page_structurals, 1}, Slice<u32>{message_structurals, 128}, 16,
+                   page_body, Slice<u32>{page_structurals, 1}, 16,
                    Slice<char>{content, 32}, Slice<GatewayMessageEvent>{messages, 3})
                        .error == MessageHistoryDecodeError::scan_failed,
            "message_history_page_capacity_bounds");
@@ -20590,21 +20600,21 @@ void test_message_history_protocol() noexcept {
     constexpr Utf8View invalid_message =
         utf8_literal(R"([{"id":"100","channel_id":"7","content":"a","timestamp":"2024-08-30T10:00:00Z"}])");
     expect(decode_message_history_page(
-               wrong_order, Slice<u32>{page_structurals, 256}, Slice<u32>{message_structurals, 128}, 16,
+               wrong_order, Slice<u32>{page_structurals, 256}, 16,
                Slice<char>{content, 32}, Slice<GatewayMessageEvent>{messages, 3})
                        .error == MessageHistoryDecodeError::invalid_order &&
                decode_message_history_page(
-                   wrong_channel, Slice<u32>{page_structurals, 256}, Slice<u32>{message_structurals, 128},
-                   16, Slice<char>{content, 32}, Slice<GatewayMessageEvent>{messages, 3})
+                   wrong_channel, Slice<u32>{page_structurals, 256}, 16,
+                   Slice<char>{content, 32}, Slice<GatewayMessageEvent>{messages, 3})
                        .error == MessageHistoryDecodeError::channel_mismatch &&
                decode_message_history_page(
-                   invalid_message, Slice<u32>{page_structurals, 256}, Slice<u32>{message_structurals, 128},
-                   16, Slice<char>{content, 32}, Slice<GatewayMessageEvent>{messages, 3})
+                   invalid_message, Slice<u32>{page_structurals, 256}, 16,
+                   Slice<char>{content, 32}, Slice<GatewayMessageEvent>{messages, 3})
                        .message_error == GatewayEventDecodeError::missing_required_field,
            "message_history_page_order_channel_and_message_validation");
 
     const MessageHistoryDecodeResult empty = decode_message_history_page(
-        utf8_literal("[]"), Slice<u32>{page_structurals, 256}, Slice<u32>{message_structurals, 128}, 16,
+        utf8_literal("[]"), Slice<u32>{page_structurals, 256}, 16,
         Slice<char>{nullptr, 0}, Slice<GatewayMessageEvent>{nullptr, 0});
     expect(empty.ok() && empty.page.count == 0 && empty.page.channel_id == 0, "message_history_empty_page");
 }
@@ -20836,7 +20846,6 @@ void test_message_history_sync() noexcept {
     constexpr Utf8View rest_page = utf8_literal(
         R"([{"id":"50","channel_id":"7","author":{"id":"2","username":"RestUser"},"content":"e","timestamp":"2024-08-30T12:00:00Z","reactions":[{"emoji":{"id":"44","name":"party","animated":true},"count":7,"count_details":{"normal":7,"burst":0},"me":true}]}])");
     u32 rest_page_structurals[256]{};
-    u32 rest_message_structurals[256]{};
     char rest_content[256]{};
     GatewayMessageEvent rest_messages[2]{};
     GatewayMessageNamedUser rest_named_users[4]{};
@@ -20855,7 +20864,6 @@ void test_message_history_sync() noexcept {
         Slice<GatewayMessageComponent>{rest_components, 2},
     };
     const MessageHistoryDecodeScratch rest_scratch{Slice<u32>{rest_page_structurals, 256},
-                                                   Slice<u32>{rest_message_structurals, 256},
                                                    Slice<char>{rest_content, 256},
                                                    Slice<GatewayMessageEvent>{rest_messages, 2},
                                                    Slice<GatewayMessageNamedUser>{rest_named_users, 4},
@@ -21795,10 +21803,6 @@ void test_user_auth_protocol() noexcept {
         {metadata.super_properties, metadata.locale, utf8_literal("UTC\r\nInjected: value")},
         {metadata.super_properties, {}, metadata.timezone},
         {{nullptr, 4}, metadata.locale, metadata.timezone},
-        {{reinterpret_cast<const u8*>(~usize{0} - 1), 4}, metadata.locale, metadata.timezone},
-        {{auth_guarded, 4}, metadata.locale, metadata.timezone},
-        {metadata.super_properties, {reinterpret_cast<const char*>(auth_guarded), 4}, metadata.timezone},
-        {metadata.super_properties, metadata.locale, {reinterpret_cast<const char*>(auth_guarded), 4}},
     };
     for (const auto& invalid_headers : invalid_metadata) {
         guard_fill(auth_guarded, sizeof(auth_guarded));
@@ -21807,14 +21811,7 @@ void test_user_auth_protocol() noexcept {
                 {auth_guarded, sizeof(auth_guarded)}, &invalid_headers).error == UserAuthWriteError::invalid_input;
         metadata_atomic = metadata_atomic && guard_intact(auth_guarded, sizeof(auth_guarded));
     }
-    RestUserRequestHeaders alias_metadata = metadata;
-    const RestUserRequestHeaders alias_before = alias_metadata;
-    metadata_atomic = metadata_atomic &&
-        user_auth_write_request_head(UserAuthOperation::password, 32, {},
-            {reinterpret_cast<u8*>(&alias_metadata), sizeof(alias_metadata)}, &alias_metadata).error ==
-            UserAuthWriteError::invalid_input &&
-        maicord::bytes_equal(&alias_metadata, &alias_before, sizeof(alias_metadata));
-    expect(metadata_atomic, "user_auth_metadata_capacity_injection_and_alias_rejection_is_atomic");
+    expect(metadata_atomic, "user_auth_metadata_capacity_and_injection_rejection_is_atomic");
     RestUserRequestHeaders no_timezone = metadata;
     no_timezone.timezone = {};
     const auto optional_zone = user_auth_write_request_head(UserAuthOperation::recovery, 32, {},

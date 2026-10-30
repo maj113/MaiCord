@@ -37,13 +37,8 @@ bool application_profile_editor_owns_response(u64 request_id) noexcept;
 bool application_profile_editor_response(const RestClientResponse&, const Utf8View&) noexcept;
 u64 application_profile_editor_next_wake() noexcept;
 u64 application_profile_editor_caret_wake() noexcept;
-void application_profile_editor_tick(u64 now) noexcept;
-bool application_profile_editor_edit_focused() noexcept;
-MessageComposer* application_profile_editor_edit_model() noexcept;
-TextInputTarget application_profile_editor_edit_target() noexcept;
-void application_profile_editor_edit_cancel_native_group(TextInputTarget) noexcept;
-UiRect application_profile_editor_edit_bounds() noexcept;
-bool application_profile_editor_edit_changed(bool content) noexcept;
+// The layer text editing goes to; null while a dialog is over the editor.
+SettingsLayer* application_profile_editor_edit_layer() noexcept;
 u32 application_profile_editor_owner_bytes() noexcept;
 // Local preview frames of picked images (the media pump routes them here).
 bool application_profile_editor_frame_current(MediaAssetKey key) noexcept;

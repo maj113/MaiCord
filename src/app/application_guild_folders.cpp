@@ -305,7 +305,7 @@ bool application_guild_folders_response(const RestClientResponse& response, Utf8
     folders.request_id = 0;
     if (folders.ui != g_app.account_ui)
         return true;
-    const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool ok = response.succeeded();
     if (ok) {
         folders.attempts = 0;
         // Later edits are still queued; otherwise the sent layout is current

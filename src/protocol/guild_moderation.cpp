@@ -18,19 +18,6 @@ using Op = GuildModerationOperation;
 constexpr u32 kDepth = 32;
 constexpr u32 kSearchPieces = 64;
 
-// String.prototype.trim's ASCII part, which the search inputs apply.
-bool space(char c) noexcept {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
-}
-Utf8View trim(const Utf8View& text) noexcept {
-    u32 start = 0, end = text.bytes;
-    while (start < end && space(text.data[start]))
-        ++start;
-    while (end > start && space(text.data[end - 1]))
-        --end;
-    return {text.data + start, end - start};
-}
-
 bool text_valid(Utf8View text, u32 maximum_bytes) noexcept {
     if (!view_valid(text) || text.bytes > maximum_bytes || !utf8_validate(text).valid)
         return false;
@@ -53,7 +40,7 @@ Pieces split(Utf8View text) noexcept {
     for (u32 i = 0; i <= text.bytes; ++i) {
         if (i < text.bytes && text.data[i] != ',')
             continue;
-        const Utf8View piece = trim({text.data + start, i - start});
+        const Utf8View piece = guild_member_search_trim({text.data + start, i - start});
         const bool id = guild_member_search_snowflake(piece);
         u32& count = id ? pieces.id_count : pieces.text_count;
         if (count == kSearchPieces)
@@ -86,7 +73,7 @@ bool search_valid(const GuildMemberSearchQuery& q) noexcept {
     for (u32 i = 0; i < q.role_ids.count; ++i)
         if (!q.role_ids[i])
             return false;
-    if (split(trim(q.text)).overflow)
+    if (split(q.text).overflow)
         return false;
     for (u32 i = 0; i < q.invite_code.bytes; ++i)
         if (q.invite_code.data[i] < 0x21 || q.invite_code.data[i] > 0x7E)
@@ -176,7 +163,7 @@ void write_search(Body& b, const GuildMemberSearchQuery& q) noexcept {
     b.end_object();
     b.key("and_query");
     b.begin_object();
-    const Utf8View text = trim(q.text);
+    const Utf8View text = guild_member_search_trim(q.text);
     Pieces pieces{};
     if (utf8_utf16_units(text) > 1)
         pieces = split(text);
@@ -566,10 +553,10 @@ bool guild_moderation_request_valid(const GuildModerationRequest& r) noexcept {
                r.delete_message_seconds <= kGuildModerationBanDeleteMaximumSeconds;
     case Op::ban_search: {
         if (r.search || r.user_ids.count || r.delete_message_seconds ||
-            !text_valid(r.query, kGuildMemberSearchTextBytes) || !trim(r.query).bytes)
+            !text_valid(r.query, kGuildMemberSearchTextBytes) || !guild_member_search_trim(r.query).bytes)
             return false;
-        const auto pieces = split(trim(r.query));
-        return !pieces.overflow && (pieces.id_count || trim(pieces.texts[0]).bytes);
+        const auto pieces = split(r.query);
+        return !pieces.overflow && (pieces.id_count || pieces.texts[0].bytes);
     }
     default: return false;
     }
@@ -593,11 +580,11 @@ GuildModerationResult guild_moderation_write_target(const GuildModerationRequest
         // limit, the IDs (one key each), then the first text piece.
         ok = ok && protocol_writer_append_literal(&w, "/bans/search?limit=") &&
              protocol_writer_append_u64(&w, kGuildBanSearchLimit);
-        const auto pieces = split(trim(r.query));
+        const auto pieces = split(r.query);
         for (u32 i = 0; ok && i < pieces.id_count; ++i)
             ok = protocol_writer_append_literal(&w, "&user_ids=") &&
                  protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(pieces.ids[i].data), pieces.ids[i].bytes);
-        const Utf8View text = pieces.text_count ? trim(pieces.texts[0]) : Utf8View{};
+        const Utf8View text = pieces.text_count ? pieces.texts[0] : Utf8View{};
         if (ok && text.bytes) {
             ok = protocol_writer_append_literal(&w, "&query=");
             const auto encoded =
@@ -659,6 +646,18 @@ GuildModerationResult guild_moderation_write_reason(const GuildModerationRequest
 
 bool guild_moderation_reason_header(const GuildModerationRequest& r) noexcept {
     return guild_moderation_request_valid(r) && r.operation == Op::bulk_ban && r.reason.data;
+}
+
+Utf8View guild_member_search_trim(Utf8View text) noexcept {
+    const auto space = [](char c) noexcept {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+    };
+    u32 start = 0, end = text.bytes;
+    while (start < end && space(text.data[start]))
+        ++start;
+    while (end > start && space(text.data[end - 1]))
+        --end;
+    return {text.data + start, end - start};
 }
 
 u32 guild_member_search_snowflake_at(u64 unix_ms, Slice<char> output) noexcept {

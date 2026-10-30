@@ -58,22 +58,13 @@ bool application_guild_community_active() noexcept;
 void application_guild_community_close(bool restore_focus = true) noexcept;
 void application_guild_community_release() noexcept;
 bool application_guild_community_synchronize() noexcept;
-bool application_guild_community_input(UiInputKind, u32, bool) noexcept;
 struct SettingsLayer;
 SettingsLayer* application_guild_community_settings_layer() noexcept;
-bool application_guild_community_window_message(UINT, WPARAM, LPARAM) noexcept;
 bool application_guild_community_submit(u64 now) noexcept;
 bool application_guild_community_owns_response(u64 request_id) noexcept;
 bool application_guild_community_response(const RestClientResponse&, Utf8View) noexcept;
 u64 application_guild_community_next_wake() noexcept;
 u64 application_guild_community_caret_wake() noexcept;
-void application_guild_community_tick(u64 now) noexcept;
-bool application_guild_community_edit_focused() noexcept;
-MessageComposer* application_guild_community_edit_model() noexcept;
-TextInputTarget application_guild_community_edit_target() noexcept;
-void application_guild_community_edit_cancel_native_group(TextInputTarget) noexcept;
-UiRect application_guild_community_edit_bounds() noexcept;
-bool application_guild_community_edit_changed(bool content) noexcept;
 u32 application_guild_community_owner_bytes() noexcept;
 
 } // namespace maicord::app_detail

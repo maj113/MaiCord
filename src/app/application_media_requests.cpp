@@ -1700,16 +1700,10 @@ bool ApplicationMediaPump::request_search_previews(u64 now_ms, u64 now_seconds, 
                 const u32 count = kind ? source.rich->embed_count : source.rich->attachment_count;
                 for (u32 index = 0; index < count; ++index) {
                     for (u32 resource_index = 0; resource_index < (kind ? 2u : 1u); ++resource_index) {
-                        UiSearchTarget target{};
-                        target.action = UiSearchAction::rich_item;
-                        target.channel_id = source.message->channel_id;
-                        target.message_id = source.message->id;
-                        target.source_revision = search.source_revision;
-                        target.source_index = ticket.index;
-                        target.rich_kind =
-                            kind ? MessageSceneRichItemKind::embed : MessageSceneRichItemKind::attachment;
-                        target.rich_index = static_cast<u16>(index);
-                        target.snapshot = scope != 0;
+                        auto target = application_search_rich_target(
+                            search, source.message->channel_id, source.message->id, ticket.index,
+                            kind ? MessageSceneRichItemKind::embed : MessageSceneRichItemKind::attachment,
+                            index, scope != 0);
                         if (kind) {
                             MessageRichEmbedMediaSelection selected{};
                             if (!(resource_index
@@ -1826,15 +1820,9 @@ bool ApplicationMediaPump::request_search_decorations(u64 now_ms, u64 now_second
                 const auto key = media_asset_sticker(sticker.id, sticker.format_type);
                 if (!media_asset_key_valid(key))
                     continue;
-                UiSearchTarget target{};
-                target.action = UiSearchAction::rich_item;
-                target.channel_id = source.message->channel_id;
-                target.message_id = source.message->id;
-                target.source_revision = search.source_revision;
-                target.source_index = ticket.index;
-                target.rich_kind = MessageSceneRichItemKind::sticker;
-                target.rich_index = static_cast<u16>(index);
-                target.snapshot = scope != 0;
+                const auto target = application_search_rich_target(
+                    search, source.message->channel_id, source.message->id, ticket.index,
+                    MessageSceneRichItemKind::sticker, index, scope != 0);
                 UiRect rectangle{}, clip{};
                 if (!ui_search_scene_rich_preview_geometry(search, target, &rectangle, &clip) ||
                     !ui_rect_has_area(clip))

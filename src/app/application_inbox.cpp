@@ -596,7 +596,6 @@ bool application_inbox_response(const RestClientResponse& response, Utf8View bod
         MessageHistoryDecodeScratch scratch{};
         ok = application_message_decode_scratch(*g_app.account_ui, &scratch, body);
         const auto decoded = ok ? decode_message_mentions_page(body, scratch.page_structurals,
-                                                               scratch.message_structurals,
                                                                scratch.maximum_depth, scratch.content,
                                                                {value.decoded, kMentionsPageLimit},
                                                                scratch.mention_users)

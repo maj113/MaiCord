@@ -277,15 +277,6 @@ void release_icon() noexcept {
     }
     reset_value(&owner->icon);
 }
-Utf8View image_error(GuildImageError error) noexcept {
-    switch (error) {
-    case GuildImageError::format:
-    case GuildImageError::kind: return utf8_literal("Choose a PNG, GIF, JPEG or WebP image.");
-    case GuildImageError::too_large: return utf8_literal("This image is over 8 MB. Choose a smaller file.");
-    case GuildImageError::decode: return utf8_literal("This image couldn't be read.");
-    default: return utf8_literal("This image couldn't be prepared.");
-    }
-}
 bool read_icon(ConstSlice<wchar_t> path, Utf8View* error) noexcept {
     u8* data = nullptr;
     u32 total = 0;
@@ -293,16 +284,8 @@ bool read_icon(ConstSlice<wchar_t> path, Utf8View* error) noexcept {
         return false;
     // The module prepares (crops/resizes) the image the same way at submit.
     Picked picked{data, total, {}};
-    GuildAssetRequest probe{};
-    probe.operation = GuildAssetOperation::image_probe;
-    probe.profile = GuildImageProfile::icon;
-    probe.image = {data, total};
-    probe.info = &picked.info;
-    const auto probed = g_app.account.api.guild_assets && g_app.account.instance
-                            ? g_app.account.api.guild_assets(g_app.account.instance, &probe, 0)
-                            : RestClientSubmitResult{RestClientSubmitError::invalid_input};
-    if (!probed.ok() || picked.info.error != GuildImageError::none) {
-        *error = image_error(picked.info.error);
+    if (!application_guild_image_probe(GuildImageProfile::icon, {data, total}, &picked.info)) {
+        *error = application_guild_image_error_text(GuildImageProfile::icon, picked.info.error);
         secure_clear_bytes(data, total);
         VirtualFree(data, 0, MEM_RELEASE);
         return false;
@@ -1185,14 +1168,6 @@ bool application_guild_lifecycle_synchronize() noexcept {
            renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
 
-bool application_guild_lifecycle_input(UiInputKind kind, u32 key, bool repeated) noexcept {
-    return owner && owner->scene.active && settings_layer_input(&owner->layer, kind, key, repeated);
-}
-
-bool application_guild_lifecycle_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    return application_guild_lifecycle_active() && settings_layer_window_message(&owner->layer, message, wparam, lparam);
-}
-
 u64 application_guild_lifecycle_next_wake() noexcept {
     u64 wake = 0;
     const auto earliest = [&](u64 at) noexcept {
@@ -1304,7 +1279,7 @@ bool application_guild_lifecycle_owns_response(u64 request_id) noexcept {
 bool application_guild_lifecycle_response(const RestClientResponse& response, Utf8View body) noexcept {
     if (!application_guild_lifecycle_owns_response(response.request_id))
         return false;
-    const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
+    const bool ok = response.succeeded();
     auto& b = g_background;
     if (response.request_id == b.leave_request) {
         b.leave_request = 0;
@@ -1379,43 +1354,8 @@ u64 application_guild_lifecycle_caret_wake() noexcept {
     return wake;
 }
 
-void application_guild_lifecycle_tick(u64 now) noexcept {
-    if (application_guild_lifecycle_active())
-        settings_layer_tick(&owner->layer, now, g_app.preferences.reduced_motion);
-}
-
-bool application_guild_lifecycle_edit_focused() noexcept {
-    return application_guild_lifecycle_active() &&
-           settings_layer_editor(&owner->layer, nullptr, nullptr, nullptr, nullptr);
-}
-
-MessageComposer* application_guild_lifecycle_edit_model() noexcept {
-    MessageComposer* model = nullptr;
-    return application_guild_lifecycle_active() &&
-                   settings_layer_editor(&owner->layer, nullptr, &model, nullptr, nullptr)
-               ? model
-               : nullptr;
-}
-
-TextInputTarget application_guild_lifecycle_edit_target() noexcept {
-    BoundedEdit* binding = nullptr;
-    return application_guild_lifecycle_active() &&
-                   settings_layer_editor(&owner->layer, nullptr, nullptr, &binding, nullptr)
-               ? bounded_edit_input_target(binding)
-               : TextInputTarget{};
-}
-
-void application_guild_lifecycle_edit_cancel_native_group(TextInputTarget target) noexcept {
-    if (owner)
-        settings_layer_cancel_native_group(&owner->layer, target);
-}
-
-UiRect application_guild_lifecycle_edit_bounds() noexcept {
-    return application_guild_lifecycle_active() ? settings_layer_edit_bounds(&owner->layer) : UiRect{};
-}
-
-bool application_guild_lifecycle_edit_changed(bool content) noexcept {
-    return application_guild_lifecycle_active() && settings_layer_edit_changed(&owner->layer, content);
+SettingsLayer* application_guild_lifecycle_settings_layer() noexcept {
+    return owner ? &owner->layer : nullptr;
 }
 
 u32 application_guild_lifecycle_owner_bytes() noexcept {

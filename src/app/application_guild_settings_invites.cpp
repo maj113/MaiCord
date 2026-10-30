@@ -97,19 +97,11 @@ void activate(const SettingsLayerActivation& activation) noexcept {
 }
 
 bool ensure_data() noexcept {
-    if (owner->invites_requested)
-        return false;
-    owner->invites_requested = true;
-    owner->invites_failed = false;
-    queue(Op::invite_list);
-    return true;
+    return request_read(owner->invites_requested, owner->invites_failed, Op::invite_list);
 }
 
 void notice_action() noexcept {
-    if (!owner->invites_failed || busy() || !connected())
-        return;
-    owner->invites_requested = false;
-    ensure_data();
+    retry_read(owner->invites_requested, owner->invites_failed, Op::invite_list);
 }
 
 } // namespace

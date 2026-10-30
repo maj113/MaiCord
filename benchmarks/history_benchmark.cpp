@@ -19,7 +19,6 @@ inline constexpr u64 kAuthorId = 1'250'000'000'000'000'001ull;
 
 char g_body[64 * 1024];
 u32 g_page_structurals[8 * 1024];
-u32 g_message_structurals[256];
 char g_decoded_content[8 * 1024];
 GatewayMessageEvent g_decoded_messages[kDecodeMessages];
 GatewayMessageEvent g_batch_messages[kBatchMessages];
@@ -102,7 +101,7 @@ int run() noexcept {
             decode_message_history_page(
                 Utf8View{g_body, body_bytes},
                 Slice<u32>{g_page_structurals, 8 * 1024},
-                Slice<u32>{g_message_structurals, 256}, 16,
+                16,
                 Slice<char>{g_decoded_content, 8 * 1024},
                 Slice<GatewayMessageEvent>{g_decoded_messages,
                                            kDecodeMessages});

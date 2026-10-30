@@ -1,4 +1,5 @@
 #include "application_message_reaction.hpp"
+#include "application_channel_authority.hpp"
 #include "application_account_presentation.hpp"
 #include "application_message_mutation_notice.hpp"
 #include "application_state.hpp"
@@ -91,15 +92,7 @@ ReactionBinding* binding(u64 channel, u64 message, bool create = false) noexcept
     return nullptr;
 }
 bool readable(const ChannelRecord& channel) noexcept {
-    constexpr u32 required = channel_action_view | channel_action_read_history;
-    if (!channel.occupied || !channel_is_message_capable(channel.type) ||
-        (channel.flags & kChannelObfuscatedFlag) || (channel.actions & required) != required ||
-        !chat_state_store_channel_visible(g_app.account_ui->chat_state, channel))
-        return false;
-    if (!channel.guild_id)
-        return channel_is_private(channel.type);
-    const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, channel.guild_id);
-    return guild && guild->occupied && !guild->unavailable && channel.permissions_resolved;
+    return application_channel_record_readable(g_app.account_ui->chat_state, channel);
 }
 bool member_reaction_add_restricted(const ChannelRecord& channel) noexcept {
     const auto& state = g_app.account_ui->chat_state;

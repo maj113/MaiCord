@@ -19,6 +19,7 @@ using protocol_detail::member_bit;
 using protocol_detail::member_index;
 using protocol_detail::decode_failure;
 using protocol_detail::read_failure;
+using protocol_detail::read_object;
 
 inline constexpr u32 kRichReferenceContentMaximumBytes = 16 * 1024;
 inline constexpr u32 kRichUrlMaximumBytes = 2 * 1024;
@@ -512,37 +513,6 @@ bool json_strings_equal(JsonString encoded, JsonString other) noexcept {
     return a.ok() && b.ok() && a.bytes == b.bytes && a.bytes && bytes_equal(left, right, a.bytes);
 }
 
-GatewayEventDecodeResult read_object(const JsonValue& value, const JsonIndexedDocument& scratch, u32 maximum_depth,
-                                     JsonMemberVisitor visitor, void* context,
-                                     GatewayEventDecodeError* schema_error) noexcept {
-    if (value.kind != JsonValueKind::object) {
-        return decode_failure(GatewayEventDecodeError::invalid_data, value.source_offset);
-    }
-    JsonReadResult read = json_visit_indexed_object(scratch, value, maximum_depth, visitor, context);
-    // Diagnostic offsets are relative to the child object.
-    const u32 begin = static_cast<u32>(value.source.data - scratch.input.data);
-    if (!read.ok() && read.error_offset >= begin)
-        read.error_offset -= begin;
-    if (!read.ok()) {
-        auto result = read_failure(*schema_error, read);
-        // Schema keys only: no field values or message content in diagnostics.
-        if (read.error == JsonReadError::visitor_rejected && read.error_offset < value.source.bytes) {
-            u32 at = read.error_offset;
-            if (value.source.data[at] == '\"')
-                ++at;
-            for (u32 n = 0; n != 31 && at < value.source.bytes; ++n, ++at) {
-                const char ch = value.source.data[at];
-                if (ch == '\"')
-                    break;
-                if (!((ch >= 'a' && ch <= 'z') || ch == '_'))
-                    break;
-                result.schema_field[n] = ch;
-            }
-        }
-        return result;
-    }
-    return decode_failure(GatewayEventDecodeError::none);
-}
 
 // A reply pings the quoted author when the replying message's mentions list that user.
 struct MentionProbe {
@@ -2389,8 +2359,10 @@ bool visit_snapshot_item(void* opaque, u32 index, JsonValue value) noexcept {
     context->value = value;
     return true;
 }
+// `child` receives the snapshot body's root members (validated, none of the forbidden ones present).
 GatewayEventDecodeResult extract_snapshot(JsonValue value, const JsonIndexedDocument& document,
-                                          u32 maximum_depth, JsonValue* body, bool* present) noexcept {
+                                          u32 maximum_depth, JsonValue* body, bool* present,
+                                          RootContext* child) noexcept {
     reset_value(body);
     *present = false;
     if (value.kind == JsonValueKind::null_value)
@@ -2411,62 +2383,46 @@ GatewayEventDecodeResult extract_snapshot(JsonValue value, const JsonIndexedDocu
         return result;
     if (!wrapper.seen)
         return decode_failure(GatewayEventDecodeError::missing_required_field);
-    RootContext child{};
-    result = read_object(wrapper.message, document, maximum_depth, visit_root, &child, &child.error);
+    result = read_object(wrapper.message, document, maximum_depth, visit_root, child, &child->error);
     if (!result.ok())
         return result;
-    if (child.seen & (gateway_message_field_message_snapshots | gateway_message_field_message_reference |
-                      gateway_message_field_referenced_message | gateway_message_field_reactions |
-                      gateway_message_field_interaction))
+    if (child->seen & (gateway_message_field_message_snapshots | gateway_message_field_message_reference |
+                       gateway_message_field_referenced_message | gateway_message_field_reactions |
+                       gateway_message_field_interaction))
         return decode_failure(GatewayEventDecodeError::invalid_data);
     *body = wrapper.message;
     *present = true;
     return decode_failure(GatewayEventDecodeError::none);
 }
 GatewayEventDecodeResult decode_snapshot(JsonValue value, const JsonIndexedDocument& document,
-                                         Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> text,
-                                         u32* used, const GatewayMessageSnapshotScratch& scratch,
+                                         u32 maximum_depth, Slice<char> text, u32* used,
+                                         const GatewayMessageSnapshotScratch& scratch,
                                          GatewayMessageSnapshot* output) noexcept {
     reset_value(output);
     JsonValue body_value{};
     bool present = false;
-    auto result = extract_snapshot(value, document, maximum_depth, &body_value, &present);
+    RootContext child{};
+    auto result = extract_snapshot(value, document, maximum_depth, &body_value, &present, &child);
     if (!result.ok() || !present)
         return result;
     GatewayMessageEvent body{};
     result = gateway_decode_message_snapshot_core(
-        body_value, structural_scratch, maximum_depth,
+        document, body_value, maximum_depth,
         {text.data ? text.data + *used : nullptr, text.count - *used}, scratch.mention_users, &body);
     if (!result.ok())
         return result;
     *used += body.transient_bytes;
-    // Core decoding reuses the same structural scratch. Index the child again
-    // before rich parsing; the parent's descriptors have already been decoded.
-    const auto scan = json_scan_structurals_avx1(body_value.source, structural_scratch);
-    if (!scan.ok())
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    const JsonIndexedDocument child_document{body_value.source, {structural_scratch.data, scan.count}};
-    RootContext child{};
-    const auto child_read = json_visit_value_object(body_value, child_document.structurals,
-                                                   maximum_depth, visit_root, &child);
-    if (!child_read.ok())
-        return decode_failure(child.error == GatewayEventDecodeError::none
-                                  ? GatewayEventDecodeError::invalid_json
-                                  : child.error,
-                              child_read.error_offset);
     const GatewayMessageRichScratch media{
         {}, scratch.attachments, scratch.embeds, scratch.embed_fields, scratch.stickers, scratch.components,
         {}};
     if (child.seen & gateway_message_field_attachments)
-        result =
-            decode_attachments(child.attachments, child_document, maximum_depth, text, used, media, &body);
+        result = decode_attachments(child.attachments, document, maximum_depth, text, used, media, &body);
     if (result.ok() && (child.seen & gateway_message_field_embeds))
-        result = decode_embeds(child.embeds, child_document, maximum_depth, text, used, media, &body);
+        result = decode_embeds(child.embeds, document, maximum_depth, text, used, media, &body);
     if (result.ok() && (child.seen & gateway_message_field_sticker_items))
-        result = decode_stickers(child.stickers, child_document, maximum_depth, text, used, media, &body);
+        result = decode_stickers(child.stickers, document, maximum_depth, text, used, media, &body);
     if (result.ok() && (child.seen & gateway_message_field_components))
-        result =
-            decode_components(child.components, child_document, maximum_depth, text, used, media, &body);
+        result = decode_components(child.components, document, maximum_depth, text, used, media, &body);
     if (!result.ok())
         return result;
     // A forwarded snapshot never carries its source's thread.
@@ -2490,26 +2446,23 @@ GatewayEventDecodeResult decode_snapshot(JsonValue value, const JsonIndexedDocum
 
 } // namespace
 
-GatewayEventDecodeResult gateway_extract_message_snapshot(JsonValue array, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_extract_message_snapshot(const JsonIndexedDocument& document, JsonValue array,
                                                           u32 maximum_depth, JsonValue* body,
                                                           bool* present) noexcept {
-    if (!body || !present || !array.source.data || !structural_scratch.data || !structural_scratch.count ||
-        !maximum_depth || (array.kind != JsonValueKind::array && array.kind != JsonValueKind::null_value))
+    if (!body || !present || !array.source.data || !document.structurals.data || !maximum_depth ||
+        (array.kind != JsonValueKind::array && array.kind != JsonValueKind::null_value))
         return decode_failure(GatewayEventDecodeError::invalid_input);
-    const auto scan = json_scan_structurals_avx1(array.source, structural_scratch);
-    if (!scan.ok())
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    return extract_snapshot(array, {array.source, {structural_scratch.data, scan.count}}, maximum_depth,
-                            body, present);
+    RootContext child{};
+    return extract_snapshot(array, document, maximum_depth, body, present, &child);
 }
 
-GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_message_rich_fields(const JsonIndexedDocument& document, JsonValue data,
                                                             u32 maximum_depth, Slice<char> text_output,
                                                             u32* text_used,
                                                             const GatewayMessageRichScratch& scratch,
                                                             GatewayMessageEvent* output) noexcept {
     if (!output || !text_used || !data.source.data || data.source.bytes == 0 ||
-        data.kind != JsonValueKind::object || !structural_scratch.data || structural_scratch.count == 0 ||
+        data.kind != JsonValueKind::object || !document.structurals.data || document.structurals.count == 0 ||
         maximum_depth == 0 || (!text_output.data && text_output.count != 0) ||
         *text_used > text_output.count || (!scratch.reactions.data && scratch.reactions.count != 0) ||
         (!scratch.attachments.data && scratch.attachments.count != 0) ||
@@ -2525,23 +2478,11 @@ GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue data, Slic
         (!scratch.snapshot.mention_users.data && scratch.snapshot.mention_users.count)) {
         return decode_failure(GatewayEventDecodeError::invalid_input);
     }
-    const JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    }
-    const JsonIndexedDocument document{data.source, {structural_scratch.data, scan.count}};
     RootContext root{};
-    const JsonReadResult read =
-        json_visit_value_object(data, ConstSlice<u32>{structural_scratch.data, scan.count},
-                               maximum_depth, visit_root, &root);
-    if (!read.ok()) {
-        return decode_failure(root.error != GatewayEventDecodeError::none
-                                  ? root.error
-                                  : GatewayEventDecodeError::invalid_json,
-                              read.error_offset, JsonScanError::none, read.error);
-    }
     GatewayEventDecodeResult result =
-        decode_reference(root, document, maximum_depth, text_output, text_used, output);
+        read_object(data, document, maximum_depth, visit_root, &root, &root.error);
+    if (result.ok())
+        result = decode_reference(root, document, maximum_depth, text_output, text_used, output);
     if (result.ok() && (root.seen & gateway_message_field_interaction) != 0) {
         result =
             decode_interaction(root.interaction, document, maximum_depth, text_output, text_used, output);
@@ -2575,14 +2516,29 @@ GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue data, Slic
         result = gateway_decode_message_poll(root.poll, document, maximum_depth, text_output, text_used,
                                              scratch.poll, &output->poll);
     if (result.ok() && (root.seen & gateway_message_field_message_snapshots))
-        result = decode_snapshot(root.snapshots, document, structural_scratch, maximum_depth, text_output,
-                                 text_used, scratch.snapshot, &output->snapshot);
+        result = decode_snapshot(root.snapshots, document, maximum_depth, text_output, text_used,
+                                 scratch.snapshot, &output->snapshot);
     if (!result.ok()) {
         return result;
     }
     output->fields |= static_cast<u32>(root.seen);
     output->transient_bytes = *text_used;
     return decode_failure(GatewayEventDecodeError::none);
+}
+
+GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue data, Slice<u32> structural_scratch,
+                                                            u32 maximum_depth, Slice<char> text_output,
+                                                            u32* text_used,
+                                                            const GatewayMessageRichScratch& scratch,
+                                                            GatewayMessageEvent* output) noexcept {
+    if (!data.source.data || data.source.bytes == 0 || !structural_scratch.data || structural_scratch.count == 0)
+        return decode_failure(GatewayEventDecodeError::invalid_input);
+    const JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
+    if (!scan.ok()) {
+        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+    }
+    return gateway_decode_message_rich_fields({data.source, {structural_scratch.data, scan.count}}, data,
+                                              maximum_depth, text_output, text_used, scratch, output);
 }
 
 } // namespace maicord

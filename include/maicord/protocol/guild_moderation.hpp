@@ -139,6 +139,8 @@ constexpr bool guild_member_search_snowflake(Utf8View text) noexcept {
             return false;
     return true;
 }
+// The text without its leading and trailing ASCII white space, as String.prototype.trim does for the search inputs.
+Utf8View guild_member_search_trim(Utf8View text) noexcept;
 // The decimal snowflake of a Unix millisecond time ((ms - epoch) << 22, "0"
 // at or before the epoch). Returns the digits written.
 u32 guild_member_search_snowflake_at(u64 unix_ms, Slice<char> output) noexcept;

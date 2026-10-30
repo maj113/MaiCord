@@ -29,18 +29,9 @@ bool application_custom_status_active() noexcept;
 void application_custom_status_close(bool restore_focus = true) noexcept;
 void application_custom_status_release() noexcept;
 bool application_custom_status_synchronize() noexcept;
-bool application_custom_status_input(UiInputKind, u32, bool) noexcept;
 // Inline editor engine while the page is open (accessibility SetValue).
 struct SettingsLayer;
 SettingsLayer* application_custom_status_settings_layer() noexcept;
-bool application_custom_status_window_message(UINT, WPARAM, LPARAM) noexcept;
 u64 application_custom_status_caret_wake() noexcept;
-void application_custom_status_dialog_tick(u64 now_ms) noexcept;
-bool application_custom_status_edit_focused() noexcept;
-MessageComposer* application_custom_status_edit_model() noexcept;
-TextInputTarget application_custom_status_edit_target() noexcept;
-void application_custom_status_edit_cancel_native_group(TextInputTarget) noexcept;
-UiRect application_custom_status_edit_bounds() noexcept;
-bool application_custom_status_edit_changed(bool content) noexcept;
 u32 application_custom_status_owner_bytes() noexcept;
 } // namespace maicord::app_detail

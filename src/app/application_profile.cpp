@@ -976,6 +976,12 @@ bool application_profile_double_click(UiPoint point) noexcept {
     }
     return true;
 }
+// Out of line: the paste buffer would otherwise probe the stack on every key.
+__declspec(noinline) static MessageComposerResult paste_clipboard(MessageComposer* edit) noexcept {
+    char text[kMessageComposerMaximumBytes];
+    const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+    return read.ok() ? message_composer_insert_utf8(edit, {text, read.bytes}) : MessageComposerResult::unchanged;
+}
 bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
     auto* p = g_app.profile;
     if (!p || !p->scene.active)
@@ -1025,10 +1031,7 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
                 key == 'X')
                 result = message_composer_delete_forward(edit);
         } else if (control && key == 'V') {
-            char text[kMessageComposerMaximumBytes];
-            const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
-            if (read.ok())
-                result = message_composer_insert_utf8(edit, {text, read.bytes});
+            result = paste_clipboard(edit);
         } else
             message_composer_edit_key(edit, key, control, shift, &result);
         if (result == MessageComposerResult::changed)

@@ -181,13 +181,12 @@ void test_message_live_updates(void (*check)(bool, const char*) noexcept) noexce
           "live_reply_nonresident_snapshot_queues_passive_refresh");
     constexpr auto body = utf8_literal(
         R"([{"id":"109","channel_id":"7","author":{"id":"9","username":"Claudia"},"content":"reply","timestamp":"2024-08-30T14:00:00Z","message_reference":{"message_id":"90","channel_id":"7"},"referenced_message":{"id":"90","channel_id":"7","author":{"id":"8","username":"Wren042"},"content":"hello team"}}])");
-    u32 page_structurals[256]{}, message_structurals[256]{};
+    u32 page_structurals[256]{};
     char page_text[2048]{};
     GatewayMessageEvent messages[1]{};
     GatewayMessageNamedUser named[4]{};
     GatewayMessageReaction reactions[1]{};
     const MessageHistoryDecodeScratch scratch{{page_structurals, 256},
-                                              {message_structurals, 256},
                                               {page_text, 2048},
                                               {messages, 1},
                                               {named, 4},

@@ -558,14 +558,6 @@ bool application_report_synchronize() noexcept {
            renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
 
-bool application_report_input(UiInputKind kind, u32 key, bool repeated) noexcept {
-    return application_report_active() && settings_layer_input(&owner->layer, kind, key, repeated);
-}
-
-bool application_report_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    return application_report_active() && settings_layer_window_message(&owner->layer, message, wparam, lparam);
-}
-
 SettingsLayer* application_report_settings_layer() noexcept {
     return owner ? &owner->layer : nullptr;
 }
@@ -579,11 +571,6 @@ u64 application_report_next_wake() noexcept {
 
 u64 application_report_caret_wake() noexcept {
     return application_report_active() ? settings_layer_next_wake(owner->layer) : 0;
-}
-
-void application_report_tick(u64 now) noexcept {
-    if (application_report_active())
-        settings_layer_tick(&owner->layer, now, g_app.preferences.reduced_motion);
 }
 
 bool application_report_submit(u64 now) noexcept {

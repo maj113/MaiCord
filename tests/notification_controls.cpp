@@ -221,15 +221,15 @@ void mentions(Check check) noexcept {
     constexpr auto body = utf8_literal(
         R"([{"id":"500","channel_id":"7","author":{"id":"41","username":"ana"},"content":"<@1> hi","timestamp":"2026-10-06T12:00:00Z"},)"
         R"({"id":"400","channel_id":"8","author":{"id":"42","username":"bo"},"content":"@everyone","timestamp":"2026-10-06T11:00:00Z","mention_everyone":true}])");
-    const auto decoded = decode_message_mentions_page(body, {page, 2048}, {message, 2048}, 32, {text, sizeof(text)},
+    const auto decoded = decode_message_mentions_page(body, {page, 2048}, 32, {text, sizeof(text)},
                                                       {events, 4}, {});
     check(decoded.ok() && decoded.page.count == 2 && events[0].channel_id == 7 && events[1].channel_id == 8 &&
               events[1].id == 400 && !mentions_has_more(decoded.page.count, kMentionsPageLimit),
           "mentions: a page spans channels and a short page ends paging");
-    const auto empty = decode_message_mentions_page(utf8_literal("[]"), {page, 2048}, {message, 2048}, 32,
+    const auto empty = decode_message_mentions_page(utf8_literal("[]"), {page, 2048}, 32,
                                                     {text, sizeof(text)}, {events, 4}, {});
     check(empty.ok() && !empty.page.count, "mentions: an empty page decodes");
-    check(!decode_message_mentions_page(utf8_literal("{\"message\":\"x\"}"), {page, 2048}, {message, 2048}, 32,
+    check(!decode_message_mentions_page(utf8_literal("{\"message\":\"x\"}"), {page, 2048}, 32,
                                         {text, sizeof(text)}, {events, 4}, {})
                .ok(),
           "mentions: an error object is not a page");
@@ -237,7 +237,7 @@ void mentions(Check check) noexcept {
     constexpr auto avatar_body = utf8_literal(
         R"([{"id":"501","channel_id":"7","author":{"id":"43","username":"cy","avatar":"a_0123456789abcdef0123456789abcdef"},"content":"<@1>","timestamp":"2026-10-06T12:00:00Z"},)"
         R"({"id":"502","channel_id":"7","author":{"id":"44","username":"di","avatar":null},"content":"<@1>","timestamp":"2026-10-06T11:00:00Z"}])");
-    const auto avatars = decode_message_mentions_page(avatar_body, {page, 2048}, {message, 2048}, 32,
+    const auto avatars = decode_message_mentions_page(avatar_body, {page, 2048}, 32,
                                                       {text, sizeof(text)}, {events, 4}, {});
     check(avatars.ok() && avatars.page.count == 2 && events[0].author_id == 43 &&
               utf8_equal(events[0].author_avatar_hash, utf8_literal("a_0123456789abcdef0123456789abcdef")) &&

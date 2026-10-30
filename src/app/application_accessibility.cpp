@@ -18,6 +18,7 @@
 #include "application_friends.hpp"
 #include "application_guild_folders.hpp"
 #include "application_guild_settings.hpp"
+#include "application_guild_lifecycle.hpp"
 #include "application_login_input.hpp"
 #include "application_login_ui.hpp"
 #include "application_message_feedback.hpp"
@@ -1397,6 +1398,7 @@ SettingsLayer* active_settings_layer() noexcept {
     SettingsLayer* const layers[]{application_channel_overview_settings_layer(),
                                   application_custom_status_settings_layer(),
                                   application_guild_settings_settings_layer(),
+                                  application_guild_lifecycle_settings_layer(),
                                   application_poll_create_settings_layer(),
                                   application_guild_community_settings_layer(),
                                   application_profile_editor_settings_layer(),

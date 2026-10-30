@@ -27,7 +27,7 @@ MessageSendResponseResult message_send_accept_response(MessageComposerController
     }
     auto& message = scratch.messages[0];
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
-    result.decode = gateway_decode_message_create({body, 0, JsonValueKind::object}, scratch.message_structurals,
+    result.decode = gateway_decode_message_create({body, 0, JsonValueKind::object}, scratch.page_structurals,
         scratch.maximum_depth, scratch.content, {mention_roles, kGatewayMessageMentionRoleMaximumIds},
         scratch.rich.member_roles, scratch.mention_users,
         {scratch.rich.reactions, scratch.rich.attachments, scratch.rich.embeds, scratch.rich.embed_fields,

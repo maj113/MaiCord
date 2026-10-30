@@ -5,13 +5,62 @@
 #include "json_field_lists.hpp"
 
 namespace maicord {
+
+namespace protocol_detail {
+namespace {
+GatewayEventDecodeResult finish_read(JsonReadResult read, const JsonValue& value,
+                                     const JsonIndexedDocument& document, bool names,
+                                     GatewayEventDecodeError* schema_error) noexcept {
+    if (read.ok())
+        return decode_failure(GatewayEventDecodeError::none);
+    // Diagnostic offsets are relative to the child value.
+    const u32 begin = static_cast<u32>(value.source.data - document.input.data);
+    if (read.error_offset >= begin)
+        read.error_offset -= begin;
+    auto result = read_failure(*schema_error, read);
+    // Schema keys only: no field values or message content in diagnostics.
+    if (names && read.error == JsonReadError::visitor_rejected && read.error_offset < value.source.bytes) {
+        u32 at = read.error_offset;
+        if (value.source.data[at] == '\"')
+            ++at;
+        for (u32 n = 0; n != 31 && at < value.source.bytes; ++n, ++at) {
+            const char ch = value.source.data[at];
+            if (ch == '\"' || !((ch >= 'a' && ch <= 'z') || ch == '_'))
+                break;
+            result.schema_field[n] = ch;
+        }
+    }
+    return result;
+}
+} // namespace
+
+GatewayEventDecodeResult read_object(const JsonValue& value, const JsonIndexedDocument& document,
+                                     u32 maximum_depth, JsonMemberVisitor visitor, void* context,
+                                     GatewayEventDecodeError* schema_error) noexcept {
+    if (value.kind != JsonValueKind::object)
+        return decode_failure(GatewayEventDecodeError::invalid_data, value.source_offset);
+    return finish_read(json_visit_indexed_object(document, value, maximum_depth, visitor, context), value,
+                       document, true, schema_error);
+}
+
+GatewayEventDecodeResult read_array(const JsonValue& value, const JsonIndexedDocument& document,
+                                    u32 maximum_depth, JsonArrayVisitor visitor, void* context,
+                                    GatewayEventDecodeError* schema_error) noexcept {
+    if (value.kind != JsonValueKind::array)
+        return decode_failure(GatewayEventDecodeError::invalid_data, value.source_offset);
+    return finish_read(json_visit_indexed_array(document, value, maximum_depth, visitor, context), value,
+                       document, false, schema_error);
+}
+} // namespace protocol_detail
 namespace {
 
 using protocol_detail::accept_member;
 using protocol_detail::member_index;
 using protocol_detail::decode_failure;
 using protocol_detail::mark_seen;
+using protocol_detail::read_array;
 using protocol_detail::read_failure;
+using protocol_detail::read_object;
 
 struct MessageContext {
     GatewayMessageEvent event;
@@ -69,24 +118,16 @@ bool visit_call_member(void* opaque, JsonString name, JsonValue value) noexcept 
 
 // CALL messages carry the participants and the end time; a missing end time
 // means the call is still ongoing.
-GatewayEventDecodeResult decode_call(JsonValue call, Slice<u32> structural_scratch, u32 maximum_depth,
+GatewayEventDecodeResult decode_call(JsonValue call, const JsonIndexedDocument& document, u32 maximum_depth,
                                      u64 current_user_id, GatewayMessageCall* output) noexcept {
-    const JsonScanResult scan = json_scan_structurals_avx1(call.source, structural_scratch);
-    if (!scan.ok())
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
     CallContext context{};
     context.current_user_id = current_user_id;
-    JsonReadResult read = json_visit_value_object(call, {structural_scratch.data, scan.count},
-                                                 maximum_depth, visit_call_member, &context);
-    if (read.ok() && (context.seen & 2u)) {
-        const JsonScanResult inner = json_scan_structurals_avx1(context.participants.source, structural_scratch);
-        if (!inner.ok())
-            return decode_failure(GatewayEventDecodeError::scan_failed, inner.error_offset, inner.error);
-        read = json_visit_value_array(context.participants, {structural_scratch.data, inner.count},
-                                     maximum_depth, visit_call_participant, &context);
-    }
-    if (!read.ok())
-        return read_failure(context.error, read);
+    auto result = read_object(call, document, maximum_depth, visit_call_member, &context, &context.error);
+    if (result.ok() && (context.seen & 2u))
+        result = read_array(context.participants, document, maximum_depth, visit_call_participant, &context,
+                            &context.error);
+    if (!result.ok())
+        return result;
     *output = GatewayMessageCall{context.ended_timestamp_ms, true, context.ended, context.participated};
     return GatewayEventDecodeResult{};
 }
@@ -128,7 +169,6 @@ struct BulkIdContext {
 
 struct MentionUserContext {
     JsonIndexedDocument document;
-    Slice<u32> structural_scratch;
     Slice<char> name_output;
     Slice<GatewayMessageNamedUser> users;
     u32* used;
@@ -396,26 +436,16 @@ GatewayEventDecodeResult decode_text(JsonString text, Slice<char> output, u32* u
     return decode_failure(GatewayEventDecodeError::none);
 }
 
-GatewayEventDecodeResult decode_author(JsonValue author, Slice<u32> structural_scratch, u32 maximum_depth,
-                                       Slice<char> name_output, u32* used, bool capture_name,
-                                       u64* author_id, Utf8View* author_name, Utf8View* avatar_hash,
-                                       u32* public_flags = nullptr, bool* bot = nullptr,
-                                       bool* policy_explicit = nullptr,
-                                       const JsonIndexedDocument* indexed = nullptr) noexcept {
+GatewayEventDecodeResult decode_author(const JsonIndexedDocument& document, JsonValue author,
+                                       u32 maximum_depth, Slice<char> name_output, u32* used,
+                                       bool capture_name, u64* author_id, Utf8View* author_name,
+                                       Utf8View* avatar_hash, u32* public_flags = nullptr,
+                                       bool* bot = nullptr, bool* policy_explicit = nullptr) noexcept {
     AuthorContext context{};
-    JsonReadResult read{};
-    if (indexed) {
-        read = json_visit_indexed_object(*indexed, author, maximum_depth, visit_author_member, &context);
-    } else {
-        const JsonScanResult scan = json_scan_structurals_avx1(author.source, structural_scratch);
-        if (!scan.ok())
-            return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-        read = json_visit_value_object(author, {structural_scratch.data, scan.count}, maximum_depth,
-                                      visit_author_member, &context);
-    }
-    if (!read.ok()) {
-        return read_failure(context.error, read);
-    }
+    const GatewayEventDecodeResult read =
+        read_object(author, document, maximum_depth, visit_author_member, &context, &context.error);
+    if (!read.ok())
+        return read;
     if (!(context.seen & author_seen_id)) {
         return decode_failure(GatewayEventDecodeError::invalid_author_id, author.source_offset);
     }
@@ -458,9 +488,9 @@ bool visit_mention_user(void* opaque, u32, JsonValue value) noexcept {
     // user's mention, but keep no name.
     const bool keep = context->capture_names && context->count < kGatewayMessageMentionUserMaximum &&
                       context->count < context->users.count;
-    const GatewayEventDecodeResult decoded = decode_author(
-        value, context->structural_scratch, context->maximum_depth, context->name_output, context->used,
-        keep, &id, &name, nullptr, nullptr, nullptr, nullptr, &context->document);
+    const GatewayEventDecodeResult decoded =
+        decode_author(context->document, value, context->maximum_depth, context->name_output, context->used,
+                      keep, &id, &name, nullptr);
     if (!decoded.ok()) {
         context->error = decoded.error;
         return false;
@@ -559,24 +589,17 @@ bool visit_member_field(void* opaque, JsonString name, JsonValue value) noexcept
 
 // Decodes member.roles, and member.nick into name_output right after the
 // author's name and avatar hash.
-GatewayEventDecodeResult decode_member(MessageContext* context, Slice<u32> structural_scratch,
+GatewayEventDecodeResult decode_member(MessageContext* context, const JsonIndexedDocument& document,
                                        u32 maximum_depth, Slice<u64> member_role_scratch,
                                        Slice<char> name_output, u32* used) noexcept {
     if ((context->event.fields & gateway_message_field_member) == 0) {
         return decode_failure(GatewayEventDecodeError::none);
     }
-    const JsonScanResult member_scan =
-        json_scan_structurals_avx1(context->member.source, structural_scratch);
-    if (!member_scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, member_scan.error_offset,
-                              member_scan.error);
-    }
     MemberContext member{};
-    const JsonReadResult member_read = json_visit_value_object(
-        context->member, ConstSlice<u32>{structural_scratch.data, member_scan.count}, maximum_depth,
-        visit_member_field, &member);
-    if (!member_read.ok()) {
-        return read_failure(member.error, member_read);
+    GatewayEventDecodeResult result =
+        read_object(context->member, document, maximum_depth, visit_member_field, &member, &member.error);
+    if (!result.ok()) {
+        return result;
     }
     if (!member.roles_seen) {
         return decode_failure(GatewayEventDecodeError::missing_required_field,
@@ -590,49 +613,34 @@ GatewayEventDecodeResult decode_member(MessageContext* context, Slice<u32> struc
         if (!nick.ok())
             return nick;
     }
-    const JsonScanResult role_scan = json_scan_structurals_avx1(member.roles.source, structural_scratch);
-    if (!role_scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, role_scan.error_offset,
-                              role_scan.error);
-    }
     MemberRoleContext roles{member_role_scratch, GatewayEventDecodeError::none, 0, false};
-    const JsonReadResult role_read = json_visit_value_array(
-        member.roles, ConstSlice<u32>{structural_scratch.data, role_scan.count}, maximum_depth,
-        visit_member_role, &roles);
-    if (!role_read.ok()) {
-        return read_failure(roles.error, role_read);
+    result = read_array(member.roles, document, maximum_depth, visit_member_role, &roles, &roles.error);
+    if (!result.ok()) {
+        return result;
     }
     context->event.member_roles_partial = roles.partial;
     context->event.member_roles = ConstSlice<u64>{member_role_scratch.data, roles.partial ? 0u : roles.count};
     return decode_failure(GatewayEventDecodeError::none);
 }
 
-GatewayEventDecodeResult decode_mentions(MessageContext* context, Slice<u32> structural_scratch,
+GatewayEventDecodeResult decode_mentions(MessageContext* context, const JsonIndexedDocument& document,
                                          u32 maximum_depth, Slice<u64> mention_role_scratch,
                                          Slice<GatewayMessageNamedUser> mention_user_scratch,
                                          Slice<char> name_output, u32* used, u64 current_user_id,
                                          bool capture_names) noexcept {
     if ((context->event.fields & gateway_message_field_mentions) != 0) {
-        const JsonScanResult scan =
-            json_scan_structurals_avx1(context->mentions.source, structural_scratch);
-        if (!scan.ok()) {
-            return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-        }
-        u32 object_scratch[512];
         MentionUserContext users{};
-        users.document = {context->mentions.source, {structural_scratch.data, scan.count}};
-        users.structural_scratch = Slice<u32>{object_scratch, 512};
+        users.document = document;
         users.name_output = name_output;
         users.users = mention_user_scratch;
         users.used = used;
         users.current_user_id = current_user_id;
         users.maximum_depth = maximum_depth;
         users.capture_names = capture_names;
-        const JsonReadResult read = json_visit_value_array(
-            context->mentions, ConstSlice<u32>{structural_scratch.data, scan.count}, maximum_depth,
-            visit_mention_user, &users);
-        if (!read.ok()) {
-            return read_failure(users.error, read);
+        const GatewayEventDecodeResult result =
+            read_array(context->mentions, document, maximum_depth, visit_mention_user, &users, &users.error);
+        if (!result.ok()) {
+            return result;
         }
         context->event.mentions_current_user = users.found;
         if (capture_names) {
@@ -641,29 +649,18 @@ GatewayEventDecodeResult decode_mentions(MessageContext* context, Slice<u32> str
         }
     }
     if ((context->event.fields & gateway_message_field_mention_roles) != 0) {
-        const JsonScanResult scan =
-            json_scan_structurals_avx1(context->mention_roles.source, structural_scratch);
-        if (!scan.ok()) {
-            return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-        }
         MentionRoleContext roles{mention_role_scratch, GatewayEventDecodeError::none, 0};
-        const JsonReadResult read = json_visit_value_array(
-            context->mention_roles, ConstSlice<u32>{structural_scratch.data, scan.count},
-            maximum_depth, visit_mention_role, &roles);
-        if (!read.ok()) {
-            return read_failure(roles.error, read);
-        }
-        if (roles.count != minimum(read.member_count, minimum(kGatewayMessageMentionRoleMaximumIds,
-                                                              mention_role_scratch.count))) {
-            return decode_failure(GatewayEventDecodeError::invalid_data,
-                                  context->mention_roles.source_offset);
+        const GatewayEventDecodeResult result = read_array(context->mention_roles, document, maximum_depth,
+                                                           visit_mention_role, &roles, &roles.error);
+        if (!result.ok()) {
+            return result;
         }
         context->event.mention_roles = ConstSlice<u64>{mention_role_scratch.data, roles.count};
     }
     return decode_failure(GatewayEventDecodeError::none);
 }
 
-GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
+GatewayEventDecodeResult decode_message(const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
                                         Slice<char> content_scratch, Slice<u64> mention_role_scratch,
                                         Slice<u64> member_role_scratch,
                                         Slice<GatewayMessageNamedUser> mention_user_scratch,
@@ -671,19 +668,11 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
                                         bool capture_names, bool capture_rich, bool create,
                                         GatewayMessageEvent* output, bool snapshot_core = false) noexcept {
     reset_value<GatewayMessageEvent>(output);
-    if (data.kind != JsonValueKind::object) {
-        return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
-    }
-    const JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    }
     MessageContext context{};
-    const JsonReadResult read =
-        json_visit_value_object(data, ConstSlice<u32>{structural_scratch.data, scan.count},
-                               maximum_depth, visit_message_member, &context);
+    const GatewayEventDecodeResult read =
+        read_object(data, document, maximum_depth, visit_message_member, &context, &context.error);
     if (!read.ok()) {
-        return read_failure(context.error, read);
+        return read;
     }
 
     constexpr u32 update_required = gateway_message_field_id | gateway_message_field_channel_id;
@@ -721,10 +710,10 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
     if ((context.event.fields & gateway_message_field_author_id) != 0) {
         bool policy_explicit = false;
         const GatewayEventDecodeResult author =
-            decode_author(context.author, structural_scratch, maximum_depth, content_scratch,
-                          &transient_used, capture_names, &context.event.author_id,
-                          &context.event.author_name, &context.event.author_avatar_hash,
-                          &context.event.author_public_flags, &context.event.author_bot, &policy_explicit);
+            decode_author(document, context.author, maximum_depth, content_scratch, &transient_used,
+                          capture_names, &context.event.author_id, &context.event.author_name,
+                          &context.event.author_avatar_hash, &context.event.author_public_flags,
+                          &context.event.author_bot, &policy_explicit);
         if (!author.ok()) {
             return author;
         }
@@ -735,25 +724,25 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
         context.event.fields |= gateway_message_field_interaction_metadata;
     // The nickname follows the author's name and avatar hash in the transient text.
     const GatewayEventDecodeResult member = decode_member(
-        &context, structural_scratch, maximum_depth, member_role_scratch, content_scratch, &transient_used);
+        &context, document, maximum_depth, member_role_scratch, content_scratch, &transient_used);
     if (!member.ok()) {
         return member;
     }
     const GatewayEventDecodeResult mentions = decode_mentions(
-        &context, structural_scratch, maximum_depth, mention_role_scratch, mention_user_scratch,
-        content_scratch, &transient_used, current_user_id, capture_names);
+        &context, document, maximum_depth, mention_role_scratch, mention_user_scratch, content_scratch,
+        &transient_used, current_user_id, capture_names);
     if (!mentions.ok()) {
         return mentions;
     }
     if (context.call.source.data) {
         const GatewayEventDecodeResult call =
-            decode_call(context.call, structural_scratch, maximum_depth, current_user_id, &context.event.call);
+            decode_call(context.call, document, maximum_depth, current_user_id, &context.event.call);
         if (!call.ok())
             return call;
     }
     if (capture_rich) {
         const GatewayEventDecodeResult rich =
-            gateway_decode_message_rich_fields(data, structural_scratch, maximum_depth, content_scratch,
+            gateway_decode_message_rich_fields(document, data, maximum_depth, content_scratch,
                                                &transient_used, rich_scratch, &context.event);
         if (!rich.ok()) {
             return rich;
@@ -820,14 +809,14 @@ bool visit_bulk_id(void* opaque, u32 index, JsonValue value) noexcept {
 
 } // namespace
 
-GatewayEventDecodeResult gateway_decode_message_snapshot_core(JsonValue data, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_decode_message_snapshot_core(const JsonIndexedDocument& document, JsonValue data,
                                                               u32 maximum_depth,
                                                               Slice<char> content_scratch,
                                                               Slice<GatewayMessageNamedUser> mention_users,
                                                               GatewayMessageEvent* output) noexcept {
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
     u64 member_roles[kGatewayMessageMemberRoleMaximumIds];
-    auto result = decode_message(data, structural_scratch, maximum_depth, content_scratch,
+    auto result = decode_message(document, data, maximum_depth, content_scratch,
                                  {mention_roles, kGatewayMessageMentionRoleMaximumIds},
                                  {member_roles, kGatewayMessageMemberRoleMaximumIds}, mention_users, {}, 0,
                                  mention_users.data != nullptr, false, false, output, true);
@@ -850,13 +839,13 @@ GatewayEventDecodeResult gateway_decode_message_snapshot_core(JsonValue data, Sl
 namespace {
 // A message decoded without rich capture. Member roles are scratch the caller never sees; mention roles
 // are dropped too when they live in the caller's own frame.
-GatewayEventDecodeResult decode_plain(JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
+GatewayEventDecodeResult decode_plain(const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
                                       Slice<char> content_scratch, Slice<u64> mention_roles, bool keep_mention_roles,
                                       Slice<GatewayMessageNamedUser> mention_users, u64 current_user_id,
                                       bool capture_names, bool create, GatewayMessageEvent* output) noexcept {
     u64 member_roles[kGatewayMessageMemberRoleMaximumIds];
     const GatewayEventDecodeResult result =
-        decode_message(data, structural_scratch, maximum_depth, content_scratch, mention_roles,
+        decode_message(document, data, maximum_depth, content_scratch, mention_roles,
                        Slice<u64>{member_roles, kGatewayMessageMemberRoleMaximumIds}, mention_users,
                        GatewayMessageRichScratch{}, current_user_id, capture_names, false, create, output);
     if (result.ok()) {
@@ -866,14 +855,59 @@ GatewayEventDecodeResult decode_plain(JsonValue data, Slice<u32> structural_scra
     }
     return result;
 }
+
+// Indexes `data` as a document of its own; a failure leaves `output` reset.
+GatewayEventDecodeResult index_message(JsonValue data, Slice<u32> structural_scratch,
+                                       JsonIndexedDocument* document, GatewayMessageEvent* output) noexcept {
+    reset_value<GatewayMessageEvent>(output);
+    if (data.kind != JsonValueKind::object) {
+        return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+    }
+    const JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
+    if (!scan.ok()) {
+        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+    }
+    *document = {data.source, {structural_scratch.data, scan.count}};
+    return decode_failure(GatewayEventDecodeError::none);
+}
 } // namespace
+
+GatewayEventDecodeResult gateway_decode_message_create(const JsonIndexedDocument& document, JsonValue data,
+                                                       u32 maximum_depth, Slice<char> content_scratch,
+                                                       Slice<u64> mention_role_scratch,
+                                                       Slice<GatewayMessageNamedUser> mention_user_scratch,
+                                                       u64 current_user_id,
+                                                       GatewayMessageEvent* output) noexcept {
+    return decode_plain(document, data, maximum_depth, content_scratch, mention_role_scratch, true,
+                        mention_user_scratch, current_user_id, true, true, output);
+}
+
+GatewayEventDecodeResult gateway_decode_message_create(
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<char> content_scratch,
+    Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
+    Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
+    u64 current_user_id, GatewayMessageEvent* output) noexcept {
+    return decode_message(document, data, maximum_depth, content_scratch, mention_role_scratch,
+                          member_role_scratch, mention_user_scratch, rich_scratch, current_user_id, true,
+                          true, true, output);
+}
+
+GatewayEventDecodeResult gateway_decode_message_create(const JsonIndexedDocument& document, JsonValue data,
+                                                       u32 maximum_depth, Slice<char> content_scratch,
+                                                       GatewayMessageEvent* output) noexcept {
+    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
+    return decode_plain(document, data, maximum_depth, content_scratch,
+                        {mention_roles, kGatewayMessageMentionRoleMaximumIds}, false, {}, 0, false, true, output);
+}
 
 GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
                                                        u32 maximum_depth, Slice<char> content_scratch,
                                                        GatewayMessageEvent* output) noexcept {
-    u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
-    return decode_plain(data, structural_scratch, maximum_depth, content_scratch,
-                        {mention_roles, kGatewayMessageMentionRoleMaximumIds}, false, {}, 0, false, true, output);
+    JsonIndexedDocument document;
+    const auto indexed = index_message(data, structural_scratch, &document, output);
+    if (!indexed.ok())
+        return indexed;
+    return gateway_decode_message_create(document, data, maximum_depth, content_scratch, output);
 }
 
 GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
@@ -882,8 +916,12 @@ GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32
                                                        Slice<GatewayMessageNamedUser> mention_user_scratch,
                                                        u64 current_user_id,
                                                        GatewayMessageEvent* output) noexcept {
-    return decode_plain(data, structural_scratch, maximum_depth, content_scratch, mention_role_scratch, true,
-                        mention_user_scratch, current_user_id, true, true, output);
+    JsonIndexedDocument document;
+    const auto indexed = index_message(data, structural_scratch, &document, output);
+    if (!indexed.ok())
+        return indexed;
+    return gateway_decode_message_create(document, data, maximum_depth, content_scratch, mention_role_scratch,
+                                         mention_user_scratch, current_user_id, output);
 }
 
 GatewayEventDecodeResult gateway_decode_message_create(
@@ -891,16 +929,24 @@ GatewayEventDecodeResult gateway_decode_message_create(
     Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
     Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
     u64 current_user_id, GatewayMessageEvent* output) noexcept {
-    return decode_message(data, structural_scratch, maximum_depth, content_scratch, mention_role_scratch,
-                          member_role_scratch, mention_user_scratch, rich_scratch, current_user_id, true,
-                          true, true, output);
+    JsonIndexedDocument document;
+    const auto indexed = index_message(data, structural_scratch, &document, output);
+    if (!indexed.ok())
+        return indexed;
+    return gateway_decode_message_create(document, data, maximum_depth, content_scratch, mention_role_scratch,
+                                         member_role_scratch, mention_user_scratch, rich_scratch,
+                                         current_user_id, output);
 }
 
 GatewayEventDecodeResult gateway_decode_message_update(JsonValue data, Slice<u32> structural_scratch,
                                                        u32 maximum_depth, Slice<char> content_scratch,
                                                        GatewayMessageEvent* output) noexcept {
+    JsonIndexedDocument document;
+    const auto indexed = index_message(data, structural_scratch, &document, output);
+    if (!indexed.ok())
+        return indexed;
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds];
-    return decode_plain(data, structural_scratch, maximum_depth, content_scratch,
+    return decode_plain(document, data, maximum_depth, content_scratch,
                         {mention_roles, kGatewayMessageMentionRoleMaximumIds}, false, {}, 0, false, false, output);
 }
 
@@ -909,7 +955,11 @@ GatewayEventDecodeResult gateway_decode_message_update(
     Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
     Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
     u64 current_user_id, GatewayMessageEvent* output) noexcept {
-    return decode_message(data, structural_scratch, maximum_depth, content_scratch, mention_role_scratch,
+    JsonIndexedDocument document;
+    const auto indexed = index_message(data, structural_scratch, &document, output);
+    if (!indexed.ok())
+        return indexed;
+    return decode_message(document, data, maximum_depth, content_scratch, mention_role_scratch,
                           member_role_scratch, mention_user_scratch, rich_scratch, current_user_id, true,
                           true, false, output);
 }

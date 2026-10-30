@@ -137,7 +137,7 @@ bool replace_selection(SettingsLayer* layer, Utf8View text, bool multiline_allow
     bool multiline = false;
     if (!focused_editor(layer, &model, &binding, &multiline))
         return false;
-    u16 input[kEditBufferUnits]{};
+    u16 input[kEditBufferUnits];
     u32 units = 0;
     for (u32 offset = 0; offset < text.bytes;) {
         const auto scalar = utf8_decode_one(text.data + offset, text.bytes - offset);
@@ -175,6 +175,12 @@ bool replace_selection(SettingsLayer* layer, Utf8View text, bool multiline_allow
     if (group)
         text_input_end_group(target);
     return result == TextInputResult::changed;
+}
+// Out of line: the 4 KiB read buffer would otherwise probe the stack on every key.
+__declspec(noinline) bool paste_clipboard(SettingsLayer* layer) noexcept {
+    char buffer[kEditBufferUnits];
+    const auto read = clipboard_read_utf8(g_app.window, {buffer, sizeof(buffer)});
+    return read.ok() && replace_selection(layer, {buffer, read.bytes}, true);
 }
 void dispatch(SettingsLayer* layer, const UiSettingsActivation& value, bool pointer, bool button) noexcept {
     SettingsLayerActivation activation{value, pointer, button, {}};
@@ -580,9 +586,7 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
         if (last > first && clipboard_write_utf8(g_app.window, {model->text + first, last - first}) && key == 'X')
             result = message_composer_replace_range(model, first, last, {});
     } else if (control && key == 'V') {
-        char buffer[kEditBufferUnits];
-        const auto read = clipboard_read_utf8(g_app.window, {buffer, sizeof(buffer)});
-        if (read.ok() && replace_selection(layer, {buffer, read.bytes}, true))
+        if (paste_clipboard(layer))
             result = MessageComposerResult::changed;
     } else if (!message_composer_edit_key(model, key, control, shift, &result) &&
                (key == VK_UP || key == VK_DOWN)) {

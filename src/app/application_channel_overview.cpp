@@ -1322,7 +1322,7 @@ bool application_channel_overview_submit(u64 now) noexcept {
     GuildAdminRequest request{};
     request.channel_id = p.identity.channel_id;
     ChannelPatch patch{};
-    PermissionOverwriteWrite overwrites[kPermissionOverwriteDraftMaximum];
+    static PermissionOverwriteWrite overwrites[kPermissionOverwriteDraftMaximum]; // UI-thread scratch; written before read
     bool valid = true;
     if (p.op == Op::fetch) {
         if (g_app.account.api.channel_overview)
@@ -1401,7 +1401,9 @@ bool application_channel_overview_response(const RestClientResponse& response, U
             return repaint();
         }
         if (p.op == Op::fetch) {
-            ChannelSettingsDraft fetched{};
+            // UI-thread scratch (a draft is over 4 KiB): a stack copy would cost the response a stack probe.
+            static ChannelSettingsDraft fetched;
+            reset_value(&fetched);
             if (channel_settings_decode(body, &fetched) && fetched.channel_id == p.identity.channel_id) {
                 if (p.loaded && !channel_settings_equal(p.base, p.draft) && !channel_settings_equal(fetched, p.base))
                     p.conflict = true;
@@ -1435,7 +1437,8 @@ bool application_channel_overview_response(const RestClientResponse& response, U
     if (!application_channel_overview_synchronize())
         return false;
     ChannelOverviewCompletion completion{ChannelOverviewCompletionKind::ambiguous, 0};
-    ChannelOverviewSnapshot remote{};
+    static ChannelOverviewSnapshot remote;
+    reset_value(&remote);
     bool decoded = false;
     if (response.transport_ok()) {
         if (response.status_code == 403 || response.status_code == 404)
@@ -1488,106 +1491,74 @@ void application_channel_overview_gateway(const GatewayClientEvent& event, Utf8V
     if (permission_event && event.state.guild_id == owner->controller.scope.guild_id)
         owner->permission_observed = true;
 }
-bool application_channel_overview_edit_focused() noexcept {
+// The settings layers of the host's modals but Server Settings', null while a modal is not allocated.
+struct HostLayers {
+    SettingsLayer* layer[7];
+};
+static HostLayers host_layers() noexcept {
+    return {{application_poll_create_settings_layer(), application_guild_lifecycle_settings_layer(),
+             application_profile_editor_settings_layer(), application_guild_community_settings_layer(),
+             application_report_settings_layer(), application_custom_status_settings_layer(),
+             owner ? &owner->layer : nullptr}};
+}
+// The topmost active modal's layer, in the order the modals stack; null when none is open.
+static SettingsLayer* modal_layer() noexcept {
     if (application_guild_settings_active())
-        return application_guild_settings_edit_focused();
+        return application_guild_settings_settings_layer();
     if (application_poll_create_active())
-        return application_poll_create_edit_focused();
+        return application_poll_create_settings_layer();
     if (application_guild_lifecycle_active())
-        return application_guild_lifecycle_edit_focused();
+        return application_guild_lifecycle_settings_layer();
     if (application_profile_editor_active())
-        return application_profile_editor_edit_focused();
+        return application_profile_editor_settings_layer();
     if (application_guild_community_active())
-        return application_guild_community_edit_focused();
+        return application_guild_community_settings_layer();
     if (application_report_active())
-        return false;
+        return application_report_settings_layer();
     if (application_custom_status_active())
-        return application_custom_status_edit_focused();
-    return owner && owner->scene.active && settings_layer_editor(&owner->layer, nullptr, nullptr, nullptr, nullptr);
+        return application_custom_status_settings_layer();
+    return nullptr;
+}
+// The layer text editing goes to. The report has no editor and the profile editor none under a dialog.
+static SettingsLayer* edit_layer() noexcept {
+    auto* layer = modal_layer();
+    if (!layer)
+        return owner && owner->scene.active ? &owner->layer : nullptr;
+    return layer == application_report_settings_layer()           ? nullptr
+           : layer == application_profile_editor_settings_layer() ? application_profile_editor_edit_layer()
+                                                                  : layer;
+}
+bool application_channel_overview_edit_focused() noexcept {
+    auto* layer = edit_layer();
+    return layer && settings_layer_editor(layer, nullptr, nullptr, nullptr, nullptr);
 }
 MessageComposer* application_channel_overview_edit_model() noexcept {
-    if (application_guild_settings_active())
-        return application_guild_settings_edit_model();
-    if (application_poll_create_active())
-        return application_poll_create_edit_model();
-    if (application_guild_lifecycle_active())
-        return application_guild_lifecycle_edit_model();
-    if (application_profile_editor_active())
-        return application_profile_editor_edit_model();
-    if (application_guild_community_active())
-        return application_guild_community_edit_model();
-    if (application_report_active())
-        return nullptr;
-    if (application_custom_status_active())
-        return application_custom_status_edit_model();
     MessageComposer* model = nullptr;
-    return owner && owner->scene.active && settings_layer_editor(&owner->layer, nullptr, &model, nullptr, nullptr)
-               ? model
-               : nullptr;
+    auto* layer = edit_layer();
+    return layer && settings_layer_editor(layer, nullptr, &model, nullptr, nullptr) ? model : nullptr;
 }
 TextInputTarget application_channel_overview_edit_target() noexcept {
-    if (application_guild_settings_active())
-        return application_guild_settings_edit_target();
-    if (application_poll_create_active())
-        return application_poll_create_edit_target();
-    if (application_guild_lifecycle_active())
-        return application_guild_lifecycle_edit_target();
-    if (application_profile_editor_active())
-        return application_profile_editor_edit_target();
-    if (application_guild_community_active())
-        return application_guild_community_edit_target();
-    if (application_report_active())
-        return TextInputTarget{};
-    if (application_custom_status_active())
-        return application_custom_status_edit_target();
     BoundedEdit* binding = nullptr;
-    return owner && owner->scene.active && settings_layer_editor(&owner->layer, nullptr, nullptr, &binding, nullptr)
+    auto* layer = edit_layer();
+    return layer && settings_layer_editor(layer, nullptr, nullptr, &binding, nullptr)
                ? bounded_edit_input_target(binding)
                : TextInputTarget{};
 }
 void application_channel_overview_edit_cancel_native_group(TextInputTarget target) noexcept {
-    application_guild_settings_edit_cancel_native_group(target);
-    application_poll_create_edit_cancel_native_group(target);
-    application_guild_lifecycle_edit_cancel_native_group(target);
-    application_profile_editor_edit_cancel_native_group(target);
-    application_guild_community_edit_cancel_native_group(target);
-    application_custom_status_edit_cancel_native_group(target);
-    if (owner && owner->scene.active)
-        settings_layer_cancel_native_group(&owner->layer, target);
+    if (auto* layer = application_guild_settings_settings_layer())
+        settings_layer_cancel_native_group(layer, target);
+    const auto layers = host_layers();
+    for (auto* layer : layers.layer)
+        if (layer)
+            settings_layer_cancel_native_group(layer, target);
 }
 UiRect application_channel_overview_edit_bounds() noexcept {
-    if (application_guild_settings_active())
-        return application_guild_settings_edit_bounds();
-    if (application_poll_create_active())
-        return application_poll_create_edit_bounds();
-    if (application_guild_lifecycle_active())
-        return application_guild_lifecycle_edit_bounds();
-    if (application_profile_editor_active())
-        return application_profile_editor_edit_bounds();
-    if (application_guild_community_active())
-        return application_guild_community_edit_bounds();
-    if (application_report_active())
-        return UiRect{};
-    if (application_custom_status_active())
-        return application_custom_status_edit_bounds();
-    return owner && owner->scene.active ? settings_layer_edit_bounds(&owner->layer) : UiRect{};
+    auto* layer = edit_layer();
+    return layer ? settings_layer_edit_bounds(layer) : UiRect{};
 }
 bool application_channel_overview_edit_changed(bool content) noexcept {
-    if (application_guild_settings_active())
-        return application_guild_settings_edit_changed(content);
-    if (application_poll_create_active())
-        return application_poll_create_edit_changed(content);
-    if (application_guild_lifecycle_active())
-        return application_guild_lifecycle_edit_changed(content);
-    if (application_profile_editor_active())
-        return application_profile_editor_edit_changed(content);
-    if (application_guild_community_active())
-        return application_guild_community_edit_changed(content);
-    if (application_report_active())
-        return false;
-    if (application_custom_status_active())
-        return application_custom_status_edit_changed(content);
-    return owner && owner->scene.active && settings_layer_edit_changed(&owner->layer, content);
+    auto* layer = edit_layer();
+    return layer && settings_layer_edit_changed(layer, content);
 }
 u64 application_channel_overview_next_wake() noexcept {
     if (const u64 wake = application_guild_settings_next_wake())
@@ -1630,14 +1601,10 @@ u64 application_channel_overview_caret_wake() noexcept {
 }
 void application_channel_overview_tick(u64 now) noexcept {
     application_guild_settings_tick(now);
-    application_poll_create_tick(now);
-    application_guild_lifecycle_tick(now);
-    application_profile_editor_tick(now);
-    application_guild_community_tick(now);
-    application_report_tick(now);
-    application_custom_status_dialog_tick(now);
-    if (owner && owner->scene.active)
-        settings_layer_tick(&owner->layer, now, g_app.preferences.reduced_motion);
+    const auto layers = host_layers();
+    for (auto* layer : layers.layer)
+        if (layer && layer->scene && layer->scene->active)
+            settings_layer_tick(layer, now, g_app.preferences.reduced_motion);
 }
 u32 application_channel_overview_owner_bytes() noexcept {
     return (owner ? sizeof(*owner) : 0) + application_guild_settings_owner_bytes() +
@@ -1646,21 +1613,12 @@ u32 application_channel_overview_owner_bytes() noexcept {
            application_profile_editor_owner_bytes() + application_report_owner_bytes();
 }
 bool application_channel_overview_input(UiInputKind kind, u32 key, bool repeated) noexcept {
-    if (application_guild_settings_active())
-        return application_guild_settings_input(kind, key, repeated);
-    if (application_poll_create_active())
-        return application_poll_create_input(kind, key, repeated);
-    if (application_guild_lifecycle_active())
-        return application_guild_lifecycle_input(kind, key, repeated);
-    if (application_profile_editor_active())
+    auto* layer = modal_layer();
+    if (layer && layer == application_profile_editor_settings_layer())
         return application_profile_editor_input(kind, key, repeated);
-    if (application_guild_community_active())
-        return application_guild_community_input(kind, key, repeated);
-    if (application_report_active())
-        return application_report_input(kind, key, repeated);
-    if (application_custom_status_active())
-        return application_custom_status_input(kind, key, repeated);
-    return owner && settings_layer_input(&owner->layer, kind, key, repeated);
+    if (!layer && owner)
+        layer = &owner->layer;
+    return layer && settings_layer_input(layer, kind, key, repeated);
 }
 
 SettingsLayer* application_channel_overview_settings_layer() noexcept {
@@ -1668,20 +1626,11 @@ SettingsLayer* application_channel_overview_settings_layer() noexcept {
 }
 
 bool application_channel_overview_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    if (application_guild_settings_active())
-        return application_guild_settings_window_message(message, wparam, lparam);
-    if (application_poll_create_active())
-        return application_poll_create_window_message(message, wparam, lparam);
-    if (application_guild_lifecycle_active())
-        return application_guild_lifecycle_window_message(message, wparam, lparam);
-    if (application_profile_editor_active())
+    auto* layer = modal_layer();
+    if (layer && layer == application_profile_editor_settings_layer())
         return application_profile_editor_window_message(message, wparam, lparam);
-    if (application_guild_community_active())
-        return application_guild_community_window_message(message, wparam, lparam);
-    if (application_report_active())
-        return application_report_window_message(message, wparam, lparam);
-    if (application_custom_status_active())
-        return application_custom_status_window_message(message, wparam, lparam);
-    return owner && owner->scene.active && settings_layer_window_message(&owner->layer, message, wparam, lparam);
+    if (!layer && owner && owner->scene.active)
+        layer = &owner->layer;
+    return layer && settings_layer_window_message(layer, message, wparam, lparam);
 }
 } // namespace maicord::app_detail

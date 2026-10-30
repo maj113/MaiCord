@@ -249,7 +249,7 @@ bool history_message_mentions_current_member(const ChatStateStore& state,
 }
 
 MessageHistoryDecodeResult decode_page(Utf8View body, const MessageHistoryDecodeScratch& scratch) noexcept {
-    return decode_message_history_page(body, scratch.page_structurals, scratch.message_structurals,
+    return decode_message_history_page(body, scratch.page_structurals,
                                        scratch.maximum_depth, scratch.content, scratch.messages,
                                        scratch.mention_users, scratch.rich);
 }

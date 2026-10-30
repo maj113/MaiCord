@@ -18,7 +18,6 @@ MessageSearchQuery query_fixture() noexcept {
 
 struct DecodeFixture {
     u32 page_structurals[512];
-    u32 message_structurals[256];
     char text[2048];
     MessageSearchGroup groups[3];
     MessageSearchMessage messages[6];
@@ -27,12 +26,12 @@ struct DecodeFixture {
 MessageSearchDecodeResult decode(DecodeFixture* fixture, Utf8View body,
                                  const MessageSearchQuery& query) noexcept {
     return decode_message_search_page(
-        body, query, {fixture->page_structurals, 512}, {fixture->message_structurals, 256}, 32,
+        body, query, {fixture->page_structurals, 512}, 32,
         {fixture->text, 2048}, {fixture->groups, 3}, {fixture->messages, 6});
 }
 
 struct RichSearchFixture {
-    u32 page_structurals[32768], message_structurals[16384]; u8 body[65536]; char text[65536];
+    u32 page_structurals[32768]; u8 body[65536]; char text[65536];
     MessageSearchGroup groups[25]; MessageSearchMessage messages[125];
     u64 roles[100], member_roles[kGatewayMessageMemberRoleMaximumIds]; GatewayMessageReaction reactions[20];
     GatewayMessageAttachment attachments[10], child_attachments[10];
@@ -158,8 +157,8 @@ MessageSearchDecodeResult rich_search_decode(Utf8View body, const MessageSearchR
     u32 text_bytes = sizeof(rich_search_fixture.text)) noexcept {
     auto query = query_fixture(); query.scope = MessageSearchScope::guild;
     auto& fixture = rich_search_fixture;
-    return decode_message_search_page(body, query, {fixture.page_structurals, 32768},
-        {fixture.message_structurals, 16384}, 32, {fixture.text, text_bytes}, {fixture.groups, 25}, {fixture.messages, 125},
+    return decode_message_search_page(body, query, {fixture.page_structurals, 32768}, 32,
+        {fixture.text, text_bytes}, {fixture.groups, 25}, {fixture.messages, 125},
         scratch, {&fixture, rich_search_accept});
 }
 void test_rich_search(void (*check)(bool, const char*) noexcept) noexcept {
@@ -591,7 +590,7 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
         built &= protocol_writer_append_literal(&writer, "]}");
         const auto capacity_page = decode_message_search_page(
             {reinterpret_cast<const char*>(large_body), writer.used}, query,
-            {large_structurals, 1024}, {fixture.message_structurals, 256}, 32,
+            {large_structurals, 1024}, 32,
             {large_text, sizeof(large_text)}, {large_groups, 16}, {large_messages, 16});
         bool aliases = true;
         for (const auto& item : large_messages)
@@ -602,7 +601,7 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
             "search: ordinary full256KiB page reuses owned body views without allocating duplicate card excerpts");
         const auto short_page = decode_message_search_page(
             {reinterpret_cast<const char*>(large_body), writer.used}, query,
-            {large_structurals, 1024}, {fixture.message_structurals, 256}, 32,
+            {large_structurals, 1024}, 32,
             {large_text, sizeof(large_text) - 1}, {large_groups, 16}, {large_messages, 16});
         check(short_page.error == MessageSearchDecodeError::message_decode &&
             short_page.message_error == GatewayEventDecodeError::message_content_capacity,

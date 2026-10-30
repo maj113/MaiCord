@@ -15,6 +15,18 @@ struct ApplicationSearchSourceTicket {
     u64 message_id{};
     u32 publication_revision{}, index{};
 };
+// The Search target of one rich item (attachment, embed or sticker) of an accepted message.
+inline UiSearchTarget application_search_rich_target(const UiSearchScene& search, u64 channel_id, u64 message_id,
+                                                     u32 source_index, MessageSceneRichItemKind kind, u32 index,
+                                                     bool snapshot) noexcept {
+    UiSearchTarget target{UiSearchAction::rich_item, channel_id, message_id};
+    target.source_revision = search.source_revision;
+    target.source_index = source_index;
+    target.rich_kind = kind;
+    target.rich_index = static_cast<u16>(index);
+    target.snapshot = snapshot;
+    return target;
+}
 static_assert(sizeof(ApplicationSearchSourceTicket) == 16);
 struct ApplicationSearchSourceView {
     ApplicationSearchSourceTicket ticket{};
@@ -31,7 +43,6 @@ struct ApplicationSearchSourceView {
 struct ApplicationSearchNavigationSource {
     ApplicationSearchSourceTicket ticket{};
     u64 channel_id{}, guild_id{};
-    bool channel_known{};
 };
 bool application_search_source_ticket(u32 index, ApplicationSearchSourceTicket*) noexcept;
 // Valid while the Search panel remains open beneath viewer/download UI.

@@ -44,7 +44,6 @@ bool append_ids(ProtocolWriter* writer, const char* name, const u64* ids, u8 cou
 struct DecodeContext {
     JsonIndexedDocument document;
     const MessageSearchQuery* query;
-    Slice<u32> message_structurals;
     Slice<char> text;
     Slice<MessageSearchGroup> groups;
     Slice<MessageSearchMessage> messages;
@@ -146,7 +145,7 @@ bool snapshot_excerpt(DecodeContext& context, const HitContext& hit,
         return true;
     JsonValue body{};
     bool present = false;
-    const auto extracted = gateway_extract_message_snapshot(hit.snapshots, context.message_structurals,
+    const auto extracted = gateway_extract_message_snapshot(context.document, hit.snapshots,
                                                             context.maximum_depth, &body, &present);
     if (!extracted.ok()) {
         context.result.message_error = extracted.error;
@@ -163,7 +162,7 @@ bool snapshot_excerpt(DecodeContext& context, const HitContext& hit,
     GatewayMessageNamedUser mentions[kGatewayMessageMentionUserMaximum];
     GatewayMessageEvent child;
     const auto decoded = gateway_decode_message_snapshot_core(
-        body, context.message_structurals, context.maximum_depth, {temporary, sizeof(temporary)},
+        context.document, body, context.maximum_depth, {temporary, sizeof(temporary)},
         {mentions, kGatewayMessageMentionUserMaximum}, &child);
     if (!decoded.ok()) {
         context.result.message_error = decoded.error;
@@ -171,13 +170,9 @@ bool snapshot_excerpt(DecodeContext& context, const HitContext& hit,
         context.result.read_error = decoded.read_error;
         return reject(&context, MessageSearchDecodeError::message_decode, decoded.error_offset);
     }
-    const auto scan = json_scan_structurals_avx1(body.source, context.message_structurals);
-    if (!scan.ok())
-        return reject(&context, MessageSearchDecodeError::scan_failed, scan.error_offset);
-    SnapshotCounts media{{body.source, {context.message_structurals.data, scan.count}},
-                         context.maximum_depth};
-    const auto read = json_visit_value_object(body, media.document.structurals, context.maximum_depth,
-                                             visit_snapshot_media, &media);
+    SnapshotCounts media{context.document, context.maximum_depth};
+    const auto read = json_visit_indexed_object(context.document, body, context.maximum_depth,
+                                                visit_snapshot_media, &media);
     if (!read.ok() || !media.valid)
         return reject(&context, MessageSearchDecodeError::invalid_field, body.source_offset);
     const u32 used = context.result.page.text_bytes + item.message.transient_bytes;
@@ -275,11 +270,11 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
     const auto decoded =
         context->rich_scratch
             ? gateway_decode_message_create(
-                  value, context->message_structurals, context->maximum_depth, context->text,
+                  context->document, value, context->maximum_depth, context->text,
                   context->rich_scratch->mention_roles, context->rich_scratch->member_roles,
                   context->rich_scratch->mention_users, context->rich_scratch->rich, 0, &message)
             : gateway_decode_message_create(
-                  value, context->message_structurals, context->maximum_depth,
+                  context->document, value, context->maximum_depth,
                   {context->text.data ? context->text.data + page.text_bytes : nullptr,
                    context->text.count - page.text_bytes},
                   {mention_roles, kGatewayMessageMentionRoleMaximumIds},
@@ -735,12 +730,11 @@ MessageSearchTabsWriteResult write_message_search_tabs_request(
 }
 
 static MessageSearchDecodeResult decode_search_page(
-    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals,
-    Slice<u32> message_structurals, u32 maximum_depth, Slice<char> text_output,
-    Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages,
+    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals, u32 maximum_depth,
+    Slice<char> text_output, Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages,
     const MessageSearchRichScratch* rich_scratch, MessageSearchRichSink sink) noexcept {
     if (!message_search_query_valid(query) || !body.data || !body.bytes || !page_structurals.data ||
-        !page_structurals.count || !message_structurals.data || !message_structurals.count ||
+        !page_structurals.count ||
         !maximum_depth || (!text_output.data && text_output.count) || (!groups.data && groups.count) ||
         (!messages.data && messages.count)) {
         return {{}, 0, MessageSearchDecodeError::invalid_input};
@@ -756,7 +750,6 @@ static MessageSearchDecodeResult decode_search_page(
     DecodeContext context{};
     context.document = {body, {page_structurals.data, scan.count}};
     context.query = &query;
-    context.message_structurals = message_structurals;
     context.text = text_output;
     context.groups = groups;
     context.messages = messages;
@@ -792,17 +785,15 @@ static MessageSearchDecodeResult decode_search_page(
 }
 
 MessageSearchDecodeResult decode_message_search_page(
-    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals,
-    Slice<u32> message_structurals, u32 maximum_depth, Slice<char> text_output,
-    Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages) noexcept {
-    return decode_search_page(body, query, page_structurals, message_structurals, maximum_depth,
-                              text_output, groups, messages, nullptr, {});
+    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals, u32 maximum_depth,
+    Slice<char> text_output, Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages) noexcept {
+    return decode_search_page(body, query, page_structurals, maximum_depth, text_output, groups, messages,
+                              nullptr, {});
 }
 
 MessageSearchDecodeResult decode_message_search_page(
-    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals,
-    Slice<u32> message_structurals, u32 maximum_depth, Slice<char> per_message_text,
-    Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages,
+    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals, u32 maximum_depth,
+    Slice<char> per_message_text, Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages,
     const MessageSearchRichScratch& scratch, MessageSearchRichSink sink) noexcept {
     const auto& rich = scratch.rich;
     const auto& child = rich.snapshot;
@@ -830,8 +821,8 @@ MessageSearchDecodeResult decode_message_search_page(
         !disjoint(rich.components, child.components) ||
         !disjoint(scratch.mention_users, child.mention_users))
         return {{}, 0, MessageSearchDecodeError::invalid_input};
-    return decode_search_page(body, query, page_structurals, message_structurals, maximum_depth,
-                              per_message_text, groups, messages, &scratch, sink);
+    return decode_search_page(body, query, page_structurals, maximum_depth, per_message_text, groups, messages,
+                              &scratch, sink);
 }
 
 } // namespace maicord

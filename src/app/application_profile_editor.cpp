@@ -2115,43 +2115,9 @@ u64 application_profile_editor_caret_wake() noexcept {
     return wake;
 }
 
-void application_profile_editor_tick(u64 now) noexcept {
-    if (application_profile_editor_active())
-        settings_layer_tick(&owner->layer, now, g_app.preferences.reduced_motion);
-}
-
-bool application_profile_editor_edit_focused() noexcept {
-    return application_profile_editor_active() && owner->dialog_kind == Dialog::none &&
-           settings_layer_editor(&owner->layer, nullptr, nullptr, nullptr, nullptr);
-}
-
-MessageComposer* application_profile_editor_edit_model() noexcept {
-    MessageComposer* model = nullptr;
-    return application_profile_editor_edit_focused() &&
-                   settings_layer_editor(&owner->layer, nullptr, &model, nullptr, nullptr)
-               ? model
-               : nullptr;
-}
-
-TextInputTarget application_profile_editor_edit_target() noexcept {
-    BoundedEdit* binding = nullptr;
-    return application_profile_editor_edit_focused() &&
-                   settings_layer_editor(&owner->layer, nullptr, nullptr, &binding, nullptr)
-               ? bounded_edit_input_target(binding)
-               : TextInputTarget{};
-}
-
-void application_profile_editor_edit_cancel_native_group(TextInputTarget target) noexcept {
-    if (owner)
-        settings_layer_cancel_native_group(&owner->layer, target);
-}
-
-UiRect application_profile_editor_edit_bounds() noexcept {
-    return application_profile_editor_active() ? settings_layer_edit_bounds(&owner->layer) : UiRect{};
-}
-
-bool application_profile_editor_edit_changed(bool content) noexcept {
-    return application_profile_editor_active() && settings_layer_edit_changed(&owner->layer, content);
+// The layer text editing goes to; none while a dialog is over the editor.
+SettingsLayer* application_profile_editor_edit_layer() noexcept {
+    return application_profile_editor_active() && owner->dialog_kind == Dialog::none ? &owner->layer : nullptr;
 }
 
 u32 application_profile_editor_owner_bytes() noexcept {

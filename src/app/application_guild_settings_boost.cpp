@@ -197,12 +197,7 @@ bool reconcile(u64 now) noexcept {
 // The custom invite link is read once per settings visit.
 bool ensure_data() noexcept {
     auto& p = *owner;
-    if (!administrator() || p.vanity_requested)
-        return false;
-    p.vanity_requested = true;
-    p.vanity_failed = false;
-    queue(Op::vanity_get);
-    return true;
+    return administrator() && request_read(p.vanity_requested, p.vanity_failed, Op::vanity_get);
 }
 
 void notice_action() noexcept {
@@ -219,7 +214,7 @@ bool prepare_banner() noexcept {
     auto& p = *owner;
     if (p.banner_uri)
         return true;
-    if (!p.banner.data || !g_app.account.api.guild_assets)
+    if (!p.banner.data)
         return false;
     const u32 bytes = guild_image_data_uri_bytes(p.banner.info.kind, p.banner.info.bytes);
     auto* uri = bytes ? static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
@@ -227,14 +222,8 @@ bool prepare_banner() noexcept {
     if (!uri)
         return false;
     GuildImageInfo info{};
-    GuildAssetRequest request{};
-    request.operation = GuildAssetOperation::image_probe;
-    request.profile = GuildImageProfile::banner;
-    request.image = {p.banner.data, p.banner.bytes};
-    request.info = &info;
-    request.data_uri = {uri, bytes};
-    if (!g_app.account.api.guild_assets(g_app.account.instance, &request, 0).ok() ||
-        info.error != GuildImageError::none) {
+    if (!application_guild_image_probe(GuildImageProfile::banner, {p.banner.data, p.banner.bytes}, &info,
+                                       {uri, bytes})) {
         VirtualFree(uri, 0, MEM_RELEASE);
         return false;
     }

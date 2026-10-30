@@ -18,6 +18,15 @@ inline GatewayEventDecodeResult read_failure(
                           read.error_offset, JsonScanError::none, read.error);
 }
 
+// Visit a nested object/array of an indexed document (no rescan). A rejected read reports offsets
+// relative to `value`, the visitor's error else invalid_json, and the rejected member's schema key.
+GatewayEventDecodeResult read_object(const JsonValue& value, const JsonIndexedDocument& document,
+                                     u32 maximum_depth, JsonMemberVisitor visitor, void* context,
+                                     GatewayEventDecodeError* schema_error) noexcept;
+GatewayEventDecodeResult read_array(const JsonValue& value, const JsonIndexedDocument& document,
+                                    u32 maximum_depth, JsonArrayVisitor visitor, void* context,
+                                    GatewayEventDecodeError* schema_error) noexcept;
+
 // Marks a member as seen; a repeat is a duplicate_field error.
 template <typename Seen>
 inline bool mark_seen(Seen* seen, u64 bit, GatewayEventDecodeError* error) noexcept {

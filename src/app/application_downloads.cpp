@@ -1600,6 +1600,49 @@ bool application_downloads_filter(const MSG& message) noexcept {
                {message.message == WM_KEYDOWN ? UiInputKind::key_down : UiInputKind::key_up,
                 static_cast<u32>(message.wParam), (message.lParam & (1ll << 30)) != 0});
 }
+namespace {
+// The pointer messages that end or cancel an inline attachment press. Out of line: its
+// DownloadSource temporaries would otherwise give every window message a multi-KB frame.
+__declspec(noinline) bool inline_press_message(ApplicationDownloads& q, UINT message, LPARAM lparam) noexcept {
+    if (message == WM_LBUTTONUP) {
+        const auto pressed = q.context;
+        const auto widget = q.pressed_widget;
+        const auto bounds = q.pressed_bounds;
+        const bool owned = ui_widget_handle_matches(g_app.message_scene.widgets.captured, widget);
+        q.inline_capture = false;
+        if (owned)
+            ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
+        if (GetCapture() == g_app.window)
+            ReleaseCapture();
+        const float scale = 96.f / maximum(1u, g_app.renderer.dpi);
+        DownloadSource live{};
+        UiRect current_bounds{};
+        UiWidgetHandle current_widget{};
+        if (owned && source_current(pressed) &&
+            attachment_at(static_cast<short>(LOWORD(lparam)) * scale,
+                          static_cast<short>(HIWORD(lparam)) * scale, true, &live, {}, &current_bounds,
+                          &current_widget) &&
+            ui_widget_handle_equal(current_widget, widget) &&
+            bytes_equal(&bounds, &current_bounds, sizeof(bounds)) && live.message == pressed.message &&
+            live.attachment == pressed.attachment && live.snapshot == pressed.snapshot &&
+            live.revision == pressed.revision && live.handle.generation == pressed.handle.generation &&
+            live.fingerprint == pressed.fingerprint)
+            begin_source(pressed);
+        return true;
+    }
+    if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS ||
+        message == WM_SIZE || message == WM_DPICHANGED) {
+        if (ui_widget_handle_matches(g_app.message_scene.widgets.captured, q.pressed_widget))
+            ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
+        q.inline_capture = false;
+        g_app.downloads_pointer_tail = true;
+        if (GetCapture() == g_app.window)
+            ReleaseCapture();
+    } else if (message == WM_LBUTTONDOWN)
+        q.inline_capture = false;
+    return false;
+}
+} // namespace
 bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     auto* q = g_app.downloads;
     if (message == WM_LBUTTONDOWN && (!q || !q->active) && g_app.renderer_ready && !g_app.login.visible &&
@@ -1613,44 +1656,8 @@ bool application_downloads_window_message(UINT message, WPARAM wparam, LPARAM lp
                                              static_cast<short>(HIWORD(lparam)) * scale))
             return true;
     }
-    if (q && q->inline_capture) {
-        if (message == WM_LBUTTONUP) {
-            const auto pressed = q->context;
-            const auto widget = q->pressed_widget;
-            const auto bounds = q->pressed_bounds;
-            const bool owned = ui_widget_handle_matches(g_app.message_scene.widgets.captured, widget);
-            q->inline_capture = false;
-            if (owned)
-                ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
-            if (GetCapture() == g_app.window)
-                ReleaseCapture();
-            const float scale = 96.f / maximum(1u, g_app.renderer.dpi);
-            DownloadSource live{};
-            UiRect current_bounds{};
-            UiWidgetHandle current_widget{};
-            if (owned && source_current(pressed) &&
-                attachment_at(static_cast<short>(LOWORD(lparam)) * scale,
-                              static_cast<short>(HIWORD(lparam)) * scale, true, &live, {}, &current_bounds,
-                              &current_widget) &&
-                ui_widget_handle_equal(current_widget, widget) &&
-                bytes_equal(&bounds, &current_bounds, sizeof(bounds)) && live.message == pressed.message &&
-                live.attachment == pressed.attachment && live.snapshot == pressed.snapshot &&
-                live.revision == pressed.revision && live.handle.generation == pressed.handle.generation &&
-                live.fingerprint == pressed.fingerprint)
-                begin_source(pressed);
-            return true;
-        }
-        if (message == WM_CAPTURECHANGED || message == WM_CANCELMODE || message == WM_KILLFOCUS ||
-            message == WM_SIZE || message == WM_DPICHANGED) {
-            if (ui_widget_handle_matches(g_app.message_scene.widgets.captured, q->pressed_widget))
-                ui_widget_manager_capture(&g_app.message_scene.widgets, ui_widget_invalid_handle());
-            q->inline_capture = false;
-            g_app.downloads_pointer_tail = true;
-            if (GetCapture() == g_app.window)
-                ReleaseCapture();
-        } else if (message == WM_LBUTTONDOWN)
-            q->inline_capture = false;
-    }
+    if (q && q->inline_capture && inline_press_message(*q, message, lparam))
+        return true;
     if (message == WM_LBUTTONDOWN && (!q || !q->active))
         g_app.downloads_pointer_tail = false;
     if (message == WM_LBUTTONUP && g_app.downloads_pointer_tail && (!q || !q->active)) {

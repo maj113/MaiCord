@@ -394,6 +394,16 @@ bool apply(ApplicationTextForm* form, SecureEditResult result) noexcept {
     refresh(form);
     return true;
 }
+// Its own frame: the clipboard buffer must not weigh on every input event.
+__declspec(noinline) bool paste_clipboard(ApplicationTextForm* form) noexcept {
+    char pasted[kApplicationTextFormBytes]{};
+    const auto read = clipboard_read_utf8(g_app.window, {pasted, sizeof(pasted)});
+    const auto result = read.ok() ? secure_edit_insert_utf8(&form->edit, {pasted, read.bytes})
+                        : read.error == ClipboardTextError::capacity ? SecureEditResult::capacity
+                                                                     : SecureEditResult::unchanged;
+    SecureZeroMemory(pasted, sizeof(pasted));
+    return apply(form, result);
+}
 bool pointer_position(ApplicationTextForm* form, float x, float y, bool extend) noexcept {
     if (form->request.confirmation_only || !form->editable)
         return false;
@@ -790,15 +800,8 @@ bool application_text_form_input(UiInputKind kind, u32 code, bool repeated) noex
             return apply(form, secure_edit_delete_forward(&form->edit));
         return true;
     }
-    if (ctrl && code == 'V') {
-        char pasted[kApplicationTextFormBytes]{};
-        const auto read = clipboard_read_utf8(g_app.window, {pasted, sizeof(pasted)});
-        const auto result = read.ok() ? secure_edit_insert_utf8(&form->edit, {pasted, read.bytes})
-                            : read.error == ClipboardTextError::capacity ? SecureEditResult::capacity
-                                                                         : SecureEditResult::unchanged;
-        SecureZeroMemory(pasted, sizeof(pasted));
-        return apply(form, result);
-    }
+    if (ctrl && code == 'V')
+        return paste_clipboard(form);
     switch (code) {
     case VK_BACK:
         return apply(form, secure_edit_backspace(&form->edit, clock_monotonic_milliseconds()));

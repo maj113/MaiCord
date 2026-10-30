@@ -17,7 +17,7 @@ inline constexpr u64 kMixedId = 1'270'000'000'000'000'000ull;
 // The rich decoder reuses these pools for each result. There is one descriptor
 // scratch bank, not one worker/descriptor tree for every card.
 struct DecodeScratch {
-    u32 page_structurals[2048]{},message_structurals[1024]{};
+    u32 page_structurals[2048]{};
     char text[16384]{};
     u64 mention_roles[100]{},member_roles[kGatewayMessageMemberRoleMaximumIds]{};
     GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum]{};
@@ -106,7 +106,7 @@ inline bool initialize(Fixture& f) noexcept {
     // request. Every synthetic result owns an outer attachment.
     query.has = search_has_file;
     const auto decoded = decode_message_search_page(body,query,{f.decode.page_structurals,2048},
-        {f.decode.message_structurals,1024},64,{f.decode.text,sizeof(f.decode.text)},
+        64,{f.decode.text,sizeof(f.decode.text)},
         {f.groups,kRows},{f.summaries,kRows},f.decode.view(),{&f,accept});
     if (!decoded.ok()) {
         log_u64(LogLevel::error,"probe","rich_search_decode_error",static_cast<u64>(decoded.error));

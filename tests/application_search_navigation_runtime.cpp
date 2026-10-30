@@ -49,7 +49,7 @@ bool reset(u64 target=70) noexcept {
     source_valid=true; retire_source_on_move=false; resident_jump=false; admission={};
     moves=fetches=details_cancels=history_cancels=0;
     membership_fetches = 0; membership_ticket = {}; membership_status = ApplicationThreadMembershipStatus::unknown;
-    accepted_source={{900, 5, 0}, target, 7, false};
+    accepted_source={{900, 5, 0}, target, 7};
     g_app.account_ui->active_channel_id=60;
     g_app.plugin_account_scope_serial=3; g_app.account.status.profile_id=5;
     ++g_app.load_trace.channel_epoch;

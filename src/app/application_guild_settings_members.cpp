@@ -777,7 +777,7 @@ void members_search_response(const RestClientResponse& response, const Utf8View&
         queue(Op::members_search);
         return;
     }
-    if (response.error != RestClientError::none || response.status_code < 200 || response.status_code >= 300) {
+    if (!response.succeeded()) {
         guild_member_search_failed(&s);
         return;
     }

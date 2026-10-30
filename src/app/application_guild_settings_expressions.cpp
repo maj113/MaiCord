@@ -648,19 +648,13 @@ void choose(Menu menu, u32 action) noexcept {
 }
 
 bool ensure_data() noexcept {
-    if (owner->page != Page::stickers || owner->stickers_requested)
-        return false;
-    owner->stickers_requested = true;
-    owner->stickers_failed = false;
-    queue(Op::sticker_list);
-    return true;
+    return owner->page == Page::stickers &&
+           request_read(owner->stickers_requested, owner->stickers_failed, Op::sticker_list);
 }
 
 void notice_action() noexcept {
-    if (owner->page != Page::stickers || !owner->stickers_failed || busy() || !connected())
-        return;
-    owner->stickers_requested = false;
-    ensure_data();
+    if (owner->page == Page::stickers)
+        retry_read(owner->stickers_requested, owner->stickers_failed, Op::sticker_list);
 }
 
 // Right-click opens the row's Edit menu.

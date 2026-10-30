@@ -229,7 +229,6 @@ struct AttachmentRefresh {
 
 struct MessageHistoryDecodeScratch {
     Slice<u32> page_structurals;
-    Slice<u32> message_structurals;
     Slice<char> content;
     Slice<GatewayMessageEvent> messages;
     Slice<GatewayMessageNamedUser> mention_users;

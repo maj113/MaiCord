@@ -18,7 +18,7 @@ void test_message_send_response(void (*check)(bool, const char*) noexcept) noexc
     GatewayMessageNamedUser snapshot_users[4]{};
     GatewayMessageNamedUser users[4]{};
     u64 member_roles[4]{};
-    const MessageHistoryDecodeScratch scratch{{}, {structurals, 256}, {content, sizeof(content)}, {messages, 1},
+    const MessageHistoryDecodeScratch scratch{{structurals, 256}, {content, sizeof(content)}, {messages, 1},
         {users, 4}, {{}, {attachments, 2}, {}, {}, {}, {}, {member_roles, 4},
             {{snapshot_attachments, 2}, {}, {}, {}, {}, {snapshot_users, 4}}}, 32};
     const auto reset = [&]() noexcept {

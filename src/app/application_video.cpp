@@ -293,15 +293,9 @@ bool resolve_search_video_source(const ApplicationSearchSourceTicket& ticket, bo
         !source.rich_store || !source.message->revision)
         return false;
     const auto& search = *g_app.renderer.search_scene;
-    UiSearchTarget target{};
-    target.action = UiSearchAction::rich_item;
-    target.channel_id = source.message->channel_id;
-    target.message_id = source.message->id;
-    target.source_revision = search.source_revision;
-    target.source_index = ticket.index;
-    target.rich_kind = embed ? MessageSceneRichItemKind::embed : MessageSceneRichItemKind::attachment;
-    target.rich_index = item;
-    target.snapshot = snapshot;
+    auto target = application_search_rich_target(
+        search, source.message->channel_id, source.message->id, ticket.index,
+        embed ? MessageSceneRichItemKind::embed : MessageSceneRichItemKind::attachment, item, snapshot);
     MediaAssetKey key{};
     bool provider = false;
     u32 start_seconds = 0;

@@ -271,8 +271,6 @@ RestRouteKey profile_edit_route(const ProfileEditRequest& r) noexcept {
 }
 
 ProfileEditWriteResult profile_edit_write_target(const ProfileEditRequest& r, Slice<u8> output) noexcept {
-    if (!profile_edit_request_valid(r))
-        return {};
     ProtocolWriter w{output, 0};
     bool ok = false;
     switch (r.operation) {
@@ -308,7 +306,7 @@ ProfileEditWriteResult profile_edit_write_target(const ProfileEditRequest& r, Sl
 }
 
 u32 profile_edit_body_capacity(const ProfileEditRequest& r) noexcept {
-    if (!profile_edit_request_valid(r) || profile_edit_method(r.operation) == RestMethod::get)
+    if (profile_edit_method(r.operation) == RestMethod::get)
         return 0;
     u32 bytes = 192;
     if (r.user) {
@@ -331,7 +329,7 @@ u32 profile_edit_body_capacity(const ProfileEditRequest& r) noexcept {
 }
 
 ProfileEditWriteResult profile_edit_write_body(const ProfileEditRequest& r, Slice<u8> output) noexcept {
-    if (!profile_edit_request_valid(r) || profile_edit_method(r.operation) == RestMethod::get || !output.data)
+    if (profile_edit_method(r.operation) == RestMethod::get || !output.data)
         return {};
     Body b{{output, 0}};
     bool ok = protocol_writer_append_byte(&b.w, '{');

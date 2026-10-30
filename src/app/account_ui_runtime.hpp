@@ -413,7 +413,6 @@ inline bool application_message_decode_scratch(AccountUiRuntime& ui, MessageHist
     auto& bank = *stable_storage_data<HistoryDecodeBank>(ui.history_decode_storage);
     *output = MessageHistoryDecodeScratch{
         {ui.message_history_page_structurals, kMessageHistoryPageStructuralCount},
-        {ui.message_history_object_structurals, kMessageHistoryObjectStructuralCount},
         {reinterpret_cast<char*>(ui.event_payload_scratch), kGatewayClientDispatchPayloadCapacity},
         {bank.messages, kMessageHistoryRequestLimit},
         {bank.named_users, kMessageHistoryNamedUserCapacity},

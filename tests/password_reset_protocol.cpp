@@ -141,10 +141,6 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
         UserAuthDecodeError::output_too_small && filled_reset({reinterpret_cast<const u8*>(token), sizeof(token)}, 0x5A),
         "reset session capacity failure does not partially adopt a token");
     storage.token.count = sizeof(token);
-    storage.ticket = storage.token;
-    check(user_auth_decode_reset_response(200, final_token, {scratch, 256}, 8, storage, &decoded).error ==
-        UserAuthDecodeError::invalid_input, "reset rejects overlapping secret destinations");
-    storage.ticket = {ticket, sizeof(ticket)};
     check(!user_auth_decode_reset_response(400, final_token, {scratch, 256}, 8, storage, &decoded).ok() &&
         user_auth_decode_reset_response(400, utf8_literal("{\"code\":60008,\"message\":\"invalid code\"}"),
             {scratch, 256}, 8, storage, &decoded, true).ok() && decoded.kind == UserAuthResponseKind::rejected &&

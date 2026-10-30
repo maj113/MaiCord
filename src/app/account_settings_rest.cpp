@@ -7,7 +7,7 @@
 namespace maicord {
 RestClientSubmitResult account_settings_submit(RestClient* rest, const AccountSettingsRequest& request,
                                                u64 request_id) noexcept {
-    if (!rest || !request_id || !account_settings_request_valid(request))
+    if (!rest || !request_id)
         return {RestClientSubmitError::invalid_input};
     const bool settings = request.operation == AccountSettingsOperation::settings_patch;
     const u32 body_bytes = settings ? kUserSettingsPatchBytes : kAccountSettingsMaximumBodyBytes;

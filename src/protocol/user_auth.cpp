@@ -585,31 +585,11 @@ UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u6
                                                  const RestUserRequestHeaders* user_headers) noexcept {
     const Utf8View target = user_auth_target(operation);
     u32 captcha_bytes = 0;
-    const ConstSlice<u8> destination{output.data, output.count};
-    const Utf8View captcha_fields[] = {captcha.key, captcha.rqtoken, captcha.session_id};
-    if (!output.data || !byte_range_valid(destination) || target.bytes == 0 || content_length == 0 ||
+    if (!output.data || target.bytes == 0 || content_length == 0 ||
         !captcha_headers_size(captcha, true, &captcha_bytes) ||
         (operation == UserAuthOperation::browser_handoff_exchange &&
             (captcha.key.bytes || captcha.rqtoken.bytes || captcha.session_id.bytes)))
         return UserAuthWriteResult{0, UserAuthWriteError::invalid_input};
-    for (const Utf8View field : captcha_fields) {
-        const ConstSlice<u8> source{reinterpret_cast<const u8*>(field.data), field.bytes};
-        if (!byte_range_valid(source) || byte_ranges_overlap(source, destination))
-            return {0, UserAuthWriteError::invalid_input};
-    }
-    if (user_headers) {
-        const ConstSlice<u8> header_source{reinterpret_cast<const u8*>(user_headers), sizeof(*user_headers)};
-        if (!byte_range_valid(header_source) || byte_ranges_overlap(header_source, destination))
-            return {0, UserAuthWriteError::invalid_input};
-        const ConstSlice<u8> metadata_fields[]{
-            user_headers->super_properties,
-            {reinterpret_cast<const u8*>(user_headers->locale.data), user_headers->locale.bytes},
-            {reinterpret_cast<const u8*>(user_headers->timezone.data), user_headers->timezone.bytes},
-            {reinterpret_cast<const u8*>(user_headers->accept_language.data), user_headers->accept_language.bytes}};
-        for (const auto field : metadata_fields)
-            if (!byte_range_valid(field) || byte_ranges_overlap(field, destination))
-                return {0, UserAuthWriteError::invalid_input};
-    }
     if (captcha_bytes > output.count)
         return UserAuthWriteResult{0, UserAuthWriteError::output_too_small};
     const RestRequestWriteResult base = write_rest_request_head(
@@ -752,33 +732,8 @@ UserAuthDecodeResult user_auth_decode_response(u16 status_code, Utf8View body,
     return decode_response_impl(status_code, body, structural_scratch, maximum_depth, storage, output);
 }
 
-static bool reset_ranges_valid(Utf8View body, Slice<u32> scratch, UserAuthResponseStorage storage,
-    UserAuthResponse* output) noexcept {
-    if (!output || scratch.count > 0xFFFFFFFFu / sizeof(u32)) return false;
-    const ConstSlice<u8> input{reinterpret_cast<const u8*>(body.data), body.bytes};
-    const ConstSlice<u8> index{reinterpret_cast<const u8*>(scratch.data),
-        static_cast<u32>(scratch.count * sizeof(u32))};
-    const ConstSlice<u8> result{reinterpret_cast<const u8*>(output), sizeof(*output)};
-    const Slice<char> fields[] = {storage.token, storage.ticket, storage.login_instance_id,
-        storage.webauthn_challenge, storage.captcha_service, storage.captcha_sitekey,
-        storage.captcha_rqdata, storage.captcha_rqtoken, storage.captcha_session_id,
-        storage.captcha_user_flow, storage.suspended_user_token};
-    if (!byte_range_valid(input) || !byte_range_valid(index) || !byte_range_valid(result) ||
-        byte_ranges_overlap(input, index) || byte_ranges_overlap(input, result) || byte_ranges_overlap(index, result))
-        return false;
-    for (u32 i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i) {
-        const ConstSlice<u8> span{reinterpret_cast<const u8*>(fields[i].data), fields[i].count};
-        if (!byte_range_valid(span) || byte_ranges_overlap(span, input) ||
-            byte_ranges_overlap(span, index) || byte_ranges_overlap(span, result)) return false;
-        for (u32 j = 0; j < i; ++j)
-            if (byte_ranges_overlap(span, {reinterpret_cast<const u8*>(fields[j].data), fields[j].count})) return false;
-    }
-    return true;
-}
 UserAuthDecodeResult user_auth_classify_reset_response(u16 status_code, Utf8View body,
     Slice<u32> structural_scratch, u32 maximum_depth, UserAuthResponse* output, bool final_mfa) noexcept {
-    if (!reset_ranges_valid(body, structural_scratch, {}, output))
-        return decode_failure(UserAuthDecodeError::invalid_input);
     ResponseContext context{};
     return classify_response(status_code, body, structural_scratch, maximum_depth, &context, output, false,
         final_mfa ? 2 : 1);
@@ -786,8 +741,6 @@ UserAuthDecodeResult user_auth_classify_reset_response(u16 status_code, Utf8View
 UserAuthDecodeResult user_auth_decode_reset_response(u16 status_code, Utf8View body,
     Slice<u32> structural_scratch, u32 maximum_depth, UserAuthResponseStorage storage,
     UserAuthResponse* output, bool final_mfa) noexcept {
-    if (!reset_ranges_valid(body, structural_scratch, storage, output))
-        return decode_failure(UserAuthDecodeError::invalid_input);
     return decode_response_impl(status_code, body, structural_scratch, maximum_depth, storage, output,
         final_mfa ? 2 : 1);
 }
@@ -890,7 +843,7 @@ bool user_auth_browser_handoff_request_valid(Utf8View body, Slice<u32> scratch, 
 
 UserAuthDecodeResult user_auth_decode_browser_handoff_response(u16 status_code, Utf8View body,
     Slice<u32> scratch, u32 maximum_depth, UserAuthResponseStorage storage, UserAuthResponse* output) noexcept {
-    if (!reset_ranges_valid(body, scratch, storage, output))
+    if (!output)
         return decode_failure(UserAuthDecodeError::invalid_input);
     reset_value(output);
     if (!body.data || !body.bytes || body.bytes > kUserAuthBrowserExchangeMaximumResponseBytes ||
@@ -939,7 +892,7 @@ UserAuthDecodeResult user_auth_decode_browser_handoff_response(u16 status_code, 
 UserAuthDecodeResult user_auth_decode_phone_response(u16 status_code, Utf8View body,
     Slice<u32> structural_scratch, u32 maximum_depth, UserAuthResponseStorage storage,
     UserAuthResponse* output, bool verify) noexcept {
-    if (!reset_ranges_valid(body, structural_scratch, storage, output))
+    if (!output)
         return decode_failure(UserAuthDecodeError::invalid_input);
     if (!verify && status_code >= 200 && status_code < 300 && !body.bytes) {
         reset_value(output); output->kind = UserAuthResponseKind::phone_code_sent;

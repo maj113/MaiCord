@@ -605,16 +605,16 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
     MessageHistoryRichScratch page_scratch{};
     page_scratch.poll = {{f.answers, 20}, {f.counts, 20}};
     const auto page = decode_message_history_page(
-        {reinterpret_cast<const char*>(f.generated), writer.used}, {f.structurals, 2048},
-        {f.message_structurals, 2048}, 32, {f.text, sizeof(f.text)}, {f.messages, 2}, {}, page_scratch);
+        {reinterpret_cast<const char*>(f.generated), writer.used}, {f.structurals, 2048}, 32,
+        {f.text, sizeof(f.text)}, {f.messages, 2}, {}, page_scratch);
     check(written && page.ok() && f.messages[0].poll.answers.data != f.messages[1].poll.answers.data &&
               f.messages[0].poll.answer_counts.data != f.messages[1].poll.answer_counts.data &&
               f.messages[0].poll.answers[0].answer_id == 7 && f.messages[1].poll.answers[1].answer_id == 42,
           "poll REST history gives each page message nonoverlapping answer and count descriptors");
     page_scratch.poll.answers.count = 3;
     const auto exhausted = decode_message_history_page(
-        {reinterpret_cast<const char*>(f.generated), writer.used}, {f.structurals, 2048},
-        {f.message_structurals, 2048}, 32, {f.text, sizeof(f.text)}, {f.messages, 2}, {}, page_scratch);
+        {reinterpret_cast<const char*>(f.generated), writer.used}, {f.structurals, 2048}, 32,
+        {f.text, sizeof(f.text)}, {f.messages, 2}, {}, page_scratch);
     // The later message cannot get its own answer descriptors. It degrades to
     // its core text (poll dropped) while the first message keeps the exact
     // inventory it was given; nothing is shared or overwritten.
@@ -640,8 +640,8 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
               protocol_writer_append_byte(&writer, ']');
     page_scratch.poll = {{f.answers, 20}, {f.counts, 20}};
     const auto mixed = decode_message_history_page(
-        {reinterpret_cast<const char*>(f.generated), writer.used}, {f.structurals, 2048},
-        {f.message_structurals, 2048}, 32, {f.text, sizeof(f.text)}, {f.messages, 3}, {}, page_scratch);
+        {reinterpret_cast<const char*>(f.generated), writer.used}, {f.structurals, 2048}, 32,
+        {f.text, sizeof(f.text)}, {f.messages, 3}, {}, page_scratch);
     for (auto& byte : f.generated)
         byte = '!';
     check(written && mixed.ok() && f.messages[0].poll.present && f.messages[0].poll.answers.count == 2 &&
@@ -665,8 +665,8 @@ void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexce
         {f.roles, 100}, {f.member_roles, kGatewayMessageMemberRoleMaximumIds}, {f.users, 100}, rich()};
     f.sink_calls = 0;
     const auto search = decode_message_search_page(
-        {reinterpret_cast<const char*>(f.generated), writer.used}, query, {f.structurals, 2048},
-        {f.message_structurals, 2048}, 32, {f.text, sizeof(f.text)}, {f.groups, 2}, {f.search_messages, 2},
+        {reinterpret_cast<const char*>(f.generated), writer.used}, query, {f.structurals, 2048}, 32,
+        {f.text, sizeof(f.text)}, {f.groups, 2}, {f.search_messages, 2},
         search_scratch, {nullptr, search_sink});
     check(written && search.ok() && f.sink_calls == 2 && f.sink_answer_ids[0] == 7 &&
               f.sink_answer_ids[1] == 7 && bytes_equal(f.sink_questions[0], "Where?", 6) &&

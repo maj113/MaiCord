@@ -174,7 +174,7 @@ bool application_channel_prefetch_response(const RestClientResponse& response, U
     if (!application_message_decode_scratch(*ui, &scratch, body))
         return true;
     const MessageHistoryDecodeResult decoded = decode_message_history_page(
-        body, scratch.page_structurals, scratch.message_structurals, scratch.maximum_depth, scratch.content,
+        body, scratch.page_structurals, scratch.maximum_depth, scratch.content,
         scratch.messages, scratch.mention_users, scratch.rich);
     if (!decoded.ok() || !decoded.page.count || decoded.page.channel_id != channel_id)
         return true;

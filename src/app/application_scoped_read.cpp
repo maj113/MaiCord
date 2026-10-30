@@ -391,8 +391,9 @@ bool application_scoped_read_submit(u64 request_id, u64 now) noexcept {
     if (!stable_storage_reserve(&o->flight, count))
         return false;
     auto* rows = stable_storage_data<ScopedFlightEntry>(o->flight);
-    BulkMessageAckEntry wire[100];
-    ApplicationReadEchoProof proofs[100];
+    // UI-thread scratch, filled before it is read; 100 entries each would otherwise cost this request a stack probe.
+    static BulkMessageAckEntry wire[100];
+    static ApplicationReadEchoProof proofs[100];
     for (u32 i = 0; i < count; ++i) {
         auto* t = target(*o, candidates[i].channel_id);
         auto* j = t ? serial_job(*o, t->scope_serial) : nullptr;

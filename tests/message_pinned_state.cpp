@@ -176,7 +176,7 @@ void run() noexcept {
     constexpr auto history = utf8_literal(
         R"([{"id":"300","channel_id":"7","author":{"id":"41"},"content":"<@42>","timestamp":"2026-10-04T12:00:00Z","pinned":true},{"id":"200","channel_id":"7","author":{"id":"41"},"content":"plain","timestamp":"2026-10-04T11:00:00Z","pinned":false,"type":6}])");
     const auto decoded = decode_message_history_page(
-        history, {fixture.structurals, 2048}, {fixture.message_structurals, 2048}, 32,
+        history, {fixture.structurals, 2048}, 32,
         {fixture.decoded_text, sizeof(fixture.decoded_text)}, {fixture.messages, 8});
     check(decoded.ok() && decoded.page.count == 2 && fixture.messages[0].pinned &&
               !fixture.messages[1].pinned && (fixture.messages[0].fields & gateway_message_field_pinned) &&

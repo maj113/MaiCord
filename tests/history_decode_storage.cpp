@@ -45,7 +45,6 @@ template <typename T> bool same_slice(Slice<T> left, Slice<T> right) noexcept {
 }
 bool same_scratch(const MessageHistoryDecodeScratch& left, const MessageHistoryDecodeScratch& right) noexcept {
     return same_slice(left.page_structurals, right.page_structurals) &&
-        same_slice(left.message_structurals, right.message_structurals) &&
         same_slice(left.content, right.content) && same_slice(left.messages, right.messages) &&
         same_slice(left.mention_users, right.mention_users) &&
         same_slice(left.rich.member_roles, right.rich.member_roles) &&
@@ -211,7 +210,6 @@ void storage(AccountUiRuntime& ui, usize page) noexcept {
         scratch.rich.stickers.data == bank->stickers && scratch.rich.stickers.count == kMessageHistoryStickerCapacity &&
         scratch.rich.components.data == bank->components && scratch.rich.components.count == kMessageHistoryComponentCapacity &&
         scratch.page_structurals.data == ui.message_history_page_structurals &&
-        scratch.message_structurals.data == ui.message_history_object_structurals &&
         scratch.content.data == reinterpret_cast<char*>(ui.event_payload_scratch) && scratch.maximum_depth == 64,
         "history all nine typed slices retain original maximum capacities and existing structural/content unions");
     measurement("MEASURE history_first_committed_bytes=", owner.arena.committed);

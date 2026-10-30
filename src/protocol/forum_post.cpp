@@ -700,8 +700,10 @@ ForumPostResult forum_parent_decode(Utf8View input, const ForumPostRequest& requ
     *output = parse.value;
     return {input.bytes};
 }
-ForumPostResult forum_post_decode(Utf8View input, const ForumPostRequest& request, u64 self,
-                                  Slice<u32> scratch, ForumPostSnapshot* output) noexcept {
+namespace {
+// `document` receives the scanned input; the scratch still holds that index afterwards.
+ForumPostResult decode_post(Utf8View input, const ForumPostRequest& request, u64 self, Slice<u32> scratch,
+                            ForumPostSnapshot* output, JsonIndexedDocument* document) noexcept {
     if (!self || !forum_post_request_valid(request) || request.operation != ForumPostOperation::create ||
         !ranges_valid(input, scratch, output, sizeof(*output)))
         return {0, ForumPostError::input};
@@ -741,9 +743,7 @@ ForumPostResult forum_post_decode(Utf8View input, const ForumPostRequest& reques
                                                ThreadCreationEnvelope::forum_post);
     if (!thread.ok())
         return {0, thread_error(thread.error)};
-    // The thread decoder leaves the document's index intact. Finish indexed
-    // visitors before the message decoder rescans the nested object into the
-    // same scratch.
+    // The thread decoder rebuilds the same index of `input`; the message is decoded from it as is.
     MessageScope scope{intent.guild_id, false, {}};
     if (!json_visit_indexed_object(parse.document, parse.message, 32, message_scope_field, &scope).ok())
         return {0, scope.error == ForumPostError::none ? ForumPostError::json : scope.error};
@@ -752,7 +752,7 @@ ForumPostResult forum_post_decode(Utf8View input, const ForumPostRequest& reques
         return attachments;
     GatewayMessageEvent message;
     const auto decoded = gateway_decode_message_create(
-        parse.message, scratch, 32, {parse.value.content, sizeof(parse.value.content)}, &message);
+        parse.document, parse.message, 32, {parse.value.content, sizeof(parse.value.content)}, &message);
     if (!decoded.ok())
         return {0, decoded.error == GatewayEventDecodeError::duplicate_field ? ForumPostError::duplicate
                                                                              : ForumPostError::field};
@@ -769,7 +769,14 @@ ForumPostResult forum_post_decode(Utf8View input, const ForumPostRequest& reques
     parse.value.message_flags = message.flags;
     parse.value.content_bytes = message.content.bytes;
     *output = parse.value;
+    *document = parse.document;
     return {input.bytes};
+}
+} // namespace
+ForumPostResult forum_post_decode(Utf8View input, const ForumPostRequest& request, u64 self,
+                                  Slice<u32> scratch, ForumPostSnapshot* output) noexcept {
+    JsonIndexedDocument document;
+    return decode_post(input, request, self, scratch, output, &document);
 }
 namespace {
 struct MediaMessageParse {
@@ -808,13 +815,10 @@ ForumPostResult forum_post_media_decode(Utf8View input, const ForumPostRequest& 
                                           static_cast<u32>(u64{scratch.count} * sizeof(u32))}))
         return {0, ForumPostError::input};
     clear_bytes(temporary, sizeof(*temporary));
-    const auto core = forum_post_decode(input, request, self, scratch, &temporary->post);
+    JsonIndexedDocument document{};
+    const auto core = decode_post(input, request, self, scratch, &temporary->post, &document);
     if (!core.ok())
         return core;
-    JsonIndexedDocument document{};
-    const auto scanned = scan_document(input, scratch, &document);
-    if (!scanned.ok())
-        return scanned;
     MediaMessageParse parse{};
     if (!json_visit_root_object(input, document.structurals, 32, media_message_field, &parse).ok() ||
         !parse.seen)

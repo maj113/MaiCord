@@ -6,7 +6,7 @@ namespace maicord {
 namespace {
 
 struct PageContext {
-    Slice<u32> message_structurals;
+    JsonIndexedDocument document;
     Slice<char> content;
     Slice<GatewayMessageEvent> messages;
     Slice<GatewayMessageNamedUser> mention_users;
@@ -61,11 +61,11 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
     GatewayEventDecodeResult decoded =
         context->capture_rich
             ? gateway_decode_message_create(
-                  value, context->message_structurals, context->maximum_depth, content,
+                  context->document, value, context->maximum_depth, content,
                   Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds},
                   context->rich.remaining_member_roles(), mentions, context->rich.remaining(), 0, &message)
             : gateway_decode_message_create(
-                  value, context->message_structurals, context->maximum_depth, content,
+                  context->document, value, context->maximum_depth, content,
                   Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &message);
     if (!decoded.ok() && context->capture_rich) {
         // Rich decoding (cards, embeds, threads, polls, ...) is presentation
@@ -74,7 +74,7 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
         // nothing; pool cursors advance only after a successful message.
         GatewayMessageEvent core;
         const GatewayEventDecodeResult fallback = gateway_decode_message_create(
-            value, context->message_structurals, context->maximum_depth, content,
+            context->document, value, context->maximum_depth, content,
             Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &core);
         if (fallback.ok()) {
             core.fields &= ~kMessageHistoryRichFieldMask;
@@ -227,32 +227,29 @@ MessageHistoryTargetResult write_message_history_target(
 }
 
 MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, Slice<u32> message_structural_scratch,
-    u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages) noexcept {
+    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
+    Slice<GatewayMessageEvent> messages) noexcept {
     return decode_message_history_page(
-        body, page_structural_scratch, message_structural_scratch, maximum_depth, content_output, messages,
+        body, page_structural_scratch, maximum_depth, content_output, messages,
         Slice<GatewayMessageNamedUser>{}, MessageHistoryRichScratch{});
 }
 
 MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, Slice<u32> message_structural_scratch,
-    u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages,
-    Slice<GatewayMessageNamedUser> mention_users) noexcept {
-    return decode_message_history_page(body, page_structural_scratch, message_structural_scratch,
-                                       maximum_depth, content_output, messages, mention_users,
-                                       MessageHistoryRichScratch{});
+    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
+    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users) noexcept {
+    return decode_message_history_page(body, page_structural_scratch, maximum_depth, content_output, messages,
+                                       mention_users, MessageHistoryRichScratch{});
 }
+
 
 namespace {
 MessageHistoryDecodeResult decode_page(
-    Utf8View body, Slice<u32> page_structural_scratch, Slice<u32> message_structural_scratch,
-    u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages,
-    Slice<GatewayMessageNamedUser> mention_users, const MessageHistoryRichScratch& rich_scratch,
-    bool mixed_channels) noexcept {
+    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
+    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users,
+    const MessageHistoryRichScratch& rich_scratch, bool mixed_channels) noexcept {
     const MessageHistoryRichCursor rich{rich_scratch};
     if (!body.data || body.bytes == 0 || !page_structural_scratch.data ||
-        page_structural_scratch.count == 0 || !message_structural_scratch.data ||
-        message_structural_scratch.count == 0 || maximum_depth == 0 ||
+        page_structural_scratch.count == 0 || maximum_depth == 0 ||
         (!content_output.data && content_output.count != 0) || (!messages.data && messages.count != 0) ||
         (!mention_users.data && mention_users.count != 0) || !rich.valid()) {
         return decode_failure(MessageHistoryDecodeError::invalid_input);
@@ -263,7 +260,7 @@ MessageHistoryDecodeResult decode_page(
                               GatewayEventDecodeError::none, scan.error);
     }
     PageContext context{};
-    context.message_structurals = message_structural_scratch;
+    context.document = {body, {page_structural_scratch.data, scan.count}};
     context.content = content_output;
     context.messages = messages;
     context.mention_users = mention_users;
@@ -272,9 +269,8 @@ MessageHistoryDecodeResult decode_page(
     context.maximum_depth = maximum_depth;
     context.mixed_channels = mixed_channels;
     context.error = MessageHistoryDecodeError::none;
-    const JsonReadResult read =
-        json_visit_root_array(body, ConstSlice<u32>{page_structural_scratch.data, scan.count},
-                              maximum_depth, visit_page_message, &context);
+    const JsonReadResult read = json_visit_root_array(body, context.document.structurals, maximum_depth,
+                                                      visit_page_message, &context);
     if (!read.ok()) {
         if (context.error != MessageHistoryDecodeError::none) {
             auto result = decode_failure(
@@ -299,20 +295,18 @@ MessageHistoryDecodeResult decode_page(
 } // namespace
 
 MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, Slice<u32> message_structural_scratch,
-    u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages,
-    Slice<GatewayMessageNamedUser> mention_users,
+    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
+    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users,
     const MessageHistoryRichScratch& rich_scratch) noexcept {
-    return decode_page(body, page_structural_scratch, message_structural_scratch, maximum_depth, content_output,
-                       messages, mention_users, rich_scratch, false);
+    return decode_page(body, page_structural_scratch, maximum_depth, content_output, messages, mention_users,
+                       rich_scratch, false);
 }
 
 MessageHistoryDecodeResult decode_message_mentions_page(
-    Utf8View body, Slice<u32> page_structural_scratch, Slice<u32> message_structural_scratch,
-    u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages,
-    Slice<GatewayMessageNamedUser> mention_users) noexcept {
-    return decode_page(body, page_structural_scratch, message_structural_scratch, maximum_depth, content_output,
-                       messages, mention_users, MessageHistoryRichScratch{}, true);
+    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
+    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users) noexcept {
+    return decode_page(body, page_structural_scratch, maximum_depth, content_output, messages, mention_users,
+                       MessageHistoryRichScratch{}, true);
 }
 
 } // namespace maicord

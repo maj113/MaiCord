@@ -3,6 +3,7 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/input_router.hpp"
+#include "maicord/protocol/guild_assets.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/unread_banner_scene.hpp"
@@ -15,6 +16,12 @@ namespace maicord::app_detail {
 // Reads a picked image file whole into a fresh VirtualAlloc allocation the caller frees; on failure
 // *error says why.
 bool application_image_file_read(ConstSlice<wchar_t> path, u8** data, u32* bytes, Utf8View* error) noexcept;
+// Probes a picked image for `profile` the way the account module prepares it at submit; `info` says why it fails.
+// A `data_uri` buffer, sized by guild_image_data_uri_bytes, receives the prepared image's data URI.
+bool application_guild_image_probe(GuildImageProfile profile, ConstSlice<u8> image, GuildImageInfo* info,
+                                   Slice<u8> data_uri = {}) noexcept;
+// Why an image failed its probe, as a sentence for that use.
+Utf8View application_guild_image_error_text(GuildImageProfile profile, GuildImageError error) noexcept;
 bool application_guild_settings_available(u64 guild_id) noexcept;
 // page: 0 opens the first permitted page, else a submenu page value (falls
 // back to the first permitted page when that one is not allowed).
@@ -27,11 +34,9 @@ bool application_guild_settings_active() noexcept;
 void application_guild_settings_close(bool restore_focus = true) noexcept;
 void application_guild_settings_release() noexcept;
 bool application_guild_settings_synchronize() noexcept;
-bool application_guild_settings_input(UiInputKind, u32, bool) noexcept;
 // Inline editor engine while the page is open (accessibility SetValue).
 struct SettingsLayer;
 SettingsLayer* application_guild_settings_settings_layer() noexcept;
-bool application_guild_settings_window_message(UINT, WPARAM, LPARAM) noexcept;
 bool application_guild_settings_submit(u64 now) noexcept;
 bool application_guild_settings_owns_response(u64 request_id) noexcept;
 bool application_guild_settings_response(const RestClientResponse&, const Utf8View&) noexcept;
@@ -41,12 +46,6 @@ u64 application_guild_settings_caret_wake() noexcept;
 void application_guild_settings_tick(u64 now) noexcept;
 // Signalled when an image file dialog completes; null while none is open.
 HANDLE application_guild_settings_notification() noexcept;
-bool application_guild_settings_edit_focused() noexcept;
-MessageComposer* application_guild_settings_edit_model() noexcept;
-TextInputTarget application_guild_settings_edit_target() noexcept;
-void application_guild_settings_edit_cancel_native_group(TextInputTarget) noexcept;
-UiRect application_guild_settings_edit_bounds() noexcept;
-bool application_guild_settings_edit_changed(bool content) noexcept;
 u32 application_guild_settings_owner_bytes() noexcept;
 // A bulk ban whose request failed: the Members page clears its selection.
 void application_guild_settings_bulk_ban_failed(u64 guild_id) noexcept;

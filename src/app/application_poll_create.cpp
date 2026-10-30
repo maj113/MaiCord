@@ -478,16 +478,8 @@ bool application_poll_create_synchronize() noexcept {
            renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
 
-bool application_poll_create_input(UiInputKind kind, u32 key, bool repeated) noexcept {
-    return owner && settings_layer_input(&owner->layer, kind, key, repeated);
-}
-
 SettingsLayer* application_poll_create_settings_layer() noexcept {
     return owner ? &owner->layer : nullptr;
-}
-
-bool application_poll_create_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    return application_poll_create_active() && settings_layer_window_message(&owner->layer, message, wparam, lparam);
 }
 
 u64 application_poll_create_next_wake() noexcept {
@@ -554,43 +546,6 @@ bool application_poll_create_response(const RestClientResponse& response, Utf8Vi
 
 u64 application_poll_create_caret_wake() noexcept {
     return application_poll_create_active() ? settings_layer_next_wake(owner->layer) : 0;
-}
-
-void application_poll_create_tick(u64 now) noexcept {
-    if (application_poll_create_active())
-        settings_layer_tick(&owner->layer, now, g_app.preferences.reduced_motion);
-}
-
-bool application_poll_create_edit_focused() noexcept {
-    return application_poll_create_active() && settings_layer_editor(&owner->layer, nullptr, nullptr, nullptr, nullptr);
-}
-
-MessageComposer* application_poll_create_edit_model() noexcept {
-    MessageComposer* model = nullptr;
-    return application_poll_create_active() && settings_layer_editor(&owner->layer, nullptr, &model, nullptr, nullptr)
-               ? model
-               : nullptr;
-}
-
-TextInputTarget application_poll_create_edit_target() noexcept {
-    BoundedEdit* binding = nullptr;
-    return application_poll_create_active() &&
-                   settings_layer_editor(&owner->layer, nullptr, nullptr, &binding, nullptr)
-               ? bounded_edit_input_target(binding)
-               : TextInputTarget{};
-}
-
-void application_poll_create_edit_cancel_native_group(TextInputTarget target) noexcept {
-    if (owner)
-        settings_layer_cancel_native_group(&owner->layer, target);
-}
-
-UiRect application_poll_create_edit_bounds() noexcept {
-    return application_poll_create_active() ? settings_layer_edit_bounds(&owner->layer) : UiRect{};
-}
-
-bool application_poll_create_edit_changed(bool content) noexcept {
-    return application_poll_create_active() && settings_layer_edit_changed(&owner->layer, content);
 }
 
 u32 application_poll_create_owner_bytes() noexcept {

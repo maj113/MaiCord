@@ -665,7 +665,9 @@ __declspec(noinline) bool ApplicationMediaPump::pump_due_animations(bool* repain
         application.login.visible || renderer_settings_hides_shell(application.renderer))
         return true;
     constexpr u32 kCachedAnimationAdvanceBatch = 512;
-    AnimationFrameAdvance advances[kCachedAnimationAdvanceBatch]{};
+    // Main-thread scratch: collect_due writes every entry it reports, so the batch needs neither a
+    // stack frame (__chkstk) nor zeroing on each pump.
+    static AnimationFrameAdvance advances[kCachedAnimationAdvanceBatch];
     const AnimationTimelineCollectResult collected = animation_timeline_collect_due(
         &application.animations.timeline, now_us,
         Slice<AnimationFrameAdvance>{advances, kCachedAnimationAdvanceBatch});

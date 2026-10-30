@@ -9,6 +9,7 @@ struct RestClientResponse;
 namespace app_detail {
 
 void reset_message_edit() noexcept;
+void end_message_edit_request() noexcept;
 bool cancel_message_edit_editor() noexcept;
 bool application_message_edit_available(u64 message_id) noexcept;
 // Newest resident message you can edit in the composer channel; zero when none.

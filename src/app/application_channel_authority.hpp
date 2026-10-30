@@ -5,19 +5,24 @@
 #include "account_ui_runtime.hpp"
 
 namespace maicord::app_detail {
+// The channel's own readability: a visible, message-capable text surface the account can view and
+// read, in an available server (or a direct message). `channel` comes from the store's lookups.
+inline bool application_channel_record_readable(const ChatStateStore& state, const ChannelRecord& channel) noexcept {
+    constexpr u32 required = channel_action_view | channel_action_read_history;
+    if (!channel.occupied || !channel_is_message_capable(channel.type) ||
+        (channel.flags & kChannelObfuscatedFlag) || (channel.actions & required) != required ||
+        !chat_state_store_channel_visible(state, channel)) return false;
+    if (!channel.guild_id) return channel.type == 1 || channel.type == 3;
+    const auto* guild = chat_state_store_find_guild(state, channel.guild_id);
+    return guild && guild->occupied && !guild->unavailable && channel.permissions_resolved;
+}
 // The containing message owns access, including forwarded snapshots. A CDN
 // origin channel is a URL identity, never a second content permission scope.
 inline bool application_channel_readable(const Application& application, u64 channel_id) noexcept {
     if (!application.account_ui || !channel_id) return false;
     const auto& state = application.account_ui->chat_state;
     const auto* channel = chat_state_store_find_channel(state, channel_id);
-    constexpr u32 required = channel_action_view | channel_action_read_history;
-    if (!channel || !channel->occupied || !channel_is_message_capable(channel->type) ||
-        (channel->flags & kChannelObfuscatedFlag) || (channel->actions & required) != required ||
-        !chat_state_store_channel_visible(state, *channel)) return false;
-    if (!channel->guild_id) return channel->type == 1 || channel->type == 3;
-    const auto* guild = chat_state_store_find_guild(state, channel->guild_id);
-    return guild && guild->occupied && !guild->unavailable && channel->permissions_resolved;
+    return channel && application_channel_record_readable(state, *channel);
 }
 inline bool application_rich_url_owned(const MessageRichStore& store, const MessageRichRecord* rich, Utf8View url) noexcept {
     if (!rich) return false;

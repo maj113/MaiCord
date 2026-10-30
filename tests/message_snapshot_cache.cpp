@@ -30,7 +30,6 @@ struct SnapshotTimeline {
 
 struct SnapshotPage {
     u32 page_structurals[32768];
-    u32 message_structurals[16384];
     u8 body[96 * 1024];
     char text[96 * 1024];
     GatewayMessageEvent messages[100];
@@ -120,7 +119,7 @@ ConstSlice<GatewayMessageEvent> decode_page(u64 newest, u32 count, u64 channel =
          {g_page.child_stickers, 16}, {g_page.child_components, 64}, {g_page.child_mentions, 64}}, {}};
     const auto decoded = decode_message_history_page(
         {reinterpret_cast<const char*>(g_page.body), writer.used}, {g_page.page_structurals, 32768},
-        {g_page.message_structurals, 16384}, 64, {g_page.text, sizeof(g_page.text)}, {g_page.messages, 100},
+        64, {g_page.text, sizeof(g_page.text)}, {g_page.messages, 100},
         {g_page.mentions, 256}, rich);
     return decoded.ok() ? ConstSlice<GatewayMessageEvent>{g_page.messages, decoded.page.count}
                         : ConstSlice<GatewayMessageEvent>{};
@@ -213,7 +212,7 @@ ConstSlice<GatewayMessageEvent> decode_body(Utf8View body, u32* degraded) noexce
         {{g_page.child_attachments, 128}, {g_page.child_embeds, 64}, {g_page.child_fields, 128},
          {g_page.child_stickers, 16}, {g_page.child_components, 64}, {g_page.child_mentions, 64}}, {}};
     const auto decoded = decode_message_history_page(
-        body, {g_page.page_structurals, 32768}, {g_page.message_structurals, 16384}, 64,
+        body, {g_page.page_structurals, 32768}, 64,
         {g_page.text, sizeof(g_page.text)}, {g_page.messages, 100}, {g_page.mentions, 256}, rich);
     if (degraded)
         *degraded = decoded.degraded_messages;

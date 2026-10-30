@@ -5,6 +5,7 @@
 #include "application_account_presentation.hpp"
 #include "application_profile.hpp"
 #include "application_search.hpp"
+#include "application_channel_authority.hpp"
 #include "application_state.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
@@ -93,22 +94,16 @@ bool actor_current(const ApplicationPollSource& s) noexcept {
 }
 bool readable(const ChannelRecord& c) noexcept {
     constexpr u32 required = channel_action_view | channel_action_read_history;
-    if (!c.occupied || !channel_is_message_capable(c.type) ||
-        (c.flags & kChannelObfuscatedFlag) || (c.actions & required) != required ||
-        !chat_state_store_channel_visible(g_app.account_ui->chat_state, c))
+    const auto& state = g_app.account_ui->chat_state;
+    if (!application_channel_record_readable(state, c))
         return false;
-    if (!c.guild_id)
-        return c.type == 1 || c.type == 3;
-    const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, c.guild_id);
-    if (!guild || guild->unavailable || !c.permissions_resolved)
-        return false;
-    if (!channel_is_thread(c.type))
+    if (!c.guild_id || !channel_is_thread(c.type))
         return true;
     const auto* parent = application_channel_record(c.parent_id);
     return parent && parent->guild_id == c.guild_id && parent->permissions_resolved &&
            !(parent->flags & kChannelObfuscatedFlag) && (parent->actions & required) == required &&
-           chat_state_store_channel_visible(g_app.account_ui->chat_state, *parent) &&
-           chat_state_store_thread_accessible(g_app.account_ui->chat_state, c);
+           chat_state_store_channel_visible(state, *parent) &&
+           chat_state_store_thread_accessible(state, c);
 }
 const MessagePollRecord* poll(const ApplicationPollSource& s) noexcept {
     if (!actor_current(s) || s.source.channel_epoch != g_app.load_trace.channel_epoch || !s.store)
@@ -1297,19 +1292,7 @@ void application_poll_release() noexcept {
         free_owner();
 }
 ApplicationPollMetrics application_poll_metrics() noexcept {
-    if (!owner)
-        return {};
-    u32 pages{};
-    for (auto* page : owner->pages)
-        if (page)
-            pages += (sizeof(PollPage) + 4095u) & ~4095u;
-    return {sizeof(PollOwner),
-            (sizeof(PollOwner) + 4095u) & ~4095u,
-            pages,
-            owner->revision,
-            owner->publication,
-            owner->controller.source_active,
-            owner->controller.flight.active};
+    return {owner ? static_cast<u32>(sizeof(PollOwner)) : 0u};
 }
 static bool application_poll_voters_action(const UiPollVotersAction& action) noexcept {
     if (!application_poll_voters_active() ||

@@ -304,7 +304,7 @@ bool busy_live_create(BusyWindow& w, PageWriter& page, u64 id) noexcept {
     if (!app_detail::application_message_decode_scratch(*w.ui, &scratch, body))
         return false;
     const MessageHistoryDecodeResult decoded =
-        decode_message_history_page(body, scratch.page_structurals, scratch.message_structurals,
+        decode_message_history_page(body, scratch.page_structurals,
                                     scratch.maximum_depth, scratch.content, scratch.messages,
                                     scratch.mention_users, scratch.rich);
     if (!decoded.ok() || decoded.page.count != 1)
@@ -467,9 +467,9 @@ void test_history_presence_recovery(void (*check)(bool, const char*) noexcept) n
     // Complete the same older-page request after reconnect, through the actual
     // REST decoder, then demand the next page without switching channels.
     constexpr auto body = utf8_literal(R"([{"id":"200","channel_id":"7","author":{"id":"11"},"content":"older b","timestamp":"2026-09-05T10:00:00Z"},{"id":"100","channel_id":"7","author":{"id":"11"},"content":"older a","timestamp":"2026-09-05T09:59:59Z"}])");
-    u32 page_indices[256]{}; u32 message_indices[256]{}; char decoded_text[256]{};
+    u32 page_indices[256]{}; char decoded_text[256]{};
     GatewayMessageEvent messages[2]{}; GatewayMessageNamedUser names[4]{};
-    MessageHistoryDecodeScratch scratch{{page_indices, 256}, {message_indices, 256}, {decoded_text, 256},
+    MessageHistoryDecodeScratch scratch{{page_indices, 256}, {decoded_text, 256},
         {messages, 2}, {names, 4}, {}, 32};
     response.status_code = 200; response.body_bytes = body.bytes;
     response.retry_at_ms = now + 60'000;

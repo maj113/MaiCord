@@ -108,6 +108,7 @@ struct ProfileEditWriteResult {
 };
 RestMethod profile_edit_method(ProfileEditOperation) noexcept;
 bool profile_edit_request_valid(const ProfileEditRequest&) noexcept;
+// The route, target and body writers below require a request this accepts.
 RestRouteKey profile_edit_route(const ProfileEditRequest&) noexcept;
 inline constexpr u32 kProfileEditMaximumTargetBytes = 192;
 ProfileEditWriteResult profile_edit_write_target(const ProfileEditRequest&, Slice<u8> output) noexcept;

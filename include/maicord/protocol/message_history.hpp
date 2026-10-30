@@ -117,26 +117,23 @@ MessageHistoryTargetResult write_message_history_target(
     u64 channel_id, const MessageHistoryQuery& query, Slice<u8> output) noexcept;
 
 // The API returns history arrays newest-to-oldest. The decoder validates that
-// ordering and a single channel identity. page_structural_scratch must remain
-// intact while the root visitor runs; message_structural_scratch is separate
-// reusable storage for each object. Decoded content is packed into caller
-// storage and every returned Utf8View points into content_output.
+// ordering and a single channel identity. Each message is decoded straight from
+// the page index, so page_structural_scratch must stay intact for the whole call.
+// Decoded content is packed into caller storage and every returned Utf8View
+// points into content_output.
 MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, Slice<u32> message_structural_scratch,
-    u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages) noexcept;
+    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
+    Slice<GatewayMessageEvent> messages) noexcept;
 MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, Slice<u32> message_structural_scratch,
-    u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages,
-    Slice<GatewayMessageNamedUser> mention_users) noexcept;
+    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
+    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users) noexcept;
 MessageHistoryDecodeResult decode_message_history_page(
-    Utf8View body, Slice<u32> page_structural_scratch, Slice<u32> message_structural_scratch,
-    u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages,
-    Slice<GatewayMessageNamedUser> mention_users,
+    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
+    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users,
     const MessageHistoryRichScratch& rich_scratch) noexcept;
 // GET /users/@me/mentions: the same message array, spanning channels.
 MessageHistoryDecodeResult decode_message_mentions_page(
-    Utf8View body, Slice<u32> page_structural_scratch, Slice<u32> message_structural_scratch,
-    u32 maximum_depth, Slice<char> content_output, Slice<GatewayMessageEvent> messages,
-    Slice<GatewayMessageNamedUser> mention_users) noexcept;
+    Utf8View body, Slice<u32> page_structural_scratch, u32 maximum_depth, Slice<char> content_output,
+    Slice<GatewayMessageEvent> messages, Slice<GatewayMessageNamedUser> mention_users) noexcept;
 
 } // namespace maicord

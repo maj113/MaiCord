@@ -36,7 +36,6 @@ struct Timeline {
 
 struct Page {
     u32 page_structurals[32768];
-    u32 message_structurals[16384];
     u8 body[96 * 1024];
     char text[96 * 1024];
     GatewayMessageEvent messages[100];
@@ -100,7 +99,7 @@ ConstSlice<GatewayMessageEvent> decode_body() noexcept {
         {g_page.stickers, 32}, {g_page.components, 256}, {}, {}, {}};
     const auto decoded = decode_message_history_page(
         {reinterpret_cast<const char*>(g_page.body), g_page.body_bytes}, {g_page.page_structurals, 32768},
-        {g_page.message_structurals, 16384}, 64, {g_page.text, sizeof(g_page.text)}, {g_page.messages, 100},
+        64, {g_page.text, sizeof(g_page.text)}, {g_page.messages, 100},
         {g_page.mentions, 256}, rich);
     return decoded.ok() ? ConstSlice<GatewayMessageEvent>{g_page.messages, decoded.page.count}
                         : ConstSlice<GatewayMessageEvent>{};

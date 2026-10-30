@@ -189,8 +189,7 @@ MessageSearchTabsWriteResult write_message_search_tabs_request(const MessageSear
 // channel membership against server-confirmed guild state, since a missing guild
 // ID does not show the channel belongs to the guild.
 MessageSearchDecodeResult decode_message_search_page(Utf8View body, const MessageSearchQuery& query,
-                                                     Slice<u32> page_structurals,
-                                                     Slice<u32> message_structurals, u32 maximum_depth,
+                                                     Slice<u32> page_structurals, u32 maximum_depth,
                                                      Slice<char> text_output,
                                                      Slice<MessageSearchGroup> groups,
                                                      Slice<MessageSearchMessage> messages) noexcept;
@@ -219,9 +218,8 @@ struct MessageSearchRichSink {
 // text/descriptor view is cleared. page.text_bytes counts all decoded text, not
 // the occupancy of per_message_text.
 MessageSearchDecodeResult decode_message_search_page(
-    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals,
-    Slice<u32> message_structurals, u32 maximum_depth, Slice<char> per_message_text,
-    Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages,
+    Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals, u32 maximum_depth,
+    Slice<char> per_message_text, Slice<MessageSearchGroup> groups, Slice<MessageSearchMessage> messages,
     const MessageSearchRichScratch& rich_scratch, MessageSearchRichSink sink) noexcept;
 
 } // namespace maicord

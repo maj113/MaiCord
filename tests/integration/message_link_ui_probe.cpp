@@ -56,7 +56,7 @@ struct Fixture {
     u8 visibility[16]{};
     ChannelSortKey channel_keys[16]{};
     u32 markdown[kMessageTextByteStyleScratchCapacity]{};
-    u32 page_structurals[2048]{}, message_structurals[1024]{};
+    u32 page_structurals[2048]{};
     char decoded_content[4096]{};
     GatewayMessageEvent decoded_messages[4]{};
     GatewayMessageNamedUser decoded_mentions[16]{};
@@ -425,7 +425,6 @@ bool history_response(u64 channel, Utf8View body) noexcept {
     response.status_code = 200;
     response.body_bytes = body.bytes;
     MessageHistoryDecodeScratch scratch{{fixture->page_structurals, 2048},
-                                        {fixture->message_structurals, 1024},
                                         {fixture->decoded_content, sizeof(fixture->decoded_content)},
                                         {fixture->decoded_messages, 4},
                                         {fixture->decoded_mentions, 16},

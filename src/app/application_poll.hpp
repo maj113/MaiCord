@@ -59,9 +59,7 @@ void application_poll_message_deleted(u64 channel_id, u64 message_id) noexcept;
 void application_poll_gateway_reset() noexcept;
 void application_poll_release() noexcept;
 struct ApplicationPollMetrics {
-    u32 owner_bytes, owner_committed_bytes, page_committed_bytes, revision;
-    u64 publication;
-    bool active, flight_active;
+    u32 owner_bytes;
 };
 ApplicationPollMetrics application_poll_metrics() noexcept;
 } // namespace maicord::app_detail

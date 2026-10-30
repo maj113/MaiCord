@@ -57,6 +57,7 @@
 #include "application_log_fields.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/message_typing.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/message_scene.hpp"
@@ -115,6 +116,8 @@ struct MessageHistoryResponseErase {
         }
     }
 };
+
+static u64 typing_request_channel_id;
 
 static u64 next_message_history_request_id() noexcept {
     u64& request_id = g_app.account_ui->message_history_request_id;
@@ -346,14 +349,6 @@ static void notice_mutation_refused(ApplicationMessageMutationKind kind, u64 cha
     application_message_mutation_notice_failed(kind, channel_id, message_id, response);
 }
 
-// The message edit request is over without an applied edit: an open editor keeps its text.
-static void end_message_edit_request() noexcept {
-    if (g_app.message_edit.editor_active)
-        g_app.message_edit.phase = MessageEditRequestPhase::idle;
-    else
-        reset_message_edit();
-}
-
 static bool pump_message_history_lower(u64 now_ms) noexcept {
     AccountHost& host = g_app.account;
     MessageHistoryCatchup& catchup = g_app.message_catchup;
@@ -499,6 +494,7 @@ static bool pump_message_history_lower(u64 now_ms) noexcept {
         if (!submitted.ok()) {
             log_u64(LogLevel::warning, "typing", "submit_error", static_cast<u64>(submitted.error));
         } else {
+            typing_request_channel_id = typing_post.channel_id;
             g_app.message_history_request_owner = MessageHistoryRequestOwner::typing;
             return true;
         }
@@ -930,6 +926,14 @@ static bool pump_message_history_main(bool admit) noexcept {
                             static_cast<u64>(response.error));
                 } else if (response.status_code != 200 && response.status_code != 204) {
                     log_u64(LogLevel::warning, "typing", "http_status", response.status_code);
+                } else if (response.status_code == 200) {
+                    // The official client adopts the server's remaining send cooldown from this response.
+                    u64 cooldown_ms = 0;
+                    if (decode_message_typing_cooldown(taken_body,
+                                                       {g_app.account_ui->message_history_object_structurals,
+                                                        kMessageHistoryObjectStructuralCount},
+                                                       &cooldown_ms))
+                        application_composer_slowmode_cooldown(typing_request_channel_id, cooldown_ms);
                 }
             } else if (owner == MessageHistoryRequestOwner::message_send) {
                 if (!accept_message_send_response(response, taken_body))

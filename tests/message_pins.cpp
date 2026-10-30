@@ -15,7 +15,6 @@ MessagePinsCursor cursor(Utf8View value) noexcept {
 
 struct PinsFixture {
     u32 page_structurals[4096];
-    u32 message_structurals[512];
     char text[8192];
     MessagePin items[50];
     GatewayMessageNamedUser mentions[6];
@@ -27,11 +26,11 @@ struct PinsFixture {
 MessagePinsDecodeResult decode(PinsFixture* fixture, Utf8View body, const MessagePinsQuery& query,
                                bool rich = false) noexcept {
     if (!rich) return decode_message_pins_page(body, query, {fixture->page_structurals, 4096},
-        {fixture->message_structurals, 512}, 32, {fixture->text, 8192}, {fixture->items, 50}, {}, {});
+        32, {fixture->text, 8192}, {fixture->items, 50}, {}, {});
     const MessageHistoryRichScratch scratch{{}, {fixture->attachments, 6}, {fixture->embeds, 6},
                                                   {fixture->fields, 6}, {}, {}, {}};
     return decode_message_pins_page(body, query, {fixture->page_structurals, 4096},
-        {fixture->message_structurals, 512}, 32, {fixture->text, 8192}, {fixture->items, 50},
+        32, {fixture->text, 8192}, {fixture->items, 50},
         {fixture->mentions, 6}, scratch);
 }
 
@@ -164,7 +163,7 @@ void test_message_pins(void (*check)(bool, const char*) noexcept) noexcept {
             "pins: rich filename owns text arena storage rather than borrowing REST body");
     }
     check(decode_message_pins_page(utf8_literal("{\"items\":[],\"has_more\":false}"), query,
-        {fixture.page_structurals, 1}, {fixture.message_structurals, 512}, 32, {fixture.text, 8192},
+        {fixture.page_structurals, 1}, 32, {fixture.text, 8192},
         {fixture.items, 50}, {}, {}).error == MessagePinsDecodeError::scan_failed,
         "pins: structural capacity failure remains categorical");
 }

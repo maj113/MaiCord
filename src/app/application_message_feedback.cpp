@@ -18,12 +18,17 @@
 
 namespace maicord::app_detail {
 namespace {
+// The cooldowns the composer predicts; the server stays authoritative. The oldest is recycled when full.
+constexpr u32 kSlowmodeSlots = 8;
+struct SlowmodeDeadline {
+    u64 channel_id, until_ms;
+};
 struct ComposerFeedback {
     const void* account_instance;
     ConnectionNotice connection;
     bool connected_once, refresh_pending;
     u64 highlight_message_id, highlight_started_ms;
-    u64 slowmode_channel_id, slowmode_until_ms;
+    SlowmodeDeadline slowmode[kSlowmodeSlots];
     char slowmode_label[kSlowmodeLabelBytes];
     u32 slowmode_label_bytes;
 };
@@ -47,24 +52,45 @@ u32 slowmode_seconds(u64 channel_id) noexcept {
     return channel_slowmode_seconds(*channel);
 }
 
+SlowmodeDeadline* slowmode_find(u64 channel_id) noexcept {
+    for (auto& slot : feedback.slowmode)
+        if (channel_id && slot.channel_id == channel_id)
+            return &slot;
+    return nullptr;
+}
+
 u64 slowmode_remaining(u64 channel_id, u64 now_ms) noexcept {
     feedback_bind_account();
-    if (channel_id && channel_id == feedback.slowmode_channel_id) {
-        const u64 duration_ms = u64{slowmode_seconds(channel_id)} * 1000;
-        if (!duration_ms) {
-            // This deadline predicts channel slowmode; server rate limits belong
-            // to the send controller and REST scheduler and remain authoritative.
-            feedback.slowmode_channel_id = feedback.slowmode_until_ms = 0;
-        } else if (now_ms < feedback.slowmode_until_ms &&
-                   feedback.slowmode_until_ms - now_ms > duration_ms) {
-            // A shorter policy caps the remaining wait. Never extend a running
-            // prediction; this sum is strictly before its existing deadline.
-            feedback.slowmode_until_ms = now_ms + duration_ms;
-        }
+    SlowmodeDeadline* slot = slowmode_find(channel_id);
+    if (!slot)
+        return 0;
+    const u64 duration_ms = u64{slowmode_seconds(channel_id)} * 1000;
+    if (!duration_ms) {
+        // This deadline predicts channel slowmode; server rate limits belong
+        // to the send controller and REST scheduler and remain authoritative.
+        reset_value(slot);
+        return 0;
     }
-    return channel_id && channel_id == feedback.slowmode_channel_id && now_ms < feedback.slowmode_until_ms
-               ? feedback.slowmode_until_ms - now_ms
-               : 0;
+    if (now_ms < slot->until_ms && slot->until_ms - now_ms > duration_ms) {
+        // A shorter policy caps the remaining wait. Never extend a running
+        // prediction; this sum is strictly before its existing deadline.
+        slot->until_ms = now_ms + duration_ms;
+    }
+    return now_ms < slot->until_ms ? slot->until_ms - now_ms : 0;
+}
+
+void slowmode_start(u64 channel_id, u64 until_ms) noexcept {
+    SlowmodeDeadline* slot = slowmode_find(channel_id);
+    for (auto& candidate : feedback.slowmode)
+        if (!slot && !candidate.channel_id)
+            slot = &candidate;
+    if (!slot) {
+        slot = feedback.slowmode;
+        for (auto& candidate : feedback.slowmode)
+            if (candidate.until_ms < slot->until_ms)
+                slot = &candidate;
+    }
+    *slot = {channel_id, until_ms};
 }
 
 const MessageRecord* latest_message(u64 channel_id) noexcept {
@@ -183,9 +209,18 @@ void application_composer_note_sent(u64 channel_id) noexcept {
     if (!seconds)
         return;
     const u64 now_ms = clock_monotonic_milliseconds();
-    feedback.slowmode_channel_id = channel_id;
-    feedback.slowmode_until_ms = now_ms + u64{seconds} * 1000;
+    slowmode_start(channel_id, now_ms + u64{seconds} * 1000);
     slowmode_label_refresh(now_ms);
+}
+
+void application_composer_slowmode_cooldown(u64 channel_id, u64 cooldown_ms) noexcept {
+    feedback_bind_account();
+    if (!cooldown_ms || !slowmode_seconds(channel_id))
+        return;
+    const u64 now_ms = clock_monotonic_milliseconds();
+    slowmode_start(channel_id, now_ms + minimum<u64>(cooldown_ms, 21'600'000)); // The longest slowmode: six hours.
+    if (slowmode_label_refresh(now_ms) && g_app.account_ui)
+        refresh_message_composer_ui();
 }
 
 void application_composer_gateway_event(GatewayClientEventKind kind) noexcept {
@@ -250,9 +285,11 @@ u64 application_message_interaction_next_wake(u64 now_ms) noexcept {
     if (connection && (!wake || connection < wake))
         wake = connection;
     if (feedback.slowmode_label_bytes) {
-        const u64 remaining = feedback.slowmode_until_ms > now_ms ? feedback.slowmode_until_ms - now_ms : 0;
+        const SlowmodeDeadline* slot = g_app.account_ui ? slowmode_find(g_app.account_ui->active_channel_id) : nullptr;
+        const u64 until_ms = slot ? slot->until_ms : 0;
+        const u64 remaining = until_ms > now_ms ? until_ms - now_ms : 0;
         const u64 tick = now_ms + (remaining % 1000 ? remaining % 1000 : 1000);
-        const u64 next = remaining ? minimum(tick, feedback.slowmode_until_ms) : now_ms;
+        const u64 next = remaining ? minimum(tick, until_ms) : now_ms;
         if (!wake || next < wake)
             wake = next;
     }
@@ -265,13 +302,17 @@ void application_message_interaction_tick(u64 now_ms) noexcept {
         application_request_frame();
     bool composer_changed = connection_notice_tick(&feedback.connection, now_ms) || feedback.refresh_pending;
     feedback.refresh_pending = false;
-    if (feedback.slowmode_label_bytes || feedback.slowmode_until_ms) {
+    bool slowmode_live = feedback.slowmode_label_bytes != 0;
+    for (auto& slot : feedback.slowmode) {
+        if (!slot.channel_id)
+            continue;
+        slowmode_live = true;
         // Apply policy changes even while another channel owns the composer.
-        slowmode_remaining(feedback.slowmode_channel_id, now_ms);
-        composer_changed = slowmode_label_refresh(now_ms) || composer_changed;
-        if (now_ms >= feedback.slowmode_until_ms)
-            feedback.slowmode_channel_id = feedback.slowmode_until_ms = 0;
+        if (!slowmode_remaining(slot.channel_id, now_ms))
+            reset_value(&slot);
     }
+    if (slowmode_live)
+        composer_changed = slowmode_label_refresh(now_ms) || composer_changed;
     if (composer_changed && g_app.account_ui)
         refresh_message_composer_ui();
 }

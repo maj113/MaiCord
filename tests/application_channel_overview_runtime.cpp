@@ -448,15 +448,8 @@ ClipboardTextResult clipboard_read_utf8(HWND, Slice<char>) noexcept {
     void owner##_close(bool) noexcept {}                                                 \
     void owner##_release() noexcept {}                                                   \
     bool owner##_synchronize() noexcept { return true; }                                 \
-    bool owner##_input(UiInputKind, u32, bool) noexcept { return false; }                \
-    bool owner##_window_message(UINT, WPARAM, LPARAM) noexcept { return false; }         \
+    SettingsLayer* owner##_settings_layer() noexcept { return nullptr; }                 \
     u64 owner##_caret_wake() noexcept { return 0; }                                      \
-    bool owner##_edit_focused() noexcept { return false; }                               \
-    MessageComposer* owner##_edit_model() noexcept { return nullptr; }                   \
-    TextInputTarget owner##_edit_target() noexcept { return {}; }                        \
-    void owner##_edit_cancel_native_group(TextInputTarget) noexcept {}                   \
-    UiRect owner##_edit_bounds() noexcept { return {}; }                                 \
-    bool owner##_edit_changed(bool) noexcept { return false; }                           \
     u32 owner##_owner_bytes() noexcept { return 0; }
 #define INACTIVE_MODAL_REQUESTS(owner, response_text)                                    \
     bool owner##_submit(u64) noexcept { return false; }                                  \
@@ -464,8 +457,7 @@ ClipboardTextResult clipboard_read_utf8(HWND, Slice<char>) noexcept {
     bool owner##_response(const RestClientResponse&, response_text) noexcept {           \
         return false;                                                                    \
     }                                                                                    \
-    u64 owner##_next_wake() noexcept { return 0; }                                       \
-    void owner##_tick(u64) noexcept {}
+    u64 owner##_next_wake() noexcept { return 0; }
 namespace app_detail {
 INACTIVE_MODAL_CORE(application_guild_settings)
 INACTIVE_MODAL_REQUESTS(application_guild_settings, const Utf8View&)
@@ -480,7 +472,10 @@ INACTIVE_MODAL_REQUESTS(application_profile_editor, const Utf8View&)
 INACTIVE_MODAL_CORE(application_guild_community)
 INACTIVE_MODAL_REQUESTS(application_guild_community, Utf8View)
 INACTIVE_MODAL_CORE(application_custom_status)
-void application_custom_status_dialog_tick(u64) noexcept {}
+bool application_profile_editor_input(UiInputKind, u32, bool) noexcept { return false; }
+bool application_profile_editor_window_message(UINT, WPARAM, LPARAM) noexcept { return false; }
+SettingsLayer* application_profile_editor_edit_layer() noexcept { return nullptr; }
+void application_guild_settings_tick(u64) noexcept {}
 #undef INACTIVE_MODAL_CORE
 #undef INACTIVE_MODAL_REQUESTS
 // Reports and user actions share the host; this fixture never opens them.
@@ -488,11 +483,9 @@ bool application_report_active() noexcept { return false; }
 void application_report_close(bool) noexcept {}
 void application_report_release() noexcept {}
 bool application_report_synchronize() noexcept { return true; }
-bool application_report_input(UiInputKind, u32, bool) noexcept { return false; }
-bool application_report_window_message(UINT, WPARAM, LPARAM) noexcept { return false; }
 u64 application_report_next_wake() noexcept { return 0; }
 u64 application_report_caret_wake() noexcept { return 0; }
-void application_report_tick(u64) noexcept {}
+SettingsLayer* application_report_settings_layer() noexcept { return nullptr; }
 bool application_report_submit(u64) noexcept { return false; }
 bool application_report_owns_response(u64) noexcept { return false; }
 bool application_report_response(const RestClientResponse&, Utf8View) noexcept { return true; }

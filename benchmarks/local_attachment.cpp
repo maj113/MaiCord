@@ -113,7 +113,7 @@ u64 benchmark_message_response_roundtrip(u32 iterations, u64* checksum) noexcept
     const UploadedAttachment attachment{utf8_literal("report.txt"), utf8_literal("upload/report.txt"), {}, 0, false};
     constexpr auto body = utf8_literal(R"({"id":"900","channel_id":"7","author":{"id":"9"},"content":"","timestamp":"2024-08-30T12:00:00Z","attachments":[{"id":"901","filename":"report.txt","size":8192,"url":"https://cdn.discordapp.com/attachments/7/901/report.txt"}]})");
     u32 structurals[256]{}; GatewayMessageEvent messages[1]{}; GatewayMessageAttachment attachments[1]{};
-    const MessageHistoryDecodeScratch scratch{{}, {structurals, 256}, {content, sizeof(content)}, {messages, 1}, {},
+    const MessageHistoryDecodeScratch scratch{{structurals, 256}, {content, sizeof(content)}, {messages, 1}, {},
         {{}, {attachments, 1}, {}, {}, {}, {}, {}}, 32};
     RestClientResponse response{}; response.status_code = 200; response.body_bytes = body.bytes;
     const u64 size = 8192;

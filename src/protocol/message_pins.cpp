@@ -44,7 +44,6 @@ struct PageContext {
     JsonIndexedDocument document;
     MessagePinsQuery query;
     MessagePinsDecodeResult result;
-    Slice<u32> message_structurals;
     Slice<char> text;
     Slice<MessagePin> items;
     Slice<GatewayMessageNamedUser> mentions;
@@ -123,10 +122,10 @@ bool visit_item(void* opaque, u32 index, JsonValue value) noexcept {
     const auto mentions = context->mentions.data ? remaining(context->mentions, context->mention_count)
         : Slice<GatewayMessageNamedUser>{temporary_mentions, kGatewayMessageMentionUserMaximum};
     const auto decoded = context->capture_rich
-        ? gateway_decode_message_create(item.message, context->message_structurals, context->maximum_depth, text,
+        ? gateway_decode_message_create(context->document, item.message, context->maximum_depth, text,
               {mention_roles, kGatewayMessageMentionRoleMaximumIds}, context->rich.remaining_member_roles(),
               mentions, context->rich.remaining(), 0, &message)
-        : gateway_decode_message_create(item.message, context->message_structurals, context->maximum_depth, text,
+        : gateway_decode_message_create(context->document, item.message, context->maximum_depth, text,
               {mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &message);
     if (!decoded.ok()) {
         context->result.message_error = decoded.error;
@@ -212,14 +211,14 @@ MessagePinsWriteResult write_message_pin_target(u64 channel_id, u64 message_id,
 }
 
 MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePinsQuery& query,
-    Slice<u32> page_structurals, Slice<u32> message_structurals, u32 maximum_depth,
+    Slice<u32> page_structurals, u32 maximum_depth,
     Slice<char> text_output, Slice<MessagePin> items, Slice<GatewayMessageNamedUser> mention_users,
     const MessageHistoryRichScratch& rich_scratch) noexcept {
     MessageHistoryRichCursor rich{rich_scratch};
     rich.scratch.poll = {}; // Pinned polls are not decoded.
     u8 target[kMessagePinsMaximumTargetBytes];
     if (!write_message_pins_target(query, {target, sizeof(target)}).ok() || !body.data || !body.bytes ||
-        !page_structurals.data || !page_structurals.count || !message_structurals.data || !message_structurals.count ||
+        !page_structurals.data || !page_structurals.count ||
         !maximum_depth || !valid_slice(text_output) || !valid_slice(items) || !valid_slice(mention_users) ||
         !rich.valid()) return {{}, 0, MessagePinsDecodeError::invalid_input};
     const auto scan = json_scan_structurals_avx1(body, page_structurals);
@@ -229,7 +228,6 @@ MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePin
     context.document = {body, {page_structurals.data, scan.count}};
     context.query = query;
     context.result.page.channel_id = query.channel_id;
-    context.message_structurals = message_structurals;
     context.text = text_output;
     context.items = items;
     context.mentions = mention_users;

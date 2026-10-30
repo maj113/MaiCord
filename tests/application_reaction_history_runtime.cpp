@@ -1258,6 +1258,10 @@ void reset_message_delete() noexcept {
 void reset_message_edit() noexcept {
     g_app.message_edit.phase = MessageEditRequestPhase::idle;
 }
+void end_message_edit_request() noexcept {
+    g_app.message_edit.phase = MessageEditRequestPhase::idle;
+}
+void application_composer_slowmode_cooldown(u64, u64) noexcept {}
 bool accept_message_delete_response(const RestClientResponse&) noexcept {
     return true;
 }

@@ -1998,12 +1998,9 @@ bool application_search_navigation_source(const ApplicationSearchSourceTicket& t
     if (!out || !s || !ticket_current(*s, ticket) || !channel_authorized(*s, ticket.index, true))
         return false;
     const auto& item = s->bank->messages[ticket.index];
-    const auto* channel =
-        chat_state_store_find_channel(g_app.account_ui->chat_state, item.message.channel_id);
     *out = {ticket, item.message.channel_id,
             item.guild_known ? item.guild_id
-                             : (s->scope == MessageSearchScope::guild ? s->scope_id : 0),
-            channel != nullptr};
+                             : (s->scope == MessageSearchScope::guild ? s->scope_id : 0)};
     return true;
 }
 bool application_search_source_notice(const ApplicationSearchSourceTicket& ticket,
@@ -2505,8 +2502,6 @@ bool application_search_response(const RestClientResponse& response, Utf8View bo
             decoded = decode_message_search_page(
                 body, s->controller.query,
                 {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
-                {g_app.account_ui->message_history_object_structurals,
-                 kMessageHistoryObjectStructuralCount},
                 64, {text, body.bytes}, {s->candidate->groups, kMessageSearchMaximumGroups},
                 {s->candidate->messages, kMessageSearchMaximumMessages}, decode_scratch(*scratch),
                 {s->candidate, bank_accept});

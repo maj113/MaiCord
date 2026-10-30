@@ -70,6 +70,11 @@ inline constexpr u64 kSessionAutosaveIntervalMs = 30'000;
 inline constexpr u64 kSessionAutosaveRetryMs = 5'000;
 inline constexpr u64 kMessageHistoryRouteId = 0x4D53474849535452ull;
 
+// Request body of the submit entries that build one. They run one at a time on the UI thread and
+// the REST queue copies the body before they return.
+u8 g_request_body[kMessageCreateMaximumBodyBytes];
+static_assert(kMessageEditMaximumBodyBytes <= sizeof(g_request_body) && kCdnMaximumTargetBytes * 2 <= sizeof(g_request_body));
+
 struct AccountDownloadOwner {
     HttpsFileDownload transfer;
     u64 id;
@@ -116,14 +121,12 @@ GatewayClient* module_gateway(void* instance) noexcept {
     return runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
 }
 
-// A null request cancels. The submit entry points validate their own requests; `valid` covers those
-// that do not.
+// A null request cancels. The submit entry points validate their own requests.
 template <typename Request>
 RestClientSubmitResult submit_or_cancel(void* instance, const Request* request, u64 request_id,
-                                        RestClientSubmitResult (*submit)(RestClient*, const Request*, u64),
-                                        bool (*valid)(const Request&) = nullptr) noexcept {
+                                        RestClientSubmitResult (*submit)(RestClient*, const Request*, u64)) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
-    if (!runtime || !request_id || (request && valid && !valid(*request)))
+    if (!runtime || !request_id)
         return {RestClientSubmitError::invalid_input};
     auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
     return request ? submit(rest, request, request_id) : rest_client_cancel_result(rest, request_id);
@@ -337,11 +340,7 @@ AccountLoginStatus WINAPI module_login_submit_phone_resend(void* instance) noexc
 SecureBufferResult WINAPI module_login_take_phone_reset_token(void* instance, u64 generation,
                                                               SecureBuffer* output) noexcept {
     auto* runtime = static_cast<AccountLoginRuntime*>(instance);
-    const ConstSlice<u8> owner{reinterpret_cast<const u8*>(runtime), sizeof(*runtime)};
-    if (!phone_recovery_ready(runtime) || !output ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(output), sizeof(*output)}, owner) ||
-        !byte_range_valid({output->data, output->capacity}) ||
-        byte_ranges_overlap({output->data, output->capacity}, owner))
+    if (!phone_recovery_ready(runtime) || !output)
         return {0, ERROR_INVALID_PARAMETER, SecureBufferError::invalid_input};
     return user_auth_coordinator_take_phone_reset_token(&runtime->coordinator, generation, output);
 }
@@ -909,9 +908,10 @@ RestClientSubmitResult WINAPI module_attachment_upload(void* instance, u64 chann
     RestClient* rest = module_rest(instance);
     if (!rest || !request_id)
         return {RestClientSubmitError::invalid_input};
-    u8 target[96]{}, body[8 * 1024]{};
+    u8 target[96]{};
+    u8* const body = g_request_body;
     const auto written = attachment_upload_write(channel_id, id, filename, file_bytes,
-                                                 {target, sizeof(target)}, {body, sizeof(body)});
+                                                 {target, sizeof(target)}, {body, 8 * 1024});
     if (!written.ok)
         return {RestClientSubmitError::invalid_input};
     const auto result = rest_client_submit(rest, {target, written.target_bytes},
@@ -919,7 +919,7 @@ RestClientSubmitResult WINAPI module_attachment_upload(void* instance, u64 chann
                                            attachment_upload_route(channel_id),
                                            request_id,
                                            true);
-    SecureZeroMemory(body, sizeof(body));
+    SecureZeroMemory(body, written.body_bytes);
     return result;
 }
 
@@ -933,14 +933,14 @@ module_message_submit(void* instance, u64 channel_id, Utf8View content, u64 nonc
         return invalid;
     }
     u8 target[96];
-    u8 body[kMessageCreateMaximumBodyBytes];
+    u8* const body = g_request_body;
     const MessageCreateWriteResult target_written =
         write_message_create_target(channel_id, Slice<u8>{target, sizeof(target)});
     const MessageCreateWriteResult body_written = write_message_create_body(
         content, nonce, reply_message_id ? channel_id : 0, reply_message_id, attachments, sticker_ids,
-        {body, sizeof(body)}, mention_reply_author, flags);
+        {body, kMessageCreateMaximumBodyBytes}, mention_reply_author, flags);
     if (!target_written.ok() || !body_written.ok()) {
-        SecureZeroMemory(body, sizeof(body));
+        SecureZeroMemory(body, kMessageCreateMaximumBodyBytes);
         return invalid;
     }
     const RestClientSubmitResult submitted = rest_client_submit(
@@ -960,13 +960,13 @@ RestClientSubmitResult WINAPI module_message_forward(void* instance, u64 destina
     if (!rest || !destination_channel_id || !nonce || !request_id)
         return {RestClientSubmitError::invalid_input};
     u8 target[96];
-    u8 body[kMessageCreateMaximumBodyBytes];
+    u8* const body = g_request_body;
     const auto target_written =
         write_message_create_target(destination_channel_id, {target, sizeof(target)});
     const auto body_written =
-        write_message_forward_body(caption, nonce, source, {body, sizeof(body)});
+        write_message_forward_body(caption, nonce, source, {body, kMessageCreateMaximumBodyBytes});
     if (!target_written.ok() || !body_written.ok()) {
-        SecureZeroMemory(body, sizeof(body));
+        SecureZeroMemory(body, kMessageCreateMaximumBodyBytes);
         return {RestClientSubmitError::invalid_input};
     }
     const auto submitted = rest_client_submit(
@@ -1011,13 +1011,13 @@ RestClientSubmitResult WINAPI module_message_edit(void* instance, u64 channel_id
         return invalid;
     }
     u8 target[128];
-    u8 body[kMessageEditMaximumBodyBytes];
+    u8* const body = g_request_body;
     const MessageEditWriteResult target_written =
         write_message_edit_target(channel_id, message_id, Slice<u8>{target, sizeof(target)});
     const MessageEditWriteResult body_written =
-        write_message_edit_body(content, Slice<u8>{body, sizeof(body)});
+        write_message_edit_body(content, Slice<u8>{body, kMessageEditMaximumBodyBytes});
     if (!target_written.ok() || !body_written.ok()) {
-        SecureZeroMemory(body, sizeof(body));
+        SecureZeroMemory(body, kMessageEditMaximumBodyBytes);
         return invalid;
     }
     const RestClientSubmitResult submitted = rest_client_submit(
@@ -1159,7 +1159,8 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
     auto* rest = module_rest(instance, true);
     if (!rest || !user || !request_id)
         return invalid;
-    u8 target[256], body[6200];
+    u8 target[256];
+    u8* const body = g_request_body;
     ConstSlice<u8> path{target, 0}, payload{};
     u32 route = 0x5052464c;
     RestMethod method = RestMethod::get;
@@ -1196,7 +1197,7 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
     } else if (operation) {
         if (operation > 3 || !utf8_validate(value).valid || value.bytes > (operation == 1 ? 1024u : 128u))
             return invalid;
-        ProtocolWriter writer{{body, sizeof(body)}, 0};
+        ProtocolWriter writer{{body, 6200}, 0};
         const char* field = operation == 1   ? "{\"bio\":"
                             : operation == 2 ? "{\"pronouns\":"
                                              : "{\"global_name\":";
@@ -1328,7 +1329,7 @@ RestClientSubmitResult WINAPI module_emoji_preferences(void* instance,
 }
 RestClientSubmitResult WINAPI module_account_settings(void* instance, const AccountSettingsRequest* request,
                                                             u64 request_id) noexcept {
-    if (!instance || !request_id || (request && !account_settings_request_valid(*request)))
+    if (!instance || !request_id)
         return {RestClientSubmitError::invalid_input};
     // Settings share the PRIMARY lane with the self-status settings writer;
     // a cancel without a request tries both lanes.
@@ -1403,8 +1404,7 @@ RestClientSubmitResult WINAPI module_poll_create(void* instance, u64 channel_id,
 }
 RestClientSubmitResult WINAPI module_private_channel(void* instance, const PrivateChannelActionRequest* request,
                                                      u64 request_id) noexcept {
-    return submit_or_cancel(instance, request, request_id, account_private_channel_submit,
-                            private_channel_action_valid);
+    return submit_or_cancel(instance, request, request_id, account_private_channel_submit);
 }
 bool WINAPI module_local_presence(void* instance, const GatewayLocalPresence* input,
                                   GatewayActivitySharing* output) noexcept {
@@ -1437,12 +1437,11 @@ RestClientSubmitResult WINAPI module_custom_status_submit(void* instance, u64 pr
 }
 RestClientSubmitResult WINAPI module_guild_settings(void* instance, const UserGuildSettingsPatch* patch,
                                                     u64 request_id) noexcept {
-    return submit_or_cancel(instance, patch, request_id, account_guild_settings_submit,
-                            user_guild_settings_patch_valid);
+    return submit_or_cancel(instance, patch, request_id, account_guild_settings_submit);
 }
 RestClientSubmitResult WINAPI module_mentions(void* instance, const MentionsQuery* query,
                                               u64 request_id) noexcept {
-    return submit_or_cancel(instance, query, request_id, account_mentions_submit, mentions_query_valid);
+    return submit_or_cancel(instance, query, request_id, account_mentions_submit);
 }
 RestClientSubmitResult WINAPI module_forum_post(void* instance,
                                                 const ForumPostRequest* request,
@@ -1734,8 +1733,8 @@ RestClientSubmitResult WINAPI module_message_search(void* instance,
 RestClientSubmitResult WINAPI module_media_url_refresh(void* instance, Utf8View source,
                                                        u64 request_id) noexcept {
     RestClient* rest = module_rest(instance);
-    u8 body[kCdnMaximumTargetBytes * 2];
-    const u32 bytes = attachment_refresh_body(source, {body, sizeof(body)});
+    u8* const body = g_request_body;
+    const u32 bytes = attachment_refresh_body(source, {body, kCdnMaximumTargetBytes * 2});
     if (!rest || request_id == 0 || bytes == 0)
         return {RestClientSubmitError::invalid_input};
     return rest_client_submit(

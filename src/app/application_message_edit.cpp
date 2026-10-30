@@ -67,7 +67,7 @@ bool apply_response(u32 body_bytes) noexcept {
         }
         u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
         const GatewayEventDecodeResult decoded = gateway_decode_message_create(
-            JsonValue{body, 0, JsonValueKind::object}, scratch.message_structurals, 64, scratch.content,
+            JsonValue{body, 0, JsonValueKind::object}, scratch.page_structurals, 64, scratch.content,
             Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, scratch.rich.member_roles,
             scratch.mention_users,
             {scratch.rich.reactions, scratch.rich.attachments, scratch.rich.embeds,
@@ -137,6 +137,13 @@ void submit_edit(const MessageRecord& record, Utf8View content) noexcept {
 void reset_message_edit() noexcept {
     message_edit_runtime_reset(&g_app.message_edit);
     reset_value(&edit_source);
+}
+// The request is over without an applied edit: an open editor keeps its text.
+void end_message_edit_request() noexcept {
+    if (g_app.message_edit.editor_active)
+        g_app.message_edit.phase = MessageEditRequestPhase::idle;
+    else
+        reset_message_edit();
 }
 bool application_message_edit_pending_available() noexcept {
     const auto* record = message_mutation_source_record(edit_source, g_app.message_edit.channel_id,
@@ -289,11 +296,7 @@ bool accept_message_edit_response(const RestClientResponse& response) noexcept {
     const auto failed = [&]() noexcept {
         application_message_mutation_notice_failed(ApplicationMessageMutationKind::edit, edit.channel_id,
                                                    edit.message_id, response);
-        if (edit.editor_active) {
-            edit.phase = MessageEditRequestPhase::idle;
-        } else {
-            reset_message_edit();
-        }
+        end_message_edit_request();
         return refresh_message_composer_ui();
     };
     if (!response.transport_ok()) {

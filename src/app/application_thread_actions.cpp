@@ -7,6 +7,7 @@
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/protocol/channel_overview.hpp"
+#include "application_channel_authority.hpp"
 #include "application_account_access.hpp"
 
 namespace maicord::app_detail {
@@ -57,16 +58,7 @@ const ChannelRecord* source_current(const ApplicationThreadActionTicket& source)
                : nullptr;
 }
 bool readable(const ChannelRecord& value) noexcept {
-    constexpr u32 required = channel_action_view | channel_action_read_history;
-    if (!value.occupied || (value.flags & kChannelObfuscatedFlag) ||
-        !channel_is_message_capable(value.type) ||
-        !chat_state_store_channel_visible(g_app.account_ui->chat_state, value) ||
-        (value.actions & required) != required)
-        return false;
-    if (!value.guild_id)
-        return value.type == 1 || value.type == 3;
-    const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, value.guild_id);
-    return guild && !guild->unavailable && value.permissions_resolved;
+    return application_channel_record_readable(g_app.account_ui->chat_state, value);
 }
 bool fetchable(const ChannelRecord& value) noexcept {
     if (!thread(value.type) || !value.guild_id || !value.parent_id ||

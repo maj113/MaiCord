@@ -531,50 +531,11 @@ bool application_custom_status_synchronize() noexcept {
            renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
 
-bool application_custom_status_input(UiInputKind kind, u32 key, bool repeated) noexcept {
-    return form && settings_layer_input(&form->layer, kind, key, repeated);
-}
-
 SettingsLayer* application_custom_status_settings_layer() noexcept {
     return form ? &form->layer : nullptr;
 }
-bool application_custom_status_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
-    return application_custom_status_active() && settings_layer_window_message(&form->layer, message, wparam, lparam);
-}
 u64 application_custom_status_caret_wake() noexcept {
     return application_custom_status_active() ? settings_layer_next_wake(form->layer) : 0;
-}
-void application_custom_status_dialog_tick(u64 now) noexcept {
-    if (application_custom_status_active())
-        settings_layer_tick(&form->layer, now, g_app.preferences.reduced_motion);
-}
-bool application_custom_status_edit_focused() noexcept {
-    return application_custom_status_active() &&
-           settings_layer_editor(&form->layer, nullptr, nullptr, nullptr, nullptr);
-}
-MessageComposer* application_custom_status_edit_model() noexcept {
-    MessageComposer* model = nullptr;
-    return application_custom_status_active() &&
-                   settings_layer_editor(&form->layer, nullptr, &model, nullptr, nullptr)
-               ? model
-               : nullptr;
-}
-TextInputTarget application_custom_status_edit_target() noexcept {
-    BoundedEdit* binding = nullptr;
-    return application_custom_status_active() &&
-                   settings_layer_editor(&form->layer, nullptr, nullptr, &binding, nullptr)
-               ? bounded_edit_input_target(binding)
-               : TextInputTarget{};
-}
-void application_custom_status_edit_cancel_native_group(TextInputTarget target) noexcept {
-    if (form)
-        settings_layer_cancel_native_group(&form->layer, target);
-}
-UiRect application_custom_status_edit_bounds() noexcept {
-    return application_custom_status_active() ? settings_layer_edit_bounds(&form->layer) : UiRect{};
-}
-bool application_custom_status_edit_changed(bool content) noexcept {
-    return application_custom_status_active() && settings_layer_edit_changed(&form->layer, content);
 }
 u32 application_custom_status_owner_bytes() noexcept {
     return form ? sizeof(*form) : 0;

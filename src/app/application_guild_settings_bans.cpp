@@ -14,17 +14,6 @@ struct BanQuery {
     u32 id_count;
     Utf8View text;
 };
-bool space(char c) noexcept {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
-}
-Utf8View trim(Utf8View text) noexcept {
-    u32 start = 0, end = text.bytes;
-    while (start < end && space(text.data[start]))
-        ++start;
-    while (end > start && space(text.data[end - 1]))
-        --end;
-    return {text.data + start, end - start};
-}
 BanQuery parse(const Utf8View& text) noexcept {
     BanQuery query{};
     bool text_seen = false;
@@ -32,7 +21,7 @@ BanQuery parse(const Utf8View& text) noexcept {
     for (u32 i = 0; i <= text.bytes; ++i) {
         if (i < text.bytes && text.data[i] != ',')
             continue;
-        const Utf8View piece = trim({text.data + start, i - start});
+        const Utf8View piece = guild_member_search_trim({text.data + start, i - start});
         start = i + 1;
         if (guild_member_search_snowflake(piece)) {
             u64 id = 0;
@@ -98,7 +87,7 @@ void project_bans(Bank& bank) noexcept {
     else if (searching)
         push_loading(utf8_literal("Searching bans…"));
     // Typing filters the loaded bans at once; Enter or Search also asks the server.
-    const Utf8View typed = trim(editor_text(editor_search));
+    const Utf8View typed = guild_member_search_trim(editor_text(editor_search));
     const BanQuery query = parse(typed);
     const bool filtered = typed.bytes != 0;
     p.row_count = 0;
@@ -159,7 +148,7 @@ void open_ban(u64 user) noexcept {
 
 void search() noexcept {
     auto& p = *owner;
-    const auto text = trim(editor_text(editor_search));
+    const auto text = guild_member_search_trim(editor_text(editor_search));
     if (!text.bytes || busy() || !connected())
         return;
     p.ban_search_bytes = minimum(text.bytes, kSearchBytes);
@@ -180,12 +169,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
 }
 
 bool ensure_data() noexcept {
-    if (owner->bans_requested)
-        return false;
-    owner->bans_requested = true;
-    owner->bans_failed = false;
-    queue(Op::ban_list, 0);
-    return true;
+    return request_read(owner->bans_requested, owner->bans_failed, Op::ban_list);
 }
 
 void notice_action() noexcept {

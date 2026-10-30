@@ -4,7 +4,7 @@
 namespace maicord {
 namespace {
 struct ForwardPageFixture {
-    u32 page_structurals[32768], message_structurals[16384];
+    u32 page_structurals[32768];
     u8 body[65536]; char text[65536];
     GatewayMessageEvent messages[2]; MessagePin pins[2];
     GatewayMessageAttachment outer_attachments[20], child_attachments[20];
@@ -64,8 +64,8 @@ Utf8View pins_body(bool full) noexcept {
     return ok ? Utf8View{reinterpret_cast<const char*>(page_fixture.body), writer.used} : Utf8View{};
 }
 MessageHistoryDecodeResult history(Utf8View body, const MessageHistoryRichScratch& scratch) noexcept {
-    return decode_message_history_page(body, {page_fixture.page_structurals, 32768},
-        {page_fixture.message_structurals, 16384}, 32, {page_fixture.text, sizeof(page_fixture.text)},
+    return decode_message_history_page(body, {page_fixture.page_structurals, 32768}, 32,
+        {page_fixture.text, sizeof(page_fixture.text)},
         {page_fixture.messages, 2}, {page_fixture.outer_mentions, 200}, scratch);
 }
 bool complete(const GatewayMessageEvent& event) noexcept {
@@ -102,19 +102,19 @@ void test_forwarded_message_pages(void (*check)(bool, const char*) noexcept) noe
         "history packs child descriptors and text independently across adjacent forwarded messages without escaping stack role IDs");
     body = pins_body(true);
     const auto pinned = decode_message_pins_page(body, {7, {}, 50}, {page_fixture.page_structurals, 32768},
-        {page_fixture.message_structurals, 16384}, 32, {page_fixture.text, sizeof(page_fixture.text)},
+        32, {page_fixture.text, sizeof(page_fixture.text)},
         {page_fixture.pins, 2}, {page_fixture.outer_mentions, 200}, scratch);
     check(body.bytes && pinned.ok() && pinned.page.count == 2 && complete(page_fixture.pins[0].message) && complete(page_fixture.pins[1].message) &&
         distinct(page_fixture.pins[0].message, page_fixture.pins[1].message) && pinned.page.text_bytes ==
         page_fixture.pins[0].message.transient_bytes + page_fixture.pins[1].message.transient_bytes,
         "pins preserve full independent forwarded media pools and include all child text in the page arena accounting");
     body = history_body(false);
-    const auto legacy = decode_message_history_page(body, {page_fixture.page_structurals, 32768},
-        {page_fixture.message_structurals, 16384}, 32, {page_fixture.text, sizeof(page_fixture.text)}, {page_fixture.messages, 2});
+    const auto legacy = decode_message_history_page(body, {page_fixture.page_structurals, 32768}, 32,
+        {page_fixture.text, sizeof(page_fixture.text)}, {page_fixture.messages, 2});
     check(legacy.ok() && !page_fixture.messages[0].snapshot.present && utf8_equal(page_fixture.messages[0].content, utf8_literal("outer text")),
         "legacy non-rich history continues accepting forwarded messages without snapshot storage");
     const auto legacy_pins = decode_message_pins_page(pins_body(false), {7, {}, 50},
-        {page_fixture.page_structurals, 32768}, {page_fixture.message_structurals, 16384}, 32,
+        {page_fixture.page_structurals, 32768}, 32,
         {page_fixture.text, sizeof(page_fixture.text)}, {page_fixture.pins, 2}, {}, {});
     check(legacy_pins.ok() && !page_fixture.pins[0].message.snapshot.present,
         "legacy non-rich pins continue accepting forwarded messages without snapshot storage");

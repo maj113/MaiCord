@@ -497,13 +497,13 @@ void composer_slowmode_cases() noexcept {
     const u64 saved_active_channel = ui.active_channel_id;
     const u64 saved_composer_channel = g_app.message_composer.channel_id;
     GuildRecord guilds[1]{};
-    ChannelRecord channels[1]{};
+    ChannelRecord channels[2]{};
     RoleRecord roles[1]{};
     PermissionOverwriteRecord overwrites[1]{};
-    u16 guild_order[1]{}, channel_order[1]{};
+    u16 guild_order[1]{}, channel_order[2]{};
     u8 names[256]{};
     u32 account_owners[8]{};
-    constexpr u64 guild_id = 55, channel_id = 9, self_id = 7;
+    constexpr u64 guild_id = 55, channel_id = 9, other_channel_id = 10, self_id = 7;
     constexpr PermissionSet ordinary = kPermissionViewChannel | kPermissionSendMessages;
     constexpr Utf8View draft = utf8_literal("slowmode draft stays");
     ChannelInput channel_input{};
@@ -512,11 +512,15 @@ void composer_slowmode_cases() noexcept {
     channel_input.name = utf8_literal("slowmode");
     channel_input.rate_limit_per_user = 21'600;
     channel_input.rate_limit_known = true;
+    ChannelInput other_input = channel_input;
+    other_input.id = other_channel_id;
+    other_input.name = utf8_literal("other");
     const bool initialized = chat_state_store_initialize(&ui.chat_state, {guilds, 1}, {guild_order, 1},
-        {channels, 1}, {channel_order, 1}, {names, sizeof(names)}) &&
+        {channels, 2}, {channel_order, 2}, {names, sizeof(names)}) &&
         chat_state_store_bind_permissions(&ui.chat_state, {roles, 1}, {overwrites, 1}) &&
         chat_state_store_upsert_guild(&ui.chat_state, {guild_id, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() &&
         chat_state_store_upsert_channel(&ui.chat_state, channel_input).ok() &&
+        chat_state_store_upsert_channel(&ui.chat_state, other_input).ok() &&
         message_composer_controller_select_channel(&ui.message_composer_controller, channel_id).ok() &&
         message_composer_replace_range(&g_app.message_composer, 0, g_app.message_composer.bytes, draft) !=
             MessageComposerResult::invalid_input;
@@ -609,6 +613,16 @@ void composer_slowmode_cases() noexcept {
         check(application_composer_prepare_send(&handled) && !handled &&
             !application_composer_slowmode_active(channel_id) && utf8_equal(message_composer_text(g_app.message_composer), draft),
             "slowmode re-enabling the channel does not resurrect an old prediction");
+        application_composer_note_sent(channel_id);
+        application_composer_note_sent(other_channel_id);
+        check(application_composer_slowmode_active(channel_id) && application_composer_slowmode_active(other_channel_id),
+            "slowmode cooldowns of two channels run side by side");
+        application_composer_slowmode_cooldown(other_channel_id, 5000);
+        application_message_interaction_tick(clock_monotonic_milliseconds() + 6000);
+        check(application_composer_slowmode_active(channel_id) && !application_composer_slowmode_active(other_channel_id),
+            "slowmode a server cooldown from the typing response replaces one channel's deadline only");
+        application_composer_slowmode_cooldown(other_channel_id, 0);
+        check(!application_composer_slowmode_active(other_channel_id), "slowmode a zero server cooldown arms nothing");
 
         auto& controller = ui.message_composer_controller;
         const auto queued = message_composer_controller_queue_send(&controller, true, self_id, 1000, 100, 0);

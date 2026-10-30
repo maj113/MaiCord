@@ -487,6 +487,10 @@ bool page_allowed(Page page) noexcept;
 bool can_manage_guild() noexcept;
 bool editable() noexcept;
 void queue(Op op, u64 target = 0) noexcept;
+// A page's read, queued once per visit. Clears `failed` with the new request; false when already requested.
+bool request_read(bool& requested, bool& failed, Op op) noexcept;
+// A failed read's retry notice: reads again unless a request is in flight or MaiCord is offline.
+void retry_read(bool& requested, bool& failed, Op op) noexcept;
 void show_failure(Utf8View text) noexcept;
 bool repaint() noexcept;
 bool guard_dirty() noexcept;

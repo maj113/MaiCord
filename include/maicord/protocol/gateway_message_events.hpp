@@ -505,15 +505,21 @@ bool parse_iso_timestamp(const JsonString& value, u64* timestamp_ms) noexcept;
 // while that storage is. The fields mask distinguishes an absent MESSAGE_UPDATE
 // field from a present empty or null value. Snapshot core fields are partial
 // and carry no message/channel/author identity.
-GatewayEventDecodeResult gateway_decode_message_snapshot_core(JsonValue data, Slice<u32> structural_scratch,
+//
+// Overloads taking a JsonIndexedDocument decode a value of an already indexed document
+// (a page of messages): nothing is scanned and the index stays intact.
+GatewayEventDecodeResult gateway_decode_message_snapshot_core(const JsonIndexedDocument& document, JsonValue data,
                                                               u32 maximum_depth,
                                                               Slice<char> content_scratch,
                                                               Slice<GatewayMessageNamedUser> mention_users,
                                                               GatewayMessageEvent* output) noexcept;
-GatewayEventDecodeResult gateway_extract_message_snapshot(JsonValue array, Slice<u32> structural_scratch,
+GatewayEventDecodeResult gateway_extract_message_snapshot(const JsonIndexedDocument& document, JsonValue array,
                                                           u32 maximum_depth, JsonValue* body,
                                                           bool* present) noexcept;
 GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
+                                                       u32 maximum_depth, Slice<char> content_scratch,
+                                                       GatewayMessageEvent* output) noexcept;
+GatewayEventDecodeResult gateway_decode_message_create(const JsonIndexedDocument& document, JsonValue data,
                                                        u32 maximum_depth, Slice<char> content_scratch,
                                                        GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32> structural_scratch,
@@ -522,8 +528,19 @@ GatewayEventDecodeResult gateway_decode_message_create(JsonValue data, Slice<u32
                                                        Slice<GatewayMessageNamedUser> mention_user_scratch,
                                                        u64 current_user_id,
                                                        GatewayMessageEvent* output) noexcept;
+GatewayEventDecodeResult gateway_decode_message_create(const JsonIndexedDocument& document, JsonValue data,
+                                                       u32 maximum_depth, Slice<char> content_scratch,
+                                                       Slice<u64> mention_role_scratch,
+                                                       Slice<GatewayMessageNamedUser> mention_user_scratch,
+                                                       u64 current_user_id,
+                                                       GatewayMessageEvent* output) noexcept;
 GatewayEventDecodeResult gateway_decode_message_create(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> content_scratch,
+    Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
+    Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
+    u64 current_user_id, GatewayMessageEvent* output) noexcept;
+GatewayEventDecodeResult gateway_decode_message_create(
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<char> content_scratch,
     Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
     Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
     u64 current_user_id, GatewayMessageEvent* output) noexcept;
@@ -537,6 +554,11 @@ GatewayEventDecodeResult gateway_decode_message_update(
     u64 current_user_id, GatewayMessageEvent* output) noexcept;
 
 GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue data, Slice<u32> structural_scratch,
+                                                            u32 maximum_depth, Slice<char> text_output,
+                                                            u32* text_used,
+                                                            const GatewayMessageRichScratch& scratch,
+                                                            GatewayMessageEvent* output) noexcept;
+GatewayEventDecodeResult gateway_decode_message_rich_fields(const JsonIndexedDocument& document, JsonValue data,
                                                             u32 maximum_depth, Slice<char> text_output,
                                                             u32* text_used,
                                                             const GatewayMessageRichScratch& scratch,
