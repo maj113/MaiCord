@@ -1802,14 +1802,4 @@ bool application_downloads_release(u32 timeout) noexcept {
     g_app.downloads = nullptr;
     return true;
 }
-u32 application_downloads_owner_bytes() noexcept {
-    const auto* q = g_app.downloads;
-    if (!q)
-        return 0;
-    u32 bytes = sizeof(*q) + native_file_picker_committed_bytes(&q->picker);
-    for (const auto& j : q->jobs)
-        if (j.path)
-            bytes += (j.path_units + 1) * sizeof(wchar_t);
-    return bytes;
-}
 } // namespace maicord::app_detail

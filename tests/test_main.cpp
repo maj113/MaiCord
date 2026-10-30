@@ -4467,8 +4467,7 @@ void test_text_measure_cache() noexcept {
     UiTextMeasureValue cached{};
     const UiTextMeasureResult second = ui_text_measure_cache_measure(&cache, narrow, &cached);
     expect(first.ok() && !first.cached && second.ok() && second.cached && first_calls == 1 &&
-               fixture.calls == first_calls && measured.size.height == cached.size.height &&
-               cache.hits == 1 && cache.misses == 1 && cache.resident == 1,
+               fixture.calls == first_calls && measured.size.height == cached.size.height,
            "text_measure_cache_hit_avoids_backend");
 
     UiTextMeasureRequest wide = narrow;
@@ -4479,8 +4478,8 @@ void test_text_measure_cache() noexcept {
 
     ui_text_measure_cache_invalidate(&cache);
     const u32 calls_before_invalidate_miss = fixture.calls;
-    expect(cache.resident == 0 && ui_text_measure_cache_measure(&cache, narrow, &measured).ok() &&
-               fixture.calls == calls_before_invalidate_miss + 1 && cache.invalidations == 1,
+    expect(ui_text_measure_cache_measure(&cache, narrow, &measured).ok() &&
+               fixture.calls == calls_before_invalidate_miss + 1,
            "text_measure_cache_constant_time_invalidation");
 
     for (u32 index = 0; index < 32; ++index) {
@@ -4490,7 +4489,15 @@ void test_text_measure_cache() noexcept {
         expect(ui_text_measure_cache_measure(&cache, request, &measured).ok(),
                "text_measure_cache_bounded_fill");
     }
-    expect(cache.resident == 8 && cache.evictions != 0, "text_measure_cache_four_way_bounded_eviction");
+    u32 resident_hits = 0;
+    for (u32 index = 32; index-- != 0;) {
+        UiTextMeasureRequest request = narrow;
+        request.key.source_id = 100 + index;
+        request.key.item = static_cast<u16>(index);
+        const UiTextMeasureResult again = ui_text_measure_cache_measure(&cache, request, &measured);
+        resident_hits += again.ok() && again.cached ? 1u : 0u;
+    }
+    expect(resident_hits != 0 && resident_hits <= 8, "text_measure_cache_four_way_bounded_eviction");
 
     UiTextMeasureRequest failing = narrow;
     failing.key.source_revision = 99;
@@ -4503,8 +4510,8 @@ void test_text_measure_cache() noexcept {
     const u32 calls_before_reinitialize = fixture.calls;
     expect(ui_text_measure_cache_initialize(&cache, Slice<UiTextMeasureRecord>{records, 8}, backend,
                                             &fixture) &&
-               ui_text_measure_cache_measure(&cache, narrow, &measured).ok() && cache.misses == 1 &&
-               cache.hits == 0 && fixture.calls == calls_before_reinitialize + 1,
+               ui_text_measure_cache_measure(&cache, narrow, &measured).ok() &&
+               fixture.calls == calls_before_reinitialize + 1,
            "text_measure_cache_reinitialize_discards_resident_generation");
 
     MessageTextCommand commands[2]{};
@@ -4552,15 +4559,13 @@ void test_text_measure_cache() noexcept {
                measurements[0].content_height == 90.0f && message_backend_calls == 2,
            "message_text_measure_cache_aggregates_ui_owned_metrics");
     expect(message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
-               !measurement_changed && fixture.calls == message_backend_calls && message_cache.hits == 2,
+               !measurement_changed && fixture.calls == message_backend_calls,
            "message_text_measure_cache_reuses_stable_commands");
     const u32 backend_calls_before_malformed = message_cache.backend_calls;
-    const u32 hits_before_malformed = message_cache.hits;
     const float aggregate_before_malformed = measurements[0].content_height;
     commands[1].measurement_index = 1;
     expect(!message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
                !measurement_changed && message_cache.backend_calls == backend_calls_before_malformed &&
-               message_cache.hits == hits_before_malformed &&
                measurements[0].content_height == aggregate_before_malformed,
            "message_text_measure_invalid_batch_rejects_before_cache_access");
     commands[1].measurement_index = 0;
@@ -4568,7 +4573,6 @@ void test_text_measure_cache() noexcept {
     commands[1].text = Utf8View{nullptr, 1};
     expect(!message_text_presentation_measure(&presentation, &message_cache, 1, &measurement_changed) &&
                !measurement_changed && message_cache.backend_calls == backend_calls_before_malformed &&
-               message_cache.hits == hits_before_malformed &&
                measurements[0].content_height == aggregate_before_malformed,
            "message_text_measure_invalid_text_rejects_before_signature_hash");
     commands[1].text = valid_content;
@@ -5800,7 +5804,6 @@ void test_remote_auth_client_contract() noexcept {
         unchanged = unchanged && output[index] == 'Q';
     }
     expect(status.ok() && status.phase == RemoteAuthClientPhase::empty &&
-               remote_auth_client_runtime_bytes() > kUserAuthMaximumResponseBytes &&
                !remote_auth_client_copy_qr_url(
                    client, Slice<char>{output, static_cast<u32>(sizeof(output))}, &qr_bytes) &&
                qr_bytes == 0 &&
@@ -5836,7 +5839,6 @@ void test_remote_auth_ticket_exchange_contract() noexcept {
     const SecureBufferResult credential = remote_auth_ticket_exchange_take_credential(&exchange, &output);
     const RemoteAuthTicketExchangeResult stopped = remote_auth_ticket_exchange_stop(&exchange, 1'000);
     expect(initialized.ok() && output_initialized.ok() && solution_initialized.ok() &&
-               remote_auth_ticket_exchange_runtime_bytes() > kRemoteAuthTicketExchangeResponseBytes &&
                invalid_run.error == RemoteAuthTicketExchangeError::invalid_input &&
                copied.error == SecureBufferError::invalid_input &&
                submitted.error == SecureBufferError::invalid_input &&
@@ -11652,7 +11654,7 @@ void test_animation_timeline() noexcept {
     const AnimationTimelineResult full = animation_timeline_publish(
         &timeline, AnimationTimelineDescriptor{overflow, 10'000, 9, 2, 1, true}, 100'000);
     expect(first.ok() && second.ok() && full.error == AnimationTimelineError::no_capacity &&
-               timeline.entry_count == 2 && timeline.counters.capacity_rejections == 1 &&
+               timeline.entry_count == 2 &&
                animation_timeline_next_wake_at_us(&timeline) == 130'000 &&
                animation_timeline_wait_timeout_ms(&timeline, 129'001) == 1 &&
                animation_timeline_wait_timeout_ms(&timeline, 130'000) == 0,
@@ -11662,8 +11664,7 @@ void test_animation_timeline() noexcept {
     expect(animation_timeline_observe_visible(&timeline, sticker, 110'000),
            "animation_timeline_resume_observed");
     animation_timeline_end_visibility(&timeline, 110'000);
-    expect(animation_timeline_next_wake_at_us(&timeline) == 120'000 && timeline.counters.pauses == 1 &&
-               timeline.counters.resumes == 1,
+    expect(animation_timeline_next_wake_at_us(&timeline) == 120'000,
            "animation_timeline_offscreen_pause_preserves_remaining");
 
     AnimationFrameAdvance advances[1]{};
@@ -11688,8 +11689,7 @@ void test_animation_timeline() noexcept {
     expect(animation_timeline_observe_visible(&timeline, emoji, 1'000'000),
            "animation_timeline_paused_entry_resume");
     animation_timeline_end_visibility(&timeline, 1'000'000);
-    expect(animation_timeline_next_wake_at_us(&timeline) == 1'020'000 && timeline.counters.pauses == 2 &&
-               timeline.counters.resumes == 2,
+    expect(animation_timeline_next_wake_at_us(&timeline) == 1'020'000,
            "animation_timeline_visibility_epoch_switch");
 
     collected =
@@ -11708,7 +11708,7 @@ void test_animation_timeline() noexcept {
     const bool looped = collected.advances == 1 && advances[0].scheduled_at_us == 1'040'000 &&
                         advances[0].frame_index == 0 && advances[0].play_index == 1 &&
                         animation_timeline_commit_advance(&timeline, advances[0], 10'000).ok();
-    expect(late_frame && looped && timeline.counters.late_advances == 2,
+    expect(late_frame && looped,
            "animation_timeline_absolute_deadline_catchup_no_drift");
 
     collected =
@@ -11724,7 +11724,6 @@ void test_animation_timeline() noexcept {
     collected =
         animation_timeline_collect_due(&timeline, 1'070'000, Slice<AnimationFrameAdvance>{advances, 1});
     expect(second_frame && final_frame && collected.advances == 0 && collected.completed == 1 &&
-               timeline.counters.completed_animations == 1 &&
                animation_timeline_next_wake_at_us(&timeline) == 0,
            "animation_timeline_finite_play_count_rests_on_final_frame");
 
@@ -11793,7 +11792,7 @@ void test_animation_timeline() noexcept {
     for (u32 index = 0; index < scale_collected.advances && scale_ok; ++index) {
         scale_ok = animation_timeline_commit_advance(&scale, scale_advances[index], 16'667).ok();
     }
-    expect(scale_ok && scale.entry_count == 256 && scale.counters.releases == 128 &&
+    expect(scale_ok && scale.entry_count == 256 &&
                scale.counters.due_advances == 256,
            "animation_timeline_identity_batch_churn");
 }
@@ -11826,7 +11825,6 @@ void test_animation_visual_runtime() noexcept {
     expect(published && runtime.timeline.capacity == 256 && runtime.timeline.entries == entry_base &&
                runtime.timeline.buckets == bucket_base && runtime.visuals == visual_base &&
                runtime.visuals[retained_slot].occupied &&
-               runtime.timeline.counters.capacity_rejections == 0 &&
                animation_timeline_find(&runtime.timeline, media_asset_custom_emoji(2'000'001, true)).slot ==
                    retained_slot,
            "animation_visual_runtime_grows_without_moves_or_identity_loss");
@@ -11835,8 +11833,7 @@ void test_animation_visual_runtime() noexcept {
                !animation_visual_runtime_reserve(&runtime, kAnimationVisualMaximumCapacity + 1u),
            "animation_visual_runtime_enforces_hard_bound");
     animation_visual_runtime_reset(&runtime);
-    expect(runtime.timeline.entry_count == 0 && runtime.visuals[retained_slot].occupied == false &&
-               runtime.timeline.counters.publishes == 0,
+    expect(runtime.timeline.entry_count == 0 && runtime.visuals[retained_slot].occupied == false,
            "animation_visual_runtime_reset_clears_committed_state");
     animation_visual_runtime_release(&runtime);
     expect(runtime.visuals == nullptr && runtime.timeline.entries == nullptr &&
@@ -20682,7 +20679,7 @@ void test_message_history_sync() noexcept {
                prepended.invalidation.scroll_changed && store.count == 4 && list.count == 4 &&
                list.structural_updates == 1 && timeline.scroll_units == 250 &&
                timeline.scroll_origin_units == 200 &&
-               timeline.history_pages == 1 && timeline.history_inserted == 2 &&
+               timeline.history_pages == 1 &&
                message_store_resolve(store, message_store_find(store, 100).handle)->content_availability ==
                    MessageContentAvailability::available,
            "message_history_batch_prepend_preserves_anchor_once");
@@ -20711,7 +20708,6 @@ void test_message_history_sync() noexcept {
     expect(replaced_edge.ok() && replaced_edge.inserted == 2 && replaced_edge.evicted == 2 &&
                replaced_edge.compactions == 0 && store.count == 6 && list.count == 6 &&
                list.structural_updates == 4 && timeline.evicted == 2 && timeline.history_pages == 3 &&
-               timeline.history_inserted == 6 &&
                message_store_find(store, 100).error == MessageStoreError::not_found &&
                message_store_find(store, 200).error == MessageStoreError::not_found &&
                message_store_find(store, 700).ok() && message_store_find(store, 800).ok() &&
@@ -23953,7 +23949,7 @@ void test_rest() noexcept {
     const RestRateObservation observed_a =
         rest_rate_observe(&scheduler, &lease_a.lease, alpha_first, nullptr, 100, 1'000'000);
     expect(observed_a.ok() && !observed_a.rate_limited && !lease_a.lease.active && !observed_a.global &&
-               observed_a.retry_at_ms == 60'100 && scheduler.observations == 1,
+               observed_a.retry_at_ms == 60'100,
            "rest_rate_first_canonical_observation");
 
     RestRateAcquireResult consumed_a = rest_rate_acquire(&scheduler, route_a, 200);
@@ -24018,7 +24014,7 @@ void test_rest() noexcept {
         migrate_e.acquired_request() &&
             rest_rate_observe(&scheduler, &migrate_e.lease, delta_hash, nullptr, 2'100, 1'002'100)
                 .ok() &&
-            scheduler.migrations == 1,
+            scheduler_buckets[scheduler_bindings[migrate_e.lease.binding_index].bucket_index].canonical,
         "rest_rate_canonical_bucket_migration");
 
     RestRateAcquireResult global_c = rest_rate_acquire(&scheduler, route_c, 4'000);
@@ -24032,7 +24028,6 @@ void test_rest() noexcept {
         rest_rate_observe(&scheduler, &global_c.lease, global_head, &global_body, 4'000, 1'004'000);
     expect(global_c.acquired_request() && global_observed.ok() && global_observed.rate_limited &&
                global_observed.global && global_observed.retry_at_ms == 6'500 &&
-               scheduler.invalid_requests == 1 &&
                rest_rate_acquire(&scheduler, route_a, 5'000).wait_until_ms == 6'500,
            "rest_rate_global_deadline_uses_safe_maximum");
     RestRateAcquireResult after_global = rest_rate_acquire(&scheduler, route_a, 6'500);
@@ -24130,9 +24125,8 @@ void test_rest() noexcept {
         }
         auto other = rest_rate_acquire(&retry_scheduler, route_c, 102);
         expect(other.acquired_request() && rest_rate_cancel(&retry_scheduler, &other.lease) &&
-                   rest_rate_cancel(&retry_scheduler, &pinned.lease) &&
-                   retry_scheduler.invalid_requests == 1,
-               "rest_non429_retry_metadata_keeps_unrelated_routes_and_invalid_request_accounting");
+                   rest_rate_cancel(&retry_scheduler, &pinned.lease),
+               "rest_non429_retry_metadata_keeps_unrelated_routes");
     }
 
     const RestHeadResult shared_seed = parse_rest_response_head(byte_literal(
@@ -24275,10 +24269,13 @@ void test_rest_transaction() noexcept {
         rest_client_runtime_bytes(kRestClientMinimumResponseBytes) >=
                 kRestClientMinimumResponseBytes &&
             rest_client_runtime_bytes(kRestClientMinimumResponseBytes - 1) == 0 &&
-            rest_client_user_auth_runtime_bytes(kRestClientMinimumResponseBytes) >=
+            rest_client_user_auth_capacity_runtime_bytes(kRestClientMinimumResponseBytes,
+                                                         kUserAuthMaximumRequestBodyBytes) >=
                 kRestClientMinimumResponseBytes &&
-            rest_client_user_auth_runtime_bytes(kRestClientMinimumResponseBytes - 1) == 0 &&
-            rest_client_user_auth_runtime_bytes(kUserAuthMaximumResponseBytes + 1) == 0 &&
+            rest_client_user_auth_capacity_runtime_bytes(kRestClientMinimumResponseBytes - 1,
+                                                         kUserAuthMaximumRequestBodyBytes) == 0 &&
+            rest_client_user_auth_capacity_runtime_bytes(kUserAuthMaximumResponseBytes + 1,
+                                                         kUserAuthMaximumRequestBodyBytes) == 0 &&
             rest_client_start_user(&invalid_client, nullptr, nullptr, kRestClientMinimumResponseBytes)
                     .error == RestClientError::invalid_input &&
             !invalid_client.worker.thread && !invalid_client.runtime,
@@ -24396,9 +24393,7 @@ void test_user_auth_coordinator_contract() noexcept {
     const UserAuthCoordinatorResult started = user_auth_coordinator_start(&coordinator);
     expect(started.ok() && started.phase == UserAuthCoordinatorPhase::idle && coordinator.runtime &&
                coordinator.transport.worker.thread &&
-               user_auth_coordinator_notification_handle(&coordinator) &&
-               user_auth_coordinator_runtime_bytes() >
-                   rest_client_user_auth_runtime_bytes(kUserAuthMaximumResponseBytes),
+               user_auth_coordinator_notification_handle(&coordinator),
            "user_auth_coordinator_locked_owner_start");
     if (!coordinator.runtime || !coordinator.transport.worker.thread) {
         user_auth_coordinator_stop(&coordinator, 5'000);
@@ -24486,7 +24481,7 @@ void test_tls_stream_contract() noexcept {
         tls_stream_start_read(&stream, test_tls_stream_read_handler, nullptr);
     expect(!invalid_write.ok() && invalid_write.error == TlsStreamError::invalid_input &&
                !invalid_read.ok() && invalid_read.error == TlsStreamError::invalid_input &&
-               stream.state == TlsStreamState::empty && stream.error == TlsStreamError::none,
+               stream.state == TlsStreamState::empty,
            "tls_stream_invalid_call_does_not_poison_owner");
     tls_stream_close(&stream);
     expect(stream.state == TlsStreamState::closed && tls_stream_drained(&stream),
@@ -24917,7 +24912,7 @@ void test_message_draft_session(const wchar_t* path, u64 profile_id) noexcept {
         message_draft_session_wait(session, drafts, 1'500, 5'000) && !session.persist_in_flight;
     const MessageDraftPersistenceResult rewritten = message_drafts_load_file(path, profile_id, &verification);
     expect(migration_committed && rewritten.ok() && rewritten.discarded == 0 && rewritten.records == 1 &&
-        rewritten.bytes == 114 && session.persisted_bytes == 114 && !session.cleanup_required &&
+        rewritten.bytes == 114 && !session.cleanup_required &&
         session.persist_at_ms == 0 && session.persist_saves == 1 && session.persist_failures == 0 &&
         session.persisted_revision == 12 && drafts.revision == 12,
         "message_draft_session_due_cleanup_rewrites_and_marks_exact_revision_persisted");

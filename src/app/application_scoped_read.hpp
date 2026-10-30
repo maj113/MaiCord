@@ -31,19 +31,6 @@ bool application_scoped_read_response(const RestClientResponse&, Utf8View body, 
 void application_scoped_read_synchronize() noexcept;
 void application_scoped_read_reset() noexcept;
 void application_scoped_read_release() noexcept;
-struct ApplicationScopedReadMetrics {
-    u32 owner_bytes, owner_reserved_bytes, owner_committed_bytes;
-    u32 queue_reserved_bytes, queue_committed_bytes;
-    u32 targets_reserved_bytes, targets_committed_bytes;
-    u32 plan_reserved_bytes, plan_committed_bytes;
-    u32 jobs_reserved_bytes, jobs_committed_bytes;
-    u32 flight_reserved_bytes, flight_committed_bytes;
-    u32 candidate_reserved_bytes, candidate_committed_bytes;
-    u32 plan_builds, target_checks, encodings, commits;
-    u32 publication_revision;
-    bool flight_active;
-};
-ApplicationScopedReadMetrics application_scoped_read_metrics() noexcept;
 // Shared authority broker callbacks; no transport or UI action is admitted here.
 void application_scoped_read_superseded(u64 channel_id, u64 latest_action_serial) noexcept;
 void application_scoped_read_individual_result(u64 channel_id, u64 action_serial, bool success,

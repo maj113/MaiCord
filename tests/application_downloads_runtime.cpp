@@ -704,7 +704,7 @@ void run() noexcept {
               seed(502, 602, utf8_literal("forward.bin"), true),
           "Downloads retains ordinary and snapshot attachments");
     audio_hit_tests();
-    check(!application_downloads_owner_bytes() && application_downloads_available(500, 600) &&
+    check(!g_app.downloads && application_downloads_available(500, 600) &&
               !application_downloads_available(500, 999),
           "Downloads owner is lazy and exact attachment identity is required");
     check(application_downloads_begin(501, 601) && application_downloads_active() && suspends,
@@ -1159,12 +1159,12 @@ void run() noexcept {
     check(application_downloads_window_message(WM_LBUTTONUP, 0, point) && GetCapture() != g_app.window,
           "Downloads hiding releases capture and consumes pointer tail");
     application_downloads_prepare_account_stop();
-    check(application_downloads_release() && !application_downloads_owner_bytes() &&
+    check(application_downloads_release() && !g_app.downloads &&
               !g_app.renderer.download_scene,
           "Downloads account retirement drains and releases all scoped paths");
     save_target_tests();
     attachment_menu_tests();
-    check(application_downloads_release() && !application_downloads_owner_bytes(),
+    check(application_downloads_release() && !g_app.downloads,
           "Downloads attachment menu owner releases cleanly");
     media_admission_tests();
     ui_search_scene_release(&search_scene);
@@ -1216,9 +1216,6 @@ bool native_file_picker_release(NativeFilePicker* picker, u32) noexcept {
         return false;
     *picker = {};
     return true;
-}
-u32 native_file_picker_committed_bytes(const NativeFilePicker*) noexcept {
-    return 0;
 }
 bool renderer_read_media_rgba(D3D11Renderer*, MediaAssetKey key, Slice<u8> rgba, u32* width,
                               u32* height) noexcept {

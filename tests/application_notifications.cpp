@@ -457,6 +457,10 @@ void pack_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     application_notifications_release(&g_app);
 }
 
+// Retention allocation failure is visible to the user through the status line.
+bool notification_unavailable() noexcept {
+    return utf8_equal(application_notifications_status(&g_app), utf8_literal("Notifications are unavailable right now."));
+}
 bool retention_channel(u64 channel) noexcept {
     auto& f=fixture;
     ProtocolWriter w{{reinterpret_cast<u8*>(f.header),sizeof(f.header)},0};
@@ -562,14 +566,13 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
         "notification retention: existing channel and new capacity demand exercise isolated allocation failure");
     auto failed_growth=application_notifications_fixture_metrics(&g_app);
     check(f.delivered==17 && failed_growth.retention_channels==16 && failed_growth.retention_tickets==17 &&
-        failed_growth.retention_allocation_failures==1 && !failed_growth.display_outstanding &&
+        notification_unavailable() && !failed_growth.display_outstanding &&
         failed_growth.retention_rows_committed_bytes==m.retention_rows_committed_bytes &&
         application_notifications_fixture_retained(&g_app,21,0)==2300 &&
         application_notifications_fixture_retained(&g_app,21,1)==2400 && application_notifications_can_pop(&g_app),
         "notification retention: failed growth preserves both banks and tickets; existing capacity works and failed intent retires before Show");
     application_notifications_fixture_retention_oom(&g_app,2);
     check(message(2317,20,115) && f.delivered==17 &&
-        application_notifications_fixture_metrics(&g_app).retention_allocation_failures==2 &&
         application_notifications_fixture_metrics(&g_app).retention_rows_committed_bytes==m.retention_rows_committed_bytes &&
         application_notifications_fixture_metrics(&g_app).retention_index_committed_bytes==m.retention_index_committed_bytes &&
         application_notifications_fixture_retained(&g_app,21,1)==2400,
@@ -605,7 +608,7 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     for(u32 i=0;i<32;++i) application_notifications_drain(&g_app);
     m=application_notifications_fixture_metrics(&g_app);
     check(!f.delivered && !m.display_outstanding && !m.retention_channels && !m.retention_rows_committed_bytes &&
-        m.retention_allocation_failures==32 && application_notifications_can_pop(&g_app) && f.sound_count==3 &&
+        notification_unavailable() && application_notifications_can_pop(&g_app) && f.sound_count==3 &&
         application_notifications_next_wake(&g_app)==3000,
         "notification retention: preflight OOM retires every full-queue intent with no untracked Show and preserves trailing failure fallback");
     f.sound_now=3000; application_notifications_drain(&g_app);
@@ -1070,7 +1073,7 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     application_notifications_account_stop(&g_app);
     metrics = application_notifications_fixture_metrics(&g_app);
     check(!metrics.ready && !metrics.live && !metrics.guilds && !metrics.overrides && !metrics.threads &&
-        !metrics.seen_count && f.navigation_calls == 0 && !metrics.audio_worker_started && !metrics.audio_submitted,
+        !metrics.seen_count && f.navigation_calls == 0 && !metrics.audio_worker_started && !f.sound_count,
         "notification application: account stop discards owner authority and never navigates or opens OS delivery");
     application_notifications_release(&g_app);
     check(!g_app.notifications, "notification application: release clears nonemitting owner");

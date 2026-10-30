@@ -657,7 +657,6 @@ bool rebuild_probe_content_text() noexcept {
                 g_probe.message_text.measurement_count);
         log_u64(LogLevel::error, "probe", "text_measure_backend_calls",
                 g_probe.text_measure_cache.backend_calls);
-        log_u64(LogLevel::error, "probe", "text_measure_rejected", g_probe.text_measure_cache.rejected);
         log_u64(LogLevel::error, "probe", "text_measure_shape_error",
                 static_cast<u64>(g_probe.text.last_shape_error));
         log_u64(LogLevel::error, "probe", "text_measure_native_error",
@@ -9091,7 +9090,7 @@ bool glyph_text_owner_empty(const D3D11GlyphTextOwner& owner) noexcept {
            !owner.allocator.rows && !owner.gpu.texture && !owner.gpu.texture_view &&
            !owner.gpu.texture_uav && !owner.gpu.command_buffer && !owner.gpu.command_view &&
            !owner.gpu.raster_shader && owner.gpu.dispatched_pixels == 0 &&
-           owner.gpu.dispatched_commands == 0 && owner.gpu.dispatch_count == 0 && owner.gpu.rejected == 0 &&
+           owner.gpu.dispatched_commands == 0 && owner.gpu.dispatch_count == 0 &&
            owner.title_quad_count == 0 && owner.cache_builds == 0 && !owner.ready && faces_empty;
 }
 

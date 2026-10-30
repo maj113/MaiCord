@@ -361,13 +361,6 @@ struct RestRateScheduler {
     Slice<RestRateBucket> buckets;
     Slice<RestRateBinding> bindings;
     u64 global_reset_at_ms;
-    u32 acquired;
-    u32 waited;
-    u32 busy;
-    u32 observations;
-    u32 migrations;
-    u32 cancellations;
-    u32 invalid_requests;
 };
 
 struct RestRateLease {

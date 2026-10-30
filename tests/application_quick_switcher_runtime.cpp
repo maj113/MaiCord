@@ -232,14 +232,14 @@ void run() noexcept {
               private_channel_store_replace(&private_store,
                                             {201, 0, {alice_recipient, 1}, {}, true, false, false}),
           "Quick runtime: scoped private recipients and friend routing");
-    check(!application_quick_switcher_active() && !application_quick_switcher_owner_bytes() &&
+    check(!application_quick_switcher_active() && !g_app.quick_switcher &&
               !application_quick_switcher_edit_target(),
           "Quick runtime: unopened modal owns no heap or editor");
     application_quick_switcher_note_channel(101);
-    check(!application_quick_switcher_owner_bytes() && g_app.quick_switcher_recent_count == 1,
+    check(!g_app.quick_switcher && g_app.quick_switcher_recent_count == 1,
           "Quick runtime: navigation recency does not allocate the modal");
     check(open_key() && application_quick_switcher_active() && g_app.renderer.quick_switcher_scene &&
-              application_quick_switcher_owner_bytes() && application_quick_switcher_edit_focused() &&
+              g_app.quick_switcher && application_quick_switcher_edit_focused() &&
               text_input_ready(application_quick_switcher_edit_target()) && suspends && synchronizations,
           "Quick runtime: Ctrl K opens the shipping scene and owned native document");
     if (!application_quick_switcher_active())
@@ -260,7 +260,6 @@ void run() noexcept {
     const auto* allocation = g_app.quick_switcher;
     const auto* widget_bank = scene->widgets.storage.data;
     const auto* accepted_bank = scene->accepted;
-    const u32 owner_bytes = application_quick_switcher_owner_bytes();
     check(scene->accepted_count == 1 && scene->accepted[0].channel_id == 101,
           "Quick runtime: empty query uses successful same account navigation recency");
     underlying_input = 0;
@@ -318,7 +317,6 @@ void run() noexcept {
                                      client_status_with(0, ClientPlatform::desktop, ClientPlatformStatus::idle));
     const bool alice_query = presences && open_key() && query(utf8_literal("@alice"));
     check(alice_query && g_app.renderer.quick_switcher_scene && g_app.quick_switcher == allocation &&
-              application_quick_switcher_owner_bytes() == owner_bytes &&
               g_app.renderer.quick_switcher_scene->widgets.storage.data == widget_bank &&
               g_app.renderer.quick_switcher_scene->accepted == accepted_bank,
           "Quick runtime: reopen reuses retained owner and widget result banks");
@@ -407,7 +405,7 @@ void run() noexcept {
     g_app.renderer.text_form = nullptr;
     g_app.text_form = nullptr;
     application_quick_switcher_release();
-    check(!application_quick_switcher_owner_bytes() && !application_quick_switcher_edit_model() &&
+    check(!g_app.quick_switcher && !application_quick_switcher_edit_model() &&
               !application_quick_switcher_edit_target() && !g_app.renderer.quick_switcher_scene &&
               !application_quick_switcher_caret_wake() && !text_input_ready(old_account_document),
           "Quick runtime: release removes borrowed scene document and wake");

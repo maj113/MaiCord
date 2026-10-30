@@ -483,5 +483,4 @@ void application_message_forward_completion(const MessageSendCompletion& complet
         if (q->active) application_request_frame();
     }
 }
-u32 application_message_forward_owner_bytes() noexcept { return g_app.message_forward ? sizeof(ApplicationMessageForward) : 0; }
 } // namespace maicord::app_detail

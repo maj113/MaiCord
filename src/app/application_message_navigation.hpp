@@ -28,7 +28,6 @@ bool application_message_navigation_link(const ApplicationMessageNavigationSourc
     const MessageLink&) noexcept;
 bool application_message_navigation_active() noexcept;
 bool application_message_navigation_observation_needed() noexcept;
-u32 application_message_navigation_owner_bytes() noexcept;
 bool application_message_navigation_cancel() noexcept;
 void application_message_navigation_release() noexcept;
 // Called for decoded Gateway CHANNEL_DELETE/THREAD_DELETE before/after Core

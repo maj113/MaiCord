@@ -1206,10 +1206,4 @@ RemoteAuthClientResult remote_auth_client_status(const RemoteAuthClient* client)
     return client_result(client);
 }
 
-u32 remote_auth_client_runtime_bytes() noexcept {
-    const u64 total = static_cast<u64>(sizeof(RemoteAuthClientRuntime)) - sizeof(RemoteAuthTicketExchange) +
-                      remote_auth_ticket_exchange_runtime_bytes();
-    return total <= 0xFFFFFFFFull ? static_cast<u32>(total) : 0;
-}
-
 } // namespace maicord

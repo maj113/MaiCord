@@ -864,7 +864,6 @@ RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler, const Rest
         return RestRateAcquireResult{{}, 0, RestRateAcquireKind::error, RestRateError::invalid_input};
     if (scheduler->global_reset_at_ms != 0) {
         if (now_ms < scheduler->global_reset_at_ms) {
-            ++scheduler->waited;
             return RestRateAcquireResult{{}, scheduler->global_reset_at_ms, RestRateAcquireKind::waiting,
                                          RestRateError::none};
         }
@@ -876,7 +875,6 @@ RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler, const Rest
         return RestRateAcquireResult{{}, 0, RestRateAcquireKind::error, RestRateError::capacity};
     RestRateBinding& binding = scheduler->bindings[binding_index];
     if (binding.in_flight) {
-        ++scheduler->busy;
         return RestRateAcquireResult{{}, 0, RestRateAcquireKind::busy, RestRateError::none};
     }
 
@@ -900,7 +898,6 @@ RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler, const Rest
             if (bucket->reset_at_ms == 0)
                 return RestRateAcquireResult{{}, 0, RestRateAcquireKind::error,
                                              RestRateError::incomplete_bucket_deadline};
-            ++scheduler->waited;
             return RestRateAcquireResult{{}, bucket->reset_at_ms, RestRateAcquireKind::waiting, RestRateError::none};
         }
         if ((bucket->fields & rate_limit_field_remaining) != 0)
@@ -911,7 +908,6 @@ RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler, const Rest
 
     binding.in_flight = true;
     binding.last_used_ms = now_ms;
-    ++scheduler->acquired;
     return RestRateAcquireResult{
         RestRateLease{binding_index, binding.generation, bucket ? binding.bucket_index : invalid_rate_index,
                       bucket ? binding.bucket_generation : static_cast<u16>(0), true},
@@ -932,7 +928,6 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler, RestRateLeas
     release_lease_bucket(scheduler, *lease);
     binding.in_flight = false;
     lease->active = false;
-    ++scheduler->observations;
 
     const RateLimitHeaders& rate = response_head.rate;
     const bool limited = response_head.head.status_code == 429;
@@ -954,8 +949,6 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler, RestRateLeas
             return observation_error(RestRateError::capacity);
         bucket = &scheduler->buckets[bucket_index];
         if (binding.bucket_index != bucket_index || binding.bucket_generation != bucket->generation) {
-            if (has_bucket && binding.bucket_index != invalid_rate_index)
-                ++scheduler->migrations;
             binding.bucket_index = bucket_index;
             binding.bucket_generation = bucket->generation;
         }
@@ -1011,11 +1004,6 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler, RestRateLeas
         }
     }
 
-    const u16 status = response_head.head.status_code;
-    const bool shared_429 = status == 429 && (rate.fields & rate_limit_field_scope) != 0 &&
-                            rate.scope == RateLimitScope::shared;
-    if (status == 401 || status == 403 || (status == 429 && !shared_429))
-        ++scheduler->invalid_requests;
     if (bucket && (bucket->fields & rate_limit_field_remaining) != 0 && bucket->remaining == 0 &&
         bucket->reset_at_ms == 0)
         return observation_error(RestRateError::incomplete_bucket_deadline);
@@ -1031,7 +1019,6 @@ bool rest_rate_cancel(RestRateScheduler* scheduler, RestRateLease* lease) noexce
     release_lease_bucket(scheduler, *lease);
     binding.in_flight = false;
     lease->active = false;
-    ++scheduler->cancellations;
     return true;
 }
 

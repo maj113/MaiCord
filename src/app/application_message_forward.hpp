@@ -26,5 +26,4 @@ bool application_message_forward_caption_focused() noexcept;
 bool application_message_forward_edit_changed(bool content = true) noexcept;
 void application_message_forward_edit_cancel_native_group(const TextInputTarget&) noexcept;
 void application_message_forward_completion(const MessageSendCompletion&) noexcept;
-u32 application_message_forward_owner_bytes() noexcept;
 } // namespace maicord::app_detail

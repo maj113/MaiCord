@@ -595,11 +595,4 @@ u64 application_gif_favorites_next_wake() noexcept {
                ? p->due_at
                : 0;
 }
-u32 application_gif_favorites_owner_bytes() noexcept {
-    const auto* p = g_app.gif_favorites;
-    return p ? static_cast<u32>(sizeof(ApplicationGifFavorites)) + (p->bank ? p->bank->bytes : 0) +
-                   (p->queue ? static_cast<u32>(sizeof(FavoriteAction)) * kQueueCapacity : 0) +
-                   (p->response_body ? kRestClientMaximumResponseBytes : 0)
-             : 0;
-}
 } // namespace maicord::app_detail

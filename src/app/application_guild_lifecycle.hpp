@@ -45,5 +45,4 @@ u64 application_guild_lifecycle_next_wake() noexcept;
 u64 application_guild_lifecycle_caret_wake() noexcept;
 struct SettingsLayer;
 SettingsLayer* application_guild_lifecycle_settings_layer() noexcept;
-u32 application_guild_lifecycle_owner_bytes() noexcept;
 } // namespace maicord::app_detail

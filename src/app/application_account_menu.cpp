@@ -179,9 +179,6 @@ bool publish(ApplicationAccountMenu& owner, UiRect anchor, u32 selected_index = 
     return refresh_account_frame(true);
 }
 } // namespace
-u32 application_account_menu_owner_bytes() noexcept {
-    return sizeof(ApplicationAccountMenu);
-}
 void application_account_menu_clear() noexcept {
     if (!g_app.account_menu)
         return;

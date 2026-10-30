@@ -242,5 +242,4 @@ CaptchaBridgeStatus captcha_bridge_stop(CaptchaBridge* bridge, u32 timeout_ms) n
     if (joined) loopback_release<Runtime>(bridge);
     return status;
 }
-u32 captcha_bridge_runtime_bytes() noexcept { return kOwnerBytes + kStorageBytes; }
 } // namespace maicord

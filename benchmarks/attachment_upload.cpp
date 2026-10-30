@@ -125,7 +125,6 @@ int run() noexcept {
     u32 path_units = 0; while (path[path_units]) ++path_units;
     const ConstSlice<wchar_t> dropped_path{path, path_units};
     constexpr u32 drop_cycles = 100;
-    u32 drop_peak_bytes = 0;
     u64 drop_submit_us = 0, drop_complete_us = 0, drop_join_us = 0;
     const i64 drop_start = clock_now();
     for (u32 i = 0; ok && i < drop_cycles; ++i) {
@@ -138,7 +137,6 @@ int run() noexcept {
         ok = file_drop_fixture::await(&selection) && native_file_picker_status(&selection).ok() &&
             native_file_picker_status(&selection).count == 1;
         drop_complete_us += clock_microseconds(clock, submitted_at, clock_now());
-        drop_peak_bytes = maximum(drop_peak_bytes, native_file_picker_committed_bytes(&selection));
         FileSnapshot snapshot{};
         ok = ok && native_file_picker_snapshot(&selection, 0, &snapshot) && snapshot.bytes == 67108864;
         // This benchmark thread can wait; the application still reaps with
@@ -159,7 +157,6 @@ int run() noexcept {
     write("file_drop_submit_us", drop_submit_us);
     write("file_drop_completion_us", drop_complete_us);
     write("file_drop_join_us", drop_join_us);
-    write("file_drop_peak_owned_bytes", drop_peak_bytes);
     write("checksum", checksum);
     u32 local_peak_text = 0, local_record_bytes = 0;
     const u64 local_us = benchmark_local_attachment_roundtrip(10000, &local_peak_text, &local_record_bytes, &checksum, false, false);

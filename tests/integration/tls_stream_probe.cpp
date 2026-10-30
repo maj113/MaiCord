@@ -221,10 +221,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_tls_stream_probe_entry() noe
     } else {
         test_write_text("FAIL tls_stream_reuse_cancel state=");
         test_write_u64(static_cast<u64>(g_stream.state));
-        test_write_text(" error=");
-        test_write_u64(static_cast<u64>(g_stream.error));
-        test_write_text(" native=");
-        test_write_u64(g_stream.native_error);
         test_write_text(" stage=");
         test_write_u64(g_probe_stage);
         test_write_text(" http_state=");

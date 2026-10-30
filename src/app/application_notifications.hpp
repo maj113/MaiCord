@@ -56,7 +56,7 @@ struct ApplicationNotificationFixtureMetrics {
     u32 owner_sizeof_bytes;
     u64 owner_vm_committed_bytes, storage_committed_bytes, storage_reserved_bytes;
     bool owner_vm_query_ok;
-    u64 audio_epoch, audio_backend_epoch, audio_submitted, sound_deadline;
+    u64 audio_epoch, audio_backend_epoch, sound_deadline;
     u32 audio_output_percent;
     NotificationSoundpack audio_pack;
     bool audio_failed, audio_worker_started;
@@ -65,7 +65,7 @@ struct ApplicationNotificationFixtureMetrics {
     // Retention owns two independently page-rounded VirtualAlloc banks. These
     // are metadata/VM counts, not process working set or visible OS banners.
     u64 retention_rows_committed_bytes, retention_index_committed_bytes,
-        retention_logical_bytes, retention_capacity_bytes, retention_allocation_failures, retention_tickets;
+        retention_logical_bytes, retention_capacity_bytes, retention_tickets;
     u32 retention_channels, retention_capacity_channels,
         retention_index_slots, retention_row_bytes;
     ApplicationNotificationFixtureStorageMetrics thread_storage;

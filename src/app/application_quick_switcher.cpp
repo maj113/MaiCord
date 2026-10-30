@@ -504,5 +504,4 @@ void application_quick_switcher_tick(u64 now) noexcept {
     q->blink_at = interval && interval != INFINITE ? deadline_after(now, interval) : 0;
     application_request_frame();
 }
-u32 application_quick_switcher_owner_bytes() noexcept { return g_app.quick_switcher ? sizeof(ApplicationQuickSwitcher) : 0; }
 } // namespace maicord::app_detail

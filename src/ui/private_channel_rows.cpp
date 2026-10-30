@@ -82,9 +82,6 @@ UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 c
     default: return UiPrivateRowStatus::offline;
     }
 }
-bool ui_private_row_mobile(const UiPrivateRowSource& source, u64 channel_id) noexcept {
-    return ui_private_row_status(source, channel_id) == UiPrivateRowStatus::online && mobile_peer(source, channel_id);
-}
 Utf8View ui_private_peer_activity(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
                                   UiActivityGlyph* glyph) noexcept {
     if (glyph) *glyph = UiActivityGlyph::none;

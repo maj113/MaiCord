@@ -805,10 +805,6 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
     return true;
 }
 } // namespace
-
-u32 application_tooltip_owner_bytes() noexcept {
-    return sizeof(ApplicationTooltip);
-}
 void application_tooltip_clear() noexcept {
     application_reaction_tooltip_leave();
     if (!g_app.tooltip)

@@ -69,7 +69,6 @@ struct MessageTimeline {
     u32 deferred;
     u32 compactions;
     u32 history_pages;
-    u32 history_inserted;
     u32 reset_generation;
     bool follow_bottom;
     bool newer_refetch_required;

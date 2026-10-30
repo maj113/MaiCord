@@ -1836,12 +1836,10 @@ void run_visibility_test() noexcept {
         // Repeated saturated pumps must preserve the visible frame deadline,
         // rather than pausing and resuming it in alternating visibility epochs.
         const u64 deadline = fixture.animations[visible.slot].due_at_us;
-        const u64 pauses = g_app.animations.timeline.counters.pauses;
         valid = pump.pump_visible_static_media(&repaint);
         check(valid && attachment_requests == 2 &&
                   (fixture.animations[visible.slot].flags & animation_timeline_entry_visible) &&
-                  fixture.animations[visible.slot].due_at_us == deadline &&
-                  g_app.animations.timeline.counters.pauses == pauses,
+                  fixture.animations[visible.slot].due_at_us == deadline,
               "media visibility: repeated saturation keeps animation cadence and hidden pause stable");
         u32& uploads = pump.uploads = kMessageMediaUploadBudget;
         pump.visibility_only = true;
@@ -2109,7 +2107,6 @@ void run_visibility_test() noexcept {
             visual.source_revision = fixture.records[1].revision;
         }
         const u64 advances = g_app.animations.timeline.counters.due_advances;
-        const u64 late = g_app.animations.timeline.counters.late_advances;
         const u32 attachments = attachment_requests, identities = identity_requests;
         const auto covered = application_pump_covered_media(&g_app);
         const auto& chat_entry = fixture.animations[chat.slot];
@@ -2119,7 +2116,6 @@ void run_visibility_test() noexcept {
                   chat_entry.paused_remaining_us > 4'000'000 && chat_entry.paused_remaining_us <= 5'000'000 &&
                   !(footer_entry.flags & animation_timeline_entry_visible) &&
                   g_app.animations.timeline.counters.due_advances == advances &&
-                  g_app.animations.timeline.counters.late_advances == late &&
                   attachment_requests == attachments && identity_requests == identities,
               "covered browser pump: account panel avatar holds its frame, chat pauses with its "
               "remainder, no admission");

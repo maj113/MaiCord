@@ -26,5 +26,4 @@ UiRect application_quick_switcher_edit_bounds() noexcept;
 bool application_quick_switcher_edit_focused() noexcept;
 bool application_quick_switcher_edit_changed(bool content = true) noexcept;
 void application_quick_switcher_edit_cancel_native_group(const TextInputTarget&) noexcept;
-u32 application_quick_switcher_owner_bytes() noexcept;
 } // namespace maicord::app_detail

@@ -33,5 +33,4 @@ bool application_custom_status_synchronize() noexcept;
 struct SettingsLayer;
 SettingsLayer* application_custom_status_settings_layer() noexcept;
 u64 application_custom_status_caret_wake() noexcept;
-u32 application_custom_status_owner_bytes() noexcept;
 } // namespace maicord::app_detail

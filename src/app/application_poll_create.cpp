@@ -547,8 +547,4 @@ bool application_poll_create_response(const RestClientResponse& response, Utf8Vi
 u64 application_poll_create_caret_wake() noexcept {
     return application_poll_create_active() ? settings_layer_next_wake(owner->layer) : 0;
 }
-
-u32 application_poll_create_owner_bytes() noexcept {
-    return owner ? sizeof(*owner) : 0;
-}
 } // namespace maicord::app_detail

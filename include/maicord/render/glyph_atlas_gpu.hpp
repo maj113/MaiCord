@@ -27,13 +27,12 @@ struct GlyphAtlasGpu {
     u64 dispatched_commands;
     u32 raster_count;
     u32 dispatch_count;
-    u32 rejected;
     u16 command_capacity; // Configured maximum.
     u16 command_committed; // Current buffer elements; grows up to command_capacity.
     u16 width;
     u16 height;
 };
-static_assert(sizeof(GlyphAtlasGpu)==96);
+static_assert(sizeof(GlyphAtlasGpu)==88);
 
 enum class GlyphAtlasGpuError : u8 {
     none,

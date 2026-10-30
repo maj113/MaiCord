@@ -26,5 +26,4 @@ u64 application_report_caret_wake() noexcept;
 bool application_report_submit(u64 now) noexcept;
 bool application_report_owns_response(u64 request_id) noexcept;
 bool application_report_response(const RestClientResponse&, Utf8View body) noexcept;
-u32 application_report_owner_bytes() noexcept;
 } // namespace maicord::app_detail

@@ -1357,8 +1357,4 @@ u64 application_guild_lifecycle_caret_wake() noexcept {
 SettingsLayer* application_guild_lifecycle_settings_layer() noexcept {
     return owner ? &owner->layer : nullptr;
 }
-
-u32 application_guild_lifecycle_owner_bytes() noexcept {
-    return owner ? sizeof(*owner) : 0;
-}
 } // namespace maicord::app_detail

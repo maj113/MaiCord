@@ -1,12 +1,9 @@
 // Synchronous REST boundary for the user-auth coordinator tests. Include at
 // namespace scope after the test namespace, with MAICORD_AUTH_TEST_NS naming
 // the namespace that holds `fixture` and user_auth_coordinator_test_support.inc.
-// The production size-query entry shares the REST object with the transport;
-// these fixtures never measure that owner, so the link boundary stays mocked
-// and the real networking implementation is not pulled into the test.
+// The REST client stays mocked so the real networking implementation is not
+// pulled into the test.
 namespace maicord {
-u32 rest_client_user_auth_runtime_bytes(u32) noexcept { return 0; }
-u32 rest_client_user_auth_capacity_runtime_bytes(u32, u32) noexcept { return 0; }
 RestClientResult rest_client_start_user_auth_capacity(RestClient* client, u32 response, u32 capacity) noexcept {
     MAICORD_AUTH_TEST_NS::fixture.request_capacity = capacity;
     return rest_client_start_user_auth(client, response);

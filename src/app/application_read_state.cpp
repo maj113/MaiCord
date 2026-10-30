@@ -906,36 +906,6 @@ void application_read_state_release(Application& application) noexcept {
     application.read_state = nullptr;
     application.read_last_activity_ms = 0;
 }
-u32 application_read_state_owner_bytes() noexcept {
-    const auto* o = g_app.read_state;
-    return o ? static_cast<u32>(sizeof(ApplicationReadState) + o->intents.arena.committed +
-                                o->token.arena.committed + o->actions.arena.committed +
-                                o->echoes.arena.committed)
-             : 0;
-}
-ApplicationReadStateMetrics application_read_state_metrics() noexcept {
-    ApplicationReadStateMetrics m{};
-    const auto* o = g_app.read_state;
-    if (!o)
-        return m;
-    MEMORY_BASIC_INFORMATION region{};
-    VirtualQuery(o, &region, sizeof(region));
-    m.owner_bytes = sizeof(*o);
-    m.owner_reserved_bytes = static_cast<u32>(region.RegionSize);
-    m.owner_committed_bytes = m.owner_reserved_bytes;
-    m.intents_reserved_bytes = static_cast<u32>(o->intents.arena.reserved);
-    m.intents_committed_bytes = static_cast<u32>(o->intents.arena.committed);
-    m.token_reserved_bytes = static_cast<u32>(o->token.arena.reserved);
-    m.token_committed_bytes = static_cast<u32>(o->token.arena.committed);
-    m.actions_reserved_bytes = static_cast<u32>(o->actions.arena.reserved);
-    m.actions_committed_bytes = static_cast<u32>(o->actions.arena.committed);
-    m.echoes_reserved_bytes = static_cast<u32>(o->echoes.arena.reserved);
-    m.echoes_committed_bytes = static_cast<u32>(o->echoes.arena.committed);
-    m.commits = 1 + o->intents.arena.commit_count + o->token.arena.commit_count +
-                o->actions.arena.commit_count + o->echoes.arena.commit_count;
-    m.action_serial = o->action_serial;
-    return m;
-}
 bool application_read_state_scoped_prepare(ConstSlice<ReadScopeTarget> targets, bool individual,
                                            u64* first_serial) noexcept {
     if (!first_serial || (!targets.data && targets.count) || targets.count > kReadAckMaximumIntents ||

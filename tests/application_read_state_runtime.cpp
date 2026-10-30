@@ -496,8 +496,7 @@ void manual_tests() noexcept {
     check(!application_read_state_channel_unread_available(thread.id),
           "manual read: archived thread awaits native unarchive prerequisite");
     fresh_owner();
-    const u32 initial_bytes = application_read_state_owner_bytes();
-    check(initial_bytes == 0 && mark() && application_read_state_owner_bytes() < 100000,
+    check(!g_app.read_state && mark(),
           "manual read: ordinary ACK demand backing excludes manual source and echo banks");
 }
 void run() noexcept {
@@ -787,7 +786,7 @@ void run() noexcept {
     u64 first_serial = 999;
     check(!application_read_state_scoped_prepare({invalid_plan, 2}, true, &first_serial) &&
               first_serial == 999 && channel().last_read_message_id == before_plan_cursor &&
-              !application_read_state_next_wake() && !application_read_state_metrics().action_serial,
+              !application_read_state_next_wake(),
           "read runtime: duplicate whole scoped plan fails before cursor queue or authority mutation");
     manual_tests();
     release();

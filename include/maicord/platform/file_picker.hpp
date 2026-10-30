@@ -55,8 +55,6 @@ bool native_file_picker_snapshot(const NativeFilePicker* picker, u32 index, File
 void native_file_picker_cancel(NativeFilePicker* picker) noexcept;
 // Nonblocking with timeout=0. False keeps all worker-owned storage alive.
 bool native_file_picker_release(NativeFilePicker* picker, u32 timeout_ms = 0) noexcept;
-// Bytes of storage held by the picker after completion; zero means unavailable.
-u32 native_file_picker_committed_bytes(const NativeFilePicker* picker) noexcept;
 // Shared absolute-path validation for dialog, drop and clipboard files; no disk I/O.
 bool native_file_picker_valid_path(ConstSlice<wchar_t> path) noexcept;
 }

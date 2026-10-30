@@ -40,8 +40,6 @@ bool headers_contain(Utf8View value) noexcept {
 
 namespace maicord {
 using namespace captcha_login_test;
-u32 rest_client_user_auth_runtime_bytes(u32) noexcept { return 0; }
-u32 rest_client_user_auth_capacity_runtime_bytes(u32, u32) noexcept { return 0; }
 RestClientResult rest_client_start_user_auth(RestClient* client, u32) noexcept {
     client->runtime = &fixture; client->worker.thread = reinterpret_cast<HANDLE>(1);
     RestClientResult result{}; result.phase = RestClientPhase::idle; return result;

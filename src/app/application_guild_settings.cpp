@@ -2083,8 +2083,4 @@ HANDLE application_guild_settings_notification() noexcept {
     return owner && owner->picker.runtime && !owner->picker_consumed ? owner->picker.notification : nullptr;
 }
 
-u32 application_guild_settings_owner_bytes() noexcept {
-    return owner ? sizeof(*owner) : 0;
-}
-
 } // namespace maicord::app_detail

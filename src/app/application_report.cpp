@@ -681,8 +681,4 @@ bool application_report_response(const RestClientResponse& response, Utf8View bo
     }
     return repaint();
 }
-
-u32 application_report_owner_bytes() noexcept {
-    return owner ? sizeof(*owner) : 0;
-}
 } // namespace maicord::app_detail

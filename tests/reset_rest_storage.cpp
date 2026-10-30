@@ -410,15 +410,15 @@ u32 reset_rest_storage_fixture() noexcept {
         phone_verify.route_id != user_auth_route(UserAuthOperation::recovery).route_id &&
         phone_resend.route_id != user_auth_route(UserAuthOperation::reset_password).route_id,
         "phone verify/resend keep distinct local rate identities from recovery/reset/MFA operations");
-    const u32 baseline = rest_client_user_auth_runtime_bytes(kUserAuthMaximumResponseBytes);
-    storage_check(baseline == rest_client_user_auth_capacity_runtime_bytes(
-        kUserAuthMaximumResponseBytes, kUserAuthMaximumRequestBodyBytes), "legacy query retains 32 KiB profile");
+    const u32 baseline = rest_client_user_auth_capacity_runtime_bytes(
+        kUserAuthMaximumResponseBytes, kUserAuthMaximumRequestBodyBytes);
     storage_check(rest_client_user_auth_capacity_runtime_bytes(kUserAuthMaximumResponseBytes,
         kUserAuthResetRequestBodyBytes) == baseline + 40 * 1024, "reset grows only its protected request partition");
     storage_profile(kUserAuthMaximumRequestBodyBytes, false, true);
     storage_profile(kUserAuthResetRequestBodyBytes, false, false);
     storage_profile(kUserAuthMaximumRequestBodyBytes, true, false);
-    storage_check(baseline == rest_client_user_auth_runtime_bytes(kUserAuthMaximumResponseBytes),
+    storage_check(baseline == rest_client_user_auth_capacity_runtime_bytes(
+        kUserAuthMaximumResponseBytes, kUserAuthMaximumRequestBodyBytes),
         "reset startup leaves normal allocation query unchanged");
     return storage_failures;
 }

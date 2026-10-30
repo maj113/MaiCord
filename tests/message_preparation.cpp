@@ -119,7 +119,7 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
     ready = ready && message_scene_update(&f.scene, viewport).ok();
     check(ready, "message_preparation_owned_fixture");
     if (!ready) { message_scene_release(&f.scene); return; }
-    check(f.scene.prepared_rows == capacity && f.scene.count < 32 &&
+    check(message_scene_source_count(f.scene) == capacity && f.scene.count < 32 &&
           !message_scene_find_row(f.scene, 96) && f.heights[96] > ui_extent_units(300),
           "message_preparation_reserves_unmaterialized_media_from_metadata");
 

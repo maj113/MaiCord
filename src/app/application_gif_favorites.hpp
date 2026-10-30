@@ -47,5 +47,4 @@ bool application_gif_favorites_response(const RestClientResponse&, Utf8View body
 void application_gif_favorites_response_drained() noexcept;
 Slice<u8> application_gif_favorites_response_buffer() noexcept;
 u64 application_gif_favorites_next_wake() noexcept;
-u32 application_gif_favorites_owner_bytes() noexcept;
 } // namespace maicord::app_detail

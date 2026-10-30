@@ -117,7 +117,7 @@ void run() noexcept {
     Win32MemoryInformation region{};
     check(g_app.account_menu &&
               VirtualQuery(g_app.account_menu, region.native(), sizeof(region)) == sizeof(region) &&
-              region.RegionSize <= 4096 && application_account_menu_owner_bytes() <= 4096,
+              region.RegionSize <= 4096,
           "account menu runtime: lazy private menu owner commits at most one page");
     bool changed = false;
     popup_scene_select_index(&g_app.popup_scene, 1, &changed);

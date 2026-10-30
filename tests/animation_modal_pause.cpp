@@ -87,10 +87,8 @@ void test_animation_modal_pause(void (*check)(bool, const char*) noexcept) noexc
     check(collected.advances == 1 && next[0].scheduled_at_us == 20000 && next[0].frame_index == 1 &&
               animation_timeline_commit_advance(&timeline, next[0], 20000).ok(),
           "stalled animation plays its first advance on time");
-    const u64 late_before = timeline.counters.late_advances;
     collected = animation_timeline_collect_due(&timeline, 10040000, {next, 4});
     check(collected.advances == 1 && next[0].scheduled_at_us == 10040000 && next[0].frame_index == 2 &&
-              timeline.counters.late_advances == late_before &&
               animation_timeline_commit_advance(&timeline, next[0], 20000).ok() &&
               animation_timeline_next_wake_at_us(&timeline) == 10060000,
           "ten-second visible stall resynchronizes to wall time at the next sequential frame");
@@ -144,6 +142,12 @@ void test_animation_modal_pause(void (*check)(bool, const char*) noexcept) noexc
     AnimationTimelineEntry sweep_entries[8]{};
     u32 sweep_buckets[16]{};
     AnimationTimeline sweep{};
+    const auto visible_entries = [&]() noexcept {
+        u32 count = 0;
+        for (const auto& entry : sweep_entries)
+            count += (entry.flags & animation_timeline_entry_visible) != 0;
+        return count;
+    };
     const auto occupied_entries = [&]() noexcept {
         u32 count = 0;
         for (const auto& entry : sweep_entries)
@@ -154,7 +158,7 @@ void test_animation_modal_pause(void (*check)(bool, const char*) noexcept) noexc
           "sweep timeline initializes");
     animation_timeline_begin_visibility(&sweep);
     animation_timeline_end_visibility(&sweep, 1000);
-    check(!sweep.entry_count && sweep.counters.pauses == 0 &&
+    check(!sweep.entry_count &&
               animation_timeline_collect_due(&sweep, 1000, {next, 4}).advances == 0 &&
               animation_timeline_next_wake_at_us(&sweep) == 0,
           "empty timeline sweeps find nothing");
@@ -175,7 +179,7 @@ void test_animation_modal_pause(void (*check)(bool, const char*) noexcept) noexc
     animation_timeline_begin_visibility(&sweep);
     check(animation_timeline_observe_visible(&sweep, sweep_key(913), 2000), "sweep entry is observed");
     animation_timeline_end_visibility(&sweep, 2000);
-    check(sweep.counters.pauses == 1 && animation_timeline_next_wake_at_us(&sweep) == 11000,
+    check(visible_entries() == 1 && animation_timeline_next_wake_at_us(&sweep) == 11000,
           "visibility sweep pauses the unobserved entry behind freed slots");
     collected = animation_timeline_collect_due(&sweep, 11000, {next, 4});
     check(collected.advances == 1 && next[0].key.id == 913 && sweep.entry_count == 2,

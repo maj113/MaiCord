@@ -1515,11 +1515,4 @@ UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordi
     return stopped;
 }
 
-u32 user_auth_coordinator_runtime_bytes() noexcept {
-    const u32 owner = page_round(sizeof(UserAuthCoordinatorRuntime));
-    const u32 transport = rest_client_user_auth_runtime_bytes(kUserAuthMaximumResponseBytes);
-    const u64 total = static_cast<u64>(owner) + kUserAuthCoordinatorSecretBytes + transport;
-    return owner != 0 && transport != 0 && total <= ~0u ? static_cast<u32>(total) : 0;
-}
-
 } // namespace maicord

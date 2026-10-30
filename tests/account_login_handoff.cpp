@@ -144,7 +144,6 @@ void account_profile_release(AccountProfile* profile) noexcept {
 }
 // Only the ticket-owner destruction path is used by the actual QR fixture.
 // Defining all REST boundaries keeps network implementations out of this test.
-u32 rest_client_user_auth_runtime_bytes(u32) noexcept { return 0; }
 RestClientResult rest_client_start_user_auth(RestClient*, u32) noexcept { return {}; }
 RestClientSubmitResult rest_client_submit_user_auth(RestClient*, const RestUserAuthRequest&) noexcept { return {RestClientSubmitError::invalid_input}; }
 RestClientTakeResult rest_client_consume_user_auth_response(RestClient*, RestClientResponse*, RestUserAuthConsumeFunction, void*) noexcept { return {0, RestClientTakeError::empty}; }

@@ -24,5 +24,4 @@ bool application_poll_create_owns_response(u64 request_id) noexcept;
 bool application_poll_create_response(const RestClientResponse&, Utf8View) noexcept;
 u64 application_poll_create_next_wake() noexcept;
 u64 application_poll_create_caret_wake() noexcept;
-u32 application_poll_create_owner_bytes() noexcept;
 } // namespace maicord::app_detail

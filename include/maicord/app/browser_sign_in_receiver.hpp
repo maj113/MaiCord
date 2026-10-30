@@ -55,6 +55,5 @@ BrowserSignInReceiverStatus browser_sign_in_receiver_finish_exchange(BrowserSign
 // Join timeout is 0 through 5000 milliseconds.
 BrowserSignInReceiverStatus browser_sign_in_receiver_stop(BrowserSignInReceiver* receiver,
     u32 timeout_ms) noexcept;
-u32 browser_sign_in_receiver_runtime_bytes() noexcept;
 
 } // namespace maicord

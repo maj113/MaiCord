@@ -99,9 +99,6 @@ bool application_scoped_read_menu_action(u32 action) noexcept {
 void application_scoped_read_menu_clear() noexcept {
     reset_value(&menu);
 }
-u32 application_scoped_read_menu_owner_bytes() noexcept {
-    return sizeof(menu);
-}
 
 bool application_scoped_read_menu_open(ReadScopeKind kind, u64 id, UiRect anchor) noexcept {
     if (!g_app.account_ui || g_app.login.visible || application_account_logout_blocked() || !id)

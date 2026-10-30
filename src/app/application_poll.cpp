@@ -1295,9 +1295,6 @@ void application_poll_release() noexcept {
     if (!owner->controller.flight.active || !g_app.account.instance)
         free_owner();
 }
-ApplicationPollMetrics application_poll_metrics() noexcept {
-    return {owner ? static_cast<u32>(sizeof(PollOwner)) : 0u};
-}
 static bool application_poll_voters_action(const UiPollVotersAction& action) noexcept {
     if (!application_poll_voters_active() ||
         !ui_widget_manager_input_enabled(owner->widgets, owner->root.handle) ||

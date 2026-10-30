@@ -215,8 +215,8 @@ void test_application_plugin_catalog_runtime(void (*check)(bool, const char*) no
     struct Restore { Fixture& f; ~Restore() noexcept { cleanup(f); } } restore{f};
     check(setup(f), "catalog UI: isolated environment and actual Settings owner initialize");
     if (!scene()) return;
-    check(!g_app.plugins && !application_plugins_catalog_current() && application_settings_owner_bytes() <= 3 * 4096,
-        "catalog UI: Settings projection allocates no plugin/catalog owner and keeps three-page budget");
+    check(!g_app.plugins && !application_plugins_catalog_current(),
+        "catalog UI: Settings projection allocates no plugin/catalog owner");
     check(application_plugins_restore() && !g_app.plugins,
         "catalog preferences: missing startup choices retain no Plugins owner and execute no DLL");
     check(activate(kApplicationPluginDiscoverAction, VK_SPACE) && application_plugins_catalog_current() &&

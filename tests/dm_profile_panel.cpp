@@ -408,7 +408,7 @@ void header_cases() noexcept {
     check(group && ui_private_row_status(source, 9995) == UiPrivateRowStatus::none,
           "DM presence: a group whose members are busy or idle shows no status");
     user_store_set_client_status(&users, 124, client_status_with(0, ClientPlatform::web, ClientPlatformStatus::online));
-    check(ui_private_row_status(source, 9995) == UiPrivateRowStatus::online && !ui_private_row_mobile(source, 9995),
+    check(ui_private_row_status(source, 9995) == UiPrivateRowStatus::online,
           "DM presence: a group with an online member shows online");
     check(user_store_clear_client_status(&users) && ui_user_presence(source, 124) == UiPresence::offline &&
               !user_store_clear_client_status(&users),

@@ -502,7 +502,7 @@ void run() noexcept {
     reset();
     UiPollState value{};
     ApplicationPollSource source{};
-    check(state(&value, &source) && value.can_vote && !owner && !application_poll_metrics().owner_bytes,
+    check(state(&value, &source) && value.can_vote && !owner,
           "poll app: readable received cards stay owner-free and do not require creation/SEND permission");
     application_poll_open(source);
     state(&value, &source);

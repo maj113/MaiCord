@@ -796,7 +796,6 @@ bool prepare_resident_measurements(MessageScene* scene, UiRect viewport) noexcep
     scene->unread_prepared_height = scene->unread_divider_style.height;
     scene->prepared_signature = epoch;
     saturating_increment(scene->preparation_passes);
-    scene->prepared_rows = source_count;
     return true;
 }
 

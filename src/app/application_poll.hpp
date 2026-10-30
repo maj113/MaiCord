@@ -58,8 +58,4 @@ void application_poll_message_observe(const GatewayMessageEvent&, bool model_app
 void application_poll_message_deleted(u64 channel_id, u64 message_id) noexcept;
 void application_poll_gateway_reset() noexcept;
 void application_poll_release() noexcept;
-struct ApplicationPollMetrics {
-    u32 owner_bytes;
-};
-ApplicationPollMetrics application_poll_metrics() noexcept;
 } // namespace maicord::app_detail

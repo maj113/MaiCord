@@ -125,7 +125,7 @@ int run() noexcept {
         if (!observed.ok()) {
             return 8;
         }
-        checksum += scheduler.acquired + scheduler.observations;
+        checksum += iteration;
     }
     const u64 scheduler_us =
         clock_microseconds(clock, begin, clock_now());

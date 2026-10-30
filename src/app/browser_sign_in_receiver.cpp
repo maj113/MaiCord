@@ -174,5 +174,4 @@ BrowserSignInReceiverStatus browser_sign_in_receiver_stop(BrowserSignInReceiver*
     if (joined) loopback_release<Runtime>(receiver);
     return status;
 }
-u32 browser_sign_in_receiver_runtime_bytes() noexcept { return kOwnerBytes + kStorageBytes; }
 } // namespace maicord

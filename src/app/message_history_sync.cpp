@@ -611,7 +611,6 @@ MessageHistoryApplyResult message_timeline_apply_history_page(
     timeline->evicted += eviction_count + removed_locals;
     timeline->compactions += result.compactions;
     ++timeline->history_pages;
-    timeline->history_inserted += incoming_count;
     return result;
 }
 

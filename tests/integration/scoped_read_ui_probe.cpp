@@ -467,51 +467,15 @@ bool capture(const wchar_t* filename) noexcept {
 }
 
 struct WarmSnapshot {
-    u32 values[19];
-    ApplicationScopedReadMetrics owner;
-    ApplicationReadStateMetrics broker;
+    u32 values[14];
 };
 WarmSnapshot snapshot() noexcept {
     const auto& r = g_app.renderer;
-    const auto m = application_scoped_read_metrics();
-    const auto b = application_read_state_metrics();
     return {{g_app.shell_scene.layout_passes, g_app.guild_rail_scene.layout_passes,
              g_app.shell_navigation_scene.layout_passes, g_app.popup_scene.revision,
              r.content_text->rebuilds, r.glyph_text.cache_builds, r.paint_stream_builds,
              r.paint_instance_uploads, r.text_instance_uploads, r.media_instance_uploads, r.painted_frames,
-             fixture->frames, fixture->encoded, g_app.account_ui->text_measure_cache.backend_calls,
-             m.plan_builds, m.target_checks, m.encodings, m.commits, b.commits},
-            m,
-            b};
-}
-bool storage_equal(const ApplicationScopedReadMetrics& a, const ApplicationScopedReadMetrics& b) noexcept {
-    return a.owner_bytes == b.owner_bytes && a.owner_reserved_bytes == b.owner_reserved_bytes &&
-           a.owner_committed_bytes == b.owner_committed_bytes &&
-           a.queue_reserved_bytes == b.queue_reserved_bytes &&
-           a.queue_committed_bytes == b.queue_committed_bytes &&
-           a.targets_reserved_bytes == b.targets_reserved_bytes &&
-           a.targets_committed_bytes == b.targets_committed_bytes &&
-           a.plan_reserved_bytes == b.plan_reserved_bytes &&
-           a.plan_committed_bytes == b.plan_committed_bytes &&
-           a.jobs_reserved_bytes == b.jobs_reserved_bytes &&
-           a.jobs_committed_bytes == b.jobs_committed_bytes &&
-           a.flight_reserved_bytes == b.flight_reserved_bytes &&
-           a.flight_committed_bytes == b.flight_committed_bytes &&
-           a.candidate_reserved_bytes == b.candidate_reserved_bytes &&
-           a.candidate_committed_bytes == b.candidate_committed_bytes &&
-           a.publication_revision == b.publication_revision && a.flight_active == b.flight_active;
-}
-bool broker_equal(const ApplicationReadStateMetrics& a, const ApplicationReadStateMetrics& b) noexcept {
-    return a.owner_bytes == b.owner_bytes && a.owner_reserved_bytes == b.owner_reserved_bytes &&
-           a.owner_committed_bytes == b.owner_committed_bytes &&
-           a.intents_reserved_bytes == b.intents_reserved_bytes &&
-           a.intents_committed_bytes == b.intents_committed_bytes &&
-           a.token_reserved_bytes == b.token_reserved_bytes &&
-           a.token_committed_bytes == b.token_committed_bytes &&
-           a.actions_reserved_bytes == b.actions_reserved_bytes &&
-           a.actions_committed_bytes == b.actions_committed_bytes &&
-           a.echoes_reserved_bytes == b.echoes_reserved_bytes &&
-           a.echoes_committed_bytes == b.echoes_committed_bytes && a.action_serial == b.action_serial;
+             fixture->frames, fixture->encoded, g_app.account_ui->text_measure_cache.backend_calls}};
 }
 bool warm(u32 sample) noexcept {
     for (u32 i = 0; i < 4; ++i)
@@ -532,20 +496,14 @@ bool warm(u32 sample) noexcept {
         "shell_layout_delta",   "rail_layout_delta",  "sidebar_layout_delta", "popup_revision_delta",
         "text_build_delta",     "glyph_cache_delta",  "paint_build_delta",    "paint_upload_delta",
         "text_upload_delta",    "media_upload_delta", "painted_delta",        "frame_request_delta",
-        "encoding_delta",       "measure_delta",      "plan_build_delta",     "target_checks_delta",
-        "scope_encoding_delta", "scope_commit_delta", "broker_commit_delta"};
+        "encoding_delta",       "measure_delta"};
     log_u64(LogLevel::info, "scoped_read_warm", "sample", sample);
-    bool valid = r.unchanged_present_skips - skips == 64 && storage_equal(before.owner, after.owner) &&
-                 broker_equal(before.broker, after.broker);
-    for (u32 i = 0; i < 19; ++i) {
+    bool valid = r.unchanged_present_skips - skips == 64;
+    for (u32 i = 0; i < 14; ++i) {
         log_u64(LogLevel::info, "scoped_read_warm", names[i], after.values[i] - before.values[i]);
         valid = valid && before.values[i] == after.values[i];
     }
     log_u64(LogLevel::info, "scoped_read_warm", "unchanged_skips", r.unchanged_present_skips - skips);
-    log_u64(LogLevel::info, "scoped_read_warm", "owner_publication_delta",
-            after.owner.publication_revision - before.owner.publication_revision);
-    log_u64(LogLevel::info, "scoped_read_warm", "source_action_serial_changed",
-            after.broker.action_serial != before.broker.action_serial);
     return SCOPED_READ_REQUIRE(valid, 250 + sample);
 }
 bool project() noexcept {
@@ -963,8 +921,6 @@ bool stale_refresh_contract() noexcept {
         const auto id = sample == 2 ? kRetryCategory : kGuild;
         if (!menu(kind, id, true))
             return fail_at(__LINE__);
-        const auto scope = application_scoped_read_metrics();
-        const auto broker = application_read_state_metrics();
         const u32 posts = f.bulk_posts + f.individual_posts;
         const u64 cursor = chat_state_store_find_channel(g_app.account_ui->chat_state, kParent)
                                ->last_read_message_id;
@@ -992,66 +948,18 @@ bool stale_refresh_contract() noexcept {
             !application_scoped_read_menu_activate(popup_action_mark_scope_read) ||
             !application_scoped_read_menu_activate(popup_action_retry_scope_read))
             return fail_at(__LINE__);
-        const auto after = application_scoped_read_metrics();
-        const auto read_after = application_read_state_metrics();
         if (!SCOPED_READ_REQUIRE(
                 !g_app.popup_scene.active && f.bulk_posts + f.individual_posts == posts &&
-                    after.plan_builds == scope.plan_builds && after.encodings == scope.encodings &&
-                    read_after.action_serial == broker.action_serial && read(kParent, cursor, 0),
+                    read(kParent, cursor, 0),
                 335 + sample))
             return fail_at(__LINE__);
         log_u64(LogLevel::info, "scoped_read_stale_refresh", "sample", sample + 1);
         log_u64(LogLevel::info, "scoped_read_stale_refresh", "post_delta",
                 f.bulk_posts + f.individual_posts - posts);
-        log_u64(LogLevel::info, "scoped_read_stale_refresh", "plan_delta",
-                after.plan_builds - scope.plan_builds);
-        log_u64(LogLevel::info, "scoped_read_stale_refresh", "encoding_delta",
-                after.encodings - scope.encodings);
-        log_u64(LogLevel::info, "scoped_read_stale_refresh", "source_action_serial_changed",
-                read_after.action_serial != broker.action_serial);
     }
     return project();
 }
 void costs() noexcept {
-    const auto m = application_scoped_read_metrics();
-    constexpr const char* names[]{"owner_bytes",       "owner_reserved",     "owner_committed",
-                                  "queue_reserved",    "queue_committed",    "targets_reserved",
-                                  "targets_committed", "plan_reserved",      "plan_committed",
-                                  "jobs_reserved",     "jobs_committed",     "flight_reserved",
-                                  "flight_committed",  "candidate_reserved", "candidate_committed"};
-    const u32 values[]{m.owner_bytes,
-                       m.owner_reserved_bytes,
-                       m.owner_committed_bytes,
-                       m.queue_reserved_bytes,
-                       m.queue_committed_bytes,
-                       m.targets_reserved_bytes,
-                       m.targets_committed_bytes,
-                       m.plan_reserved_bytes,
-                       m.plan_committed_bytes,
-                       m.jobs_reserved_bytes,
-                       m.jobs_committed_bytes,
-                       m.flight_reserved_bytes,
-                       m.flight_committed_bytes,
-                       m.candidate_reserved_bytes,
-                       m.candidate_committed_bytes};
-    for (u32 i = 0; i < sizeof(values) / sizeof(values[0]); ++i)
-        log_u64(LogLevel::info, "scoped_read_cost", names[i], values[i]);
-    log_u64(LogLevel::info, "scoped_read_cost", "menu_owner_bytes",
-            application_scoped_read_menu_owner_bytes());
-    log_u64(LogLevel::info, "scoped_read_cost", "read_broker_owner_bytes",
-            application_read_state_owner_bytes());
-    const auto broker = application_read_state_metrics();
-    constexpr const char* broker_names[]{
-        "broker_owner_reserved", "broker_owner_committed", "intents_reserved",     "intents_committed",
-        "token_reserved",        "token_committed",        "source_bank_reserved", "source_bank_committed",
-        "echo_bank_reserved",    "echo_bank_committed"};
-    const u32 broker_values[]{broker.owner_reserved_bytes,   broker.owner_committed_bytes,
-                              broker.intents_reserved_bytes, broker.intents_committed_bytes,
-                              broker.token_reserved_bytes,   broker.token_committed_bytes,
-                              broker.actions_reserved_bytes, broker.actions_committed_bytes,
-                              broker.echoes_reserved_bytes,  broker.echoes_committed_bytes};
-    for (u32 i = 0; i < sizeof(broker_values) / sizeof(broker_values[0]); ++i)
-        log_u64(LogLevel::info, "scoped_read_cost", broker_names[i], broker_values[i]);
     log_u64(LogLevel::info, "scoped_read_cost", "fixture_bytes", sizeof(Fixture));
     log_u64(LogLevel::info, "scoped_read_cost", "account_ui_bytes", sizeof(AccountUiRuntime));
     const void* owners[]{fixture, g_app.account_ui};

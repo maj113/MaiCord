@@ -63,14 +63,7 @@ struct UiTextMeasureCache {
     void* backend_context;
     u64 stamp;
     u32 generation;
-    u32 resident;
-    u32 hits;
-    u32 misses;
     u32 backend_calls;
-    u32 inserts;
-    u32 evictions;
-    u32 invalidations;
-    u32 rejected;
 };
 
 bool ui_text_measure_cache_initialize(UiTextMeasureCache* cache, Slice<UiTextMeasureRecord> storage,
@@ -83,6 +76,6 @@ UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
 static_assert(sizeof(UiTextMeasureKey) == 24);
 static_assert(sizeof(UiTextMeasureValue) == 16);
 static_assert(sizeof(UiTextMeasureRecord) == 64);
-static_assert(sizeof(UiTextMeasureCache) == 80);
+static_assert(sizeof(UiTextMeasureCache) == 48);
 
 } // namespace maicord

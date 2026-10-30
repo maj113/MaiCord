@@ -1606,12 +1606,6 @@ void application_channel_overview_tick(u64 now) noexcept {
         if (layer && layer->scene && layer->scene->active)
             settings_layer_tick(layer, now, g_app.preferences.reduced_motion);
 }
-u32 application_channel_overview_owner_bytes() noexcept {
-    return (owner ? sizeof(*owner) : 0) + application_guild_settings_owner_bytes() +
-           application_poll_create_owner_bytes() + application_custom_status_owner_bytes() +
-           application_guild_lifecycle_owner_bytes() + application_guild_community_owner_bytes() +
-           application_profile_editor_owner_bytes() + application_report_owner_bytes();
-}
 bool application_channel_overview_input(UiInputKind kind, u32 key, bool repeated) noexcept {
     auto* layer = modal_layer();
     if (layer && layer == application_profile_editor_settings_layer())

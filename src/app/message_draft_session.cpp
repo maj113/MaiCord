@@ -91,7 +91,6 @@ void apply_result(MessageDraftSession& session, const MessageDraftStore& drafts,
         session.persist_failures = 0;
         session.cleanup_required = false;
         ++session.persist_saves;
-        session.persisted_bytes = saved.bytes;
         message_draft_session_observe(session, drafts, now_ms);
         return;
     }

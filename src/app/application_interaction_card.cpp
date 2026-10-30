@@ -78,10 +78,6 @@ void publish(Utf8View text) noexcept {
 }
 } // namespace
 
-bool application_interaction_card_open() noexcept {
-    return g_card.open;
-}
-
 void application_interaction_card_close() noexcept {
     if (!g_card.open)
         return;

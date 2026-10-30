@@ -447,7 +447,6 @@ void timeline_tests() noexcept {
     check(frames==busy_frames && response(117,ordinary) && !moves && timeline_source(&source) &&
         application_message_navigation_link(source,{7,70,900}) && application_search_navigation_submit(118,1) && response(118,ordinary) && moves==1,
         "unchanged busy notice is stable and exact retired receipt releases fresh retry admission");
-    check(application_message_navigation_owner_bytes()<=512,"shared owner footprint stays bounded independently of UI and decoder scratch");
 
     check(reset() && timeline_source(&source) && application_message_navigation_link(source,{0,70,900}) && !fetches &&
         test_contains(application_message_mutation_notice_text(),utf8_literal("unavailable")),

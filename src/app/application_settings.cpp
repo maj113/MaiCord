@@ -1674,9 +1674,6 @@ NativePluginHost* application_settings_plugin_host() noexcept {
 NativePluginHost* application_settings_plugin_host_current() noexcept {
     return g_app.settings ? &g_app.settings->plugins : nullptr;
 }
-u32 application_settings_owner_bytes() noexcept {
-    return sizeof(ApplicationSettings);
-}
 u64 application_settings_lifetime() noexcept {
     return g_app.settings_lifetime_serial;
 }

@@ -2092,9 +2092,4 @@ u64 application_guild_community_caret_wake() noexcept {
     return wake;
 }
 
-u32 application_guild_community_owner_bytes() noexcept {
-    return (owner ? sizeof(*owner) : 0) + (background ? sizeof(*background) : 0) +
-           (events ? sizeof(*events) : 0);
-}
-
 } // namespace maicord::app_detail

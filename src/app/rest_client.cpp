@@ -2297,9 +2297,4 @@ u32 rest_client_user_auth_capacity_runtime_bytes(u32 response_capacity, u32 requ
     return ordinary != 0 && secure != 0 && secure <= ~0u - ordinary ? ordinary + secure : 0;
 }
 
-u32 rest_client_user_auth_runtime_bytes(u32 response_capacity) noexcept {
-    return rest_client_user_auth_capacity_runtime_bytes(response_capacity,
-                                                        kUserAuthMaximumRequestBodyBytes);
-}
-
 } // namespace maicord

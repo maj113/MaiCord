@@ -59,7 +59,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_icon_atlas_copy_entry() noex
     atlas.ready = true;
     reset_output();
     check(!resolve(&atlas, context, 8), "icon copy: missing GPU resources reject rasterization");
-    check(bytes_equal(destination + 1, source, 8 * sizeof(PaintQuad)) && atlas.gpu.rejected == 1, "icon copy: raster failure preserves current quad and tail");
+    check(bytes_equal(destination + 1, source, 8 * sizeof(PaintQuad)), "icon copy: raster failure preserves current quad and tail");
     guards(8);
     atlas.ready = false;
     reset_output();

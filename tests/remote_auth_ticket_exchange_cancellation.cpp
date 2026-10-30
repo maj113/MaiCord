@@ -89,7 +89,6 @@ DWORD WINAPI completed_outer_thread(void*) noexcept { return 0; }
 } // namespace maicord::remote_auth_cancellation_test
 
 namespace maicord {
-u32 rest_client_user_auth_runtime_bytes(u32) noexcept { return 0; }
 RestClientResult rest_client_start_user_auth(RestClient* client, u32) noexcept {
     using namespace remote_auth_cancellation_test;
     ++fixture.starts; client->runtime = &fixture; client->worker.thread = reinterpret_cast<HANDLE>(1);

@@ -97,6 +97,4 @@ SecureBufferResult remote_auth_ticket_exchange_submit_captcha(RemoteAuthTicketEx
 SecureBufferResult remote_auth_ticket_exchange_take_credential(RemoteAuthTicketExchange* exchange,
                                                                SecureBuffer* output) noexcept;
 
-u32 remote_auth_ticket_exchange_runtime_bytes() noexcept;
-
 } // namespace maicord

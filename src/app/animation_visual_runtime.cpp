@@ -98,13 +98,8 @@ AnimationTimelineResult animation_visual_runtime_publish(
         runtime->timeline.capacity >= kAnimationVisualMaximumCapacity) {
         return published;
     }
-    // The bounded timeline records a rejection before the owner gets a chance
-    // to commit more of its reserved address range. Keep the counter semantic:
-    // only a request that remains rejected after growth counts as rejection.
-    --runtime->timeline.counters.capacity_rejections;
     if (!animation_visual_runtime_reserve(
             runtime, runtime->timeline.capacity + 1u)) {
-        ++runtime->timeline.counters.capacity_rejections;
         return published;
     }
     return animation_timeline_publish(

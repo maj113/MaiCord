@@ -351,7 +351,6 @@ void application_search_navigation_release() noexcept {
 void application_message_navigation_release() noexcept { retire(); }
 bool application_message_navigation_active() noexcept { return navigation.phase != MessageNavigationPhase::idle; }
 bool application_message_navigation_observation_needed() noexcept { return application_message_navigation_active() || navigation.request_id; }
-u32 application_message_navigation_owner_bytes() noexcept { return sizeof(MessageNavigation); }
 bool application_message_navigation_cancel() noexcept {
     if (!application_message_navigation_active()) return false;
     notice(utf8_literal("Opening the message was cancelled."), ApplicationMessageNavigationStage::cancelled);

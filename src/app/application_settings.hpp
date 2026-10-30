@@ -38,7 +38,6 @@ void application_media_auth_shutdown() noexcept;
 bool application_settings_active() noexcept;
 // Appearance, or search results that can show its controls, is selected.
 bool application_settings_appearance_selected() noexcept;
-u32 application_settings_owner_bytes() noexcept;
 // Monotonic owner lifetime, retained after release; never wraps or resets.
 u64 application_settings_lifetime() noexcept;
 bool application_preferences_member_visibility(bool visible) noexcept;

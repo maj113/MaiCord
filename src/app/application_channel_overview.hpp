@@ -29,5 +29,4 @@ bool application_channel_overview_edit_changed(bool content) noexcept;
 u64 application_channel_overview_next_wake() noexcept;
 u64 application_channel_overview_caret_wake() noexcept;
 void application_channel_overview_tick(u64 now) noexcept;
-u32 application_channel_overview_owner_bytes() noexcept;
 } // namespace maicord::app_detail

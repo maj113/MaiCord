@@ -43,5 +43,4 @@ bool application_custom_theme_preferences_changed(bool choose_builtin = false,
                                                   bool persist = false) noexcept;
 bool application_custom_theme_snapshot(ClientThemeStorageSnapshot*) noexcept;
 bool application_custom_theme_restore(const ClientThemeStorageSnapshot&, bool persist = false) noexcept;
-u32 application_custom_theme_owner_bytes() noexcept;
 } // namespace maicord::app_detail

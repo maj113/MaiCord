@@ -13,7 +13,6 @@ namespace maicord::app_detail {
 // it), Escape, or when the message leaves the view.
 bool application_interaction_card_toggle(u64 message_id) noexcept;
 void application_interaction_card_close() noexcept;
-bool application_interaction_card_open() noexcept;
 // A pointer press or wheel: closes the card; the press on the chip that was
 // open then does not reopen it.
 void application_interaction_card_press() noexcept;

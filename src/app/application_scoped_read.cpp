@@ -37,7 +37,6 @@ struct ApplicationScopedRead {
     u64 admission_due;
     u32 target_count, job_count, flight_count, revision;
     u32 channels_epoch, permissions_epoch, guilds_epoch;
-    u32 plan_builds, target_checks, encodings;
     bool flight_active, retired, cancel_requested, release_pending;
 };
 namespace {
@@ -158,7 +157,6 @@ void cancel_flight(ApplicationScopedRead& o) noexcept {
 }
 bool target_current(ApplicationScopedRead& o, const ScopedTarget& row) noexcept {
     const auto* j = serial_job(o, row.scope_serial);
-    ++o.target_checks;
     return j && actor_current(j->ticket) &&
            read_scope_source_current(g_app.account_ui->chat_state, j->ticket.source) &&
            read_scope_target_current(g_app.account_ui->chat_state, j->ticket.source, row.target) &&
@@ -287,7 +285,6 @@ bool application_scoped_read_begin(const ApplicationScopedReadTicket& t) noexcep
         read_scope_plan_size(g_app.account_ui->chat_state, t.source.kind, t.source.id, action_clock);
     if (!size.valid || (size.count && !stable_storage_reserve(&o->plan, size.count)))
         return false;
-    ++o->plan_builds;
     const auto result =
         read_scope_plan(g_app.account_ui->chat_state, t.source.kind, t.source.id, action_clock,
                         {stable_storage_data<ReadScopeTarget>(o->plan), size.count});
@@ -426,7 +423,6 @@ bool application_scoped_read_submit(u64 request_id, u64 now) noexcept {
         publish(*o);
         return false;
     }
-    ++o->encodings;
     const auto result = g_app.account.api.bulk_message_ack(g_app.account.instance, wire, count, request_id);
     if (!result.ok()) {
         o->admission_due = deadline_after(now, 125);
@@ -558,38 +554,5 @@ void application_scoped_read_release() noexcept {
         return;
     }
     destroy(o);
-}
-ApplicationScopedReadMetrics application_scoped_read_metrics() noexcept {
-    ApplicationScopedReadMetrics m{};
-    const auto* o = g_app.scoped_read;
-    if (!o)
-        return m;
-    Win32MemoryInformation region{};
-    VirtualQuery(o, region.native(), sizeof(region));
-    m.owner_bytes = sizeof(*o);
-    m.owner_reserved_bytes = static_cast<u32>(region.RegionSize);
-    m.owner_committed_bytes = m.owner_reserved_bytes;
-    m.queue_reserved_bytes = static_cast<u32>(o->queued.arena.reserved + o->admitted.arena.reserved);
-    m.queue_committed_bytes = static_cast<u32>(o->queued.arena.committed + o->admitted.arena.committed);
-    m.targets_reserved_bytes = static_cast<u32>(o->targets.arena.reserved);
-    m.targets_committed_bytes = static_cast<u32>(o->targets.arena.committed);
-    m.plan_reserved_bytes = static_cast<u32>(o->plan.arena.reserved);
-    m.plan_committed_bytes = static_cast<u32>(o->plan.arena.committed);
-    m.jobs_reserved_bytes = static_cast<u32>(o->jobs.arena.reserved);
-    m.jobs_committed_bytes = static_cast<u32>(o->jobs.arena.committed);
-    m.flight_reserved_bytes = static_cast<u32>(o->flight.arena.reserved);
-    m.flight_committed_bytes = static_cast<u32>(o->flight.arena.committed);
-    m.candidate_reserved_bytes = static_cast<u32>(o->candidates.arena.reserved);
-    m.candidate_committed_bytes = static_cast<u32>(o->candidates.arena.committed);
-    m.publication_revision = o->revision;
-    m.flight_active = o->flight_active;
-    m.plan_builds = o->plan_builds;
-    m.target_checks = o->target_checks;
-    m.encodings = o->encodings;
-    m.commits = o->queued.arena.commit_count + o->admitted.arena.commit_count +
-                o->targets.arena.commit_count + o->plan.arena.commit_count +
-                o->candidates.arena.commit_count + o->jobs.arena.commit_count +
-                o->flight.arena.commit_count + 1;
-    return m;
 }
 } // namespace maicord::app_detail

@@ -383,7 +383,7 @@ void test_patches() noexcept {
     auto too_long = draft_from(base);
     too_long.bio = {long_bio, 191};
     check(!profile_editor_changes_allowed(ProfileEditorTab::main, base, too_long, nitro) &&
-              profile_editor_bio_remaining(too_long.bio) == -1 && profile_editor_bio_valid({long_bio, 190}),
+              profile_editor_bio_remaining(too_long.bio) == -1 && profile_editor_bio_remaining({long_bio, 190}) == 0,
           "profile save: a bio over 190 characters disables Save and the counter goes negative");
 
     // Per-server: resets are allowed without Nitro; changes are not.

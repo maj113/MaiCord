@@ -23,6 +23,7 @@
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/protocol/channel_overview.hpp"
 #include "../../src/app/account_ui_runtime.hpp"
+#include "../application_content_input_inactive.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};
@@ -447,7 +448,7 @@ struct Counters {
     u32 paint, text, paint_upload, text_upload, media_upload, painted, skips, measures, glyphs, position,
         metadata, membership, history, frames;
     u64 layout, projection;
-    u32 owner_bytes, notice_stage, state_revision, message_revision;
+    u32 notice_stage, state_revision, message_revision;
 };
 Counters counters() noexcept {
     const auto& r = g_app.renderer;
@@ -467,7 +468,6 @@ Counters counters() noexcept {
             fixture->frames,
             g_app.message_scene.widgets.layout.revision,
             g_app.account_ui->message_text.projection_signature,
-            application_message_navigation_owner_bytes(),
             static_cast<u32>(g_app.message_mutation_notice.navigation_stage),
             g_app.account_ui->chat_state.channel_mutations +
                 g_app.account_ui->chat_state.permission_mutations +
@@ -510,7 +510,7 @@ bool warm(u32 sample) noexcept {
         "frame_request_delta"};
     log_u64(LogLevel::info, "message_link_warm", "sample", sample);
     bool valid = before.layout == after.layout && before.projection == after.projection &&
-                 before.owner_bytes == after.owner_bytes && before.notice_stage == after.notice_stage &&
+                 before.notice_stage == after.notice_stage &&
                  before.state_revision == after.state_revision &&
                  before.message_revision == after.message_revision && after.skips - before.skips == 64;
     for (u32 i = 0; i < 13; ++i) {
@@ -520,9 +520,6 @@ bool warm(u32 sample) noexcept {
     log_u64(LogLevel::info, "message_link_warm", "layout_delta", after.layout - before.layout);
     log_u64(LogLevel::info, "message_link_warm", "projection_changed",
             before.projection != after.projection);
-    log_u64(LogLevel::info, "message_link_warm", "owner_bytes", after.owner_bytes);
-    log_u64(LogLevel::info, "message_link_warm", "owner_bytes_delta",
-            after.owner_bytes - before.owner_bytes);
     log_u64(LogLevel::info, "message_link_warm", "notice_stage_changed",
             before.notice_stage != after.notice_stage);
     log_u64(LogLevel::info, "message_link_warm", "state_revision_delta",
@@ -917,17 +914,6 @@ bool message_link_ui_probe() noexcept {
 // around-history decoder remain linked from their shipping translation units.
 namespace maicord::app_detail {
 using namespace message_link_probe_detail;
-// application_content_input.cpp opens the server header popout.
-bool application_guild_menu_toggle(bool) noexcept {
-    return false;
-}
-bool application_private_channel_row_close(u64, float, float) noexcept {
-    return false;
-}
-bool application_private_channel_requests_mode() noexcept {
-    return false;
-}
-void application_private_channel_set_requests_mode(bool) noexcept {}
 bool application_request_frame() noexcept {
     ++fixture->frames;
     return true;
@@ -961,18 +947,12 @@ bool pump_message_history() noexcept {
     ++fixture->history_submissions;
     return true;
 }
-bool animate_guild_rail_scroll_from(float) noexcept {
-    return true;
-}
 bool scroll_to_resident_message(u64 id) noexcept {
     return message_store_find(g_app.message_view.store, id).ok();
 }
 bool application_stop_account() noexcept {
     g_app.account.status.running = false;
     return true;
-}
-void application_account_stop_recoverable(const char*) noexcept {
-    application_stop_account();
 }
 float client_dip_x(LPARAM p) noexcept {
     return static_cast<short>(LOWORD(p)) * 96.f / g_app.renderer.dpi;
@@ -987,22 +967,7 @@ bool application_search_navigation_source(const ApplicationSearchSourceTicket&,
 bool application_search_source_notice(const ApplicationSearchSourceTicket&, Utf8View) noexcept {
     return false;
 }
-bool application_profile_open(u64, const UiRect&, ProfileAnchor) noexcept {
-    return false;
-}
-bool application_guild_card_open(u64, UiRect) noexcept {
-    return false;
-}
-bool application_interaction_card_toggle(u64) noexcept {
-    return false;
-}
 bool application_plugins_slot_action(u64, NativePluginSdkSlotTarget, u64) noexcept {
-    return false;
-}
-bool application_plugins_render_click(const MessageTextHit&, UiRect) noexcept {
-    return false;
-}
-bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRect) noexcept {
     return false;
 }
 bool application_friends_active() noexcept {
@@ -1013,26 +978,7 @@ bool application_friends_show() noexcept {
 }
 void application_friends_hide() noexcept {
 }
-bool application_thread_browser_active() noexcept {
-    return false;
-}
-bool application_thread_browser_read_blocked() noexcept {
-    return false;
-}
-bool application_thread_browser_open(u64) noexcept {
-    return false;
-}
-void application_thread_browser_close() noexcept {
-}
-void application_read_state_activity() noexcept {
-}
-bool application_message_action_bar_activate(const MessageActionBarHit&, bool) noexcept {
-    return false;
-}
 bool application_message_forward_open(u64) noexcept {
-    return false;
-}
-bool open_reaction_picker(u64, UiRect) noexcept {
     return false;
 }
 bool application_downloads_save_target(float, float) noexcept {
@@ -1041,28 +987,7 @@ bool application_downloads_save_target(float, float) noexcept {
 bool application_downloads_save_press(float, float) noexcept {
     return false;
 }
-bool application_video_open_focused() noexcept {
-    return false;
-}
-bool application_video_cursor(UiPoint, UiCursor*) noexcept {
-    return false;
-}
-bool application_poll_cursor(UiPoint, UiCursor*) noexcept {
-    return false;
-}
-bool application_gif_favorite_star_target(float, float) noexcept {
-    return false;
-}
-bool application_image_viewer_open_at(float, float, bool) noexcept {
-    return false;
-}
-bool application_commands_insert(u64, u64, Utf8View) noexcept {
-    return true;
-}
 bool begin_message_reply(u64) noexcept {
-    return false;
-}
-bool queue_message_reaction(u64, u32) noexcept {
     return false;
 }
 bool queue_message_reaction_emoji(u64, u64, Utf8View, bool) noexcept {
@@ -1071,47 +996,7 @@ bool queue_message_reaction_emoji(u64, u64, Utf8View, bool) noexcept {
 bool application_quick_switcher_input(UiInputKind, u32, bool) noexcept {
     return false;
 }
-bool dismiss_popup() noexcept {
-    return false;
-}
 bool open_message_context_popup(u64, UiRect) noexcept {
-    return false;
-}
-bool application_invite_card_click(u64, UiWidgetHandle, float, float) noexcept {
-    return false;
-}
-bool application_message_component_click(u64, UiWidgetHandle, UiRect) noexcept {
-    return false;
-}
-bool application_pinned_messages_toggle() noexcept {
-    return true;
-}
-bool refresh_account_frame(bool) noexcept {
-    return true;
-}
-void application_user_settings_request_content_confirmation() noexcept {}
-bool application_voice_join(u64, u64) noexcept {
-    return true;
-}
-bool application_guild_invite_open_url(Utf8View) noexcept {
-    return false;
-}
-bool application_link_open(Utf8View, bool) noexcept {
-    return true;
-}
-bool application_link_channel_trusted(u64) noexcept {
-    return true;
-}
-bool application_guild_folders_toggle(u64) noexcept {
-    return false;
-}
-bool application_navigation_drag_press(LPARAM) noexcept {
-    return false;
-}
-bool application_guild_lifecycle_open_create() noexcept {
-    return false;
-}
-bool application_guild_community_open_events(u64) noexcept {
     return false;
 }
 } // namespace maicord::app_detail

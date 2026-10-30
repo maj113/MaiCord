@@ -108,9 +108,8 @@ struct ApplicationNotifications {
     Seen seen[256];
     Display* display;
     NotificationRetention retention;
-    u64 retention_allocation_failures;
     u64 generation;
-    u64 profile, audio_epoch, audio_submitted, audio_failures_logged, selected, create_sequence;
+    u64 profile, audio_epoch, audio_failures_logged, selected, create_sequence;
     // Toast withdrawals deferred out of sent window messages (WM_ACTIVATE):
     // COM cannot call out during an input-synchronous call.
     u64 deferred_removals[4];
@@ -232,7 +231,7 @@ void sound_submit(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
 #else
     const auto result=notification_audio_submit(&n.audio,request);
 #endif
-    if(result.ok()) ++n.audio_submitted; else audio_error(n,result);
+    if(!result.ok()) audio_error(n,result);
 }
 void sound_throttled(ApplicationNotifications& n,u32 id,u64 epoch) noexcept {
     if(!id || epoch!=n.audio_epoch || !n.audio_preference || !audio_sink(n)) return;
@@ -261,7 +260,6 @@ void release_retention(ApplicationNotifications& n) noexcept {
     if(index) VirtualFree(index,0,MEM_RELEASE);
 }
 bool retention_unavailable(ApplicationNotifications& n) noexcept {
-    saturating_accumulate(n.retention_allocation_failures,u64{1});
     n.status=utf8_literal("Notifications are unavailable right now.");
     log_write(LogLevel::warning,"notifications","retention_storage_unavailable");
     return false;
@@ -870,7 +868,7 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     metrics.threads=n.settings.thread_count; metrics.ready=n.ready; metrics.live=n.live;
     metrics.seen_count=n.seen_next;
     metrics.owner_sizeof_bytes=static_cast<u32>(sizeof(ApplicationNotifications));
-    metrics.audio_epoch=n.audio_epoch; metrics.audio_backend_epoch=n.audio.epoch; metrics.audio_submitted=n.audio_submitted;
+    metrics.audio_epoch=n.audio_epoch; metrics.audio_backend_epoch=n.audio.epoch;
     notification_sound_throttle_deadline(n.sound_throttle,&metrics.sound_deadline);
     metrics.audio_failed=n.audio_failed;
     metrics.audio_worker_started=n.audio.runtime!=nullptr;
@@ -880,7 +878,6 @@ ApplicationNotificationFixtureMetrics application_notifications_fixture_metrics(
     metrics.retention_capacity_channels=n.retention.rows.count;
     metrics.retention_index_slots=n.retention.index.count;
     metrics.retention_row_bytes=static_cast<u32>(sizeof(NotificationRetentionRow));
-    metrics.retention_allocation_failures=n.retention_allocation_failures;
     // Dense active rows and occupied index entries; handle slack inside each
     // row is included, while unused capacity and page rounding are separate.
     metrics.retention_logical_bytes=u64{n.retention.count}*(sizeof(NotificationRetentionRow)+sizeof(u32));

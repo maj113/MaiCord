@@ -264,7 +264,6 @@ void lifecycle(Check check) noexcept {
               rejected.error == CaptchaBridgeError::rejected && secrets_erased(bridge),
           "bridge lifecycle: the first POST invalidates the state even when its token is refused");
     captcha_bridge_stop(&bridge, 5000);
-    check(captcha_bridge_runtime_bytes() <= 72 * 1024, "bridge lifecycle: one bounded locked arena");
 
     AccountActionCaptcha action{};
     AccountActionCaptchaRequest action_request{};

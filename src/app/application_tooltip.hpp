@@ -14,5 +14,4 @@ void application_tooltip_clear() noexcept;
 // even before the pointer has hovered anything.
 void application_tooltip_wake() noexcept;
 void application_tooltip_release() noexcept;
-u32 application_tooltip_owner_bytes() noexcept;
 } // namespace maicord::app_detail

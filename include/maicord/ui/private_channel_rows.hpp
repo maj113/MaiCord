@@ -31,8 +31,6 @@ UiPresence ui_user_presence(const UiPrivateRowSource& source, u64 user) noexcept
 // The one-to-one peer's presence (ui_user_presence); a group is online while
 // any other member is online, else none.
 UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 channel_id) noexcept;
-// The online peer is online on mobile only: the row draws the phone status.
-bool ui_private_row_mobile(const UiPrivateRowSource& source, u64 channel_id) noexcept;
 // "Typing…" while someone else types, "N members" for groups, and an online
 // peer's activity line, whose glyph (none otherwise) leads it.
 Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,

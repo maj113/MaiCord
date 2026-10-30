@@ -143,7 +143,7 @@ void run() noexcept {
     check(application_message_forward_available(500),
           "Forward runtime inactive retained form owner does not block forwarding");
     g_app.text_form = nullptr;
-    check(!application_message_forward_owner_bytes() && application_message_forward_available(500),
+    check(!g_app.message_forward && application_message_forward_available(500),
           "Forward runtime allocation is lazy and eligible source is admitted");
     check(application_message_forward_open(500) && application_message_forward_active() &&
               application_message_forward_edit_focused() && suspends && synchronizations &&
@@ -337,7 +337,7 @@ void run() noexcept {
         WM_LBUTTONDOWN, MK_LBUTTON,
         MAKELPARAM(static_cast<i16>(release_panel.left + 5), static_cast<i16>(release_panel.top + 5)));
     application_message_forward_release();
-    check(!application_message_forward_owner_bytes() && !g_app.renderer.message_forward_scene &&
+    check(!g_app.message_forward && !g_app.renderer.message_forward_scene &&
               !application_message_forward_caret_wake(),
           "Forward runtime release retires borrowed UI storage and wake");
     check(!application_message_forward_window_message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(1, 1)) &&

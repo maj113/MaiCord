@@ -117,7 +117,5 @@ void test_browser_sign_in_receiver(void (*check)(bool, const char*) noexcept) no
         "an absent owner cannot accept or reject an exchange as an authenticated session");
     check(browser_sign_in_receiver_stop(&receiver, 0).ok() && !receiver.runtime,
         "stopping an empty receiver is idempotent and does not allocate");
-    check(browser_sign_in_receiver_runtime_bytes() >= 40 * 1024 && browser_sign_in_receiver_runtime_bytes() <= 48 * 1024,
-        "receiver has one bounded locked request/credential arena and a page-sized metadata owner");
 }
 } // namespace maicord

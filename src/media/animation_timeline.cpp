@@ -273,12 +273,7 @@ AnimationTimelineResult animation_timeline_publish(AnimationTimeline* timeline,
     u32 slot = find_slot(timeline, descriptor.key);
     if (slot == 0xFFFFFFFFu) {
         slot = find_free_slot(timeline);
-        if (slot == 0xFFFFFFFFu) {
-            ++timeline->counters.capacity_rejections;
-            return {AnimationTimelineError::no_capacity, 0};
-        }
-        if (!insert_bucket(timeline, descriptor.key, slot)) {
-            ++timeline->counters.capacity_rejections;
+        if (slot == 0xFFFFFFFFu || !insert_bucket(timeline, descriptor.key, slot)) {
             return {AnimationTimelineError::no_capacity, 0};
         }
         ++timeline->entry_count;
@@ -297,7 +292,6 @@ AnimationTimelineResult animation_timeline_publish(AnimationTimeline* timeline,
     } else {
         entry.paused_remaining_us = descriptor.first_frame_duration_us;
     }
-    ++timeline->counters.publishes;
     return {AnimationTimelineError::none, slot};
 }
 
@@ -332,7 +326,6 @@ AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, 
     timeline->buckets[bucket] = kTombstoneBucket;
     timeline->free_cursor = slot;
     --timeline->entry_count;
-    ++timeline->counters.releases;
     return {AnimationTimelineError::none, slot};
 }
 
@@ -368,7 +361,6 @@ bool animation_timeline_observe_visible(AnimationTimeline* timeline, const Media
         entry.due_at_us = deadline_after(monotonic_now_us, entry.paused_remaining_us);
     }
     entry.paused_remaining_us = 0;
-    ++timeline->counters.resumes;
     return true;
 }
 
@@ -395,7 +387,6 @@ void animation_timeline_end_visibility(AnimationTimeline* timeline, u64 monotoni
                 entry.due_at_us > monotonic_now_us ? entry.due_at_us - monotonic_now_us : 0;
             entry.due_at_us = 0;
         }
-        ++timeline->counters.pauses;
     }
 }
 
@@ -429,7 +420,6 @@ AnimationTimelineCollectResult animation_timeline_collect_due(
             entry.flags |= animation_timeline_entry_finished;
             entry.due_at_us = 0;
             ++result.completed;
-            ++timeline->counters.completed_animations;
             continue;
         }
         if (result.advances >= output.count) {
@@ -448,9 +438,6 @@ AnimationTimelineCollectResult animation_timeline_collect_due(
         entry.pending_play_index = next_play;
         entry.flags |= animation_timeline_entry_pending;
         ++timeline->counters.due_advances;
-        if (monotonic_now_us > advance.scheduled_at_us) {
-            ++timeline->counters.late_advances;
-        }
         timeline->scan_cursor = (index + 1) % timeline->capacity;
     }
     return result;

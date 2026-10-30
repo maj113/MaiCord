@@ -12,7 +12,6 @@ struct MessageDraftSession {
     u32 persisted_revision;
     u32 persist_failures;
     u32 persist_saves;
-    u32 persisted_bytes;
     bool cleanup_required;
     // A throttled save is committed by a background writer; the session
     // applies its result on a later persist/wait call. Both fields use

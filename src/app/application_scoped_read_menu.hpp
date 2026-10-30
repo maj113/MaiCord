@@ -11,7 +11,6 @@ bool application_scoped_read_menu_action(u32 action) noexcept;
 bool application_scoped_read_menu_activate(u32 action) noexcept;
 bool application_scoped_read_menu_refresh() noexcept;
 void application_scoped_read_menu_clear() noexcept;
-u32 application_scoped_read_menu_owner_bytes() noexcept;
 // Called after modal/editor input priority and modifier/repeat checks.
 bool application_scoped_read_shortcut() noexcept;
 } // namespace maicord::app_detail

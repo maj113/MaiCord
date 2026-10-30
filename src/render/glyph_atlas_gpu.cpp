@@ -117,15 +117,10 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
         static_cast<u32>(allocation.y) + allocation.height + allocation_padding > gpu->height ||
         !bounded_float(pixels_per_em, 1024.0f) || pixels_per_em <= 0.0f ||
         !(stroke_half_width >= 0.0f && stroke_half_width < 128.0f)) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
         return gpu_error(GlyphAtlasGpuError::invalid_input, E_INVALIDARG);
     }
-    if (outline.count > gpu->command_capacity) {
-        ++gpu->rejected;
+    if (outline.count > gpu->command_capacity)
         return gpu_error(GlyphAtlasGpuError::command_capacity);
-    }
 
     bool close=count&&(count==glyph_raster_batch_limit||outline.count>gpu->command_committed-cursor);
     const u32 x=allocation.x-allocation_padding,y=allocation.y-allocation_padding;
@@ -138,11 +133,11 @@ GlyphAtlasGpuResult GlyphRasterBatch::add(const GlyphOutline& outline,const Glyp
     if(outline.count>gpu->command_committed){
         ID3D11Device* device=nullptr;context->GetDevice(&device);
         const HRESULT grown=reserve_commands(gpu,device,outline.count);com_release(device);
-        if(FAILED(grown)){++gpu->rejected;return gpu_error(GlyphAtlasGpuError::create_resource,grown);}
+        if(FAILED(grown))return gpu_error(GlyphAtlasGpuError::create_resource,grown);
     }
     if(!mapped){D3D11_MAPPED_SUBRESOURCE upload{};
         const HRESULT result=context->Map(gpu->command_buffer,0,D3D11_MAP_WRITE_DISCARD,0,&upload);
-        if(FAILED(result)){++gpu->rejected;failed=true;return gpu_error(GlyphAtlasGpuError::upload,result);}
+        if(FAILED(result)){failed=true;return gpu_error(GlyphAtlasGpuError::upload,result);}
         mapped=static_cast<u8*>(upload.pData);
     }
     CopyMemory(mapped+glyph_raster_header_bytes+static_cast<usize>(cursor)*sizeof(GlyphPathCommand),outline.commands,

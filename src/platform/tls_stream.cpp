@@ -113,8 +113,6 @@ TlsStreamEvent invalid_event() noexcept {
 TlsStreamEvent failure(TlsStream* stream, TlsStreamError error, u32 native_error = 0,
                        SECURITY_STATUS tls_status = SEC_E_OK) noexcept {
     stream->state = TlsStreamState::failed;
-    stream->error = error;
-    stream->native_error = native_error;
     stream->tls_status = tls_status;
     return TlsStreamEvent{native_error, TlsStreamEventKind::failed, error};
 }

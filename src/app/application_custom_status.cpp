@@ -537,7 +537,4 @@ SettingsLayer* application_custom_status_settings_layer() noexcept {
 u64 application_custom_status_caret_wake() noexcept {
     return application_custom_status_active() ? settings_layer_next_wake(form->layer) : 0;
 }
-u32 application_custom_status_owner_bytes() noexcept {
-    return form ? sizeof(*form) : 0;
-}
 } // namespace maicord::app_detail

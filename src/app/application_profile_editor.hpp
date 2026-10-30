@@ -39,7 +39,6 @@ u64 application_profile_editor_next_wake() noexcept;
 u64 application_profile_editor_caret_wake() noexcept;
 // The layer text editing goes to; null while a dialog is over the editor.
 SettingsLayer* application_profile_editor_edit_layer() noexcept;
-u32 application_profile_editor_owner_bytes() noexcept;
 // Local preview frames of picked images (the media pump routes them here).
 bool application_profile_editor_frame_current(MediaAssetKey key) noexcept;
 void application_profile_editor_frame_uploaded(MediaAssetKey key) noexcept;

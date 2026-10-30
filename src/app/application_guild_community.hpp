@@ -65,6 +65,5 @@ bool application_guild_community_owns_response(u64 request_id) noexcept;
 bool application_guild_community_response(const RestClientResponse&, Utf8View) noexcept;
 u64 application_guild_community_next_wake() noexcept;
 u64 application_guild_community_caret_wake() noexcept;
-u32 application_guild_community_owner_bytes() noexcept;
 
 } // namespace maicord::app_detail

@@ -41,5 +41,4 @@ u64 application_downloads_next_wake() noexcept;
 void application_downloads_prepare_account_stop() noexcept;
 bool application_downloads_defer_close() noexcept;
 bool application_downloads_release(u32 timeout_ms = 0) noexcept;
-u32 application_downloads_owner_bytes() noexcept;
 } // namespace maicord::app_detail

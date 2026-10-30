@@ -404,7 +404,7 @@ void run() noexcept {
               !application_channel_overview_open(7),
           "Overview runtime: channel deletion retires owner and cached form cannot revive it");
     application_channel_overview_release();
-    check(!owner && !g_app.renderer.settings_scene && !application_channel_overview_owner_bytes() &&
+    check(!owner && !g_app.renderer.settings_scene &&
               !application_channel_overview_next_wake() && !application_channel_overview_caret_wake(),
           "Overview runtime: release removes owner scene binding and all deadlines");
     DestroyWindow(g_app.window);
@@ -489,7 +489,6 @@ SettingsLayer* application_report_settings_layer() noexcept { return nullptr; }
 bool application_report_submit(u64) noexcept { return false; }
 bool application_report_owns_response(u64) noexcept { return false; }
 bool application_report_response(const RestClientResponse&, Utf8View) noexcept { return true; }
-u32 application_report_owner_bytes() noexcept { return 0; }
 u64 application_user_actions_next_wake() noexcept { return 0; }
 bool application_user_actions_submit(u64) noexcept { return false; }
 bool application_user_actions_owns_response(u64) noexcept { return false; }

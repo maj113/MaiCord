@@ -521,7 +521,8 @@ endfunction()
 # #pragma of its own and has no definitions of its own, so the PCH holds only
 # declarations it already includes. The options apply only to targets with
 # MAICORD_APPLICATION_PCH, the directory of their own PCHs, so every target
-# compiling a source uses a PCH built with its settings, or none.
+# compiling a source uses a PCH built with its settings, or none. A source
+# with the property MAICORD_NO_APPLICATION_PCH set never uses one.
 # maicord_precompile_application_sources(<target> [STUBS <object library>]):
 # without STUBS the PCHs are built in <target> and each qualifying source names
 # them in OBJECT_DEPENDS, which has no per-target form, so a configuration that
@@ -548,6 +549,10 @@ function(maicord_precompile_application_sources target)
         cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE)
         get_source_file_property(definitions "${path}" COMPILE_DEFINITIONS)
         if(definitions)
+            continue()
+        endif()
+        get_source_file_property(no_pch "${path}" MAICORD_NO_APPLICATION_PCH)
+        if(no_pch)
             continue()
         endif()
         maicord_reaches_application_state(app "${path}" ${app_headers})

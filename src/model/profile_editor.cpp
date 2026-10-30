@@ -98,10 +98,6 @@ u16 profile_editor_changes(ProfileEditorTab tab, const ProfileEditorBase& base, 
     return changed;
 }
 
-bool profile_editor_bio_valid(Utf8View bio, u32 limit) noexcept {
-    return within(bio, limit);
-}
-
 i32 profile_editor_bio_remaining(Utf8View bio, u32 limit) noexcept {
     const u32 used = codepoints(bio);
     return used == ~0u ? 0 : static_cast<i32>(limit) - static_cast<i32>(used);

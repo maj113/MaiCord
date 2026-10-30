@@ -762,17 +762,6 @@ void test_controller() noexcept {
     check(settings_lifetime && application_settings_pages() &&
               application_settings_lifetime() == settings_lifetime,
           "settings: existing owner lookups preserve a nonzero lifetime identity");
-    MEMORY_BASIC_INFORMATION settings_region{};
-    SYSTEM_INFO system_info{};
-    GetSystemInfo(&system_info);
-    const u32 settings_bytes = application_settings_owner_bytes();
-    const usize expected_committed = (static_cast<usize>(settings_bytes) + system_info.dwPageSize - 1) /
-                                     system_info.dwPageSize * system_info.dwPageSize;
-    check(settings_bytes &&
-              VirtualQuery(settings_memory, &settings_region, sizeof(settings_region)) ==
-                  sizeof(settings_region) &&
-              settings_region.State == MEM_COMMIT && settings_region.RegionSize == expected_committed,
-          "settings: measured owner sizeof matches page-rounded committed VM region");
     test_native_projection_bank();
     test_every_settings_page();
     check(!application_media_auth_notification() && !application_settings_open_key(utf8_literal("voice.youtube")),

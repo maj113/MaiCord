@@ -458,13 +458,5 @@ bool native_file_picker_release(NativeFilePicker* picker, u32 timeout_ms) noexce
     if (picker->thread && WaitForSingleObject(picker->thread, timeout_ms) != WAIT_OBJECT_0) return false;
     destroy(picker); return true;
 }
-u32 native_file_picker_committed_bytes(const NativeFilePicker* picker) noexcept {
-    // Arena counters are worker-owned until terminal publication.
-    if (!picker || !picker->runtime) return 0;
-    const auto status = native_file_picker_status(picker);
-    if (status.phase != NativeFilePickerPhase::complete) return 0;
-    const auto* runtime = static_cast<const Runtime*>(picker->runtime);
-    return static_cast<u32>((sizeof(Runtime) + 4095) & ~4095ull) + static_cast<u32>(runtime->paths.committed);
-}
 
 }

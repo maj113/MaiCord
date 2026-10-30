@@ -388,10 +388,6 @@ u32 run() noexcept {
     write_rate("account_auth_mfa_code_prepare", kMfaCodeIterations, mfa_code_us);
     write_metric("account_gateway_session_inline_bytes", sizeof(GatewaySession), "bytes");
     write_metric("account_gateway_zstd_stream_bytes", sizeof(ZstdStreamDecoder), "bytes");
-    write_metric("account_user_auth_runtime_bytes", rest_client_user_auth_runtime_bytes(kUserAuthMaximumResponseBytes),
-                 "bytes");
-    write_metric("account_auth_coordinator_runtime_bytes", user_auth_coordinator_runtime_bytes(), "bytes");
-    write_metric("account_remote_auth_runtime_bytes", remote_auth_client_runtime_bytes(), "bytes");
     write_metric("account_module_runtime_bytes", account_module_runtime_bytes(), "bytes");
     write_metric("account_profile_promotion_owner_bytes", sizeof(AccountProfilePromotion), "bytes");
     return 0;

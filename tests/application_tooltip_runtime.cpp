@@ -97,7 +97,7 @@ void run() noexcept {
     const bool queried =
         g_app.tooltip && VirtualQuery(g_app.tooltip, &region, sizeof(region)) == sizeof(region);
     check(deadline && queried && region.State == MEM_COMMIT && region.RegionSize <= 4096 &&
-              application_tooltip_owner_bytes() <= 4096 && !g_app.renderer.tooltip_scene->visible,
+              !g_app.renderer.tooltip_scene->visible,
           "tooltip runtime: real Settings gear lazily owns at most one committed page and exact pending "
           "delay");
     auto* owner = g_app.tooltip;

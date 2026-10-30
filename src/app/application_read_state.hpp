@@ -26,17 +26,6 @@ void application_read_state_ack_observed(void*, u64 channel_id, u64 cursor, bool
 void application_read_state_reset_token(void*) noexcept;
 void application_read_state_ready() noexcept;
 void application_read_state_release(Application& application) noexcept;
-u32 application_read_state_owner_bytes() noexcept;
-struct ApplicationReadStateMetrics {
-    u32 owner_bytes, owner_reserved_bytes, owner_committed_bytes;
-    u32 intents_reserved_bytes, intents_committed_bytes;
-    u32 token_reserved_bytes, token_committed_bytes;
-    u32 actions_reserved_bytes, actions_committed_bytes;
-    u32 echoes_reserved_bytes, echoes_committed_bytes;
-    u32 commits;
-    u64 action_serial;
-};
-ApplicationReadStateMetrics application_read_state_metrics() noexcept;
 // Shared per-channel authority for scoped read plans. Preparation backs every
 // ledger/queue/echo prefix before commit can change any logical/local state.
 bool application_read_state_scoped_prepare(ConstSlice<ReadScopeTarget>, bool individual,

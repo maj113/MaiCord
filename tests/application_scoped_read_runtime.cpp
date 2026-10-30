@@ -101,26 +101,16 @@ void run() noexcept {
               channel().mention_count == 4 &&
               application_scoped_read_view(ReadScopeKind::guild, 7).completed == 3,
           "scoped runtime: later messages do not widen admitted boundary or clear later mentions");
-    const auto metrics = application_scoped_read_metrics();
-    const auto broker = application_read_state_metrics();
+    const auto warm_view = application_scoped_read_view(ReadScopeKind::guild, 7);
     for (u32 warm = 0; warm < 8; ++warm) {
         application_scoped_read_synchronize();
         check(!application_scoped_read_next_wake() &&
                   application_scoped_read_view(ReadScopeKind::guild, 7).completed == 3,
               "scoped runtime: completed idle status remains stable");
     }
-    const auto warmed = application_scoped_read_metrics();
-    const auto broker_warm = application_read_state_metrics();
-    check(metrics.publication_revision == warmed.publication_revision &&
-              metrics.plan_builds == warmed.plan_builds && metrics.target_checks == warmed.target_checks &&
-              metrics.encodings == warmed.encodings && metrics.commits == warmed.commits &&
-              broker.commits == broker_warm.commits && broker.action_serial == broker_warm.action_serial,
-          "scoped runtime: 8 warm polls do no planning target scanning encoding backing or authority "
-          "mutation");
-    check(metrics.owner_committed_bytes >= metrics.owner_bytes && metrics.candidate_reserved_bytes &&
-              broker.owner_committed_bytes >= broker.owner_bytes && broker.echoes_committed_bytes &&
-              broker.actions_committed_bytes,
-          "scoped runtime: metrics include base pages and duplicate immutable and echo banks");
+    check(warm_view.publication_revision ==
+              application_scoped_read_view(ReadScopeKind::guild, 7).publication_revision,
+          "scoped runtime: 8 warm polls republish nothing");
 
     fresh();
     // These compact fixture IDs have no Snowflake millisecond component.
@@ -299,19 +289,15 @@ void run() noexcept {
               !application_scoped_read_next_wake(),
           "scoped runtime: full shared echo ledger fails exact pending batch visibly without POST or "
           "immediate wake");
-    const auto capacity_metrics = application_scoped_read_metrics();
+    const auto capacity_view = application_scoped_read_view(ReadScopeKind::guild, 7);
     for (u32 warm = 0; warm < 8; ++warm) {
         application_scoped_read_synchronize();
         check(!application_scoped_read_next_wake(),
               "scoped runtime: capacity failure has no past-due polling wake");
     }
-    const auto capacity_warm = application_scoped_read_metrics();
-    check(capacity_metrics.publication_revision == capacity_warm.publication_revision &&
-              capacity_metrics.encodings == capacity_warm.encodings &&
-              capacity_metrics.commits == capacity_warm.commits &&
-              capacity_metrics.target_checks == capacity_warm.target_checks,
-          "scoped runtime: capacity failure remains stable across 8 polls without frames encoding scans "
-          "or commits");
+    check(capacity_view.publication_revision ==
+              application_scoped_read_view(ReadScopeKind::guild, 7).publication_revision,
+          "scoped runtime: capacity failure remains stable across 8 polls without republication");
     application_scoped_read_release();
     release();
 }

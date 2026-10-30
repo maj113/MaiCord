@@ -42,14 +42,7 @@ struct AnimationTimelineEntry {
 };
 
 struct AnimationTimelineCounters {
-    u64 publishes;
-    u64 releases;
     u64 due_advances;
-    u64 completed_animations;
-    u64 pauses;
-    u64 resumes;
-    u64 late_advances;
-    u64 capacity_rejections;
 };
 
 struct AnimationTimeline {
@@ -164,8 +157,8 @@ u64 animation_timeline_next_wake_at_us(const AnimationTimeline* timeline) noexce
 u32 animation_timeline_wait_timeout_ms(const AnimationTimeline* timeline, u64 monotonic_now_us) noexcept;
 
 static_assert(sizeof(AnimationTimelineEntry) == 72);
-static_assert(sizeof(AnimationTimelineCounters) == 64);
-static_assert(sizeof(AnimationTimeline) == 120);
+static_assert(sizeof(AnimationTimelineCounters) == 8);
+static_assert(sizeof(AnimationTimeline) == 64);
 static_assert(sizeof(AnimationFrameAdvance) == 40);
 
 } // namespace maicord

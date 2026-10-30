@@ -437,12 +437,4 @@ SecureBufferResult remote_auth_ticket_exchange_take_credential(RemoteAuthTicketE
     return assigned;
 }
 
-u32 remote_auth_ticket_exchange_runtime_bytes() noexcept {
-    const u64 total = static_cast<u64>(sizeof(RemoteAuthTicketExchange)) +
-                      kRemoteAuthTicketExchangeRequestBytes + kRemoteAuthTicketExchangeCredentialBytes +
-                      kRemoteAuthTicketExchangeSolutionBytes + kCaptchaChallengeSecretBytes +
-                      rest_client_user_auth_runtime_bytes(kRemoteAuthTicketExchangeResponseBytes);
-    return total <= ~0u ? static_cast<u32>(total) : 0;
-}
-
 } // namespace maicord

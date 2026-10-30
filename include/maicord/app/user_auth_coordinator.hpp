@@ -208,6 +208,5 @@ HANDLE user_auth_coordinator_notification_handle(const UserAuthCoordinator* coor
 UserAuthCoordinatorResult user_auth_coordinator_status(const UserAuthCoordinator* coordinator) noexcept;
 UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordinator,
                                                      u32 timeout_ms) noexcept;
-u32 user_auth_coordinator_runtime_bytes() noexcept;
 
 } // namespace maicord

@@ -565,7 +565,4 @@ bool application_custom_theme_release(u32 timeout_ms) noexcept {
     VirtualFree(o, 0, MEM_RELEASE);
     return true;
 }
-u32 application_custom_theme_owner_bytes() noexcept {
-    return sizeof(CustomThemeOwner);
-}
 } // namespace maicord::app_detail

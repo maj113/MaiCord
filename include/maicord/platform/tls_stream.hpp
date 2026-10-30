@@ -100,11 +100,9 @@ struct TlsStream {
     u32 write_span_offset;
     u32 current_plaintext_bytes;
     u32 outstanding_operations;
-    u32 native_error;
     SECURITY_STATUS tls_status;
     TlsHandshakeState after_tls_send;
     TlsStreamState state;
-    TlsStreamError error;
     bool resolver_started;
     bool tls_initialized;
     bool handshake_send;

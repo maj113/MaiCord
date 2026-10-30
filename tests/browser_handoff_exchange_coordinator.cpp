@@ -23,11 +23,6 @@ struct Fixture {
 }
 
 namespace maicord {
-// The production size-query entry shares the REST object with the transport.
-// This fixture never measures that owner; keep its unused link boundary mocked
-// so the real networking implementation cannot be pulled into the test.
-u32 rest_client_user_auth_runtime_bytes(u32) noexcept { return 0; }
-u32 rest_client_user_auth_capacity_runtime_bytes(u32, u32) noexcept { return 0; }
 RestClientResult rest_client_start_user_auth_capacity(RestClient* client, u32 response, u32) noexcept {
     return rest_client_start_user_auth(client, response);
 }

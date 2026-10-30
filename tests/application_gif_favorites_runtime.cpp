@@ -401,7 +401,7 @@ void run() noexcept {
         application_gif_favorites_view();
         application_gif_favorites_state(saved);
     }
-    check(!g_app.gif_favorites && !application_gif_favorites_owner_bytes() && !submits &&
+    check(!g_app.gif_favorites && !submits &&
               !application_gif_favorites_response_buffer().data && !application_gif_favorites_next_wake(),
           "dormant broker commits zero owner banks and performs zero account work");
     load(101, 10, true, false, true);
@@ -483,7 +483,7 @@ void run() noexcept {
     application_gif_favorites_response_drained();
     check(is_free(held.data) && !application_gif_favorites_response_buffer().data,
           "take buffer remains writable for RAII erase then is freed by exact response drain");
-    const auto baseline_bytes = application_gif_favorites_owner_bytes();
+    const bool bank_owned = g_app.gif_favorites && g_app.gif_favorites->bank && g_app.gif_favorites->bank->bytes;
     check(application_gif_favorites_toggle(saved, source, 160, 90, GifFavoriteFormat::image) &&
               application_gif_favorites_submit(103, 1),
           "confirmed removal is pending");
@@ -571,7 +571,7 @@ void run() noexcept {
     application_gif_favorites_release();
     // Queue allocation is lazy and bounded, and it copies caller strings.
     load(112, 40, false, false);
-    const auto queue_baseline = application_gif_favorites_owner_bytes();
+    const bool queue_lazy = !g_app.gif_favorites->queue;
     char urls[8][64]{};
     for (u32 i = 0; i < 8; ++i) {
         ProtocolWriter writer{{reinterpret_cast<u8*>(urls[i]), sizeof(urls[i])}, 0};
@@ -583,8 +583,7 @@ void run() noexcept {
         urls[i][0] = 'X';
     }
     check(g_app.gif_favorites->queue_count == 8 && g_app.gif_favorites->queue[0].url[0] == 'h' &&
-              application_gif_favorites_owner_bytes() ==
-                  queue_baseline + kQueueCapacity * sizeof(FavoriteAction) &&
+              queue_lazy && g_app.gif_favorites->queue &&
               !application_gif_favorites_toggle(third, source, 90, 90, GifFavoriteFormat::image) &&
               g_app.gif_favorites->queue_count == 8,
           "queue copies exact action strings allocates only lazily and rejects ninth without truncation");
@@ -601,7 +600,7 @@ void run() noexcept {
     const void* bank = g_app.gif_favorites->bank;
     const void* owner = g_app.gif_favorites;
     application_gif_favorites_release();
-    check(!g_app.gif_favorites && !application_gif_favorites_owner_bytes() &&
+    check(!g_app.gif_favorites &&
               is_free(teardown_buffer.data) && is_free(queue) && is_free(bank) && is_free(owner),
           "joined teardown releases all owner queue confirmed and pending response commitments");
     load(115, 50, true, false);
@@ -698,8 +697,8 @@ void run() noexcept {
           "closed queued mutation confirms once and returns to dormant scheduling");
     application_gif_favorites_release();
     hover_interest();
-    check(baseline_bytes > sizeof(ApplicationGifFavorites),
-          "authoritative cache owns measured record group and index commitment");
+    check(bank_owned,
+          "authoritative cache owns a measured record group and index commitment");
     dispose(g_app.account_ui, sizeof(AccountUiRuntime));
     g_app.account_ui = nullptr;
     g_app.account = {};

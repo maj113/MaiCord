@@ -46,7 +46,6 @@ u64 application_guild_settings_caret_wake() noexcept;
 void application_guild_settings_tick(u64 now) noexcept;
 // Signalled when an image file dialog completes; null while none is open.
 HANDLE application_guild_settings_notification() noexcept;
-u32 application_guild_settings_owner_bytes() noexcept;
 // A bulk ban whose request failed: the Members page clears its selection.
 void application_guild_settings_bulk_ban_failed(u64 guild_id) noexcept;
 // Opens the name form for a new channel from the server or category menu.

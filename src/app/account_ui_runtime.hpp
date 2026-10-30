@@ -349,7 +349,7 @@ inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel
 // overflow, the 2,048 voice states that moved to their own owned storage, and dead presentation and
 // cache counters removed since (see the base literal).
 static_assert(kAccountUiFixedBytes ==
-              4'261'124 + 16 + 8 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+              4'261'092 + 16 + 8 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +

@@ -174,6 +174,5 @@ RemoteAuthClientResult remote_auth_client_submit_captcha(RemoteAuthClient* clien
 // Rebuild the wait set after pumping; stop releases all borrowed handles.
 HANDLE remote_auth_client_notification_handle(const RemoteAuthClient* client) noexcept;
 RemoteAuthClientResult remote_auth_client_status(const RemoteAuthClient* client) noexcept;
-u32 remote_auth_client_runtime_bytes() noexcept;
 
 } // namespace maicord

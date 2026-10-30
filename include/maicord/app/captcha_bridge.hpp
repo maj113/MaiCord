@@ -89,6 +89,5 @@ SecureBufferResult captcha_bridge_take_token(CaptchaBridge* bridge, u64 expected
 // Invalidates the state and erases every secret before joining the worker. A
 // failed join keeps the runtime for retry. Join timeout: 0 through 5000 ms.
 CaptchaBridgeStatus captcha_bridge_stop(CaptchaBridge* bridge, u32 timeout_ms) noexcept;
-u32 captcha_bridge_runtime_bytes() noexcept;
 
 } // namespace maicord

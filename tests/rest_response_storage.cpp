@@ -287,7 +287,6 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
             shared.scheduler.global_reset_at_ms = 500;
             valid = acquire_request(&probe.client, r, nullptr, 2) && r->rate_wait_until_ms == 1000 &&
                     !r->waiting_for_peer && !r->endpoint_lease.generation && !r->transaction.lease.active &&
-                    !shared.scheduler.acquired && !shared.scheduler.waited &&
                     endpoint_gate_release(&shared.endpoint_gate, &active, 3);
             NetworkWorkerEvent event{};
             event.kind = NetworkWorkerEventKind::completion;
@@ -299,8 +298,8 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
             const auto step = worker_handler(&probe.client, nullptr, event);
             valid = valid && !step.exit && r->rate_wait_until_ms == 500 && !r->waiting_for_peer &&
                     r->transaction.phase == RestTransactionPhase::idle && !r->transaction.lease.active &&
-                    !r->endpoint_lease.generation && !shared.mutation_owner && !shared.scheduler.acquired &&
-                    shared.scheduler.waited == 1 && !probe.client.requests && !probe.client.responses;
+                    !r->endpoint_lease.generation && !shared.mutation_owner && !probe.client.requests &&
+                    !probe.client.responses;
             probe.client.request_state = request_state_cancel_active;
             cancel_request(&probe.client, r);
             valid = valid && r->completed.error == RestClientError::cancelled &&

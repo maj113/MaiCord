@@ -2131,10 +2131,6 @@ SettingsLayer* application_profile_editor_edit_layer() noexcept {
     return application_profile_editor_active() && owner->dialog_kind == Dialog::none ? &owner->layer : nullptr;
 }
 
-u32 application_profile_editor_owner_bytes() noexcept {
-    return owner ? sizeof(*owner) : 0;
-}
-
 bool application_profile_editor_frame_current(MediaAssetKey key) noexcept {
     const auto* picked = picked_for(key);
     return picked && !picked->failed;

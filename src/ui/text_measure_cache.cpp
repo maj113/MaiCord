@@ -47,7 +47,6 @@ void advance_generation(UiTextMeasureCache* cache) noexcept {
         }
         cache->generation = 1;
     }
-    cache->resident = 0;
 }
 
 } // namespace
@@ -74,7 +73,6 @@ void ui_text_measure_cache_invalidate(UiTextMeasureCache* cache) noexcept {
         return;
     }
     advance_generation(cache);
-    saturating_increment(cache->invalidations);
 }
 
 UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
@@ -83,9 +81,6 @@ UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
     if (!cache || !cache->storage.data || !cache->backend || !value || !key_valid(request.key) ||
         (!request.text.data && request.text.bytes != 0) ||
         (!request.styles.data && request.styles.count != 0) || !ui_size_valid(request.constraint)) {
-        if (cache) {
-            saturating_increment(cache->rejected);
-        }
         return UiTextMeasureResult{UiTextMeasureError::invalid_input, false};
     }
     const u32 set_count = cache->storage.count / kUiTextMeasureCacheWays;
@@ -106,25 +101,16 @@ UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
             record.constraint.height == request.constraint.height) {
             record.access_stamp = next_stamp(cache);
             *value = record.value;
-            saturating_increment(cache->hits);
             return UiTextMeasureResult{UiTextMeasureError::none, true};
         }
         if (!replacement_stale && (!replacement || record.access_stamp < replacement->access_stamp)) {
             replacement = &record;
         }
     }
-    saturating_increment(cache->misses);
     saturating_increment(cache->backend_calls);
     UiTextMeasureValue measured{};
     if (!cache->backend(cache->backend_context, request, &measured) || !value_valid(measured)) {
-        saturating_increment(cache->rejected);
         return UiTextMeasureResult{UiTextMeasureError::backend, false};
-    }
-    const bool occupied = replacement->generation == cache->generation;
-    if (occupied) {
-        saturating_increment(cache->evictions);
-    } else {
-        saturating_increment(cache->resident);
     }
     replacement->face = request.face;
     replacement->key = request.key;
@@ -133,7 +119,6 @@ UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
     replacement->access_stamp = next_stamp(cache);
     replacement->generation = cache->generation;
     *value = measured;
-    saturating_increment(cache->inserts);
     return UiTextMeasureResult{UiTextMeasureError::none, false};
 }
 

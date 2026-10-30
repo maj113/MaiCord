@@ -167,7 +167,6 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
             sizeof(endpoint) - 1,
             1,
             0};
-        const u32 acquired_before = shared.scheduler.acquired;
         ReleaseSRWLockExclusive(shared.lock.native());
         ResetEvent(endpoint_wait_event);
         InterlockedExchange(&endpoint_waits, 0);
@@ -189,7 +188,7 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
         const bool gated = submitted && endpoint_wait_event &&
                            WaitForSingleObject(endpoint_wait_event, 3000) == WAIT_OBJECT_0;
         AcquireSRWLockExclusive(shared.lock.native());
-        const bool no_leases = shared.scheduler.acquired == acquired_before && !shared.mutation_owner &&
+        const bool no_leases = !shared.mutation_owner &&
                                shared.endpoint_gate.entries[0].retry_at_ms == floor &&
                                shared.endpoint_gate.entries[0].in_flight == 0;
         ReleaseSRWLockExclusive(shared.lock.native());
