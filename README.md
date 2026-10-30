@@ -165,7 +165,7 @@ samples/plugins/   example plugins built against the SDK
 cmake/             build modules included by CMakeLists.txt
 config/            application manifest and resource scripts
 tools/             build, PE audit, perf harness and release scripts
-third_party/       Opus, Lucide icons, minimp3
+third_party/       Opus, Lucide icons
 assets/            fonts, sounds, themes and license notices
 ```
 
@@ -199,7 +199,6 @@ include their notices:
 | --- | --- | --- |
 | [Opus](https://opus-codec.org/) 1.6.1 decoder and encoder subsets | BSD-3-Clause | [`third_party/opus/COPYING`](third_party/opus/COPYING) |
 | [Lucide](https://lucide.dev/) icons | ISC | [`third_party/lucide/LICENSE`](third_party/lucide/LICENSE) |
-| [minimp3](https://github.com/lieff/minimp3) | CC0 1.0 | [`assets/licenses/minimp3.txt`](assets/licenses/minimp3.txt) |
 | [Twemoji](https://github.com/jdecked/twemoji) flag artwork | CC BY 4.0 | [`assets/licenses/Twemoji-graphics.txt`](assets/licenses/Twemoji-graphics.txt) |
 | Unicode data | Unicode License v3 | [`assets/licenses/Unicode-3.0.txt`](assets/licenses/Unicode-3.0.txt) |
 | [gemoji](https://github.com/github/gemoji) emoji aliases | MIT | [`assets/licenses/gemoji-MIT.txt`](assets/licenses/gemoji-MIT.txt) |

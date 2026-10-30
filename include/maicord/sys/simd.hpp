@@ -1,7 +1,7 @@
 #pragma once
 
-// SIMD vector types and intrinsics: the SSE through AVX ones MaiCord, minimp3
-// and maiopus use (sys/libc's <immintrin.h> and its siblings include this, so
+// SIMD vector types and intrinsics: the SSE through AVX ones MaiCord and
+// maiopus use (sys/libc's <immintrin.h> and its siblings include this, so
 // it is C as well as C++). Defined as clang's headers define them, so the
 // generated code is the same: vector extensions and the compiler's builtins,
 // usable in C++ constant expressions where clang's are. Every unit compiles
@@ -23,6 +23,7 @@ typedef long long __m128i __attribute__((__vector_size__(16), __aligned__(16)));
 typedef long long __m128i_u __attribute__((__vector_size__(16), __aligned__(1)));
 typedef long long __m64 __attribute__((__vector_size__(8), __aligned__(8)));
 typedef float __m256 __attribute__((__vector_size__(32), __aligned__(32)));
+typedef float __m256_u __attribute__((__vector_size__(32), __aligned__(1)));
 
 typedef float __v4sf __attribute__((__vector_size__(16)));
 typedef long long __v2di __attribute__((__vector_size__(16)));
@@ -35,6 +36,7 @@ typedef char __v16qi __attribute__((__vector_size__(16)));
 typedef signed char __v16qs __attribute__((__vector_size__(16)));
 typedef unsigned char __v16qu __attribute__((__vector_size__(16)));
 typedef float __v8sf __attribute__((__vector_size__(32)));
+typedef unsigned int __v8su __attribute__((__vector_size__(32)));
 
 // MAICORD_SIMD functions are constexpr in C++, which also folds constant
 // operands where they initialize a constant; MAICORD_SIMD_RUNTIME ones (memory
@@ -51,6 +53,12 @@ typedef float __v8sf __attribute__((__vector_size__(32)));
 #define _MM_SHUFFLE(z, y, x, w) (((z) << 6) | ((y) << 4) | ((x) << 2) | (w))
 
 // Immediate operands: macros, as the builtins need constants.
+#define _mm256_blend_ps(V1, V2, M)                                                                                     \
+    ((__m256)__builtin_ia32_blendps256((__v8sf)(__m256)(V1), (__v8sf)(__m256)(V2), (int)(M)))
+#define _mm256_permute2f128_ps(V1, V2, M)                                                                              \
+    ((__m256)__builtin_ia32_vperm2f128_ps256((__v8sf)(__m256)(V1), (__v8sf)(__m256)(V2), (int)(M)))
+#define _mm256_shuffle_ps(a, b, mask)                                                                                  \
+    ((__m256)__builtin_ia32_shufps256((__v8sf)(__m256)(a), (__v8sf)(__m256)(b), (int)(mask)))
 #define _mm_alignr_epi8(a, b, n)                                                                                       \
     ((__m128i)__builtin_ia32_palignr128((__v16qi)(__m128i)(a), (__v16qi)(__m128i)(b), (n)))
 #define _mm_blend_epi16(a, b, m)                                                                                       \
@@ -286,9 +294,28 @@ MAICORD_SIMD(256) __m256 _mm256_set1_ps(float __w) {
     return __extension__(__m256){__w, __w, __w, __w, __w, __w, __w, __w};
 }
 MAICORD_SIMD_RUNTIME(256) __m256 _mm256_load_ps(float const* __p) { return *(const __m256*)__p; }
+MAICORD_SIMD_RUNTIME(256) __m256 _mm256_loadu_ps(float const* __p) {
+    struct __loadu_ps { __m256_u __v; } __attribute__((__packed__, __may_alias__));
+    return ((const struct __loadu_ps*)__p)->__v;
+}
 MAICORD_SIMD_RUNTIME(256) void _mm256_store_ps(float* __p, __m256 __a) { *(__m256*)__p = __a; }
+MAICORD_SIMD_RUNTIME(256) void _mm256_storeu_ps(float* __p, __m256 __a) {
+    struct __storeu_ps { __m256_u __v; } __attribute__((__packed__, __may_alias__));
+    ((struct __storeu_ps*)__p)->__v = __a;
+}
 MAICORD_SIMD(256) __m256 _mm256_add_ps(__m256 __a, __m256 __b) { return (__m256)((__v8sf)__a + (__v8sf)__b); }
+MAICORD_SIMD(256) __m256 _mm256_sub_ps(__m256 __a, __m256 __b) { return (__m256)((__v8sf)__a - (__v8sf)__b); }
 MAICORD_SIMD(256) __m256 _mm256_mul_ps(__m256 __a, __m256 __b) { return (__m256)((__v8sf)__a * (__v8sf)__b); }
+MAICORD_SIMD(256) __m256 _mm256_xor_ps(__m256 __a, __m256 __b) { return (__m256)((__v8su)__a ^ (__v8su)__b); }
+MAICORD_SIMD(256) __m256 _mm256_blendv_ps(__m256 __a, __m256 __b, __m256 __c) {
+    return (__m256)__builtin_ia32_blendvps256((__v8sf)__a, (__v8sf)__b, (__v8sf)__c);
+}
+MAICORD_SIMD(256) __m256 _mm256_unpacklo_ps(__m256 __a, __m256 __b) {
+    return __builtin_shufflevector((__v8sf)__a, (__v8sf)__b, 0, 8, 0 + 1, 8 + 1, 4, 12, 4 + 1, 12 + 1);
+}
+MAICORD_SIMD(256) __m256 _mm256_unpackhi_ps(__m256 __a, __m256 __b) {
+    return __builtin_shufflevector((__v8sf)__a, (__v8sf)__b, 2, 10, 2 + 1, 10 + 1, 6, 14, 6 + 1, 14 + 1);
+}
 
 #undef MAICORD_SIMD
 #undef MAICORD_SIMD_RUNTIME

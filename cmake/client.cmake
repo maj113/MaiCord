@@ -289,7 +289,6 @@ add_custom_command(TARGET MaiCord POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/licenses/gemoji-MIT.txt"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/licenses/emojibase-MIT.txt"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/licenses/MaiCord-sounds.txt"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/licenses/minimp3.txt"
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/licenses/Lucide-ISC.txt"
         "$<TARGET_FILE_DIR:MaiCord>/licenses")
 file(GLOB maicord_runtime_font_files

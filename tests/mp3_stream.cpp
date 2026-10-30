@@ -2,6 +2,7 @@
 #include "fixtures/mp3_original_tone.hpp"
 
 namespace maicord {
+void test_mp3_decoder(void (*check)(bool, const char*) noexcept) noexcept; // tests/mp3_decoder.cpp
 namespace {
 bool close(float a, float b, float tolerance = 0.0001f) noexcept {
     const float difference = a - b;
@@ -319,5 +320,6 @@ void test_mp3_stream(void (*check)(bool, const char*) noexcept) noexcept {
     check(!decoder.initialized && !decoder.state &&
               mp3_decoder_decode(&decoder, {}, {pcm, 2304}).error == Mp3Error::invalid_input,
           "MP3 release detaches caller state and inactive decode never invokes native core");
+    test_mp3_decoder(check);
 }
 } // namespace maicord

@@ -7,7 +7,7 @@
       - any-glob-to-any-file: ["src/app/voice_*", "src/app/dave_*", "src/app/mls_*", "src/app/application_voice*", "src/app/application_call*", "src/app/application_stream*", "src/app/*soundboard*", "src/ui/call_*", "src/protocol/voice_*"]
 "area: media":
   - changed-files:
-      - any-glob-to-any-file: ["src/media/**", "src/app/*media*", "src/platform/h264_*", "src/render/*video*", "third_party/opus/**", "third_party/minimp3/**"]
+      - any-glob-to-any-file: ["src/media/**", "src/app/*media*", "src/platform/h264_*", "src/render/*video*", "third_party/opus/**"]
 "area: servers":
   - changed-files:
       - any-glob-to-any-file: ["src/app/application_guild*", "src/ui/guild_*", "src/model/channel_permissions*", "src/model/permission*"]

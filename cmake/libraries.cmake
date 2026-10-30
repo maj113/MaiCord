@@ -88,12 +88,12 @@ maicord_library(maicord_media_codec
     src/media/mpeg_ts.cpp
     src/media/mpeg_ts_codec.cpp
     src/media/mpeg_ts_segment_store.cpp
-    LIBS maicord_core maicord_compression maicord_opus_decoder ntdll
-    INCLUDES third_party/minimp3)
-# minimp3's static helpers (bit reader, IMDCT and synthesis stages) inline into
-# the frame decoder (/Ob2), with bit-identical PCM: at /Ob1 MP3 decode takes 25%
-# longer (13,495 vs 10,802 us) for about 4 KiB.
-set_property(SOURCE src/media/mp3_stream.cpp APPEND PROPERTY COMPILE_OPTIONS /Ob2)
+    src/media/mp3_decoder.c
+    LIBS maicord_core maicord_compression maicord_opus_decoder ntdll)
+# The MPEG audio decoder is C: the contract's C++ code generation and warnings,
+# for C (LTO comes from the contract).
+target_compile_options(maicord_media_codec PRIVATE
+    "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/Zl;/GS-;/O2;/Ob1;/arch:AVX;/fp:precise;/utf-8;/Gy;/Gw;/GF;/Brepro;-Wno-missing-braces>")
 
 # Voice send encoder; linked only through the account module.
 maicord_library(maicord_voice_encoder src/media/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)

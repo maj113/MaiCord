@@ -149,7 +149,8 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         tests/plugin_catalog.cpp tests/plugin_preferences.cpp tests/plugin_bundle_install.cpp
         tests/application_plugin_settings_projection.cpp tests/video_controls.cpp tests/video_scene.cpp
         tests/audio_controls.cpp tests/audio_presentation.cpp tests/ui_cursor.cpp tests/ogg_opus.cpp
-        tests/opus_decoder.cpp tests/wave_pcm.cpp tests/mp3_stream.cpp tests/account_video_session.cpp
+        tests/opus_decoder.cpp tests/wave_pcm.cpp tests/mp3_stream.cpp tests/mp3_decoder.cpp
+        tests/account_video_session.cpp
         tests/account_video_commands.cpp tests/account_media_video_dispatch.cpp tests/local_draft_preview.cpp
         tests/hevc.cpp tests/hevc_references.cpp tests/video_frame_bounds.cpp tests/spinner.cpp tests/transition.cpp
         tests/tooltip.cpp tests/message_rich_store.cpp tests/account_menu.cpp tests/message_search.cpp

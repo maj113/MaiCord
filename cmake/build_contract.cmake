@@ -103,7 +103,7 @@ target_compile_options(maicord_compile_contract INTERFACE
     # MAICORD_INLINE_ANY: /Ob2 instead. MAICORD_NO_WHOLE_PROGRAM: no LTO, for
     # code kept outside it in an image that links with it.
     "$<$<COMPILE_LANGUAGE:CXX>:/O2;/Ob$<IF:$<BOOL:$<TARGET_PROPERTY:MAICORD_INLINE_ANY>>,2,1>>"
-    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>
+    $<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:${MAICORD_WHOLE_PROGRAM_OPTION}>
     # Compact C++ EH metadata (FH4).
     $<$<COMPILE_LANGUAGE:CXX>:/d2FH4>
     # Diagnostics beyond the house /W4 set: on declarations that mirror the SDK

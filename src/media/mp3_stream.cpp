@@ -1,75 +1,29 @@
 #include "maicord/media/mp3_stream.hpp"
+#include "maicord/media/mp3_decoder.h"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 
-// CC0 low-level decoder, upstream ea99364f61c14656440e8d77e9c233ccf3124633.
-// No minimp3_ex allocation/file API is compiled.
-#define MINIMP3_ONLY_MP3
-#define MINIMP3_ONLY_SIMD
-#define MINIMP3_FLOAT_OUTPUT
-#define MINIMP3_IMPLEMENTATION
-#pragma warning(push, 0)
-#include "minimp3.h"
-#pragma warning(pop)
-
 namespace maicord {
 namespace {
 constexpr u32 maximum_bytes = 64u * 1024 * 1024;
-struct Frame {
-    u32 bytes{}, rate{}, side_end{}, main_bytes{}, reservoir{};
-    u16 samples{};
-    u8 channels{}, version{};
-};
+static_assert(static_cast<int>(Mp3Error::malformed) == 2 && static_cast<int>(Mp3Error::unsupported) == 3 &&
+              static_cast<int>(Mp3Error::truncated) == 4);
 bool cancelled(Mp3Cancelled callback, void* context) noexcept {
     return callback && callback(context);
 }
 bool tag(const u8* p, const char* text, u32 bytes) noexcept {
     return bytes_equal(p, text, bytes);
 }
-Mp3Error frame(ConstSlice<u8> bytes, u32 offset, Frame* out) noexcept {
-    if (offset > bytes.count || bytes.count - offset < 4)
+// Header and side information, bounded as the decoder consumes them. The
+// protection CRC is skipped, not verified.
+Mp3Error frame(ConstSlice<u8> bytes, u32 offset, Mp3Frame* out) noexcept {
+    if (offset > bytes.count)
         return Mp3Error::truncated;
-    const u8* h = bytes.data + offset;
-    if (h[0] != 0xff || (h[1] & 0xe0) != 0xe0 || (h[1] & 6) != 2 || ((h[1] >> 3) & 3) == 1 ||
-        (h[2] >> 4) == 15 || ((h[2] >> 2) & 3) == 3 || (h[3] & 3) == 2)
-        return Mp3Error::malformed;
-    if (!(h[2] >> 4))
-        return Mp3Error::unsupported; // Free-format has no bounded header size.
-    static constexpr u16 rates[]{44100, 48000, 32000};
-    static constexpr u16 bitrates1[]{0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320};
-    static constexpr u16 bitrates2[]{0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160};
-    Frame f{};
-    f.version = static_cast<u8>((h[1] >> 3) & 3);
-    f.rate = rates[(h[2] >> 2) & 3] >> (f.version == 3 ? 0 : f.version == 2 ? 1 : 2);
-    f.channels = (h[3] >> 6) == 3 ? 1 : 2;
-    f.samples = f.version == 3 ? 1152 : 576;
-    const u32 bitrate = f.version == 3 ? bitrates1[h[2] >> 4] : bitrates2[h[2] >> 4];
-    f.bytes = (f.version == 3 ? 144000u : 72000u) * bitrate / f.rate + ((h[2] >> 1) & 1);
-    const u32 crc = (h[1] & 1) ? 0 : 2;
-    const u32 side = f.version == 3 ? (f.channels == 1 ? 17u : 32u) : (f.channels == 1 ? 9u : 17u);
-    f.side_end = 4 + crc + side;
-    if (f.bytes < f.side_end)
-        return Mp3Error::malformed;
-    if (f.bytes > bytes.count - offset)
-        return Mp3Error::truncated;
-    f.main_bytes = f.bytes - f.side_end;
-    // Validate the same bounded side information consumed by the native core.
-    // MPEG protection CRC is skipped, not verified, matching minimp3's API.
-    bs_t bits{};
-    L3_gr_info_t granules[4]{};
-    bs_init(&bits, h + 4, static_cast<int>(f.bytes - 4));
-    if (crc)
-        get_bits(&bits, 16);
-    const int reservoir = L3_read_side_info(&bits, granules, h);
-    if (reservoir < 0 || bits.pos > bits.limit)
-        return Mp3Error::malformed;
-    f.reservoir = static_cast<u32>(reservoir);
-    *out = f;
-    return Mp3Error::none;
+    return static_cast<Mp3Error>(mp3_frame_parse(bytes.data + offset, bytes.count - offset, out));
 }
-bool format(const Frame& f, const Mp3Stream& s) noexcept {
-    return f.rate == s.sample_rate && f.channels == s.channels && f.version == s.mpeg_version &&
+bool format(const Mp3Frame& f, const Mp3Stream& s) noexcept {
+    return f.sample_rate == s.sample_rate && f.channels == s.channels && f.version == s.mpeg_version &&
            f.samples == s.frames_per_packet;
 }
 bool current(const Mp3Stream& s) noexcept {
@@ -139,10 +93,10 @@ struct Vbr {
     u32 frames{}, bytes{}, delay{}, padding{};
     bool header{}, gapless{};
 };
-Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Frame& f, Vbr* out) noexcept {
+Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Mp3Frame& f, Vbr* out) noexcept {
     const u8* h = bytes.data + begin;
     Vbr info{};
-    u32 offset = f.side_end;
+    u32 offset = f.bytes - f.main_bytes;
     if (f.bytes - offset >= 4 && (tag(h + offset, "Xing", 4) || tag(h + offset, "Info", 4))) {
         info.header = true;
         if (f.bytes - offset < 8)
@@ -194,7 +148,7 @@ Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Frame& f, Vbr* out) noexcept
     return Mp3Error::none;
 }
 bool decoder_current(const Mp3Decoder* d) noexcept {
-    return d && d->initialized && d->state && d->state_bytes == sizeof(mp3dec_t) &&
+    return d && d->initialized && d->state && d->state_bytes == sizeof(Mp3DecoderState) &&
            !(reinterpret_cast<usize>(d->state) & (kMp3DecoderStateAlignment - 1)) &&
            (d->channels == 1 || d->channels == 2) && d->sample_rate;
 }
@@ -212,11 +166,11 @@ Mp3Error mp3_stream_initialize(Mp3Stream* output, ConstSlice<u8> bytes, Mp3Cance
     Mp3Error error = tags(bytes, &s.audio_begin, &s.audio_end);
     if (error != Mp3Error::none)
         return error;
-    Frame first{};
+    Mp3Frame first{};
     error = frame({bytes.data, s.audio_end}, s.audio_begin, &first);
     if (error != Mp3Error::none)
         return error;
-    s.sample_rate = first.rate;
+    s.sample_rate = first.sample_rate;
     s.channels = first.channels;
     s.mpeg_version = first.version;
     s.frames_per_packet = first.samples;
@@ -232,13 +186,13 @@ Mp3Error mp3_stream_initialize(Mp3Stream* output, ConstSlice<u8> bytes, Mp3Cance
     while (offset < s.audio_end) {
         if (cancelled(cancel, context))
             return Mp3Error::cancelled;
-        Frame f{};
+        Mp3Frame f{};
         error = frame({bytes.data, s.audio_end}, offset, &f);
         if (error != Mp3Error::none)
             return error;
         if (!format(f, s))
             return Mp3Error::unsupported;
-        if (f.reservoir > main_bytes)
+        if (f.main_data_begin > main_bytes)
             return Mp3Error::malformed;
         main_bytes += f.main_bytes;
         ++s.frame_count;
@@ -272,7 +226,7 @@ Mp3Packet mp3_stream_next(Mp3Stream* s) noexcept {
         packet.error = Mp3Error::end_of_stream;
         return packet;
     }
-    Frame f{};
+    Mp3Frame f{};
     packet.error = frame({s->encoded.data, s->audio_end}, s->cursor_offset, &f);
     if (!packet.ok())
         return packet;
@@ -314,7 +268,7 @@ Mp3Error mp3_stream_build_index(const Mp3Stream& s, Mp3SeekIndex* output, Slice<
     for (u32 i = 0; i < s.frame_count; ++i) {
         if (cancelled(cancel, context))
             return Mp3Error::cancelled;
-        Frame f{};
+        Mp3Frame f{};
         const Mp3Error error = frame({s.encoded.data, s.audio_end}, offset, &f);
         if (error != Mp3Error::none)
             return error;
@@ -369,7 +323,7 @@ Mp3Error mp3_stream_seek(Mp3Stream* s, u64 target, const Mp3SeekIndex* index, Mp
             --start;
         offset = index->points[start].offset;
         first = index->points[start].first_frame;
-        Frame f{};
+        Mp3Frame f{};
         const Mp3Error error = frame({s->encoded.data, s->audio_end}, offset, &f);
         if (error != Mp3Error::none)
             return error;
@@ -386,7 +340,7 @@ Mp3Error mp3_stream_seek(Mp3Stream* s, u64 target, const Mp3SeekIndex* index, Mp
     return Mp3Error::none;
 }
 u32 mp3_decoder_storage_bytes() noexcept {
-    return static_cast<u32>(sizeof(mp3dec_t));
+    return static_cast<u32>(sizeof(Mp3DecoderState));
 }
 Mp3Error mp3_decoder_initialize(Mp3Decoder* decoder, Slice<u8> storage, u32 rate, u32 channels) noexcept {
     static constexpr u32 rates[]{8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000};
@@ -396,20 +350,20 @@ Mp3Error mp3_decoder_initialize(Mp3Decoder* decoder, Slice<u8> storage, u32 rate
     if (!decoder || decoder->state || decoder->initialized || !supported ||
         (channels != 1 && channels != 2) || !storage.data ||
         (reinterpret_cast<usize>(storage.data) & (kMp3DecoderStateAlignment - 1)) ||
-        byte_ranges_overlap(decoder, sizeof(*decoder), storage.data, sizeof(mp3dec_t)))
+        byte_ranges_overlap(decoder, sizeof(*decoder), storage.data, sizeof(Mp3DecoderState)))
         return Mp3Error::invalid_input;
-    if (storage.count < sizeof(mp3dec_t))
+    if (storage.count < sizeof(Mp3DecoderState))
         return Mp3Error::capacity;
-    clear_bytes(storage.data, static_cast<u32>(sizeof(mp3dec_t)));
-    mp3dec_init(reinterpret_cast<mp3dec_t*>(storage.data));
-    *decoder = {storage.data, static_cast<u32>(sizeof(mp3dec_t)), rate, static_cast<u8>(channels), true};
+    // A zeroed state is the initial one.
+    clear_bytes(storage.data, static_cast<u32>(sizeof(Mp3DecoderState)));
+    *decoder = {storage.data, static_cast<u32>(sizeof(Mp3DecoderState)), rate, static_cast<u8>(channels),
+                true};
     return Mp3Error::none;
 }
 Mp3Error mp3_decoder_reset(Mp3Decoder* decoder) noexcept {
     if (!decoder_current(decoder))
         return Mp3Error::invalid_input;
     clear_bytes(decoder->state, decoder->state_bytes);
-    mp3dec_init(reinterpret_cast<mp3dec_t*>(decoder->state));
     return Mp3Error::none;
 }
 Mp3DecodeResult mp3_decoder_decode(Mp3Decoder* decoder, ConstSlice<u8> packet, Slice<float> pcm) noexcept {
@@ -422,39 +376,21 @@ Mp3DecodeResult mp3_decoder_decode(Mp3Decoder* decoder, ConstSlice<u8> packet, S
         byte_ranges_overlap(decoder, sizeof(*decoder), packet.data, packet.count) ||
         byte_ranges_overlap(decoder, sizeof(*decoder), pcm.data, pcm_bytes))
         return {Mp3Error::invalid_input};
-    Frame f{};
+    Mp3Frame f{};
     const Mp3Error error = frame(packet, 0, &f);
     if (error != Mp3Error::none)
         return {error};
     if (f.bytes != packet.count)
         return {Mp3Error::malformed};
-    if (f.rate != decoder->sample_rate || f.channels != decoder->channels)
+    if (f.sample_rate != decoder->sample_rate || f.channels != decoder->channels)
         return {Mp3Error::unsupported};
     if (pcm.count / decoder->channels < f.samples)
         return {Mp3Error::capacity};
-    auto* native = reinterpret_cast<mp3dec_t*>(decoder->state);
-    const bool missing = f.reservoir > static_cast<u32>(native->reserv);
-    mp3dec_frame_info_t info{};
-    const int samples =
-        mp3dec_decode_frame(native, packet.data, static_cast<int>(packet.count), pcm.data, &info);
-    if (info.frame_offset || info.frame_bytes != static_cast<int>(packet.count) || info.layer != 3 ||
-        info.hz != static_cast<int>(decoder->sample_rate) || info.channels != decoder->channels)
-        return {Mp3Error::malformed};
-    if (!samples && missing)
-        return {Mp3Error::need_preroll};
-    if (samples != f.samples)
-        return {Mp3Error::malformed};
-    // Reject NaN and infinite samples. The OR has no early exit, so the scan
-    // vectorizes.
-    u32 nonfinite = 0;
-    for (u32 i = 0; i < static_cast<u32>(samples) * decoder->channels; ++i) {
-        u32 bits{};
-        copy_bytes(&bits, pcm.data + i, sizeof(bits));
-        nonfinite |= static_cast<u32>((bits & 0x7f800000u) == 0x7f800000u);
-    }
-    if (nonfinite)
-        return {Mp3Error::malformed};
-    return {Mp3Error::none, static_cast<u32>(samples)};
+    // Every sample is finite: dequantized lines stay below 2^30 and each stage
+    // sums a bounded number of them with bounded weights.
+    const u32 frames =
+        mp3_frame_decode(static_cast<Mp3DecoderState*>(decoder->state), packet.data, &f, pcm.data);
+    return frames ? Mp3DecodeResult{Mp3Error::none, frames} : Mp3DecodeResult{Mp3Error::need_preroll};
 }
 void mp3_decoder_release(Mp3Decoder* decoder) noexcept {
     if (decoder)
