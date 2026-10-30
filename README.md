@@ -3,7 +3,7 @@
 <img src=".github/assets/banner.svg" alt="MaiCord — a native Discord client for Windows" width="100%">
 
 **A lightweight, native Discord client for Windows, written in C++ with Direct3D 11.**<br>
-No Electron, no browser engine, nothing to install. About 7 MB.
+No Electron, no browser engine, nothing to install. One ~7 MB executable.
 
 [![CI](https://github.com/maj113/MaiCord/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/maj113/MaiCord/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/maj113/MaiCord?sort=semver&display_name=tag)](https://github.com/maj113/MaiCord/releases/latest)
@@ -29,13 +29,13 @@ No Electron, no browser engine, nothing to install. About 7 MB.
 ## Why MaiCord
 
 The official desktop app is a web page in Electron. MaiCord is written from
-scratch in freestanding C++23 (no STL, CRT, exceptions or RTTI) and draws its
-own interface on the GPU.
+scratch in freestanding C++23 (no STL, CRT, exceptions or RTTI), shapes and
+rasterizes its own text, and draws its own interface on the GPU.
 
 | | MaiCord |
 | --- | --- |
 | Download | ~5.5 MB zip, portable |
-| On disk | one EXE + one DLL, ~7 MB together |
+| On disk | one ~7 MB EXE plus its profile fonts, ~9.5 MB together |
 | Dependencies | only DLLs that ship with Windows |
 | First frame | ~60 ms after launch¹ |
 | Idle | near-zero CPU: nothing redraws while nothing changes |
@@ -50,6 +50,8 @@ own interface on the GPU.
   [ANSI colored text](https://gist.github.com/kkrypt0nn/a02506f3712ff2d1c8ca7c9e0aed7c06)
 - Rich embeds with image galleries, link previews, stickers and custom emoji
 - Replies, forwards, pins, reactions, threads, forum posts and polls (create and vote)
+- Slash commands, including Discord's built-in ones, and app buttons, select
+  menus, modals and Components V2 layouts
 - Record and send voice messages
 - Emoji, GIF and sticker picker that syncs your Discord favorites
 - Paste screenshots straight from the clipboard; drag and drop files
@@ -94,8 +96,8 @@ own interface on the GPU.
 
 MaiCord keeps its settings and saved sign-ins in `%LOCALAPPDATA%\MaiCord` and
 updates itself. Every update is checked against a signature built into the
-client before it is installed, and it replaces `MaiCord.exe` in place when
-MaiCord quits or restarts, so the folder must stay writable.
+client before it is installed, and it replaces `MaiCord.exe` in place when you
+choose *Restart to update*, so the folder must stay writable.
 
 ### Requirements
 
