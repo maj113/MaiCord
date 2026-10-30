@@ -55,8 +55,8 @@
 
 namespace maicord::app_detail {
 namespace {
-const UiNode* shell_node(UiSemantic semantic) noexcept {
-    return ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, semantic));
+const UiLayoutNode* shell_node(UiSemantic semantic) noexcept {
+    return ui_scene_node(g_app.shell_scene, semantic);
 }
 } // namespace
 #if !defined(MAICORD_ACCOUNT_TEXT_REFRESH_RUNTIME_TEST)
@@ -243,11 +243,11 @@ bool synchronize_shell_widget_scenes() noexcept {
     }
     const NavigationView* navigation =
         g_app.account_ui ? &g_app.account_ui->navigation_view : nullptr;
-    const UiNode* guild_rail = shell_node(UiSemantic::guild_navigation);
-    const UiNode* channel_navigation = shell_node(UiSemantic::channel_navigation);
-    const UiNode* message_view = shell_node(UiSemantic::message_view);
-    const UiNode* composer = shell_node(UiSemantic::composer);
-    const UiNode* members = shell_node(UiSemantic::member_sidebar);
+    const UiLayoutNode* guild_rail = shell_node(UiSemantic::guild_navigation);
+    const UiLayoutNode* channel_navigation = shell_node(UiSemantic::channel_navigation);
+    const UiLayoutNode* message_view = shell_node(UiSemantic::message_view);
+    const UiLayoutNode* composer = shell_node(UiSemantic::composer);
+    const UiLayoutNode* members = shell_node(UiSemantic::member_sidebar);
     const UiRect guild_viewport = guild_rail ? guild_rail->rectangle : UiRect{};
     const UiRect channel_viewport = channel_navigation ? channel_navigation->rectangle : UiRect{};
     UiRect message_viewport = !friends && message_view ? message_view->rectangle : UiRect{};

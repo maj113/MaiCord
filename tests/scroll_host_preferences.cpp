@@ -132,7 +132,7 @@ void test_scroll_host_preferences(void (*check)(bool, const char*) noexcept) noe
     const auto below = ui_widget_manager_add(&manager, outer.handle,
         {4, UiWidgetKind::container, ui_widget_none, {{}, style}});
     const bool built = outer.ok() && inner.ok() && content.ok() && below.ok() &&
-                       ui_widget_manager_layout(&manager, {100, 100}).ok();
+                       ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 100}).ok();
     check(built, "scroll preference: nested retained scroll owners arrange");
     if (!built) return;
     ui_scroll_host_cancel(&host);

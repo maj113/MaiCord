@@ -250,7 +250,6 @@ struct MessageComposerScene {
     bool command_bar_error;
     u32 layout_passes;
     u32 projection_passes;
-    u32 rejected;
     bool channel_allows_send;
     bool attachments_ready;
     bool can_attach;

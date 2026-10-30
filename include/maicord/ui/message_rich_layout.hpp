@@ -227,6 +227,10 @@ constexpr UiRect message_thread_card_rectangle(UiRect widget) noexcept {
     return {widget.left, widget.top + kMessageThreadCardGapDips, widget.right < right ? widget.right : right,
             widget.top + kMessageThreadCardGapDips + kMessageThreadCardHeightDips};
 }
+// Whether the record shows a thread starter card (a forwarded snapshot never does).
+constexpr bool message_rich_has_thread_card(const MessageRichRecord& rich) noexcept {
+    return rich.thread.id && !rich.forwarded_snapshot_child;
+}
 // "12 messages · 3 members · Archived"; returns bytes written (0 if nothing known).
 u32 message_thread_card_detail(const MessageRichThread& thread, Slice<char> output) noexcept;
 

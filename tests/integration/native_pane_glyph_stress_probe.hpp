@@ -164,7 +164,7 @@ inline bool native_pane_glyph_stress_probe(D3D11Renderer& renderer) noexcept {
     const auto* anchor =
         message_composer_scene_layout_node(*renderer.message_composer_scene, MessageComposerControl::gif);
     const auto* title =
-        ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::title_bar));
+        ui_scene_node(*renderer.ui_scene, UiSemantic::title_bar);
     if (!anchor || !title)
         return fail();
     Source gallery_source{}, search_source{};

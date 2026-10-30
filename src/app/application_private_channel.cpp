@@ -190,7 +190,7 @@ bool application_private_channel_title_hit(float x, float y) noexcept {
     if (!g_app.account_ui || g_app.shell_scene.view != UiShellView::private_channels ||
         !private_channel_is_group(state(), state().selected_channel_id))
         return false;
-    const auto* label = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::title_label));
+    const auto* label = ui_scene_node(g_app.shell_scene, UiSemantic::title_label);
     return label && ui_rect_contains(label->rectangle, x, y);
 }
 bool application_private_channel_picker(u64 channel_id) noexcept {

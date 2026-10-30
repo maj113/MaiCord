@@ -51,13 +51,19 @@ struct UiSettingsEditor {
     Utf8View placeholder;
 };
 
+// The form geometry the rows read.
 struct UiSettingsStyle {
-    float form_width, field_padding, group_gap, single_height, multiline_height;
-    float field_radius, control_radius, footer_height;
+    float field_padding, single_height, multiline_height;
 };
-inline constexpr UiSettingsStyle kUiDefaultSettingsStyle{
-    680, 12, 24, 40, 160, kUiEditCornerRadius, kUiControlCornerRadius, 64};
-bool ui_settings_style_valid(const UiSettingsStyle&) noexcept;
+inline constexpr UiSettingsStyle kUiDefaultSettingsStyle{12, 40, 160};
+// Styles come from constants and the theme's clamped tokens; this is the contract they meet.
+constexpr bool ui_settings_style_valid(const UiSettingsStyle& s) noexcept {
+    return ui_extent_valid(s.field_padding) && ui_extent_valid(s.single_height) &&
+           ui_extent_valid(s.multiline_height) && s.field_padding >= 4 && s.field_padding <= 24 &&
+           s.single_height >= 32 && s.single_height <= 128 && s.multiline_height >= 96 &&
+           s.multiline_height <= 1024 && s.field_padding * 2 < s.multiline_height;
+}
+static_assert(ui_settings_style_valid(kUiDefaultSettingsStyle));
 
 struct UiSettingsFooter {
     Utf8View status, save_label, reset_label;
@@ -340,6 +346,8 @@ struct UiSettingsScene {
     float sidebar_offset, content_offset;
     u32 capacity, prefix_capacity, registry_revision, content_revision, revision;
     bool active, focus_visible;
+    // A widget could not be added during the last build.
+    bool build_failed;
     UiSettingsPaletteSource palette{};
     u32 palette_hovered_index = ~u32{0};
     UiSettingsPresentation presentation{};
@@ -491,6 +499,6 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
 
 } // namespace maicord
 
-static_assert(sizeof(maicord::UiSettingsStyle) == 32);
+static_assert(sizeof(maicord::UiSettingsStyle) == 12);
 static_assert(sizeof(maicord::UiSettingsControl) == 96);
 static_assert(sizeof(maicord::UiSettingsControlPresentation) == 4);

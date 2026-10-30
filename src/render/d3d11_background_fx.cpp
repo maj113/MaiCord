@@ -255,8 +255,7 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, ID3D11DeviceContext
     frame.canvas[3] = canvas.bottom;
     context->UpdateSubresource(owner->constant_buffer, 0, nullptr, &frame, 0, 0);
     const bool plugin = owner->source == BackgroundFxSource::plugin;
-    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    context->IASetInputLayout(nullptr);
+    // The strip topology and the bound input layout stay: the vertex shader reads only SV_VertexID.
     context->VSSetShader(owner->vertex_shader, nullptr, 0);
     // VS b2 is the effect's alone: bound once per frame.
     if (!owner->vertex_constants_bound) {
@@ -265,9 +264,11 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, ID3D11DeviceContext
     }
     context->PSSetShader(plugin ? owner->plugin_shader : owner->builtin_shader, nullptr, 0);
     context->PSSetConstantBuffers(0, 1, &owner->constant_buffer);
-    // Plugin shaders get no textures or samplers.
-    ID3D11ShaderResourceView* no_view = nullptr;
-    context->PSSetShaderResources(0, 1, &no_view);
+    // Plugin shaders get no textures or samplers; the built-in shader samples none.
+    if (plugin) {
+        ID3D11ShaderResourceView* no_view = nullptr;
+        context->PSSetShaderResources(0, 1, &no_view);
+    }
     const float opacity = owner->layer_opacity;
     const float factor = opacity >= 0 && opacity <= 1 ? opacity : 1;
     const float blend_factor[4]{factor, factor, factor, factor};

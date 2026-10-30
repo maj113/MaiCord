@@ -197,7 +197,7 @@ u8 relation_of(u64 user) noexcept {
     return application_friends_user_relation(user, &relation) ? relation : 0;
 }
 UiRect slot_rectangle() noexcept {
-    const auto* node = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::member_sidebar));
+    const auto* node = ui_scene_node(g_app.shell_scene, UiSemantic::member_sidebar);
     return node ? node->rectangle : UiRect{};
 }
 // The shown profile's Commands; true when they changed (the panel lays out again).

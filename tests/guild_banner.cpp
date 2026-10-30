@@ -290,8 +290,8 @@ bool initialize() noexcept {
     }
     return true;
 }
-const UiNode* node(UiSemantic semantic) noexcept {
-    return ui_scene_resolve(fixture.shell, ui_scene_find(fixture.shell, semantic));
+const UiLayoutNode* node(UiSemantic semantic) noexcept {
+    return ui_scene_node(fixture.shell, semantic);
 }
 const UiTextCommand* header_text(Color* shadow) noexcept {
     auto& f = fixture;

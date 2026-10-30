@@ -418,7 +418,7 @@ bool application_read_state_eligible() noexcept {
         (g_app.renderer.call_scene && g_app.renderer.call_scene->active && !g_app.renderer.call_scene->chat_open))
         return false;
     const auto* pane =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::message_view));
+        ui_scene_node(g_app.shell_scene, UiSemantic::message_view);
     ReadAckVisibility visibility{
         application_window_focused(g_app.window),
         !g_app.login.visible && pane && ui_rect_has_area(pane->rectangle) &&

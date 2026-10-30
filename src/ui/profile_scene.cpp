@@ -23,6 +23,10 @@
 namespace maicord {
 namespace {
 constexpr u32 capacity = 320;
+// One widget per part, the root, and the Roles heading a modal drops again.
+constexpr u32 kWidgets = capacity + 2;
+// Chips a card holds: the bot tag, the server tag and the plugin chips.
+constexpr u32 kBadges = 12;
 // Text variants as size codes (1rem = the body size).
 constexpr u32 kXs = kTextStyleSizeCodeXs, kSm = kTextStyleSizeCodeSm, kMd = kTextStyleSizeCodeMd,
               kLg = text_style_heading_2, kXl = text_style_heading_1;
@@ -41,8 +45,8 @@ struct ActivityTimer {
     u8 item, card;
 };
 struct Storage {
-    UiWidget widgets[capacity * 2];
-    UiLayoutNode nodes[capacity * 2];
+    UiWidget widgets[kWidgets];
+    UiLayoutNode nodes[kWidgets];
     ProfilePart parts[capacity];
     // Owned labels; other parts borrow profile text.
     ProfileString<64> mutual_text[2], tab_text[2], roles_more, member_since[2];
@@ -61,11 +65,24 @@ struct Storage {
     u32 timer_count;
     // A tick's time while it lays the cards out again (0: the clock).
     u64 tick_ms;
+    // Set when a part cannot be added; the layout reports it once, at its end.
+    bool failed;
+    // The chips of parts that draw one (ProfilePart::badge indexes it).
+    UiBadgeWidget badges[kBadges];
+    u32 badge_count;
+    // The bio parser's workspace.
+    struct {
+        u32 words[1024];
+        TextStyleSpan spans[128];
+    } bio_work;
 };
 static_assert(sizeof(Storage::connection_line) / sizeof(ProfileString<64>) ==
               sizeof(UserProfile::connections) / sizeof(ProfileConnection));
 Storage& labels(ProfileScene* s) noexcept {
     return *reinterpret_cast<Storage*>(s->storage.base);
+}
+const Storage& labels(const ProfileScene& s) noexcept {
+    return *reinterpret_cast<const Storage*>(s.storage.base);
 }
 Color over(const Color& top, const Color& bottom) noexcept {
     const float a = top.alpha;
@@ -171,6 +188,31 @@ Theme card_theme(const Theme& theme, const TextPalette& c) noexcept {
     local.tokens.border.strong = c.border;
     return local;
 }
+// Each helper owns the 2 KB themed copy, so the paint and text entry points
+// carry none and a card without badges or an edit field never makes one.
+__declspec(noinline) bool paint_badge(const ProfileScene& s, const ProfilePart& p, const UiBadgeWidget& badge,
+                                      const Theme& theme, const TextPalette& c, PaintStream* paint) noexcept {
+    const Theme local = card_theme(theme, c);
+    return p.media == ProfileMediaKind::plugin_slot
+               ? ui_plugin_slot_badge_paint({badge, p.source, static_cast<u8>(p.style), 0, 0}, s.widgets, local, paint)
+               : ui_badge_paint(badge, s.widgets, local, paint);
+}
+__declspec(noinline) bool paint_edit(const ProfileScene& s, const Theme& theme, const TextPalette& c,
+                                     const UiEditGeometry* edit, u32 dpi, PaintStream* paint) noexcept {
+    return ui_edit_field_paint(paint, s.edit_rectangle, s.edit_content, s.edit, edit, Color{}, card_theme(theme, c),
+                               dpi, theme.scale.radius_md);
+}
+__declspec(noinline) bool text_badge(const ProfileScene& s, const UiBadgeWidget& badge, const Theme& theme,
+                                     const TextPalette& c, UiTextOutput* text) noexcept {
+    return ui_badge_text_output(badge, s.widgets, card_theme(theme, c), text);
+}
+__declspec(noinline) bool text_edit(const ProfileScene& s, const Theme& theme, const TextPalette& c,
+                                    const UiEditGeometry* edit, UiTextOutput* text) noexcept {
+    if (!s.edit.active)
+        return true;
+    return ui_edit_field_text_output(text, {&s.widgets, s.message_field}, s.edit_content, s.edit, edit,
+                                     s.message_placeholder.view(), card_theme(theme, c));
+}
 Color tone_color(const TextPalette& c, const Theme& theme, const ProfilePart& p) noexcept {
     switch (p.tone) {
     case ProfileTone::strong:
@@ -256,14 +298,15 @@ void prepare_biography(ProfileScene* s, const Utf8View& source) noexcept {
     signature = hash64_bytes(signature, s->bio_revealed, s->bio_revealed_count * sizeof(u32));
     if (s->bio_signature == signature)
         return;
-    u32 scratch[1024]{};
-    TextStyleSpan styles[128];
+    // The parser's workspace lives in the card's storage, not on the stack.
+    auto& work = labels(s).bio_work;
+    reset_value(&work);
     MessageMarkdownOptions options{};
     options.context = s;
     options.profile_bio = true;
     options.spoiler_revealed = biography_revealed;
-    const auto result = message_markdown_parse(source, {s->bio_display.data, 1024}, {scratch, 1024},
-                                               {styles, 128}, options, {s->bio_semantics, 64});
+    const auto result = message_markdown_parse(source, {s->bio_display.data, 1024}, {work.words, 1024},
+                                               {work.spans, 128}, options, {s->bio_semantics, 64});
     if (!result.ok()) {
         copy_bytes(s->bio_display.data, source.data, source.bytes);
         s->bio_display.bytes = static_cast<u16>(source.bytes);
@@ -274,21 +317,25 @@ void prepare_biography(ProfileScene* s, const Utf8View& source) noexcept {
     }
     s->bio_display.bytes = static_cast<u16>(result.text.bytes);
     s->bio_semantic_count = result.semantic_count;
-    size_biography(s, styles, result.span_count);
+    size_biography(s, work.spans, result.span_count);
     s->bio_signature = signature;
+}
+// The stand-in for a part with nothing to show (callers may still decorate
+// it) or for a full scene (`failed`: profile_scene_layout reports it).
+ProfilePart* sink(ProfileScene* s, bool failed) noexcept {
+    static ProfilePart part;
+    reset_value(&part);
+    labels(s).failed |= failed;
+    return &part;
 }
 ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, const Utf8View& label = {},
                  ProfileAction action = ProfileAction::none, u32 flags = 0,
                  ProfileLook look = ProfileLook::plain, ProfileTone tone = ProfileTone::normal,
                  bool clip = false) noexcept {
     if (s->part_count + 1 >= capacity)
-        return nullptr;
-    if (!ui_rect_has_area(r)) {
-        // Nothing to show (an empty label): callers may still decorate it.
-        static ProfilePart empty;
-        reset_value(&empty);
-        return &empty;
-    }
+        return sink(s, true);
+    if (!ui_rect_has_area(r))
+        return sink(s, false);
     // The editor preview is a picture of the card: nothing in it is a control.
     if (!interactive(*s))
         action = ProfileAction::none;
@@ -313,7 +360,7 @@ ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, const 
                           (action == ProfileAction::none ? 0 : ui_widget_hit_test | ui_widget_focusable)),
          {utf8_literal("ProfilePart"), style, {}, 0, id}});
     if (!widget.ok())
-        return nullptr;
+        return sink(s, true);
     auto& part = s->parts[s->part_count++];
     new (&part) ProfilePart{};
     part.widget = widget.handle;
@@ -333,8 +380,7 @@ ProfilePart* blank(ProfileScene* s, UiWidgetHandle parent, const UiRect& r,
 ProfilePart* icon(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, UiIcon glyph, ProfileAction action,
                   ProfileTone tone = ProfileTone::subtle, ProfileLook look = ProfileLook::icon) noexcept {
     auto* part = add(s, parent, r, {}, action, 0, look, tone);
-    if (part)
-        part->icon = static_cast<u16>(glyph);
+    part->icon = static_cast<u16>(glyph);
     return part;
 }
 // A plain label: no action, the usual shape of a text part.
@@ -346,31 +392,39 @@ ProfilePart* caption(ProfileScene* s, UiWidgetHandle parent, const UiRect& r, co
 ProfilePart* clipped(ProfileScene* s, UiWidgetHandle parent, const UiRect& r) noexcept {
     return add(s, parent, r, {}, ProfileAction::none, 0, ProfileLook::plain, ProfileTone::normal, true);
 }
-// The "could not load" notice with its retry action: its height, -1 on failure.
+// The "could not load" notice with its retry action: its height.
 float failed_notice(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width) noexcept {
-    return add(s, owner, {left, top, left + width, top + 18}, utf8_literal("Unable to load parts of profile"),
-               ProfileAction::retry, kSm, ProfileLook::plain, ProfileTone::muted)
-               ? 18.f
-               : -1.f;
+    add(s, owner, {left, top, left + width, top + 18}, utf8_literal("Unable to load parts of profile"),
+        ProfileAction::retry, kSm, ProfileLook::plain, ProfileTone::muted);
+    return 18.f;
 }
-bool place(ProfileScene* s, UiWidgetHandle handle, const UiRect& r) noexcept {
-    auto* widget = ui_widget_manager_resolve(&s->widgets, handle);
-    auto* node = widget ? ui_layout_engine_resolve(&s->widgets.layout, widget->layout) : nullptr;
-    if (!node || !ui_rect_has_area(r))
-        return false;
+void place(ProfileScene* s, UiWidgetHandle handle, const UiRect& r) noexcept {
+    auto* node = ui_widget_manager_layout_node(&s->widgets, handle);
+    if (!node || !ui_rect_has_area(r)) {
+        labels(s).failed = true;
+        return;
+    }
     node->spec.style.width = ui_layout_fixed(ui_rect_width(r));
     node->spec.style.height = ui_layout_fixed(ui_rect_height(r));
     node->spec.style.margin.left = r.left;
     node->spec.style.margin.top = r.top;
-    return true;
 }
-bool scroll_container(ProfileScene* scene, UiWidgetHandle handle, float offset) noexcept {
-    auto* widget = ui_widget_manager_resolve(&scene->widgets, handle);
-    auto* node = widget ? ui_layout_engine_resolve(&scene->widgets.layout, widget->layout) : nullptr;
-    if (!node)
-        return false;
-    node->spec.style.flags |= ui_layout_node_scroll_vertical;
-    return ui_layout_engine_set_scroll(&scene->widgets.layout, widget->layout, {0, offset});
+void scroll_container(ProfileScene* scene, UiWidgetHandle handle, float offset) noexcept {
+    auto* node = ui_widget_manager_layout_node(&scene->widgets, handle);
+    if (node)
+        node->spec.style.flags |= ui_layout_node_scroll_vertical;
+    if (!node || !ui_widget_manager_set_scroll(&scene->widgets, handle, {0, offset}))
+        labels(scene).failed = true;
+}
+// The chip `part` draws: a slot of the scene's badge list.
+UiBadgeWidget& attach_badge(ProfileScene* s, ProfilePart* part) noexcept {
+    auto& l = labels(s);
+    if (l.badge_count >= kBadges) {
+        l.failed = true;
+        return l.badges[0];
+    }
+    part->badge = static_cast<u8>(l.badge_count + 1);
+    return l.badges[l.badge_count++];
 }
 template <u32 N> bool append(ProfileString<N>* s, const Utf8View& text) noexcept {
     const u32 bytes = utf8_truncated_length(text, N - s->bytes);
@@ -438,7 +492,7 @@ u16 part_index(const ProfileScene& s, const ProfilePart* part) noexcept {
     return part && part >= s.parts && part < s.parts + s.part_count ? static_cast<u16>(part - s.parts) : kNoPart;
 }
 // One text line. Popout lines stay on one line and a cut-off line carries its
-// full text as a hint; full profile lines wrap. Returns its height, -1 on failure.
+// full text as a hint; full profile lines wrap. Returns its height.
 float card_text(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, const Utf8View& text, u32 flags,
                 float line, u16 item) noexcept {
     if (!text.bytes)
@@ -448,8 +502,6 @@ float card_text(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
     const bool cut = !wrap && measure(s, text, 4096, false, flags).width > width;
     auto* part = add(s, owner, {left, top, left + width, top + height}, text,
                      cut ? hint_action(*s) : ProfileAction::none, flags, ProfileLook::plain, ProfileTone::normal);
-    if (!part)
-        return -1;
     part->wrap = height > line;
     part->media = ProfileMediaKind::activity_text;
     part->source = item;
@@ -469,8 +521,7 @@ float clock_width(ProfileScene* s, const Utf8View& text, u32 flags) noexcept {
 }
 void shift(ProfileScene* s, u32 first, float dy) noexcept {
     for (u32 i = first; dy != 0 && i < s->part_count; ++i) {
-        auto* widget = ui_widget_manager_resolve(&s->widgets, s->parts[i].widget);
-        auto* node = widget ? ui_layout_engine_resolve(&s->widgets.layout, widget->layout) : nullptr;
+        auto* node = ui_widget_manager_layout_node(&s->widgets, s->parts[i].widget);
         if (node)
             node->spec.style.margin.top += dy;
     }
@@ -485,7 +536,7 @@ bool application_icon(const ProfileScene& s, u64 application, bool* known) noexc
     return false;
 }
 // A card's button: full width in the popout, its natural width (at most the
-// column) in the full profile. Returns its width, -1 on failure.
+// column) in the full profile. Returns its width.
 float card_button(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool full,
                   const Utf8View& label, UiIcon glyph, ProfileAction action, u16 item, u64 index,
                   const Utf8View& hint) noexcept {
@@ -494,8 +545,6 @@ float card_button(ProfileScene* s, UiWidgetHandle owner, float left, float top, 
     const float content = (glyph != UiIcon::count ? 24.f : 0.f) + text;
     const float w = full ? width : minimum(width, content + 32);
     auto* b = blank(s, owner, {left, top, left + w, top + 32}, action, ProfileLook::secondary);
-    if (!b)
-        return -1;
     b->media = ProfileMediaKind::activity_action;
     b->source = item;
     b->target = index;
@@ -503,13 +552,11 @@ float card_button(ProfileScene* s, UiWidgetHandle owner, float left, float top, 
     const ProfileTone tone = disabled ? ProfileTone::muted : ProfileTone::normal;
     float x = left + maximum(16.f, (w - content) * .5f);
     if (glyph != UiIcon::count) {
-        if (!icon(s, owner, {x, top + 8, x + 16, top + 24}, glyph, ProfileAction::none, tone))
-            return -1;
+        icon(s, owner, {x, top + 8, x + 16, top + 24}, glyph, ProfileAction::none, tone);
         x += 24;
     }
-    if (!caption(s, owner, {x, top, maximum(x + 1, minimum(x + text + 1, left + w - 16)), top + 32}, label,
-                 kSm | text_style_bold, tone))
-        return -1;
+    caption(s, owner, {x, top, maximum(x + 1, minimum(x + text + 1, left + w - 16)), top + 32}, label,
+            kSm | text_style_bold, tone);
     return w;
 }
 float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, float right, u32 card, u32 item,
@@ -522,16 +569,13 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
     if (!profile_activity_content(a, bot(*s), self(*s), &c))
         return 0;
     auto* background = blank(s, owner, {left, top, right, top + 1}, action, ProfileLook::card);
-    if (!background)
-        return -1;
     background->media = ProfileMediaKind::activity_card;
     background->source = static_cast<u16>(item);
     const u16 source = static_cast<u16>(item);
     float y = top + m.pad;
     if (c.heading.bytes) {
-        if (!caption(s, owner, {left + m.pad, y, right - m.pad, y + 16}, c.heading.view(), kXs | text_style_bold,
-                     ProfileTone::strong))
-            return -1;
+        caption(s, owner, {left + m.pad, y, right - m.pad, y + 16}, c.heading.view(), kXs | text_style_bold,
+                ProfileTone::strong);
         y += 16 + 8;
     }
     // Artwork, top-aligned in the body row.
@@ -550,8 +594,6 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
                                         : Utf8View{};
         auto* image = blank(s, owner, {left + m.pad, row, left + m.pad + m.image, row + m.image},
                             large_hint.bytes ? hint_action(*s) : ProfileAction::none);
-        if (!image)
-            return -1;
         image->media = ProfileMediaKind::activity_large;
         image->source = source;
         image->target = static_cast<u64>(art.large);
@@ -562,8 +604,6 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
             const auto small_hint = user_activity_text(a, UserActivityField::small_text);
             auto* corner = blank(s, owner, {x - m.small, sy - m.small, x, sy},
                                  small_hint.bytes ? hint_action(*s) : ProfileAction::none);
-            if (!corner)
-                return -1;
             corner->media = ProfileMediaKind::activity_small;
             corner->source = source;
             corner->hint = small_hint;
@@ -575,19 +615,10 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
     // The details column, laid out from the row's top, then centred on the artwork.
     const u32 column_first = s->part_count;
     float cy = row;
-    if (c.title.bytes) {
-        const float h = card_text(s, owner, text_left, cy, column, c.title.view(), kSm | text_style_bold, kCardTitle,
-                                  source);
-        if (h < 0)
-            return -1;
-        cy += h;
-    }
-    for (u32 i = 0; i < c.line_count; ++i) {
-        const float h = card_text(s, owner, text_left, cy, column, c.lines[i].view(), kXs, kCardLine, source);
-        if (h < 0)
-            return -1;
-        cy += h;
-    }
+    if (c.title.bytes)
+        cy += card_text(s, owner, text_left, cy, column, c.title.view(), kSm | text_style_bold, kCardTitle, source);
+    for (u32 i = 0; i < c.line_count; ++i)
+        cy += card_text(s, owner, text_left, cy, column, c.lines[i].view(), kXs, kCardLine, source);
     ActivityTimer timer{kNoPart, kNoPart, kNoPart, kNoPart, kNoPart, static_cast<u8>(item), static_cast<u8>(card)};
     const auto clock = c.chips ? profile_activity_clock(a, now_ms) : ProfileActivityClock{};
     if (c.chips && (c.party.bytes || c.episode.bytes || clock.timer != ProfileActivityTimer::none)) {
@@ -606,11 +637,7 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
             auto* glyph_part = icon(s, owner, {cx, line_top + 2, cx + 12, line_top + 14},
                                     profile_activity_glyph_icon(glyph), ProfileAction::none,
                                     timed ? ProfileTone::positive : ProfileTone::subtle);
-            auto* label_part = glyph_part ? caption(s, owner, {cx + 16, line_top, cx + w, line_top + kCardLine}, text,
-                                                    kXs, tone)
-                                          : nullptr;
-            if (!label_part)
-                return false;
+            auto* label_part = caption(s, owner, {cx + 16, line_top, cx + w, line_top + kCardLine}, text, kXs, tone);
             label_part->media = ProfileMediaKind::activity_text;
             label_part->source = source;
             if (timed) {
@@ -618,7 +645,6 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
                 timer.glyph = part_index(*s, glyph_part);
             }
             x += w + 8;
-            return true;
         };
         auto& clock_text = l.activity_time[card][0];
         clock_text.bytes = static_cast<u16>(
@@ -626,10 +652,12 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
         const auto clock_glyph =
             clock.timer == ProfileActivityTimer::countdown ? ProfileActivityGlyph::timer : c.clock_glyph;
         const bool timed = clock.timer != ProfileActivityTimer::none;
-        if ((c.party.bytes && !chip(ProfileActivityGlyph::party, c.party.view(), false)) ||
-            (timed && !chip(clock_glyph, clock_text.view(), true)) ||
-            (c.episode.bytes && !chip(ProfileActivityGlyph::episode, c.episode.view(), false)))
-            return -1;
+        if (c.party.bytes)
+            chip(ProfileActivityGlyph::party, c.party.view(), false);
+        if (timed)
+            chip(clock_glyph, clock_text.view(), true);
+        if (c.episode.bytes)
+            chip(ProfileActivityGlyph::episode, c.episode.view(), false);
         cy = line_top + kCardLine;
     }
     ProfileActivityProgress progress{};
@@ -647,8 +675,6 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
         auto* left_label = caption(s, owner, {text_left, cy, text_left + label, cy + kCardLine}, elapsed.view(), flags);
         auto* right_label = caption(s, owner, {text_right - label, cy, text_right, cy + kCardLine}, total.view(), flags);
         auto* bar = blank(s, owner, {text_left + label + 8, cy + 7, maximum(text_left + label + 9, text_right - label - 8), cy + 9});
-        if (!left_label || !right_label || !bar)
-            return -1;
         left_label->media = ProfileMediaKind::activity_text;
         right_label->media = ProfileMediaKind::activity_clock;
         bar->media = ProfileMediaKind::activity_progress;
@@ -688,8 +714,6 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
             }
             const float w = card_button(s, owner, text_left + x, cy, column - x, false, button_labels[i], button_icon,
                                         button_action, source, i, button_hint);
-            if (w < 0)
-                return -1;
             x += w + 8;
         }
         cy += 32;
@@ -701,15 +725,13 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
     if (!large && buttons) {
         bottom += 12;
         for (u32 i = 0; i < buttons; ++i) {
-            if (card_button(s, owner, left + m.pad, bottom, right - left - 2 * m.pad, true, button_labels[i],
-                            button_icon, button_action, source, i, button_hint) < 0)
-                return -1;
+            card_button(s, owner, left + m.pad, bottom, right - left - 2 * m.pad, true, button_labels[i], button_icon,
+                        button_action, source, i, button_hint);
             bottom += 32 + (i + 1 < buttons ? 8.f : 0.f);
         }
     }
     bottom += m.pad;
-    if (!place(s, background->widget, {left, top, right, bottom}))
-        return -1;
+    place(s, background->widget, {left, top, right, bottom});
     if ((timer.clock != kNoPart || timer.bar != kNoPart) && l.timer_count < kUserActivityMaximum)
         l.timers[l.timer_count++] = timer;
     return bottom - top;
@@ -760,37 +782,29 @@ float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top
     }
     const float width = maximum(42.f, minimum(max_width, content_width + 26)),
                 height = content_height + 18;
-    if (!blank(s, owner, {left, top, left + width, top + height}, ProfileAction::none, ProfileLook::bubble))
-        return -1;
+    blank(s, owner, {left, top, left + width, top + height}, ProfileAction::none, ProfileLook::bubble);
     const float x = left + 13, y = top + 9;
     if (emoji) {
         const float size = emoji_only ? 32.f : 16.f;
         auto* e = add(s, owner, {x, y + (emoji_only ? 0.f : 1.f), x + size, y + size + (emoji_only ? 0.f : 1.f)},
                       status->status_emoji_id ? Utf8View{} : status->status_emoji.view(), ProfileAction::none,
                       emoji_only ? kXl : kSm);
-        if (!e)
-            return -1;
         if (status->status_emoji_id)
             e->media = ProfileMediaKind::status_emoji;
     }
-    if (text.bytes) {
-        auto* line = caption(s, owner, {x + emoji_width, y, left + width - 13, y + content_height}, text, kSm);
-        if (!line)
-            return -1;
-        line->wrap = content_height > 18;
-    }
+    if (text.bytes)
+        caption(s, owner, {x + emoji_width, y, left + width - 13, y + content_height}, text, kSm)->wrap =
+            content_height > 18;
     return height;
 }
 
+// Whether a role's pill carries its remove button.
+bool role_removable(const ProfileScene& s, const RoleEditPolicy& policy, const RoleRecord& role) noexcept {
+    return interactive(s) && !s.roles_busy && role_editable(policy, role);
+}
 // Role pills. Popouts show at most two lines within the content width and end
 // with "+N"; the modal and an expanded popout list every role. Returns the
 // block height (0 without roles or add button).
-struct RoleItem {
-    const RoleRecord* role;
-    Utf8View name;
-    float width;
-    bool removable;
-};
 float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool clamp) noexcept {
     const auto& p = *s->profile;
     if (!s->state || !p.guild_id)
@@ -806,14 +820,13 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
             ranked[ranked_count++] = role;
     heap_sort(ranked, ranked_count,
               [](const RoleRecord* left, const RoleRecord* right) noexcept { return role_pill_before(*left, *right); });
-    RoleItem items[kRoles];
-    u32 count = 0;
-    for (u32 i = 0; i < ranked_count; ++i) {
-        const auto* role = ranked[i];
-        const auto name = chat_state_store_role_name(*s->state, *role);
-        const bool removable = interactive(*s) && !s->roles_busy && role_editable(policy, *role);
-        const float label = text_width(s, name, width, kXs);
-        items[count++] = {role, name, minimum(width, 2 + 4 + 12 + 4 + label + (removable ? 24.f : 8.f)), removable};
+    // Pill widths beside the ranked roles: the frame stays within a page.
+    float widths[kRoles];
+    const u32 count = ranked_count;
+    for (u32 i = 0; i < count; ++i) {
+        const bool removable = role_removable(*s, policy, *ranked[i]);
+        const float label = text_width(s, chat_state_store_role_name(*s->state, *ranked[i]), width, kXs);
+        widths[i] = minimum(width, 2 + 4 + 12 + 4 + label + (removable ? 24.f : 8.f));
     }
     const bool add_button = interactive(*s) && s->can_manage_roles && !s->roles_busy;
     if (!count && !add_button)
@@ -831,7 +844,7 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
             x += w + 4;
         };
         for (u32 i = 0; i < k; ++i)
-            put(items[i].width);
+            put(widths[i]);
         if (more)
             put(more_width);
         if (add_button)
@@ -875,22 +888,18 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
         return r;
     };
     for (u32 i = 0; i < visible; ++i) {
-        const auto& item = items[i];
-        const auto r = slot(item.width);
+        const auto* role = ranked[i];
+        const bool removable = role_removable(*s, policy, *role);
+        const auto r = slot(widths[i]);
         auto* pill = blank(s, owner, r, ProfileAction::none, ProfileLook::role);
-        if (!pill)
-            return -1;
-        pill->color = item.role->color ? color_from_rgb24(item.role->color) : Color{};
-        pill->target = item.role->id;
-        if (!caption(s, owner, {r.left + 22, r.top + 4, r.right - (item.removable ? 24.f : 8.f), r.bottom - 4},
-                     item.name, kXs))
-            return -1;
-        if (item.removable) {
+        pill->color = role->color ? color_from_rgb24(role->color) : Color{};
+        pill->target = role->id;
+        caption(s, owner, {r.left + 22, r.top + 4, r.right - (removable ? 24.f : 8.f), r.bottom - 4},
+                chat_state_store_role_name(*s->state, *role), kXs);
+        if (removable) {
             auto* remove = icon(s, owner, {r.right - 24, r.top, r.right, r.bottom}, UiIcon::close,
                                 ProfileAction::remove_role);
-            if (!remove)
-                return -1;
-            remove->target = item.role->id;
+            remove->target = role->id;
             remove->source = 12;
         }
     }
@@ -898,8 +907,6 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
         const auto r = slot(collapse ? 24.f : more_width);
         auto* more = add(s, owner, r, collapse ? Utf8View{} : more_text.view(), ProfileAction::roles_toggle, kXs,
                          ProfileLook::pill);
-        if (!more)
-            return -1;
         more->centered = true;
         if (collapse)
             more->icon = static_cast<u16>(UiIcon::chevron_up);
@@ -908,8 +915,6 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
         const auto r = slot(add_width);
         auto* plus = add(s, owner, r, count ? Utf8View{} : utf8_literal("Add role"), ProfileAction::choose_roles,
                          kXs, ProfileLook::pill, ProfileTone::subtle);
-        if (!plus)
-            return -1;
         plus->centered = true;
         if (count)
             plus->icon = static_cast<u16>(UiIcon::plus);
@@ -936,9 +941,7 @@ float plugin_section(ProfileScene* s, UiWidgetHandle owner, float left, float to
         }
         auto* part = blank(s, owner, {left + x, top + y, left + x + chip, top + y + 26},
                            node.kind == ui_plugin_node_button ? ProfileAction::plugin_slot : ProfileAction::none);
-        if (!part)
-            return -1;
-        part->badge = {part->widget, label, {}, text_style_subtext, true, false};
+        attach_badge(s, part) = {part->widget, label, {}, text_style_subtext, true, false};
         part->target = i;
         part->media = ProfileMediaKind::plugin_slot;
         part->source = node.icon;
@@ -958,8 +961,6 @@ float plugin_section(ProfileScene* s, UiWidgetHandle owner, float left, float to
             y += 4;
         auto* part = add(s, owner, {left, top + y, left + width, top + y + 20}, label, ProfileAction::plugin_slot,
                          kSm, ProfileLook::plain, ProfileTone::link);
-        if (!part)
-            return -1;
         part->target = i;
         part->media = ProfileMediaKind::plugin_slot;
         y += 20;
@@ -984,31 +985,25 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     const float name_width = maximum(24.f, text_width(s, display, width - tag - (note ? 28.f : 0.f), name_flags));
     auto* name = add(s, owner, {left, top, left + name_width, top + line}, display,
                      large ? ProfileAction::none : ProfileAction::expand, name_flags);
-    if (!name)
-        return -1;
     s->name_widget = name->widget;
     float x = left + name_width + 4;
     if (tag) {
         auto* badge = blank(s, owner, {x, top + (line - 16) * .5f, x + tag - 4, top + (line + 16) * .5f});
-        if (!badge)
-            return -1;
         app.owner = badge->widget;
-        badge->badge = app;
+        attach_badge(s, badge) = app;
         // The client wraps only the verified check in its "Verified App" tooltip.
         if (app.leading) {
             auto* check = blank(s, owner,
                                 ui_app_badge_check_rectangle({x, top + (line - 16) * .5f, x + tag - 4,
                                                               top + (line + 16) * .5f}),
                                 ProfileAction::hint);
-            if (!check)
-                return -1;
             check->hint = kUiAppBadgeVerifiedHint;
             unfocusable(s, check);
         }
         x += tag;
     }
-    if (note && !icon(s, owner, {x, top, x + 24, top + 24}, UiIcon::file_text, ProfileAction::open_note))
-        return -1;
+    if (note)
+        icon(s, owner, {x, top, x + 24, top + 24}, UiIcon::file_text, ProfileAction::open_note);
     float y = top + line;
     // Username row wraps; column gap is 6 with pronouns or a bot tag, else 9.33.
     const auto pronouns = p.guild_pronouns.bytes ? p.guild_pronouns.view() : p.pronouns.view();
@@ -1029,8 +1024,6 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     if (profile_display_info.guild_avatar && p.avatar.bytes) {
         const float size = p.nickname.bytes ? 16.f : 24.f;
         auto* main = blank(s, owner, slot(size, size));
-        if (!main)
-            return -1;
         main->media = ProfileMediaKind::peer_avatar;
         main->source = 0xFFFF;
     }
@@ -1048,16 +1041,13 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         append(&tag, Utf8View{digits, 4});
         username = tag.view();
     }
-    if (!add(s, owner, slot(text_width(s, username, width, kSm), 18), username,
-             large ? ProfileAction::none : ProfileAction::expand, kSm, ProfileLook::plain, ProfileTone::strong))
-        return -1;
+    add(s, owner, slot(text_width(s, username, width, kSm), 18), username, large ? ProfileAction::none : ProfileAction::expand,
+        kSm, ProfileLook::plain, ProfileTone::strong);
     if (pronouns.bytes) {
         auto dot = slot(6, 18);
-        if (!blank(s, owner, {dot.left + 1, dot.top + 7, dot.left + 5, dot.top + 11}, ProfileAction::none,
-                   ProfileLook::dot))
-            return -1;
-        if (!caption(s, owner, slot(text_width(s, pronouns, width, kSm) + 2, 18), pronouns, kSm, ProfileTone::strong))
-            return -1;
+        blank(s, owner, {dot.left + 1, dot.top + 7, dot.left + 5, dot.top + 11}, ProfileAction::none,
+              ProfileLook::dot);
+        caption(s, owner, slot(text_width(s, pronouns, width, kSm) + 2, 18), pronouns, kSm, ProfileTone::strong);
     }
     const auto& a = p.user_appearance;
     if (a.primary_enabled && a.primary_tag.bytes) {
@@ -1067,14 +1057,10 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         // The chip opens the server tag popout (live cards only).
         const auto tag_action = interactive(*s) && a.primary_guild_id ? ProfileAction::guild_tag : ProfileAction::none;
         auto* tag_part = blank(s, owner, r, tag_action);
-        if (!tag_part)
-            return -1;
-        tag_part->badge = {tag_part->widget, a.primary_tag.view(), {}, text_style_subtext, true, false};
+        attach_badge(s, tag_part) = {tag_part->widget, a.primary_tag.view(), {}, text_style_subtext, true, false};
         tag_part->target = a.primary_guild_id;
         const auto layout = ui_badge_layout(s->measure, a.primary_tag.view(), r, true, text_style_subtext);
         auto* glyph = blank(s, owner, layout.icon, tag_action);
-        if (!glyph)
-            return -1;
         glyph->media = ProfileMediaKind::guild_icon;
         glyph->target = a.primary_guild_id;
     }
@@ -1092,8 +1078,6 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
                 continue;
             // Bare 20 DIP images, 2 apart; the description is the tooltip.
             auto* b = blank(s, owner, {bx, by, bx + 20, by + 20}, ProfileAction::badge);
-            if (!b)
-                return -1;
             b->media = ProfileMediaKind::badge;
             b->source = static_cast<u16>(i);
             b->hint = p.badges[i].description.view();
@@ -1112,26 +1096,21 @@ float notices(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
         return 0;
     const float pad = large ? 12.f : 16.f;
     if (s->relation == 4) {
-        if (!blank(s, owner, {left, top, left + width, top + 18 + pad * 2}, ProfileAction::none, ProfileLook::card) ||
-            !caption(s, owner, {left + pad, top + pad, left + width - pad, top + pad + 18}, utf8_literal("You blocked them"),
-                     kSm | text_style_bold))
-            return -1;
+        blank(s, owner, {left, top, left + width, top + 18 + pad * 2}, ProfileAction::none, ProfileLook::card);
+        caption(s, owner, {left + pad, top + pad, left + width - pad, top + pad + 18}, utf8_literal("You blocked them"),
+                kSm | text_style_bold);
         return 18 + pad * 2;
     }
     const float line = 18, button_top = top + pad + line + 8;
-    if (!blank(s, owner, {left, top, left + width, button_top + 32 + pad}, ProfileAction::none, ProfileLook::card))
-        return -1;
+    blank(s, owner, {left, top, left + width, button_top + 32 + pad}, ProfileAction::none, ProfileLook::card);
     const auto name = s->profile->username.view();
     const float name_width = text_width(s, name, width - pad * 2, kSm | text_style_bold);
-    if (!caption(s, owner, {left + pad, top + pad, left + pad + name_width, top + pad + line}, name,
-                 kSm | text_style_bold) ||
-        !caption(s, owner, {left + pad + name_width, top + pad, left + width - pad, top + pad + line},
-                 utf8_literal(" sent you a friend request."), kSm))
-        return -1;
-    if (interactive(*s) &&
+    caption(s, owner, {left + pad, top + pad, left + pad + name_width, top + pad + line}, name, kSm | text_style_bold);
+    caption(s, owner, {left + pad + name_width, top + pad, left + width - pad, top + pad + line},
+            utf8_literal(" sent you a friend request."), kSm);
+    if (interactive(*s))
         button(s, owner, left + pad, button_top, utf8_literal("Accept"), UiIcon::count, ProfileAction::accept_friend,
-               true) < 0)
-        return -1;
+               true);
     return button_top + 32 + pad - top;
 }
 // A mutual peer's name; a server shows the guild's current name.
@@ -1142,30 +1121,24 @@ Utf8View peer_name(const ProfileScene& s, bool friends, const ProfilePeer& peer)
     return peer.name.view();
 }
 // A mutual friend's or server's row with its face; both carry the peer's index.
-bool peer_row(ProfileScene* s, UiWidgetHandle owner, bool friends, u32 index, const UiRect& row_rect,
+void peer_row(ProfileScene* s, UiWidgetHandle owner, bool friends, u32 index, const UiRect& row_rect,
               const UiRect& face_rect) noexcept {
     auto* row = blank(s, owner, row_rect, friends ? ProfileAction::open_friend : ProfileAction::open_server,
                       ProfileLook::row);
-    auto* face = row ? blank(s, owner, face_rect) : nullptr;
-    if (!face)
-        return false;
+    auto* face = blank(s, owner, face_rect);
     row->source = face->source = static_cast<u16>(index);
     face->media = friends ? ProfileMediaKind::peer_avatar : ProfileMediaKind::peer_guild;
-    return true;
 }
 // One chip of the mutuals row: its hit area, the stacked faces and the count text.
-bool mutual_chip(ProfileScene* s, UiWidgetHandle owner, float x, float top, float w, float stack, u32 faces,
+void mutual_chip(ProfileScene* s, UiWidgetHandle owner, float x, float top, float w, float stack, u32 faces,
                  ProfileAction action, ProfileMediaKind media, const Utf8View& text, u32 flags) noexcept {
-    if (!blank(s, owner, {x, top, x + w, top + 24}, action))
-        return false;
+    blank(s, owner, {x, top, x + w, top + 24}, action);
     for (u32 i = faces; i > 0; --i) {
         auto* face = blank(s, owner, {x + (i - 1) * 12.f, top + 4, x + (i - 1) * 12.f + 16, top + 20});
-        if (!face)
-            return false;
         face->media = media;
         face->source = static_cast<u16>(i - 1);
     }
-    return caption(s, owner, {x + stack, top + 4, x + w, top + 20}, text, flags, ProfileTone::subtle) != nullptr;
+    caption(s, owner, {x + stack, top + 4, x + w, top + 20}, text, flags, ProfileTone::subtle);
 }
 // The mutuals row of the popout and the DM panel (bots list servers only:
 // their profiles carry no mutual friends).
@@ -1183,15 +1156,13 @@ float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
         const u32 faces = minimum<u32>(3, p.mutual_friends_count);
         const float stack = faces ? 16 + (faces - 1) * 12.f + 4 : 0;
         const float w = minimum(width, stack + text_width(s, text.view(), width, flags));
-        if (!mutual_chip(s, owner, x, top, w, stack, faces, ProfileAction::friends, ProfileMediaKind::peer_avatar,
-                         text.view(), flags))
-            return -1;
+        mutual_chip(s, owner, x, top, w, stack, faces, ProfileAction::friends, ProfileMediaKind::peer_avatar, text.view(),
+                    flags);
         x += w + 6;
     }
     if (servers) {
         if (friends) {
-            if (!blank(s, owner, {x, top + 10, x + 4, top + 14}, ProfileAction::none, ProfileLook::dot))
-                return -1;
+            blank(s, owner, {x, top + 10, x + 4, top + 14}, ProfileAction::none, ProfileLook::dot);
             x += 10;
         }
         auto& text = l.mutual_text[1];
@@ -1199,9 +1170,9 @@ float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
         const u32 icons = friends ? 0 : minimum<u32>(3, p.mutual_guild_count);
         const float stack = icons ? 16 + (icons - 1) * 12.f + 4 : 0;
         const float w = minimum(left + width - x, stack + text_width(s, text.view(), width, flags));
-        if (w > 0 && !mutual_chip(s, owner, x, top, w, stack, icons, ProfileAction::servers,
-                                  ProfileMediaKind::peer_guild, text.view(), flags))
-            return -1;
+        if (w > 0)
+            mutual_chip(s, owner, x, top, w, stack, icons, ProfileAction::servers, ProfileMediaKind::peer_guild,
+                        text.view(), flags);
     }
     return 24;
 }
@@ -1250,18 +1221,15 @@ float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
         height = lines ? static_cast<float>(static_cast<u32>(size.size.height * 3 / lines + .999f)) : 54.f;
     // The text-sm size rides on the bio's own style spans.
     auto* text = caption(s, owner, {left, top, left + width, top + height}, bio, 0, ProfileTone::strong);
-    if (!text)
-        return -1;
     text->wrap = true;
     s->bio_widget = text->widget;
     if (!overflow || !view_bio || !interactive(*s))
         return height;
     constexpr auto label = utf8_literal("View Full Bio");
     const float w = text_width(s, label, width, kXs) + 24;
-    auto* button = blank(s, owner, {left, top + height + 8, left + w, top + height + 40}, ProfileAction::view_bio,
-                         ProfileLook::secondary);
-    if (!button || !caption(s, owner, {left + 12, top + height + 8, left + w - 12, top + height + 40}, label, kXs))
-        return -1;
+    blank(s, owner, {left, top + height + 8, left + w, top + height + 40}, ProfileAction::view_bio,
+          ProfileLook::secondary);
+    caption(s, owner, {left + 12, top + height + 8, left + w - 12, top + height + 40}, label, kXs);
     return height + 40;
 }
 
@@ -1272,20 +1240,16 @@ float button(ProfileScene* s, UiWidgetHandle owner, float left, float top, const
     const float text = label.bytes ? text_width(s, label, 400, kSm | text_style_bold) : 0;
     const float content = (glyph != UiIcon::count ? 16.f : 0.f) + (label.bytes && glyph != UiIcon::count ? 8.f : 0.f) + text;
     const float w = width ? width : label.bytes ? content + 32 : 32;
-    auto* b = blank(s, owner, {left, top, left + w, top + 32}, action,
-                    primary ? ProfileLook::primary : ProfileLook::secondary);
-    if (!b)
-        return -1;
+    blank(s, owner, {left, top, left + w, top + 32}, action, primary ? ProfileLook::primary : ProfileLook::secondary);
     float x = left + (w - content) * .5f;
     if (glyph != UiIcon::count) {
-        if (!icon(s, owner, {x, top + 8, x + 16, top + 24}, glyph, ProfileAction::none,
-                  primary ? ProfileTone::on_accent : ProfileTone::normal))
-            return -1;
+        icon(s, owner, {x, top + 8, x + 16, top + 24}, glyph, ProfileAction::none,
+             primary ? ProfileTone::on_accent : ProfileTone::normal);
         x += 24;
     }
-    if (label.bytes && !caption(s, owner, {x, top, x + text + 1, top + 32}, label, kSm | text_style_bold,
-                                primary ? ProfileTone::on_accent : ProfileTone::normal))
-        return -1;
+    if (label.bytes)
+        caption(s, owner, {x, top, x + text + 1, top + 32}, label, kSm | text_style_bold,
+                primary ? ProfileTone::on_accent : ProfileTone::normal);
     return w;
 }
 
@@ -1303,23 +1267,14 @@ void header_geometry(ProfileScene* s, const UiRect& banner, float avatar_left, f
     s->status = {avatar_left + at, avatar_top + at, avatar_left + at + status, avatar_top + at + status};
 }
 // Banner, avatar and decoration parts (relative to owner at origin).
-bool header_parts(ProfileScene* s, UiWidgetHandle owner, const UiRect& origin, ProfileAction avatar_action) noexcept {
+void header_parts(ProfileScene* s, UiWidgetHandle owner, const UiRect& origin, ProfileAction avatar_action) noexcept {
     const auto rel = [&](UiRect r) noexcept {
         return UiRect{r.left - origin.left, r.top - origin.top, r.right - origin.left, r.bottom - origin.top};
     };
-    auto* banner = blank(s, owner, rel(s->banner));
-    auto* avatar = blank(s, owner, rel(s->avatar), avatar_action);
-    if (!banner || !avatar)
-        return false;
-    banner->media = ProfileMediaKind::banner;
-    avatar->media = ProfileMediaKind::avatar;
-    if (!profile_display(*s->profile).decoration.bytes)
-        return true;
-    auto* decoration = blank(s, owner, rel(s->decoration));
-    if (!decoration)
-        return false;
-    decoration->media = ProfileMediaKind::decoration;
-    return true;
+    blank(s, owner, rel(s->banner))->media = ProfileMediaKind::banner;
+    blank(s, owner, rel(s->avatar), avatar_action)->media = ProfileMediaKind::avatar;
+    if (profile_display(*s->profile).decoration.bytes)
+        blank(s, owner, rel(s->decoration))->media = ProfileMediaKind::decoration;
 }
 void resolve_theme(ProfileScene* s) noexcept {
     const auto d = profile_display(*s->profile, s->presentation == ProfilePresentation::preview);
@@ -1330,10 +1285,20 @@ void resolve_theme(ProfileScene* s) noexcept {
     s->has_banner_color = d.has_color;
     s->banner_color = d.color;
 }
+// A part that takes text input: its widget becomes a text field.
+UiWidgetHandle text_field(ProfileScene* s, const ProfilePart* part) noexcept {
+    if (auto* widget = ui_widget_manager_resolve(&s->widgets, part->widget))
+        widget->kind = UiWidgetKind::text_field;
+    else
+        labels(s).failed = true;
+    return part->widget;
+}
 bool can_message(const ProfileScene& s) noexcept {
     return !self(s) && s.relation != 4;
 }
 bool finish(ProfileScene* s, const UiRect& viewport) noexcept {
+    if (labels(s).failed)
+        return false;
     ++s->revision;
     if (!ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok())
         return false;
@@ -1360,17 +1325,16 @@ void header_to_screen(ProfileScene* s, float dx, float dy) noexcept {
         *r = {dx + r->left, dy + r->top, dx + r->right, dy + r->bottom};
 }
 // The More and relationship buttons of a live card; bx is the left of More.
-bool header_buttons(ProfileScene* s, float bx, float by) noexcept {
-    if (!icon(s, s->panel, {bx, by, bx + 32, by + 32}, UiIcon::ellipsis, ProfileAction::more, ProfileTone::normal,
-              ProfileLook::header_button))
-        return false;
+void header_buttons(ProfileScene* s, float bx, float by) noexcept {
+    icon(s, s->panel, {bx, by, bx + 32, by + 32}, UiIcon::ellipsis, ProfileAction::more, ProfileTone::normal,
+         ProfileLook::header_button);
     bx -= 40;
     if (bot(*s) || s->relation == 4)
-        return true;
+        return;
     const UiIcon glyph = s->relation == 1 ? UiIcon::user_check : s->relation >= 2 ? UiIcon::recent : UiIcon::user_plus;
-    return icon(s, s->panel, {bx, by, bx + 32, by + 32}, glyph,
-                s->relation ? ProfileAction::relationship : ProfileAction::add_friend, ProfileTone::normal,
-                ProfileLook::header_button) != nullptr;
+    icon(s, s->panel, {bx, by, bx + 32, by + 32}, glyph,
+         s->relation ? ProfileAction::relationship : ProfileAction::add_friend, ProfileTone::normal,
+         ProfileLook::header_button);
 }
 // The popout (and the editor preview, which is the same card).
 bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
@@ -1378,10 +1342,7 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
     const bool live = interactive(*s);
     const float W = kPopoutWidth, pad = s->themed ? 2.f : 0.f;
     const float inner = W - 2 * pad, content = inner - 32, x0 = pad + 16;
-    auto* panel = blank(s, s->root, {0, 0, W, 1});
-    if (!panel)
-        return false;
-    s->panel = panel->widget;
+    s->panel = blank(s, s->root, {0, 0, W, 1})->widget;
     // Header (relative to the card).
     header_geometry(s, {pad, pad, W - pad, pad + kPopoutBanner}, 16, 61, 80);
     u8 order[kUserActivityMaximum];
@@ -1389,46 +1350,35 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
     const float bubble_max = W - pad - 12 - (pad + kPopoutBanner);
     const float bubble =
         status_bubble(s, s->panel, pad + kPopoutBanner, pad + kPopoutBanner - 7, minimum(181.f, bubble_max));
-    if (bubble < 0)
-        return false;
     const float header_bottom = maximum(140.f, bubble ? pad + kPopoutBanner - 10 + bubble : 0.f);
     // Body (scroller): padding 4 16 8, sections 12 apart.
     const float body_top = header_bottom + 8;
-    auto* body = clipped(s, s->panel, {0, body_top, W, body_top + 1});
-    if (!body)
-        return false;
-    s->body = body->widget;
+    s->body = clipped(s, s->panel, {0, body_top, W, body_top + 1})->widget;
     float y = 4;
     const auto section = [&](float height) noexcept {
         if (height > 0)
             y += height + 12;
-        return height >= 0;
     };
-    if (!section(name_block(s, s->body, x0, y, content, false)))
-        return false;
-    if (s->phase == ProfilePhase::failed && !section(failed_notice(s, s->body, x0, y, content)))
-        return false;
-    if (!section(notices(s, s->body, x0, y, content, false)) || !section(mutuals(s, s->body, x0, y, content)) ||
-        !section(biography(s, s->body, x0, y, content, true)))
-        return false;
+    section(name_block(s, s->body, x0, y, content, false));
+    if (s->phase == ProfilePhase::failed)
+        section(failed_notice(s, s->body, x0, y, content));
+    section(notices(s, s->body, x0, y, content, false));
+    section(mutuals(s, s->body, x0, y, content));
+    section(biography(s, s->body, x0, y, content, true));
     // Only the first card; more peek 8 DIPs below it ("View More").
     if (cards) {
         const bool peek = cards > 1;
         const float h = activity_card(s, s->body, x0, y, x0 + content, 0, order[0], activity_now(*s), ProfileAction::card);
-        if (h < 0)
-            return false;
-        if (peek && h > 0 &&
-            !blank(s, s->body, {x0 + 8, y + h - 8, x0 + content - 8, y + h + 8}, ProfileAction::activity,
-                   ProfileLook::peek))
-            return false;
+        if (peek && h > 0)
+            blank(s, s->body, {x0 + 8, y + h - 8, x0 + content - 8, y + h + 8}, ProfileAction::activity,
+                  ProfileLook::peek);
         // The peek paints only below the first card, so its order is free.
-        if (!section(h + (peek && h > 0 ? 8.f : 0.f)))
-            return false;
+        section(h + (peek && h > 0 ? 8.f : 0.f));
     }
     // The client's bot popout lists its Commands after the bio, before roles.
-    if (!section(commands_section(s, s->body, x0, y, content)) || !section(roles(s, s->body, x0, y, content, true)) ||
-        !section(plugin_section(s, s->body, x0, y, content)))
-        return false;
+    section(commands_section(s, s->body, x0, y, content));
+    section(roles(s, s->body, x0, y, content, true));
+    section(plugin_section(s, s->body, x0, y, content));
     const float body_content = y > 4 ? y - 12 + 8 : 12;
     // Footer: Message @name for others, Edit Profile for self.
     const bool self_card = self(*s);
@@ -1440,23 +1390,14 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
     const float H = minimum(natural, limit);
     const float footer_top = H - pad - 4 - 12 - footer_height;
     const float body_bottom = footer ? footer_top - 8 : H - pad - 4;
-    if (footer && self_card) {
-        if (button(s, s->panel, x0, footer_top, utf8_literal("Edit Profile"), UiIcon::edit, ProfileAction::edit, true,
-                   content) < 0)
-            return false;
-    } else if (footer) {
-        auto* field = blank(s, s->panel, {x0, footer_top, x0 + content, footer_top + footer_height},
-                            ProfileAction::message, ProfileLook::input);
-        auto* widget = field ? ui_widget_manager_resolve(&s->widgets, field->widget) : nullptr;
-        if (!widget)
-            return false;
-        widget->kind = UiWidgetKind::text_field;
-        s->message_field = field->widget;
-    }
-    if (s->message_failed && footer &&
-        !caption(s, s->panel, {x0, footer_top - 26, x0 + content, footer_top - 6},
-                 utf8_literal("Could not send. Press Enter to retry."), kXs, ProfileTone::muted))
-        return false;
+    if (footer && self_card)
+        button(s, s->panel, x0, footer_top, utf8_literal("Edit Profile"), UiIcon::edit, ProfileAction::edit, true, content);
+    else if (footer)
+        s->message_field = text_field(s, blank(s, s->panel, {x0, footer_top, x0 + content, footer_top + footer_height},
+                                               ProfileAction::message, ProfileLook::input));
+    if (s->message_failed && footer)
+        caption(s, s->panel, {x0, footer_top - 26, x0 + content, footer_top - 6},
+                utf8_literal("Could not send. Press Enter to retry."), kXs, ProfileTone::muted);
     // Placement: beside the anchor with 8 DIPs spacing,
     // inverted when it does not fit and nudged into the viewport.
     float x = s->anchor.left, top = s->anchor.top;
@@ -1489,19 +1430,16 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
         return UiRect{x + r.left, top + r.top, x + r.right, top + r.bottom};
     };
     // Header media and controls (relative to the card).
-    if (!header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::expand))
-        return false;
+    header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::expand);
     header_to_screen(s, x, top);
-    if (live && !self_card && !header_buttons(s, W - pad - 12 - 32, pad + 8))
-        return false;
-    if (!place(s, s->panel, {x - viewport.left, top - viewport.top, x - viewport.left + W, top - viewport.top + H}) ||
-        !place(s, s->body, {0, body_top, W, maximum(body_top + 1, body_bottom)}))
-        return false;
+    if (live && !self_card)
+        header_buttons(s, W - pad - 12 - 32, pad + 8);
+    place(s, s->panel, {x - viewport.left, top - viewport.top, x - viewport.left + W, top - viewport.top + H});
+    place(s, s->body, {0, body_top, W, maximum(body_top + 1, body_bottom)});
     s->scroll_viewport = absolute({0, body_top, W, body_bottom});
     s->content_height = body_content;
     s->scroll = minimum(s->scroll, maximum(0.f, s->content_height - ui_rect_height(s->scroll_viewport)));
-    if (!scroll_container(s, s->body, s->scroll))
-        return false;
+    scroll_container(s, s->body, s->scroll);
     if (s->edit.active && !s->note_editing && s->message_field.generation) {
         s->edit_rectangle = absolute({x0, footer_top, x0 + content, footer_top + footer_height});
         s->edit_content = ui_rect_inset(s->edit_rectangle, {12, 2, 12, 2});
@@ -1517,7 +1455,8 @@ bool layout_popout(ProfileScene* s, const UiRect& viewport) noexcept {
 // Body sections: a text-xs semibold heading, 8 above its content.
 float heading(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, const Utf8View& text,
               ProfileTone tone = ProfileTone::subtle) noexcept {
-    return caption(s, owner, {left, top, left + width, top + 16}, text, kXs | text_style_bold, tone) ? 24.f : -1.f;
+    caption(s, owner, {left, top, left + width, top + 16}, text, kXs | text_style_bold, tone);
+    return 24.f;
 }
 Utf8View platform_name(const Utf8View& type) noexcept {
     // "type", "Display Name" pairs, each NUL-terminated.
@@ -1542,10 +1481,8 @@ Utf8View platform_name(const Utf8View& type) noexcept {
 float member_since(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width,
                    ProfileTone tone = ProfileTone::subtle) noexcept {
     const auto& p = *s->profile;
-    float h = heading(s, owner, left, top, width, bot(*s) ? utf8_literal("Created On") : utf8_literal("Member Since"),
-                      tone);
-    if (h < 0)
-        return -1;
+    const float h = heading(s, owner, left, top, width, bot(*s) ? utf8_literal("Created On") : utf8_literal("Member Since"),
+                            tone);
     auto& l = labels(s);
     const float y = top + h;
     float x = left;
@@ -1554,31 +1491,24 @@ float member_since(ProfileScene* s, UiWidgetHandle owner, float left, float top,
     const bool member = guild && p.joined_at.bytes && parse_iso_timestamp({p.joined_at.view(), 0, false}, &joined);
     // A generic calendar icon marks the account date; no brand asset is shipped.
     if (member) {
-        if (!icon(s, owner, {x, y + 1, x + 16, y + 17}, UiIcon::calendar, ProfileAction::none))
-            return -1;
+        icon(s, owner, {x, y + 1, x + 16, y + 17}, UiIcon::calendar, ProfileAction::none);
         x += 20;
     }
     l.member_since[0].bytes = 0;
     append_date(&l.member_since[0], ((p.user_id >> 22) + 1420070400000ull) / 1000);
     const float first = text_width(s, l.member_since[0].view(), width - (x - left), kSm);
-    if (!caption(s, owner, {x, y, x + first, y + 18}, l.member_since[0].view(), kSm))
-        return -1;
+    caption(s, owner, {x, y, x + first, y + 18}, l.member_since[0].view(), kSm);
     x += first;
     if (member) {
         x += 8;
-        if (!blank(s, owner, {x, y + 7, x + 4, y + 11}, ProfileAction::none, ProfileLook::dot))
-            return -1;
+        blank(s, owner, {x, y + 7, x + 4, y + 11}, ProfileAction::none, ProfileLook::dot);
         x += 12;
-        auto* glyph = blank(s, owner, {x, y + 1, x + 16, y + 17});
-        if (!glyph)
-            return -1;
-        glyph->media = ProfileMediaKind::member_guild;
+        blank(s, owner, {x, y + 1, x + 16, y + 17})->media = ProfileMediaKind::member_guild;
         x += 20;
         l.member_since[1].bytes = 0;
         append_date(&l.member_since[1], joined / 1000);
-        if (left + width > x &&
-            !caption(s, owner, {x, y, left + width, y + 18}, l.member_since[1].view(), kSm))
-            return -1;
+        if (left + width > x)
+            caption(s, owner, {x, y, left + width, y + 18}, l.member_since[1].view(), kSm);
     }
     return h + 18;
 }
@@ -1587,32 +1517,24 @@ float connections(ProfileScene* s, UiWidgetHandle owner, float left, float top, 
     if (!p.connection_count)
         return 0;
     float y = top + heading(s, owner, left, top, width, utf8_literal("Connections"));
-    if (y < top)
-        return -1;
     auto& l = labels(s);
     for (u32 i = 0; i < p.connection_count && i < 16; ++i) {
         const auto& c = p.connections[i];
         if (i)
             y += 16;
         // No platform icons are shipped: the box carries the platform initial.
-        auto* box = blank(s, owner, {left, y, left + 24, y + 24}, ProfileAction::none, ProfileLook::box);
+        blank(s, owner, {left, y, left + 24, y + 24}, ProfileAction::none, ProfileLook::box);
         const auto platform = platform_name(c.type.view());
         l.connection_initial[i][0] = platform.bytes ? platform.data[0] : '?';
         if (l.connection_initial[i][0] >= 'a' && l.connection_initial[i][0] <= 'z')
             l.connection_initial[i][0] = static_cast<char>(l.connection_initial[i][0] - 32);
-        auto* initial = box ? caption(s, owner, {left, y, left + 24, y + 24}, {l.connection_initial[i], 1},
-                                      kXs | text_style_bold)
-                            : nullptr;
-        if (!initial)
-            return -1;
-        initial->centered = true;
+        caption(s, owner, {left, y, left + 24, y + 24}, {l.connection_initial[i], 1}, kXs | text_style_bold)
+            ->centered = true;
         const float info = left + 32;
         const float name = text_width(s, c.name.view(), width - 32 - (c.verified ? 20.f : 0.f), kSm);
-        if (!caption(s, owner, {info, y, info + name, y + 18}, c.name.view(), kSm))
-            return -1;
-        if (c.verified && !icon(s, owner, {info + name + 4, y + 1, info + name + 20, y + 17}, UiIcon::badge_check,
-                                ProfileAction::none))
-            return -1;
+        caption(s, owner, {info, y, info + name, y + 18}, c.name.view(), kSm);
+        if (c.verified)
+            icon(s, owner, {info + name + 4, y + 1, info + name + 20, y + 17}, UiIcon::badge_check, ProfileAction::none);
         auto& line = l.connection_line[i];
         line.bytes = 0;
         u64 created = 0;
@@ -1621,8 +1543,7 @@ float connections(ProfileScene* s, UiWidgetHandle owner, float left, float top, 
             append_date(&line, created / 1000);
         } else
             append(&line, platform);
-        if (!caption(s, owner, {info, y + 22, left + width, y + 38}, line.view(), kXs, ProfileTone::subtle))
-            return -1;
+        caption(s, owner, {info, y + 22, left + width, y + 38}, line.view(), kXs, ProfileTone::subtle);
         y += 38;
     }
     return y - top;
@@ -1631,29 +1552,20 @@ float note_section(ProfileScene* s, UiWidgetHandle owner, float left, float top,
     if (!s->note_visible || self(*s))
         return 0;
     const float h = heading(s, owner, left, top, width, utf8_literal("Note (only visible to you)"));
-    if (h < 0)
-        return -1;
     s->note_offset = top;
     const float y = top + h;
     if (s->note_editing) {
-        auto* field = blank(s, owner, {left - 4, y, left + width, y + 34}, ProfileAction::note, ProfileLook::input);
-        auto* widget = field ? ui_widget_manager_resolve(&s->widgets, field->widget) : nullptr;
-        if (!widget)
-            return -1;
-        widget->kind = UiWidgetKind::text_field;
-        s->note_field = field->widget;
+        s->note_field = text_field(s, blank(s, owner, {left - 4, y, left + width, y + 34}, ProfileAction::note,
+                                            ProfileLook::input));
         return h + 34;
     }
     const Utf8View text = s->note_text.bytes ? s->note_text
                           : s->note_loading ? utf8_literal("Loading Note")
                                             : utf8_literal("Click to add a note");
     const float height = maximum(18.f, measure(s, text, width, true, kSm).height);
-    auto* note = add(s, owner, {left, y, left + width, y + height}, text,
-                     s->note_loading ? ProfileAction::none : ProfileAction::note, kSm, ProfileLook::plain,
-                     s->note_text.bytes ? ProfileTone::normal : ProfileTone::muted);
-    if (!note)
-        return -1;
-    note->wrap = true;
+    add(s, owner, {left, y, left + width, y + height}, text, s->note_loading ? ProfileAction::none : ProfileAction::note,
+        kSm, ProfileLook::plain, s->note_text.bytes ? ProfileTone::normal : ProfileTone::muted)
+        ->wrap = true;
     return h + height;
 }
 // Buttons row by relationship.
@@ -1661,33 +1573,23 @@ float modal_buttons(ProfileScene* s, UiWidgetHandle owner, float left, float top
     if (s->relation == 4)
         return 0;
     float x = left;
-    const auto next = [&](float w) noexcept {
-        if (w < 0)
-            return false;
-        x += w + 8;
-        return true;
-    };
+    const auto next = [&](float w) noexcept { x += w + 8; };
     if (self(*s)) {
-        if (!next(button(s, owner, x, top, utf8_literal("Edit Profile"), UiIcon::edit, ProfileAction::edit, true)))
-            return -1;
+        next(button(s, owner, x, top, utf8_literal("Edit Profile"), UiIcon::edit, ProfileAction::edit, true));
     } else if (!bot(*s) && s->relation == 0) {
-        if (!next(button(s, owner, x, top, utf8_literal("Add Friend"), UiIcon::user_plus, ProfileAction::add_friend, true)) ||
-            !next(button(s, owner, x, top, {}, UiIcon::direct_message, ProfileAction::message, false)))
-            return -1;
+        next(button(s, owner, x, top, utf8_literal("Add Friend"), UiIcon::user_plus, ProfileAction::add_friend, true));
+        next(button(s, owner, x, top, {}, UiIcon::direct_message, ProfileAction::message, false));
     } else {
-        if (!next(button(s, owner, x, top, utf8_literal("Message"), UiIcon::direct_message, ProfileAction::message, true)))
-            return -1;
-        if (!bot(*s) && (s->relation == 1 || s->relation == 3) &&
-            !next(button(s, owner, x, top, {}, s->relation == 1 ? UiIcon::user_check : UiIcon::recent,
-                         ProfileAction::relationship, false)))
-            return -1;
+        next(button(s, owner, x, top, utf8_literal("Message"), UiIcon::direct_message, ProfileAction::message, true));
+        if (!bot(*s) && (s->relation == 1 || s->relation == 3))
+            next(button(s, owner, x, top, {}, s->relation == 1 ? UiIcon::user_check : UiIcon::recent,
+                        ProfileAction::relationship, false));
     }
-    if (!next(button(s, owner, x, top, {}, UiIcon::ellipsis, ProfileAction::more, false)))
-        return -1;
+    next(button(s, owner, x, top, {}, UiIcon::ellipsis, ProfileAction::more, false));
     return 32;
 }
 // The tab panel.
-bool tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8* order, u32 cards) noexcept {
+void tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8* order, u32 cards) noexcept {
     const auto& p = *s->profile;
     auto& l = labels(s);
     // Activity, then the mutual lists: a bot has servers only (as the
@@ -1716,23 +1618,18 @@ bool tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8*
         if (w <= 0)
             break;
         auto* tab = blank(s, s->panel, {x, tab_top, x + w, tab_top + 30}, actions[i], ProfileLook::tab);
-        if (!tab || !caption(s, s->panel, {x, tab_top, x + w + 1, tab_top + 14}, titles[i], kSm | text_style_bold,
-                             i == s->tab ? (s->themed ? ProfileTone::strong : ProfileTone::link) : ProfileTone::subtle))
-            return false;
+        caption(s, s->panel, {x, tab_top, x + w + 1, tab_top + 14}, titles[i], kSm | text_style_bold,
+                i == s->tab ? (s->themed ? ProfileTone::strong : ProfileTone::link) : ProfileTone::subtle);
         tab->source = static_cast<u16>(i);
         x += w + 24;
     }
-    if (!blank(s, s->panel, {panel.left, tab_top + 30, panel.right, tab_top + 31}, ProfileAction::none,
-               ProfileLook::rule))
-        return false;
+    blank(s, s->panel, {panel.left, tab_top + 30, panel.right, tab_top + 31}, ProfileAction::none, ProfileLook::rule);
     const UiRect list{panel.left, tab_top + 31 + 20, panel.right, panel.bottom - bottom_pad};
     if (!ui_rect_has_area(list))
-        return true;
+        return;
     s->secondary_viewport = {s->rectangle.left + list.left, s->rectangle.top + list.top,
                              s->rectangle.left + list.right, s->rectangle.top + list.bottom};
     auto* container = clipped(s, s->panel, list);
-    if (!container)
-        return false;
     const float width = ui_rect_width(list) - 16;
     if (!s->tab) {
         float y = 0;
@@ -1740,17 +1637,14 @@ bool tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8*
         for (u32 i = 0; i < cards; ++i) {
             const float used = activity_card(s, container->widget, 0, y, width, i, order[i], activity_now(*s),
                                              ProfileAction::none);
-            if (used < 0)
-                return false;
             if (used > 0)
                 y += used + 8;
         }
         if (y > 0)
             y -= 8;
         else {
-            if (!caption(s, container->widget, {0, 0, width, 18}, utf8_literal("No current activity"), kSm,
-                         ProfileTone::muted))
-                return false;
+            caption(s, container->widget, {0, 0, width, 18}, utf8_literal("No current activity"), kSm,
+                    ProfileTone::muted);
             y = 18;
         }
         s->secondary_height = y;
@@ -1766,27 +1660,25 @@ bool tab_panel(ProfileScene* s, const UiRect& panel, float bottom_pad, const u8*
             const auto& peer = friends ? p.mutual_friends[i] : p.mutual_guilds[i];
             const auto name = peer_name(*s, friends, peer);
             const float y = i * 50.f + 1;
-            if (!peer_row(s, container->widget, friends, i, {0, y, width, y + 48}, {4, y + 4, 44, y + 44}))
-                return false;
+            peer_row(s, container->widget, friends, i, {0, y, width, y + 48}, {4, y + 4, 44, y + 44});
             const auto* status =
                 friends && s->users ? user_appearance_find_activity(s->users->appearance, peer.id) : nullptr;
             const bool second = status && status->activity.bytes;
             const float name_top = second ? y + 6 : y + 14;
-            if (name.bytes &&
-                !caption(s, container->widget, {54, name_top, width - 4, name_top + 20}, name, kMd))
-                return false;
-            if (second && !caption(s, container->widget, {54, y + 26, width - 4, y + 42}, status->activity.view(), kXs,
-                                   ProfileTone::subtle))
-                return false;
+            if (name.bytes)
+                caption(s, container->widget, {54, name_top, width - 4, name_top + 20}, name, kMd);
+            if (second)
+                caption(s, container->widget, {54, y + 26, width - 4, y + 42}, status->activity.view(), kXs,
+                        ProfileTone::subtle);
         }
-        if (!n && !caption(s, container->widget, {0, 0, width, 18},
-                           friends ? utf8_literal("No Mutual Friends") : utf8_literal("No Mutual Servers"), kSm,
-                           ProfileTone::muted))
-            return false;
+        if (!n)
+            caption(s, container->widget, {0, 0, width, 18},
+                    friends ? utf8_literal("No Mutual Friends") : utf8_literal("No Mutual Servers"), kSm,
+                    ProfileTone::muted);
     }
     s->secondary_scroll =
         maximum(0.f, minimum(s->secondary_scroll, maximum(0.f, s->secondary_height - ui_rect_height(list))));
-    return scroll_container(s, container->widget, s->secondary_scroll);
+    scroll_container(s, container->widget, s->secondary_scroll);
 }
 
 // The full profile modal.
@@ -1803,54 +1695,41 @@ bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept {
     const float card_w = minimum(maximum(300.f, .455f * vw - (wide ? .91f * 48 : 0.f)), 400.f);
     const float cp = card_w <= 380 ? 24.f : 32.f;
     const float size = card_w <= 350 ? 96.f : 120.f;
-    auto* panel = clipped(s, s->root, {x - viewport.left, top - viewport.top, x - viewport.left + mw,
-                                       top - viewport.top + mh});
-    if (!panel)
-        return false;
-    s->panel = panel->widget;
+    s->panel = clipped(s, s->root, {x - viewport.left, top - viewport.top, x - viewport.left + mw, top - viewport.top + mh})
+                   ->widget;
     const UiRect card{pad, pad, pad + card_w, mh};
     s->card = {x + card.left, top + card.top, x + card.right, top + card.bottom};
     s->effect_area = s->card;
     header_geometry(s, {card.left, card.top, card.right, card.top + kModalBanner}, card.left + cp,
                     card.top + kModalBanner - size * .5f, size);
     // The card's header: banner, avatar, decoration, then the status bubble.
-    if (!header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::none))
-        return false;
+    header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::none);
     const float bubble_left = card.left + cp + size + 20, bubble_top = card.top + kModalBanner - 8;
     u8 order[kUserActivityMaximum];
     const u32 cards = activity_cards(s, order);
     const float bubble = status_bubble(s, s->panel, bubble_left, bubble_top, card.right - 16 - bubble_left);
-    if (bubble < 0)
-        return false;
     const float header_bottom = maximum(s->avatar.bottom + 12, bubble ? bubble_top + bubble + 8 : 0.f);
     // Card body: gap 24, padding 4 cp cp (end cp - 8), scrolled with fade.
-    auto* body = clipped(s, s->panel, {card.left, header_bottom, card.right, mh});
-    if (!body)
-        return false;
-    s->body = body->widget;
+    s->body = clipped(s, s->panel, {card.left, header_bottom, card.right, mh})->widget;
     const float content = card_w - cp - (cp - 8);
     float y = 0;
     const auto section = [&](float height) noexcept {
         if (height > 0)
             y += height + 24;
-        return height >= 0;
     };
-    if (!section(name_block(s, s->body, cp, y, content, true)))
-        return false;
-    if (s->phase == ProfilePhase::failed && !section(failed_notice(s, s->body, cp, y, content)))
-        return false;
-    if (!section(notices(s, s->body, cp, y, content, true)) ||
-        !section(interactive(*s) ? modal_buttons(s, s->body, cp, y) : 0.f) ||
-        !section(biography(s, s->body, cp, y, content, false)) ||
-        // The client's bot info: the bio, its Commands, then Created On.
-        !section(commands_section(s, s->body, cp, y, content)) || !section(member_since(s, s->body, cp, y, content)))
-        return false;
+    section(name_block(s, s->body, cp, y, content, true));
+    if (s->phase == ProfilePhase::failed)
+        section(failed_notice(s, s->body, cp, y, content));
+    section(notices(s, s->body, cp, y, content, true));
+    section(interactive(*s) ? modal_buttons(s, s->body, cp, y) : 0.f);
+    section(biography(s, s->body, cp, y, content, false));
+    // The client's bot info: the bio, its Commands, then Created On.
+    section(commands_section(s, s->body, cp, y, content));
+    section(member_since(s, s->body, cp, y, content));
     if (s->profile->guild_id && s->state) {
         const float before = y;
         const float h = heading(s, s->body, cp, y, content, utf8_literal("Roles"));
-        const float r = h < 0 ? -1.f : roles(s, s->body, cp, y + h, content, false);
-        if (r < 0)
-            return false;
+        const float r = roles(s, s->body, cp, y + h, content, false);
         if (r == 0) {
             // No roles to show: drop the heading again.
             --s->part_count;
@@ -1858,9 +1737,9 @@ bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept {
         } else
             y += h + r + 24;
     }
-    if (!section(plugin_section(s, s->body, cp, y, content)) || !section(connections(s, s->body, cp, y, content)) ||
-        !section(note_section(s, s->body, cp, y, content)))
-        return false;
+    section(plugin_section(s, s->body, cp, y, content));
+    section(connections(s, s->body, cp, y, content));
+    section(note_section(s, s->body, cp, y, content));
     s->content_height = (y > 0 ? y - 24 : 0) + cp;
     s->scroll_viewport = {s->card.left, top + header_bottom, s->card.right, s->card.bottom};
     if (s->scroll_to_note) {
@@ -1868,18 +1747,17 @@ bool layout_modal(ProfileScene* s, const UiRect& viewport) noexcept {
         s->scroll = s->note_offset - 8;
     }
     s->scroll = maximum(0.f, minimum(s->scroll, maximum(0.f, s->content_height - ui_rect_height(s->scroll_viewport))));
-    if (!scroll_container(s, s->body, s->scroll))
-        return false;
+    scroll_container(s, s->body, s->scroll);
     // Right: the tab panel beside the card (gutter 32).
     reset_value(&s->secondary_viewport);
     s->secondary_height = 0;
     const UiRect panel_rect{card.right + 32, pad, mw - (pad - 16), mh};
-    if (ui_rect_width(panel_rect) > 120 && !tab_panel(s, panel_rect, wide ? 16.f : 32.f, order, cards))
-        return false;
+    if (ui_rect_width(panel_rect) > 120)
+        tab_panel(s, panel_rect, wide ? 16.f : 32.f, order, cards);
     // Close (X): top 8, right 8.
-    if (interactive(*s) && !icon(s, s->panel, {mw - 40, 8, mw - 8, 40}, UiIcon::close, ProfileAction::close,
-                                 ProfileTone::normal, ProfileLook::header_button))
-        return false;
+    if (interactive(*s))
+        icon(s, s->panel, {mw - 40, 8, mw - 8, 40}, UiIcon::close, ProfileAction::close, ProfileTone::normal,
+             ProfileLook::header_button);
     header_to_screen(s, x, top);
     s->preview_height = mh;
     return finish(s, viewport);
@@ -1892,8 +1770,6 @@ float commands_section(ProfileScene* s, UiWidgetHandle owner, float left, float 
         return 0;
     // The client's Commands section keeps the default heading colour.
     const float h = heading(s, owner, left, top, width, utf8_literal("Commands"));
-    if (h < 0)
-        return -1;
     auto& l = labels(s);
     float x = left, y = top + h;
     for (u32 i = 0; i < count; ++i) {
@@ -1909,12 +1785,9 @@ float commands_section(ProfileScene* s, UiWidgetHandle owner, float left, float 
             y += 32 + 6;
         }
         auto* chip = blank(s, owner, {x, y, x + w, y + 32}, ProfileAction::command, ProfileLook::secondary);
-        if (!chip)
-            return -1;
         chip->source = static_cast<u16>(i);
         chip->hint = command.description;
-        if (!caption(s, owner, {x + (w - text) * .5f, y, x + (w + text) * .5f, y + 32}, label.view(), kSm))
-            return -1;
+        caption(s, owner, {x + (w - text) * .5f, y, x + (w + text) * .5f, y + 32}, label.view(), kSm);
         x += w + 6;
     }
     return y + 32 - top;
@@ -1932,63 +1805,48 @@ bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
     const float x0 = 16, content = W - 32;
     s->rectangle = outer;
     s->card = s->effect_area = slot;
-    auto* frame = blank(s, s->root, {slot.left - viewport.left, slot.top - viewport.top, slot.right - viewport.left,
-                                     slot.bottom - viewport.top});
-    if (!frame)
-        return false;
-    s->panel = frame->widget;
+    s->panel = blank(s, s->root, {slot.left - viewport.left, slot.top - viewport.top, slot.right - viewport.left,
+                                  slot.bottom - viewport.top})
+                   ->widget;
     header_geometry(s, {0, 0, W, kPanelBanner}, 16 - kPanelBorder, kPanelAvatarTop, 80);
-    if (!header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::expand))
-        return false;
+    header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::expand);
     u8 order[kUserActivityMaximum];
     const u32 cards = activity_cards(s, order);
     const float bubble_left = x0 + 80 + 12;
     const float bubble = status_bubble(s, s->panel, bubble_left, kPanelBanner - 7, minimum(181.f, W - 12 - bubble_left));
-    if (bubble < 0)
-        return false;
     // Header: banner plus 39 (the avatar's lower half), 8 below.
     const float header_bottom = maximum(kPanelBanner + 39, bubble ? kPanelBanner - 7 + bubble : 0.f) + 8;
     const float footer_top = H - kPanelFooter;
-    auto* body = clipped(s, s->panel, {0, header_bottom, W, maximum(header_bottom + 1, footer_top)});
-    if (!body)
-        return false;
-    s->body = body->widget;
+    s->body = clipped(s, s->panel, {0, header_bottom, W, maximum(header_bottom + 1, footer_top)})->widget;
     float y = 0;
     const auto section = [&](float height) noexcept {
         if (height > 0)
             y += height + 20;
-        return height >= 0;
     };
-    if (s->phase == ProfilePhase::failed && !section(failed_notice(s, s->body, x0, y, content)))
-        return false;
+    if (s->phase == ProfilePhase::failed)
+        section(failed_notice(s, s->body, x0, y, content));
     // Name and username, then the mutuals row 8 below.
     const float name = name_block(s, s->body, x0, y, content, false);
-    const float shared = name < 0 ? -1.f : mutuals(s, s->body, x0, y + name + 8, content);
-    if (shared < 0 || !section(name + (shared ? 8 + shared : 0)) ||
-        !section(notices(s, s->body, x0, y, content, false)))
-        return false;
+    const float shared = mutuals(s, s->body, x0, y + name + 8, content);
+    section(name + (shared ? 8 + shared : 0));
+    section(notices(s, s->body, x0, y, content, false));
     for (u32 i = 0; i < cards; ++i)
-        if (!section(activity_card(s, s->body, x0, y, x0 + content, i, order[i], activity_now(*s), ProfileAction::card)))
-            return false;
+        section(activity_card(s, s->body, x0, y, x0 + content, i, order[i], activity_now(*s), ProfileAction::card));
     // The bio without a heading (three lines; "View Full Profile" below is the
     // way to the rest), the account date, then the cards (a bot's commands).
-    if (!section(biography(s, s->body, x0, y, content, true, false)) ||
-        !section(member_since(s, s->body, x0, y, content, ProfileTone::strong)) ||
-        !section(commands_section(s, s->body, x0, y, content)))
-        return false;
-    if (!section(plugin_section(s, s->body, x0, y, content)))
-        return false;
+    section(biography(s, s->body, x0, y, content, true, false));
+    section(member_since(s, s->body, x0, y, content, ProfileTone::strong));
+    section(commands_section(s, s->body, x0, y, content));
+    section(plugin_section(s, s->body, x0, y, content));
     const float body_content = y > 0 ? y - 20 + 16 : 16;
     // "View Full Profile": a full-width bar, no rule above it (as the client).
-    if (!blank(s, s->panel, {8, footer_top + 6, W - 8, H - 6}, ProfileAction::expand, ProfileLook::row))
-        return false;
+    blank(s, s->panel, {8, footer_top + 6, W - 8, H - 6}, ProfileAction::expand, ProfileLook::row);
     constexpr auto label = utf8_literal("View Full Profile");
     const float label_width = text_width(s, label, W - 32, kSm | text_style_bold) + 1;
-    if (!caption(s, s->panel, {(W - label_width) * .5f, footer_top + 1, (W + label_width) * .5f, H}, label,
-                 kSm | text_style_bold))
-        return false;
-    if (interactive(*s) && !self(*s) && !header_buttons(s, W - 12 - 32, 12))
-        return false;
+    caption(s, s->panel, {(W - label_width) * .5f, footer_top + 1, (W + label_width) * .5f, H}, label,
+            kSm | text_style_bold);
+    if (interactive(*s) && !self(*s))
+        header_buttons(s, W - 12 - 32, 12);
     const auto absolute = [&](UiRect r) noexcept {
         return UiRect{slot.left + r.left, slot.top + r.top, slot.left + r.right, slot.top + r.bottom};
     };
@@ -1997,8 +1855,7 @@ bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
     s->content_height = body_content;
     s->scroll = minimum(s->scroll, maximum(0.f, s->content_height - ui_rect_height(s->scroll_viewport)));
     s->preview_height = H;
-    if (!scroll_container(s, s->body, s->scroll))
-        return false;
+    scroll_container(s, s->body, s->scroll);
     return finish(s, viewport);
 }
 } // namespace
@@ -2009,6 +1866,9 @@ const ProfilePart* profile_scene_part(const ProfileScene& scene, UiWidgetHandle 
         return nullptr;
     const auto& part = scene.parts[widget->id - 2];
     return ui_widget_handle_equal(part.widget, handle) ? &part : nullptr;
+}
+const UiBadgeWidget* profile_scene_badge(const ProfileScene& scene, const ProfilePart& part) noexcept {
+    return part.badge ? &labels(scene).badges[part.badge - 1] : nullptr;
 }
 float profile_scene_intro_offset(const ProfileScene& s, u64 now) noexcept {
     if (s.presentation != ProfilePresentation::popout || s.reduced_motion || !s.opened_ms || now < s.opened_ms)
@@ -2031,7 +1891,7 @@ bool profile_scene_open(ProfileScene* s, const UserProfile* p, const ChatStateSt
     if (!s->storage.base && !arena_initialize(&s->storage, sizeof(Storage), sizeof(Storage), 4096))
         return false;
     auto* storage = reinterpret_cast<Storage*>(s->storage.base);
-    if (!ui_widget_manager_initialize(&s->widgets, {storage->widgets, capacity * 2}, {storage->nodes, capacity * 2}))
+    if (!ui_widget_manager_initialize(&s->widgets, {storage->widgets, kWidgets}, {storage->nodes, kWidgets}))
         return false;
     s->parts = storage->parts;
     s->profile = p;
@@ -2068,6 +1928,8 @@ bool profile_scene_layout(ProfileScene* s, const UiRect& viewport_view, bool for
     s->permission_revision = s->state ? s->state->permission_mutations : 0;
     s->viewport = viewport;
     s->part_count = 0;
+    labels(s).failed = false;
+    labels(s).badge_count = 0;
     s->text_hit_count = 0;
     ui_widget_manager_reset(&s->widgets);
     s->bio_widget = s->name_widget = s->message_field = s->note_field = ui_widget_invalid_handle();
@@ -2457,7 +2319,8 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
     s.activity_art_radius = inner_radius;
     for (u32 i = 0; ok && i < s.part_count; ++i) {
         const auto& p = s.parts[i];
-        if (p.look == ProfileLook::plain && !p.badge.owner.generation && p.media != ProfileMediaKind::activity_large &&
+        const auto* badge = profile_scene_badge(s, p);
+        if (p.look == ProfileLook::plain && !badge && p.media != ProfileMediaKind::activity_large &&
             p.media != ProfileMediaKind::activity_progress)
             continue;
         if (p.look == ProfileLook::header_button || p.look == ProfileLook::icon)
@@ -2469,12 +2332,8 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
         const auto visible = ui_rect_intersection(n->clip_rectangle, s.rectangle);
         if (!ui_rect_intersects(r, visible))
             continue;
-        if (p.badge.owner.generation) {
-            const Theme local = card_theme(theme, c);
-            ok = p.media == ProfileMediaKind::plugin_slot
-                     ? ui_plugin_slot_badge_paint({p.badge, p.source, static_cast<u8>(p.style), 0, 0}, s.widgets, local,
-                                                  paint)
-                     : ui_badge_paint(p.badge, s.widgets, local, paint);
+        if (badge) {
+            ok = paint_badge(s, p, *badge, theme, c, paint);
             continue;
         }
         if (!paint_stream_push_clip(paint, visible))
@@ -2650,8 +2509,7 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
              paint_stream_pop_clip(paint);
     }
     if (ok && s.edit.active)
-        ok = ui_edit_field_paint(paint, s.edit_rectangle, s.edit_content, s.edit, edit, Color{},
-                                 card_theme(theme, c), dpi, theme.scale.radius_md);
+        ok = paint_edit(s, theme, c, edit, dpi, paint);
     // Ordinary card icons share the content's layer. Only header controls
     // and the focus indicator sit above the profile effect.
     for (u32 header = 0; ok && header < 2; ++header) {
@@ -2705,11 +2563,10 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
     if (!s.active)
         return true;
     const auto c = text_palette(s, theme);
-    const Theme local = card_theme(theme, c);
     for (u32 i = 0; i < s.part_count; ++i) {
         const auto& p = s.parts[i];
-        if (p.badge.owner.generation) {
-            if (!ui_badge_text_output(p.badge, s.widgets, local, text))
+        if (const auto* badge = profile_scene_badge(s, p)) {
+            if (!text_badge(s, *badge, theme, c, text))
                 return false;
             continue;
         }
@@ -2749,10 +2606,7 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
                        bio ? ConstSlice<TextStyleSpan>{s.bio_styles, s.bio_style_count} : ConstSlice<TextStyleSpan>{}}))
             return false;
     }
-    if (!s.edit.active)
-        return true;
-    return ui_edit_field_text_output(text, {&s.widgets, s.message_field}, s.edit_content, s.edit, edit,
-                                     s.message_placeholder.view(), local);
+    return text_edit(s, theme, c, edit, text);
 }
 namespace {
 void describe_access(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget& widget,

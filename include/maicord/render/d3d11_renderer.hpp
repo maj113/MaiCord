@@ -464,6 +464,9 @@ struct D3D11Renderer {
     PresentationDamageTracker presentation_damage;
     RendererPaintDiff paint_diff;
     RendererShellSegment shell_segment;
+    // Per-frame layout arrays too large for the stack (d3d11_renderer_layout.cpp);
+    // committed on first use, resident only where a frame writes.
+    void* layout_scratch;
     RendererTypingDots typing_dots;
     Win32Rect present_dirty_rect;
     // Flip-sequential rotates between two independently retained back buffers.
@@ -472,7 +475,6 @@ struct D3D11Renderer {
     // displayed, even when the current BeginFrame contains no new mutation.
     Win32Rect previous_buffer_damage_rect;
     Win32Rect present_logical_damage_rect;
-    i64 performance_frequency;
     u64 first_frame_cpu_us;
     // renderer_initialize adopted the prestarted device (bit 0), draw
     // pipeline (bit 1) and glyph atlas (bit 2) instead of creating them on the
@@ -646,7 +648,7 @@ struct D3D11Renderer {
     RendererLoginStatus login_status;
 };
 static_assert(offsetof(D3D11Renderer, dpi) < 128);
-static_assert(sizeof(D3D11Renderer) == 120640);
+static_assert(sizeof(D3D11Renderer) == 120616);
 
 // Starts hardware device and draw-pipeline creation on a worker at process
 // entry; the next renderer_initialize adopts them. Main thread only.

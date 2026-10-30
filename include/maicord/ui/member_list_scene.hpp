@@ -38,20 +38,18 @@ struct MemberListSceneResult {
     }
 };
 
+// A materialized row: its widgets and, while it is resident, a copy of the source row it shows (a row that has
+// not arrived is the zeroed row). user_id and kind repeat the copy's fields because every consumer asks for them.
 struct MemberListRowWidget {
     UiWidgetHandle widget;
     UiWidgetHandle avatar;
     UiWidgetHandle label;
     UiWidgetHandle status;
     u64 user_id;
-    u64 group_role_id;
-    u32 record_slot;
     u32 source_index;
-    u32 role_color;
     MemberListRowKind kind;
-    ProfileString<160> group_label;
-    MemberListRow source_row;
     bool resident;
+    MemberListRow source_row;
 };
 
 struct MemberListHit {
@@ -131,4 +129,7 @@ bool member_list_row_status(const MemberListScene&, u32 index, Slice<char> stora
 // The name and status lines of a label's content rectangle when a status shows.
 UiRect member_list_row_name_line(UiRect label) noexcept;
 UiRect member_list_row_status_line(UiRect label) noexcept;
+// A resident group row's heading ("ONLINE — 1,000", plus "(partial)" in an incomplete thread list), formatted
+// into `storage` (160 bytes hold any heading). Empty for member rows.
+Utf8View member_list_group_label(const MemberListScene&, u32 index, Slice<char> storage) noexcept;
 }

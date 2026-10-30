@@ -125,10 +125,10 @@ constexpr float kPickerChipGap = 8, kPickerChipPadding = 4, kPickerChipHeight = 
 // Loading skeletons (.wrapper__78aa3, .autocompletePlaceholder__13533):
 // 16-DIP pill bars, 8 DIPs apart.
 constexpr float kPickerBar = 16, kPickerBarGap = 8;
-bool picker_discovery(const PopupScene& scene) noexcept {
+inline bool picker_discovery(const PopupScene& scene) noexcept {
     return (scene.items[0].flags & popup_item_command_category) != 0;
 }
-bool picker_scene(const PopupScene& scene) noexcept {
+inline bool picker_scene(const PopupScene& scene) noexcept {
     return popup_items_command_picker({scene.items.data, scene.item_count});
 }
 // Where a picker item's avatar or glyph goes.

@@ -27,16 +27,16 @@ using call_stage::centered;
 using call_stage::copy_text;
 using call_stage::push_text;
 
-float clampf(float value, float low, float high) noexcept {
+inline float clampf(float value, float low, float high) noexcept {
     return value < low ? low : value > high ? high : value;
 }
-u32 codepoints(Utf8View text) noexcept {
+inline u32 codepoints(Utf8View text) noexcept {
     u32 count = 0;
     for (u32 i = 0; i < text.bytes; ++i)
         count += (static_cast<u8>(text.data[i]) & 0xc0) != 0x80;
     return count;
 }
-UiMotionScope morph_scope(const UiCallScene& s) noexcept {
+inline UiMotionScope morph_scope(const UiCallScene& s) noexcept {
     return {kMorphOwner, s.morph_generation};
 }
 bool initialize(UiCallScene& s) noexcept {
@@ -47,23 +47,23 @@ bool initialize(UiCallScene& s) noexcept {
                                                       ui_layout_node_clip_children,
                                                   &s.owner);
 }
-const UiCallParticipant* participant_of(const UiCallScene& s, const UiCallTile& tile) noexcept {
+inline const UiCallParticipant* participant_of(const UiCallScene& s, const UiCallTile& tile) noexcept {
     return tile.participant < s.participant_count ? &s.participants[tile.participant] : nullptr;
 }
-bool stream_tile(const UiCallParticipant& p) noexcept {
+inline bool stream_tile(const UiCallParticipant& p) noexcept {
     return p.stream != UiCallStream::none;
 }
 // The watched stream (connecting, live or reconnecting).
-bool watched(const UiCallParticipant& p) noexcept {
+inline bool watched(const UiCallParticipant& p) noexcept {
     return p.stream == UiCallStream::connecting || p.stream == UiCallStream::live ||
            p.stream == UiCallStream::reconnecting;
 }
-bool video_ready(const UiCallParticipant& p) noexcept {
+inline bool video_ready(const UiCallParticipant& p) noexcept {
     if (stream_tile(p) && p.stream != UiCallStream::live && p.stream != UiCallStream::reconnecting)
         return false;
     return p.video_ssrc && p.video_width && p.video_height;
 }
-UiRect tile_hover_button(const UiCallTile& tile) noexcept {
+inline UiRect tile_hover_button(const UiCallTile& tile) noexcept {
     const auto r = tile.display;
     if (ui_rect_width(r) < 120 || ui_rect_height(r) < 72)
         return {};
@@ -130,7 +130,7 @@ UiCallControl tile_control_at(const TileControls& c, float x, float y) noexcept 
         return UiCallControl::tile_fullscreen;
     return UiCallControl::none;
 }
-u32 indicator_count(const UiCallParticipant& p) noexcept {
+inline u32 indicator_count(const UiCallParticipant& p) noexcept {
     return (p.muted ? 1u : 0u) + (p.deafened ? 1u : 0u);
 }
 // Name pill at the bottom-left, left of a stream's hover bar; empty on tiles
@@ -181,7 +181,7 @@ UiRect viewer_pill(const UiCallTile& tile, const UiCallParticipant& p) noexcept 
     return {live.right + 4, live.top, live.right + 4 + width, live.top + kViewerHeight};
 }
 // A spinner while a watched stream has no picture to show yet (or reconnects).
-bool stream_spinner(const UiCallParticipant& p) noexcept {
+inline bool stream_spinner(const UiCallParticipant& p) noexcept {
     return p.stream == UiCallStream::connecting || p.stream == UiCallStream::reconnecting ||
            (p.stream == UiCallStream::live && !p.paused && !video_ready(p));
 }
@@ -199,7 +199,7 @@ Utf8View stream_status(const UiCallParticipant& p) noexcept {
     }
 }
 // A dimming scrim over the stream's media: every state but plain live video.
-bool stream_scrim(const UiCallParticipant& p) noexcept {
+inline bool stream_scrim(const UiCallParticipant& p) noexcept {
     return stream_tile(p) && !(p.stream == UiCallStream::live && !p.paused && video_ready(p));
 }
 UiRect state_glyph(const UiCallTile& tile, bool with_text) noexcept {
@@ -218,7 +218,7 @@ UiRect status_line(const UiCallTile& tile) noexcept {
 }
 // The glyph drawn with the state copy: pause for a paused stream, a muted
 // screen-share-off for an ended one; spinners are drawn separately.
-bool status_glyph(const UiCallParticipant& p, UiIcon* icon) noexcept {
+inline bool status_glyph(const UiCallParticipant& p, UiIcon* icon) noexcept {
     if (p.stream == UiCallStream::live && p.paused) {
         *icon = UiIcon::pause;
         return true;
@@ -234,10 +234,10 @@ UiRect avatar_rect(const UiCallTile& tile) noexcept {
     const float extent = clampf(minimum(ui_rect_width(r), ui_rect_height(r)) * .4f, 24, tile.focused ? 128.f : 96.f);
     return centered((r.left + r.right) * .5f, (r.top + r.bottom) * .5f, extent, extent);
 }
-UiRect visible_part(const UiCallTile& tile) noexcept {
+inline UiRect visible_part(const UiCallTile& tile) noexcept {
     return ui_rect_intersection(tile.display, tile.clip);
 }
-u64 hash_rect(u64 hash, UiRect r) noexcept {
+inline u64 hash_rect(u64 hash, UiRect r) noexcept {
     return hash64_bytes(hash, &r, sizeof(r));
 }
 void place_controls(UiCallScene& s) noexcept {
@@ -314,7 +314,7 @@ UiCallHeaderLayout ui_call_header_layout(UiRect header, bool chat, float search_
 
 namespace {
 // Speakers' area on a stage, otherwise the whole stage rectangle.
-UiRect tile_area(const UiCallScene& s) noexcept {
+inline UiRect tile_area(const UiCallScene& s) noexcept {
     return s.stage_active ? s.stage_speakers : s.stage;
 }
 // Settled tile rectangles for the current participants, focus and scroll.
@@ -372,19 +372,19 @@ void apply_morph(UiCallScene& s) noexcept {
         s.tiles[i].display = t >= 1 ? s.tiles[i].target : ui_rect_lerp(s.tiles[i].from, s.tiles[i].target, t);
 }
 // Controls drawn on a tile (hit with its user ID) rather than in the chrome.
-bool per_tile(UiCallControl control) noexcept {
+inline bool per_tile(UiCallControl control) noexcept {
     return control == UiCallControl::tile_fullscreen || control == UiCallControl::stream_watch ||
            control == UiCallControl::stream_stop || control == UiCallControl::stream_volume ||
            control == UiCallControl::stream_dismiss || control == UiCallControl::stage_move ||
            control == UiCallControl::stage_invite;
 }
 // Stage buttons painted (with their labels) by call_stage, not the bar loop.
-bool stage_chrome(UiCallControl control) noexcept {
+inline bool stage_chrome(UiCallControl control) noexcept {
     return control == UiCallControl::stage_start || control == UiCallControl::stage_topic ||
            control == UiCallControl::stage_end || control == UiCallControl::stage_accept ||
            control == UiCallControl::stage_decline;
 }
-bool control_visible(const UiCallScene& s, UiCallControl control) noexcept {
+inline bool control_visible(const UiCallScene& s, UiCallControl control) noexcept {
     return control != UiCallControl::none && control < UiCallControl::count &&
            ui_rect_has_area(s.controls[static_cast<u32>(control)]);
 }

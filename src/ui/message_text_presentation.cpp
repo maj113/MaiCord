@@ -1,3 +1,4 @@
+#include "maicord/ui/ansi_text.hpp"
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/plugin_slots.hpp"
@@ -136,8 +137,24 @@ u16 identify_rich_source(const BuildContext& context, Utf8View source) noexcept 
     return 0;
 }
 
+u64 source_fingerprint(Utf8View source) noexcept {
+    u64 hash = 0x9E3779B97F4A7C15ull ^ (static_cast<u64>(source.bytes) * 0xBF58476D1CE4E5B9ull);
+    u32 index = 0;
+    for (; index + 8u <= source.bytes; index += 8u) {
+        u64 word;
+        memcpy(&word, source.data + index, sizeof(word));
+        hash = (hash ^ word) * 0xFF51AFD7ED558CCDull;
+        hash ^= hash >> 29u;
+    }
+    u64 tail = 0;
+    for (u32 shift = 0; index < source.bytes; ++index, shift += 8u)
+        tail |= static_cast<u64>(static_cast<u8>(source.data[index])) << shift;
+    hash = (hash ^ tail) * 0xC4CEB9FE1A85EC53ull;
+    return hash ^ (hash >> 32u);
+}
+
 u64 command_content_signature(const MessageTextCommand& command) noexcept {
-    u64 hash = hash64_counted_bytes(kHash64Seed, command.text.data, command.text.bytes);
+    u64 hash = source_fingerprint(command.text);
     for (u32 index = 0; index < command.styles.count; ++index) {
         const TextStyleSpan& style = command.styles[index];
         hash = hash64_mix(hash, style.byte_offset);
@@ -426,22 +443,6 @@ enum MarkdownCacheFlag : u8 {
 };
 enum class MarkdownCacheMode : u8 { content = 1, reply = 2 };
 constexpr u32 kMarkdownCacheProbes = 8;
-
-u64 source_fingerprint(Utf8View source) noexcept {
-    u64 hash = 0x9E3779B97F4A7C15ull ^ (static_cast<u64>(source.bytes) * 0xBF58476D1CE4E5B9ull);
-    u32 index = 0;
-    for (; index + 8u <= source.bytes; index += 8u) {
-        u64 word;
-        memcpy(&word, source.data + index, sizeof(word));
-        hash = (hash ^ word) * 0xFF51AFD7ED558CCDull;
-        hash ^= hash >> 29u;
-    }
-    u64 tail = 0;
-    for (u32 shift = 0; index < source.bytes; ++index, shift += 8u)
-        tail |= static_cast<u64>(static_cast<u8>(source.data[index])) << shift;
-    hash = (hash ^ tail) * 0xC4CEB9FE1A85EC53ull;
-    return hash ^ (hash >> 32u);
-}
 
 u64 markdown_cache_key(Utf8View source, const MessageMarkdownOptions& options, MarkdownCacheMode mode) noexcept {
     const u64 switches = static_cast<u64>(mode) | static_cast<u64>(options.base_size) << 8u |
@@ -970,24 +971,6 @@ bool append_result_card_header(MessageTextPresentation* presentation, const Mess
                           kInvalidMessageTextMeasurement, kLookStamp);
 }
 
-// The reply preview ansi rule: /\x1B\[(\d+(?:[:;]\d+)*)m/ inside ```ansi.
-u32 reply_sgr_bytes(const char* text, u32 bytes) noexcept {
-    if (bytes < 4 || text[0] != '\x1B' || text[1] != '[' || text[2] < '0' || text[2] > '9')
-        return 0;
-    u32 at = 2;
-    while (true) {
-        while (at < bytes && text[at] >= '0' && text[at] <= '9')
-            ++at;
-        if (at < bytes && text[at] == 'm')
-            return at + 1;
-        if (at + 1 < bytes && (text[at] == ';' || text[at] == ':') && text[at + 1] >= '0' && text[at + 1] <= '9') {
-            ++at;
-            continue;
-        }
-        return 0;
-    }
-}
-
 // The bounded parse source for a reply preview. SGR escapes inside ```ansi
 // fences leave first (the inline reply rules drop them anyway), so a heavily
 // coloured message still reaches its closing fence; a fence the cap cuts is
@@ -1012,7 +995,7 @@ u32 reply_preview_source(Utf8View content, char* output, u32 capacity) noexcept 
             at += 3;
             continue;
         }
-        if (const u32 escape = ansi ? reply_sgr_bytes(text, left) : 0u) {
+        if (const u32 escape = ansi ? ansi_text_sgr_bytes(text, left) : 0u) {
             at += escape;
             continue;
         }
@@ -1056,11 +1039,15 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
     constexpr u32 maximum_source_bytes = 2'048;
     constexpr u32 maximum_display_bytes = 2'560;
     constexpr u32 maximum_styles = 128;
-    // Outputs and scratch, written before they are read (the presentation's
-    // own byte-style scratch is never cleared between parses either).
-    char source[maximum_source_bytes + 4];
-    char transformed[maximum_display_bytes];
-    u32 byte_styles[maximum_display_bytes];
+    // The byte styles and both text buffers live in the presentation's byte-style
+    // scratch below the measurement history (as parse_content's do), written
+    // before they are read; only the span and chip records stay on the stack.
+    constexpr u32 scratch_words = maximum_display_bytes + (maximum_source_bytes + 4 + maximum_display_bytes + 3) / 4;
+    if (presentation->measurement_history_offset < scratch_words)
+        return RetainedReplySummary{};
+    u32* const byte_styles = presentation->byte_style_scratch.data;
+    char* const source = reinterpret_cast<char*>(byte_styles + maximum_display_bytes);
+    char* const transformed = source + maximum_source_bytes + 4;
     TextStyleSpan transformed_styles[maximum_styles];
     // The client's reply rules keep channel, message and attachment chips;
     // only their icon cells are kept, so the line stays one jump target.
@@ -1084,7 +1071,8 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
         options.resolve_channel = resolve_channel;
         parsed = cached_markdown_parse(
             presentation, context, MarkdownCacheMode::reply, Utf8View{source, source_bytes},
-            Slice<char>{transformed, maximum_display_bytes}, Slice<u32>{byte_styles, maximum_display_bytes},
+            Slice<char>{transformed, maximum_display_bytes},
+            Slice<u32>{byte_styles, maximum_display_bytes},
             Slice<TextStyleSpan>{transformed_styles, maximum_styles}, options,
             Slice<MessageMarkdownSemantic>{chip_semantics, 64});
         parsed_markdown = true;
@@ -3021,6 +3009,136 @@ bool append_rich_media_text(BuildContext& context, const MessageScene& scene,
     return true;
 }
 
+// A quoted system notice builds its line through a buffer of its own, kept out
+// of append_row's frame (as is the poll below).
+__declspec(noinline) RetainedReplySummary retain_quoted_system(MessageTextPresentation* presentation, u64 message_id,
+                                                              Utf8View author, Utf8View poll_question,
+                                                              decltype(MessageSystemTextInput{}.type) type) noexcept {
+    MessageSystemTextInput system_input{};
+    system_input.message_id = message_id;
+    system_input.author = author;
+    system_input.poll_question = poll_question;
+    system_input.type = type;
+    char system_storage[kMessageSystemTextMaximumBytes];
+    MessageSystemText system_text{};
+    if (message_system_text_build(system_input, {system_storage, sizeof(system_storage)}, &system_text))
+        return retain_reply_plain(presentation, system_text);
+    return {};
+}
+
+// A row's poll: the unavailable notice, or the controls' text through the
+// poll projection (which is large). False once the presentation has failed.
+__declspec(noinline) bool append_poll_text(MessageTextPresentation* presentation, const MessageScene& scene,
+                                           const MessageSceneRowWidget& row, const Theme& theme,
+                                           const UiRect& row_clip, const MessageRecord* record) noexcept {
+    if (row.poll_unavailable) {
+        const auto* node = message_scene_layout_node(scene, row.poll);
+        UiPollStyle poll_style;
+        ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
+        if (!node ||
+            !append_command(
+                presentation, poll_style.unavailable, kNoStyles, kNoSemantics,
+                {&scene.widgets, row.poll},
+                {node->rectangle.left + poll_style.padding,
+                 node->rectangle.top + poll_style.padding,
+                 minimum(node->rectangle.right, node->rectangle.left + poll_style.maximum_width) -
+                     poll_style.padding,
+                 node->rectangle.top + row.poll_height - kDefaultMessageRichBlockGapDips -
+                     poll_style.padding},
+                row_clip, theme.text_secondary, record,
+                kInvalidMessageTextMeasurement, kLookMiddleWrapped))
+            return fail(presentation, MessageTextPresentationError::layout);
+        return true;
+    }
+    UiPollAnswer answers[kUiPollMaximumAnswers]{};
+    UiPollProjection poll{};
+    struct PollTextContext {
+        MessageTextPresentation* presentation;
+        const MessageRecord* record;
+    } poll_context{presentation, record};
+    const auto append_poll = +[](void* source, const UiTextCommand& command, u32 ordinal) noexcept {
+        const auto& poll_text = *static_cast<PollTextContext*>(source);
+        auto* p = poll_text.presentation;
+        if (command.text.bytes > p->utf8.count - p->utf8_count ||
+            (command.style_flags != text_style_none && p->style_count >= p->styles.count))
+            return fail(p, MessageTextPresentationError::capacity);
+        const u32 offset = p->utf8_count;
+        copy_bytes(p->utf8.data + offset, command.text.data, command.text.bytes);
+        p->utf8_count += command.text.bytes;
+        ConstSlice<TextStyleSpan> poll_styles{};
+        if (command.style_flags != text_style_none) {
+            auto& span = p->styles[p->style_count++];
+            span = {0, command.text.bytes, command.style_flags};
+            poll_styles = {&span, 1};
+        }
+        return append_command(p, {p->utf8.data + offset, command.text.bytes}, poll_styles, kNoSemantics,
+                              command.owner, command.rectangle, command.clip, command.color,
+                              poll_text.record,
+                              kInvalidMessageTextMeasurement,
+                              {.horizontal = command.horizontal_alignment,
+                               .vertical = command.vertical_alignment,
+                               .wrapping = command.wrapping,
+                               .slot = static_cast<u8>(ordinal),
+                               .overflow = command.overflow});
+    };
+    UiTextEmitter emitter{};
+    UiTextOutput output{nullptr, &emitter};
+    UiPollStyle poll_style;
+    ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
+    if (!message_scene_poll_projection(scene, row, theme, {answers, kUiPollMaximumAnswers}, &poll) ||
+        !ui_text_emitter_initialize(&emitter, append_poll, &poll_context) ||
+        !ui_poll_controls_text_output(poll, poll_style, row_clip, {&scene.widgets, row.poll}, &output))
+        return fail(presentation, MessageTextPresentationError::layout);
+    return true;
+}
+
+// A row's body as its quote and code segments, one command each. The segment
+// array is large, so it has a frame of its own.
+__declspec(noinline) bool append_content_segments(
+    MessageTextPresentation* presentation, const MessageScene& scene, const MessageSceneRowWidget& row,
+    Utf8View display_content, ConstSlice<TextStyleSpan> styles, ConstSlice<MessageMarkdownSemantic> semantics,
+    bool split, float content_top, float text_left, float text_width, const UiRect& row_clip,
+    const Color& content_color, const MessageRecord* record, u16 measurement_index, u16 source_id,
+    const Color& role_color) noexcept {
+    QuoteSegment segments[kQuoteSegmentMaximum];
+    // Compact rows keep the name inline with the first line of the body.
+    u32 segment_count = split ? split_quote_segments(display_content, styles, semantics, segments) : 0u;
+    if (segment_count == 0) {
+        segments[0] = QuoteSegment{display_content, styles, semantics, false, false};
+        segment_count = 1;
+    }
+    bool first_segment = true;
+    for (u32 index = 0; index < segment_count; ++index) {
+        const QuoteSegment& segment = segments[index];
+        if (segment.text.bytes == 0)
+            continue;
+        float left = text_left + (segment.quote ? quote_text_inset() : 0.0f);
+        float width = segment.quote ? quote_text_width(text_width) : text_width;
+        if (segment.code) {
+            // A message code block is at most 90% of the markup width.
+            if (first_segment)
+                content_top += kMessageCodeBlockInset;
+            left += kMessageCodeBlockInset;
+            width = maximum(1.0f, width * 0.9f - 2.0f * kMessageCodeBlockInset);
+        }
+        first_segment = false;
+        const UiRect content_rectangle = line_rectangle(left, content_top, width);
+        if (!append_command(presentation, segment.text, segment.styles, segment.semantics,
+                            UiWidgetReference{&scene.widgets, row.content}, content_rectangle, row_clip,
+                            content_color, record, measurement_index,
+                            {.kind = MessageTextMeasurementKind::content,
+                             .gap_after = quote_gap_after(segments, segment_count, index, 0.0f),
+                             .themed = segment.styles.count != 0,
+                             .source_id = source_id},
+                            role_color)) {
+            return false;
+        }
+        const MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
+        content_top += command.measured_height + command.gap_after;
+    }
+    return true;
+}
+
 bool append_row(MessageTextPresentation* presentation, const MessageScene& scene,
                 const MessageSceneRowWidget& row, const ChatStateStore& state,
                 const UserStore* users, const NavigationView& navigation, const Theme& theme,
@@ -3043,14 +3161,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     const UiLayoutNode* reply = message_scene_layout_node(scene, row.reply);
     const UiLayoutNode* author = message_scene_layout_node(scene, row.author);
     const UiLayoutNode* content_layout = message_scene_layout_node(scene, row.content);
-    const UiLayoutNode* attachments = message_scene_layout_node(scene, row.attachments);
-    const UiLayoutNode* embeds = message_scene_layout_node(scene, row.embeds);
-    const UiLayoutNode* stickers = message_scene_layout_node(scene, row.stickers);
-    const UiLayoutNode* components = message_scene_layout_node(scene, row.components);
-    const UiLayoutNode* reactions = message_scene_layout_node(scene, row.reactions);
+    // Rich groups exist only for rows that have such items (the item nodes
+    // carry their own checks); the notice group is always present.
     const UiLayoutNode* notice = message_scene_layout_node(scene, row.notice);
-    if (!row_layout || !reply || (!forwarded && !author) || !content_layout || !attachments || !embeds ||
-        !stickers || !components || !reactions || !notice) {
+    if (!row_layout || !reply || (!forwarded && !author) || !content_layout || !notice) {
         return fail(presentation, MessageTextPresentationError::layout);
     }
 
@@ -3198,17 +3312,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         const MessageReplyLeading leading = interaction_header ? MessageReplyLeading::avatar
                                                                : message_rich_reply_leading(rich->reference);
         RetainedReplySummary summary{};
-        if (leading != MessageReplyLeading::avatar) {
-            MessageSystemTextInput system_input{};
-            system_input.message_id = rich->reference.message_id;
-            system_input.author = label;
-            system_input.poll_question = reference_content;
-            system_input.type = rich->reference.message_type;
-            char system_storage[kMessageSystemTextMaximumBytes];
-            MessageSystemText system_text{};
-            if (message_system_text_build(system_input, {system_storage, sizeof(system_storage)}, &system_text))
-                summary = retain_reply_plain(presentation, system_text);
-        }
+        if (leading != MessageReplyLeading::avatar)
+            summary = retain_quoted_system(presentation, rich->reference.message_id, label, reference_content,
+                                           rich->reference.message_type);
         // A reply that points into a clip quotes the clip's title and the moment instead of the text.
         const bool media_mention = reference_available && !interaction_header &&
                                    (rich->reference.quote_flags & gateway_quote_media_mention) != 0;
@@ -3407,105 +3513,16 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             return false;
         row_measurement.content_present = true;
     }
-    QuoteSegment segments[kQuoteSegmentMaximum];
-    // Compact rows keep the name inline with the first line of the body.
-    u32 segment_count = parse && !system_row && !thinking && !command_status
-                            ? split_quote_segments(display_content, styles, semantics, segments)
-                            : 0u;
-    if (segment_count == 0) {
-        segments[0] = QuoteSegment{display_content, styles, semantics, false, false};
-        segment_count = 1;
-    }
-    float content_top = content_layout->content_rectangle.top;
-    bool first_segment = true;
-    for (u32 index = 0; index < segment_count; ++index) {
-        const QuoteSegment& segment = segments[index];
-        if (segment.text.bytes == 0)
-            continue;
-        float left = text_left + (segment.quote ? quote_text_inset() : 0.0f);
-        float width = segment.quote ? quote_text_width(text_width) : text_width;
-        if (segment.code) {
-            // A message code block is at most 90% of the markup width.
-            if (first_segment)
-                content_top += kMessageCodeBlockInset;
-            left += kMessageCodeBlockInset;
-            width = maximum(1.0f, width * 0.9f - 2.0f * kMessageCodeBlockInset);
-        }
-        first_segment = false;
-        const UiRect content_rectangle = line_rectangle(left, content_top, width);
-        if (!append_command(presentation, segment.text, segment.styles, segment.semantics,
-                            UiWidgetReference{&scene.widgets, row.content}, content_rectangle, row_clip,
-                            content_color, record, measurement_index,
-                            {.kind = MessageTextMeasurementKind::content,
-                             .gap_after = quote_gap_after(segments, segment_count, index, 0.0f),
-                             .themed = segment.styles.count != 0,
-                             .source_id = context.source_id},
-                            compact_name.bytes ? compact_color : kNoRoleColor)) {
-            return false;
-        }
-        const MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
-        content_top += command.measured_height + command.gap_after;
-    }
+    if (!append_content_segments(presentation, scene, row, display_content, styles, semantics,
+                                 parse && !system_row && !thinking && !command_status,
+                                 content_layout->content_rectangle.top, text_left, text_width, row_clip, content_color,
+                                 record, measurement_index, context.source_id,
+                                 compact_name.bytes ? compact_color : kNoRoleColor))
+        return false;
 
-    if (!forwarded && row.poll_unavailable) {
-        const auto* node = message_scene_layout_node(scene, row.poll);
-        UiPollStyle poll_style;
-        ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
-        if (!node ||
-            !append_command(
-                presentation, poll_style.unavailable, kNoStyles, kNoSemantics,
-                {&scene.widgets, row.poll},
-                {node->rectangle.left + poll_style.padding,
-                 node->rectangle.top + poll_style.padding,
-                 minimum(node->rectangle.right, node->rectangle.left + poll_style.maximum_width) -
-                     poll_style.padding,
-                 node->rectangle.top + row.poll_height - kDefaultMessageRichBlockGapDips -
-                     poll_style.padding},
-                row_clip, theme.text_secondary, record,
-                kInvalidMessageTextMeasurement, kLookMiddleWrapped))
-            return fail(presentation, MessageTextPresentationError::layout);
-    } else if (!forwarded && row.poll_content_revision) {
-        UiPollAnswer answers[kUiPollMaximumAnswers]{};
-        UiPollProjection poll{};
-        struct PollTextContext {
-            MessageTextPresentation* presentation;
-            const MessageRecord* record;
-        } poll_context{presentation, record};
-        const auto append_poll = +[](void* source, const UiTextCommand& command, u32 ordinal) noexcept {
-            const auto& poll_text = *static_cast<PollTextContext*>(source);
-            auto* p = poll_text.presentation;
-            if (command.text.bytes > p->utf8.count - p->utf8_count ||
-                (command.style_flags != text_style_none && p->style_count >= p->styles.count))
-                return fail(p, MessageTextPresentationError::capacity);
-            const u32 offset = p->utf8_count;
-            copy_bytes(p->utf8.data + offset, command.text.data, command.text.bytes);
-            p->utf8_count += command.text.bytes;
-            ConstSlice<TextStyleSpan> poll_styles{};
-            if (command.style_flags != text_style_none) {
-                auto& span = p->styles[p->style_count++];
-                span = {0, command.text.bytes, command.style_flags};
-                poll_styles = {&span, 1};
-            }
-            return append_command(p, {p->utf8.data + offset, command.text.bytes}, poll_styles, kNoSemantics,
-                                  command.owner, command.rectangle, command.clip, command.color,
-                                  poll_text.record,
-                                  kInvalidMessageTextMeasurement,
-                                  {.horizontal = command.horizontal_alignment,
-                                   .vertical = command.vertical_alignment,
-                                   .wrapping = command.wrapping,
-                                   .slot = static_cast<u8>(ordinal),
-                                   .overflow = command.overflow});
-        };
-        UiTextEmitter emitter{};
-        UiTextOutput output{nullptr, &emitter};
-        UiPollStyle poll_style;
-        ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
-        if (!message_scene_poll_projection(scene, row, theme, {answers, kUiPollMaximumAnswers}, &poll) ||
-            !ui_text_emitter_initialize(&emitter, append_poll, &poll_context) ||
-            !ui_poll_controls_text_output(poll, poll_style, row_clip,
-                                          {&scene.widgets, row.poll}, &output))
-            return fail(presentation, MessageTextPresentationError::layout);
-    }
+    if (!forwarded && (row.poll_unavailable || row.poll_content_revision) &&
+        !append_poll_text(presentation, scene, row, theme, row_clip, record))
+        return false;
     if (!forwarded && row.invite_item_count &&
         !append_invite_cards(presentation, scene, row, *record, state, theme, row_clip, measurement_index,
                              now_unix_seconds))

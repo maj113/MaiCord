@@ -274,7 +274,8 @@ void unbind_compute(ID3D11DeviceContext1* context) noexcept;
 // The primary, animation and preview atlases occupy PS slots 0..2 while media
 // is drawn. Every writable atlas path must unbind all three before binding an
 // atlas UAV/RTV; unbinding only slot zero leaves the preview atlas readable
-// and writable at once.
+// and writable at once. allocate_and_clear_surface and unbind_apng_atlas do it
+// once per upload; the dispatch and clear helpers below rely on that.
 void unbind_media_pixel_resources(ID3D11DeviceContext1* context) noexcept;
 
 void dispatch_png_shader(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,

@@ -33,14 +33,7 @@ MediaAtlasGpuResult media_atlas_gpu_present_video(MediaAtlasGpu* gpu, MediaAtlas
 MediaAtlasGpuResult media_atlas_gpu_initialize(MediaAtlasGpu* gpu, ID3D11Device* device,
                                                ID3D11DeviceContext1* context, u16 width,
                                                u16 height) noexcept {
-    if (!gpu || !device || !context || !dimensions_valid(width, height) || gpu->texture ||
-        gpu->preview_texture || gpu->texture_view || gpu->preview_texture_view || gpu->target ||
-        gpu->preview_target || gpu->texture_uav || gpu->preview_texture_uav || gpu->png_scanline_buffer ||
-        gpu->png_scanline_view || gpu->png_palette_buffer || gpu->png_palette_view || gpu->png_constants ||
-        gpu->png_shader || gpu->vp8_mode_buffer || gpu->vp8_mode_view || gpu->vp8_coefficient_buffer ||
-        gpu->vp8_coefficient_view || gpu->vp8_yuv_buffer || gpu->vp8_yuv_view || gpu->vp8_yuv_uav ||
-        gpu->vp8_constants || gpu->vp8_tile_constants || gpu->vp8_reconstruct_shader || gpu->vp8_idct_shader || gpu->vp8_filter_constants ||
-        gpu->vp8_filter_shader || gpu->vp8_atlas_constants || gpu->vp8_atlas_shader) {
+    if (!gpu || !device || !context || !dimensions_valid(width, height) || gpu->texture) {
         return reject(gpu, MediaAtlasGpuError::invalid_input);
     }
     const HRESULT result = create_media_surface(device, context, width, height, &gpu->texture,
@@ -58,9 +51,8 @@ MediaAtlasGpuResult media_atlas_gpu_initialize(MediaAtlasGpu* gpu, ID3D11Device*
 MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, ID3D11Device* device,
                                                        ID3D11DeviceContext1* context, u16 width,
                                                        u16 height) noexcept {
-    if (!gpu || !device || !context || !gpu->texture || !gpu->texture_view ||
-        !dimensions_valid(width, height) || gpu->preview_texture || gpu->preview_texture_view ||
-        gpu->preview_target || gpu->preview_texture_uav) {
+    if (!gpu || !device || !context || !gpu->texture || !dimensions_valid(width, height) ||
+        gpu->preview_texture) {
         return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     const HRESULT result =
@@ -302,7 +294,6 @@ MediaAtlasGpuResult media_atlas_gpu_upload_jpeg(MediaAtlasGpu* gpu, MediaAtlas* 
     }
 
     context->UpdateSubresource(gpu->jpeg_idct_constants, 0, nullptr, &idct_constants, 0, 0);
-    unbind_media_pixel_resources(context);
     bind_compute_2srv(context, gpu->jpeg_idct_shader, gpu->jpeg_idct_constants,
                       gpu->vp8_coefficient_view, gpu->vp8_mode_view, gpu->vp8_yuv_uav);
     context->Dispatch(image.coefficient_blocks, 1, 1);

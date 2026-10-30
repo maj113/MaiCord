@@ -221,18 +221,18 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
               ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 1280, 800),
           "pins launcher: permission-enabled native header initializes");
     const auto wide = ui_scene_header_geometry(shell);
-    const auto* pins = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::pins_toggle));
+    const auto* pins = ui_scene_node(shell, UiSemantic::pins_toggle);
     // The inbox holds the trailing edge after the search field.
     check(pins && ui_rect_equal(wide.member_toggle, {900, 8, 936, 40}) &&
               ui_rect_equal(wide.search_field, {944, 8, 1224, 40}) && ui_rect_equal(wide.inbox, {1228, 8, 1264, 40}) &&
               ui_rect_equal(wide.pins, {856, 8, 892, 40}) && wide.label.right <= wide.pins.left - 8 &&
-              ui_widget_manager_hit_test(shell.widgets, 872, 24).slot == pins->widget.slot &&
+              ui_widget_manager_hit_test(shell.widgets, 872, 24).slot == ui_scene_widget(shell, UiSemantic::pins_toggle).slot &&
               ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(),
           "pins launcher: distinct pin target preserves wide member/search anchors and title clearance");
     const u32 rebuilds = shell.layout_rebuilds;
     check(ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 640, 800) &&
               shell.layout_rebuilds == rebuilds + 1 &&
-              !ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::member_sidebar)) &&
+              !ui_scene_node(shell, UiSemantic::member_sidebar) &&
               ui_rect_width(ui_scene_header_geometry(shell).label) >= 72.f &&
               ui_rect_width(ui_scene_header_geometry(shell).search_field) >= 120.f &&
               ui_scene_header_geometry(shell).pins.left >= ui_scene_header_geometry(shell).title.left &&

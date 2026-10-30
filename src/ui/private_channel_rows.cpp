@@ -33,6 +33,11 @@ u64 private_row_peer(const UiPrivateRowSource& source, u64 channel_id) noexcept 
     u64 peer[2]{};
     return ui_private_row_group_members(*source.state, channel_id, peer) ? peer[0] : 0;
 }
+// The peer is online on mobile only; the caller knows the row is online.
+bool mobile_peer(const UiPrivateRowSource& source, u64 channel_id) noexcept {
+    return source.users &&
+           client_status_mobile_online(user_store_client_status(*source.users, private_row_peer(source, channel_id)));
+}
 } // namespace
 
 UiPresence ui_user_presence(const UiPrivateRowSource& source, u64 user) noexcept {
@@ -78,8 +83,7 @@ UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 c
     }
 }
 bool ui_private_row_mobile(const UiPrivateRowSource& source, u64 channel_id) noexcept {
-    if (!source.users || ui_private_row_status(source, channel_id) != UiPrivateRowStatus::online) return false;
-    return client_status_mobile_online(user_store_client_status(*source.users, private_row_peer(source, channel_id)));
+    return ui_private_row_status(source, channel_id) == UiPrivateRowStatus::online && mobile_peer(source, channel_id);
 }
 Utf8View ui_private_peer_activity(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
                                   UiActivityGlyph* glyph) noexcept {
@@ -202,7 +206,7 @@ bool decorations(PaintStream* stream, const UiPrivateRowSource& source, u64 chan
     if (status == UiPrivateRowStatus::none || (!row && !private_row_peer(source, channel_id)))
         return true;
     const auto dot = ui_private_row_status_rectangle(avatar);
-    if (ui_private_row_mobile(source, channel_id)) {
+    if (status == UiPrivateRowStatus::online && mobile_peer(source, channel_id)) {
         const auto phone = ui_presence_mobile_geometry(dot, 2.f);
         return ui_presence_paint(stream, dot, UiPresence::online, surface, theme, true) &&
                (!highlight || paint_stream_push_rounded_border(stream, phone.cutout, Color{0, 0, 0, 0}, *highlight, phone.cutout_radius, 2));
@@ -257,8 +261,8 @@ bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, UiRect cli
     return paint_stream_pop_clip(stream) && ok;
 }
 UiRect ui_private_header_avatar(const UiScene& scene) noexcept {
-    const auto* title = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_bar));
-    const auto* label = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_label));
+    const auto* title = ui_scene_node(scene, UiSemantic::title_bar);
+    const auto* label = ui_scene_node(scene, UiSemantic::title_label);
     if (!title || !label) return {};
     const float middle = (title->rectangle.top + title->rectangle.bottom) * .5f;
     return {label->rectangle.left, middle - kUiPrivateHeaderAvatar * .5f,
@@ -325,8 +329,8 @@ Utf8View header_line(const UiPrivateRowSource& source, u64 channel_id, Slice<cha
 bool ui_private_header_activity(const UiScene& scene, const UiPrivateRowSource& source, u64 channel_id,
                                 Slice<char> storage, UiPrivateHeaderActivity* output) noexcept {
     reset_value(output);
-    const auto* title = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_bar));
-    const auto* label = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_label));
+    const auto* title = ui_scene_node(scene, UiSemantic::title_bar);
+    const auto* label = ui_scene_node(scene, UiSemantic::title_label);
     const auto* channel = source.state ? chat_state_store_find_channel(*source.state, channel_id) : nullptr;
     if (!title || !label || !channel || channel->type != 1 || !source.measure || scene.view != UiShellView::private_channels)
         return false;

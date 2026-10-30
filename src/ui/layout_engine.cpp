@@ -69,6 +69,9 @@ UiSize initial_measure_constraint(const UiLayoutNode& node, UiSize viewport) noe
 }
 
 UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport) noexcept {
+    if (!engine->measure_callback && engine->wrap_nodes == 0) {
+        return UiLayoutError::none;
+    }
     for (u32 index = 0; index < engine->count; ++index) {
         UiLayoutNode& node = engine->storage[index];
         const bool wrap = node.spec.style.flow == UiLayoutFlow::horizontal_wrap;
@@ -80,8 +83,6 @@ UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport)
             node.measure_constraint = initial_measure_constraint(node, viewport);
         }
         if (!text) {
-            node.measured_intrinsic_size = node.spec.intrinsic_size;
-            node.measured_intrinsic_baseline = node.spec.intrinsic_baseline;
             continue;
         }
         UiSize measured{};
@@ -93,8 +94,8 @@ UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport)
             engine->unstable_node = request.node;
             return UiLayoutError::measurement_failed;
         }
-        node.measured_intrinsic_size = measured;
-        node.measured_intrinsic_baseline = baseline;
+        node.spec.intrinsic_size = measured;
+        node.spec.intrinsic_baseline = baseline;
     }
     return UiLayoutError::none;
 }
@@ -176,16 +177,16 @@ void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
             }
         }
     }
-    const float content_width = maximum(node.measured_intrinsic_size.width, children_width) +
+    const float content_width = maximum(node.spec.intrinsic_size.width, children_width) +
                                 style.padding.left + style.padding.right;
-    const float content_height = maximum(node.measured_intrinsic_size.height, children_height) +
+    const float content_height = maximum(node.spec.intrinsic_size.height, children_height) +
                                  style.padding.top + style.padding.bottom;
     node.measured_size = UiSize{
         resolved_measure(style.width, content_width, style.minimum_size.width, style.maximum_size.width),
         resolved_measure(style.height, content_height, style.minimum_size.height,
                          style.maximum_size.height)};
     node.measured_baseline =
-        minimum(node.measured_size.height, style.padding.top + node.measured_intrinsic_baseline);
+        minimum(node.measured_size.height, style.padding.top + node.spec.intrinsic_baseline);
 }
 
 void set_geometry(UiLayoutNode* node, UiRect rectangle, UiRect inherited_clip) noexcept {
@@ -299,7 +300,6 @@ void arrange_overlay_children(UiLayoutEngine* engine, UiLayoutNode& parent) noex
          child_slot = engine->storage[child_slot].next_sibling) {
         UiLayoutNode& child = engine->storage[child_slot];
         if (!has_flag(child.spec.style, ui_layout_node_visible)) {
-            child.visible = false;
             continue;
         }
         set_geometry(&child, overlay_child_rectangle(parent, child), inherited_clip);
@@ -350,7 +350,6 @@ void arrange_stack_children(UiLayoutEngine* engine, UiLayoutNode& parent, bool h
          child_slot = engine->storage[child_slot].next_sibling) {
         UiLayoutNode& child = engine->storage[child_slot];
         if (!has_flag(child.spec.style, ui_layout_node_visible)) {
-            child.visible = false;
             continue;
         }
         const UiLayoutStyle& style = child.spec.style;
@@ -489,12 +488,6 @@ void place_wrap_children(const UiLayoutEngine& engine, const UiLayoutNode& paren
 
 void arrange_wrap_children(UiLayoutEngine* engine, UiLayoutNode& parent) noexcept {
     const UiRect inherited_clip = children_clip(parent);
-    for (u16 slot = parent.first_child; slot != kInvalidUiLayoutSlot;
-         slot = engine->storage[slot].next_sibling) {
-        if (!has_flag(engine->storage[slot].spec.style, ui_layout_node_visible)) {
-            engine->storage[slot].visible = false;
-        }
-    }
     place_wrap_children(*engine, parent, [&](u16 slot, const UiRect& rectangle) noexcept {
         set_geometry(&engine->storage[slot], rectangle, inherited_clip);
         return false;
@@ -724,7 +717,7 @@ UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle p
         ++engine->rejected;
         return UiLayoutResult{UiLayoutError::invalid_parent, engine->count, engine->revision};
     }
-    const u16 depth = root ? 0 : static_cast<u16>(parent_node->depth + 1);
+    const u32 depth = root ? 0 : parent_node->depth + 1u;
     if (depth >= kMaximumUiLayoutDepth) {
         ++engine->rejected;
         return UiLayoutResult{UiLayoutError::depth, engine->count, engine->revision};
@@ -739,9 +732,7 @@ UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle p
     node.last_child = kInvalidUiLayoutSlot;
     node.next_sibling = kInvalidUiLayoutSlot;
     node.generation = engine->generation;
-    node.depth = depth;
-    node.measured_intrinsic_size = specification.intrinsic_size;
-    node.measured_intrinsic_baseline = specification.intrinsic_baseline;
+    node.depth = static_cast<u8>(depth);
     if (specification.style.flow == UiLayoutFlow::horizontal_wrap) {
         ++engine->wrap_nodes;
     }
@@ -756,10 +747,6 @@ UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle p
     }
     *handle = UiLayoutNodeHandle{slot, node.generation};
     return UiLayoutResult{UiLayoutError::none, engine->count, engine->revision};
-}
-
-UiLayoutResult ui_layout_engine_layout(UiLayoutEngine* engine, UiSize viewport) noexcept {
-    return ui_layout_engine_layout_rectangle(engine, UiRect{0.0f, 0.0f, viewport.width, viewport.height});
 }
 
 UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
@@ -787,14 +774,15 @@ UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine,
             ++engine->rejected;
             return UiLayoutResult{measured, engine->count, engine->revision};
         }
-        for (u32 index = 0; index < engine->count; ++index) {
-            engine->storage[index].visible = false;
-            reset_value<UiRect>(&engine->storage[index].rectangle);
-            reset_value<UiRect>(&engine->storage[index].content_rectangle);
-            reset_value<UiRect>(&engine->storage[index].clip_rectangle);
-        }
-        for (u32 reverse = engine->count; reverse != 0; --reverse) {
-            measure_node(engine, reverse - 1);
+        // Measure bottom-up; the arrange pass below places only visible
+        // subtrees, so every node starts the pass hidden and empty.
+        for (u32 index = engine->count; index-- != 0;) {
+            UiLayoutNode& node = engine->storage[index];
+            node.visible = false;
+            reset_value<UiRect>(&node.rectangle);
+            reset_value<UiRect>(&node.content_rectangle);
+            reset_value<UiRect>(&node.clip_rectangle);
+            measure_node(engine, index);
         }
         set_geometry(&root, viewport_rectangle, viewport_rectangle);
         for (u32 index = 0; index < engine->count; ++index) {
@@ -859,8 +847,8 @@ UiLayoutValidationResult ui_layout_engine_validate(const UiLayoutEngine& engine,
                                            engine.unstable_node, ui_layout_invalid_handle(),
                                            UiRect{0.0f, 0.0f, unstable.measure_constraint.width,
                                                   unstable.measure_constraint.height},
-                                           UiRect{0.0f, 0.0f, unstable.measured_intrinsic_size.width,
-                                                  unstable.measured_intrinsic_size.height},
+                                           UiRect{0.0f, 0.0f, unstable.spec.intrinsic_size.width,
+                                                  unstable.spec.intrinsic_size.height},
                                            UiLayoutOverflow{}});
     }
     for (u32 index = 0; index < engine.count; ++index) {
@@ -931,8 +919,8 @@ UiLayoutValidationResult ui_layout_engine_validate(const UiLayoutEngine& engine,
         if (has_flag(node.spec.style, ui_layout_node_text_content)) {
             const UiRect& content = node.content_rectangle;
             const UiRect intrinsic{content.left, content.top,
-                                   content.left + node.measured_intrinsic_size.width,
-                                   content.top + node.measured_intrinsic_size.height};
+                                   content.left + node.spec.intrinsic_size.width,
+                                   content.top + node.spec.intrinsic_size.height};
             const UiLayoutOverflow overflow = calculate_overflow(content, intrinsic);
             if (has_overflow(overflow)) {
                 push_diagnostic(&result, output,

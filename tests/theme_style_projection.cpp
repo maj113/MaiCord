@@ -18,13 +18,6 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
     const auto form = ui_theme_settings_style(&bank);
     check(bytes_equal(&form, &kUiDefaultSettingsStyle, sizeof(form)),
           "Theme resolved component defaults preserve native geometry exactly");
-    UiResolvedThemeStyles minimum_footer = bank;
-    auto minimum_metrics = bank.metrics;
-    minimum_metrics.form_footer_height = 40;
-    check(ui_theme_styles_apply(&minimum_footer, {}, minimum_metrics).ok() &&
-              ui_theme_settings_style(&minimum_footer).footer_height == 64 &&
-              ui_settings_style_valid(ui_theme_settings_style(&minimum_footer)),
-          "Theme legal compact footer token retains safe native footer geometry");
     auto metrics = bank.metrics;
     metrics.audio_padding = 10;
     metrics.audio_gap = 8;

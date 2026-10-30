@@ -18,19 +18,19 @@ const UiThemeMetrics& menu_metrics(const UiResolvedThemeStyles* styles) noexcept
 }
 // Mention lists mix member avatars with @everyone, @here and role rows: those
 // leading-glyph rows then take the avatar row's height and label column.
-bool leading_icon_row(const PopupItem& item) noexcept {
+inline bool leading_icon_row(const PopupItem& item) noexcept {
     const auto presentation = popup_item_menu_presentation(item);
     return popup_item_menu_row(item) && presentation.icon_plus_one && !presentation.trailing_icon;
 }
 // Any ordinary row with a leading icon gives icon-less rows the same label
 // column and full row height, so mixed menus keep one rhythm.
-bool menu_icon_column(ConstSlice<PopupItem> items) noexcept {
+inline bool menu_icon_column(ConstSlice<PopupItem> items) noexcept {
     for (u32 index = 0; index < items.count; ++index)
         if (leading_icon_row(items[index]))
             return true;
     return false;
 }
-bool menu_avatar_column(ConstSlice<PopupItem> items) noexcept {
+inline bool menu_avatar_column(ConstSlice<PopupItem> items) noexcept {
     for (u32 index = 0; index < items.count; ++index)
         if (popup_item_menu_row(items[index]) && (items[index].flags & popup_item_avatar))
             return true;
@@ -80,8 +80,8 @@ UiLayoutStyle root_style() noexcept {
     return ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap);
 }
 
-UiLayoutStyle panel_style(float left, float top, float width, float height, bool overlay, bool scrollable,
-                          float feedback_height, const UiResolvedThemeStyles* styles = nullptr) noexcept {
+inline UiLayoutStyle panel_style(float left, float top, float width, float height, bool overlay, bool scrollable,
+                                 float feedback_height, const UiResolvedThemeStyles* styles = nullptr) noexcept {
     const float padding = menu_metrics(styles).menu_padding;
     UiLayoutStyle style = ui_layout_style();
     style.flow = overlay ? UiLayoutFlow::overlay : UiLayoutFlow::vertical;
@@ -98,7 +98,7 @@ UiLayoutStyle panel_style(float left, float top, float width, float height, bool
     return style;
 }
 
-bool quick_reaction_strip(ConstSlice<PopupItem> items) noexcept {
+inline bool quick_reaction_strip(ConstSlice<PopupItem> items) noexcept {
     if (items.count <= kPopupQuickReactionCount) {
         return false;
     }
@@ -127,17 +127,17 @@ float context_item_top(ConstSlice<PopupItem> items, u32 target) noexcept {
 
 // Command picker geometry (see kCommandPicker*). Discovery leads with its
 // rail; query results lead with their title and have no rail.
-bool picker_discovery(ConstSlice<PopupItem> items) noexcept {
+inline bool picker_discovery(ConstSlice<PopupItem> items) noexcept {
     return (items[0].flags & popup_item_command_category) != 0;
 }
-bool picker_flow_item(const PopupItem& item) noexcept {
+inline bool picker_flow_item(const PopupItem& item) noexcept {
     return !(item.flags & (popup_item_command_category | popup_item_command_pinned));
 }
 // Section headers are 32 DIPs (the query title 40); command rows 56. Other
 // rows are the client's Generic autocomplete row (the selected command's
 // option and choice lists: base padding 8 around a text-md line, 36 DIPs) or
 // its Loading row (a 16-DIP bar 8 DIPs down that line, 40 DIPs).
-float picker_item_height(const PopupItem& item, bool discovery) noexcept {
+inline float picker_item_height(const PopupItem& item, bool discovery) noexcept {
     if (item.flags & popup_item_command_section)
         return discovery ? kCommandSectionHeight : kCommandTitleHeight;
     if (item.flags & popup_item_command_row)
@@ -193,7 +193,7 @@ float picker_rail_top(ConstSlice<PopupItem> items, u32 target) noexcept {
 // Content height of query results and option lists: the flow (titles, rows
 // and the gap before every later title) and the list's bottom padding;
 // discovery is the client's fixed panel.
-float picker_height(ConstSlice<PopupItem> items) noexcept {
+inline float picker_height(ConstSlice<PopupItem> items) noexcept {
     if (picker_discovery(items))
         return kCommandPickerHeight;
     return picker_flow_top(items, items.count, false) + kCommandListInset;
@@ -278,11 +278,11 @@ UiLayoutStyle label_style(const PopupItem& item, const UiResolvedThemeStyles* st
     return style;
 }
 
-bool item_enabled(const PopupItem& item) noexcept {
+inline bool item_enabled(const PopupItem& item) noexcept {
     return (item.flags & popup_item_enabled) != 0;
 }
 
-bool scrollable_menu(PopupKind kind) noexcept {
+inline bool scrollable_menu(PopupKind kind) noexcept {
     return kind == PopupKind::autocomplete || kind == PopupKind::context_menu ||
            kind == PopupKind::popover || kind == PopupKind::settings_choice;
 }
@@ -296,9 +296,7 @@ u32 first_enabled(const PopupScene& scene) noexcept {
     return ~0u;
 }
 
-PopupSceneResult failure(PopupScene* scene, PopupSceneError error) noexcept {
-    if (scene)
-        saturating_increment(scene->rejected);
+inline PopupSceneResult failure(PopupSceneError error) noexcept {
     return PopupSceneResult{error, false};
 }
 
@@ -418,7 +416,7 @@ struct PopupPageSource {
     bool quick_strip;
 };
 
-u32 page_source_index(const PopupPageSource& source, u32 index) noexcept {
+inline u32 page_source_index(const PopupPageSource& source, u32 index) noexcept {
     return !source.quick_strip         ? index
            : index                     ? index + kPopupQuickReactionCount - 1
            : source.quick_index != ~0u ? source.quick_index
@@ -504,8 +502,7 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
     // selection, edit state and a descriptor slice which may alias scene.items.
     const ConstSlice<PopupItem> items{scene->items.data, scene->item_count};
     const auto layout = [&](UiWidgetHandle handle) noexcept {
-        auto* widget = ui_widget_manager_resolve(&scene->widgets, handle);
-        return widget ? ui_layout_engine_resolve(&scene->widgets.layout, widget->layout) : nullptr;
+        return ui_widget_manager_layout_node(&scene->widgets, handle);
     };
     auto* panel = layout(scene->panel);
     if (!panel)
@@ -567,7 +564,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         !ui_coordinate_valid(category_scroll_fraction) || category_scroll_fraction < 0 ||
         category_scroll_fraction >= (discovery ? kCommandRailStride + kCommandRailDivider + kCommandRailLead : 40.0f) ||
         (picker && !discovery && category_scroll_fraction != 0)) {
-        return failure(scene, PopupSceneError::invalid_input);
+        return failure(PopupSceneError::invalid_input);
     }
     UiPopupFeedback admitted_feedback = feedback ? *feedback : UiPopupFeedback{};
     if (feedback && admitted_feedback.style.height == 0 && admitted_feedback.style.text_inset == 0)
@@ -579,13 +576,13 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
          admitted_feedback.style.height > 96 || !ui_coordinate_valid(admitted_feedback.style.text_inset) ||
          admitted_feedback.style.text_inset < 0 ||
          admitted_feedback.style.text_inset * 2 >= admitted_feedback.style.height))
-        return failure(scene, PopupSceneError::invalid_input);
+        return failure(PopupSceneError::invalid_input);
     const float feedback_height = feedback ? admitted_feedback.style.height : 0;
     // Command autocomplete adds independent rail/body viewports. Preflight the
     // whole tree before resetting a retained popup or materializing its arrays.
     const u32 fixed_widgets = discovery ? 4u : picker ? 3u : 2u;
     if (items.count > (kInvalidUiWidgetSlot - fixed_widgets) / kPopupWidgetsPerItem)
-        return failure(scene, PopupSceneError::capacity);
+        return failure(PopupSceneError::capacity);
     bool has_quick_reaction = false;
     for (u32 index = 0; index < items.count; ++index) {
         const PopupItem& item = items[index];
@@ -604,14 +601,14 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
             ((item.flags & popup_item_command_section) && !picker) ||
             ((item.flags & popup_item_command_pinned) &&
              (!discovery || !(item.flags & popup_item_command_section)))) {
-            return failure(scene, PopupSceneError::invalid_input);
+            return failure(PopupSceneError::invalid_input);
         }
         if (item.regional_flag) {
             char target[kRegionalFlagSvgTargetBytes];
             if (!(item.flags & popup_item_emoji_preview) || item.media_id ||
                 (item.flags & (popup_item_custom_emoji | popup_item_avatar | popup_item_guild_icon)) ||
                 !regional_flag_svg_target(item.regional_flag, {target, sizeof(target)}))
-                return failure(scene, PopupSceneError::invalid_input);
+                return failure(PopupSceneError::invalid_input);
         }
         has_quick_reaction = has_quick_reaction || (item.flags & popup_item_quick_reaction) != 0;
         if (item.action == 0 || !item.label.data || item.label.bytes == 0 ||
@@ -631,11 +628,11 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
               (item.flags & (popup_item_emoji | popup_item_custom_emoji | popup_item_quick_reaction)))) ||
             ((item.flags & popup_item_custom_emoji) != 0 &&
              ((item.flags & popup_item_emoji) == 0 || item.media_id == 0))) {
-            return failure(scene, PopupSceneError::invalid_input);
+            return failure(PopupSceneError::invalid_input);
         }
         for (u32 previous = 0; previous < index; ++previous) {
             if (items[previous].action == item.action) {
-                return failure(scene, PopupSceneError::invalid_input);
+                return failure(PopupSceneError::invalid_input);
             }
         }
     }
@@ -644,14 +641,14 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     const float padding = picker ? 0.f : menu_metrics(styles).menu_padding;
     const bool scrollable = !picker && scrollable_menu(kind);
     if (has_quick_reaction && (kind != PopupKind::context_menu || !quick_strip)) {
-        return failure(scene, PopupSceneError::invalid_input);
+        return failure(PopupSceneError::invalid_input);
     }
     const u32 required_widgets = fixed_widgets + items.count * kPopupWidgetsPerItem;
     if (!ui_widget_manager_reserve(&scene->widgets, required_widgets)) {
-        return failure(scene, PopupSceneError::capacity);
+        return failure(PopupSceneError::capacity);
     }
     if ((!scene->items.data || !scene->rows.data) && !materialize_owned_storage(scene)) {
-        return failure(scene, PopupSceneError::capacity);
+        return failure(PopupSceneError::capacity);
     }
     UiRect rectangle{};
     // A follow-up menu replacing a header popout keeps its placement.
@@ -683,7 +680,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
                                                 ui_widget_none, "PopupPanel", panel_layout)
                   : UiWidgetResult{};
     if (!root.ok() || !panel.ok()) {
-        return failure(scene, PopupSceneError::widget);
+        return failure(PopupSceneError::widget);
     }
     UiWidgetHandle command_rail{}, command_body{};
     const float rail_width = discovery ? kCommandRailWidth : 0.f;
@@ -701,7 +698,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
                                                            UiWidgetKind::scroll_view, ui_widget_none,
                                                            "CommandViewport", style);
             if (!child.ok())
-                return failure(scene, PopupSceneError::widget);
+                return failure(PopupSceneError::widget);
             (column ? command_body : command_rail) = child.handle;
         }
     }
@@ -727,26 +724,25 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
                                                    label_style(items[index], styles))
                      : UiWidgetResult{};
         if (!row.ok() || !label.ok()) {
-            return failure(scene, PopupSceneError::widget);
+            return failure(PopupSceneError::widget);
         }
         scene->rows[index] = PopupRowWidget{row.handle, label.handle, index};
     }
     if (!ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
-        return failure(scene, PopupSceneError::layout);
+        return failure(PopupSceneError::layout);
     }
     if (picker) {
         const auto* rail = ui_widget_manager_resolve(&scene->widgets, command_rail);
         const auto* body = ui_widget_manager_resolve(&scene->widgets, command_body);
         if ((discovery && (!rail ||
-            !ui_layout_engine_set_scroll(&scene->widgets.layout, rail->layout,
-                                         {0, category_scroll_fraction}))) || !body ||
-            !ui_layout_engine_set_scroll(&scene->widgets.layout, body->layout, {0, grid_scroll_fraction}) ||
+            !ui_widget_manager_set_scroll(&scene->widgets, command_rail, {0, category_scroll_fraction}))) || !body ||
+            !ui_widget_manager_set_scroll(&scene->widgets, command_body, {0, grid_scroll_fraction}) ||
             !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok())
-            return failure(scene, PopupSceneError::layout);
+            return failure(PopupSceneError::layout);
     }
     UiWidgetScrollGeometry scroll_geometry{};
     if (scrollable && !ui_widget_scroll_geometry(scene->widgets, panel.handle, &scroll_geometry))
-        return failure(scene, PopupSceneError::layout);
+        return failure(PopupSceneError::layout);
     scene->root = root.handle;
     scene->panel = panel.handle;
     scene->viewport = viewport;
@@ -777,7 +773,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         bool revealed = false;
         if (!ui_widget_manager_focus(&scene->widgets, scene->rows[scene->selected_index].widget) ||
             !reveal_selection(scene, &revealed))
-            return failure(scene, PopupSceneError::layout);
+            return failure(PopupSceneError::layout);
     }
     return PopupSceneResult{PopupSceneError::none, true};
 }
@@ -906,7 +902,7 @@ bool popup_scene_scroll(PopupScene* scene, float delta, bool* changed) noexcept 
     if (!*changed) {
         return true;
     }
-    if (!ui_layout_engine_set_scroll(&scene->widgets.layout, panel->layout, UiPoint{0.0f, next}) ||
+    if (!ui_widget_manager_set_scroll(&scene->widgets, scene->panel, UiPoint{0.0f, next}) ||
         !ui_widget_manager_layout_rectangle(&scene->widgets, scene->viewport).ok()) {
         return false;
     }

@@ -11,7 +11,6 @@ struct IDCompositionDevice;
 struct IDCompositionTarget;
 struct IDCompositionVisual;
 struct IDXGISwapChain1;
-struct IDXGISwapChain2;
 
 namespace maicord {
 
@@ -48,7 +47,6 @@ struct D3D11DeviceOwner {
     ID3D11DeviceContext* context;
     ID3D11DeviceContext1* context1;
     IDXGISwapChain1* swap_chain;
-    IDXGISwapChain2* swap_chain2;
     IDCompositionDevice* composition_device;
     IDCompositionTarget* composition_target;
     IDCompositionVisual* composition_visual;
@@ -57,18 +55,20 @@ struct D3D11DeviceOwner {
     u32 buffer_width;
     u32 buffer_height;
     u32 resize_buffer_reallocations;
-    u32 feature_level; // D3D_FEATURE_LEVEL
 };
 
-static_assert(sizeof(D3D11DeviceOwner) == 96);
+static_assert(sizeof(D3D11DeviceOwner) == 88);
 
-// Runs on the prestart worker with its new device; it may create device
-// objects but must not use the immediate context.
-using D3D11DevicePrestartContinuation = void (*)(ID3D11Device* device) noexcept;
+// Runs on the prestart worker with its new device and immediate context. The
+// worker owns the context (protected for several threads) until
+// d3d11_device_prestart_finish returns: neither the owner nor any other thread
+// may use it before then. Device object creation is free-threaded.
+using D3D11DevicePrestartContinuation = void (*)(ID3D11Device* device, ID3D11DeviceContext* context) noexcept;
 // Starts hardware device creation on a worker thread so user-mode driver
-// initialization overlaps the rest of startup. The next owner initialization
-// adopts that device as soon as it exists, or creates one itself when none
-// was started or the worker failed. Main thread only.
+// initialization overlaps the rest of startup, then runs the continuation on
+// it. The next owner initialization adopts that device as soon as it exists,
+// or creates one itself when none was started or the worker failed. Main
+// thread only.
 void d3d11_device_prestart(D3D11DevicePrestartContinuation continuation) noexcept;
 // Waits for the worker and its continuation; releases a device no owner adopted.
 void d3d11_device_prestart_finish() noexcept;

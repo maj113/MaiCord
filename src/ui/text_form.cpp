@@ -431,9 +431,8 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
         const auto& metrics = ui_theme_metrics(scene->theme_styles);
         const float gap = metrics.form_group_gap * .5f;
         if (!content.confirmation_only) {
-            auto* edit_layout = ui_layout_engine_resolve(
-                &scene->widgets.layout,
-                scene->widgets.storage[scene->elements[index(TextFormElement::edit)].slot].layout);
+            auto* edit_layout =
+                ui_widget_manager_layout_node(&scene->widgets, scene->elements[index(TextFormElement::edit)]);
             edit_layout->spec.style.padding =
                 collapsed ? UiInsets{}
                           : UiInsets{metrics.form_field_padding, maximum(0.f, metrics.form_field_padding - 2),
@@ -444,13 +443,10 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
                 : content.single_line ? maximum(metrics.control_height, metrics.form_single_height + 4)
                                       : maximum(metrics.form_multiline_height, metrics.control_height));
         }
-        auto* panel = ui_layout_engine_resolve(
-            &scene->widgets.layout,
-            scene->widgets.storage[scene->elements[index(TextFormElement::panel)].slot].layout);
+        auto* panel = ui_widget_manager_layout_node(&scene->widgets, scene->elements[index(TextFormElement::panel)]);
         panel->spec.style.gap = gap;
-        auto* actions = ui_layout_engine_resolve(
-            &scene->widgets.layout,
-            scene->widgets.storage[scene->elements[index(TextFormElement::actions)].slot].layout);
+        auto* actions =
+            ui_widget_manager_layout_node(&scene->widgets, scene->elements[index(TextFormElement::actions)]);
         actions->spec.style.gap = gap;
         actions->spec.style.margin.top = gap;
         panel->spec.style.width =
@@ -473,9 +469,7 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
         }
         for (u32 i = 0; i < 2; ++i) {
             const auto element = buttons[i];
-            auto* button = ui_layout_engine_resolve(
-                &scene->widgets.layout,
-                scene->widgets.storage[scene->elements[index(element)].slot].layout);
+            auto* button = ui_widget_manager_layout_node(&scene->widgets, scene->elements[index(element)]);
             button->spec.style.minimum_size.width =
                 minimum(maximum(80.0f, labels[i].size.width + 32), button_width);
             button->spec.style.maximum_size.width = button_width;
@@ -569,8 +563,7 @@ bool text_form_scroll(TextFormScene* scene, float delta) noexcept {
     if (offset == geometry.offset.y)
         return true;
     const bool valid =
-        ui_layout_engine_set_scroll(&scene->widgets.layout, scene->widgets.storage[handle.slot].layout,
-                                    {0, offset}) &&
+        ui_widget_manager_set_scroll(&scene->widgets, handle, {0, offset}) &&
         ui_widget_manager_layout_rectangle(&scene->widgets, scene->viewport).ok();
     if (valid)
         ++scene->revision;

@@ -760,9 +760,12 @@ bool prepare_resident_measurements(MessageScene* scene, UiRect viewport) noexcep
             reset_value(cached);
             cached->signature = key;
             cached->content_height = content_height(scene);
-            message_rich_fill_item_layout(rich_store, rich, width, scene->theme_styles, cached->items);
-            cached->rich = rich ? message_rich_aggregate_layout(*rich, cached->items, width)
-                                : MessageSceneRichLayout{};
+            if (rich) {
+                MessageSceneRichItemLayout items;
+                message_rich_fill_item_layout(rich_store, rich, width, scene->theme_styles, items);
+                cached->rich = message_rich_aggregate_layout(*rich, items, width);
+                message_scene_detail::store_items(scene, handle.slot, false, cached, items);
+            }
             for (u32 i = 0; rich && i < rich->reaction_count; ++i)
                 cached->reactions[i] = message_rich_reaction_button_width(rich->reactions[i]);
         }
@@ -798,8 +801,7 @@ bool prepare_resident_measurements(MessageScene* scene, UiRect viewport) noexcep
 }
 
 UiLayoutNode* mutable_layout_node(MessageScene* scene, UiWidgetHandle handle) noexcept {
-    UiWidget* widget = ui_widget_manager_resolve(&scene->widgets, handle);
-    return widget ? ui_layout_engine_resolve(&scene->widgets.layout, widget->layout) : nullptr;
+    return ui_widget_manager_layout_node(&scene->widgets, handle);
 }
 
 bool set_fixed_height(MessageScene* scene, UiWidgetHandle handle, float height) noexcept {
@@ -1008,7 +1010,7 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
         }
     }
     if (cached)
-        message_scene_detail::restore_measurement(row, *cached);
+        message_scene_detail::restore_measurement(*scene, row, *cached);
     return true;
 }
 
@@ -1056,13 +1058,11 @@ void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
 }
 
 bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
-    const MessageSceneRowWidget& retained = scene->rows[local];
-    const bool preserve_measurement =
-        scene->active && retained.message_id != 0 && retained.source_index == source_index;
-    MessageSceneRowWidget row;
-    if (preserve_measurement)
-        copy_value(&row, retained);
-    else
+    // The row is built where it lives: a failed build clears the whole
+    // materialization, so a half-built row is never read.
+    MessageSceneRowWidget& row = scene->rows[local];
+    const bool preserve_measurement = scene->active && row.message_id != 0 && row.source_index == source_index;
+    if (!preserve_measurement)
         reset_value(&row);
     row.widget = ui_widget_invalid_handle();
     row.avatar = ui_widget_invalid_handle();
@@ -1126,7 +1126,8 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
         }
         row.has_snapshot = true;
         row.snapshot_slot = static_cast<u16>(scene->snapshot_count++);
-        MessageSceneRowWidget child{};
+        MessageSceneRowWidget& child = scene->snapshot_rows[row.snapshot_slot];
+        reset_value(&child);
         child.message = row.message;
         child.message_id = row.message_id;
         child.message_revision = row.message_revision;
@@ -1147,7 +1148,7 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
             hash_mix(hash_mix(rich_layout_signature(snapshot), ui_extent_units(child.measured_width)),
                      scene->theme_geometry_revision);
         if (cached && cached->signature == key)
-            message_scene_detail::restore_measurement(&child, *cached);
+            message_scene_detail::restore_measurement(*scene, &child, *cached);
         else if (cached) {
             reset_value(cached);
             cached->signature = key;
@@ -1177,7 +1178,6 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
         child.content = child_content.handle;
         if (!message_rich_widgets_build(&scene->widgets, frame.handle, child_id, snapshot, &child))
             return false;
-        copy_value(&scene->snapshot_rows[row.snapshot_slot], child);
     }
     InviteLink invites[kMessageInviteCardMaximum];
     const u32 invite_count =
@@ -1185,8 +1185,7 @@ bool build_row(MessageScene* scene, u32 local, u32 source_index) noexcept {
     if (!message_rich_widgets_build(&scene->widgets, body.handle, id, rich, &row, invite_count)) {
         return false;
     }
-    copy_value(&scene->rows[local], row);
-    return apply_row_specs(scene, &scene->rows[local]);
+    return apply_row_specs(scene, &row);
 }
 
 } // namespace
@@ -1212,9 +1211,7 @@ namespace {
 void invalidate_geometry(MessageScene* scene) noexcept {
     scene->prepared_signature = 0;
     scene->dirty = true;
-    if (scene->owned_measurements.arena.base)
-        clear_bytes(scene->owned_measurements.arena.base,
-                    scene->owned_measurements.capacity * scene->owned_measurements.element_bytes);
+    message_scene_detail::clear_measurements(scene);
     for (u32 index = 0; index < scene->count; ++index) {
         auto& row = scene->rows[index];
         row.text_measured = false;
@@ -1443,6 +1440,7 @@ void message_scene_release(MessageScene* scene) noexcept {
         stable_storage_release(&scene->owned_rows);
     }
     stable_storage_release(&scene->owned_measurements);
+    stable_storage_release(&scene->owned_item_layouts);
     reset_value<MessageScene>(scene);
 }
 
@@ -1868,6 +1866,7 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
         return scene_error(scene, MessageSceneError::model);
     }
     refresh_intro_measurement(scene, ui_rect_width(viewport));
+    const u64 prepared_before = scene->prepared_signature;
     if (!prepare_resident_measurements(scene, viewport))
         return scene_error(scene, MessageSceneError::model);
     UiVariableRange range =
@@ -1919,15 +1918,32 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
         return scene_error(scene, MessageSceneError::capacity);
     }
 
+    // The same rows over the same data, viewport and preparation epoch need no
+    // row pass: every input a row reads moves one of the observed counters,
+    // the epoch or `dirty` (plugin verdicts, unread state and display changes
+    // all do). Only a poll's vote revision moves none of them.
+    const MessageStore& store = *scene->timeline->store;
+    const bool unchanged =
+        scene->owns_rows && !scene->result_cards && scene->active && !scene->dirty &&
+        prepared_before == scene->prepared_signature && range.first == scene->first &&
+        range.count == scene->count && scene->source_count == message_scene_source_count(*scene) &&
+        scene->observed_created == store.created && scene->observed_updated == store.updated &&
+        scene->observed_deleted == store.deleted && scene->observed_height_updates == list.height_updates &&
+        scene->observed_structural_updates == list.structural_updates &&
+        scene->observed_rich_updated == (scene->timeline->rich_store ? scene->timeline->rich_store->updated : 0) &&
+        ui_rect_equal(scene->viewport, viewport);
     const bool retained =
-        materialization_matches(*scene, range.first, range.count) &&
-        (scene->snapshot_count == 0 || ui_rect_width(scene->viewport) == ui_rect_width(viewport));
+        unchanged ||
+        (materialization_matches(*scene, range.first, range.count) &&
+         (scene->snapshot_count == 0 || ui_rect_width(scene->viewport) == ui_rect_width(viewport)));
     const bool viewport_changed = !ui_rect_equal(scene->viewport, viewport);
     scene->viewport = viewport;
     const bool was_dirty = scene->dirty;
     bool data_changed = false;
     if (retained) {
         for (u32 local = 0; local < range.count; ++local) {
+            if (unchanged && !scene->rows[local].poll_content_revision)
+                continue;
             if (!refresh_row(scene, &scene->rows[local], range.first + local, true, &data_changed) ||
                 !apply_row_specs(scene, &scene->rows[local])) {
                 return scene_error(scene, MessageSceneError::model);
@@ -1990,10 +2006,7 @@ MessageSceneResult message_scene_update(MessageScene* scene, const UiRect& viewp
         saturating_increment_if(paint_changed, scene->data_updates);
         return MessageSceneResult{MessageSceneError::none, range.first, range.count, paint_changed};
     }
-    const UiWidget* root_widget = ui_widget_manager_resolve(scene->widgets, scene->root);
-    if (!root_widget ||
-        !ui_layout_engine_set_scroll(&scene->widgets.layout, root_widget->layout,
-                                     UiPoint{0.0f, local_scroll}) ||
+    if (!ui_widget_manager_set_scroll(&scene->widgets, scene->root, UiPoint{0.0f, local_scroll}) ||
         !ui_widget_manager_layout_rectangle(&scene->widgets, laid_out).ok()) {
         clear_materialization(scene);
         return scene_error(scene, MessageSceneError::layout);
@@ -2249,38 +2262,42 @@ const UiLayoutNode* message_scene_rich_item_layout_node(const MessageScene& scen
 
 const MessageSceneRowWidget* message_scene_resolve(const MessageScene& scene,
                                                    UiWidgetHandle widget) noexcept {
-    if (!ui_widget_manager_resolve(scene.widgets, widget)) {
+    // Every row owns one fixed-stride widget ID range (build_row), so the
+    // widget's ID names the only row that can hold its handle.
+    const UiWidget* found = ui_widget_manager_resolve(scene.widgets, widget);
+    if (!found || found->id < 2u) {
+        return nullptr;
+    }
+    const MessageSceneRowWidget* row = message_scene_find_row(scene, (found->id - 2u) / kMessageSceneWidgetsPerRow);
+    if (!row) {
         return nullptr;
     }
     const auto same = [&](UiWidgetHandle handle) noexcept {
         return handle.slot == widget.slot && handle.generation == widget.generation;
     };
-    for (u32 index = 0; index < scene.count; ++index) {
-        const MessageSceneRowWidget& row = scene.rows[index];
-        const UiWidgetHandle handles[] = {row.widget,   row.avatar,     row.body,        row.reply,
-                                          row.author,   row.content,    row.attachments, row.embeds,
-                                          row.stickers, row.components, row.reactions,   row.notice,
-                                          row.poll,     row.thread};
-        for (const auto handle : handles)
+    const UiWidgetHandle handles[] = {row->widget,   row->avatar,     row->body,        row->reply,
+                                      row->author,   row->content,    row->attachments, row->embeds,
+                                      row->stickers, row->components, row->reactions,   row->notice,
+                                      row->poll,     row->thread};
+    for (const auto handle : handles)
+        if (same(handle))
+            return row;
+    for (u32 reaction = 0; reaction < row->reaction_button_count; ++reaction)
+        if (same(row->reaction_buttons[reaction]))
+            return row;
+    for (const auto handle : row->rich_items)
+        if (same(handle))
+            return row;
+    if (const auto* child = message_scene_snapshot_row(scene, *row)) {
+        const UiWidgetHandle child_handles[]{child->widget,      child->reply,  child->content,
+                                             child->attachments, child->embeds, child->stickers,
+                                             child->components,  child->notice};
+        for (const auto handle : child_handles)
             if (same(handle))
-                return &row;
-        for (u32 reaction = 0; reaction < row.reaction_button_count; ++reaction)
-            if (same(row.reaction_buttons[reaction]))
-                return &row;
-        for (const auto handle : row.rich_items)
+                return row;
+        for (const auto handle : child->rich_items)
             if (same(handle))
-                return &row;
-        if (const auto* child = message_scene_snapshot_row(scene, row)) {
-            const UiWidgetHandle child_handles[]{child->widget,      child->reply,  child->content,
-                                                 child->attachments, child->embeds, child->stickers,
-                                                 child->components,  child->notice};
-            for (const auto handle : child_handles)
-                if (same(handle))
-                    return &row;
-            for (const auto handle : child->rich_items)
-                if (same(handle))
-                    return &row;
-        }
+                return row;
     }
     return nullptr;
 }

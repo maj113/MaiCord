@@ -62,9 +62,9 @@ bool initialize() noexcept {
         f.guild_rows[index] = {}; f.guild_rows[index].id = 7 + index;
         f.guild_rows[index].mention_count = 142;
     }
-    const auto* guild = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::guild_navigation));
-    const auto* channels = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::channel_navigation));
-    const auto* content = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::content));
+    const auto* guild = ui_scene_node(f.shell, UiSemantic::guild_navigation);
+    const auto* channels = ui_scene_node(f.shell, UiSemantic::channel_navigation);
+    const auto* content = ui_scene_node(f.shell, UiSemantic::content);
     f.source = {&f, 192, 1, resolve_friend};
     return guild && channels && content &&
         guild_rail_scene_update(&f.rail, &f.view, guild->rectangle, 0).ok() &&

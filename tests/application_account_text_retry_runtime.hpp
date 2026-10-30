@@ -249,7 +249,7 @@ inline void run(void (*check)(bool, const char*) noexcept) noexcept {
     const u32 layouts = shell_layouts;
     ++ui.chat_state.permission_mutations;
     check(laid_out && refresh_account_text(false) && shell_layouts == layouts &&
-              !ui_scene_resolve_semantic(g_app.shell_scene, UiSemantic::pins_toggle),
+              !ui_scene_node(g_app.shell_scene, UiSemantic::pins_toggle),
           "header layout: unchanged channel rights keep the header");
     pins = threads = true;
     ++ui.chat_state.permission_mutations;
@@ -259,8 +259,8 @@ inline void run(void (*check)(bool, const char*) noexcept) noexcept {
     metrics.revision = 2;
     ++ui.chat_state.permission_mutations;
     check(ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel, metrics, 1280, 800) &&
-              ui_scene_resolve_semantic(g_app.shell_scene, UiSemantic::pins_toggle) &&
-              ui_scene_resolve_semantic(g_app.shell_scene, UiSemantic::threads_toggle) &&
+              ui_scene_node(g_app.shell_scene, UiSemantic::pins_toggle) &&
+              ui_scene_node(g_app.shell_scene, UiSemantic::threads_toggle) &&
               refresh_account_text(false) && shell_layouts == layouts + 1,
           "header layout: the re-laid header shows both buttons and settles");
     ui_scene_release(&g_app.shell_scene);

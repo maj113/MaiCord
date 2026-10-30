@@ -252,7 +252,7 @@ void rich_layout(void (*check)(bool, const char*) noexcept) noexcept {
     const bool built =
         initialized && message_rich_widgets_build(&fixture.manager, fixture.root, 100, &rich, &row);
     const auto* widget = built ? ui_widget_manager_resolve(fixture.manager, row.rich_items[0]) : nullptr;
-    check(built && fixture.manager.count == 10 && widget && (widget->flags & ui_widget_focusable) &&
+    check(built && fixture.manager.count == 4 && widget && (widget->flags & ui_widget_focusable) &&
               message_rich_widgets_structure_matches(row, &rich),
           "audio rich widgets: one existing attachment root remains focusable with no per-control retained "
           "children");

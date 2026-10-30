@@ -27,9 +27,9 @@ bool viewport(float height) noexcept {
     auto& f = fixture;
     if (!ui_scene_layout_with_metrics(&f.shell, UiShellView::friends, kFriendsShellLayoutMetrics, 1280, height))
         return false;
-    const auto* guild = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::guild_navigation));
-    const auto* channels = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::channel_navigation));
-    const auto* content = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::content));
+    const auto* guild = ui_scene_node(f.shell, UiSemantic::guild_navigation);
+    const auto* channels = ui_scene_node(f.shell, UiSemantic::channel_navigation);
+    const auto* content = ui_scene_node(f.shell, UiSemantic::content);
     return guild && channels && content &&
         guild_rail_scene_update(&f.rail, &f.view, guild->rectangle, 0).ok() &&
         shell_navigation_scene_update(&f.navigation, &f.view, channels->rectangle, 0).ok() &&

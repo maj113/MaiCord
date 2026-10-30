@@ -86,7 +86,6 @@ void dispatch_png_shader(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,
                          const PngAtlasConstants& constants, ID3D11UnorderedAccessView* target,
                          u32 width, u32 height) noexcept {
     context->UpdateSubresource(gpu->png_constants, 0, nullptr, &constants, 0, 0);
-    unbind_media_pixel_resources(context);
     bind_compute_2srv(context, gpu->png_shader, gpu->png_constants, gpu->png_scanline_view,
                       gpu->png_palette_view, target);
     context->Dispatch((width + 7u) / 8u, (height + 7u) / 8u, 1);
@@ -199,7 +198,6 @@ void clear_animation_region(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,
         static_cast<LONG>(allocation.x + x_offset + width),
         static_cast<LONG>(allocation.y + y_offset + height),
     };
-    unbind_media_pixel_resources(context);
     context->ClearView(gpu->target, color, &rectangle, 1);
 }
 
@@ -302,7 +300,6 @@ void dispatch_vp8_atlas(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context, const
         {0, 0, 0, 0, 0},
     };
     context->UpdateSubresource(gpu->vp8_atlas_constants, 0, nullptr, &constants, 0, 0);
-    unbind_media_pixel_resources(context);
     bind_compute_2srv(context, gpu->vp8_atlas_shader, gpu->vp8_atlas_constants,
                       gpu->vp8_yuv_view, alpha.count != 0 ? gpu->png_scanline_view : nullptr,
                       texture_uav);

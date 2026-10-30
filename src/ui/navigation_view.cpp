@@ -278,7 +278,9 @@ u32 build_conversation_pins(NavigationView* view, const ChatStateStore& state, b
 // leave room for state.guild_count.
 u32 build_guild_rows(NavigationView* view, const ChatStateStore& state, u32 first, bool* changed) noexcept {
     constexpr u32 kScratch = 1024;
-    GuildDisplayEntry display[kScratch];
+    // 16 KiB on the stack made every rebuild walk its guard pages. The rebuild runs on
+    // the UI thread, is not re-entered, and touches only as many entries as there are guilds.
+    static GuildDisplayEntry display[kScratch];
     const auto* folders = view->guild_folders;
     u32 count = state.guild_count <= kScratch ? guild_display_order_build(folders, state, {display, kScratch}) : 0;
     u32 headers = 0;

@@ -59,8 +59,7 @@ inline bool pinned_messages_ui_probe(D3D11Renderer& renderer,
             ui_scene_content_rectangle(*renderer.ui_scene, UiSemantic::message_view).bottom);
         viewport.right = static_cast<float>(renderer.width) * 96.f / maximum(renderer.dpi, 1u);
         const auto header = ui_scene_header_geometry(*renderer.ui_scene);
-        const auto* pins = ui_scene_resolve(*renderer.ui_scene,
-                                           ui_scene_find(*renderer.ui_scene, UiSemantic::pins_toggle));
+        const auto* pins = ui_scene_node(*renderer.ui_scene, UiSemantic::pins_toggle);
         if (!pins || !pins->visible || !ui_rect_has_area(header.pins) ||
             !ui_pinned_messages_scene_update(&scene, &source, &content, viewport) ||
             scene.panel.right != viewport.right || scene.panel.top != viewport.top ||

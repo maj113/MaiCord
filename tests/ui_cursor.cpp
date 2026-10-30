@@ -58,7 +58,7 @@ struct OwnerFixture {
             {1, UiWidgetKind::button, static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
              {utf8_literal("Owner"), ui_layout_style(), {}, 0, 1}});
         root = added.handle;
-        return added.ok() && ui_widget_manager_layout(&manager, {800, 600}).ok();
+        return added.ok() && ui_widget_manager_layout_rectangle(&manager, {0, 0, 800, 600}).ok();
     }
 };
 
@@ -95,7 +95,7 @@ void test_generic_widgets(Check check) noexcept {
     const auto label = add(root, 5, UiWidgetKind::text, live, row);
     const auto blocked = add(root, 6, UiWidgetKind::container, ui_widget_block_input, row);
     const auto inner = add(blocked, 7, UiWidgetKind::button, live, row);
-    built = built && inner.generation && ui_widget_manager_layout(&manager, {200, 400}).ok();
+    built = built && inner.generation && ui_widget_manager_layout_rectangle(&manager, {0, 0, 200, 400}).ok();
     const auto at = [&](UiWidgetHandle handle) noexcept {
         const auto* node = ui_widget_manager_layout_node(manager, handle);
         return node ? center(node->rectangle) : UiPoint{-1, -1};

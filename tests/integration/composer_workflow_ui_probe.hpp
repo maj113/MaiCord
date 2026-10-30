@@ -54,8 +54,8 @@ inline bool composer_workflow_ui_probe(D3D11Renderer& renderer, MessageComposer&
     const u32 compact_width = static_cast<u32>((metrics.guild_rail_width + metrics.navigation_width +
         kUiShellMinimumMessageWidthDips) * renderer.dpi / 96.f + .5f);
     if (!probe_resize_surface(compact_width, original_height) || !show(L"composer-workflow-narrow.bmp") ||
-        ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::member_sidebar)) ||
-        !ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::member_toggle)))
+        ui_scene_node(*renderer.ui_scene, UiSemantic::member_sidebar) ||
+        !ui_scene_node(*renderer.ui_scene, UiSemantic::member_toggle))
         return false;
     // At this width the GIF and sticker buttons fold into the emoji picker.
     const MessageComposerControl controls[]{MessageComposerControl::add_attachment,
@@ -81,7 +81,7 @@ inline bool composer_workflow_ui_probe(D3D11Renderer& renderer, MessageComposer&
         renderer.unchanged_present_skips - skips != 64) return false;
     log_write(LogLevel::info, "probe", "composer_workflow_64_zero_layout_shape_raster_upload_draw_passed");
     if (!probe_resize_surface(original_width, original_height) || !publish(state) ||
-        !ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::member_sidebar)))
+        !ui_scene_node(*renderer.ui_scene, UiSemantic::member_sidebar))
         return false;
     log_write(LogLevel::info, "probe", "composer_workflow_reply_caption_error_responsive_passed");
     return true;

@@ -198,84 +198,10 @@ bool guild_rail_scene_initialize(GuildRailScene* scene, Slice<GuildRailRowWidget
     return ui_widget_manager_initialize(&scene->widgets, widget_storage, layout_storage);
 }
 
-GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const NavigationView* view,
-                                             UiRect viewport, float requested_scroll_dips) noexcept {
-    if (!scene || !scene->rows.data || !scene->widgets.storage.data || !ui_rect_valid_or_empty(viewport) ||
-        !ui_coordinate_valid(requested_scroll_dips) ||
-        (view &&
-         (view->guild_count > view->guild_capacity || (view->guild_count != 0 && !view->guild_rows)))) {
-        return scene_error(scene, GuildRailSceneError::invalid_input);
-    }
-
-    if (!view || !ui_rect_has_area(viewport)) {
-        const bool materialized =
-            scene->active || scene->count != 0 || scene->widgets.count != 0 || scene->root.generation != 0;
-        const bool changed = materialized || !ui_rect_equal(scene->viewport, viewport);
-        if (materialized)
-            clear_materialization(scene);
-        scene->viewport = viewport;
-        scene->source_rows = view ? view->guild_rows : nullptr;
-        scene->source_revision = view ? view->guild_revision : 0;
-        scene->source_count = view ? view->guild_count : 0;
-        scene->content_height = content_height(scene, view);
-        scene->scroll_dips = 0.0f;
-        if (!view) {
-            scene->focused_guild_id = 0;
-        }
-        return GuildRailSceneResult{GuildRailSceneError::none, 0, 0, 0.0f, changed};
-    }
-
-    const bool source_changed = scene->source_rows != view->guild_rows ||
-                                scene->source_revision != view->guild_revision ||
-                                scene->source_count != view->guild_count;
-    // Folder transitions change extents without a source revision.
-    const float height = content_height(scene, view);
-    const float maximum_scroll =
-        height > ui_rect_height(viewport) ? height - ui_rect_height(viewport) : 0.0f;
-    const float scroll = minimum(maximum(requested_scroll_dips, 0.0f), maximum_scroll);
-    if (!source_changed && scene->active && ui_rect_equal(scene->viewport, viewport) &&
-        scene->scroll_dips == scroll && scene->content_height == height) {
-        return GuildRailSceneResult{GuildRailSceneError::none, scene->first, scene->count, scroll, false};
-    }
-
-    VisibleRange range = visible_range(*scene, *view, scroll, ui_rect_height(viewport));
-    if (range.count > scene->rows.count &&
-        (!scene->row_storage || !ui_virtual_row_storage_grow(scene->row_storage, range.count))) {
-        return scene_error(scene, GuildRailSceneError::capacity);
-    }
-    if (scene->row_storage) {
-        scene->rows = ui_virtual_row_storage_rows<GuildRailRowWidget>(*scene->row_storage);
-    }
-    // Rows come first: storage sized only for them leaves out the add button.
-    if (range.add && !ui_widget_manager_reserve(&scene->widgets, 3 + range.count))
-        range.add = false;
-    if (range.count > scene->rows.count || !ui_widget_manager_reserve(&scene->widgets, 2 + range.count)) {
-        return scene_error(scene, GuildRailSceneError::capacity);
-    }
-
-    if (materialization_matches(*scene, *view, range)) {
-        const bool geometry_changed = !ui_rect_equal(scene->viewport, viewport) || scene->scroll_dips != scroll;
-        update_retained_rows(scene, *view, range);
-        if (geometry_changed) {
-            const UiWidget* retained_root = ui_widget_manager_resolve(scene->widgets, scene->root);
-            if (!retained_root ||
-                !ui_layout_engine_set_scroll(&scene->widgets.layout, retained_root->layout,
-                                             UiPoint{0.0f, scroll}) ||
-                !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
-                return scene_error(scene, GuildRailSceneError::layout);
-            }
-            saturating_increment(scene->layout_passes);
-        }
-        scene->viewport = viewport;
-        scene->source_rows = view->guild_rows;
-        scene->source_revision = view->guild_revision;
-        scene->source_count = view->guild_count;
-        scene->content_height = height;
-        scene->scroll_dips = scroll;
-        saturating_increment_if(source_changed, scene->data_updates);
-        return GuildRailSceneResult{GuildRailSceneError::none, range.first, range.count, scroll, true};
-    }
-
+// The full rebuild keeps its indicator snapshot (about 10 KB) off the frame of the no-change paths.
+__declspec(noinline) GuildRailSceneResult materialize(GuildRailScene* scene, const NavigationView* view,
+                                                     UiRect viewport, float scroll, float height,
+                                                     VisibleRange range) noexcept {
     u64 restore_focus = focused_guild(*scene);
     if (restore_focus == 0) {
         restore_focus = view->selected_guild_id;
@@ -340,9 +266,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         scene->add_button = add.handle;
     }
 
-    const UiWidget* root_widget = ui_widget_manager_resolve(scene->widgets, root.handle);
-    if (!root_widget ||
-        !ui_layout_engine_set_scroll(&scene->widgets.layout, root_widget->layout, UiPoint{0.0f, scroll}) ||
+    if (!ui_widget_manager_set_scroll(&scene->widgets, root.handle, UiPoint{0.0f, scroll}) ||
         !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
         clear_materialization(scene);
         return scene_error(scene, GuildRailSceneError::layout);
@@ -365,6 +289,84 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
         guild_rail_scene_focus_guild(scene, restore_focus);
     }
     return GuildRailSceneResult{GuildRailSceneError::none, range.first, range.count, scroll, true};
+}
+
+GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const NavigationView* view,
+                                             UiRect viewport, float requested_scroll_dips) noexcept {
+    if (!scene || !scene->rows.data || !scene->widgets.storage.data || !ui_rect_valid_or_empty(viewport) ||
+        !ui_coordinate_valid(requested_scroll_dips) ||
+        (view &&
+         (view->guild_count > view->guild_capacity || (view->guild_count != 0 && !view->guild_rows)))) {
+        return scene_error(scene, GuildRailSceneError::invalid_input);
+    }
+
+    if (!view || !ui_rect_has_area(viewport)) {
+        const bool materialized =
+            scene->active || scene->count != 0 || scene->widgets.count != 0 || scene->root.generation != 0;
+        const bool changed = materialized || !ui_rect_equal(scene->viewport, viewport);
+        if (materialized)
+            clear_materialization(scene);
+        scene->viewport = viewport;
+        scene->source_rows = view ? view->guild_rows : nullptr;
+        scene->source_revision = view ? view->guild_revision : 0;
+        scene->source_count = view ? view->guild_count : 0;
+        scene->content_height = content_height(scene, view);
+        scene->scroll_dips = 0.0f;
+        if (!view) {
+            scene->focused_guild_id = 0;
+        }
+        return GuildRailSceneResult{GuildRailSceneError::none, 0, 0, 0.0f, changed};
+    }
+
+    const bool source_changed = scene->source_rows != view->guild_rows ||
+                                scene->source_revision != view->guild_revision ||
+                                scene->source_count != view->guild_count;
+    // Folder transitions change extents without a source revision.
+    const float height = content_height(scene, view);
+    const float maximum_scroll =
+        height > ui_rect_height(viewport) ? height - ui_rect_height(viewport) : 0.0f;
+    const float scroll = minimum(maximum(requested_scroll_dips, 0.0f), maximum_scroll);
+    if (!source_changed && scene->active && ui_rect_equal(scene->viewport, viewport) &&
+        scene->scroll_dips == scroll && scene->content_height == height) {
+        return GuildRailSceneResult{GuildRailSceneError::none, scene->first, scene->count, scroll, false};
+    }
+
+    VisibleRange range = visible_range(*scene, *view, scroll, ui_rect_height(viewport));
+    if (range.count > scene->rows.count &&
+        (!scene->row_storage || !ui_virtual_row_storage_grow(scene->row_storage, range.count))) {
+        return scene_error(scene, GuildRailSceneError::capacity);
+    }
+    if (scene->row_storage) {
+        scene->rows = ui_virtual_row_storage_rows<GuildRailRowWidget>(*scene->row_storage);
+    }
+    // Rows come first: storage sized only for them leaves out the add button.
+    if (range.add && !ui_widget_manager_reserve(&scene->widgets, 3 + range.count))
+        range.add = false;
+    if (range.count > scene->rows.count || !ui_widget_manager_reserve(&scene->widgets, 2 + range.count)) {
+        return scene_error(scene, GuildRailSceneError::capacity);
+    }
+
+    if (materialization_matches(*scene, *view, range)) {
+        const bool geometry_changed = !ui_rect_equal(scene->viewport, viewport) || scene->scroll_dips != scroll;
+        update_retained_rows(scene, *view, range);
+        if (geometry_changed) {
+            if (!ui_widget_manager_set_scroll(&scene->widgets, scene->root, UiPoint{0.0f, scroll}) ||
+                !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
+                return scene_error(scene, GuildRailSceneError::layout);
+            }
+            saturating_increment(scene->layout_passes);
+        }
+        scene->viewport = viewport;
+        scene->source_rows = view->guild_rows;
+        scene->source_revision = view->guild_revision;
+        scene->source_count = view->guild_count;
+        scene->content_height = height;
+        scene->scroll_dips = scroll;
+        saturating_increment_if(source_changed, scene->data_updates);
+        return GuildRailSceneResult{GuildRailSceneError::none, range.first, range.count, scroll, true};
+    }
+
+    return materialize(scene, view, viewport, scroll, height, range);
 }
 
 GuildRailSceneResult guild_rail_scene_scroll(GuildRailScene* scene, const NavigationView* view,

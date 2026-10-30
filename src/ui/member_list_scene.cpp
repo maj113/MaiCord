@@ -189,8 +189,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
             return MemberListSceneResult{MemberListSceneError::none, range.first, range.count, scroll, false};
         const UiWidget* root = ui_widget_manager_resolve(scene->widgets, scene->root);
         if (!root ||
-            !ui_layout_engine_set_scroll(&scene->widgets.layout, root->layout,
-                                         UiPoint{0.0f, local_scroll}) ||
+            !ui_widget_manager_set_scroll(&scene->widgets, scene->root, UiPoint{0.0f, local_scroll}) ||
             !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
             return failure(scene, MemberListSceneError::layout);
         }
@@ -226,7 +225,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
               members->records[resolved->member_slot].user_id == resolved->user_id));
         const MemberListRow source_row = resident ? *resolved : MemberListRow{};
         const bool member_row = resident && source_row.kind == MemberListRowKind::member;
-        const u32 slot = source_row.member_slot;
+
         const u32 id = 2u + source_index * kMemberListWidgetsPerRow;
         const UiWidgetResult row = ui_widget_manager_add_keyed(
             &scene->widgets, root.handle, id, UiWidgetKind::button,
@@ -250,43 +249,11 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
             clear_materialization(scene);
             return failure(scene, MemberListSceneError::widget);
         }
-        scene->rows[local] =
-            MemberListRowWidget{row.handle,     avatar.handle,      label.handle,
-                                status.handle,  source_row.user_id, source_row.group_role_id,
-                                slot,           source_index,       source_row.role_color,
-                                source_row.kind};
-        scene->rows[local].source_row = source_row;
-        scene->rows[local].resident = resident;
-        if (resident && !member_row) {
-            auto& text = scene->rows[local].group_label;
-            const auto group_name = member_list_row_label(source_row, *members, *users, *state);
-            text.bytes = static_cast<u16>(utf8_truncated_length(group_name, 128));
-            // Group heading format: "ONLINE — 75,000" (ASCII letters uppercased,
-            // em dash, grouped digits).
-            for (u32 i = 0; i < text.bytes; ++i) {
-                const char c = group_name.data[i];
-                text.data[i] = c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
-            }
-            const char separator[] = " \xE2\x80\x94 ";
-            copy_bytes(text.data + text.bytes, separator, sizeof(separator) - 1);
-            text.bytes = static_cast<u16>(text.bytes + sizeof(separator) - 1);
-            u32 count = source->authoritative ? source_row.group_count : 0;
-            if (!source->authoritative)
-                for (u32 i = source_index + 1;
-                     i < source->count && source->rows[i].kind == MemberListRowKind::member; ++i)
-                    ++count;
-            text.bytes = static_cast<u16>(text.bytes + decimal_write_grouped(text.data + text.bytes, count));
-            if (source->thread_mode && source->incomplete) {
-                static constexpr char partial[] = " (partial)";
-                copy_bytes(text.data + text.bytes, partial, sizeof(partial) - 1);
-                text.bytes = static_cast<u16>(text.bytes + sizeof(partial) - 1);
-            }
-        }
+        scene->rows[local] = MemberListRowWidget{row.handle,        avatar.handle,  label.handle, status.handle,
+                                                 source_row.user_id, source_index,   source_row.kind, resident,
+                                                 source_row};
     }
-    const UiWidget* root_widget = ui_widget_manager_resolve(scene->widgets, root.handle);
-    if (!root_widget ||
-        !ui_layout_engine_set_scroll(&scene->widgets.layout, root_widget->layout,
-                                     UiPoint{0.0f, local_scroll}) ||
+    if (!ui_widget_manager_set_scroll(&scene->widgets, root.handle, UiPoint{0.0f, local_scroll}) ||
         !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
         clear_materialization(scene);
         return failure(scene, MemberListSceneError::layout);
@@ -394,6 +361,34 @@ bool member_list_row_status(const MemberListScene& s, u32 index, Slice<char> sto
     const auto* guild = user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id);
     return ui_user_activity_status(*s.users, row.user_id,
                                    guild && (guild->fields & appearance_activity) ? guild : global, storage, output);
+}
+Utf8View member_list_group_label(const MemberListScene& s, u32 index, Slice<char> storage) noexcept {
+    if (index >= s.count || !s.source || !s.members || !s.users || !s.state || storage.count < 160)
+        return {};
+    const auto& row = s.rows[index];
+    if (!row.resident || row.source_row.kind == MemberListRowKind::member)
+        return {};
+    const auto group_name = member_list_row_label(row.source_row, *s.members, *s.users, *s.state);
+    u32 used = utf8_truncated_length(group_name, 128);
+    // Group heading format: "ONLINE — 75,000" (ASCII letters uppercased, em dash, grouped digits).
+    for (u32 i = 0; i < used; ++i) {
+        const char c = group_name.data[i];
+        storage.data[i] = c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
+    }
+    const char separator[] = " \xE2\x80\x94 ";
+    copy_bytes(storage.data + used, separator, sizeof(separator) - 1);
+    used += sizeof(separator) - 1;
+    u32 count = s.source->authoritative ? row.source_row.group_count : 0;
+    if (!s.source->authoritative)
+        for (u32 i = row.source_index + 1; i < s.source->count && s.source->rows[i].kind == MemberListRowKind::member; ++i)
+            ++count;
+    used += decimal_write_grouped(storage.data + used, count);
+    if (s.source->thread_mode && s.source->incomplete) {
+        static constexpr char partial[] = " (partial)";
+        copy_bytes(storage.data + used, partial, sizeof(partial) - 1);
+        used += sizeof(partial) - 1;
+    }
+    return {storage.data, used};
 }
 UiRect member_list_row_name_line(UiRect label) noexcept {
     label.top -= 4;

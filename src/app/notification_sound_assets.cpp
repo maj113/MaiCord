@@ -28,9 +28,11 @@ bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip
         const u32 bytes=frames*4;
         void* pcm=VirtualAlloc(nullptr,bytes,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
         if(!pcm) return false;
-        DeflateWorkspace workspace{};
+        DeflateWorkspace* workspace=deflate_workspace_allocate();
+        if(!workspace) {VirtualFree(pcm,0,MEM_RELEASE);return false;}
         const auto result=notification_pcm_unpack({data+16,count-16},{frames,data[5],data[6]},
-            {static_cast<u8*>(pcm),bytes},&workspace);
+            {static_cast<u8*>(pcm),bytes},workspace);
+        deflate_workspace_free(workspace);
         if(!result.ok()) {VirtualFree(pcm,0,MEM_RELEASE);bank->failed_mask|=1u<<index;return false;}
         DWORD old{};
         if(!VirtualProtect(pcm,bytes,PAGE_READONLY,&old)) {VirtualFree(pcm,0,MEM_RELEASE);return false;}

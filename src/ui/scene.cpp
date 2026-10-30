@@ -152,26 +152,6 @@ u8 shell_variant(const UiShellLayoutMetrics& metrics, float width) noexcept {
                            (shell_flag(metrics, ui_shell_layout_private) ? 32u : 0u) | (inbox ? 64u : 0u));
 }
 
-bool project_shell(UiScene* scene) noexcept {
-    scene->count = scene->widgets.count;
-    scene->generation = scene->widgets.generation;
-    for (u32 index = 0; index < scene->count; ++index) {
-        const UiWidget& widget = scene->storage.widgets[index];
-        const UiLayoutNode* layout = ui_layout_engine_resolve(scene->widgets.layout, widget.layout);
-        if (!layout || widget.id == 0 || widget.id > static_cast<u32>(UiSemantic::count)) {
-            return false;
-        }
-        UiNode& node = scene->nodes[index];
-        reset_value<UiNode>(&node);
-        node.rectangle = layout->rectangle;
-        node.widget = UiWidgetHandle{static_cast<u16>(index), scene->widgets.generation};
-        node.semantic = static_cast<UiSemantic>(widget.id - 1);
-        node.generation = scene->widgets.generation;
-        node.visible = layout->visible;
-    }
-    return true;
-}
-
 float header_search_width(float content_width, float controls_width) noexcept {
     // Reserve a readable channel label before growing the trailing search.
     // The compact field stays at least 120 DIP while space permits all controls.
@@ -201,9 +181,7 @@ void update_header_controls(UiScene* scene, const UiShellLayoutMetrics& metrics,
         trailing;
     const auto set_margin = [&](UiWidgetHandle handle, float right) noexcept {
         if (handle.generation)
-            if (auto* node = ui_layout_engine_resolve(&scene->widgets.layout,
-                                                      scene->widgets.storage[handle.slot].layout))
-                node->spec.style.margin.right = right;
+            scene->widgets.layout.storage[handle.slot].spec.style.margin.right = right;
     };
     // Reserve search plus the original icon button and its eight-DIP gaps.
     set_margin(label, search_width + controls_width);
@@ -216,15 +194,8 @@ void update_header_controls(UiScene* scene, const UiShellLayoutMetrics& metrics,
 
 bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics, u8 variant,
                  float width, float height) noexcept {
-    if (!scene->widgets.storage.data) {
-        if (!scene->storage.widgets.data || !scene->storage.layout_nodes.data || !scene->nodes ||
-            !ui_widget_manager_initialize(&scene->widgets, scene->storage.widgets,
-                                          scene->storage.layout_nodes)) {
-            return false;
-        }
-    } else {
-        ui_widget_manager_reset(&scene->widgets);
-    }
+    // An uninitialized manager ignores the reset and refuses the root below.
+    ui_widget_manager_reset(&scene->widgets);
     for (u32 index = 0; index < static_cast<u32>(UiSemantic::count); ++index) {
         scene->semantics[index] = ui_widget_invalid_handle();
     }
@@ -438,13 +409,11 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
             return false;
 
     update_header_controls(scene, metrics, width, variant);
-    if (!ui_widget_manager_layout(&scene->widgets, UiSize{width, height}).ok()) {
+    if (!ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok()) {
         return false;
     }
     ++scene->layout_passes;
-    if (!project_shell(scene)) {
-        return false;
-    }
+    scene->count = scene->widgets.count;
     ++scene->layout_rebuilds;
     return true;
 }
@@ -458,13 +427,8 @@ bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept {
         return false;
     }
     reset_value<UiScene>(scene);
-    if (!ui_fixed_widget_storage_initialize(&scene->storage, kMaximumUiNodes,
-                                            sizeof(UiNode) * kMaximumUiNodes, alignof(UiNode))) {
-        return false;
-    }
-    scene->nodes = ui_fixed_widget_storage_sidecar<UiNode>(scene->storage);
-    if (!scene->nodes || !ui_widget_manager_initialize(&scene->widgets, scene->storage.widgets,
-                                                       scene->storage.layout_nodes)) {
+    if (!ui_fixed_widget_storage_initialize(&scene->storage, kMaximumUiNodes) ||
+        !ui_widget_manager_initialize(&scene->widgets, scene->storage.widgets, scene->storage.layout_nodes)) {
         ui_scene_release(scene);
         return false;
     }
@@ -496,15 +460,12 @@ bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShel
     }
     if (same_structure) {
         update_header_controls(scene, metrics, width, variant);
-        if (!ui_widget_manager_layout(&scene->widgets, UiSize{width, height}).ok()) {
+        if (!ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok()) {
             ++scene->rejected;
             return false;
         }
         ++scene->layout_passes;
-        if (!project_shell(scene)) {
-            ++scene->rejected;
-            return false;
-        }
+        scene->count = scene->widgets.count;
     } else if (!build_shell(scene, view, metrics, variant, width, height)) {
         ++scene->rejected;
         return false;
@@ -532,51 +493,33 @@ float ui_scene_composer_width(const UiShellLayoutMetrics& metrics, float width) 
                             metrics.composer_margin.left - metrics.composer_margin.right);
 }
 
-UiNodeHandle ui_scene_find(const UiScene& scene, UiSemantic semantic) noexcept {
-    const u32 semantic_index = static_cast<u32>(semantic);
-    if (semantic_index >= static_cast<u32>(UiSemantic::count)) {
-        return UiNodeHandle{kInvalidUiWidgetSlot, 0};
-    }
-    const UiWidgetHandle widget = scene.semantics[semantic_index];
-    return UiNodeHandle{widget.slot, widget.generation};
-}
-
-const UiNode* ui_scene_resolve(const UiScene& scene, UiNodeHandle handle) noexcept {
-    if (handle.generation == 0 || handle.slot >= scene.count) {
-        return nullptr;
-    }
-    const UiNode& node = scene.nodes[handle.slot];
-    return node.visible && node.generation == handle.generation ? &node : nullptr;
-}
-
-const UiNode* ui_scene_resolve_semantic(const UiScene& scene, UiSemantic semantic) noexcept {
-    return ui_scene_resolve(scene, ui_scene_find(scene, semantic));
+const UiLayoutNode* ui_scene_node(const UiScene& scene, UiSemantic semantic) noexcept {
+    const UiLayoutNode* node =
+        ui_widget_manager_layout_node(scene.widgets, scene.semantics[static_cast<u32>(semantic)]);
+    return node && node->visible ? node : nullptr;
 }
 
 UiRect ui_scene_content_rectangle(const UiScene& scene, UiSemantic semantic) noexcept {
-    const UiNode* node = ui_scene_resolve(scene, ui_scene_find(scene, semantic));
-    const UiLayoutNode* layout =
-        node ? ui_widget_manager_layout_node(scene.widgets, node->widget) : nullptr;
-    return layout ? layout->content_rectangle : UiRect{};
+    const UiLayoutNode* node = ui_scene_node(scene, semantic);
+    return node ? node->content_rectangle : UiRect{};
 }
 
 UiShellHeaderGeometry ui_scene_header_geometry(const UiScene& scene) noexcept {
     UiShellHeaderGeometry geometry{};
-    const auto* title = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_bar));
+    const auto* title = ui_scene_node(scene, UiSemantic::title_bar);
     if (!title)
         return geometry;
     geometry.title = title->rectangle;
-    if (const auto* label = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::title_label)))
-        geometry.label = label->rectangle;
-    if (const auto* toggle = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::member_toggle)))
-        geometry.member_toggle = toggle->rectangle;
-    if (const auto* pins = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::pins_toggle)))
-        geometry.pins = pins->rectangle;
-    if (const auto* threads = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::threads_toggle)))
-        geometry.threads = threads->rectangle;
-    if (const auto* inbox = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::inbox_toggle)))
-        geometry.inbox = inbox->rectangle;
-    const auto content = ui_scene_content_rectangle(scene, UiSemantic::title_bar);
+    const auto rectangle = [&](UiSemantic semantic) noexcept {
+        const auto* node = ui_scene_node(scene, semantic);
+        return node ? node->rectangle : UiRect{};
+    };
+    geometry.label = rectangle(UiSemantic::title_label);
+    geometry.member_toggle = rectangle(UiSemantic::member_toggle);
+    geometry.pins = rectangle(UiSemantic::pins_toggle);
+    geometry.threads = rectangle(UiSemantic::threads_toggle);
+    geometry.inbox = rectangle(UiSemantic::inbox_toggle);
+    const auto content = title->content_rectangle;
     const float controls_width = (ui_rect_has_area(geometry.member_toggle) ? 52.f : 8.f) +
                                  (ui_rect_has_area(geometry.pins) ? 44.f : 0.f) +
                                  (ui_rect_has_area(geometry.threads) ? 44.f : 0.f);

@@ -978,7 +978,7 @@ MessageRichLayout message_rich_aggregate_layout(const MessageRichRecord& rich,
     // Truncation notices and message annotations (ephemeral footer, failed
     // interaction) share the notice item; the estimate seeds only truncation.
     result.notice = items.heights[kMessageRichNoticeItemOffset];
-    result.thread = rich.thread.id && !rich.forwarded_snapshot_child
+    result.thread = message_rich_has_thread_card(rich)
                         ? kMessageThreadCardGapDips + kMessageThreadCardHeightDips
                         : 0.0f;
     // Invite cards come from the content, not the rich record; their item

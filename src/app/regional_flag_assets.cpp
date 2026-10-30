@@ -77,8 +77,11 @@ ConstSlice<u8> regional_flag_bundled_svg(u16 sequence, Slice<u8> scratch) noexce
     const FlagGroup& group=kFlagGroups[entry.group];
     if(scratch.count<group.raw_bytes)return {};
     const DeflateInputSpan input{kFlagPacked+group.packed_offset,group.packed_bytes};
-    DeflateWorkspace workspace;
-    if(!zlib_inflate({&input,1},{scratch.data,group.raw_bytes},group.raw_bytes,&workspace).ok())return {};
+    DeflateWorkspace* workspace=deflate_workspace_allocate();
+    const bool inflated=workspace&&
+        zlib_inflate({&input,1},{scratch.data,group.raw_bytes},group.raw_bytes,workspace).ok();
+    deflate_workspace_free(workspace);
+    if(!inflated)return {};
     return flag_text({scratch.data+entry.offset,entry.bytes},
                      {scratch.data+group.raw_bytes,scratch.count-group.raw_bytes});
 }

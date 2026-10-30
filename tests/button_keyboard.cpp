@@ -28,7 +28,7 @@ void test_button_keyboard(void (*check)(bool, const char*) noexcept) noexcept {
     const auto edit = ui_widget_manager_add(
         &manager, root.handle,
         {4, UiWidgetKind::text_field, interactive, {utf8_literal("Edit"), button_style}});
-    if (!edit.ok() || !ui_widget_manager_layout(&manager, {100, 100}).ok() ||
+    if (!edit.ok() || !ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 100}).ok() ||
         !ui_widget_manager_focus(&manager, first.handle)) {
         check(false, "button keyboard fixture initializes");
         return;
@@ -75,11 +75,11 @@ void test_button_keyboard(void (*check)(bool, const char*) noexcept) noexcept {
     check(!ui_button_keyboard_key(&keyboard, &manager, UiButtonKey::space, false).activate,
           "ancestor hidden before layout cancels activation");
     nodes[root.handle.slot].spec.style.flags |= ui_layout_node_visible;
-    ui_widget_manager_layout(&manager, {100, 20});
+    ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 20});
     check(!ui_button_keyboard_key(&keyboard, &manager, UiButtonKey::enter, true).activate &&
               !ui_button_keyboard_key(&keyboard, &manager, UiButtonKey::space, true).handled,
           "fully clipped buttons cannot acquire keyboard presses");
-    ui_widget_manager_layout(&manager, {100, 100});
+    ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 100});
     ui_widget_manager_focus(&manager, edit.handle);
     check(!ui_button_keyboard_key(&keyboard, &manager, UiButtonKey::enter, true).handled,
           "text fields retain their own Enter behavior");
@@ -88,7 +88,7 @@ void test_button_keyboard(void (*check)(bool, const char*) noexcept) noexcept {
     ui_widget_manager_reset(&manager);
     root = ui_widget_manager_add(&manager, ui_widget_invalid_handle(), root_desc);
     const auto recreated = ui_widget_manager_add(&manager, root.handle, button_desc);
-    ui_widget_manager_layout(&manager, {100, 100});
+    ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 100});
     ui_widget_manager_focus(&manager, recreated.handle);
     check(recreated.handle.generation != first.handle.generation &&
               !ui_button_keyboard_key(&keyboard, &manager, UiButtonKey::space, false).activate,

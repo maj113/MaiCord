@@ -122,11 +122,11 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     check(ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 1700) &&
               ui_tooltip_tick(&scene, 2200, &cache),
           "tooltip: edge presentation prepares clip guard fixture");
-    const auto root_clip = nodes[widgets[root.handle.slot].layout.slot].clip_rectangle;
-    nodes[widgets[root.handle.slot].layout.slot].clip_rectangle = {0, 0, 1, 1};
+    const auto root_clip = nodes[root.handle.slot].clip_rectangle;
+    nodes[root.handle.slot].clip_rectangle = {0, 0, 1, 1};
     check(!ui_tooltip_visible(scene),
           "tooltip: clipped emission owner cannot silently hide only its label");
-    nodes[widgets[root.handle.slot].layout.slot].clip_rectangle = root_clip;
+    nodes[root.handle.slot].clip_rectangle = root_clip;
     ui_tooltip_clear(&scene);
     ui_text_measure_cache_invalidate(&cache);
     cache.backend = failed_measure;

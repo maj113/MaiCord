@@ -20,8 +20,7 @@ inline constexpr float kUiMediaPickerHeight = 486;
 // its control with the popout's 8 DIP spacing.
 inline constexpr float kUiMediaPickerReactionWidth = 498;
 inline constexpr float kUiMediaPickerReactionHeight = 440;
-// Value-owned DIP metrics let a theme choose spacing and control density without
-// retaining plugin memory. Geometry and presentation consume the same snapshot.
+// Value-owned DIP metrics: geometry and presentation consume the same snapshot.
 // Grid cells are fixed: a wider pane fits more columns, never larger cells.
 struct UiMediaPickerMetrics {
     float panel_width, panel_height, viewport_inset, anchor_gap;
@@ -88,9 +87,6 @@ constexpr UiMediaPickerStyle ui_media_picker_style() noexcept {
     style.category_opacity = kUiMediaHoverOpacity;
     return style;
 }
-// Non-finite, out-of-bounds or geometrically incompatible overrides fall back
-// as a complete style to these safe defaults, never to partially mixed metrics.
-bool ui_media_picker_style_valid(const UiMediaPickerStyle&) noexcept;
 // The reaction popout is the emoji picker without the tab selector, at the
 // popout size and spacing; every other metric is shared.
 constexpr UiMediaPickerStyle ui_media_picker_reaction_style() noexcept {
@@ -334,6 +330,10 @@ struct UiMediaPickerScene {
     UiMediaPickerTile* tiles;
     u32 tile_capacity, tile_count, tile_source_revision;
     float tile_width, tile_tallest, tile_extent;
+    // The previous visible cells, kept across a rebuild so cells that stay in
+    // view keep their resolved items. Owned; grows only past its capacity.
+    UiMediaPickerCell* prior;
+    u32 prior_capacity;
     u16 tile_columns;
     bool masonry;
     // Footer text, formatted when the inspected item changes.
@@ -364,7 +364,6 @@ struct UiMediaPickerScene {
 // the available width. Reaction popouts retain their own themed width.
 bool ui_media_picker_scene_update(UiMediaPickerScene*, const UiMediaPickerSource*,
                                   const UiMediaPickerContent*, UiRect viewport, UiRect anchor,
-                                  const UiMediaPickerStyle* style = nullptr,
                                   float preferred_width = 0) noexcept;
 bool ui_media_picker_scene_current(const UiMediaPickerScene&) noexcept;
 // The section at the top of the body (its rail entry is the current category).

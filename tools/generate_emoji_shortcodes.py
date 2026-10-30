@@ -172,9 +172,9 @@ def generate(catalog, gemoji, presets):
     primary = primary_names(catalog, joypixels, gemoji, aliases)
     glyph_values = [glyph.encode('utf-8') for _, glyph in catalog.entries]
     glyph_values += [glyph.encode('utf-8') for glyph in aliases.values()]
-    glyphs, _ = pool_strings(glyph_values)
+    glyphs, _ = pool_strings(glyph_values, short_first=True)
     ordered = sorted(aliases)
-    names, name_offsets = pool_strings([name.encode('ascii') for name in ordered])
+    names, name_offsets = pool_strings([name.encode('ascii') for name in ordered], short_first=True)
     rows = []
     for name, name_offset in zip(ordered, name_offsets):
         glyph = aliases[name].encode('utf-8')

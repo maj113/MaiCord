@@ -179,6 +179,79 @@ bool append_invite_cards(const MessageScene& scene, const MessageSceneRowWidget&
     return true;
 }
 
+// The rare, stack-heavy parts of a row stay out of append_row's frame, which
+// every painted row enters.
+__declspec(noinline) bool append_system_glyph(const MessageScene& scene, const MessageRecord& record,
+                                              const UiLayoutNode& avatar, const UiLayoutNode& body,
+                                              const Theme& theme, PaintStream* paint) noexcept {
+    // System rows: a tinted glyph centred in the avatar gutter, on the first
+    // text line.
+    const MessageRichRecord* system_rich =
+        scene.timeline->rich_store ? message_rich_store_find(*scene.timeline->rich_store, record.id) : nullptr;
+    MessageSystemTextInput input{};
+    input.type = record.type;
+    input.message_id = record.id;
+    if (system_rich && system_rich->message_revision == record.revision) {
+        input.call_present = system_rich->system.call_present;
+        input.call_ended = system_rich->system.call_ended;
+        input.call_participated = system_rich->system.call_participated;
+        input.same_user = system_rich->system.target_user_id == record.author_id;
+    }
+    char storage[kMessageSystemTextMaximumBytes];
+    MessageSystemText system{};
+    if (!message_system_text_build(input, {storage, sizeof(storage)}, &system))
+        return true;
+    const float extent = 18.0f;
+    const float center = (avatar.rectangle.left + avatar.rectangle.right) * 0.5f;
+    const float top = body.content_rectangle.top + 2.0f;
+    const UiRect glyph{center - extent * 0.5f, top, center + extent * 0.5f, top + extent};
+    return ui_icon_paint(paint, system.icon, glyph, tone_color(theme, system.tone));
+}
+
+__declspec(noinline) bool append_poll(const MessageScene& scene, const MessageSceneRowWidget& row,
+                                      const Theme& theme, const UiRect& row_clip, PaintStream* paint,
+                                      MessageMediaCommandStream* media) noexcept {
+    UiPollAnswer answers[kUiPollMaximumAnswers]{};
+    UiPollProjection poll{};
+    const UiWidgetReference owner{&scene.widgets, row.poll};
+    UiPollStyle poll_style;
+    ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
+    if (row.poll_unavailable) {
+        const auto* node = message_scene_layout_node(scene, row.poll);
+        if (!node || !push_card(paint,
+                                {node->rectangle.left, node->rectangle.top,
+                                 minimum(node->rectangle.right, node->rectangle.left + poll_style.maximum_width),
+                                 node->rectangle.top + row.poll_height -
+                                     ui_theme_metrics(scene.theme_styles).message_rich_gap},
+                                theme, ui_theme_metrics(scene.theme_styles).control_radius,
+                                UiBackgroundTier::high))
+            return false;
+    } else if (!message_scene_poll_projection(scene, row, theme, {answers, kUiPollMaximumAnswers}, &poll) ||
+               !ui_poll_controls_paint(poll, poll_style, row_clip, theme, owner, paint))
+        return false;
+    for (u32 i = 0; i < poll.state.answers.count; ++i) {
+        const auto& answer = poll.state.answers[i];
+        if (answer.emoji_id &&
+            !append_media(media, answer.emoji_id, MessageMediaCommandKind::custom_emoji, 0, answer.emoji_animated,
+                          poll.geometry.answers[i].emoji, row_clip, owner))
+            return false;
+    }
+    return true;
+}
+
+__declspec(noinline) bool paint_audio_attachment(const MessageRichStore& store, const MessageRichAttachment& attachment,
+                                                 const MessageRichRecord& rich, const UiRect& card,
+                                                 const UiRect& row_clip, const Theme& theme,
+                                                 const UiAudioControlsStyle& style, const UiWidgetReference& owner,
+                                                 PaintStream* paint) noexcept {
+    u8 waveform[kUiAudioWaveformMaximum]{};
+    UiAudioControlsProjection projection{};
+    return ui_audio_attachment_project(store, attachment, rich.message_id, rich.message_revision,
+                                       message_rich_record_voice(rich), card, theme, {waveform, sizeof(waveform)},
+                                       &projection) &&
+           ui_audio_controls_paint(projection, style, row_clip, theme, owner, paint);
+}
+
 bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, const Theme& theme,
                 PaintStream* paint, MessageMediaCommandStream* media, u32* geometry_quads) noexcept {
     if (row.redacted || scene.content_gated)
@@ -229,62 +302,14 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         !paint_stream_push_rounded(paint, avatar->rectangle, theme.avatar_placeholder,
                                    ui_rect_width(avatar->rectangle) * 0.5f))
         return false;
-    if (!row.forwarded_snapshot && record && message_type_is_system(record->type) && avatar) {
-        // System rows: a tinted glyph centred in the avatar gutter, on the
-        // first text line.
-        const MessageRichRecord* system_rich =
-            scene.timeline->rich_store ? message_rich_store_find(*scene.timeline->rich_store, record->id) : nullptr;
-        MessageSystemTextInput input{};
-        input.type = record->type;
-        input.message_id = record->id;
-        if (system_rich && system_rich->message_revision == record->revision) {
-            input.call_present = system_rich->system.call_present;
-            input.call_ended = system_rich->system.call_ended;
-            input.call_participated = system_rich->system.call_participated;
-            input.same_user = system_rich->system.target_user_id == record->author_id;
-        }
-        char storage[kMessageSystemTextMaximumBytes];
-        MessageSystemText system{};
-        if (message_system_text_build(input, {storage, sizeof(storage)}, &system)) {
-            const float extent = 18.0f;
-            const float center = (avatar->rectangle.left + avatar->rectangle.right) * 0.5f;
-            const float top = body->content_rectangle.top + 2.0f;
-            const UiRect glyph{center - extent * 0.5f, top, center + extent * 0.5f, top + extent};
-            if (!ui_icon_paint(paint, system.icon, glyph, tone_color(theme, system.tone)))
-                return false;
-        }
-    }
+    if (!row.forwarded_snapshot && record && message_type_is_system(record->type) && avatar &&
+        !append_system_glyph(scene, *record, *avatar, *body, theme, paint))
+        return false;
 
     const MessageRichStore* rich_store = scene.timeline->rich_store;
-    if (!row.forwarded_snapshot && row.poll_content_revision) {
-        UiPollAnswer answers[kUiPollMaximumAnswers]{};
-        UiPollProjection poll{};
-        const UiWidgetReference owner{&scene.widgets, row.poll};
-        UiPollStyle poll_style;
-        ui_theme_fill_poll_style(scene.theme_styles, &poll_style);
-        if (row.poll_unavailable) {
-            const auto* node = message_scene_layout_node(scene, row.poll);
-            if (!node || !push_card(paint,
-                                    {node->rectangle.left, node->rectangle.top,
-                                     minimum(node->rectangle.right, node->rectangle.left + poll_style.maximum_width),
-                                     node->rectangle.top + row.poll_height -
-                                         ui_theme_metrics(scene.theme_styles).message_rich_gap},
-                                    theme, ui_theme_metrics(scene.theme_styles).control_radius,
-                                    UiBackgroundTier::high))
-                return false;
-        } else if (!message_scene_poll_projection(scene, row, theme, {answers, kUiPollMaximumAnswers},
-                                                  &poll) ||
-                   !ui_poll_controls_paint(poll, poll_style, row_clip, theme,
-                                           owner, paint))
-            return false;
-        for (u32 i = 0; i < poll.state.answers.count; ++i) {
-            const auto& answer = poll.state.answers[i];
-            if (answer.emoji_id &&
-                !append_media(media, answer.emoji_id, MessageMediaCommandKind::custom_emoji, 0,
-                              answer.emoji_animated, poll.geometry.answers[i].emoji, row_clip, owner))
-                return false;
-        }
-    }
+    if (!row.forwarded_snapshot && row.poll_content_revision &&
+        !append_poll(scene, row, theme, row_clip, paint, media))
+        return false;
     const MessageRichRecord* rich =
         record && rich_store
             ? (row.forwarded_snapshot ? message_rich_store_snapshot(*rich_store, record->id)
@@ -422,13 +447,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                      item_layout->content_rectangle.right, top + audio_height};
             if (!ui_rect_intersects(card, row_clip))
                 continue;
-            u8 waveform[kUiAudioWaveformMaximum]{};
-            UiAudioControlsProjection projection{};
-            if (!ui_audio_attachment_project(*rich_store, attachment, rich->message_id,
-                                             rich->message_revision, message_rich_record_voice(*rich), card,
-                                             theme, {waveform, sizeof(waveform)}, &projection) ||
-                !ui_audio_controls_paint(projection, audio_style, row_clip,
-                                         theme, owner, paint))
+            if (!paint_audio_attachment(*rich_store, attachment, *rich, card, row_clip, theme, audio_style, owner,
+                                        paint))
                 return false;
         } else if (message_rich_attachment_preview_extent(*rich_store, attachment,
                                                           ui_rect_width(item_layout->content_rectangle),

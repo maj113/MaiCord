@@ -4,21 +4,17 @@
 #include "png_common.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {
 
-// Two-level decode tables. A root entry either decodes a whole codeword or
-// points at a subtable indexed by the codeword's remaining bits.
+// Two-level decode tables (DeflateTables). A root entry either decodes a whole
+// codeword or points at a subtable indexed by the codeword's remaining bits.
 constexpr u32 kLitlenTableBits = 11;
 constexpr u32 kDistanceTableBits = 8;
 constexpr u32 kPrecodeTableBits = 7;
-// Largest table, including subtables, any complete code of 288/32/19 symbols
-// needs with these root widths.
-constexpr u32 kLitlenTableEntries = 2342;
-constexpr u32 kDistanceTableEntries = 402;
-constexpr u32 kPrecodeTableEntries = 128;
 // A fast iteration writes at most one 258-byte match plus a 15-byte chunk tail.
 constexpr u32 kFastOutputMargin = 258 + 16;
 
@@ -33,15 +29,6 @@ enum EntryKind : u32 {
     kEntryEmpty, // distance code without codewords
 };
 enum class TableKind : u8 { litlen, distance, precode };
-
-struct DecodeTables {
-    u32 litlen[kLitlenTableEntries];
-    u32 distance[kDistanceTableEntries];
-    u32 precode[kPrecodeTableEntries];
-    u8 litlen_maximum;
-    u8 distance_maximum;
-    u8 precode_maximum;
-};
 
 // Whole bytes in bit_buffer are not consumed yet. Outside the fast loop the
 // bits above bit_count are zero, so a short final lookup sees zero padding.
@@ -62,7 +49,6 @@ struct InflateState {
     BitReader reader;
     Slice<u8> output;
     DeflateWorkspace* workspace;
-    DecodeTables* tables;
     u32 output_bytes;
     u32 blocks;
     u32 literals;
@@ -250,24 +236,24 @@ bool build_table(const u8* lengths, u32 symbol_count, TableKind kind, u32 table_
     return true;
 }
 
-void build_fixed_tables(DecodeTables* tables) noexcept {
+void build_fixed_tables(DeflateTables* tables) noexcept {
     u8 lengths[kDeflateLiteralSymbolCapacity + kDeflateDistanceSymbolCapacity];
     for (u32 symbol = 0; symbol < kDeflateLiteralSymbolCapacity; ++symbol)
         lengths[symbol] = symbol <= 143 ? 8 : symbol <= 255 ? 9 : symbol <= 279 ? 7 : 8;
     for (u32 symbol = 0; symbol < kDeflateDistanceSymbolCapacity; ++symbol)
         lengths[kDeflateLiteralSymbolCapacity + symbol] = 5;
     build_table(lengths, kDeflateLiteralSymbolCapacity, TableKind::litlen, kLitlenTableBits,
-                kLitlenTableEntries, tables->litlen, &tables->litlen_maximum, false, false);
+                kDeflateLitlenTableEntries, tables->litlen, &tables->litlen_maximum, false, false);
     build_table(lengths + kDeflateLiteralSymbolCapacity, kDeflateDistanceSymbolCapacity, TableKind::distance,
-                kDistanceTableBits, kDistanceTableEntries, tables->distance, &tables->distance_maximum, false,
+                kDistanceTableBits, kDeflateDistanceTableEntries, tables->distance, &tables->distance_maximum, false,
                 false);
 }
 
-DecodeTables g_fixed_tables;
+DeflateTables g_fixed_tables;
 volatile long g_fixed_state;
 
 // Built once on first use; a thread racing the builder uses its own tables.
-const DecodeTables* fixed_tables(DecodeTables* fallback) noexcept {
+const DeflateTables* fixed_tables(DeflateTables* fallback) noexcept {
     if (g_fixed_state == 2) {
         _ReadWriteBarrier();
         return &g_fixed_tables;
@@ -639,7 +625,7 @@ bool decode_huffman_block(InflateState* state, const u32* litlen, const u32* dis
 
 bool build_dynamic_tables(InflateState* state) noexcept {
     BitReader* reader = &state->reader;
-    DecodeTables* tables = state->tables;
+    DeflateTables* tables = &state->workspace->tables;
     u8* lengths = state->workspace->lengths;
     u32 hlit_bits = 0;
     u32 hdist_bits = 0;
@@ -668,7 +654,7 @@ bool build_dynamic_tables(InflateState* state) noexcept {
         }
         lengths[kCodeLengthOrder[index]] = static_cast<u8>(length);
     }
-    if (!build_table(lengths, 19, TableKind::precode, kPrecodeTableBits, kPrecodeTableEntries, tables->precode,
+    if (!build_table(lengths, 19, TableKind::precode, kPrecodeTableBits, kDeflatePrecodeTableEntries, tables->precode,
                      &tables->precode_maximum, false, false)) {
         state->error = ZlibInflateError::invalid_huffman;
         return false;
@@ -708,10 +694,10 @@ bool build_dynamic_tables(InflateState* state) noexcept {
         }
     }
     if (lengths[256] == 0 ||
-        !build_table(lengths, literal_count, TableKind::litlen, kLitlenTableBits, kLitlenTableEntries,
+        !build_table(lengths, literal_count, TableKind::litlen, kLitlenTableBits, kDeflateLitlenTableEntries,
                      tables->litlen, &tables->litlen_maximum, false, true) ||
         !build_table(lengths + literal_count, distance_count, TableKind::distance, kDistanceTableBits,
-                     kDistanceTableEntries, tables->distance, &tables->distance_maximum, true, true)) {
+                     kDeflateDistanceTableEntries, tables->distance, &tables->distance_maximum, true, true)) {
         state->error = ZlibInflateError::invalid_huffman;
         return false;
     }
@@ -747,14 +733,15 @@ bool decode_block(InflateState* state, u32 type) noexcept {
     case 0:
         return decode_stored_block(state);
     case 1: {
-        const DecodeTables* fixed = fixed_tables(state->tables);
+        const DeflateTables* fixed = fixed_tables(&state->workspace->tables);
         return decode_huffman_block(state, fixed->litlen, fixed->distance, fixed->litlen_maximum,
                                     fixed->distance_maximum);
     }
-    case 2:
-        return build_dynamic_tables(state) &&
-               decode_huffman_block(state, state->tables->litlen, state->tables->distance,
-                                    state->tables->litlen_maximum, state->tables->distance_maximum);
+    case 2: {
+        const DeflateTables& tables = state->workspace->tables;
+        return build_dynamic_tables(state) && decode_huffman_block(state, tables.litlen, tables.distance,
+                                                                   tables.litlen_maximum, tables.distance_maximum);
+    }
     default:
         state->error = ZlibInflateError::invalid_block;
         return false;
@@ -845,13 +832,20 @@ bool read_zlib_header(BitReader* reader, u32* window_size, ZlibInflateError* err
 
 } // namespace
 
+DeflateWorkspace* deflate_workspace_allocate() noexcept {
+    return static_cast<DeflateWorkspace*>(HeapAlloc(process_heap(), 0, sizeof(DeflateWorkspace)));
+}
+
+void deflate_workspace_free(DeflateWorkspace* workspace) noexcept {
+    if (workspace)
+        HeapFree(process_heap(), 0, workspace);
+}
+
 ZlibInflateResult zlib_inflate(ConstSlice<DeflateInputSpan> input, Slice<u8> output,
                                u32 expected_output_bytes, DeflateWorkspace* workspace) noexcept {
     InflateState state{};
-    DecodeTables tables;
     state.output = output;
     state.workspace = workspace;
-    state.tables = &tables;
     if (!workspace || (!output.data && output.count != 0) || !reader_initialize(&state.reader, input)) {
         return failure(state, ZlibInflateError::invalid_input);
     }
@@ -887,10 +881,8 @@ ZlibInflateResult zlib_inflate_windowed(ConstSlice<DeflateInputSpan> input, Slic
                                         u32 expected_output_bytes, ZlibInflateSink sink, void* context,
                                         DeflateWorkspace* workspace) noexcept {
     InflateState state{};
-    DecodeTables tables;
     state.output = window;
     state.workspace = workspace;
-    state.tables = &tables;
     state.sink = sink;
     state.sink_context = context;
     state.adler = 1;
@@ -930,7 +922,6 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
         result.error = error;
         return result;
     };
-    DecodeTables tables;
     while (cursor < input.count) {
         const u32 header = cursor;
         if (input.count - cursor < 18)
@@ -973,7 +964,6 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
         state.output = {output.data ? output.data + result.output_bytes : nullptr,
                         output.count - result.output_bytes};
         state.workspace = workspace;
-        state.tables = &tables;
         state.window_size = 32768;
         if (!reader_initialize(&state.reader, {&span, 1}) || !decode_final_blocks(&state))
             return fail(state.error == ZlibInflateError::none ? ZlibInflateError::truncated : state.error);

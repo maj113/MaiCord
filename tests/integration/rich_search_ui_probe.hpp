@@ -325,7 +325,7 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
     renderer.media_picker_scene = nullptr; renderer_bind_popup_scene(&renderer,nullptr); renderer.focus_owner = nullptr;
     Theme theme = kDefaultTheme;
     const auto project = [&]() noexcept {
-        const auto* title = ui_scene_resolve(*renderer.ui_scene,ui_scene_find(*renderer.ui_scene,UiSemantic::title_bar));
+        const auto* title = ui_scene_node(*renderer.ui_scene, UiSemantic::title_bar);
         const auto header = ui_scene_header_geometry(*renderer.ui_scene);
         auto viewport = ui_scene_content_rectangle(*renderer.ui_scene,UiSemantic::content);
         viewport.right = renderer.width * 96.f / renderer.dpi;
@@ -558,7 +558,7 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
     f.content.total = 0; f.content.offset = 0; f.content.previous = f.content.next = false;
     f.content.status = utf8_literal("No results in this search scope."); ++f.content.revision;
     renderer_unbind_search_message_text_presentation(&renderer);
-    const auto* title = ui_scene_resolve(*renderer.ui_scene,ui_scene_find(*renderer.ui_scene,UiSemantic::title_bar));
+    const auto* title = ui_scene_node(*renderer.ui_scene, UiSemantic::title_bar);
     const auto header = ui_scene_header_geometry(*renderer.ui_scene);
     auto viewport = ui_scene_content_rectangle(*renderer.ui_scene,UiSemantic::content); viewport.right = renderer.width * 96.f / renderer.dpi;
     if (!require(title && ui_search_scene_update(&f.scene,&empty,&f.content,viewport,title->rectangle,&header) && !f.scene.count &&

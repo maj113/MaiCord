@@ -109,9 +109,9 @@ bool intersect_scissor(D3D11_RECT* rectangle, const D3D11_RECT* damage) noexcept
     return rectangle->left < rectangle->right && rectangle->top < rectangle->bottom;
 }
 
-const UiNode* scene_node(const D3D11Renderer* renderer, UiSemantic semantic) noexcept {
+const UiLayoutNode* scene_node(const D3D11Renderer* renderer, UiSemantic semantic) noexcept {
     return renderer->ui_scene
-               ? ui_scene_resolve(*renderer->ui_scene, ui_scene_find(*renderer->ui_scene, semantic))
+               ? ui_scene_node(*renderer->ui_scene, semantic)
                : nullptr;
 }
 
@@ -144,40 +144,54 @@ void select_pipeline(D3D11Renderer* renderer, DrawSubmissionState* submission, D
     const auto& pipeline = renderer->pipeline;
     const UINT offset = 0;
     if (next == DrawPipeline::paint) {
-        const UINT stride = sizeof(PaintQuad);
-        context->IASetInputLayout(pipeline.ui_input_layout);
-        context->IASetVertexBuffers(0, 1, &pipeline.ui_instance_buffer, &stride, &offset);
+        if (draw_submission_input(submission, next)) {
+            const UINT stride = sizeof(PaintQuad);
+            context->IASetInputLayout(pipeline.ui_input_layout);
+            context->IASetVertexBuffers(0, 1, &pipeline.ui_instance_buffer, &stride, &offset);
+        }
         context->VSSetShader(pipeline.ui_vertex_shader, nullptr, 0);
         context->PSSetShader(pipeline.ui_pixel_shader, nullptr, 0);
         // Opaque gradient surfaces sample global DIP dimensions (b0) and the
         // background palette (b1) in UiPS; b1 is empty without a background.
         ID3D11Buffer* constants[2]{pipeline.ui_frame_buffer,
                                    pipeline.background_active ? pipeline.background_buffer : nullptr};
-        context->PSSetConstantBuffers(0, 2, constants);
-        ID3D11ShaderResourceView* icon_view = renderer->icon_atlas.gpu.texture_view;
-        context->PSSetShaderResources(0, 1, &icon_view);
+        if (draw_submission_pixel_constants(submission, true, constants[1]))
+            context->PSSetConstantBuffers(0, 2, constants);
+        if (draw_submission_views(submission, next)) {
+            ID3D11ShaderResourceView* icon_view = renderer->icon_atlas.gpu.texture_view;
+            context->PSSetShaderResources(0, 1, &icon_view);
+        }
     } else if (next == DrawPipeline::glyph) {
-        const UINT stride = sizeof(GlyphQuad);
-        context->IASetInputLayout(pipeline.glyph_input_layout);
-        context->IASetVertexBuffers(0, 1, &pipeline.glyph_instance_buffer, &stride, &offset);
+        if (draw_submission_input(submission, next)) {
+            const UINT stride = sizeof(GlyphQuad);
+            context->IASetInputLayout(pipeline.glyph_input_layout);
+            context->IASetVertexBuffers(0, 1, &pipeline.glyph_instance_buffer, &stride, &offset);
+        }
         context->VSSetShader(pipeline.glyph_vertex_shader, nullptr, 0);
         context->PSSetShader(pipeline.glyph_pixel_shader, nullptr, 0);
         // UiBackground shares b1 with the optional glyph appearance constants.
         ID3D11Buffer* effects = renderer->text_effect_count ? renderer->text_effect_buffer : nullptr;
-        context->PSSetConstantBuffers(1, 1, &effects);
-        ID3D11ShaderResourceView* glyph_views[]{renderer->glyph_text.gpu.texture_view,
-                                                d3d11_glyph_text_color_view(renderer->glyph_text)};
-        context->PSSetShaderResources(0, 2, glyph_views);
+        if (draw_submission_pixel_constants(submission, false, effects))
+            context->PSSetConstantBuffers(1, 1, &effects);
+        if (draw_submission_views(submission, next)) {
+            ID3D11ShaderResourceView* glyph_views[]{renderer->glyph_text.gpu.texture_view,
+                                                    d3d11_glyph_text_color_view(renderer->glyph_text)};
+            context->PSSetShaderResources(0, 2, glyph_views);
+        }
     } else {
-        const UINT stride = sizeof(MediaQuad);
-        context->IASetInputLayout(pipeline.media_input_layout);
-        context->IASetVertexBuffers(0, 1, &pipeline.media_instance_buffer, &stride, &offset);
+        if (draw_submission_input(submission, next)) {
+            const UINT stride = sizeof(MediaQuad);
+            context->IASetInputLayout(pipeline.media_input_layout);
+            context->IASetVertexBuffers(0, 1, &pipeline.media_instance_buffer, &stride, &offset);
+        }
         context->VSSetShader(pipeline.media_vertex_shader, nullptr, 0);
         context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
-        ID3D11ShaderResourceView* media_views[3]{renderer->media_gpu.texture_view,
-                                                 renderer->animation_gpu.texture_view,
-                                                 renderer->media_gpu.preview_texture_view};
-        context->PSSetShaderResources(0, 3, media_views);
+        if (draw_submission_views(submission, next)) {
+            ID3D11ShaderResourceView* media_views[3]{renderer->media_gpu.texture_view,
+                                                     renderer->animation_gpu.texture_view,
+                                                     renderer->media_gpu.preview_texture_view};
+            context->PSSetShaderResources(0, 3, media_views);
+        }
     }
 }
 
@@ -189,17 +203,34 @@ void set_scissor(D3D11Renderer* renderer, DrawSubmissionState* submission, const
     }
 }
 
-// A batch's clip in target pixels, limited to the damage; false when empty.
+// A batch's clip in target pixels (`*pixels`), limited to the damage
+// (`*scissor`); false when that is empty.
 bool batch_scissor(const D3D11Renderer& renderer, const UiRect& clip, float pixel_scale, const D3D11_RECT* damage,
-                   RasterClipRect* scissor) noexcept {
-    const RasterClipRect pixels =
-        raster_clip_rectangle(layer_clip(renderer, clip), pixel_scale, renderer.width, renderer.height);
-    D3D11_RECT rectangle{pixels.left, pixels.top, pixels.right, pixels.bottom};
+                   RasterClipRect* scissor, RasterClipRect* pixels) noexcept {
+    *pixels = raster_clip_rectangle(layer_clip(renderer, clip), pixel_scale, renderer.width, renderer.height);
+    D3D11_RECT rectangle{pixels->left, pixels->top, pixels->right, pixels->bottom};
     if (!intersect_scissor(&rectangle, damage))
         return false;
     *scissor = {rectangle.left, rectangle.top, rectangle.right, rectangle.bottom};
     return true;
 }
+
+// A batch whose quads all lie inside its clip needs no clip scissor: the whole
+// target (limited to the damage) lets neighbouring batches draw as one call.
+// The paint and media vertex shaders draw exactly each quad's rectangle; a
+// glyph text effect may move its quad, so the glyph caller rejects those.
+void widen_scissor(const D3D11Renderer& renderer, const D3D11_RECT* damage, const void* quads, u32 stride, u32 count,
+                   const RasterClipRect& pixels, float pixel_scale, u32 sign_offset,
+                   RasterClipRect* scissor) noexcept {
+    if (renderer.draw_layer_scale != 1 ||
+        !draw_quads_within(quads, stride, count, pixels, pixel_scale, renderer.width, renderer.height, sign_offset))
+        return;
+    D3D11_RECT whole{0, 0, static_cast<LONG>(renderer.width), static_cast<LONG>(renderer.height)};
+    if (intersect_scissor(&whole, damage))
+        *scissor = {whole.left, whole.top, whole.right, whole.bottom};
+}
+static_assert(__builtin_offsetof(PaintQuad, bottom) == 12 && __builtin_offsetof(GlyphQuad, bottom) == 12 &&
+              __builtin_offsetof(MediaQuad, bottom) == 12);
 
 // Where a pass's instances live: glyph instances [0, prefix) start at
 // prefix_base in the ring and the rest at suffix_base; paint and media keep
@@ -303,16 +334,11 @@ bool draw_gpu_media(D3D11Renderer* renderer, DrawSubmissionState* submission, u3
     DrawRun run{};
     for (u32 index = first_batch; index < end_batch; ++index) {
         const MediaDrawBatch& batch = renderer->media_draw.batch_data[index];
-        RasterClipRect scissor{};
-        if (batch_scissor(*renderer, batch.clip, pixel_scale, damage, &scissor)) {
-            // Quads wholly inside their row clip need no row scissor: one
-            // target-wide scissor lets neighbouring rows draw as one call.
-            if (renderer->draw_layer_scale == 1 &&
-                draw_quads_inside(renderer->media_draw.quad_data + batch.first_quad, batch.quad_count, batch.clip)) {
-                D3D11_RECT whole{0, 0, static_cast<LONG>(renderer->width), static_cast<LONG>(renderer->height)};
-                if (intersect_scissor(&whole, damage))
-                    scissor = {whole.left, whole.top, whole.right, whole.bottom};
-            }
+        RasterClipRect scissor{}, pixels{};
+        if (batch_scissor(*renderer, batch.clip, pixel_scale, damage, &scissor, &pixels)) {
+            // Quads wholly inside their row clip need no row scissor.
+            widen_scissor(*renderer, damage, renderer->media_draw.quad_data + batch.first_quad, sizeof(MediaQuad),
+                          batch.quad_count, pixels, pixel_scale, kDrawQuadNoSign, &scissor);
             append_run(target, &run, scissor, batch.first_quad, batch.first_quad + batch.quad_count);
             renderer->media_draws_last_frame += batch.quad_count;
         }
@@ -378,7 +404,7 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
         if (content) {
             CopyMemory(destination, text->quads + reused, static_cast<usize>(count) * sizeof(GlyphQuad));
         } else {
-            const UiNode* title =
+            const UiLayoutNode* title =
                 renderer->login_visible ? nullptr : scene_node(renderer, UiSemantic::title_bar);
             if (!renderer->login_visible && !title) {
                 renderer->graphics.context->Unmap(renderer->pipeline.glyph_instance_buffer, 0);
@@ -431,7 +457,7 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
         suffix_base + (quad_count - prefix) > renderer->pipeline.glyph_instance_end) {
         return false;
     }
-    const UiNode* title =
+    const UiLayoutNode* title =
         content || renderer->login_visible ? nullptr : scene_node(renderer, UiSemantic::title_bar);
     if (!content && !renderer->login_visible && !title) {
         return false;
@@ -450,9 +476,16 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
             batch.quad_count > quad_count - batch.first_quad) {
             return false;
         }
-        RasterClipRect scissor{};
-        if (batch_scissor(*renderer, batch.clip, pixel_scale, damage, &scissor))
+        RasterClipRect scissor{}, pixels{};
+        if (batch_scissor(*renderer, batch.clip, pixel_scale, damage, &scissor, &pixels)) {
+            // Plain glyphs wholly inside their clip need no scissor; a negative
+            // red selects a text effect whose vertex shader moves the glyph.
+            if (content)
+                widen_scissor(*renderer, damage, renderer->content_text->quads + batch.first_quad, sizeof(GlyphQuad),
+                              batch.quad_count, pixels, pixel_scale, __builtin_offsetof(GlyphQuad, color.red),
+                              &scissor);
             append_run(target, &run, scissor, batch.first_quad, batch.first_quad + batch.quad_count);
+        }
     }
     draw_run(target, run);
     return true;
@@ -500,11 +533,16 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
             lead.bottom * pixel_scale >= static_cast<float>(renderer->height) && lead.radius == 0 &&
             lead.border_width == 0 && lead.reserved_x != kUiBackgroundCanvasMarker)
             d3d11_renderer_caption_note_scrim(renderer, lead.fill, renderer->background_fx.layer_opacity);
-        RasterClipRect scissor{};
+        RasterClipRect scissor{}, pixels{};
         if (!batch_scissor(*renderer, UiRect{clip.left, clip.top, clip.right, clip.bottom}, pixel_scale, damage,
-                           &scissor)) {
+                           &scissor, &pixels)) {
             continue;
         }
+        // Quads wholly inside their clip need no scissor (the background effect
+        // pass draws under the batch's own, so effects keep it).
+        if (!effects)
+            widen_scissor(*renderer, damage, renderer->paint_stream.quads + batch.first_quad, sizeof(PaintQuad),
+                          batch.quad_count, pixels, pixel_scale, kDrawQuadNoSign, &scissor);
         u32 first = batch.first_quad;
         const u32 end = batch.first_quad + batch.quad_count;
         for (u32 quad = first; effects && quad < end; ++quad) {
@@ -519,7 +557,8 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
                                          {canvas.left, canvas.top, canvas.right, canvas.bottom}, quad)) {
                 ++renderer->draw_calls_last_frame;
                 // The effect bound its own shaders, constants and blend state.
-                draw_submission_reset_pipeline(submission);
+                draw_submission_reset_pipeline(submission,
+                                               renderer->background_fx.source == BackgroundFxSource::plugin);
             }
         }
         append_run(target, &run, scissor, first, end);
@@ -906,8 +945,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         (renderer->paint_stream.count && !renderer->paint_stream.quads))
         return false;
     if (!d3d11_draw_pipeline_update_background(&renderer->pipeline, renderer->graphics.device,
-                                               renderer->graphics.context, theme,
-                                               renderer->background_phase_seconds))
+                                               renderer->graphics.context, theme))
         return false;
     if (!renderer->content_text && !renderer->login_visible && renderer->glyph_text.ready &&
         !renderer->glyph_text.title_quad_count &&

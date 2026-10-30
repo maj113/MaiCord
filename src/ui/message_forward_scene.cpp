@@ -85,7 +85,7 @@ bool initialize(UiMessageForwardScene& s) noexcept {
     auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Forward message"));
     if (!root.ok()) return false;
     s.root = root.handle;
-    auto* node = ui_layout_engine_resolve(&s.widgets.layout, s.widgets.storage[s.root.slot].layout);
+    auto* node = ui_widget_manager_layout_node(&s.widgets, s.root);
     node->spec.style.width = node->spec.style.height = ui_layout_fill();
     const auto edit = add(s.root, UiWidgetKind::text_field, utf8_literal("Find destinations"));
     const auto caption = add(s.root, UiWidgetKind::text_field, utf8_literal("Optional forward caption"));
@@ -112,10 +112,6 @@ bool rectangle(UiMessageForwardScene& s, UiWidgetHandle handle, UiRect r, UiRect
     bool visible, bool enabled, bool focusable = true) noexcept {
     return ui_widget_manager_place_part(&s.widgets, handle, r, parent, visible, enabled, focusable);
 }
-void cancel_capture(UiMessageForwardScene& s) noexcept {
-    ui_widget_manager_capture(&s.widgets, ui_widget_invalid_handle());
-    ui_widget_manager_hover(&s.widgets, ui_widget_invalid_handle());
-}
 bool layout(UiMessageForwardScene& s, bool force = false) noexcept {
     bool dirty = force;
     dirty |= rectangle(s, s.edit, s.field, s.panel, true, !s.content->committed && s.content->edit.active && !s.content->sending);
@@ -126,7 +122,7 @@ bool layout(UiMessageForwardScene& s, bool force = false) noexcept {
     dirty |= rectangle(s, s.cancel, s.cancel_rectangle, s.panel, true, true);
     dirty |= rectangle(s, s.body_owner, s.body, s.panel, true, false, false);
     const u32 first = static_cast<u32>(s.scroll_dips / kUiMessageForwardRowHeight);
-    if (s.first != first) cancel_capture(s);
+    if (s.first != first) ui_widget_manager_release_pointer(&s.widgets);
     s.first = first; s.count = 0;
     for (u32 i = 0; i < kUiMessageForwardVisibleRows; ++i) {
         const u32 index = first + i;
@@ -224,22 +220,27 @@ bool ui_message_forward_scene_update(UiMessageForwardScene* s, const UiMessageFo
     const u32 source_revision = source ? source->revision : 0;
     const u64 selected_id = s->active && s->selected < s->accepted_count ? s->accepted[s->selected].channel_id : 0;
     if (republished) {
-        UiMessageForwardRow accepted[kUiMessageForwardMaximumRows]{};
+        // Rows resolve once, straight into the scene's bank (only ids are kept on the side), so a
+        // rejected source retires the scene instead of keeping a half-replaced bank.
+        if (!initialize(*s)) return false;
+        u64 ids[kUiMessageForwardMaximumRows];
+        u32 selected = ~0u;
         for (u32 i = 0; i < count; ++i) {
-            if (!source->resolve(source->context, i, &accepted[i]) || !row_valid(accepted[i])) return false;
-            for (u32 j = 0; j < i; ++j) if (accepted[j].channel_id == accepted[i].channel_id) return false;
+            auto& row = s->accepted[i];
+            bool ok = source->resolve(source->context, i, &row) && row_valid(row);
+            for (u32 j = 0; ok && j < i; ++j) ok = ids[j] != row.channel_id;
+            if (!ok) { s->active = false; return false; }
+            ids[i] = row.channel_id;
+            if (row.enabled && (selected == ~0u || row.channel_id == selected_id)) selected = i;
         }
         if (source && (source->revision != source_revision || source->count != count ||
-            (source->current && !source->current(source->context)))) return false;
-        if (!initialize(*s)) return false;
-        cancel_capture(*s); copy_bytes(s->accepted, accepted, sizeof(UiMessageForwardRow) * count);
-        s->accepted_count = count; s->selected = ~0u; s->scroll_dips = 0;
-        for (u32 i = 0; i < count; ++i)
-            if (accepted[i].enabled && (s->selected == ~0u || accepted[i].channel_id == selected_id)) s->selected = i;
+            (source->current && !source->current(source->context)))) { s->active = false; return false; }
+        ui_widget_manager_release_pointer(&s->widgets);
+        s->accepted_count = count; s->selected = selected; s->scroll_dips = 0;
     } else if (!initialize(*s)) return false;
     const auto old_panel = s->panel;
     // Cancel pressed state/buttons when completion changes their semantic action.
-    if (s->content_revision != content->revision) cancel_capture(*s);
+    if (s->content_revision != content->revision) ui_widget_manager_release_pointer(&s->widgets);
     s->source = source; s->content = content; s->viewport = viewport;
     s->source_revision = source ? source->revision : 0; s->content_revision = content->revision;
     const float width = minimum(620.f, ui_rect_width(viewport) - (ui_rect_width(viewport) < 400 ? 16.f : 48.f));
@@ -334,7 +335,7 @@ bool ui_message_forward_scene_scroll(UiMessageForwardScene* s, float offset) noe
     if (!s || !current(*s) || !is_finite(offset)) return false;
     offset = minimum(maximum(0.f, offset), ui_message_forward_scene_scroll_maximum(*s));
     if (offset == s->scroll_dips) return true;
-    cancel_capture(*s); s->scroll_dips = offset;
+    ui_widget_manager_release_pointer(&s->widgets); s->scroll_dips = offset;
     if (!layout(*s)) return false;
     ++s->revision; return true;
 }
@@ -370,11 +371,10 @@ bool ui_message_forward_scene_move(UiMessageForwardScene* s, UiQuickSwitcherMove
 bool ui_message_forward_scene_set_hover(UiMessageForwardScene* s, float x, float y, bool* changed) noexcept {
     if (changed) *changed = false;
     if (!s || !current(*s)) return false;
-    const auto hit = ui_widget_manager_hit_test(s->widgets, x, y), before = s->widgets.hovered;
     const auto selected = s->selected;
-    if (!ui_widget_manager_hover(&s->widgets, hit)) return false;
-    for (u32 i = 0; i < s->count; ++i) if (ui_widget_handle_matches(hit, s->rows[i])) ui_message_forward_scene_select(s, s->first + i, false);
-    const bool delta = !ui_widget_handle_matches(before, hit) && (before.generation || hit.generation);
+    bool delta = false;
+    if (!ui_widget_manager_hover_at(&s->widgets, x, y, &delta)) return false;
+    for (u32 i = 0; i < s->count; ++i) if (ui_widget_handle_matches(s->widgets.hovered, s->rows[i])) ui_message_forward_scene_select(s, s->first + i, false);
     if (delta) ++s->revision;
     if (changed) *changed = delta || selected != s->selected;
     return true;

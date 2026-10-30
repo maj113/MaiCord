@@ -175,8 +175,9 @@ u32 expanded_rank(const UiFriendsScene& s, u32 index) noexcept {
     return kUiListNoSelection;
 }
 struct WindowItem {
-    u32 index, section;
+    u32 index;
     float top;
+    u8 section;
     bool heading;
 };
 struct Window {
@@ -191,8 +192,7 @@ Window window(const UiFriendsScene& s, float scroll) noexcept {
         const auto count = minimum(logical_count(s) - first, static_cast<u32>(height(s) / row_height) + 2);
         result.first = first;
         for (u32 i = 0; i < count && i < maximum_visible; ++i)
-            result.items[result.count++] = {first + i, 0, static_cast<float>(first + i) * row_height,
-                                            false};
+            result.items[result.count++] = {first + i, static_cast<float>(first + i) * row_height, 0, false};
         result.rows = count;
         return result;
     }
@@ -203,7 +203,7 @@ Window window(const UiFriendsScene& s, float scroll) noexcept {
     for (u32 i = 0; i < s.sections->count; ++i) {
         const auto& section = s.sections->sections[i];
         if (top + section_height > scroll && top < end) {
-            result.items[result.count++] = {0, i, top, true};
+            result.items[result.count++] = {0, top, static_cast<u8>(i), true};
             result.mask |= 1u << i;
         }
         top += section_height;
@@ -218,8 +218,8 @@ Window window(const UiFriendsScene& s, float scroll) noexcept {
                 for (u32 j = first; j < last && result.rows < maximum_visible; ++j) {
                     if (!result.rows)
                         result.first = section.first + j;
-                    result.items[result.count++] = {section.first + j, i,
-                                                    top + static_cast<float>(j) * row_height, false};
+                    result.items[result.count++] = {section.first + j, top + static_cast<float>(j) * row_height,
+                                                    static_cast<u8>(i), false};
                     ++result.rows;
                 }
             }
@@ -497,8 +497,10 @@ UiWidgetHandle emit(UiFriendsScene& s, UiWidgetHandle parent, UiWidgetKind kind,
                              ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
                              : ui_widget_none),
         name.data, name.bytes, st);
-    if (!result.ok())
+    if (!result.ok()) {
+        s.build_failed = true;
         return ui_widget_invalid_handle();
+    }
     auto& entry = entries(s)[result.handle.slot];
     entry.target = target;
     entry.row = row;
@@ -539,19 +541,6 @@ bool rebuild(UiFriendsScene& s) noexcept {
     const u32 first = visible_window.first, count = visible_window.rows;
     if (count > maximum_visible)
         return false;
-    UiFriendsRow visible[maximum_visible]{};
-    u32 resolved = 0;
-    for (u32 i = 0; i < visible_window.count; ++i) {
-        const auto& item = visible_window.items[i];
-        if (item.heading)
-            continue;
-        if (!resolve(s, item.index, &visible[resolved]))
-            return false;
-        for (u32 j = 0; j < resolved; ++j)
-            if (visible[j].user_id == visible[resolved].user_id)
-                return false;
-        ++resolved;
-    }
     const u32 required = 24 + 4 * count;
     if (s.capacity < required) {
         ui_fixed_widget_storage_release(&s.storage);
@@ -565,6 +554,7 @@ bool rebuild(UiFriendsScene& s) noexcept {
         s.capacity = capacity;
     } else
         ui_widget_manager_reset(&s.widgets);
+    s.build_failed = false;
     const auto root = add(s, ui_widget_invalid_handle(), UiWidgetKind::container, {-1, -1, UiLayoutFlow::vertical});
     const auto header = add(s, root, UiWidgetKind::container,
                             {-1, hidden(s) ? 96.f : header_height, UiLayoutFlow::vertical, 8, 4});
@@ -576,10 +566,8 @@ bool rebuild(UiFriendsScene& s) noexcept {
         const float widths[]{54, 32, 68, 68, 84};
         const float tab_scale = minimum(1.f, maximum(1.f, ui_rect_width(s.viewport) - 40) / 306.f);
         for (u32 i = 0; i < 5; ++i)
-            if (!add(s, tabs, UiWidgetKind::button, {widths[i] * tab_scale, 32}, UiFriendsAction::select_tab,
-                     static_cast<UiFriendsTab>(i))
-                     .generation)
-                return false;
+            add(s, tabs, UiWidgetKind::button, {widths[i] * tab_scale, 32}, UiFriendsAction::select_tab,
+                static_cast<UiFriendsTab>(i));
     }
     s.search_field = s.clear_search = ui_widget_invalid_handle();
     if (searching(s)) {
@@ -587,80 +575,73 @@ bool rebuild(UiFriendsScene& s) noexcept {
         s.search_field = add(s, search_row, UiWidgetKind::text_field, {-1, -1}, UiFriendsAction::search, s.tab);
         s.clear_search = add(s, s.search_field, UiWidgetKind::button, {28, 28, UiLayoutFlow::overlay, 0, 0, box_end | box_center, 4},
                              UiFriendsAction::clear_search, s.tab, s.content->search.text.bytes != 0);
-        if (!s.search_field.generation || !s.clear_search.generation)
-            return false;
     }
     const auto status_row = add(s, root, UiWidgetKind::container, {-1, status_height, UiLayoutFlow::horizontal, 2, 8});
     if (!hidden(s))
         s.status_widget = add(s, status_row, UiWidgetKind::text, {-1, -1});
     if (s.sections && (s.sections->hidden_available || s.sections->hidden_view)) {
-        if (!add(s, status_row, UiWidgetKind::button, {hidden(s) ? 64.f : 132.f, -1},
-                 UiFriendsAction::toggle_hidden, s.tab)
-                 .generation)
-            return false;
+        add(s, status_row, UiWidgetKind::button, {hidden(s) ? 64.f : 132.f, -1}, UiFriendsAction::toggle_hidden, s.tab);
     }
     if (hidden(s) && s.sections->hidden_count > 1)
-        if (!add(s, status_row, UiWidgetKind::button, {64, -1}, UiFriendsAction::clear_hidden, s.tab).generation)
-            return false;
+        add(s, status_row, UiWidgetKind::button, {64, -1}, UiFriendsAction::clear_hidden, s.tab);
     s.count_widget = add(s, status_row, UiWidgetKind::text, {hidden(s) ? 64.f : 112.f, -1});
     count_heading(s);
     s.body = add(s, root, UiWidgetKind::scroll_view, {-1, -1, UiLayoutFlow::vertical, 0, 0, box_scroll});
     float cursor = 0;
     u32 row_slot = 0;
+    u64 ids[maximum_visible]; // the user ids built so far: a repeated user rejects the source
     for (u32 i = 0; i < visible_window.count; ++i) {
         const auto& item = visible_window.items[i];
-        if (item.top > cursor && !add(s, s.body, UiWidgetKind::container, {-1, item.top - cursor}).generation)
-            return false;
+        if (item.top > cursor)
+            add(s, s.body, UiWidgetKind::container, {-1, item.top - cursor});
         if (item.heading) {
             const auto& section = s.sections->sections[item.section];
             const auto h = emit(s, s.body, UiWidgetKind::button, {-1, section_height, UiLayoutFlow::overlay, 2},
                                 {UiFriendsAction::toggle_section, 0, s.tab, section.kind}, empty_row, false, true);
-            if (!h.generation)
-                return false;
-            section_heading(entries(s)[h.slot], section);
+            if (h.generation)
+                section_heading(entries(s)[h.slot], section);
             if (section.kind == UiFriendsSectionKind::incoming && section.allow_clear &&
                 section.count >= 5) {
-                if (!add(s, h, UiWidgetKind::button, {64, 28, UiLayoutFlow::overlay, 0, 0, box_end},
-                         UiFriendsAction::clear_incoming, s.tab)
-                         .generation)
-                    return false;
+                add(s, h, UiWidgetKind::button, {64, 28, UiLayoutFlow::overlay, 0, 0, box_end},
+                    UiFriendsAction::clear_incoming, s.tab);
             }
             cursor = item.top + section_height;
             continue;
         }
-        const auto& r = visible[row_slot];
+        UiFriendsRow r{};
+        bool resolved = resolve(s, item.index, &r);
+        for (u32 j = 0; resolved && j < row_slot; ++j)
+            resolved = ids[j] != r.user_id;
+        if (!resolved) {
+            s.active = false; // the source changed or repeats a user: nothing half-built is kept
+            return false;
+        }
+        ids[row_slot] = r.user_id;
         UiFriendsAction available[4]{};
         const auto n = actions(r, available, hidden(s));
         const auto row_parent = emit(s, s.body, UiWidgetKind::button, {-1, row_height, UiLayoutFlow::overlay, 5},
                                      {primary(r), r.user_id, s.tab}, r, true, true);
-        if (!row_parent.generation)
-            return false;
         s.visible_rows[row_slot++] = row_parent;
         for (u32 j = 0; j < n; ++j) {
             float margin = 0;
             for (u32 k = j + 1; k < n; ++k)
                 margin += action_step(available[k]);
             const bool icon = action_icon(available[j]) != UiIcon::count;
-            if (!emit(s, row_parent, UiWidgetKind::button,
-                      {action_width(available[j]), icon ? icon_action_extent : 30, UiLayoutFlow::overlay, 0, 0,
-                       box_end | box_center, static_cast<u8>(margin)},
-                      {available[j], r.user_id, s.tab}, r, false, allowed(r, available[j]))
-                     .generation)
-                return false;
+            emit(s, row_parent, UiWidgetKind::button,
+                 {action_width(available[j]), icon ? icon_action_extent : 30, UiLayoutFlow::overlay, 0, 0,
+                  box_end | box_center, static_cast<u8>(margin)},
+                 {available[j], r.user_id, s.tab}, r, false, allowed(r, available[j]));
         }
         cursor = item.top + row_height;
     }
-    if (!add(s, s.body, UiWidgetKind::container, {-1, maximum(0.f, extent(s) - cursor)}).generation)
-        return false;
+    add(s, s.body, UiWidgetKind::container, {-1, maximum(0.f, extent(s) - cursor)});
     if (s.tab == UiFriendsTab::add_friend && s.phase == UiFriendsPhase::ready)
-        if (!add(s, s.body, UiWidgetKind::button, {136, 36}, UiFriendsAction::add_friend, s.tab).generation)
-            return false;
+        add(s, s.body, UiWidgetKind::button, {136, 36}, UiFriendsAction::add_friend, s.tab);
     if (s.phase == UiFriendsPhase::error)
-        if (!add(s, s.body, UiWidgetKind::button, {96, 36}, UiFriendsAction::retry, s.tab).generation)
-            return false;
-    if (!s.body.generation ||
-        !ui_layout_engine_set_scroll(&s.widgets.layout, s.widgets.storage[s.body.slot].layout,
-                                     {0, s.scroll_dips}) ||
+        add(s, s.body, UiWidgetKind::button, {96, 36}, UiFriendsAction::retry, s.tab);
+    // The scroll offset indexes the body's slot, so a failed add stops here.
+    if (s.build_failed ||
+        !ui_widget_manager_set_scroll(&s.widgets, s.body, {0, s.scroll_dips}) ||
         !ui_widget_manager_layout_rectangle(&s.widgets, s.surface).ok())
         return false;
     auto focused = handle(s, s.focus);
@@ -812,18 +793,15 @@ bool ui_friends_scene_scroll(UiFriendsScene* s, float delta) noexcept {
     s->scroll_dips = next;
     if (!same)
         return rebuild(*s);
-    if (!ui_layout_engine_set_scroll(&s->widgets.layout, s->widgets.storage[s->body.slot].layout,
-                                     {0, next}) ||
+    if (!ui_widget_manager_set_scroll(&s->widgets, s->body, {0, next}) ||
         !ui_widget_manager_layout_rectangle(&s->widgets, s->surface).ok())
         return false;
     ++s->revision;
     return true;
 }
-bool ui_friends_scene_activation(const UiFriendsScene& s, const UiFriendsTarget& t,
-                                 UiFriendsTarget* out) noexcept {
-    if (!out)
-        return false;
-    reset_value(out);
+namespace {
+// Whether the scene currently offers the control `t` names.
+bool offered(const UiFriendsScene& s, const UiFriendsTarget& t) noexcept {
     if (!current(s) || t.action == UiFriendsAction::none || t.action > UiFriendsAction::active_card)
         return false;
     if (t.action == UiFriendsAction::active_toggle || t.action == UiFriendsAction::active_card) {
@@ -832,17 +810,10 @@ bool ui_friends_scene_activation(const UiFriendsScene& s, const UiFriendsTarget&
         bool listed = t.action == UiFriendsAction::active_toggle;
         for (u32 i = 0; !listed && i < active_card_count(s); ++i)
             listed = s.active_now->cards[i].member_count && s.active_now->cards[i].members[0] == t.user_id;
-        if (!listed)
-            return false;
-        *out = t;
-        return true;
+        return listed;
     }
-    if (t.action == UiFriendsAction::select_tab) {
-        if (t.user_id || t.tab > UiFriendsTab::add_friend || hidden(s))
-            return false;
-        *out = t;
-        return true;
-    }
+    if (t.action == UiFriendsAction::select_tab)
+        return !t.user_id && t.tab <= UiFriendsTab::add_friend && !hidden(s);
     if (t.tab != s.tab)
         return false;
     if (t.action == UiFriendsAction::clear_incoming) {
@@ -850,57 +821,44 @@ bool ui_friends_scene_activation(const UiFriendsScene& s, const UiFriendsTarget&
             return false;
         for (u32 i = 0; i < s.sections->count; ++i) {
             const auto& section = s.sections->sections[i];
-            if (section.kind == UiFriendsSectionKind::incoming && section.count >= 5 &&
-                section.allow_clear) {
-                *out = t;
+            if (section.kind == UiFriendsSectionKind::incoming && section.count >= 5 && section.allow_clear)
                 return true;
-            }
         }
         return false;
     }
-    if (t.action == UiFriendsAction::clear_hidden) {
-        if (t.user_id || !hidden(s) || s.phase != UiFriendsPhase::ready || s.sections->hidden_count <= 1)
-            return false;
-        *out = t;
-        return true;
-    }
-    if (t.action == UiFriendsAction::toggle_hidden) {
-        if (t.user_id || !s.sections ||
-            (!s.sections->hidden_view &&
-             (s.phase != UiFriendsPhase::ready || !s.sections->hidden_available)))
-            return false;
-        *out = t;
-        return true;
-    }
+    if (t.action == UiFriendsAction::clear_hidden)
+        return !t.user_id && hidden(s) && s.phase == UiFriendsPhase::ready && s.sections->hidden_count > 1;
+    if (t.action == UiFriendsAction::toggle_hidden)
+        return !t.user_id && s.sections &&
+               (s.sections->hidden_view || (s.phase == UiFriendsPhase::ready && s.sections->hidden_available));
     if (t.action == UiFriendsAction::toggle_section) {
         if (t.user_id || !s.sections || s.phase != UiFriendsPhase::ready)
             return false;
         for (u32 i = 0; i < s.sections->count; ++i)
-            if (s.sections->sections[i].kind == t.section) {
-                *out = t;
+            if (s.sections->sections[i].kind == t.section)
                 return true;
-            }
         return false;
     }
-    if (t.action == UiFriendsAction::search || t.action == UiFriendsAction::clear_search) {
-        if (t.user_id || !searching(s) ||
-            (t.action == UiFriendsAction::clear_search && !s.content->search.text.bytes))
-            return false;
-        *out = t;
-        return true;
-    }
-    if (t.action == UiFriendsAction::add_friend || t.action == UiFriendsAction::retry) {
-        if (t.user_id || (t.action == UiFriendsAction::add_friend
-                              ? (s.tab != UiFriendsTab::add_friend || s.phase != UiFriendsPhase::ready)
-                              : s.phase != UiFriendsPhase::error))
-            return false;
-    } else {
-        u32 at = 0;
-        UiFriendsRow row{};
-        float top = 0;
-        if (!find(s, t.user_id, &at, &row) || !row_top(s, at, &top) || !allowed(row, t.action))
-            return false;
-    }
+    if (t.action == UiFriendsAction::search || t.action == UiFriendsAction::clear_search)
+        return !t.user_id && searching(s) &&
+               (t.action != UiFriendsAction::clear_search || s.content->search.text.bytes != 0);
+    if (t.action == UiFriendsAction::add_friend || t.action == UiFriendsAction::retry)
+        return !t.user_id && (t.action == UiFriendsAction::add_friend
+                                  ? s.tab == UiFriendsTab::add_friend && s.phase == UiFriendsPhase::ready
+                                  : s.phase == UiFriendsPhase::error);
+    u32 at = 0;
+    UiFriendsRow row{};
+    float top = 0;
+    return find(s, t.user_id, &at, &row) && row_top(s, at, &top) && allowed(row, t.action);
+}
+} // namespace
+bool ui_friends_scene_activation(const UiFriendsScene& s, const UiFriendsTarget& t,
+                                 UiFriendsTarget* out) noexcept {
+    if (!out)
+        return false;
+    reset_value(out);
+    if (!offered(s, t))
+        return false;
     *out = t;
     return true;
 }
@@ -1111,12 +1069,9 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         if (!node || !ui_rect_intersects(node->rectangle, node->clip_rectangle))
             continue;
         const bool selected = e.target.action == UiFriendsAction::select_tab && e.target.tab == s.tab;
-        const bool focused = s.focus_visible && s.widgets.focused.slot == h.slot &&
-                             s.widgets.focused.generation == h.generation;
-        const bool hovered =
-            s.widgets.hovered.slot == h.slot && s.widgets.hovered.generation == h.generation;
-        const bool pressed =
-            hovered && s.widgets.captured.slot == h.slot && s.widgets.captured.generation == h.generation;
+        const bool focused = s.focus_visible && ui_widget_handle_equal(s.widgets.focused, h);
+        const bool hovered = ui_widget_handle_equal(s.widgets.hovered, h);
+        const bool pressed = hovered && ui_widget_handle_equal(s.widgets.captured, h);
         UiRect clip = node->clip_rectangle;
         // Every row primitive stays inside its own rectangle, so rows and actions
         // share the body clip instead of using one global clip slot per row.
@@ -1448,7 +1403,7 @@ bool ui_friends_scene_icon_action(const UiFriendsScene& s, bool keyboard, float 
             continue;
         const UiWidgetHandle h{static_cast<u16>(i), s.widgets.generation};
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
-        const bool selected = keyboard ? s.widgets.focused.slot == h.slot && s.widgets.focused.generation == h.generation
+        const bool selected = keyboard ? ui_widget_handle_equal(s.widgets.focused, h)
                                        : node && ui_rect_contains(node->rectangle, x, y) &&
                                              ui_rect_contains(node->clip_rectangle, x, y);
         if (!selected)

@@ -10,6 +10,7 @@
 
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/media/presentation_policy.hpp"
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/render/renderer_presentation.hpp"
@@ -61,6 +62,26 @@ static_assert(sizeof(PaintStream) < 8 * 1'024);
 static_assert(sizeof(GlyphQuad) == 48);
 static_assert(sizeof(MediaQuad) == 64);
 static_assert(sizeof(MediaDrawBatch) == 24);
+
+// Per-frame arrays too large for the stack (each probe-heavy frame paid a
+// __chkstk walk): one block per renderer, committed on first use. Pages become
+// resident only where a frame writes, so a typical frame touches a few.
+// build_timeline_media and build_search_media never overlap.
+struct LayoutScratch {
+    MessageMediaCommand media_commands[kRendererMessageMediaCommandCapacity];
+    UiRect composer_selections[kMessageComposerSelectionRectangleCapacity];
+    TextCompositionMark composer_marks[kTextCompositionSpanCapacity];
+    MessageComposerChipGeometry composer_chips[kMessageComposerChipGeometryCapacity];
+    UiRect login_selections[kRendererLoginSelectionCapacity];
+    LoginCompositionGeometry login_composition[kRendererLoginCompositionCapacity];
+};
+
+LayoutScratch* layout_scratch(D3D11Renderer* renderer) noexcept {
+    if (!renderer->layout_scratch)
+        renderer->layout_scratch =
+            VirtualAlloc(nullptr, sizeof(LayoutScratch), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    return static_cast<LayoutScratch*>(renderer->layout_scratch);
+}
 
 // A custom emoji or regional flag cell of rendered text.
 MediaAssetKey emoji_key(const MessageTextSemantic& semantic) noexcept {
@@ -180,13 +201,13 @@ bool paint_threads_launcher(const D3D11Renderer& renderer, const Theme& theme,
                             PaintStream* stream) noexcept {
     const auto* scene = renderer.ui_scene;
     const auto* button =
-        scene ? ui_scene_resolve(*scene, ui_scene_find(*scene, UiSemantic::threads_toggle)) : nullptr;
+        scene ? ui_scene_node(*scene, UiSemantic::threads_toggle) : nullptr;
     if (!button || !button->visible)
         return true;
     const auto rectangle = button->rectangle;
     const bool selected = d3d11_renderer_thread_browser_visible(renderer);
     const Color fill = selected ? theme.tokens.emphasis.fill
-                                : ui_button_background(scene->widgets, button->widget, theme, {},
+                                : ui_button_background(scene->widgets, ui_scene_widget(*scene, UiSemantic::threads_toggle), theme, {},
                                                        UiButtonSurface::palette);
     const Color ink = selected ? theme.tokens.emphasis.text : theme.text_secondary;
     const float extent = ui_icon_button_extent(minimum(ui_rect_width(rectangle), ui_rect_height(rectangle)));
@@ -1246,13 +1267,15 @@ bool queue_message_media(D3D11Renderer* renderer, const Theme& theme,
 // Command storage belongs to this surface; producers initialize every consumed record.
 bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const MessageScene* message_scene,
                           bool messages_visible, bool content_hidden) noexcept {
-    MessageMediaCommand message_media_commands[kRendererMessageMediaCommandCapacity];
+    LayoutScratch* const scratch = layout_scratch(renderer);
+    if (!scratch)
+        return layout_step_failed(__LINE__);
     MessageMediaCommandStream message_media_stream{};
     MessagePresentationResult message_presentation{};
     if (messages_visible &&
         (!message_media_command_stream_initialize(
              &message_media_stream,
-             Slice<MessageMediaCommand>{message_media_commands, kRendererMessageMediaCommandCapacity}) ||
+             Slice<MessageMediaCommand>{scratch->media_commands, kRendererMessageMediaCommandCapacity}) ||
          !message_presentation_build(*renderer->message_scene, theme, &renderer->paint_stream,
                                      &message_media_stream, &message_presentation,
                                      renderer->message_text && renderer->message_text->active ? renderer->message_text
@@ -1536,10 +1559,12 @@ bool build_timeline_media(D3D11Renderer* renderer, const Theme& theme, const Mes
 }
 
 bool build_search_media(D3D11Renderer* renderer, const Theme& theme) noexcept {
-    MessageMediaCommand message_media_commands[kRendererMessageMediaCommandCapacity];
+    LayoutScratch* const scratch = layout_scratch(renderer);
+    if (!scratch)
+        return layout_step_failed(__LINE__);
     MessageMediaCommandStream search_media_stream{};
     if (!message_media_command_stream_initialize(
-            &search_media_stream, {message_media_commands, kRendererMessageMediaCommandCapacity}))
+            &search_media_stream, {scratch->media_commands, kRendererMessageMediaCommandCapacity}))
         return layout_step_failed(__LINE__);
     if (d3d11_renderer_search_visible(*renderer)) {
         const UnfilteredPaint scope(&renderer->paint_stream);
@@ -1743,13 +1768,16 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer->media_batch_count = 0;
         renderer->popup_media_first_batch = 0;
         const LoginScene& login = *renderer->login_scene;
-        UiRect selections[kRendererLoginSelectionCapacity]{};
+        LayoutScratch* const scratch = layout_scratch(renderer);
+        if (!scratch)
+            return layout_step_failed(__LINE__);
+        UiRect* const selections = scratch->login_selections;
         for (u32 index = 0; index < renderer->login_edit.selection_count; ++index) {
             const TextEditMetric& metric = renderer->login_edit.selections[index];
             selections[index] =
                 UiRect{metric.left, metric.top, metric.left + metric.width, metric.top + metric.height};
         }
-        LoginCompositionGeometry composition[kRendererLoginCompositionCapacity]{};
+        LoginCompositionGeometry* const composition = scratch->login_composition;
         for (u32 index = 0; index < renderer->login_composition_metric_count; ++index) {
             const RendererLoginCompositionMetric& source = renderer->login_composition_metrics[index];
             composition[index] = LoginCompositionGeometry{UiRect{source.metric.left, source.metric.top,
@@ -1805,20 +1833,23 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     const bool browser_active = d3d11_renderer_thread_browser_visible(*renderer);
     const bool content_hidden = friends_active || browser_active;
     // Only the fully written prefixes are passed to presentation and hashing.
-    UiRect composer_selections[kMessageComposerSelectionRectangleCapacity];
+    LayoutScratch* const scratch = layout_scratch(renderer);
+    if (!scratch)
+        return layout_step_failed(__LINE__);
+    UiRect* const composer_selections = scratch->composer_selections;
     for (u32 index = 0; !content_hidden && index < renderer->composer_layout.selection_count; ++index) {
         const TextEditMetric& metric = renderer->composer_layout.selections[index];
         composer_selections[index] =
             UiRect{metric.left, metric.top, metric.left + metric.width, metric.top + metric.height};
     }
     const TextEditMetric& composer_caret = renderer->composer_layout.caret;
-    TextCompositionMark composer_marks[kTextCompositionSpanCapacity];
+    TextCompositionMark* const composer_marks = scratch->composer_marks;
     u32 composer_mark_count = 0;
     if (!content_hidden &&
         !composer_composition_geometry(*renderer, {composer_marks, kTextCompositionSpanCapacity},
                                        &composer_mark_count))
         return layout_step_failed(__LINE__);
-    MessageComposerChipGeometry composer_chips[kMessageComposerChipGeometryCapacity];
+    MessageComposerChipGeometry* const composer_chips = scratch->composer_chips;
     u32 composer_chip_count = 0;
     if (!content_hidden &&
         !composer_chip_geometry(*renderer, {composer_chips, kMessageComposerChipGeometryCapacity},
@@ -1861,7 +1892,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     const bool messages_visible = !content_hidden && message_scene && message_scene->active;
     if (!content_hidden && d3d11_renderer_active(renderer->thread_header)) {
         const auto& header = *renderer->thread_header;
-        if (header.shell != renderer->ui_scene || !renderer->chat_state ||
+        if (!renderer->ui_scene || header.manager != &renderer->ui_scene->widgets || !renderer->chat_state ||
             header.view.thread_id != renderer->chat_state->selected_channel_id ||
             header.geometry.rectangle.left != shell.message_view.left ||
             header.geometry.rectangle.top != shell.message_view.top ||
@@ -1935,8 +1966,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         renderer->shell_navigation_scene->banner_inset > 0 && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         const auto& shell_scene = *renderer->ui_scene;
-        const UiNode* sidebar = ui_scene_resolve(shell_scene, ui_scene_find(shell_scene, UiSemantic::channel_sidebar));
-        const UiNode* header = ui_scene_resolve(shell_scene, ui_scene_find(shell_scene, UiSemantic::channel_header));
+        const UiLayoutNode* sidebar = ui_scene_node(shell_scene, UiSemantic::channel_sidebar);
+        const UiLayoutNode* header = ui_scene_node(shell_scene, UiSemantic::channel_header);
         MediaAtlasResult allocation = media_atlas_find(renderer->media_atlas, renderer->guild_banner->key);
         if (!allocation.ok())
             allocation = media_atlas_find(renderer->media_atlas, renderer->guild_banner->fallback);
@@ -2011,8 +2042,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                 : nullptr;
         if (header_channel && channel_is_private(header_channel->type)) {
             const auto avatar = ui_private_header_avatar(*renderer->ui_scene);
-            const auto* title = ui_scene_resolve(*renderer->ui_scene,
-                                                 ui_scene_find(*renderer->ui_scene, UiSemantic::title_bar));
+            const auto* title = ui_scene_node(*renderer->ui_scene, UiSemantic::title_bar);
             if (title && ui_rect_has_area(avatar) &&
                 (!ui_private_avatar_placeholder_paint(
                      &renderer->paint_stream,
@@ -2040,8 +2070,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         }
     }
     if (renderer->chat_state && renderer->user_store && renderer->ui_scene) {
-        const auto* footer = ui_scene_resolve(
-            *renderer->ui_scene, ui_scene_find(*renderer->ui_scene, UiSemantic::channel_footer));
+        const auto* footer = ui_scene_node(*renderer->ui_scene, UiSemantic::channel_footer);
         const auto* user =
             user_store_find(*renderer->user_store, renderer->chat_state->self_user_id);
         MediaAtlasResult allocation{};
@@ -2198,8 +2227,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (renderer->navigation_view && renderer->navigation_view->private_rows &&
         renderer->ui_scene) {
         const auto& rows = *renderer->navigation_view->private_rows;
-        const auto* navigation = ui_scene_resolve(*renderer->ui_scene,
-                                                  ui_scene_find(*renderer->ui_scene, UiSemantic::channel_navigation));
+        const auto* navigation = ui_scene_node(*renderer->ui_scene, UiSemantic::channel_navigation);
         const u64 selected = renderer->chat_state && !renderer->navigation_view->friends_mode
                                  ? renderer->chat_state->selected_channel_id : 0;
         if ((navigation && !ui_private_rows_overlay_paint(*renderer->shell_navigation_scene,
@@ -2937,6 +2965,12 @@ void d3d11_renderer_shell_segment_release(RendererShellSegment* segment) noexcep
         return;
     renderer_frame_copy_release(&segment->frame);
     reset_value<RendererShellSegment>(segment);
+}
+
+void d3d11_renderer_layout_release(D3D11Renderer* renderer) noexcept {
+    if (renderer->layout_scratch)
+        VirtualFree(renderer->layout_scratch, 0, MEM_RELEASE);
+    renderer->layout_scratch = nullptr;
 }
 
 bool d3d11_renderer_build_paint(D3D11Renderer* renderer, const Theme& theme) noexcept {

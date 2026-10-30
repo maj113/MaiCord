@@ -239,7 +239,7 @@ void test_message_poll_presentation(void (*check)(bool, const char*) noexcept) n
     const auto live = row.poll;
     const u32 widget_count = fixture.scene.widgets.count;
     check(row.poll_content_revision && row.poll_height > 160 &&
-              widget_count == kMessageSceneBaseWidgetsPerRow + 2 &&
+              widget_count == kMessageScenePlainRowWidgets + 2 &&
               message_scene_resolve(fixture.scene, live) == &row,
           "poll message: wrapped two-answer poll uses one root without answer child widgets");
     UiPollAnswer answers[kUiPollMaximumAnswers]{};

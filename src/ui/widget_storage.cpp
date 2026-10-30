@@ -4,9 +4,6 @@
 namespace maicord {
 namespace {
 
-static_assert(sizeof(UiWidget) == 16);
-static_assert(sizeof(UiLayoutNode) == 216);
-
 void append_storage_bytes(usize* cursor, usize bytes, usize alignment) noexcept {
     *cursor = ((*cursor + alignment - 1) & ~(alignment - 1)) + bytes;
 }

@@ -64,13 +64,17 @@ def read_canonical_entries(path):
     return entries
 
 
-def pool_strings(values):
+def pool_strings(values, short_first=False):
     maximal = []
     for value in sorted(set(values), key=lambda value: (-len(value), value)):
         if not any(value in previous for previous in maximal):
             maximal.append(value)
-    # Reverse lexical order groups similar chains for deflate packing.
-    maximal.sort(reverse=True)
+    # Reverse lexical order groups similar chains for deflate packing. The
+    # shortcode pools pack smaller with the shortest chains first.
+    if short_first:
+        maximal.sort(key=lambda value: (len(value), value))
+    else:
+        maximal.sort(reverse=True)
     minimum = 1 if all(value.isascii() for value in values) else 3
     prefixes = {}
     for index, value in enumerate(maximal):

@@ -88,7 +88,7 @@ bool build_scene(Scene* scene) noexcept {
     scene->footer = build.container(scene->root, {44, utf8_literal("Footer")}, fixed(200, 20)).handle;
     scene->disabled = build.widget(scene->root, {45, utf8_literal("Submit")}, UiWidgetKind::button,
                                    ui_widget_hit_test, fixed(80, 20)).handle;
-    return build.ok() && ui_widget_manager_layout(&scene->manager, {400, 600}).ok() &&
+    return build.ok() && ui_widget_manager_layout_rectangle(&scene->manager, {0, 0, 400, 600}).ok() &&
            ui_widget_manager_focus(&scene->manager, scene->field);
 }
 
@@ -1421,7 +1421,7 @@ void test_synthetic_groups(UiAccessTree* tree) noexcept {
     for (u32 index = 0; index < 3; ++index)
         scene.rows[index] = build.button(scene.root, {10 + index, utf8_literal("Row")}, fixed(300, 40)).handle;
     scene.footer = build.button(scene.root, {20, utf8_literal("Next page")}, fixed(300, 30)).handle;
-    check(build.ok() && ui_widget_manager_layout(&scene.manager, {300, 400}).ok(), "group scene layout");
+    check(build.ok() && ui_widget_manager_layout_rectangle(&scene.manager, {0, 0, 300, 400}).ok(), "group scene layout");
     ui_access_tree_reset(tree, utf8_literal("Groups"), {0, 0, 300, 400});
     const UiAccessScope scope{describe_grouped, &scene, kSurface, false, describe_group_node};
     check(ui_access_add_widgets(tree, 0, scene.manager, scope) != kUiAccessNone && ui_access_tree_finish(tree),

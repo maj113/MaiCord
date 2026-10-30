@@ -128,7 +128,7 @@ void test_widget_scroll(void (*check)(bool, const char*) noexcept) noexcept {
     check(!ui_widget_reveal(&manager, target.handle).ok() && manager.layout.revision == revision + 1,
           "blocked reveal rejects before mutation");
     ui_widget_manager_block_input(&manager, inner.handle, false);
-    ui_layout_engine_set_scroll(&manager.layout, widgets[inner.handle.slot].layout, {});
+    ui_widget_manager_set_scroll(&manager, inner.handle, {});
     check(ui_widget_manager_layout_rectangle(&manager, {50, 75, 250, 275}).ok(),
           "restore inner scroll for overflow test");
     nodes[inner.handle.slot].spec.style.flags &= static_cast<u16>(~ui_layout_node_clip_children);
@@ -157,13 +157,13 @@ void test_widget_scroll(void (*check)(bool, const char*) noexcept) noexcept {
     style.margin.top = 150;
     const auto big = add(2, big_root.handle, UiWidgetKind::button, style,
                          ui_widget_enabled | ui_widget_focusable | ui_widget_hit_test);
-    check(big.ok() && ui_widget_manager_layout(&manager, {100, 100}).ok(), "oversized reveal layout");
+    check(big.ok() && ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 100}).ok(), "oversized reveal layout");
     const auto big_reveal = ui_widget_reveal(&manager, big.handle);
     check(big_reveal.ok() && !big_reveal.fully_visible && big_reveal.scrolled == 1 &&
               nodes[0].scroll_offset.y == 150 && ui_widget_reveal(&manager, big.handle).scrolled == 0,
           "oversized reveal uses nearest edge without oscillation");
-    ui_layout_engine_set_scroll(&manager.layout, widgets[0].layout, {0, 250});
-    check(ui_widget_manager_layout(&manager, {100, 100}).ok() &&
+    ui_layout_engine_set_scroll(&manager.layout, {0, manager.layout.generation}, {0, 250});
+    check(ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 100}).ok() &&
               ui_widget_reveal(&manager, big.handle).scrolled == 0,
           "oversized trailing edge remains stable");
     UiScrollHost host{};

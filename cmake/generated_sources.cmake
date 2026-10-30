@@ -123,7 +123,7 @@ endfunction()
 
 # Every shipped shader is deflate-packed (one zlib stream each; the wide COLR
 # variant is a sparse byte patch on the normal COLR stream) and inflated into
-# exact-size stack scratch just before its D3D11 Create* call. The first-frame UI/glyph/media
+# exact-size heap scratch just before its D3D11 Create* call. The first-frame UI/glyph/media
 # set (~60 KB raw, ~13 KB packed) inflates in well under 0.1 ms at startup.
 set(MAICORD_PACKED_SHADERS)
 set(MAICORD_PACKED_SHADER_HEADERS)

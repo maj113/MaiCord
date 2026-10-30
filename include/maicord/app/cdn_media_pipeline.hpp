@@ -231,7 +231,6 @@ struct CdnMediaPipeline {
     GifParseResult gif_parse_result;
     u64 gif_content_identity;
     JpegWorkspace* jpeg_workspace;
-    DeflateWorkspace workspace;
     u8* scanline_storage;
     u32 scanline_capacity;
     // Uses existing alignment padding. The workspace marker guards shared parser use.

@@ -16,12 +16,9 @@ UiRect widget_rectangle(const UiMediaPickerScene& scene, UiWidgetHandle widget) 
     return node ? node->rectangle : UiRect{};
 }
 bool active_widget(const UiMediaPickerScene& scene, UiWidgetHandle widget) noexcept {
-    return (scene.widgets.hovered.slot == widget.slot &&
-            scene.widgets.hovered.generation == widget.generation) ||
-           (scene.widgets.captured.slot == widget.slot &&
-            scene.widgets.captured.generation == widget.generation) ||
-           (scene.widgets.focused.slot == widget.slot &&
-            scene.widgets.focused.generation == widget.generation);
+    return ui_widget_handle_equal(scene.widgets.hovered, widget) ||
+           ui_widget_handle_equal(scene.widgets.captured, widget) ||
+           ui_widget_handle_equal(scene.widgets.focused, widget);
 }
 bool text(UiTextOutput* output, const UiMediaPickerScene& scene, UiWidgetHandle owner, const Utf8View& value,
           const UiRect& rectangle, const UiRect& region, const Color& color, u32 flags = 0,
@@ -100,9 +97,6 @@ bool paint_band(PaintStream* paint, UiRect band, UiRect panel, const Theme& them
                                        UiBackgroundSurfaceMode::gradient, UiBackgroundTier::lower) &&
            paint_stream_pop_clip(paint);
 }
-bool same_widget(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.slot == b.slot && a.generation == b.generation;
-}
 // Inline results: the popover plate, the loading spinner, the hovered and the
 // keyboard-selected result's highlight (the client's autocomplete row fill),
 // missing-art placeholders and the GIF strip's paging arrows.
@@ -124,7 +118,7 @@ bool paint_inline(const UiMediaPickerScene& scene, const Theme& theme, PaintStre
     const auto& m = scene.style.metrics;
     for (u32 i = 0; ok && i < scene.cell_count; ++i) {
         const auto& cell = scene.projection->cells[i];
-        if (same_widget(scene.widgets.hovered, cell.widget) || cell.source_index == scene.selected_index)
+        if (ui_widget_handle_matches(scene.widgets.hovered, cell.widget) || cell.source_index == scene.selected_index)
             ok = paint_stream_push_rounded(paint, widget_rectangle(scene, cell.widget), highlight,
                                            theme.scale.radius_sm);
         if (ok && (!cell.item.enabled || !cell.item.asset_id)) {
@@ -150,7 +144,8 @@ bool paint_inline_arrows(const UiMediaPickerScene& scene, const Theme& theme, Pa
         if (!widget.generation)
             continue;
         const auto r = widget_rectangle(scene, widget);
-        const bool hot = same_widget(scene.widgets.hovered, widget) || same_widget(scene.widgets.captured, widget);
+        const bool hot = ui_widget_handle_matches(scene.widgets.hovered, widget) ||
+                         ui_widget_handle_matches(scene.widgets.captured, widget);
         const float extent = m.icon_extent, x = (r.left + r.right - extent) * .5f,
                     y = (r.top + r.bottom - extent) * .5f;
         ok = paint_stream_push_rounded_border(paint, r,

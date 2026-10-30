@@ -657,8 +657,7 @@ bool ApplicationMediaPump::avatar_key_is_current(const MediaAssetKey& key) noexc
     // media_key_is_current before any borrowed surface is scanned.
     if (application.renderer.ui_scene) {
         const auto* footer =
-            ui_scene_resolve(*application.renderer.ui_scene,
-                             ui_scene_find(*application.renderer.ui_scene, UiSemantic::channel_footer));
+            ui_scene_node(*application.renderer.ui_scene, UiSemantic::channel_footer);
         if (footer && ui_rect_has_area(footer->rectangle) &&
             matches(application.account_ui->chat_state.self_user_id))
             return true;

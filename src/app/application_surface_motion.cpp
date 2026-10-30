@@ -198,8 +198,8 @@ void application_surface_motion_synchronize(u64 now_ms) noexcept {
     const bool rail_visible = rail.active && !g_app.renderer.login_visible &&
                               !(g_app.renderer.settings_scene && g_app.renderer.settings_scene->active);
     if (rail_visible) {
-        const auto* home = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::home_button));
-        const bool home_hovered = home && ui_widget_handle_equal(home->widget, g_app.shell_scene.widgets.hovered);
+        const auto* home = ui_scene_node(g_app.shell_scene, UiSemantic::home_button);
+        const bool home_hovered = home && ui_widget_handle_equal(ui_scene_widget(g_app.shell_scene, UiSemantic::home_button), g_app.shell_scene.widgets.hovered);
         pill_changed = guild_rail_indicator_tick(&rail.home_indicator, {~u64{0}, 1},
                            g_app.renderer.navigation_view && !g_app.renderer.navigation_view->selected_guild_id,
                            home_hovered, false, now_ms, allowed);

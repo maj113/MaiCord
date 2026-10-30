@@ -50,13 +50,14 @@ void test_profile_plugin_section(void (*check)(bool, const char*) noexcept) noex
                                               (node->rectangle.top + node->rectangle.bottom) * .5f}
                                     : UiPoint{};
         const auto hit = profile_scene_hit_test(scene, middle.x, middle.y);
+        const auto* chip = profile_scene_badge(scene, part);
         if (part.target == 0)
             button = part.action == ProfileAction::plugin_slot && part.source == static_cast<u16>(UiIcon::tag) &&
                      part.style == 1 && profile_scene_action(scene, hit) == ProfileAction::plugin_slot &&
-                     utf8_equal(part.badge.label, utf8_literal("Pronoun DB"));
+                     chip && utf8_equal(chip->label, utf8_literal("Pronoun DB"));
         else
-            label = part.target == 1 && part.action == ProfileAction::none &&
-                    utf8_equal(part.badge.label, utf8_literal("Verified"));
+            label = part.target == 1 && part.action == ProfileAction::none && chip &&
+                    utf8_equal(chip->label, utf8_literal("Verified"));
     }
     check(opened && chips == 2 && button && label,
           "profile plugin section: labelled nodes become chips and only buttons are actions");

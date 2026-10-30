@@ -417,7 +417,9 @@ void project_active(ApplicationFriends& friends) noexcept {
     friends.active_voice_revision = voice_revision;
     friends.active_activity_revision = activity_revision;
     friends.active_projected = true;
-    u64 online[1024];
+    // Scratch on the UI thread, not re-entered: on the stack it cost a guard-page walk on every
+    // call, including the unchanged ones above; only as many entries as there are friends are touched.
+    static u64 online[1024];
     u32 count = 0;
     for (u32 i = 0; i < friends.store.count && count < sizeof(online) / sizeof(online[0]); ++i) {
         const auto& record = friends.records[i];
@@ -426,7 +428,7 @@ void project_active(ApplicationFriends& friends) noexcept {
                                                           record.presence == RelationshipPresence::dnd))
             online[count++] = record.user_id;
     }
-    ActiveNowCard cards[kActiveNowMaximumCards];
+    static ActiveNowCard cards[kActiveNowMaximumCards];
     const u32 projected = active_now_project({{online, count}, &ui.voice_states, nullptr, friend_activities},
                                              {cards, kActiveNowMaximumCards});
     const bool same = active_now_equal({cards, projected}, {friends.active_projection, friends.active_projection_count});

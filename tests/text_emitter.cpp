@@ -38,8 +38,8 @@ bool consume(void* context, const UiTextCommand& command, u32 ordinal) noexcept 
 }
 UiTextCommand sample() noexcept {
     auto& f = fixture;
-    const auto* home = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::home_button));
-    return {utf8_literal("sample"), {&f.shell.widgets, home->widget}, home->rectangle, home->rectangle,
+    const auto* home = ui_scene_node(f.shell, UiSemantic::home_button);
+    return {utf8_literal("sample"), {&f.shell.widgets, ui_scene_widget(f.shell, UiSemantic::home_button)}, home->rectangle, home->rectangle,
         kDefaultTheme.text_primary, text_style_bold, UiTextAlignment::center, UiTextAlignment::end,
         TextWrapping::no_wrap, TextOverflow::ellipsis, UiTextFace::normal, {}, {f.styles, 2}};
 }

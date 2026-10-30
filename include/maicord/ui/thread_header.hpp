@@ -47,7 +47,6 @@ struct UiThreadHeaderTarget {
 };
 struct UiThreadHeader {
     UiWidgetManager* manager;
-    UiScene* shell;
     UiThreadHeaderWidgets widgets;
     UiThreadHeaderView view;
     UiThreadHeaderStyle style;

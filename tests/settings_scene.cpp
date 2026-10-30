@@ -686,7 +686,7 @@ void test_dialog_scene(Check check) noexcept {
     const auto& l = scene.layout;
     const auto* status = ui_widget_manager_layout_node(scene.widgets, scene.footer_status);
     const auto* band = status ? ui_widget_manager_layout_node(scene.widgets,
-                                                               scene.widgets.storage[scene.footer_status.slot].parent)
+                                    ui_widget_manager_parent(scene.widgets, scene.footer_status))
                               : nullptr;
     const auto* body = ui_widget_manager_layout_node(scene.widgets, scene.body);
     const auto* save = ui_widget_manager_layout_node(scene.widgets, scene.footer_save);

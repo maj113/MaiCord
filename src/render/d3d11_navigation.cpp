@@ -6,13 +6,13 @@
 namespace maicord {
 namespace {
 
-const UiNode* navigation_scene_node(const D3D11Renderer& renderer, UiSemantic semantic) noexcept {
+const UiLayoutNode* navigation_scene_node(const D3D11Renderer& renderer, UiSemantic semantic) noexcept {
     return renderer.ui_scene
-               ? ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, semantic))
+               ? ui_scene_node(*renderer.ui_scene, semantic)
                : nullptr;
 }
 
-bool point_in_node(const D3D11Renderer& renderer, const UiNode* node, i32 client_x_pixels,
+bool point_in_node(const D3D11Renderer& renderer, const UiLayoutNode* node, i32 client_x_pixels,
                    i32 client_y_pixels, float* x, float* y) noexcept {
     if (!node || !x || !y || renderer.dpi == 0 || client_x_pixels < 0 || client_y_pixels < 0) {
         return false;
@@ -39,12 +39,12 @@ RendererNavigationHit renderer_navigation_hit_test(const D3D11Renderer& renderer
     }
     const float x = static_cast<float>(client_x_pixels) * 96.0f / static_cast<float>(renderer.dpi);
     const float y = static_cast<float>(client_y_pixels) * 96.0f / static_cast<float>(renderer.dpi);
-    const UiNode* home = navigation_scene_node(renderer, UiSemantic::home_button);
+    const UiLayoutNode* home = navigation_scene_node(renderer, UiSemantic::home_button);
     if (home && ui_rect_contains(home->rectangle, x, y) &&
-        ui_widget_manager_input_enabled(renderer.ui_scene->widgets, home->widget)) {
+        ui_widget_manager_input_enabled(renderer.ui_scene->widgets, ui_scene_widget(*renderer.ui_scene, UiSemantic::home_button))) {
         return {0, RendererNavigationHitKind::home, true};
     }
-    const UiNode* guild = navigation_scene_node(renderer, UiSemantic::guild_navigation);
+    const UiLayoutNode* guild = navigation_scene_node(renderer, UiSemantic::guild_navigation);
     if (guild && renderer.guild_rail_scene && ui_rect_contains(guild->rectangle, x, y)) {
         const GuildRailHit hit = guild_rail_scene_hit_test(*renderer.guild_rail_scene, x, y);
         if (hit.conversation)
@@ -52,7 +52,7 @@ RendererNavigationHit renderer_navigation_hit_test(const D3D11Renderer& renderer
         return hit.id != 0 ? RendererNavigationHit{hit.id, RendererNavigationHitKind::guild, hit.selectable}
                            : RendererNavigationHit{};
     }
-    const UiNode* navigation = navigation_scene_node(renderer, UiSemantic::channel_navigation);
+    const UiLayoutNode* navigation = navigation_scene_node(renderer, UiSemantic::channel_navigation);
     if (!navigation || !renderer.shell_navigation_scene || !ui_rect_contains(navigation->rectangle, x, y)) {
         return RendererNavigationHit{};
     }

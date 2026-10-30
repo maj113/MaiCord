@@ -74,8 +74,7 @@ bool message_reaction_presentation_resolve(const MessageScene& scene, const Mess
     const UiWidgetHandle handle = row.reaction_buttons[index];
     const UiWidget* widget = ui_widget_manager_resolve(scene.widgets, handle);
     const UiLayoutNode* layout = message_scene_layout_node(scene, handle);
-    if (!region || !widget || !layout || widget->parent.slot != row.reactions.slot ||
-        widget->parent.generation != row.reactions.generation || widget->kind != UiWidgetKind::button ||
+    if (!region || !widget || !layout || layout->parent != row.reactions.slot || widget->kind != UiWidgetKind::button ||
         !ui_rect_has_area(layout->rectangle) || !ui_rect_has_area(layout->content_rectangle)) {
         return false;
     }

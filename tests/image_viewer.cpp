@@ -65,7 +65,7 @@ void test_image_gallery(void (*check)(bool, const char*) noexcept) noexcept {
           "gallery: reveal interpolates only the painted rectangle, never layout or hit geometry");
     paint_stream_reset(&paint, 1200, 800);
     check(ui_image_viewer_paint(viewer, kDefaultTheme, &paint) &&
-              paint.quads[0].fill.alpha == kUiImageViewerScrimOpacity * .5f,
+              paint.quads[0].fill.alpha == kDefaultTheme.tokens.overlay.media.alpha * .5f,
           "gallery: the backdrop fades with the reveal toward its 92 percent scrim");
     ui_image_viewer_set_reveal(&viewer, 1, {});
     check(ui_rect_equal(viewer.display, viewer.image) && !ui_image_viewer_set_item(&viewer, {10, 10}, 3, 3, false),

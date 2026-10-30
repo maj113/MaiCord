@@ -2507,9 +2507,12 @@ ThumbnailStep decode_thumbnail_rows(AccountMedia* media, MediaAttachmentFormat f
             return ThumbnailStep::legacy;
         if (!parsed.ok())
             return ThumbnailStep::decode;
+        // The deflate workspace leads the block, then spans, window and rows.
+        const u64 lead = (sizeof(DeflateWorkspace) + 15u) & ~15ull;
         const u64 span_bytes = (static_cast<u64>(layout.idat_chunks) * sizeof(DeflateInputSpan) + 15u) & ~15ull;
         ThumbnailMemory stream;
-        u8* base = stream.allocate(span_bytes + kPngStreamWindowBytes + layout.row_buffer_bytes);
+        u8* block = stream.allocate(lead + span_bytes + kPngStreamWindowBytes + layout.row_buffer_bytes);
+        u8* base = block ? block + lead : nullptr;
         if (!base || !target->allocate(image.width) ||
             !local_thumbnail_begin(sink, image.width, image.height, kLocalPreviewThumbnailExtent, target->output,
                                    target->sums))
@@ -2530,7 +2533,7 @@ ThumbnailStep decode_thumbnail_rows(AccountMedia* media, MediaAttachmentFormat f
                     return local_thumbnail_push_row(r.sink, row);
                 return local_thumbnail_png_row(*r.image, row, r.rgba) && local_thumbnail_push_row(r.sink, r.rgba);
             },
-            &rows, &pipeline.workspace);
+            &rows, reinterpret_cast<DeflateWorkspace*>(block));
         return decoded.ok() ? ThumbnailStep::decoded : ThumbnailStep::decode;
     }
     if (format == MediaAttachmentFormat::webp) {

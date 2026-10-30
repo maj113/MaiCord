@@ -65,10 +65,12 @@ bool pool_ready() noexcept {
         if (state == 0 && InterlockedCompareExchange(&pool_state, 1, 0) == 0) {
             auto* pool = static_cast<char*>(
                 VirtualAlloc(nullptr, kEmojiPoolBytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-            DeflateWorkspace workspace;
+            DeflateWorkspace* workspace = deflate_workspace_allocate();
             const DeflateInputSpan input{kEmojiPoolPacked, sizeof(kEmojiPoolPacked)};
-            const bool ok = pool && zlib_inflate({&input, 1}, {reinterpret_cast<u8*>(pool), kEmojiPoolBytes},
-                                                 kEmojiPoolBytes, &workspace).ok();
+            const bool ok = pool && workspace &&
+                            zlib_inflate({&input, 1}, {reinterpret_cast<u8*>(pool), kEmojiPoolBytes},
+                                         kEmojiPoolBytes, workspace).ok();
+            deflate_workspace_free(workspace);
             if (ok) {
                 emoji_pool_detail::catalog_names = pool + kEmojiPoolCatalogNamesOffset;
                 emoji_pool_detail::catalog_glyphs = pool + kEmojiPoolCatalogGlyphsOffset;
@@ -237,10 +239,8 @@ Utf8View alias_glyph(Utf8View name) noexcept {
 Utf8View plain_shortcode_glyph(Utf8View name) noexcept {
     if (const auto glyph = alias_glyph(name); glyph.bytes)
         return glyph;
-    for (u32 i = 0; i < kGeneratedEntryCount; ++i)
-        if (utf8_equal(kUnicodeEmoji16Entries[i].name(), name))
-            return kUnicodeEmoji16Entries[i].glyph();
-    return {};
+    const u32 index = emoji_catalog_find_name(name);
+    return index == ~0u ? Utf8View{} : kUnicodeEmoji16Entries[index].glyph();
 }
 
 // emoji-test.txt lists every fully-qualified skin-tone variant directly after
@@ -292,12 +292,37 @@ Utf8View emoji_shortcode_glyph(Utf8View name) noexcept {
     return base.bytes ? skin_tone_variant(base, static_cast<u8>(0xBA + digit - '0')) : Utf8View{};
 }
 
+u32 emoji_catalog_find_name(Utf8View name) noexcept {
+    if (!name.data || !name.bytes || name.bytes > kUnicodeEmojiMaximumNameBytes || !pool_ready())
+        return ~0u;
+    // Length and first byte reject nearly every entry before any pool access.
+    const char* pool = emoji_pool_detail::catalog_names;
+    for (u32 i = 0; i < kGeneratedEntryCount; ++i) {
+        const EmojiCatalogEntry& entry = kUnicodeEmoji16Entries[i];
+        if (entry.name_length == name.bytes && pool[entry.name_offset()] == name.data[0] &&
+            bytes_equal(pool + entry.name_offset(), name.data, name.bytes))
+            return i;
+    }
+    return ~0u;
+}
+
 u32 emoji_catalog_find_glyph(Utf8View glyph) noexcept {
     if (!glyph.data || !glyph.bytes || glyph.bytes > kUnicodeEmojiMaximumGlyphBytes + 12 || !pool_ready())
         return ~0u;
-    for (u32 i = 0; i < kGeneratedEntryCount; ++i)
-        if (glyph_equal(kUnicodeEmoji16Entries[i].glyph(), glyph))
+    // The first scalar must match (a leading U+FE0F, EF B8 8F, is skipped by
+    // glyph_equal, so it gets no prefilter).
+    const u8 lead = static_cast<u8>(glyph.data[0]);
+    u32 prefix = lead < 0x80u ? 1u : lead >= 0xC0u && lead < 0xE0u ? 2u : lead >= 0xE0u && lead < 0xF0u ? 3u
+                                    : lead >= 0xF0u && lead < 0xF8u ? 4u : 0u;
+    if (lead == 0xEFu || prefix > glyph.bytes)
+        prefix = 0;
+    for (u32 i = 0; i < kGeneratedEntryCount; ++i) {
+        const Utf8View candidate = kUnicodeEmoji16Entries[i].glyph();
+        if (prefix && (candidate.bytes < prefix || !bytes_equal(candidate.data, glyph.data, prefix)))
+            continue;
+        if (glyph_equal(candidate, glyph))
             return i;
+    }
     return ~0u;
 }
 

@@ -605,6 +605,72 @@ void test_layout(Check check) noexcept {
     check(lines, "ansi: underline and line-through opened before a colour both draw in each run's foreground");
     text_system_release(&system);
 }
+
+struct PlainParse {
+    MessageMarkdownResult result;
+    char text[256];
+    u32 styles[256];
+    TextStyleSpan spans[32];
+};
+
+PlainParse parse_plain(Utf8View input, u32 text_capacity = 256) noexcept {
+    PlainParse parsed{};
+    parsed.result = message_markdown_parse(input, {parsed.text, text_capacity}, {parsed.styles, 256},
+                                           {parsed.spans, 32});
+    return parsed;
+}
+
+bool text_equals(const PlainParse& parsed, Utf8View expected) noexcept {
+    return parsed.result.ok() && parsed.result.text.bytes == expected.bytes &&
+           bytes_equal(parsed.result.text.data, expected.data, expected.bytes);
+}
+
+// Text runs that no rule starts at are copied in one go; every rule start
+// inside them must still be seen, including near h/s link prefixes.
+void test_plain_runs(Check check) noexcept {
+    const auto bold = parse_plain(utf8_literal("plain **bold** tail"));
+    check(text_equals(bold, utf8_literal("plain bold tail")) && bold.result.span_count == 1 &&
+              bold.spans[0].byte_offset == 6 && bold.spans[0].byte_count == 4 &&
+              bold.spans[0].flags == text_style_bold,
+          "markdown runs: emphasis inside plain text");
+    const auto words = parse_plain(utf8_literal("history shows steam hot http"));
+    check(text_equals(words, utf8_literal("history shows steam hot http")) && words.result.span_count == 0,
+          "markdown runs: words starting with h or s stay plain");
+    const auto link = parse_plain(utf8_literal("see http://a.b/c ok"));
+    check(text_equals(link, utf8_literal("see http://a.b/c ok")) && link.result.span_count == 1 &&
+              link.spans[0].byte_offset == 4 && link.spans[0].byte_count == 12 &&
+              (link.spans[0].flags & text_style_link) != 0,
+          "markdown runs: a bare URL in plain text links");
+    const auto steam = parse_plain(utf8_literal("run steam://rungameid/1 now"));
+    check(steam.result.span_count == 1 && steam.spans[0].byte_offset == 4 &&
+              (steam.spans[0].flags & text_style_link) != 0,
+          "markdown runs: a steam URL in plain text links");
+    const auto jumbo = parse_plain(utf8_literal("\xF0\x9F\x98\x80 \xF0\x9F\x98\x80"));
+    check(jumbo.result.ok() && jumbo.result.span_count == 2 && jumbo.spans[0].byte_count == 4 &&
+              jumbo.spans[1].byte_offset == 5 && (jumbo.spans[0].flags & text_style_jumbo_emoji) != 0,
+          "markdown runs: emoji-only text keeps its spaces unstyled");
+    const auto quote = parse_plain(utf8_literal("> quoted line\nplain after"));
+    check(text_equals(quote, utf8_literal("quoted line\nplain after")) && quote.result.span_count == 1 &&
+              quote.spans[0].byte_count == 12 && (quote.spans[0].flags & text_style_quote) != 0,
+          "markdown runs: a quote styles only its own line");
+    const auto small = parse_plain(utf8_literal("abcdefgh"), 4);
+    check(small.result.error == MessageMarkdownError::output_too_small,
+          "markdown runs: output smaller than the input is rejected");
+    const auto fence = parse_plain(utf8_literal("some words here ```\ncode\n```"));
+    check(fence.result.ok() && fence.result.code_blocks == 1 &&
+              text_equals(fence, utf8_literal("some words here code\n")),
+          "markdown runs: a fence after plain text is found");
+    const char* const escapes[] = {"\x1B[1;31m", "\x1B[31:1m", "\x1B[m", "\x1B[1;m", "\x1B[3", "x"};
+    const u32 widths[] = {7, 7, 0, 0, 0, 0};
+    bool sgr = true;
+    for (u32 i = 0; i < 6; ++i) {
+        u32 bytes = 0;
+        while (escapes[i][bytes])
+            ++bytes;
+        sgr = sgr && ansi_text_sgr_bytes(escapes[i], bytes) == widths[i];
+    }
+    check(sgr, "ansi: the reply preview SGR matcher accepts digits joined by ; or :");
+}
 } // namespace
 
 void test_ansi_code_blocks(Check check) noexcept {
@@ -614,5 +680,6 @@ void test_ansi_code_blocks(Check check) noexcept {
     test_inline_reply(check);
     test_palette(check);
     test_layout(check);
+    test_plain_runs(check);
 }
 } // namespace maicord

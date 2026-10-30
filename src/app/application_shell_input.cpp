@@ -40,21 +40,22 @@ namespace {
 // The header toolbar badge as the shell paints it: right-aligned in the title
 // label across the full title bar height.
 UiPluginSlotBadge header_plugin_hit(float x, float y) noexcept {
-    const auto* label = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::title_label));
-    const auto* title = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::title_bar));
+    const auto* label = ui_scene_node(g_app.shell_scene, UiSemantic::title_label);
+    const auto* title = ui_scene_node(g_app.shell_scene, UiSemantic::title_bar);
     UiPluginSlotBadge badge{};
     if (!label || !title)
         return badge;
     UiRect line = label->rectangle;
     line.top = title->rectangle.top;
     line.bottom = title->rectangle.bottom;
-    if (!ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, label->widget, line, nullptr, &badge) ||
+    if (!ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, ui_scene_widget(g_app.shell_scene, UiSemantic::title_label),
+                                   line, nullptr, &badge) ||
         !ui_rect_contains(badge.badge.rectangle, x, y))
         reset_value(&badge);
     return badge;
 }
 bool voice_disconnect_contains(float x, float y) noexcept {
-    const auto* footer = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::channel_footer));
+    const auto* footer = ui_scene_node(g_app.shell_scene, UiSemantic::channel_footer);
     return footer && g_app.account_ui && g_app.account_ui->navigation_view.connected_voice_channel_id &&
            ui_rect_contains(ui_voice_disconnect_rectangle(footer->rectangle), x, y);
 }
@@ -67,7 +68,7 @@ bool leave_voice() noexcept {
 }
 
 bool account_identity_contains(float x, float y) noexcept {
-    const auto* footer = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::channel_footer));
+    const auto* footer = ui_scene_node(g_app.shell_scene, UiSemantic::channel_footer);
     if (!footer || !g_app.account_ui || !ui_rect_contains(footer->rectangle, x, y)) return false;
     const auto& users = g_app.account_ui->user_store;
     const auto* self = user_store_find(users, g_app.account_ui->chat_state.self_user_id);
@@ -97,12 +98,12 @@ bool account_identity_contains(float x, float y) noexcept {
 // The channel sidebar's right edge is also the thread browser's left edge, so
 // the same splitter resizes the browser while it covers the chat column.
 PaneResizeKind pane_resize_hit(float x, float y) noexcept {
-    const UiNode* channels =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::channel_sidebar));
+    const UiLayoutNode* channels =
+        ui_scene_node(g_app.shell_scene, UiSemantic::channel_sidebar);
     if (channels && ui_splitter_hit(channels->rectangle, UiSplitterEdge::right, x, y))
         return PaneResizeKind::channels;
-    const UiNode* members =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::member_sidebar));
+    const UiLayoutNode* members =
+        ui_scene_node(g_app.shell_scene, UiSemantic::member_sidebar);
     // Search results and the DM profile take the member slot at a fixed width; no grip there.
     if (members && !d3d11_renderer_search_visible(g_app.renderer) && !g_app.shell_scene.side_panel_profile &&
         ui_splitter_hit(members->rectangle, UiSplitterEdge::left, x, y))

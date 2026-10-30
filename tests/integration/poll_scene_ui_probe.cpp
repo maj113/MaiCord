@@ -307,7 +307,7 @@ bool poll_scene_ui_probe(D3D11Renderer& renderer, PollProbeCapture probe_capture
         log_u64(LogLevel::info, "probe", "poll_native_marker_pixels", marker_pixels);
         valid = require(valid && question_pixels > 3 && footer_pixels > 3 && (compact || show_pixels > 3) &&
                             marker_pixels > 3 && renderer.paint_stream.count < 512 &&
-                            f.messages.widgets.count == kMessageSceneBaseWidgetsPerRow + 2,
+                            f.messages.widgets.count == kMessageScenePlainRowWidgets + 2,
                         10);
         if (compact) {
             // Ended: the winner's outline and fill, no actions.

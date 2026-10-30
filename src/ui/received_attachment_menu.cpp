@@ -38,7 +38,7 @@ constexpr const char* kMediaExtensions[]{"png", "jpg", "jpeg", "webp", "avif", "
 template <u32 N> constexpr u32 count_of(const char* const (&)[N]) noexcept {
     return N;
 }
-Utf8View link_label(ReceivedAttachmentLinkKind link, bool open) noexcept {
+inline Utf8View link_label(ReceivedAttachmentLinkKind link, bool open) noexcept {
     static constexpr Utf8View labels[2][3]{
         {utf8_literal("Copy Link"), utf8_literal("Copy Image Link"), utf8_literal("Copy Media Link")},
         {utf8_literal("Open Link"), utf8_literal("Open Image Link"), utf8_literal("Open Media Link")}};

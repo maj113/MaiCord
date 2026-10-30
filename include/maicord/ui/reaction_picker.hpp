@@ -102,9 +102,11 @@ struct ReactionPickerModel {
     char query[kReactionPickerMaximumQueryBytes];
 };
 
-// message_id is the owner identity (a message, or the composer's channel).
+// message_id is the owner identity (a message, or the composer's channel). The
+// preference store seeds, personalizes and persists the Frequently Used and
+// Favorites sections.
 ReactionPickerResult reaction_picker_open(ReactionPickerModel* picker, u64 message_id,
-                                          ReactionPreferenceStore* preferences = nullptr, u64 now_ms = 0,
+                                          ReactionPreferenceStore* preferences, u64 now_ms,
                                           const ChatStateStore* state = nullptr, u64 guild_id = 0,
                                           MessageComposer* borrowed_search = nullptr,
                                           ReactionPreferenceKind kind = ReactionPreferenceKind::reaction) noexcept;

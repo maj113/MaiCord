@@ -264,8 +264,7 @@ bool token_in_words(Utf8View token, const char* words, bool ignore_case) noexcep
     return false;
 }
 
-u32 keyword_style(CodeLanguage language, Utf8View token) noexcept {
-    const LanguageLexicon lexicon = language_lexicon(language);
+u32 keyword_style(const LanguageLexicon& lexicon, Utf8View token) noexcept {
     if (token_in_words(token, words_common.data,
                        lexicon.ignore_case)) {
         return text_style_syntax_builtin;
@@ -290,6 +289,7 @@ struct Highlighter {
     u32 tokens;
     u32 styled_bytes;
     bool truncated;
+    LanguageLexicon lexicon;
 };
 
 bool mark(Highlighter* highlighter, u32 begin, u32 end, u32 style) noexcept {
@@ -408,7 +408,7 @@ CodeHighlightResult highlight_markup(Highlighter* highlighter) noexcept {
             while (end < code.bytes && (identifier_continue(code.data[end]) || code.data[end] == '-')) {
                 ++end;
             }
-            style = keyword_style(CodeLanguage::markup, Utf8View{code.data + offset, end - offset});
+            style = keyword_style(highlighter->lexicon, Utf8View{code.data + offset, end - offset});
         } else {
             ++offset;
             continue;
@@ -491,7 +491,7 @@ CodeHighlightResult code_highlight_ranges(Utf8View code, CodeLanguage language,
         language == CodeLanguage::none || language == CodeLanguage::ansi || token_capacity == 0) {
         return CodeHighlightResult{};
     }
-    Highlighter highlighter{code, sink, context, token_capacity, 0, 0, false};
+    Highlighter highlighter{code, sink, context, token_capacity, 0, 0, false, language_lexicon(language)};
     if (language == CodeLanguage::markup) {
         return highlight_markup(&highlighter);
     }
@@ -541,7 +541,7 @@ CodeHighlightResult code_highlight_ranges(Utf8View code, CodeLanguage language,
                      (language == CodeLanguage::powershell || language == CodeLanguage::css)))) {
                 ++end;
             }
-            style = keyword_style(language, Utf8View{code.data + offset, end - offset});
+            style = keyword_style(highlighter.lexicon, Utf8View{code.data + offset, end - offset});
         } else if (operator_character(value)) {
             if (end < code.bytes && operator_character(code.data[end])) {
                 ++end;

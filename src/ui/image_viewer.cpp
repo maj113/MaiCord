@@ -15,21 +15,21 @@ constexpr float kToolbarGroupGap = 12;
 // Media bands: the toolbar row above the body, the caption row below it.
 constexpr float kBodyTop = kToolbarTop + kToolbarTarget + 20, kBodyBottom = 40, kBodySide = 24;
 constexpr float kChevronTarget = 44, kChevronInset = 16, kPanStep = 40, kSpinnerExtent = 32;
-bool view_group(u32 index) noexcept {
+inline bool view_group(u32 index) noexcept {
     return index == ui_image_viewer_fit || index == ui_image_viewer_zoom_in || index == ui_image_viewer_zoom_out ||
            index == ui_image_viewer_fullscreen;
 }
 // From fit, or actual size when that is smaller (fit upscales on high DPI),
 // up to the maximum or actual size when that is larger.
-float clamp_zoom(const UiImageViewer& v, float zoom) noexcept {
+inline float clamp_zoom(const UiImageViewer& v, float zoom) noexcept {
     const float actual = ui_image_viewer_actual_zoom(v);
     return maximum(minimum(1.0f, actual), minimum(maximum(kUiImageViewerMaximumZoom, actual), zoom));
 }
-bool fitted(const UiImageViewer& v) noexcept {
+inline bool fitted(const UiImageViewer& v) noexcept {
     return v.zoom - 1 < 1e-3f && 1 - v.zoom < 1e-3f;
 }
 // Nearest device pixel, for crisp 1:1 sampling.
-float snap(float value, float scale) noexcept {
+inline float snap(float value, float scale) noexcept {
     const float device = value * scale;
     return static_cast<float>(static_cast<i64>(device >= 0 ? device + .5f : device - .5f)) / scale;
 }
@@ -66,7 +66,7 @@ void arrange(UiImageViewer* v) noexcept {
         v->display = {x + width * inset, y + height * inset, x + width * (1 - inset), y + height * (1 - inset)};
     }
 }
-bool shown(const UiImageViewer& v, u32 index) noexcept {
+inline bool shown(const UiImageViewer& v, u32 index) noexcept {
     switch (index) {
     case ui_image_viewer_zoom_out:
     case ui_image_viewer_zoom_in:
@@ -102,7 +102,7 @@ bool place_controls(UiImageViewer* v) noexcept {
                          : 0;
     for (u32 index = 0; index < ui_image_viewer_button_count; ++index) {
         auto* widget = ui_widget_manager_resolve(&v->widgets, v->buttons[index]);
-        auto* node = widget ? ui_layout_engine_resolve(&v->widgets.layout, widget->layout) : nullptr;
+        auto* node = ui_widget_manager_layout_node(&v->widgets, v->buttons[index]);
         if (!node)
             return false;
         bool visible = shown(*v, index);
@@ -159,13 +159,13 @@ void fade(PaintStream* paint, u32 first, float alpha) noexcept {
     }
 }
 // e^x near zero, for the fraction of a wheel notch.
-float exp_small(float x) noexcept {
+inline float exp_small(float x) noexcept {
     return 1 + x * (1 + x * (.5f + x * (1.0f / 6 + x * (1.0f / 24))));
 }
-UiPoint center(const UiImageViewer& v) noexcept {
+inline UiPoint center(const UiImageViewer& v) noexcept {
     return {(v.body.left + v.body.right) * .5f, (v.body.top + v.body.bottom) * .5f};
 }
-UiRect state_box(const UiImageViewer& v) noexcept {
+inline UiRect state_box(const UiImageViewer& v) noexcept {
     const auto c = center(v);
     return {c.x - kSpinnerExtent * .5f, c.y - kSpinnerExtent * .5f, c.x + kSpinnerExtent * .5f,
             c.y + kSpinnerExtent * .5f};
@@ -550,11 +550,9 @@ bool ui_image_viewer_paint_overlay(const UiImageViewer& v, const Theme& theme, P
         const auto button = ui_image_viewer_button(v, i);
         if (!ui_rect_has_area(button)) continue;
         const auto handle = v.buttons[i];
-        const bool hover = v.widgets.hovered.slot == handle.slot && v.widgets.hovered.generation == handle.generation;
-        const bool pressed = hover && v.widgets.captured.slot == handle.slot &&
-                             v.widgets.captured.generation == handle.generation;
-        const bool focus = v.keyboard_focus && v.widgets.focused.slot == handle.slot &&
-                           v.widgets.focused.generation == handle.generation;
+        const bool hover = ui_widget_handle_equal(v.widgets.hovered, handle);
+        const bool pressed = hover && ui_widget_handle_equal(v.widgets.captured, handle);
+        const bool focus = v.keyboard_focus && ui_widget_handle_equal(v.widgets.focused, handle);
         const float radius = ui_rect_width(button) * .5f;
         const Color fill = hover ? theme.tokens.overlay.scrim_strong : theme.tokens.overlay.scrim_light;
         ok = paint_stream_push_rounded_border(paint, button, fill, focus ? theme.tokens.border.focus : theme.tokens.border.subtle, radius, focus ? 2.0f : 1.0f);

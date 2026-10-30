@@ -132,24 +132,11 @@ inline constexpr UiShellLayoutMetrics kFriendsShellLayoutMetrics{
     UiInsets{16.0f, 4.0f, 16.0f, 4.0f},
 };
 
-struct UiNode {
-    UiRect rectangle;
-    UiWidgetHandle widget;
-    UiSemantic semantic;
-    u16 generation;
-    bool visible;
-};
-
-struct UiNodeHandle {
-    u16 slot;
-    u16 generation;
-};
-
 struct UiScene {
     UiFixedWidgetStorageOwner storage;
     UiWidgetManager widgets;
-    UiNode* nodes;
     UiWidgetHandle semantics[static_cast<u32>(UiSemantic::count)];
+    // Widgets of the last successful layout; zero before the first.
     u32 count;
     u32 rejected;
     u32 layout_rebuilds;
@@ -157,7 +144,6 @@ struct UiScene {
     float width;
     float height;
     u32 layout_metrics_revision;
-    u16 generation;
     u8 layout_variant;
     // The metrics flags of the last layout.
     u16 layout_flags;
@@ -206,9 +192,12 @@ bool ui_scene_header_stale(const UiScene& scene, u16 flags) noexcept;
 // Composer content width using layout's pane visibility and margins, without
 // constructing widgets or running a layout pass.
 float ui_scene_composer_width(const UiShellLayoutMetrics& metrics, float width) noexcept;
-UiNodeHandle ui_scene_find(const UiScene& scene, UiSemantic semantic) noexcept;
-const UiNode* ui_scene_resolve(const UiScene& scene, UiNodeHandle handle) noexcept;
-const UiNode* ui_scene_resolve_semantic(const UiScene& scene, UiSemantic semantic) noexcept;
+// The visible, laid-out node of `semantic`, or null.
+const UiLayoutNode* ui_scene_node(const UiScene& scene, UiSemantic semantic) noexcept;
+// The widget behind `semantic`'s node.
+inline UiWidgetHandle ui_scene_widget(const UiScene& scene, UiSemantic semantic) noexcept {
+    return scene.semantics[static_cast<u32>(semantic)];
+}
 UiRect ui_scene_content_rectangle(const UiScene& scene, UiSemantic semantic) noexcept;
 UiShellHeaderGeometry ui_scene_header_geometry(const UiScene& scene) noexcept;
 

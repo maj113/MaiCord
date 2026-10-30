@@ -21,11 +21,11 @@ constexpr float kRailSeparator = 25;
 // Masonry columns are capped at 8; extreme GIF aspect ratios are clamped.
 constexpr u32 kMasonryColumns = 8;
 constexpr float kGifMinimumAspect = .25f, kGifMaximumAspect = 4, kGifDefaultAspect = .5625f;
-float clamped(float value, float low, float high) noexcept {
+inline float clamped(float value, float low, float high) noexcept {
     return maximum(low, minimum(value, high));
 }
 // Range comparisons also reject NaN and infinities: every bound is finite.
-bool bounded(float value, float low, float high) noexcept {
+inline bool bounded(float value, float low, float high) noexcept {
     return value >= low && value <= high;
 }
 bool finite_rectangle(UiRect r) noexcept {
@@ -34,10 +34,10 @@ bool finite_rectangle(UiRect r) noexcept {
            bounded(r.right, -kMaximumUiCoordinate, kMaximumUiCoordinate) &&
            bounded(r.bottom, -kMaximumUiCoordinate, kMaximumUiCoordinate);
 }
-bool unicode_category(UiMediaPickerSectionVisual visual) noexcept {
+inline bool unicode_category(UiMediaPickerSectionVisual visual) noexcept {
     return visual >= UiMediaPickerSectionVisual::people && visual <= UiMediaPickerSectionVisual::flags;
 }
-bool server_section(UiMediaPickerSectionVisual visual) noexcept {
+inline bool server_section(UiMediaPickerSectionVisual visual) noexcept {
     return visual == UiMediaPickerSectionVisual::guild || visual == UiMediaPickerSectionVisual::media;
 }
 // Rail items: 32 DIP art plus 8 DIP spacing, or Discord's 34 DIP for Unicode
@@ -108,7 +108,7 @@ void grid_geometry(const UiMediaPickerStyle& style, UiMediaPickerKind kind, bool
     out->masonry = back && !sections;
 }
 // The least row pitch the projection must budget for.
-float minimum_row_pitch(const UiMediaPickerStyle& style, const PickerLayout& layout) noexcept {
+inline float minimum_row_pitch(const UiMediaPickerStyle& style, const PickerLayout& layout) noexcept {
     return layout.masonry ? layout.cell_width * kGifMinimumAspect + style.metrics.gif_gutter : layout.cell_pitch;
 }
 bool picker_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* source,
@@ -255,7 +255,7 @@ bool source_valid(const UiMediaPickerSource* source, const UiMediaPickerContent&
 }
 // Leading list padding: none above sticky headers (Discord), the list inset
 // above plain results and the gutter above GIFs.
-float content_top(const UiMediaPickerScene& scene) noexcept {
+inline float content_top(const UiMediaPickerScene& scene) noexcept {
     const auto& m = scene.style.metrics;
     return scene.kind == UiMediaPickerKind::gif               ? m.gif_gutter
            : scene.source && scene.source->sections.count ? 0
@@ -269,7 +269,7 @@ float section_margin(const UiMediaPickerScene& scene, u32 index) noexcept {
                ? scene.style.metrics.header_gap
                : 0;
 }
-u32 rows_of(const UiMediaPickerScene& scene, u32 count) noexcept {
+inline u32 rows_of(const UiMediaPickerScene& scene, u32 count) noexcept {
     return (count + scene.columns - 1) / scene.columns;
 }
 float section_extent(const UiMediaPickerScene& scene, u32 index) noexcept {
@@ -436,7 +436,7 @@ UiWidgetHandle add(UiMediaPickerScene& scene, UiRect rectangle,
     scene.projection->targets[result.handle.slot] = mapping;
     return result.handle;
 }
-UiRect grid_cell(const UiMediaPickerScene& scene, u32 column, float top) noexcept {
+inline UiRect grid_cell(const UiMediaPickerScene& scene, u32 column, float top) noexcept {
     const float left = scene.grid_left + column * scene.column_pitch;
     return {left, top, left + scene.cell_width, top + scene.cell_height};
 }
@@ -538,7 +538,7 @@ void synchronize_focus(UiMediaPickerScene& scene) noexcept {
             return;
         }
 }
-u32 append(char* output, u32 used, u32 capacity, Utf8View text) noexcept {
+inline u32 append(char* output, u32 used, u32 capacity, Utf8View text) noexcept {
     return used + utf8_copy_truncated(output + used, capacity - used, text);
 }
 // Formats the footer for the inspected cell; unchanged cells keep their text.
@@ -571,11 +571,11 @@ void refresh_footer(UiMediaPickerScene& scene) noexcept {
             static_cast<u8>(append(scene.footer_detail, detail, sizeof(scene.footer_detail), item.detail));
     }
 }
-bool inline_results(const UiMediaPickerScene& scene) noexcept {
+inline bool inline_results(const UiMediaPickerScene& scene) noexcept {
     return scene.variant == UiMediaPickerVariant::inline_results;
 }
 // The scroll axis: the inline GIF strip scrolls sideways, every other body down.
-float body_extent(const UiMediaPickerScene& scene) noexcept {
+inline float body_extent(const UiMediaPickerScene& scene) noexcept {
     return inline_results(scene) && scene.kind == UiMediaPickerKind::gif ? ui_rect_width(scene.body)
                                                                         : ui_rect_height(scene.body);
 }
@@ -641,17 +641,33 @@ bool project_inline(UiMediaPickerScene& scene, const UiMediaPickerCell* prior, u
 bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
     const auto& m = scene.style.metrics;
     ++scene.counters.rebuilds;
-    // Transient bounded stack snapshot; no second retained catalogue or allocation.
-    UiMediaPickerCell prior[kUiMediaPickerVisibleCells];
-    const u32 prior_count = reuse ? scene.cell_count : 0;
+    // The previous cells are the reuse source: snapshot them (the rebuild
+    // overwrites the projection) into owned storage that grows with the visible
+    // count. Without it the rebuild resolves every cell again.
+    u32 prior_count = reuse ? scene.cell_count : 0;
+    if (prior_count > scene.prior_capacity) {
+        const usize bytes = (static_cast<usize>(prior_count) * sizeof(UiMediaPickerCell) + 4095) & ~usize{4095};
+        auto* next = static_cast<UiMediaPickerCell*>(
+            VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (next) {
+            if (scene.prior)
+                VirtualFree(scene.prior, 0, MEM_RELEASE);
+            scene.prior = next;
+            scene.prior_capacity = static_cast<u32>(bytes / sizeof(UiMediaPickerCell));
+        } else {
+            prior_count = 0;
+        }
+    }
     if (prior_count)
-        copy_bytes(prior, scene.projection->cells, prior_count * sizeof(*prior));
+        copy_bytes(scene.prior, scene.projection->cells, prior_count * sizeof(UiMediaPickerCell));
+    const UiMediaPickerCell* const prior = scene.prior;
     reset_value(&scene.pressed);
     scene.favorite_hovered = false;
     scene.footer_index = ~u32{0};
     scene.footer_title_bytes = 0;
     ui_widget_manager_reset(&scene.widgets);
-    ZeroMemory(scene.projection, sizeof(*scene.projection));
+    ZeroMemory(scene.projection->headers, sizeof(scene.projection->headers));
+    ZeroMemory(scene.projection->rail, sizeof(scene.projection->rail));
     scene.cell_count = scene.header_count = scene.rail_count = 0;
     scene.pinned_bottom = scene.body.top;
     if (++scene.generation == 0)
@@ -782,14 +798,14 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
 struct GridPosition {
     u32 section, row, column;
 };
-u32 section_count(const UiMediaPickerScene& scene) noexcept {
+inline u32 section_count(const UiMediaPickerScene& scene) noexcept {
     return scene.source->sections.count ? scene.source->sections.count : 1;
 }
-u32 section_first(const UiMediaPickerScene& scene, u32 section) noexcept {
+inline u32 section_first(const UiMediaPickerScene& scene, u32 section) noexcept {
     return scene.source->sections.count ? scene.source->sections[section].first : 0;
 }
 // Items shown in a section: collapsed sections show none.
-u32 section_items(const UiMediaPickerScene& scene, u32 section) noexcept {
+inline u32 section_items(const UiMediaPickerScene& scene, u32 section) noexcept {
     if (!scene.source->sections.count)
         return scene.source->count;
     const auto& s = scene.source->sections[section];
@@ -995,29 +1011,6 @@ u32 ui_media_picker_scene_current_section(const UiMediaPickerScene& scene) noexc
     }
     return scene.source->sections.count - 1;
 }
-bool ui_media_picker_style_valid(const UiMediaPickerStyle& style) noexcept {
-    const auto& m = style.metrics;
-    return bounded(m.panel_width, 240, 768) && bounded(m.panel_height, 200, 768) &&
-           bounded(m.viewport_inset, 0, 24) && bounded(m.anchor_gap, 0, 24) && bounded(m.padding, 4, 24) &&
-           bounded(m.gap, 2, 16) && bounded(m.content_inset, 4, 24) && bounded(m.tab_height, 24, 48) &&
-           bounded(m.tab_max_width, 48, 128) && bounded(m.header_gap, 4, 24) &&
-           bounded(m.search_height, 32, 64) && bounded(m.footer_height, 40, 80) &&
-           bounded(m.section_height, 24, 48) && bounded(m.rail_width, 32, 64) &&
-           bounded(m.rail_pitch, 32, 64) && bounded(m.scrollbar_gutter, 4, 24) &&
-           bounded(m.list_inset, 0, 16) && bounded(m.emoji_extent, 24, 64) &&
-           bounded(m.emoji_large_extent, 24, 64) && m.emoji_large_extent >= m.emoji_extent &&
-           bounded(m.emoji_padding, 0, 8) && bounded(m.sticker_extent, 48, 160) &&
-           bounded(m.sticker_gap, 3, 24) && bounded(m.gif_target_width, 96, 400) &&
-           bounded(m.gif_gutter, 2, 24) && bounded(m.gif_category_height, 48, 160) &&
-           bounded(m.icon_extent, 16, 28) && bounded(m.text_inset, 2, 8) && bounded(m.rail_inset, 2, 8) &&
-           bounded(m.footer_art, 16, 40) && bounded(style.panel_radius, 0, 24) &&
-           bounded(style.control_radius, 0, 24) && bounded(style.edit_radius, 0, 24) &&
-           bounded(style.selection_width, .5f, 3) && bounded(style.category_opacity, 0, 1) &&
-           m.search_height >= m.icon_extent + m.text_inset * 2 && m.footer_height >= m.footer_art + 4 &&
-           m.footer_height >= m.icon_extent * 2 + m.text_inset * 2 &&
-           m.rail_width >= m.icon_extent + m.rail_inset * 2 && m.rail_pitch >= m.icon_extent + m.rail_inset * 2 &&
-           m.rail_width >= m.list_inset * 2 + m.icon_extent && m.rail_pitch >= m.list_inset + m.icon_extent;
-}
 bool ui_media_picker_target_equal(UiMediaPickerTarget a, UiMediaPickerTarget b) noexcept {
     return a.account_scope == b.account_scope && a.query_generation == b.query_generation &&
            a.item_id == b.item_id && a.source_revision == b.source_revision &&
@@ -1035,7 +1028,7 @@ bool ui_media_picker_scene_current(const UiMediaPickerScene& scene) noexcept {
 }
 bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPickerSource* source,
                                   const UiMediaPickerContent* content, UiRect viewport, UiRect anchor,
-                                  const UiMediaPickerStyle* override_style, float preferred_width) noexcept {
+                                  float preferred_width) noexcept {
     if (!scene)
         return false;
     if (!finite_rectangle(viewport) || !finite_rectangle(anchor) ||
@@ -1073,22 +1066,14 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
         (!admitted_source && !source_valid(source, *content)))
         return false;
     const bool inline_variant = content->variant == UiMediaPickerVariant::inline_results;
-    const UiMediaPickerStyle defaults = content->variant == UiMediaPickerVariant::reaction ? ui_media_picker_reaction_style()
-                                        : inline_variant ? ui_media_picker_inline_style()
-                                                         : ui_media_picker_style();
-    UiMediaPickerStyle effective =
-        override_style && ui_media_picker_style_valid(*override_style) ? *override_style : defaults;
+    const UiMediaPickerStyle effective = content->variant == UiMediaPickerVariant::reaction ? ui_media_picker_reaction_style()
+                                         : inline_variant ? ui_media_picker_inline_style()
+                                                          : ui_media_picker_style();
     PickerLayout layout{};
-    if (inline_variant) {
-        if (!inline_layout(effective, source, *content, viewport, anchor, &layout))
-            return false;
-    } else if (!picker_layout(effective, source, content->kind, content->variant, content->back, viewport, anchor,
-                              preferred_width, &layout)) {
-        effective = defaults;
-        if (!picker_layout(effective, source, content->kind, content->variant, content->back, viewport,
-                           anchor, preferred_width, &layout))
-            return false;
-    }
+    if (inline_variant ? !inline_layout(effective, source, *content, viewport, anchor, &layout)
+                       : !picker_layout(effective, source, content->kind, content->variant, content->back, viewport,
+                                        anchor, preferred_width, &layout))
+        return false;
     const u32 plain = minimum(content->heading_plain, content->heading.bytes);
     scene->heading_span = {plain, content->heading.bytes - plain, text_style_bold, 0, {}};
     const bool same_style = bytes_equal(&scene->style, &effective, sizeof(effective));
@@ -1190,6 +1175,8 @@ void ui_media_picker_scene_release(UiMediaPickerScene* scene) noexcept {
     ui_fixed_widget_storage_release(&scene->storage);
     if (scene->tiles)
         VirtualFree(scene->tiles, 0, MEM_RELEASE);
+    if (scene->prior)
+        VirtualFree(scene->prior, 0, MEM_RELEASE);
     // Generations keep counting so stale targets from before stay fenced.
     const u32 generation = scene->generation;
     reset_value(scene);
@@ -1217,15 +1204,14 @@ bool ui_media_picker_scene_hover(UiMediaPickerScene* scene, float x, float y, u6
     if (!scene || !ui_media_picker_scene_current(*scene))
         return false;
     const auto widget = ui_widget_manager_hit_test(scene->widgets, x, y);
-    const bool widget_changed = scene->widgets.hovered.slot != widget.slot ||
-                                scene->widgets.hovered.generation != widget.generation;
+    const bool widget_changed = !ui_widget_handle_equal(scene->widgets.hovered, widget);
     if (widget_changed && !ui_widget_manager_hover(&scene->widgets, widget))
         return false;
     bool favorite_hovered = false;
     for (u32 i = 0; i < scene->cell_count; ++i) {
         const auto& cell = scene->projection->cells[i];
         UiRect button{};
-        if (cell.widget.slot == widget.slot && cell.widget.generation == widget.generation &&
+        if (ui_widget_handle_equal(cell.widget, widget) &&
             ui_media_picker_scene_favorite(*scene, i, &button)) {
             favorite_hovered = ui_rect_contains(button, x, y);
             break;
@@ -1466,10 +1452,9 @@ bool ui_media_picker_scene_favorite(const UiMediaPickerScene& scene, u32 index, 
     if (!cell.item.enabled || !cell.item.favoritable || cell.item.kind != UiMediaPickerItemKind::gif ||
         !ui_widget_manager_input_enabled(scene.widgets, cell.widget))
         return false;
-    const auto same = [&](UiWidgetHandle widget) noexcept {
-        return widget.slot == cell.widget.slot && widget.generation == cell.widget.generation;
-    };
-    if (!same(scene.widgets.hovered) && !same(scene.widgets.focused) && !same(scene.widgets.captured))
+    if (!ui_widget_handle_equal(scene.widgets.hovered, cell.widget) &&
+        !ui_widget_handle_equal(scene.widgets.focused, cell.widget) &&
+        !ui_widget_handle_equal(scene.widgets.captured, cell.widget))
         return false;
     const auto& m = scene.style.metrics;
     // Discord: 4 DIP from the tile's top-right corner.
@@ -1492,8 +1477,8 @@ UiMediaPickerTarget ui_media_picker_scene_selected_favorite_target(
     for (u32 i = 0; i < scene.cell_count; ++i) {
         const auto& cell = scene.projection->cells[i];
         UiRect button{};
-        if (cell.source_index == scene.selected_index && scene.widgets.focused.slot == cell.widget.slot &&
-            scene.widgets.focused.generation == cell.widget.generation && !cell.item.favorite_pending &&
+        if (cell.source_index == scene.selected_index && ui_widget_handle_equal(scene.widgets.focused, cell.widget) &&
+            !cell.item.favorite_pending &&
             ui_media_picker_scene_favorite(scene, i, &button)) {
             auto result = target(scene, cell.widget);
             result.action = UiMediaPickerAction::favorite;
@@ -1594,8 +1579,7 @@ const UiMediaPickerCell* ui_media_picker_scene_inspected(const UiMediaPickerScen
     const UiMediaPickerCell* first = nullptr;
     for (u32 i = 0; i < scene.cell_count; ++i) {
         const auto& cell = scene.projection->cells[i];
-        if (scene.widgets.hovered.slot == cell.widget.slot &&
-            scene.widgets.hovered.generation == cell.widget.generation)
+        if (ui_widget_handle_equal(scene.widgets.hovered, cell.widget))
             return &cell;
         if (cell.source_index == scene.selected_index)
             selected = &cell;

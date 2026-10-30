@@ -300,9 +300,9 @@ inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache&
         UiWidgetHandle title, forum;
         bool title_seen, forum_seen;
     } forum_chrome{&renderer.ui_scene->widgets, &context.sidebar.widgets};
-    const auto* title = ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::title_label));
+    const auto* title = ui_scene_node(*renderer.ui_scene, UiSemantic::title_label);
     if (!title) return require(false, 162);
-    forum_chrome.title = title->widget;
+    forum_chrome.title = ui_scene_widget(*renderer.ui_scene, UiSemantic::title_label);
     for (u32 i = 0; i < context.sidebar.count; ++i)
         if (context.sidebar.rows[i].view.id == kThreadBrowserProbeForum) forum_chrome.forum = context.sidebar.rows[i].label;
     UiTextEmitter chrome_emitter{};

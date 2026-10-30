@@ -27,12 +27,13 @@ constexpr u32 d3d11_ui_instance_capacity_for_count(u32 count) noexcept {
         capacity *= 2;
     return capacity;
 }
+// UiBackground (ui.hlsl b1): the stop colours (colors[1].w flags a light
+// theme) and the gradient direction XY and stop count.
 struct D3D11BackgroundConstants {
     float colors[5][4];
-    float controls[4]; // Direction XY, stop count, intensity.
-    float motion[4];   // Host phase seconds, speed, effect, strength.
+    float controls[4];
 };
-static_assert(sizeof(D3D11BackgroundConstants) == 112);
+static_assert(sizeof(D3D11BackgroundConstants) == 96);
 
 enum class D3D11DrawPipelineError : u8 {
     none,
@@ -108,18 +109,23 @@ struct D3D11DrawPipelineOwner {
 
 static_assert(sizeof(D3D11DrawPipelineResult) == 8);
 static_assert(sizeof(D3D11DrawPipelineConfig) == 24);
-static_assert(sizeof(D3D11DrawPipelineOwner) == 304);
+static_assert(sizeof(D3D11DrawPipelineOwner) == 288);
 
 // Creates the shaders, states and buffers without touching a context, so any
 // thread may build them (startup does so beside swap-chain creation).
 D3D11DrawPipelineResult d3d11_draw_pipeline_create(D3D11DrawPipelineOwner* staged, ID3D11Device* device,
                                                    const D3D11DrawPipelineConfig& config) noexcept;
-// Moves created objects into the owner and sets the frame transform; the
-// immediate-context thread only. A failure releases the staged objects.
-D3D11DrawPipelineResult d3d11_draw_pipeline_publish(D3D11DrawPipelineOwner* owner,
-                                                    D3D11DrawPipelineOwner* staged,
-                                                    ID3D11DeviceContext* context, u32 width, u32 height,
-                                                    u32 dpi) noexcept;
+// Drivers finish a graphics pipeline (shaders with input layout, blend,
+// rasterizer and target format) on its first draw. Drawing each of the three
+// once into a tiny offscreen target, then flushing, moves that work off the
+// first presented frame. Runs on the immediate-context thread, which may be a
+// startup worker; leaves the viewport on the scratch target, so the caller
+// sets the frame transform afterwards.
+void d3d11_draw_pipeline_warm(D3D11DrawPipelineOwner* pipeline, ID3D11Device* device, ID3D11DeviceContext* context,
+                              const D3D11DrawPipelineConfig& config) noexcept;
+// Moves created objects into the owner, releasing what it held.
+void d3d11_draw_pipeline_publish(D3D11DrawPipelineOwner* owner, D3D11DrawPipelineOwner* staged) noexcept;
+// create + publish + the frame transform; a failure leaves the owner untouched.
 D3D11DrawPipelineResult d3d11_draw_pipeline_initialize(D3D11DrawPipelineOwner* owner, ID3D11Device* device,
                                                        ID3D11DeviceContext* context, u32 width, u32 height,
                                                        u32 dpi,
@@ -152,8 +158,8 @@ bool d3d11_draw_pipeline_update_caption(const D3D11DrawPipelineOwner& owner, ID3
                                         bool content_space) noexcept;
 void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept;
 // Lazy GPU storage; inactive configurations do not allocate. Copied validated
-// constants update only when configuration or sampled phase changes.
+// constants update only when the configuration changes.
 bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner*, ID3D11Device*, ID3D11DeviceContext*,
-                                           const Theme&, float phase_seconds) noexcept;
+                                           const Theme&) noexcept;
 
 } // namespace maicord

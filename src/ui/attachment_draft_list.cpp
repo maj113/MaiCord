@@ -146,9 +146,7 @@ bool ui_attachment_draft_list_layout(UiAttachmentDraftList* list, float width, b
             auto* widget = ui_widget_manager_resolve(list->manager, list->parts[r][p]);
             if (!widget)
                 return false;
-            auto* layout = ui_layout_engine_resolve(&list->manager->layout, widget->layout);
-            if (!layout)
-                return false;
+            auto* layout = ui_widget_manager_layout_node(list->manager, list->parts[r][p]);
             if (p == card) {
                 layout->spec.style.width = ui_layout_fixed(card_width);
                 layout->spec.style.padding = {style.padding, style.padding, style.padding, style.padding};

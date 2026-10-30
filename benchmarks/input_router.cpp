@@ -57,7 +57,7 @@ bool benchmark_input_router(Clock clock, void (*write)(const char*, u64, const c
         if (!ui_widget_manager_add(&manager, root.handle,
             {i + 2, UiWidgetKind::button, ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable,
                 {utf8_literal("Button"), style}}).ok()) return false;
-    if (!ui_widget_manager_layout(&manager, {100, 100}).ok()) return false;
+    if (!ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 100}).ok()) return false;
     const i64 begin = clock_now();
     for (u32 i = 0; i < iterations; ++i) {
         const auto next = ui_widget_manager_next_focus(manager, manager.focused, false, true);

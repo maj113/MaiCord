@@ -192,8 +192,10 @@ bool project(const MessageReactionTarget& target, const MessageReactionProjectio
     const auto* rich = message_rich_store_find(store, target.message_id);
     if (rich && rich->message_revision != record->revision)
         return false;
-    GatewayMessageReaction values[kGatewayMessageReactionMaximum]{};
-    char labels[kGatewayMessageReactionMaximum][kMessageReactionMaximumEmojiNameBytes]{};
+    // UI-thread scratch, not re-entered: every entry is written before it is read, and on the
+    // stack the pair (over 4 KiB) walked its guard pages on each click.
+    static GatewayMessageReaction values[kGatewayMessageReactionMaximum];
+    static char labels[kGatewayMessageReactionMaximum][kMessageReactionMaximumEmojiNameBytes];
     u32 count = 0;
     bool matched = false, changed = false;
     for (u32 i = 0; rich && i < rich->reaction_count; ++i) {

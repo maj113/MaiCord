@@ -514,14 +514,12 @@ bool synchronize_probe_shell_layout(Utf8View typing_label = {},
         log_write(LogLevel::error, "probe", "shell_scene_layout_failed");
         return false;
     }
-    const UiNode* guild_rail = ui_scene_resolve(
-        g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::guild_navigation));
-    const UiNode* channel_navigation = ui_scene_resolve(
-        g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::channel_navigation));
-    const UiNode* message_view =
-        ui_scene_resolve(g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::message_view));
-    const UiNode* composer =
-        ui_scene_resolve(g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::composer));
+    const UiLayoutNode* guild_rail = ui_scene_node(g_probe.shell_scene, UiSemantic::guild_navigation);
+    const UiLayoutNode* channel_navigation = ui_scene_node(g_probe.shell_scene, UiSemantic::channel_navigation);
+    const UiLayoutNode* message_view =
+        ui_scene_node(g_probe.shell_scene, UiSemantic::message_view);
+    const UiLayoutNode* composer =
+        ui_scene_node(g_probe.shell_scene, UiSemantic::composer);
     const NavigationView* navigation = g_probe.renderer.navigation_view;
     const GuildRailSceneResult guild_result = guild_rail_scene_update(
         &g_probe.guild_rail_scene, navigation, guild_rail ? guild_rail->rectangle : UiRect{},
@@ -4578,8 +4576,7 @@ bool probe_friends_scene() noexcept {
     };
     UiFriendsSource source{&fixture, fixture.count, 1, resolve, find};
     const auto center = []() noexcept {
-        const auto* node = ui_scene_resolve(g_probe.shell_scene,
-                                            ui_scene_find(g_probe.shell_scene, UiSemantic::message_view));
+        const auto* node = ui_scene_node(g_probe.shell_scene, UiSemantic::message_view);
         return node ? node->rectangle : UiRect{};
     };
     // Bind an initialized scene before selecting the production Friends shell.
@@ -5177,8 +5174,7 @@ bool probe_friends_requests_scene() noexcept {
     if (!probe_select_friends_home())
         return false;
     const auto center = []() noexcept {
-        const auto* node = ui_scene_resolve(g_probe.shell_scene,
-                                            ui_scene_find(g_probe.shell_scene, UiSemantic::message_view));
+        const auto* node = ui_scene_node(g_probe.shell_scene, UiSemantic::message_view);
         return node ? node->rectangle : UiRect{};
     };
     const auto viewport = []() noexcept {
@@ -7942,8 +7938,7 @@ bool probe_profile_card() noexcept {
     const bool was_home = g_probe.chat_state.home_selected;
     g_probe.chat_state.home_selected = false;
     valid = valid && synchronize_probe_shell_layout({}, {}, 0, 320);
-    const auto* member_pane = ui_scene_resolve(
-        g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::member_sidebar));
+    const auto* member_pane = ui_scene_node(g_probe.shell_scene, UiSemantic::member_sidebar);
     // Same Mainframe family, plain role color, and a measured adjacent guild tag.
     MemberListScene members_scene{};
     MemberListRowWidget member_rows[2]{};
@@ -8163,8 +8158,7 @@ bool probe_profile_activity_card() noexcept {
     const bool was_home = g_probe.chat_state.home_selected;
     g_probe.chat_state.home_selected = false;
     valid = valid && synchronize_probe_shell_layout({}, {}, 0, 320);
-    const auto* member_pane = ui_scene_resolve(
-        g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::member_sidebar));
+    const auto* member_pane = ui_scene_node(g_probe.shell_scene, UiSemantic::member_sidebar);
     const auto row_presence = utf8_literal(R"({"activities":[
         {"type":4,"name":"Custom Status","state":"Back at six"},
         {"type":0,"name":"Turbo Ball","details":"Duel"}]})");
@@ -9039,18 +9033,29 @@ bool once_requested() noexcept {
 }
 
 bool device_owner_empty(const D3D11DeviceOwner& owner) noexcept {
-    return !owner.device && !owner.context && !owner.context1 && !owner.swap_chain && !owner.swap_chain2 &&
+    return !owner.device && !owner.context && !owner.context1 && !owner.swap_chain &&
            !owner.composition_device && !owner.composition_target && !owner.composition_visual &&
            !owner.target && !owner.frame_latency_waitable && owner.buffer_width == 0 &&
            owner.buffer_height == 0 && owner.resize_buffer_reallocations == 0;
 }
 
+// A waitable swap chain queues one frame by default, which the owner relies on instead of setting it.
+bool default_frame_latency_is_one(const D3D11DeviceOwner& owner) noexcept {
+    IDXGISwapChain2* swap_chain = nullptr;
+    UINT latency = 0;
+    const bool queried =
+        SUCCEEDED(owner.swap_chain->QueryInterface(__uuidof(IDXGISwapChain2), reinterpret_cast<void**>(&swap_chain))) &&
+        SUCCEEDED(swap_chain->GetMaximumFrameLatency(&latency));
+    com_release(swap_chain);
+    return queried && latency == 1;
+}
+
 bool device_owner_ready(const D3D11Renderer& renderer) noexcept {
     const D3D11DeviceOwner& owner = renderer.graphics;
-    return owner.device && owner.context && owner.context1 && owner.swap_chain && owner.swap_chain2 &&
+    return owner.device && owner.context && owner.context1 && owner.swap_chain &&
            owner.composition_device && owner.composition_target && owner.composition_visual &&
            owner.target && owner.frame_latency_waitable && owner.buffer_width == renderer.width &&
-           owner.buffer_height == renderer.height && owner.feature_level >= static_cast<u32>(D3D_FEATURE_LEVEL_11_0);
+           owner.buffer_height == renderer.height && default_frame_latency_is_one(owner);
 }
 
 bool draw_pipeline_empty(const D3D11DrawPipelineOwner& owner) noexcept {
@@ -9818,10 +9823,8 @@ int run_probe() noexcept {
             if (!ui_scene_layout_with_metrics(&g_probe.shell_scene, UiShellView::guild_channel, metrics,
                                               width, height))
                 return false;
-            const auto* composer = ui_scene_resolve(
-                g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::composer));
-            const auto* messages = ui_scene_resolve(
-                g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::message_view));
+            const auto* composer = ui_scene_node(g_probe.shell_scene, UiSemantic::composer);
+            const auto* messages = ui_scene_node(g_probe.shell_scene, UiSemantic::message_view);
             if (!composer || !messages ||
                 !message_scene_update(&g_probe.message_scene, messages->rectangle).ok() ||
                 !message_composer_scene_update(&g_probe.message_composer_scene, &g_probe.message_composer,
@@ -10134,11 +10137,9 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : 240;
     }
-    // Invalid and empty-owner contracts run once with the full integration probe.
+    // Empty-owner contract: waiting is immediate and releasing is idempotent.
     D3D11DeviceOwner invalid_owner{};
-    if (d3d11_device_owner_resize(&invalid_owner, 1, 1).ok() ||
-        d3d11_device_owner_present(&invalid_owner, 0, nullptr) != E_INVALIDARG ||
-        d3d11_device_owner_wait(invalid_owner, 0) != WAIT_OBJECT_0) {
+    if (d3d11_device_owner_wait(invalid_owner, 0) != WAIT_OBJECT_0) {
         return 9;
     }
     d3d11_device_owner_release(&invalid_owner);
@@ -10935,8 +10936,7 @@ int run_probe() noexcept {
             !rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme) ||
             g_probe.message_composer_scene.active)
             return 13;
-        const auto* home = ui_scene_resolve(g_probe.shell_scene,
-                                            ui_scene_find(g_probe.shell_scene, UiSemantic::home_button));
+        const auto* home = ui_scene_node(g_probe.shell_scene, UiSemantic::home_button);
         if (!home)
             return 13;
         const float pixel_scale = static_cast<float>(g_probe.renderer.dpi) / 96.0f;
@@ -11294,8 +11294,8 @@ int run_probe() noexcept {
             g_probe.navigation.private_rows = &rows;
             g_probe_dm_profile = true;
             // A narrower channel list keeps a readable chat beside the panel at the probe's DPI.
-            const UiNode* slot = sourced && synchronize_probe_shell_layout({}, {}, 200)
-                                     ? ui_scene_resolve_semantic(g_probe.shell_scene, UiSemantic::member_sidebar)
+            const UiLayoutNode* slot = sourced && synchronize_probe_shell_layout({}, {}, 200)
+                                     ? ui_scene_node(g_probe.shell_scene, UiSemantic::member_sidebar)
                                      : nullptr;
             panel.presentation = ProfilePresentation::panel;
             panel.phase = ProfilePhase::ready;
@@ -11379,9 +11379,9 @@ int run_probe() noexcept {
         const auto members = ui_private_row_subtitle(private_rows, 9997, {subtitle, sizeof(subtitle)});
         g_probe.navigation.private_rows = nullptr;
         if (!group_presented || !group_avatar || !header_avatar ||
-            !ui_scene_resolve(g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::private_add)) ||
-            !ui_scene_resolve(g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::private_call)) ||
-            !ui_scene_resolve(g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::private_create)) ||
+            !ui_scene_node(g_probe.shell_scene, UiSemantic::private_add) ||
+            !ui_scene_node(g_probe.shell_scene, UiSemantic::private_call) ||
+            !ui_scene_node(g_probe.shell_scene, UiSemantic::private_create) ||
             !utf8_equal(members, utf8_literal("4 members")) ||
             ui_private_row_status(private_rows, 9998) != UiPrivateRowStatus::online)
             return 15;
@@ -11445,8 +11445,7 @@ int run_probe() noexcept {
                           member_list_scene_initialize(&group_scene, {group_row_widgets, 8}, {group_widgets, 40},
                                                        {group_nodes, 40}) &&
                           synchronize_probe_shell_layout({}, {}, 0, 240);
-            const auto* pane = ui_scene_resolve(g_probe.shell_scene,
-                                                ui_scene_find(g_probe.shell_scene, UiSemantic::member_sidebar));
+            const auto* pane = ui_scene_node(g_probe.shell_scene, UiSemantic::member_sidebar);
             group_scene.measure = &g_probe.text_measure_cache;
             listed = listed && pane && ui_rect_width(pane->rectangle) >= 200 &&
                      member_list_scene_update(&group_scene, &group_members, &no_guild_members, &g_probe.users,

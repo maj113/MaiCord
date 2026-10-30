@@ -69,7 +69,7 @@ bool initialize(UiDownloadScene& s) noexcept {
     const auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Downloads"));
     if (!root.ok()) return false;
     s.root = root.handle;
-    auto* node = ui_layout_engine_resolve(&s.widgets.layout, s.widgets.storage[s.root.slot].layout);
+    auto* node = ui_widget_manager_layout_node(&s.widgets, s.root);
     node->spec.style.width = node->spec.style.height = ui_layout_fill();
     const auto close = add(s.root, UiWidgetKind::button, utf8_literal("Hide downloads"));
     const auto previous = add(s.root, UiWidgetKind::button, utf8_literal("Previous downloads"));
@@ -89,10 +89,6 @@ bool initialize(UiDownloadScene& s) noexcept {
 }
 bool rectangle(UiDownloadScene& s, UiWidgetHandle handle, UiRect r, bool visible, bool enabled) noexcept {
     return ui_widget_manager_place_part(&s.widgets, handle, r, s.panel, visible, enabled);
-}
-void cancel_capture(UiDownloadScene& s) noexcept {
-    ui_widget_manager_capture(&s.widgets, ui_widget_invalid_handle());
-    ui_widget_manager_hover(&s.widgets, ui_widget_invalid_handle());
 }
 void append(char* out, u8& used, const char* value) noexcept {
     while (*value) out[used++] = *value++;
@@ -212,14 +208,14 @@ bool ui_download_scene_update(UiDownloadScene* s, const UiDownloadSource* source
             if (retain_capture && ui_widget_handle_matches(s->widgets.captured, s->secondary[i]))
                 retain_capture &= terminal(accepted[index].phase) && accepted[index].dismiss;
         }
-        if (!retain_capture) cancel_capture(*s);
+        if (!retain_capture) ui_widget_manager_release_pointer(&s->widgets);
         copy_bytes(s->accepted,accepted,sizeof(UiDownloadRow) * count);
         s->accepted_count = count;
     } else if (!initialize(*s)) return false;
     const auto old_panel = s->panel;
     const bool entering_confirmation = content->mode == UiDownloadMode::confirmation &&
         (!s->active || s->mode != content->mode || s->confirmation_id != content->confirmation_id);
-    if (s->mode != content->mode || s->confirmation_id != content->confirmation_id) cancel_capture(*s);
+    if (s->mode != content->mode || s->confirmation_id != content->confirmation_id) ui_widget_manager_release_pointer(&s->widgets);
     s->source = source; s->content = content; s->source_revision = revision; s->content_revision = content_revision;
     s->mode = content->mode; s->confirmation_id = content->confirmation_id; s->viewport = viewport;
     const float inset = ui_rect_width(viewport) < 400 ? 8.f : 24.f;
@@ -245,7 +241,7 @@ bool ui_download_scene_update(UiDownloadScene* s, const UiDownloadSource* source
     s->page_size = ui_rect_height(s->body) >= 440 ? 3 : ui_rect_height(s->body) >= 290 ? 2 : 1;
     s->page = minimum(first / s->page_size,count ? (count - 1) / s->page_size : 0);
     s->active = true;
-    if (!ui_rect_equal(old_panel,s->panel)) cancel_capture(*s);
+    if (!ui_rect_equal(old_panel,s->panel)) ui_widget_manager_release_pointer(&s->widgets);
     if (!layout(*s,!ui_rect_equal(old_panel,s->panel))) { s->active = false; return false; }
     if (entering_confirmation) ui_widget_manager_focus(&s->widgets,s->cancel);
     ++s->revision; return true;
@@ -253,9 +249,6 @@ bool ui_download_scene_update(UiDownloadScene* s, const UiDownloadSource* source
 void ui_download_scene_release(UiDownloadScene* s) noexcept {
     if (!s) return;
     ui_fixed_widget_storage_release(&s->storage); reset_value(s);
-}
-bool ui_download_scene_contains(const UiDownloadScene& s, float x, float y) noexcept {
-    return current(s) && ui_rect_contains(s.viewport,x,y);
 }
 UiDownloadTarget ui_download_scene_target(const UiDownloadScene& s, UiWidgetHandle handle) noexcept {
     if (!current(s)) return {};
@@ -276,7 +269,7 @@ UiDownloadTarget ui_download_scene_target(const UiDownloadScene& s, UiWidgetHand
     return {};
 }
 UiDownloadTarget ui_download_scene_hit_test(const UiDownloadScene& s, float x, float y) noexcept {
-    if (!ui_download_scene_contains(s,x,y)) return {};
+    if (!current(s) || !ui_rect_contains(s.viewport,x,y)) return {};
     if (!ui_rect_contains(s.panel,x,y)) return {UiDownloadAction::close};
     return ui_download_scene_target(s,ui_widget_manager_hit_test(s.widgets,x,y));
 }
@@ -284,16 +277,15 @@ bool ui_download_scene_page(UiDownloadScene* s, u32 page) noexcept {
     if (!s || !current(*s) || s->mode != UiDownloadMode::receipts || page >
         (s->accepted_count ? (s->accepted_count - 1) / s->page_size : 0)) return false;
     if (page == s->page) return true;
-    cancel_capture(*s); s->page = page;
+    ui_widget_manager_release_pointer(&s->widgets); s->page = page;
     if (!layout(*s)) return false;
     ++s->revision; return true;
 }
 bool ui_download_scene_set_hover(UiDownloadScene* s, float x, float y, bool* changed) noexcept {
     if (changed) *changed = false;
     if (!s || !current(*s)) return false;
-    const auto hit = ui_widget_manager_hit_test(s->widgets,x,y), before = s->widgets.hovered;
-    if (!ui_widget_manager_hover(&s->widgets,hit)) return false;
-    const bool delta = !ui_widget_handle_matches(before, hit) && (before.generation || hit.generation);
+    bool delta = false;
+    if (!ui_widget_manager_hover_at(&s->widgets,x,y,&delta)) return false;
     if (delta) ++s->revision;
     if (changed) *changed = delta;
     return true;

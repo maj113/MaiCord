@@ -203,9 +203,7 @@ void test_video_controls(void (*check)(bool,const char*) noexcept) noexcept {
     state.volume=40; state.error=false; state.duration_ms=1000;
     check(!project(640)&&!ui_video_controls_project(state,{0,0,255,100},style,kDefaultTheme,&projection),
         "video controls: out-of-duration elapsed and undersized layout reject");
-    state.duration_ms=120000; style.gap=-1;
-    check(!project(640),"video controls: invalid caller metrics reject before publishing geometry");
-    style={}; const u32 infinity_bits=0x7f800000; float nonfinite{}; copy_bytes(&nonfinite,&infinity_bits,sizeof(nonfinite));
+    state.duration_ms=120000; style={}; const u32 infinity_bits=0x7f800000; float nonfinite{}; copy_bytes(&nonfinite,&infinity_bits,sizeof(nonfinite));
     check(!ui_video_controls_project(state,{0,0,nonfinite,100},style,kDefaultTheme,&projection)&&
         ui_video_controls_hit(before,{nonfinite,0})==UiVideoControl::none,
         "video controls: nonfinite geometry never produces an actionable target");

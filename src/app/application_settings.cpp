@@ -469,8 +469,14 @@ bool same_avatar_media(const UiSettingsAvatarMedia& left, const UiSettingsAvatar
 
 u32 project_panel(ApplicationSettings& settings, u32 panel, bool* changed, UiSettingsControl* bank,
                   UiSettingsControlPresentation* bank_presentation, u32 capacity) noexcept {
-    UiSettingsControl controls[kSettingsPanelRowLimit]{};
-    UiSettingsControlPresentation presentation[kSettingsPanelRowLimit]{};
+    // Staging rows (several KiB) on the UI thread, not re-entered; on the stack each projection
+    // walked its guard pages. Value-initialized per call, as the arrays were.
+    static UiSettingsControl controls[kSettingsPanelRowLimit];
+    static UiSettingsControlPresentation presentation[kSettingsPanelRowLimit];
+    for (u32 i = 0; i < kSettingsPanelRowLimit; ++i) {
+        reset_value(&controls[i]);
+        reset_value(&presentation[i]);
+    }
     capacity = minimum(capacity, kSettingsPanelRowLimit);
     u32 count = 0;
     UiSettingsSchemaLocation retry{};

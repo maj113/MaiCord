@@ -39,8 +39,8 @@ inline bool fail(u32 stage) noexcept {
     log_u64(LogLevel::error, "probe", "theme_views_failure_stage", stage);
     return false;
 }
-inline const UiNode* node(const UiScene& scene, UiSemantic semantic) noexcept {
-    return ui_scene_resolve(scene, ui_scene_find(scene, semantic));
+inline const UiLayoutNode* node(const UiScene& scene, UiSemantic semantic) noexcept {
+    return ui_scene_node(scene, semantic);
 }
 } // namespace theme_views_probe_detail
 
@@ -345,8 +345,8 @@ inline bool theme_views_ui_probe(BackgroundThemeProbeContext c) noexcept {
             bool padded_friends_ink = false;
             for (u32 i = 0; friends_button && i < text.count; ++i) {
                 const auto& command = commands[i];
-                if (command.owner.handle.slot == friends_button->widget.slot &&
-                    command.owner.handle.generation == friends_button->widget.generation &&
+                if (command.owner.handle.slot == ui_scene_widget(shell, UiSemantic::friends_button).slot &&
+                    command.owner.handle.generation == ui_scene_widget(shell, UiSemantic::friends_button).generation &&
                     utf8_equal(command.text, utf8_literal("Friends")))
                     padded_friends_ink =
                         command.rectangle.left == friends_button->rectangle.left + 16.f &&

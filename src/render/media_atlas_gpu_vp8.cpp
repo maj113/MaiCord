@@ -22,7 +22,20 @@ HRESULT prepare_vp8_tiles(MediaAtlasGpu* gpu, ID3D11Device* device,
     const u32 ranks = columns + 2 * rows - 2;
     const u32 rank_tiles = (ranks + span - 1) / span;
     const u32 row_tiles = (rows + tile_rows - 1) / tile_rows;
-    Vp8TileWaveConstants constants[32]{};
+    if (!gpu->vp8_tile_constants) {
+        D3D11_BUFFER_DESC desc{};
+        desc.ByteWidth = 32 * sizeof(Vp8TileWaveConstants);
+        desc.Usage = D3D11_USAGE_DYNAMIC;
+        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        const HRESULT result = device->CreateBuffer(&desc, nullptr, &gpu->vp8_tile_constants);
+        if (FAILED(result)) return result;
+    }
+    // Only the first `count` 256-byte ranges are ever bound, so the rest stay unwritten.
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    const HRESULT mapped_result = context->Map(gpu->vp8_tile_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+    if (FAILED(mapped_result)) return mapped_result;
+    auto* constants = static_cast<Vp8TileWaveConstants*>(mapped.pData);
     u32 count = 0;
     for (u32 diagonal = 0; diagonal < rank_tiles + row_tiles - 1; ++diagonal) {
         const u32 first = diagonal >= rank_tiles ? diagonal - rank_tiles + 1 : 0;
@@ -39,15 +52,7 @@ HRESULT prepare_vp8_tiles(MediaAtlasGpu* gpu, ID3D11Device* device,
         constants[count].rank_span = span;
         gpu->vp8_tile_groups[count++] = last - first + 1;
     }
-    if (!gpu->vp8_tile_constants) {
-        D3D11_BUFFER_DESC desc{};
-        desc.ByteWidth = sizeof(constants);
-        desc.Usage = D3D11_USAGE_DEFAULT;
-        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        const HRESULT result = device->CreateBuffer(&desc, nullptr, &gpu->vp8_tile_constants);
-        if (FAILED(result)) return result;
-    }
-    context->UpdateSubresource(gpu->vp8_tile_constants, 0, nullptr, constants, 0, 0);
+    context->Unmap(gpu->vp8_tile_constants, 0);
     gpu->vp8_tile_columns = static_cast<u16>(columns);
     gpu->vp8_tile_rows = static_cast<u16>(rows);
     gpu->vp8_tile_wave_count = count;

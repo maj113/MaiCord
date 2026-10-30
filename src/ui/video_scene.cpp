@@ -18,49 +18,27 @@ bool contains(UiRect bounds, UiPoint point) noexcept {
     return paint_coordinate_valid(point.x) && paint_coordinate_valid(point.y) && point.x >= bounds.left &&
            point.x < bounds.right && point.y >= bounds.top && point.y < bounds.bottom;
 }
-bool metric(float value) noexcept {
-    return paint_coordinate_valid(value) && value > 0;
-}
-bool affordance_valid(const UiVideoPlayAffordanceStyle& style) noexcept {
-    return metric(style.target) && metric(style.minimum_target) && style.minimum_target <= style.target &&
-           paint_coordinate_valid(style.inset) && style.inset >= 0 &&
-           paint_coordinate_valid(style.radius) && style.radius >= 0 && metric(style.stroke) &&
-           style.stroke <= style.minimum_target * .5f && metric(style.opacity) && style.opacity <= 1;
-}
-bool scene_style_valid(const UiVideoSceneStyle& style, const UiVideoControlsStyle& controls) noexcept {
-    return metric(style.radius) && metric(style.track_height) && metric(style.thumb_size) &&
-           metric(style.focus_width) && style.track_height <= controls.range_height &&
-           style.thumb_size <= controls.range_height && metric(style.icon_extent) &&
-           metric(style.surface_opacity) && style.surface_opacity <= 1 && metric(style.hover_opacity) &&
-           style.hover_opacity <= 1 && metric(style.track_opacity) && style.track_opacity <= 1 &&
-           paint_coordinate_valid(style.preview_radius) && style.preview_radius >= 0 &&
-           paint_coordinate_valid(style.inset) && style.inset >= 0 && metric(style.spinner_extent) &&
-           metric(style.spinner.stroke) && style.spinner.stroke * 4 <= style.spinner_extent &&
-           paint_coordinate_valid(style.spinner.tail_opacity) && style.spinner.tail_opacity >= 0 &&
-           style.spinner.tail_opacity <= 1 && style.fade_ms <= 1'000 &&
-           paint_coordinate_valid(style.scrim_lead) && style.scrim_lead >= 0 && style.idle_ms <= 60'000;
-}
 const UiVideoControlDescriptor* descriptor(const UiVideoScene& scene, UiVideoControl id) noexcept {
     for (const auto& control : scene.projection.controls)
         if (control.id == id)
             return &control;
     return nullptr;
 }
-bool eligible(const UiVideoScene& scene, UiVideoControl id) noexcept {
+inline bool eligible(const UiVideoScene& scene, UiVideoControl id) noexcept {
     const auto* control = descriptor(scene, id);
     return scene.active && control && control->enabled && control->visible &&
            rectangle(ui_rect_overlap(control->bounds, scene.clip));
 }
-bool same_playback_source(const UiVideoScene& scene, const UiVideoPlaybackState& playback) noexcept {
+inline bool same_playback_source(const UiVideoScene& scene, const UiVideoPlaybackState& playback) noexcept {
     return scene.active && scene.projection.playback.owner == playback.owner &&
            scene.projection.playback.generation == playback.generation &&
            scene.projection.playback.revision == playback.revision;
 }
-bool controls_requested(const UiVideoScene& scene) noexcept {
+inline bool controls_requested(const UiVideoScene& scene) noexcept {
     return scene.projection.playback.error || (scene.preview_hovered && !scene.idle) ||
            scene.capture != UiVideoControl::none || (scene.keyboard_focus && eligible(scene, scene.focus));
 }
-bool idle_countdown(const UiVideoScene& scene) noexcept {
+inline bool idle_countdown(const UiVideoScene& scene) noexcept {
     const auto& playback = scene.projection.playback;
     return scene.style.idle_ms && scene.preview_hovered && playback.playing && !playback.buffering &&
            !playback.error && scene.capture == UiVideoControl::none &&
@@ -101,7 +79,7 @@ bool volume_expanded(const UiVideoScene& scene) noexcept {
            (scene.keyboard_focus &&
             (scene.focus == UiVideoControl::volume || scene.focus == UiVideoControl::mute));
 }
-UiRect range_track(UiRect bounds, const UiVideoSceneStyle& style, bool collection = false) noexcept {
+inline UiRect range_track(UiRect bounds, const UiVideoSceneStyle& style, bool collection = false) noexcept {
     if (collection) bounds.top = (bounds.top + bounds.bottom) * .5f;
     const float center_y = (bounds.top + bounds.bottom) * .5f;
     const float half_thumb = style.thumb_size * .5f;
@@ -195,7 +173,7 @@ bool range_request(UiVideoScene& scene, UiVideoControl id, UiPoint point,
     *out = request;
     return true;
 }
-bool quad(PaintStream* paint, const UiRect& bounds, const Color& color, float radius) noexcept {
+inline bool quad(PaintStream* paint, const UiRect& bounds, const Color& color, float radius) noexcept {
     return paint_stream_push_rounded(paint, bounds, color, radius);
 }
 bool symbol(PaintStream* paint, const UiRect& bounds, UiVideoControl id, const UiVideoPlaybackState& playback,
@@ -244,7 +222,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
     const UiRect bounds{preview.left + style.inset, preview.bottom - style.inset - height,
                         preview.right - style.inset, preview.bottom - style.inset};
     const bool same_source = same_playback_source(*scene, playback);
-    if (!rectangle(clip) || !scene_style_valid(style, controls) || !rectangle(preview) ||
+    if (!rectangle(clip) || !rectangle(preview) ||
         ui_rect_height(preview) < height + 2 * style.inset ||
         !ui_video_controls_project(playback, bounds, controls, theme, &projected_controls,
                                    same_source && volume_expanded(*scene)) ||
@@ -344,7 +322,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
 }
 UiRect ui_video_play_affordance_rectangle(UiRect preview,
                                           const UiVideoPlayAffordanceStyle& style) noexcept {
-    if (!rectangle(preview) || !affordance_valid(style))
+    if (!rectangle(preview))
         return {};
     const float size =
         minimum(style.target, minimum(ui_rect_width(preview), ui_rect_height(preview)) - 2 * style.inset);
@@ -356,7 +334,7 @@ UiRect ui_video_play_affordance_rectangle(UiRect preview,
 }
 bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPlayAffordanceStyle& style,
                                     const Theme& theme, PaintStream* paint) noexcept {
-    if (!rectangle(preview) || !ui_rect_valid_or_empty(clip) || !affordance_valid(style))
+    if (!rectangle(preview) || !ui_rect_valid_or_empty(clip))
         return false;
     const UiRect button = ui_video_play_affordance_rectangle(preview, style),
                  visible = ui_rect_overlap(preview, clip);
@@ -391,7 +369,6 @@ bool ui_video_scene_project_play_only(UiVideoScene* scene, const UiVideoPlayback
     UiVideoControlsProjection validated{};
     const float height = ui_video_controls_height(controls, controls.minimum_width, playback.collection_count != 0);
     if (!rectangle(clip) || !rectangle(button) || !rectangle(ui_rect_overlap(button, visible)) ||
-        !scene_style_valid(style, controls) ||
         !ui_video_controls_project(playback, {0, 0, controls.minimum_width, height}, controls, theme,
                                    &validated)) {
         reset_value(scene);

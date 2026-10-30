@@ -12,7 +12,7 @@ constexpr u64 kMeasureSource = 0x54534f4154ull; // "TOAST"
 // Fallback metrics without a measure cache (tests, a missing account UI).
 constexpr float kEstimatedAdvance = 8, kEstimatedLine = 20;
 
-bool same_entry(const UiToastEntry& a, const UiToastEntry& b) noexcept {
+inline bool same_entry(const UiToastEntry& a, const UiToastEntry& b) noexcept {
     return a.kind == b.kind && a.bytes == b.bytes && bytes_equal(a.text, b.text, a.bytes);
 }
 void pop(UiToastScene* s) noexcept {
@@ -20,7 +20,7 @@ void pop(UiToastScene* s) noexcept {
         s->entries[i - 1] = s->entries[i];
     reset_value(&s->entries[--s->count]);
 }
-bool active(UiToastPhase phase) noexcept {
+inline bool active(UiToastPhase phase) noexcept {
     return phase == UiToastPhase::entering || phase == UiToastPhase::shown ||
            phase == UiToastPhase::leaving;
 }
@@ -79,7 +79,7 @@ float phase_progress(const UiToastScene& s, u64 now, bool animate) noexcept {
 struct Metrics {
     float padding, gap, margin, lead;
 };
-Metrics metrics(const Theme& theme, UiToastKind kind) noexcept {
+inline Metrics metrics(const Theme& theme, UiToastKind kind) noexcept {
     const auto& s = theme.scale;
     const float gap = s.space_4;
     return {s.space_4 + s.space_2, gap, s.space_4,

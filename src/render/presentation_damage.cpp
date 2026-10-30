@@ -36,26 +36,14 @@ u32 media_bit(MediaAtlasHandle handle, u8 domain) noexcept {
 } // namespace
 
 void presentation_damage_reset(PresentationDamageTracker* tracker) noexcept {
-    if (!tracker) {
-        return;
-    }
-    for (u32 index = 0; index < kPresentationDamageMediaWordCapacity;
-         ++index) {
-        tracker->dirty_media[index] = 0;
-    }
-    tracker->dirty_media_count = 0;
-    tracker->first_dirty_word =
-        static_cast<u16>(kPresentationDamageMediaWordCapacity);
-    tracker->last_dirty_word = 0;
-    reset_value<PresentationDamageRect>(&tracker->pending);
-    tracker->pending_valid = false;
-    tracker->pending_full = false;
+    reset_value(tracker);
+    tracker->first_dirty_word = static_cast<u16>(kPresentationDamageMediaWordCapacity);
 }
 
 bool presentation_damage_note_media(PresentationDamageTracker* tracker,
                                     MediaAtlasHandle handle,
                                     u8 domain) noexcept {
-    if (!tracker || handle.generation == 0 ||
+    if (handle.generation == 0 ||
         handle.slot >= kPresentationDamageMediaCapacity ||
         domain >= kPresentationDamageMediaDomainCount) {
         return false;
@@ -89,7 +77,7 @@ bool presentation_damage_media_pending(const PresentationDamageTracker& tracker,
 bool presentation_damage_add(PresentationDamageTracker* tracker,
                              PresentationDamageRect rectangle,
                              PresentationDamageRect clip) noexcept {
-    if (!tracker || !rect_valid(rectangle) || !rect_valid(clip)) {
+    if (!rect_valid(rectangle) || !rect_valid(clip)) {
         return false;
     }
     rectangle = intersect(rectangle, clip);
@@ -113,17 +101,14 @@ bool presentation_damage_add_media(PresentationDamageTracker* tracker,
                                    PresentationDamageRect rectangle,
                                    PresentationDamageRect clip,
                                    u8 domain) noexcept {
-    if (!tracker ||
-        !presentation_damage_media_pending(*tracker, handle, domain)) {
-        return tracker != nullptr;
+    if (!presentation_damage_media_pending(*tracker, handle, domain)) {
+        return true;
     }
     return presentation_damage_add(tracker, rectangle, clip);
 }
 
 void presentation_damage_invalidate_full(PresentationDamageTracker* tracker) noexcept {
-    if (tracker) {
-        tracker->pending_full = true;
-    }
+    tracker->pending_full = true;
 }
 
 PresentationDamage presentation_damage_current(
@@ -151,9 +136,6 @@ bool presentation_damage_empty(const PresentationDamageTracker& tracker) noexcep
 }
 
 void presentation_damage_commit(PresentationDamageTracker* tracker) noexcept {
-    if (!tracker) {
-        return;
-    }
     if (tracker->dirty_media_count != 0) {
         for (u32 index = tracker->first_dirty_word;
              index <= tracker->last_dirty_word; ++index) {

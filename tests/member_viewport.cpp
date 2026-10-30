@@ -231,8 +231,10 @@ u32 test_member_viewport_ranges_and_sparse_scene() noexcept {
     for (u32 i = 0; i < scene.count; ++i) {
         if (scene.rows[i].resident) {
             ++resident;
+            char heading[160];
             check(scene.rows[i].source_index == 5'000 &&
-                utf8_equal(scene.rows[i].group_label.view(), utf8_literal("ONLINE \xE2\x80\x94 1,000")));
+                utf8_equal(member_list_group_label(scene, i, {heading, sizeof(heading)}),
+                           utf8_literal("ONLINE \xE2\x80\x94 1,000")));
         } else {
             const auto* widget = ui_widget_manager_resolve(scene.widgets, scene.rows[i].widget);
             check(widget && !(widget->flags & (ui_widget_hit_test | ui_widget_focusable)));

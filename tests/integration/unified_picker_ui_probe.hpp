@@ -548,7 +548,7 @@ inline bool unified_picker_ui_probe(D3D11Renderer& renderer,
             ++source.query_generation;
             content.query_generation = source.query_generation;
             ++content.revision;
-            if (!ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor->rectangle, nullptr,
+            if (!ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor->rectangle,
                                               widths[w]) ||
                 (w && (scene.columns <= columns ||
                        (captured[k] == UiMediaPickerKind::sticker && scene.cell_width != cell))) ||

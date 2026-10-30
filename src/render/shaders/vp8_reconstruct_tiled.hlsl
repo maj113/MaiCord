@@ -39,11 +39,13 @@ int ReadResidual(uint mb_base, uint block, uint x, uint y) {
 // Bottom cache: four generations, each [Y16,U8,V8]. Right cache: [Y16,U8,V8].
 groupshared uint gs_bottom[VP8_TILE_ROWS * 4 * 32];
 groupshared uint gs_right[VP8_TILE_ROWS * 32];
-groupshared uint gs_top[VP8_TILE_ROWS * 36];       // [Y20,U8,V8]
-groupshared uint gs_left[VP8_TILE_ROWS * 32];      // [Y16,U8,V8]
-groupshared uint gs_corner[VP8_TILE_ROWS * 3];
+// Prediction samples in one array, so an intra 4x4 neighbour is one address
+// and one load: per row Y[256], then top [Y20,U8,V8], left [Y16,U8,V8], corner [3].
+#define PX_TOP (VP8_TILE_ROWS * 256u)
+#define PX_LEFT (PX_TOP + VP8_TILE_ROWS * 36u)
+#define PX_CORNER (PX_LEFT + VP8_TILE_ROWS * 32u)
+groupshared uint gs_px[PX_CORNER + VP8_TILE_ROWS * 3u];
 groupshared uint gs_dc[VP8_TILE_ROWS * 3];
-groupshared uint gs_y[VP8_TILE_ROWS * 256];
 groupshared uint gs_luma_mode[VP8_TILE_ROWS];
 groupshared uint gs_chroma_mode[VP8_TILE_ROWS];
 groupshared uint gs_has_coefficients[VP8_TILE_ROWS];
@@ -83,8 +85,8 @@ uint DCValue(uint row, uint p, bool has_top, bool has_left) {
     if (!has_top && !has_left) return 128u;
     uint sum = has_top && has_left ? extent : extent / 2u;
     [loop] for (uint k = 0u; k < extent; ++k) {
-        if (has_top)  sum += gs_top[row * 36u + TopOffset(p) + k];
-        if (has_left) sum += gs_left[row * 32u + BorderOffset(p) + k];
+        if (has_top)  sum += gs_px[PX_TOP + row * 36u + TopOffset(p) + k];
+        if (has_left) sum += gs_px[PX_LEFT + row * 32u + BorderOffset(p) + k];
     }
     uint shift = (p == 0u ? 4u : 3u) + (has_top && has_left ? 1u : 0u);
     return sum >> shift;
@@ -94,84 +96,71 @@ uint TM(uint l, uint t, uint c) { return Clip(int(l) + int(t) - int(c)); }
 uint Avg2(uint a, uint b) { return (a + b + 1u) >> 1u; }
 uint Avg3(uint a, uint b, uint c) { return (a + 2u * b + c + 2u) >> 2u; }
 uint PredictBig(uint row, uint p, uint mode, uint x, uint y) {
-    uint value = 128u;
-    if (mode == 0u) value = gs_dc[row * 3u + p];
-    else if (mode == 2u) value = gs_top[row * 36u + TopOffset(p) + x];
-    else if (mode == 3u) value = gs_left[row * 32u + BorderOffset(p) + y];
-    else if (mode == 1u) value = TM(gs_left[row * 32u + BorderOffset(p) + y],
-        gs_top[row * 36u + TopOffset(p) + x], gs_corner[row * 3u + p]);
-    return value;
+    const uint left = gs_px[PX_LEFT + row * 32u + BorderOffset(p) + y];
+    const uint top = gs_px[PX_TOP + row * 36u + TopOffset(p) + x];
+    const uint motion = TM(left, top, gs_px[PX_CORNER + row * 3u + p]);
+    return mode == 0u ? gs_dc[row * 3u + p] : mode == 1u ? motion : mode == 2u ? top : mode == 3u ? left : 128u;
 }
-uint I4Top(uint row, uint bx, uint by, uint i) {
-    i = min(i, 7u);
-    uint value = 0u;
-    // Every subblock row in the rightmost column reuses the original top-right.
-    if (bx == 3u && i >= 4u) value = gs_top[row * 36u + 12u + i];
-    else if (by == 0u) value = gs_top[row * 36u + bx * 4u + i];
-    else value = gs_y[row * 256u + (by * 4u - 1u) * 16u + bx * 4u + i];
-    return value;
-}
-uint I4Left(uint row, uint bx, uint by, uint i) {
-    i = min(i, 3u);
-    uint value = 0u;
-    if (bx == 0u) value = gs_left[row * 32u + by * 4u + i];
-    else value = gs_y[row * 256u + (by * 4u + i) * 16u + bx * 4u - 1u];
-    return value;
-}
-uint I4Corner(uint row, uint bx, uint by) {
-    uint value = 0u;
-    if (by == 0u) value = bx == 0u ? gs_corner[row * 3u] : gs_top[row * 36u + bx * 4u - 1u];
-    else if (bx == 0u) value = gs_left[row * 32u + by * 4u - 1u];
-    else value = gs_y[row * 256u + (by * 4u - 1u) * 16u + bx * 4u - 1u];
-    return value;
+
+// Address of intra 4x4 neighbour `pos` of subblock (bx, by): 0 is the corner,
+// pos > 0 the top row from top[pos - 1] (top-right included) and pos < 0 the
+// left column from left[-pos - 1]. `transpose_axes` swaps the two sides; the
+// top side then reaches only four samples. Past its end a side repeats its
+// last sample.
+uint I4Address(uint row, uint bx, uint by, int pos, bool transpose_axes) {
+    const uint i = uint(pos > 0 ? pos - 1 : -pos - 1);
+    if (pos == 0) {
+        if (by == 0u) return bx == 0u ? PX_CORNER + row * 3u : PX_TOP + row * 36u + bx * 4u - 1u;
+        return bx == 0u ? PX_LEFT + row * 32u + by * 4u - 1u : row * 256u + (by * 4u - 1u) * 16u + bx * 4u - 1u;
+    }
+    if ((pos > 0) != transpose_axes) {
+        const uint t = min(i, transpose_axes ? 3u : 7u);
+        // Every subblock row in the rightmost column reuses the original top-right.
+        if (bx == 3u && t >= 4u) return PX_TOP + row * 36u + 12u + t;
+        return by == 0u ? PX_TOP + row * 36u + bx * 4u + t : row * 256u + (by * 4u - 1u) * 16u + bx * 4u + t;
+    }
+    const uint l = min(i, 3u);
+    return bx == 0u ? PX_LEFT + row * 32u + by * 4u + l : row * 256u + (by * 4u + l) * 16u + bx * 4u - 1u;
 }
 uint I4Neighbor(uint row, uint bx, uint by, int pos, bool transpose_axes) {
-    uint value = 0u;
-    if (pos == 0) value = I4Corner(row, bx, by);
-    else if (transpose_axes) value = pos > 0 ? I4Left(row, bx, by, uint(pos - 1))
-        : I4Top(row, bx, by, min(uint(-pos - 1), 3u));
-    else value = pos > 0 ? I4Top(row, bx, by, uint(pos - 1)) : I4Left(row, bx, by, uint(-pos - 1));
-    return value;
-}
-uint I4Directional(uint row, uint bx, uint by, int delta, bool transpose_axes) {
-    int o = delta < 0 ? delta : int(uint(delta) >> 1u);
-    uint a = I4Neighbor(row, bx, by, o, transpose_axes);
-    uint b = I4Neighbor(row, bx, by, o + 1, transpose_axes);
-    if (delta >= 0 && (delta & 1) == 0) return Avg2(a, b);
-    return Avg3(a, b, I4Neighbor(row, bx, by, o + 2, transpose_axes));
+    return gs_px[I4Address(row, bx, by, pos, transpose_axes)];
 }
 uint Predict4(uint row, uint bx, uint by, uint mode, uint x, uint y) {
-    uint value = 0u;
+    // DC sums the four top and four left neighbours; TrueMotion reads left[y],
+    // top[x] and the corner. Every other mode reads three consecutive
+    // neighbours from `first` (along the transposed edge for the horizontal
+    // modes), or averages the first two.
+    const bool transpose_axes = mode == 3u || mode >= 8u;
+    int first;
+    bool pair = false;
+    if (mode == 2u) first = int(x);             // vertical, smoothed
+    else if (mode == 3u) first = int(y);        // horizontal, smoothed
+    else if (mode == 4u) first = int(x) - int(y) - 1; // down-right diagonal
+    else if (mode == 5u || mode == 8u) {        // vertical-right, horizontal-down
+        const int delta = mode == 5u ? 2 * int(x) - int(y) : 2 * int(y) - int(x);
+        first = delta < 0 ? delta : delta >> 1;
+        pair = delta >= 0 && (delta & 1) == 0;
+    } else if (mode == 6u) first = int(x + y) + 1; // down-left diagonal
+    else if (mode == 7u) {                      // vertical-left
+        const bool clamped = x == 3u && y >= 2u;
+        first = clamped ? int(y) + 3 : int(x + (y >> 1u)) + 1;
+        pair = !clamped && (y & 1u) == 0u;
+    } else {                                    // horizontal-up
+        first = int(y + (x >> 1u)) + 1;
+        pair = (x & 1u) == 0u;
+    }
+    uint value;
     if (mode == 0u) {
         uint sum = 4u;
-        [unroll] for (uint i = 0u; i < 4u; ++i) sum += I4Top(row, bx, by, i) + I4Left(row, bx, by, i);
+        [unroll] for (int i = 1; i <= 4; ++i)
+            sum += I4Neighbor(row, bx, by, i, false) + I4Neighbor(row, bx, by, -i, false);
         value = sum >> 3u;
-    } else if (mode == 1u) value = TM(I4Left(row, bx, by, y), I4Top(row, bx, by, x), I4Corner(row, bx, by));
-    else if (mode == 2u) value = Avg3(x == 0u ? I4Corner(row, bx, by) : I4Top(row, bx, by, x - 1u),
-        I4Top(row, bx, by, x), I4Top(row, bx, by, x + 1u));
-    else if (mode == 3u) value = Avg3(y == 0u ? I4Corner(row, bx, by) : I4Left(row, bx, by, y - 1u),
-        I4Left(row, bx, by, y), I4Left(row, bx, by, y + 1u));
-    else if (mode == 4u) {
-        int d = int(x) - int(y);
-        value = Avg3(I4Neighbor(row, bx, by, d - 1, false), I4Neighbor(row, bx, by, d, false), I4Neighbor(row, bx, by, d + 1, false));
-    } else if (mode == 5u) value = I4Directional(row, bx, by, 2 * int(x) - int(y), false);
-    else if (mode == 6u) {
-        uint o = x + y;
-        value = Avg3(I4Top(row, bx, by, o), I4Top(row, bx, by, o + 1u), I4Top(row, bx, by, o + 2u));
-    } else if (mode == 7u) {
-        if (x == 3u && y >= 2u) {
-            uint k = y + 2u;
-            value = Avg3(I4Top(row, bx, by, k), I4Top(row, bx, by, k + 1u), I4Top(row, bx, by, k + 2u));
-        } else {
-            uint o = x + (y >> 1u);
-            uint a = I4Top(row, bx, by, o), b = I4Top(row, bx, by, o + 1u);
-            value = (y & 1u) == 0u ? Avg2(a, b) : Avg3(a, b, I4Top(row, bx, by, o + 2u));
-        }
-    } else if (mode == 8u) value = I4Directional(row, bx, by, 2 * int(y) - int(x), true);
-    else {
-        uint o = y + (x >> 1u);
-        uint a = I4Left(row, bx, by, o), b = I4Left(row, bx, by, o + 1u);
-        value = (x & 1u) == 0u ? Avg2(a, b) : Avg3(a, b, I4Left(row, bx, by, o + 2u));
+    } else {
+        const bool true_motion = mode == 1u;
+        const uint a = I4Neighbor(row, bx, by, true_motion ? -int(y) - 1 : first, transpose_axes);
+        const uint b = I4Neighbor(row, bx, by, true_motion ? int(x) + 1 : first + 1, transpose_axes);
+        const uint c = I4Neighbor(row, bx, by, true_motion ? 0 : first + 2, transpose_axes);
+        value = true_motion ? TM(a, b, c) : pair ? Avg2(a, b) : Avg3(a, b, c);
     }
     return value;
 }
@@ -211,19 +200,19 @@ void vp8_reconstruct(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID) {
                 else gs_modes4[row * 4u + lane] = ReadModeByte(a) | (ReadModeByte(a + 1u) << 8u) |
                     (ReadModeByte(a + 2u) << 16u) | (ReadModeByte(a + 3u) << 24u);
             }
-            if (lane < 20u)
-                gs_top[row * 36u + lane] = LoadHalo(0u, int(mx * 16u + lane), int(my * 16u) - 1, my, base_y, base_rank);
-            if (lane < 16u)
-                gs_left[row * 32u + lane] = LoadHalo(0u, int(mx * 16u) - 1, int(my * 16u + lane), my, base_y, base_rank);
-            if (lane < 8u) {
-                [unroll] for (uint p = 1u; p < 3u; ++p) {
-                    gs_top[row * 36u + TopOffset(p) + lane] = LoadHalo(p, int(mx * 8u + lane), int(my * 8u) - 1, my, base_y, base_rank);
-                    gs_left[row * 32u + BorderOffset(p) + lane] = LoadHalo(p, int(mx * 8u) - 1, int(my * 8u + lane), my, base_y, base_rank);
-                }
-            }
-            if (lane < 3u) {
-                uint extent = Extent(lane);
-                gs_corner[row * 3u + lane] = LoadHalo(lane, int(mx * extent) - 1, int(my * extent) - 1, my, base_y, base_rank);
+            // 71 border samples per row: luma top (20) and left (16), then per
+            // chroma plane top (8) and left (8), then the three corners.
+            [loop] for (uint item = lane; item < 71u; item += 64u) {
+                const uint chroma = item - 36u, p = item < 36u ? 0u : item < 68u ? 1u + (chroma >> 4u) : item - 68u;
+                const uint j = item < 20u ? item : item < 36u ? item - 20u : chroma & 7u;
+                const bool corner = item >= 68u;
+                const bool top = item < 20u || (item >= 36u && !corner && (chroma & 8u) == 0u);
+                const uint extent = Extent(p);
+                const int x = int(mx * extent) + (top ? int(j) : -1);
+                const int y = int(my * extent) + (top || corner ? -1 : int(j));
+                const uint address = corner ? PX_CORNER + row * 3u + p
+                    : top ? PX_TOP + row * 36u + TopOffset(p) + j : PX_LEFT + row * 32u + BorderOffset(p) + j;
+                gs_px[address] = LoadHalo(p, x, y, my, base_y, base_rank);
             }
         }
         GroupMemoryBarrierWithGroupSync();
@@ -269,7 +258,7 @@ void vp8_reconstruct(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID) {
                 // All sixteen 4x4 residual blocks can be applied in parallel.
                 [unroll] for (uint bx = 0u; bx < 4u; ++bx) {
                     uint x = bx * 4u + px, y = by * 4u + py;
-                    gs_y[row * 256u + y * 16u + x] =
+                    gs_px[row * 256u + y * 16u + x] =
                         Clip(int(PredictBig(row, 0u, gs_luma_mode[row], x, y)) + ry[bx]);
                 }
             }
@@ -288,7 +277,7 @@ void vp8_reconstruct(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID) {
                     uint bx = uint(sx);
                     uint mode = (gs_modes4[row * 4u + by] >> (bx * 8u)) & 255u;
                     uint value = Clip(int(Predict4(row, bx, by, mode, px, py)) + ry[bx]);
-                    gs_y[row * 256u + (by * 4u + py) * 16u + bx * 4u + px] = value;
+                    gs_px[row * 256u + (by * 4u + py) * 16u + bx * 4u + px] = value;
                 }
                 GroupMemoryBarrierWithGroupSync();
             }
@@ -297,7 +286,7 @@ void vp8_reconstruct(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID) {
             [unroll] for (uint bx = 0u; bx < 4u; ++bx) {
                 uint x = bx * 4u + px, y = by * 4u + py;
                 // When I16 is used, this is the SAME lane that wrote the value.
-                uint value = gs_y[row * 256u + y * 16u + x];
+                uint value = gs_px[row * 256u + y * 16u + x];
                 vp8_yuv.Store(((my * 16u + y) * luma_stride + mx * 16u + x) * 4u, value);
                 if (x == 15u) gs_right[row * 32u + y] = value;
                 if (y == 15u) gs_bottom[(row * 4u + (rank & 3u)) * 32u + x] = value;

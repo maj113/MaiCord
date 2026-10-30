@@ -32,6 +32,18 @@ bool append_u64(Slice<char> output, u32* used, u64 value) noexcept {
 }
 
 bool append_wide_utf8(Slice<char> output, u32* used, const wchar_t* value, u32 units) noexcept {
+    // Times and dates are mostly ASCII, and the narrowing is then exact.
+    u32 ascii = 0;
+    while (ascii < units && value[ascii] < 0x80)
+        ++ascii;
+    if (ascii == units) {
+        if (units == 0 || units > output.count - *used)
+            return false;
+        for (u32 index = 0; index < units; ++index)
+            output[*used + index] = static_cast<char>(value[index]);
+        *used += units;
+        return true;
+    }
     const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, static_cast<int>(units),
                                              nullptr, 0, nullptr, nullptr);
     if (required <= 0 || static_cast<u32>(required) > output.count - *used) {
@@ -46,11 +58,14 @@ bool append_wide_utf8(Slice<char> output, u32* used, const wchar_t* value, u32 u
     return true;
 }
 
+bool unix_seconds_convertible(u64 seconds) noexcept {
+    return seconds <= ~0ull - kWindowsToUnixSeconds &&
+           seconds + kWindowsToUnixSeconds <= ~0ull / kFileTimeTicksPerSecond;
+}
+
 bool unix_to_local(u64 seconds, SYSTEMTIME* local) noexcept {
-    if (seconds > ~0ull - kWindowsToUnixSeconds ||
-        seconds + kWindowsToUnixSeconds > ~0ull / kFileTimeTicksPerSecond) {
+    if (!unix_seconds_convertible(seconds))
         return false;
-    }
     const u64 ticks = (seconds + kWindowsToUnixSeconds) * kFileTimeTicksPerSecond;
     FILETIME file_time{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
     SYSTEMTIME utc{};
@@ -128,11 +143,9 @@ TimestampFormatResult format_profile_date(u64 seconds, Slice<char> output,
 
 TimestampFormatResult format_timestamp_calendar(u64 unix_seconds, u64 now_unix_seconds,
                                                 Slice<char> output) noexcept {
-    SYSTEMTIME local{}, now{}, yesterday{}, tomorrow{};
+    SYSTEMTIME local{}, now{}, neighbour{};
     if (!output.data || output.count == 0 || !unix_to_local(unix_seconds, &local) ||
-        !unix_to_local(now_unix_seconds, &now) ||
-        !unix_to_local(now_unix_seconds >= 86'400 ? now_unix_seconds - 86'400 : 0, &yesterday) ||
-        !unix_to_local(now_unix_seconds + 86'400, &tomorrow))
+        !unix_to_local(now_unix_seconds, &now) || !unix_seconds_convertible(now_unix_seconds + 86'400))
         return TimestampFormatResult{};
     const auto same_day = [](const SYSTEMTIME& a, const SYSTEMTIME& b) noexcept {
         return a.wYear == b.wYear && a.wMonth == b.wMonth && a.wDay == b.wDay;
@@ -142,13 +155,17 @@ TimestampFormatResult format_timestamp_calendar(u64 unix_seconds, u64 now_unix_s
     // The label changes at the next local midnight; refresh hourly so a
     // retained "Today at" header rolls over to "Yesterday at" in time.
     u64 refresh = 0;
+    // The neighbouring days convert only when the day differs from today.
+    const auto day_is = [&](u64 seconds) noexcept {
+        return unix_to_local(seconds, &neighbour) && same_day(local, neighbour);
+    };
     if (same_day(local, now)) {
         written = append_ascii(output, &used, "Today at ", 9) && append_time(output, &used, local, false);
         refresh = 3'600;
-    } else if (same_day(local, yesterday)) {
+    } else if (day_is(now_unix_seconds >= 86'400 ? now_unix_seconds - 86'400 : 0)) {
         written = append_ascii(output, &used, "Yesterday at ", 13) && append_time(output, &used, local, false);
         refresh = 3'600;
-    } else if (same_day(local, tomorrow)) {
+    } else if (day_is(now_unix_seconds + 86'400)) {
         // Only tomorrow shows a time; later days show the date alone.
         written = append_ascii(output, &used, "Tomorrow at ", 12) && append_time(output, &used, local, false);
         refresh = 3'600;

@@ -6,17 +6,17 @@
 namespace maicord {
 namespace {
 
-ReactionViewerResult reject(ReactionViewerError error) noexcept {
+inline ReactionViewerResult reject(ReactionViewerError error) noexcept {
     return ReactionViewerResult{error, false};
 }
 
-u8 format_count(u32 value, char* output, u32 capacity) noexcept {
+inline u8 format_count(u32 value, char* output, u32 capacity) noexcept {
     const u32 digits = decimal_digits(value);
     return digits > capacity ? u8{0} : static_cast<u8>(decimal_write(output, value));
 }
 
-bool range_in_page(const ReactionViewer& viewer, Utf8View value, u32 page_begin, u32 page_bytes,
-                   u32* offset) noexcept {
+inline bool range_in_page(const ReactionViewer& viewer, Utf8View value, u32 page_begin, u32 page_bytes,
+                          u32* offset) noexcept {
     if ((!value.data && value.bytes != 0) || !viewer.text || page_begin > viewer.text_capacity ||
         page_bytes > viewer.text_capacity - page_begin) {
         return false;

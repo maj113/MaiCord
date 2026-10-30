@@ -34,9 +34,8 @@ bool ui_widget_scroll_geometry(const UiWidgetManager& manager, UiWidgetHandle ow
                                UiWidgetScrollGeometry* geometry) noexcept {
     if (!geometry) return false;
     reset_value(geometry);
-    const auto* widget = ui_widget_manager_resolve(manager, owner);
     const auto* root = ui_widget_manager_layout_node(manager, owner);
-    if (!widget || !root || !root->visible || !(root->spec.style.flags & ui_layout_node_visible) ||
+    if (!root || !root->visible || !(root->spec.style.flags & ui_layout_node_visible) ||
         !ui_rect_valid_or_empty(root->content_rectangle)) return false;
     const u16 axes = root->spec.style.flags & (ui_layout_node_scroll_horizontal | ui_layout_node_scroll_vertical);
     if (!axes) return false;
@@ -47,7 +46,7 @@ bool ui_widget_scroll_geometry(const UiWidgetManager& manager, UiWidgetHandle ow
     struct Frame { u16 parent; u16 next; };
     Frame stack[kMaximumUiLayoutDepth];
     u32 depth = 1;
-    stack[0] = {widget->layout.slot, root->first_child};
+    stack[0] = {owner.slot, root->first_child};
     float right = root->content_rectangle.right;
     float bottom = root->content_rectangle.bottom;
     u32 visited = 0;
@@ -81,7 +80,6 @@ bool ui_widget_scroll_geometry(const UiWidgetManager& manager, UiWidgetHandle ow
 UiWidgetRevealResult ui_widget_reveal(UiWidgetManager* manager, UiWidgetHandle target) noexcept {
     if (!manager || !ui_widget_manager_input_enabled(*manager, target))
         return {UiLayoutError::invalid_argument, 0, false};
-    const auto* target_widget = ui_widget_manager_resolve(*manager, target);
     const auto* target_node = ui_widget_manager_layout_node(*manager, target);
     if (!target_node || !ui_rect_valid(target_node->rectangle))
         return {UiLayoutError::invalid_argument, 0, false};
@@ -89,11 +87,10 @@ UiWidgetRevealResult ui_widget_reveal(UiWidgetManager* manager, UiWidgetHandle t
     Move moves[kMaximumUiLayoutDepth];
     u32 count = 0;
     UiRect projected = target_node->rectangle;
-    UiWidgetHandle ancestor = target_widget->parent;
-    while (ancestor.generation) {
-        const auto* widget = ui_widget_manager_resolve(*manager, ancestor);
-        const auto* node = ui_widget_manager_layout_node(*manager, ancestor);
-        if (!widget || !node) return {UiLayoutError::invalid_parent, 0, false};
+    // A live widget's ancestors are live and sit at lower slots.
+    for (u16 slot = target_node->parent; slot != kInvalidUiLayoutSlot;) {
+        const UiWidgetHandle ancestor{slot, manager->generation};
+        const UiLayoutNode* node = &manager->layout.storage[slot];
         const auto flags = node->spec.style.flags;
         if (flags & (ui_layout_node_scroll_horizontal | ui_layout_node_scroll_vertical)) {
             UiPoint next = node->scroll_offset;
@@ -112,7 +109,7 @@ UiWidgetRevealResult ui_widget_reveal(UiWidgetManager* manager, UiWidgetHandle t
                 next.x = minimum(next.x, geometry.maximum.x);
                 next.y = minimum(next.y, geometry.maximum.y);
                 if (next.x != geometry.offset.x || next.y != geometry.offset.y) {
-                    moves[count++] = {widget->layout, next};
+                    moves[count++] = {{slot, manager->layout.generation}, next};
                     const float dx = geometry.offset.x - next.x;
                     const float dy = geometry.offset.y - next.y;
                     projected = {projected.left + dx, projected.top + dy, projected.right + dx, projected.bottom + dy};
@@ -123,7 +120,7 @@ UiWidgetRevealResult ui_widget_reveal(UiWidgetManager* manager, UiWidgetHandle t
             projected = ui_rect_intersection(projected, node->content_rectangle);
             if (!ui_rect_has_area(projected)) break;
         }
-        ancestor = widget->parent;
+        slot = node->parent;
     }
     if (count) {
         const UiRect viewport = manager->layout.storage[0].rectangle;

@@ -81,10 +81,8 @@ bool react_to_latest(u64 channel_id, Utf8View name) noexcept {
     const MessageRecord* target = latest_message(channel_id);
     if (!target)
         return false;
-    const ConstSlice<EmojiCatalogEntry> catalog = unicode_emoji_catalog();
-    for (u32 index = 0; index < catalog.count; ++index)
-        if (utf8_equal(catalog[index].name(), name))
-            return queue_message_reaction_emoji(target->id, 0, catalog[index].glyph(), false);
+    if (const u32 index = emoji_catalog_find_name(name); index != ~0u)
+        return queue_message_reaction_emoji(target->id, 0, unicode_emoji_catalog()[index].glyph(), false);
     const ChatStateStore& state = g_app.account_ui->chat_state;
     for (u32 index = 0; state.emojis && index < state.emoji_count; ++index) {
         const CustomEmojiRecord& emoji = state.emojis[index];

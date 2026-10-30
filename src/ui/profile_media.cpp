@@ -52,6 +52,17 @@ bool asset(Utf8View value) noexcept {
     }
     return true;
 }
+// "a_..." hashes are animated.
+bool animated_hash(const Utf8View& hash) noexcept {
+    return hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
+}
+// The key of an image fetched from `url`.
+MediaAssetKey profile_key(const ProfileString<384>& url, MediaAttachmentFormat format, bool animated) noexcept {
+    auto key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0, MediaEmbedResource::image,
+                                 format, animated, MediaResolutionTier::px512);
+    key.kind = MediaAssetKind::profile_image;
+    return key;
+}
 // A picked image placed so its crop mask covers target (profile editor
 // preview): the whole turned image at the target's scale.
 bool pending_media(const ProfilePendingImage& image, UiRect target, UiRect mask, float radius, UiRect clip,
@@ -86,9 +97,7 @@ bool guild_badge_media(bool enabled, u64 guild_id, Utf8View badge, UiRect rectan
     append(&result.url, utf8_literal("/"));
     append(&result.url, badge);
     append(&result.url, utf8_literal(".png?size=32"));
-    result.key = media_asset_embed(hash64_bytes(kHash64Seed, result.url.data, result.url.bytes), 1, 0,
-        MediaEmbedResource::image, MediaAttachmentFormat::png, false, MediaResolutionTier::px512);
-    result.key.kind = MediaAssetKind::profile_image;
+    result.key = profile_key(result.url, MediaAttachmentFormat::png, false);
     copy_value(&result.rectangle, rectangle);
     result.clip = clip;
     copy_value(out, result);
@@ -162,9 +171,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         result.circular = corner;
         result.mask = result.rectangle;
         result.mask_radius = corner ? ui_rect_width(result.rectangle) * .5f : scene.activity_art_radius;
-        result.key = media_asset_embed(hash64_bytes(kHash64Seed, result.url.data, result.url.bytes), 1, 0,
-                                       MediaEmbedResource::image, format, false, MediaResolutionTier::px512);
-        result.key.kind = MediaAssetKind::profile_image;
+        result.key = profile_key(result.url, format, false);
         copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
@@ -181,10 +188,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         id(&url, (p.user_id >> 22) % 6);
         append(&url, utf8_literal(".png"));
         result.circular = true;
-        result.key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0,
-                                       MediaEmbedResource::image, MediaAttachmentFormat::png, false,
-                                       MediaResolutionTier::px512);
-        result.key.kind = MediaAssetKind::profile_image;
+        result.key = profile_key(url, MediaAttachmentFormat::png, false);
         copy_value(out, result);
         return media_asset_key_valid(result.key);
     }
@@ -196,7 +200,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         append(&url, utf8_literal("icons/"));
         id(&url, p.guild_id);
         append(&url, utf8_literal("/"));
-        animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
+        animated = animated_hash(hash);
     } else if (main_avatar) {
         hash = p.avatar.view();
         if (!asset(hash))
@@ -205,7 +209,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         id(&url, p.user_id);
         append(&url, utf8_literal("/"));
         result.circular = true;
-        animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
+        animated = animated_hash(hash);
     } else if (part.media == ProfileMediaKind::peer_avatar || part.media == ProfileMediaKind::peer_guild) {
         const bool user = part.media == ProfileMediaKind::peer_avatar;
         if (part.source >= (user ? p.mutual_friends_count : p.mutual_guild_count))
@@ -227,7 +231,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         result.circular = true;
         result.mask = result.rectangle;
         result.mask_radius = ui_rect_width(result.rectangle) * .5f;
-        animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
+        animated = animated_hash(hash);
     } else if (part.media == ProfileMediaKind::avatar || part.media == ProfileMediaKind::banner) {
         const bool avatar = part.media == ProfileMediaKind::avatar;
         // Per-server avatar and banner fall back to the user's.
@@ -246,7 +250,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
             id(&url, p.user_id);
             append(&url, utf8_literal("/"));
         }
-        animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
+        animated = animated_hash(hash);
         result.circular = avatar;
         if (!avatar)
             format = animated ? (scene.banner_compatibility ? MediaAttachmentFormat::gif
@@ -267,7 +271,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
             return false;
         append(&url, utf8_literal("avatar-decoration-presets/"));
         format = MediaAttachmentFormat::png;
-        animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
+        animated = animated_hash(hash);
     } else if (part.media == ProfileMediaKind::badge && part.source < p.badge_count) {
         hash = p.badges[part.source].icon.view();
         if (!asset(hash))
@@ -293,9 +297,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         append(&url, utf8_literal("&animated=true"));
     if (part.media == ProfileMediaKind::decoration)
         append(&url, animated ? utf8_literal("&passthrough=true") : utf8_literal("&passthrough=false"));
-    result.key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0,
-                                   MediaEmbedResource::image, format, animated, MediaResolutionTier::px512);
-    result.key.kind = MediaAssetKind::profile_image;
+    result.key = profile_key(url, format, animated);
     // Clipped to the banner; the renderer rounds it with the card's mask
     // (profile_scene_card_mask), so its top corners follow the card's.
     if (part.media == ProfileMediaKind::banner)
@@ -380,8 +382,7 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         append(&url, a->decoration.view());
         append(&url, utf8_literal(".png?size=96&passthrough=true"));
         format = MediaAttachmentFormat::png;
-        animated = a->decoration.bytes > 2 && a->decoration.view().data[0] == 'a' &&
-                   a->decoration.view().data[1] == '_';
+        animated = animated_hash(a->decoration.view());
         result.rectangle = {avatar->rectangle.left - 4, avatar->rectangle.top - 4,
                             avatar->rectangle.right + 4, avatar->rectangle.bottom + 4};
     } else {
@@ -400,14 +401,12 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
         append(&url, utf8_literal("/avatars/"));
         append(&url, hash);
         append(&url, utf8_literal(".webp?size=64"));
-        animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
+        animated = animated_hash(hash);
         result.circular = true;
     }
     if (animated && format == MediaAttachmentFormat::webp)
         append(&url, utf8_literal("&animated=true"));
-    result.key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0,
-                                   MediaEmbedResource::image, format, animated, MediaResolutionTier::px512);
-    result.key.kind = MediaAssetKind::profile_image;
+    result.key = profile_key(url, format, animated);
     copy_value(out, result);
     return media_asset_key_valid(result.key);
 }
@@ -507,9 +506,7 @@ bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, Pro
         if (bytes_equal(url.data + i, ".gif", 4))
             format = MediaAttachmentFormat::gif;
     }
-    result.key = media_asset_embed(hash64_bytes(kHash64Seed, url.data, url.bytes), 1, 0,
-                                   MediaEmbedResource::image, format, animated, MediaResolutionTier::px512);
-    result.key.kind = MediaAssetKind::profile_image;
+    result.key = profile_key(url, format, animated);
     copy_value(out, result);
     return true;
 }

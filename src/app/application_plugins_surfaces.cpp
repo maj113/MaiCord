@@ -40,9 +40,9 @@ bool popover_current(const NativePluginSdkRuntime* rt) noexcept {
            g_app.account_ui && !g_app.login.visible;
 }
 
-const UiNode* account_footer() noexcept {
+const UiLayoutNode* account_footer() noexcept {
     if (!g_app.account_ui || g_app.login.visible) return nullptr;
-    return ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::channel_footer));
+    return ui_scene_node(g_app.shell_scene, UiSemantic::channel_footer);
 }
 // Account panel buttons only (cheap: the hover path runs on every move).
 bool account_hit(float x, float y, ApplicationPluginSurfaceHit* out) noexcept {
@@ -59,7 +59,7 @@ bool account_hit(float x, float y, ApplicationPluginSurfaceHit* out) noexcept {
                 r,
                 ui_plugin_slot_label(nodes[i]),
                 &g_app.shell_scene.widgets,
-                footer->widget,
+                ui_scene_widget(g_app.shell_scene, UiSemantic::channel_footer),
                 i};
         return true;
     }

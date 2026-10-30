@@ -49,6 +49,17 @@ bool control(UiThemeEditorElement e) noexcept {
 bool slider(UiThemeEditorElement e) noexcept {
     return range(e) && e != UiThemeEditorElement::sv && e != UiThemeEditorElement::hue;
 }
+// The percentage field a slider element edits.
+u8 BackgroundTheme::*percent_field(UiThemeEditorElement e) noexcept {
+    return e == UiThemeEditorElement::speed      ? &BackgroundTheme::speed
+           : e == UiThemeEditorElement::strength ? &BackgroundTheme::strength
+           : e == UiThemeEditorElement::density  ? &BackgroundTheme::density
+                                                 : &BackgroundTheme::intensity;
+}
+// A slider element's thumb position in 0..1.
+float slider_fraction(const BackgroundTheme& draft, UiThemeEditorElement e) noexcept {
+    return e == UiThemeEditorElement::direction ? draft.angle_degrees / 360.f : draft.*percent_field(e) / 100.f;
+}
 void rgb_hsv(UiThemeEditorScene& s, u32 rgb) noexcept {
     const Color c = color_from_rgb24(rgb);
     const float r = c.red, g = c.green, b = c.blue;
@@ -382,7 +393,7 @@ bool ui_theme_editor_scroll(UiThemeEditorScene* s, float delta) noexcept {
     if (!w || !ui_widget_scroll_geometry(s->widgets, h, &g))
         return false;
     const float y = clamp(g.offset.y + delta, 0, g.maximum.y);
-    if (y == g.offset.y || !ui_layout_engine_set_scroll(&s->widgets.layout, w->layout, {0, y}))
+    if (y == g.offset.y || !ui_widget_manager_set_scroll(&s->widgets, h, {0, y}))
         return false;
     if (!ui_widget_manager_layout_rectangle(&s->widgets, s->panel).ok())
         return false;
@@ -431,14 +442,8 @@ bool ui_theme_editor_pointer(UiThemeEditorScene* s, UiThemeEditorElement e, UiPo
         next.colors[s->selected_stop] = ui_theme_editor_hsv_rgb(s->hue, s->saturation, s->value);
     } else if (e == UiThemeEditorElement::direction)
         next.angle_degrees = background_theme_snap_angle(x * 360);
-    else if (e == UiThemeEditorElement::intensity)
-        next.intensity = static_cast<u8>(x * 100 + .5f);
-    else if (e == UiThemeEditorElement::speed)
-        next.speed = static_cast<u8>(x * 100 + .5f);
-    else if (e == UiThemeEditorElement::strength)
-        next.strength = static_cast<u8>(x * 100 + .5f);
     else
-        next.density = static_cast<u8>(x * 100 + .5f);
+        next.*percent_field(e) = static_cast<u8>(x * 100 + .5f);
     if (publish(*s, next, out))
         return true;
     if (old_hue != s->hue || old_saturation != s->saturation || old_value != s->value) {
@@ -473,13 +478,9 @@ bool ui_theme_editor_key(UiThemeEditorScene* s, UiThemeEditorElement e, u32 key,
         return publish(*s, next, out);
     }
     const auto r = slider(e) ? track(n->rectangle) : n->rectangle;
-    float x = e == UiThemeEditorElement::sv          ? s->saturation
-              : e == UiThemeEditorElement::hue       ? s->hue
-              : e == UiThemeEditorElement::direction ? s->draft.angle_degrees / 360.f
-              : e == UiThemeEditorElement::speed     ? s->draft.speed / 100.f
-              : e == UiThemeEditorElement::strength  ? s->draft.strength / 100.f
-              : e == UiThemeEditorElement::density   ? s->draft.density / 100.f
-                                                     : s->draft.intensity / 100.f,
+    float x = e == UiThemeEditorElement::sv    ? s->saturation
+              : e == UiThemeEditorElement::hue ? s->hue
+                                               : slider_fraction(s->draft, e),
           y = 1 - s->value;
     const float step =
         e == UiThemeEditorElement::direction || e == UiThemeEditorElement::hue ? 1 / 360.f : .01f;
@@ -629,11 +630,7 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
                                                   color_from_rgb24(0xffffff), 2, 1);
         } else if (slider(e)) {
             const auto t = track(r);
-            const float fraction = e == UiThemeEditorElement::direction  ? s.draft.angle_degrees / 360.f
-                                   : e == UiThemeEditorElement::speed    ? s.draft.speed / 100.f
-                                   : e == UiThemeEditorElement::strength ? s.draft.strength / 100.f
-                                   : e == UiThemeEditorElement::density  ? s.draft.density / 100.f
-                                                                         : s.draft.intensity / 100.f;
+            const float fraction = slider_fraction(s.draft, e);
             const bool active =
                 (e == UiThemeEditorElement::direction && s.draft.color_count > 1) ||
                 e == UiThemeEditorElement::intensity ||
@@ -691,6 +688,33 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
     const bool popped = paint_stream_pop_clip(paint);
     return ok && popped;
 }
+namespace {
+// The caption an element draws: fixed ones from a table, the rest from the draft.
+Utf8View caption(const UiThemeEditorScene& s, UiThemeEditorElement e) noexcept {
+    using E = UiThemeEditorElement;
+    static constexpr struct {
+        E element;
+        Utf8View text;
+    } kCaptions[]{
+        {E::title, utf8_literal("Customize theme")}, {E::dark, utf8_literal("Dark")},
+        {E::light, utf8_literal("Light")},           {E::direction, utf8_literal("Direction")},
+        {E::intensity, utf8_literal("Intensity")},   {E::effect_none, utf8_literal("None")},
+        {E::effect_stars, utf8_literal("Stars")},    {E::effect_comets, utf8_literal("Comets")},
+        {E::effect_both, utf8_literal("Stars and comets")}, {E::speed, utf8_literal("Speed")},
+        {E::strength, utf8_literal("Strength")},     {E::density, utf8_literal("Density")},
+        {E::surprise, utf8_literal("Surprise me")},  {E::reset, utf8_literal("Reset")},
+    };
+    for (const auto& entry : kCaptions)
+        if (entry.element == e)
+            return entry.text;
+    return e == E::hex ? Utf8View{s.hex, 7}
+           : e == E::effect_label
+               ? (s.draft.effect == BackgroundEffect::none ? utf8_literal("Choose an effect to tune motion")
+                                                           : utf8_literal("Background effects"))
+           : e == E::apply ? (s.save_failed ? utf8_literal("Retry save") : utf8_literal("Apply"))
+                           : Utf8View{};
+}
+} // namespace
 bool ui_theme_editor_text_output(const UiThemeEditorScene& s, const Theme& theme,
                                  UiTextOutput* output) noexcept {
     if (!ui_theme_editor_current(s))
@@ -700,64 +724,7 @@ bool ui_theme_editor_text_output(const UiThemeEditorScene& s, const Theme& theme
     const UiSettingsThemeTokens tokens(theme);
     for (u32 i = 0; i < kUiThemeEditorElements; ++i) {
         const auto e = static_cast<UiThemeEditorElement>(i);
-        Utf8View text{};
-        switch (e) {
-        case UiThemeEditorElement::title:
-            text = utf8_literal("Customize theme");
-            break;
-        case UiThemeEditorElement::dark:
-            text = utf8_literal("Dark");
-            break;
-        case UiThemeEditorElement::light:
-            text = utf8_literal("Light");
-            break;
-        case UiThemeEditorElement::hex:
-            text = {s.hex, 7};
-            break;
-        case UiThemeEditorElement::direction:
-            text = utf8_literal("Direction");
-            break;
-        case UiThemeEditorElement::intensity:
-            text = utf8_literal("Intensity");
-            break;
-        case UiThemeEditorElement::effect_label:
-            text = s.draft.effect == BackgroundEffect::none
-                       ? utf8_literal("Choose an effect to tune motion")
-                       : utf8_literal("Background effects");
-            break;
-        case UiThemeEditorElement::effect_none:
-            text = utf8_literal("None");
-            break;
-        case UiThemeEditorElement::effect_stars:
-            text = utf8_literal("Stars");
-            break;
-        case UiThemeEditorElement::effect_comets:
-            text = utf8_literal("Comets");
-            break;
-        case UiThemeEditorElement::effect_both:
-            text = utf8_literal("Stars and comets");
-            break;
-        case UiThemeEditorElement::speed:
-            text = utf8_literal("Speed");
-            break;
-        case UiThemeEditorElement::strength:
-            text = utf8_literal("Strength");
-            break;
-        case UiThemeEditorElement::density:
-            text = utf8_literal("Density");
-            break;
-        case UiThemeEditorElement::surprise:
-            text = utf8_literal("Surprise me");
-            break;
-        case UiThemeEditorElement::reset:
-            text = utf8_literal("Reset");
-            break;
-        case UiThemeEditorElement::apply:
-            text = s.save_failed ? utf8_literal("Retry save") : utf8_literal("Apply");
-            break;
-        default:
-            break;
-        }
+        const Utf8View text = caption(s, e);
         if (!text.bytes)
             continue;
         const auto* n = ui_theme_editor_node(s, e);

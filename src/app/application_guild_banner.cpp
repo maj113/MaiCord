@@ -31,8 +31,8 @@ bool reduced_motion() noexcept {
     return g_app.preferences.reduced_motion || g_app.renderer.reduced_motion ||
            (motion.system_preference_cached && !motion.client_area_animation);
 }
-const UiNode* shell_node(UiSemantic semantic) noexcept {
-    return ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, semantic));
+const UiLayoutNode* shell_node(UiSemantic semantic) noexcept {
+    return ui_scene_node(g_app.shell_scene, semantic);
 }
 const GuildRecord* selected_guild() noexcept {
     if (!g_app.account_ui || g_app.login.visible || g_app.shell_scene.view != UiShellView::guild_channel)

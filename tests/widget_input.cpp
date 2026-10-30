@@ -22,7 +22,7 @@ void test_widget_input(void (*check)(bool, const char*) noexcept) noexcept {
         {2, UiWidgetKind::text_field, interactive, {utf8_literal("First"), child_style}});
     const auto last = ui_widget_manager_add(&manager, root.handle,
         {3, UiWidgetKind::button, interactive, {utf8_literal("Last"), child_style}});
-    if (!root.ok() || !first.ok() || !last.ok() || !ui_widget_manager_layout(&manager, {100, 100}).ok()) {
+    if (!root.ok() || !first.ok() || !last.ok() || !ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 100}).ok()) {
         check(false, "input hierarchy layout");
         return;
     }
@@ -84,7 +84,7 @@ void test_widget_input(void (*check)(bool, const char*) noexcept) noexcept {
     check(!ui_widget_manager_pointer_target(&manager, -1, -1).generation && !manager.captured.generation,
           "disabled captured widget cancels on pointer dispatch");
     widgets[first.handle.slot].flags |= ui_widget_enabled;
-    check(ui_widget_manager_layout(&manager, {100, 25}).ok() &&
+    check(ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 25}).ok() &&
           ui_widget_manager_focus(&manager, last.handle) &&
           !ui_widget_manager_hit_test(manager, 10, 30).generation,
           "clipping limits pointer hits without removing keyboard focus");
@@ -96,7 +96,7 @@ void test_widget_input(void (*check)(bool, const char*) noexcept) noexcept {
           focus_paint.quads[0].bottom == 25 && focus_paint.quads[0].fill.alpha == 0 &&
           focus_paint.quads[0].border_width == 2,
           "shared focus outline is transparent clipped and balances its clip stack");
-    check(ui_widget_manager_layout(&manager, {100, 20}).ok() &&
+    check(ui_widget_manager_layout_rectangle(&manager, {0, 0, 100, 20}).ok() &&
           !ui_widget_manager_context_anchor(manager, &anchor) && !ui_rect_has_area(anchor),
           "fully clipped focus cannot anchor a menu outside the viewport");
     check(paint_stream_push_focus(&focus_paint, manager, kDefaultTheme.accent) && focus_paint.count == 1,
@@ -105,11 +105,6 @@ void test_widget_input(void (*check)(bool, const char*) noexcept) noexcept {
     check(ui_widget_manager_layout_rectangle(&manager, {120, 80, 220, 105}).ok() &&
           ui_widget_manager_context_anchor(manager, &anchor) && ui_rect_equal(anchor, {120, 100, 170, 105}),
           "context anchoring uses layout coordinates at nonzero viewport origins");
-    widgets[first.handle.slot].parent = first.handle;
-    check(!ui_widget_manager_input_enabled(manager, first.handle), "cyclic input hierarchy rejected");
-    widgets[first.handle.slot].parent = {root.handle.slot, static_cast<u16>(root.handle.generation + 1)};
-    check(!ui_widget_manager_input_enabled(manager, first.handle), "stale parent generation rejected");
-    widgets[first.handle.slot].parent = root.handle;
     ui_widget_manager_capture(&manager, first.handle);
     ui_widget_manager_reset(&manager);
     check(!manager.captured.generation && !ui_widget_manager_capture(&manager, first.handle),

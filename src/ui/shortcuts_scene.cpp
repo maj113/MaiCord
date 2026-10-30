@@ -43,7 +43,7 @@ bool initialize(UiShortcutsScene& s) noexcept {
     if (!root.ok())
         return false;
     s.root = root.handle;
-    auto* node = ui_layout_engine_resolve(&s.widgets.layout, s.widgets.storage[s.root.slot].layout);
+    auto* node = ui_widget_manager_layout_node(&s.widgets, s.root);
     node->spec.style.width = node->spec.style.height = ui_layout_fill();
     const auto close = add(s.root, UiWidgetKind::button, utf8_literal("Close keyboard shortcuts"));
     if (!close.ok())
@@ -53,7 +53,7 @@ bool initialize(UiShortcutsScene& s) noexcept {
 }
 bool place(UiShortcutsScene& s, UiWidgetHandle handle, UiRect r) noexcept {
     auto* widget = ui_widget_manager_resolve(&s.widgets, handle);
-    auto* node = widget ? ui_layout_engine_resolve(&s.widgets.layout, widget->layout) : nullptr;
+    auto* node = ui_widget_manager_layout_node(&s.widgets, handle);
     if (!node)
         return false;
     auto& style = node->spec.style;
@@ -226,10 +226,9 @@ bool ui_shortcuts_scene_set_hover(UiShortcutsScene* s, float x, float y, bool* c
         *changed = false;
     if (!s || !current(*s))
         return false;
-    const auto hit = ui_widget_manager_hit_test(s->widgets, x, y), before = s->widgets.hovered;
-    if (!ui_widget_manager_hover(&s->widgets, hit))
+    bool delta = false;
+    if (!ui_widget_manager_hover_at(&s->widgets, x, y, &delta))
         return false;
-    const bool delta = !ui_widget_handle_matches(before, hit) && (before.generation || hit.generation);
     if (delta)
         ++s->revision;
     if (changed)

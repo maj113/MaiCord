@@ -407,7 +407,6 @@ bool reduce_finish(Reduce* d) noexcept {
 ProfileImageError decode_png(ConstSlice<u8> s, const Plan& plan, Reduce* d) noexcept {
     PngImage image{};
     PngStreamLayout layout{};
-    DeflateWorkspace workspace{};
     struct Rows {
         const PngImage* image;
         Reduce* reduce;
@@ -427,16 +426,19 @@ ProfileImageError decode_png(ConstSlice<u8> s, const Plan& plan, Reduce* d) noex
     if (parsed.ok()) {
         if (!reduce_begin(plan, 1, image.width, image.height, 0, 0, image.width, image.height, d))
             return ProfileImageError::memory;
+        // The deflate workspace leads the block, then spans, window, rows and RGBA.
+        const u64 lead = align16(sizeof(DeflateWorkspace));
         const u64 spans = align16(static_cast<u64>(layout.idat_chunks) * sizeof(DeflateInputSpan));
         Block memory;
-        u8* base = memory.allocate(spans + kPngStreamWindowBytes + layout.row_buffer_bytes + image.width * 4ull);
-        if (!base)
+        u8* block = memory.allocate(lead + spans + kPngStreamWindowBytes + layout.row_buffer_bytes + image.width * 4ull);
+        if (!block)
             return ProfileImageError::memory;
+        u8* base = block + lead;
         Rows rows{&image, d, base + spans + kPngStreamWindowBytes + layout.row_buffer_bytes};
         const auto decoded = png_stream_decode(
             s, image, layout, {reinterpret_cast<DeflateInputSpan*>(base), layout.idat_chunks},
             {base + spans, kPngStreamWindowBytes}, {base + spans + kPngStreamWindowBytes, layout.row_buffer_bytes},
-            row_sink, &rows, &workspace);
+            row_sink, &rows, reinterpret_cast<DeflateWorkspace*>(block));
         return decoded.ok() || reduce_done(*d) ? ProfileImageError::none : ProfileImageError::decode;
     }
     // Adam7 streams are not supported; png_parse decodes them whole (<= 2048 px).
@@ -446,10 +448,11 @@ ProfileImageError decode_png(ConstSlice<u8> s, const Plan& plan, Reduce* d) noex
         return ProfileImageError::memory;
     const u32 buffer = png_decode_buffer_bytes(image);
     Block memory;
-    u8* base = memory.allocate(static_cast<u64>(buffer) + image.width * 4ull);
-    if (!base)
+    u8* block = memory.allocate(align16(sizeof(DeflateWorkspace)) + static_cast<u64>(buffer) + image.width * 4ull);
+    if (!block)
         return ProfileImageError::memory;
-    if (!png_decode_parsed_scanlines(&image, &workspace, {base, buffer}).ok())
+    u8* base = block + align16(sizeof(DeflateWorkspace));
+    if (!png_decode_parsed_scanlines(&image, reinterpret_cast<DeflateWorkspace*>(block), {base, buffer}).ok())
         return ProfileImageError::decode;
     Rows rows{&image, d, base + buffer};
     for (u32 y = 0; y < image.height; ++y)

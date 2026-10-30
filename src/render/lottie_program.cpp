@@ -64,6 +64,103 @@ float number(const JsonValue& v, float fallback = 0) noexcept {
         return fallback;
     return static_cast<float>(negative ? -value : value);
 }
+// Signed area (exact for cubics), an upper bound of the length (L1 norm of the control polygon) and of
+// the winding of a simplified outline; open figures are closed as a fill does.
+struct AreaSink final : ID2D1SimplifiedGeometrySink {
+    static constexpr i32 kBins = 256;
+    double area = 0, length = 0;
+    float top, scale;
+    i32 depth[kBins + 1]{};
+    // Heights are binned across the outline's bounds, which contain every segment.
+    explicit AreaSink(const D2D1_RECT_F& bounds) noexcept
+        : top(bounds.top), scale(bounds.bottom > bounds.top ? kBins / (bounds.bottom - bounds.top) : 0) {
+    }
+    i32 bin(float y) const noexcept {
+        const float at = (y - top) * scale;
+        return at <= 0 ? 0 : at >= kBins - 1 ? kBins - 1 : static_cast<i32>(at);
+    }
+    // A line segment crosses a horizontal line once and a cubic at most three times, and only where its
+    // control points reach that height; bins widen the span by one on each side against rounding.
+    void record(float a, float b, float c, float d, i32 crossings) noexcept {
+        const i32 first = maximum(bin(minimum(minimum(a, b), minimum(c, d))) - 1, 0),
+                  last = minimum(bin(maximum(maximum(a, b), maximum(c, d))) + 1, kBins - 1);
+        depth[first] += crossings;
+        depth[last + 1] -= crossings;
+    }
+    // The most any point can wind: half the most crossings of any horizontal line.
+    u32 winding() const noexcept {
+        i32 sum = 0, most = 0;
+        for (i32 i = 0; i < kBins; ++i) {
+            sum += depth[i];
+            most = maximum(most, sum);
+        }
+        return static_cast<u32>(maximum(most / 2, 1));
+    }
+    D2D1_POINT_2F start{}, current{};
+    static double distance(D2D1_POINT_2F a, D2D1_POINT_2F b) noexcept {
+        const double x = static_cast<double>(b.x) - a.x, y = static_cast<double>(b.y) - a.y;
+        return (x < 0 ? -x : x) + (y < 0 ? -y : y);
+    }
+    void line(D2D1_POINT_2F to) noexcept {
+        area += (static_cast<double>(current.x) * to.y - static_cast<double>(to.x) * current.y) * .5;
+        length += distance(current, to);
+        record(current.y, current.y, to.y, to.y, 1);
+        current = to;
+    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** value) noexcept override {
+        if (!value)
+            return E_POINTER;
+        *value = nullptr;
+        if (id == __uuidof(IUnknown) || id == __uuidof(ID2D1SimplifiedGeometrySink)) {
+            *value = this;
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override {
+        return 1;
+    }
+    ULONG STDMETHODCALLTYPE Release() noexcept override {
+        return 1;
+    }
+    void STDMETHODCALLTYPE SetFillMode(D2D1_FILL_MODE) noexcept override {
+    }
+    void STDMETHODCALLTYPE SetSegmentFlags(D2D1_PATH_SEGMENT) noexcept override {
+    }
+    void STDMETHODCALLTYPE BeginFigure(D2D1_POINT_2F p, D2D1_FIGURE_BEGIN) noexcept override {
+        start = current = p;
+    }
+    void STDMETHODCALLTYPE AddLines(const D2D1_POINT_2F* p, UINT32 n) noexcept override {
+        for (u32 i = 0; i < n; ++i)
+            line(p[i]);
+    }
+    void STDMETHODCALLTYPE AddBeziers(const D2D1_BEZIER_SEGMENT* b, UINT32 n) noexcept override {
+        // Three-point Gauss-Legendre is exact for the degree-five integrand x dy - y dx.
+        static constexpr double nodes[]{.1127016653792583, .5, .8872983346207417}, weights[]{5. / 18, 4. / 9, 5. / 18};
+        for (u32 i = 0; i < n; ++i) {
+            const double x0 = current.x, y0 = current.y, x1 = b[i].point1.x, y1 = b[i].point1.y, x2 = b[i].point2.x,
+                         y2 = b[i].point2.y, x3 = b[i].point3.x, y3 = b[i].point3.y;
+            for (u32 k = 0; k < 3; ++k) {
+                const double t = nodes[k], u = 1 - t;
+                const double x = u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3,
+                             y = u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3;
+                const double dx = 3 * u * u * (x1 - x0) + 6 * u * t * (x2 - x1) + 3 * t * t * (x3 - x2),
+                             dy = 3 * u * u * (y1 - y0) + 6 * u * t * (y2 - y1) + 3 * t * t * (y3 - y2);
+                area += weights[k] * (x * dy - y * dx) * .5;
+            }
+            length += distance(current, b[i].point1) + distance(b[i].point1, b[i].point2) +
+                      distance(b[i].point2, b[i].point3);
+            record(current.y, b[i].point1.y, b[i].point2.y, b[i].point3.y, 3);
+            current = b[i].point3;
+        }
+    }
+    void STDMETHODCALLTYPE EndFigure(D2D1_FIGURE_END) noexcept override {
+        line(start);
+    }
+    HRESULT STDMETHODCALLTYPE Close() noexcept override {
+        return S_OK;
+    }
+};
 struct Leaf {
     ID2D1Geometry* geometry;
     Matrix transform;
@@ -168,6 +265,22 @@ struct Document {
         }
         return true;
     }
+    // Element-by-element walk of an array: the tokens array() visits, without a materialized copy.
+    struct Elements { u32 token, at; bool more; };
+    Elements elements(const JsonValue& input) noexcept {
+        if(input.kind!=JsonValueKind::array || !input.source.bytes)return {0,0,false};
+        return {locate(input.source_offset)+1,input.source_offset+1,true};
+    }
+    bool step(Elements& e,JsonValue* item) noexcept {
+        if(!e.more)return false;
+        if(json.input.data[json.structurals[e.token]]==']' && e.at>=json.structurals[e.token]){e.more=false;return false;}
+        whitespace(e.at);
+        if(json.input.data[e.at]==']'){e.more=false;return false;}
+        *item=value(e.at,e.token);
+        if(json.input.data[json.structurals[e.token]]==','){e.at=json.structurals[e.token]+1;++e.token;}
+        else e.more=false;
+        return true;
+    }
     enum class Shape : u8 { other, group, path, ellipse, rectangle, fill, stroke, gradient_fill, gradient_stroke,
                             transform, trim, repeater, merge };
     // The item's "ty" code, decoded once instead of compared name by name.
@@ -196,27 +309,43 @@ struct Document {
         if(property.kind==JsonValueKind::object){const auto k=get(property,"k");if(k.source.bytes)property=k;}
         Sample result{property,property,{},0};
         if(property.kind!=JsonValueKind::array)return result;
-        ValueScratch<512> values;u32 count=0;
-        if(!array(property,{values,512},&count)||!count)return {};
-        if(values[0].kind!=JsonValueKind::object || !get(values[0],"t").source.bytes)return result;
-        u32 selected=0;
-        while(selected+1<count && field(values[selected+1],"t")<=frame)++selected;
-        result.key=values[selected];result.start=get(result.key,"s");
-        if(!result.start.source.bytes && selected)result.start=get(values[selected-1],"e");
-        if(!result.start.source.bytes && selected)result.start=get(values[selected-1],"s");
+        // Keyframes are walked in order, keeping only the selected one and its neighbours.
+        JsonValue previous{},current{},upcoming{},item{};
+        u32 count=0,selected=0;bool plain=false,advancing=true;
+        for(auto walk=elements(property);step(walk,&item);++count){
+            if(count==512)return {};
+            if(!count){current=item;plain=item.kind!=JsonValueKind::object || !get(item,"t").source.bytes;}
+            else if(!plain && advancing){
+                if(field(item,"t")<=frame){previous=current;current=item;++selected;}
+                else{upcoming=item;advancing=false;}
+            }
+        }
+        if(!count)return {};
+        if(plain)return result;
+        result.key=current;result.start=get(current,"s");
+        if(!result.start.source.bytes && selected)result.start=get(previous,"e");
+        if(!result.start.source.bytes && selected)result.start=get(previous,"s");
         result.end=result.start;
-        if(selected+1<count && field(result.key,"h")!=1){
-            const float begin=field(result.key,"t"),end=field(values[selected+1],"t");
-            result.end=get(result.key,"e");
-            if(!result.end.source.bytes)result.end=get(values[selected+1],"s");
+        if(!advancing && field(current,"h")!=1){
+            const float begin=field(current,"t"),end=field(upcoming,"t");
+            result.end=get(current,"e");
+            if(!result.end.source.bytes)result.end=get(upcoming,"s");
             if(!result.end.source.bytes)result.end=result.start;
             result.progress=clamped(end>begin?(frame-begin)/(end-begin):0,0,1);
         }
         return result;
     }
     float component(JsonValue value,u32 index,float fallback=0) noexcept {
-        if(value.kind==JsonValueKind::array){ValueScratch<256> a;u32 n=0;
-            if(!array(value,{a,256},&n)||!n)return fallback;value=a[minimum(index,n-1)];}
+        if(value.kind==JsonValueKind::array){
+            JsonValue chosen{},last{},item{};u32 n=0;
+            for(auto walk=elements(value);step(walk,&item);++n){
+                if(n==256)return fallback;
+                if(n==index)chosen=item;
+                last=item;
+            }
+            if(!n)return fallback;
+            value=index<n?chosen:last;
+        }
         return number(value,fallback);
     }
     static float bezier(float t,float a,float b) noexcept {
@@ -280,10 +409,6 @@ struct Document {
     __declspec(noinline) bool string_field(const JsonValue& object, const char* key, JsonString* output) noexcept {
         return json_value_as_string(get(object, key), output);
     }
-    __declspec(noinline) bool array_field(const JsonValue& object, const char* key, JsonValue* output, u32 capacity,
-                                          u32* count) noexcept {
-        return array(get(object, key), {output, capacity}, count);
-    }
     __declspec(noinline) float component_field(const JsonValue& object, const char* key, u32 index,
                                                float fallback = 0) noexcept {
         return component(get(object, key), index, fallback);
@@ -293,10 +418,17 @@ struct Document {
         return point(get(object, key), fallback);
     }
     __declspec(noinline) D2D1_POINT_2F point_array_components(const JsonValue& value, D2D1_POINT_2F fallback) noexcept {
-        ValueScratch<256> components; u32 count = 0;
-        if (!array(value, {components, 256}, &count) || !count)
+        JsonValue first{}, second{}, item{};
+        u32 count = 0;
+        for (auto walk = elements(value); step(walk, &item); ++count) {
+            if (count == 256)
+                return fallback;
+            if (count < 2)
+                (count ? second : first) = item;
+        }
+        if (!count)
             return fallback;
-        return {number(components[0], fallback.x), number(components[minimum(1u, count - 1)], fallback.y)};
+        return {number(first, fallback.x), number(count > 1 ? second : first, fallback.y)};
     }
     D2D1_POINT_2F point_components(const JsonValue& value, D2D1_POINT_2F fallback) noexcept {
         if (value.kind != JsonValueKind::array)
@@ -377,12 +509,25 @@ struct Document {
             geometry = clipped;
             placement = &identity;
         }
+        // Direct2D's area flattens and resolves the whole outline (tens of microseconds). A leaf whose exact
+        // signed area, divided by the most any point can wind, still exceeds the threshold plus twice the
+        // flattening error along the outline (tolerance times length) is kept without it.
+        D2D1_RECT_F bounds{};
+        const bool bounded = SUCCEEDED(geometry->GetBounds(placement, &bounds));
+        AreaSink outline(bounds);
+        const u32 winding =
+            bounded && SUCCEEDED(geometry->Simplify(D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES, placement,
+                                                    .0001f, &outline))
+                ? outline.winding()
+                : 0;
+        const bool large = winding && (outline.area < 0 ? -outline.area : outline.area) >
+                                          winding * (.00001 + .0002 * outline.length);
         float area = 0;
-        if (FAILED(geometry->ComputeArea(placement, .0001f, &area))) {
+        if (!large && FAILED(geometry->ComputeArea(placement, .0001f, &area))) {
             geometry->Release();
             return false;
         }
-        if (!(area > .00001f)) {
+        if (!large && !(area > .00001f)) {
             geometry->Release();
             return true;
         }
@@ -484,34 +629,58 @@ struct Document {
         }
         return true;
     }
+    // One "v"/"i"/"o" vertex list of a path keyframe, morphed toward the end keyframe's list by `blend`.
+    __declspec(noinline) bool vertices(const JsonValue& start, const JsonValue& end, float blend, const char* key,
+                                       D2D1_POINT_2F* output, u32* count) noexcept {
+        *count = 0;
+        const JsonValue list = get(start, key);
+        if (list.kind != JsonValueKind::array || !list.source.bytes)
+            return false;
+        const JsonValue end_list = blend ? get(end, key) : JsonValue{};
+        if (blend && (end_list.kind != JsonValueKind::array || !end_list.source.bytes))
+            return false;
+        auto walk = elements(list), end_walk = elements(end_list);
+        JsonValue a{}, b{};
+        while (step(walk, &a)) {
+            if (*count == 512 || (blend && !step(end_walk, &b)))
+                return false;
+            const auto p = point(a), q = blend ? point(b) : p;
+            output[(*count)++] = D2D1_POINT_2F{p.x + (q.x - p.x) * blend, p.y + (q.y - p.y) * blend};
+        }
+        return !blend || !step(end_walk, &b);
+    }
+    // A keyframe's "s"/"e" shape list (at most two entries, the first used).
+    bool shape_unwrap(JsonValue* list) noexcept {
+        if(list->kind!=JsonValueKind::array)return true;
+        JsonValue first{},item{};u32 n=0;
+        for(auto walk=elements(*list);step(walk,&item);++n){
+            if(n==2)return false;
+            if(!n)first=item;
+        }
+        if(!n)return false;
+        *list=first;
+        return true;
+    }
     bool path(const JsonValue& shape, ID2D1Geometry** output, const char* key = "ks") noexcept {
         *output = nullptr;
         const auto animated=sampled(get(shape,key));
         auto value=animated.start,end=animated.end;
-        if(value.kind==JsonValueKind::array){ValueScratch<2> a;u32 n=0;
-            if(!array(value,{a,2},&n)||!n)return false;value=a[0];}
-        if(end.kind==JsonValueKind::array){ValueScratch<2> a;u32 n=0;
-            if(!array(end,{a,2},&n)||!n)return false;end=a[0];}
-        ValueScratch<512> v,in,out,v_end,in_end,out_end;
-        u32 nv=0,ni=0,no=0,nve=0,nie=0,noe=0;
-        if(!array_field(value,"v",v,512,&nv)||!array_field(value,"i",in,512,&ni)||
-            !array_field(value,"o",out,512,&no)||!nv||nv!=ni||nv!=no)return false;
+        if(!shape_unwrap(&value)||!shape_unwrap(&end))return false;
+        D2D1_POINT_2F vertex[512],tangent_in[512],tangent_out[512];
+        u32 nv=0,ni=0,no=0;
         const float blend=progress(animated);
-        if(blend && (!array_field(end,"v",v_end,512,&nve)||!array_field(end,"i",in_end,512,&nie)||
-            !array_field(end,"o",out_end,512,&noe)||nve!=nv||nie!=nv||noe!=nv))return false;
-        // Borrow the end entry: it is assigned and read only when blending.
-        const auto morph=[this,blend](const JsonValue& a,const JsonValue& b) noexcept {const auto p=point(a),q=blend?point(b):p;
-            return D2D1_POINT_2F{p.x+(q.x-p.x)*blend,p.y+(q.y-p.y)*blend};};
+        if(!vertices(value,end,blend,"v",vertex,&nv)||!vertices(value,end,blend,"i",tangent_in,&ni)||
+            !vertices(value,end,blend,"o",tangent_out,&no)||!nv||nv!=ni||nv!=no)return false;
         ID2D1GeometrySink* sink = nullptr;
         ID2D1PathGeometry* geometry = open_path(&sink);
         if (!geometry)
             return false;
         const bool closed = flag_field(value, "c");
         sink->SetFillMode(D2D1_FILL_MODE_WINDING);
-        sink->BeginFigure(morph(v[0],v_end[0]), D2D1_FIGURE_BEGIN_FILLED);
+        sink->BeginFigure(vertex[0], D2D1_FIGURE_BEGIN_FILLED);
         for (u32 i = 0; i < (closed ? nv : nv - 1); ++i) {
             const u32 next = (i + 1) % nv;
-            const auto a=morph(v[i],v_end[i]),b=morph(v[next],v_end[next]),o=morph(out[i],out_end[i]),t=morph(in[next],in_end[next]);
+            const auto a=vertex[i],b=vertex[next],o=tangent_out[i],t=tangent_in[next];
             const D2D1_BEZIER_SEGMENT segment{{a.x + o.x, a.y + o.y}, {b.x + t.x, b.y + t.y}, b};
             sink->AddBezier(segment);
         }
@@ -796,23 +965,24 @@ struct Document {
                    SUCCEEDED(factory->CreateRectangleGeometry(&bounds, &rectangle)) && append(rectangle, local, c);
         } else if (ty == 0) {
             JsonString reference{};
-            ValueScratch<256> a;
+            okay = string_field(value, "refId", &reference) && assets.kind == JsonValueKind::array && assets.source.bytes;
+            JsonValue asset{}, item{};
             u32 n = 0;
-            okay = string_field(value, "refId", &reference) && array(assets, {a, 256}, &n);
-            bool found = false;
-            for (u32 j = 0; okay && j < n; ++j) {
+            for (auto walk = elements(assets); okay && step(walk, &item); ++n) {
                 JsonString name{};
-                if (string_field(a[j], "id", &name) && name.encoded.bytes == reference.encoded.bytes &&
-                    bytes_equal(name.encoded.data, reference.encoded.data, name.encoded.bytes)) {
-                    found = true;
-                    const float previous = frame;
-                    frame = (frame - field(value, "st")) / maximum(.0001f, field(value, "sr", 1));
-                    okay = layers(get(a[j], "layers"), local, alpha, depth + 1);
-                    frame = previous;
-                    break;
-                }
+                okay = n != 256; // an asset table this long is rejected whole
+                if (okay && !asset.source.bytes && string_field(item, "id", &name) &&
+                    name.encoded.bytes == reference.encoded.bytes &&
+                    bytes_equal(name.encoded.data, reference.encoded.data, name.encoded.bytes))
+                    asset = item;
             }
-            okay = okay && found;
+            if (okay && asset.source.bytes) {
+                const float previous = frame;
+                frame = (frame - field(value, "st")) / maximum(.0001f, field(value, "sr", 1));
+                okay = layers(get(asset, "layers"), local, alpha, depth + 1);
+                frame = previous;
+            } else
+                okay = false;
         } else
             okay = false;
         if (clip != outer) {

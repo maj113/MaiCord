@@ -401,6 +401,23 @@ bool ansi_text_scan(Utf8View input, AnsiTextSink sink, void* context) noexcept {
     return !pending.stopped;
 }
 
+u32 ansi_text_sgr_bytes(const char* text, u32 bytes) noexcept {
+    if (bytes < 4 || text[0] != '\x1B' || text[1] != '[' || !digit(text[2]))
+        return 0;
+    u32 at = 2;
+    for (;;) {
+        while (at < bytes && digit(text[at]))
+            ++at;
+        if (at < bytes && text[at] == 'm')
+            return at + 1;
+        if (at + 1 < bytes && (text[at] == ';' || text[at] == ':') && digit(text[at + 1])) {
+            ++at;
+            continue;
+        }
+        return 0;
+    }
+}
+
 bool ansi_text_tag_glyphs(const ShapedText& text, Utf8View source, ConstSlice<TextStyleSpan> styles) noexcept {
     bool colored = false;
     for (u32 index = 0; index < styles.count && !colored; ++index)

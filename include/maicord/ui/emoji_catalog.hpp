@@ -117,5 +117,7 @@ Utf8View emoji_shortcode_glyph(Utf8View name) noexcept;
 u32 emoji_shortcode_key(Utf8View glyph, Slice<char> output) noexcept;
 // Catalog index of a glyph, ignoring U+FE0F; ~0u when absent.
 u32 emoji_catalog_find_glyph(Utf8View glyph) noexcept;
+// Catalog index of an exact CLDR name; ~0u when absent.
+u32 emoji_catalog_find_name(Utf8View name) noexcept;
 
 } // namespace maicord

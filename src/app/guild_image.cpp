@@ -407,14 +407,16 @@ GuildImageInfo guild_image_prepare(GuildImageProfile profile, ConstSlice<u8> sou
     u8* rgba = allocate(static_cast<u64>(width) * height * 4);
     const u64 png_bytes = clipboard_image_png_bytes(width, height);
     u8* output = png_bytes <= limit ? allocate(png_bytes) : nullptr;
-    if (!scanlines || !rgba || !output) {
+    DeflateWorkspace* workspace = deflate_workspace_allocate();
+    if (!scanlines || !rgba || !output || !workspace) {
         release(scanlines);
         release(rgba);
         release(output);
+        deflate_workspace_free(workspace);
         return fail(info, png_bytes > limit ? GuildImageError::too_large : GuildImageError::memory);
     }
-    DeflateWorkspace workspace{};
-    const auto decoded = png_decode_parsed_scanlines(&image, &workspace, {scanlines, image.inflated_bytes});
+    const auto decoded = png_decode_parsed_scanlines(&image, workspace, {scanlines, image.inflated_bytes});
+    deflate_workspace_free(workspace);
     if (decoded.ok())
         resample(image, scanlines, cx, cy, cw, ch, width, height, rgba);
     release(scanlines);

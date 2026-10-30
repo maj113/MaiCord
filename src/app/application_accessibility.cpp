@@ -384,7 +384,7 @@ void describe_member(void*, const UiWidgetManager&, UiWidgetHandle handle, const
     info->leaf = true;
     if (row->kind == MemberListRowKind::group) {
         info->role = UiAccessRole::header;
-        info->key = row->group_role_id ^ 0x47524F5550ull;
+        info->key = row->source_row.group_role_id ^ 0x47524F5550ull;
         info->actions = ui_access_action_none;
         return;
     }

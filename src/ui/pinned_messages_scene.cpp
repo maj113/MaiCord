@@ -1,7 +1,7 @@
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/rect_edges.hpp"
-#include "maicord/ui/scene_text.hpp"
+#include "maicord/ui/popout_scene.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/spinner.hpp"
 #include "maicord/core/decimal.hpp"
@@ -11,6 +11,7 @@
 
 namespace maicord {
 namespace {
+using namespace popout;
 constexpr float card_gap = 10.f, card_inset = 12.f;
 float excerpt_height(const UiPinnedMessagesRow& row) noexcept {
     return row.body_height ? row.body_height : 48.f;
@@ -28,10 +29,7 @@ bool row_valid(const UiPinnedMessagesRow& row, u64 channel) noexcept {
            utf8_validate(row.avatar_hash).valid && ui_coordinate_valid(row.body_height) &&
            (row.body_height == 0 || (row.body_height >= 24 && row.body_height <= 144));
 }
-UiRect bounds(const UiPinnedMessagesScene& s, UiWidgetHandle handle) noexcept {
-    const auto* node = ui_widget_manager_layout_node(s.widgets, handle);
-    return node ? node->rectangle : UiRect{};
-}
+
 bool current(const UiPinnedMessagesScene& s) noexcept {
     return s.active && s.content && s.content->revision == s.content_revision &&
            s.content->channel_id == s.channel_id && s.content->page_index == s.page_index &&
@@ -41,16 +39,7 @@ bool current(const UiPinnedMessagesScene& s) noexcept {
 }
 UiWidgetHandle add(UiPinnedMessagesScene& s, const UiRect& r, const UiPinnedMessagesTarget& target,
                    const Utf8View& name, bool enabled, UiWidgetHandle parent) noexcept {
-    if (!ui_rect_has_area(r)) return {};
-    // During tree construction the parent has not been laid out yet.
-    const auto parent_origin = s.body_owner.generation && parent.slot == s.body_owner.slot ? s.body : s.panel;
-    const auto result = ui_widget_manager_add_placed(&s.widgets, parent,
-        target.action == UiPinnedMessagesAction::none ? UiWidgetKind::container : UiWidgetKind::button,
-        static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : 0), name, r,
-        parent_origin);
-    if (!result.ok()) return {};
-    s.targets[result.handle.slot] = target;
-    return result.handle;
+    return popout::add(s, r, target, name, enabled, parent);
 }
 bool rebuild(UiPinnedMessagesScene& s) noexcept {
     ui_widget_manager_reset(&s.widgets);
@@ -128,20 +117,7 @@ bool rebuild(UiPinnedMessagesScene& s) noexcept {
     ++s.revision;
     return true;
 }
-bool text(UiTextOutput* out, const UiPinnedMessagesScene& s, UiWidgetHandle owner,
-          const Utf8View& value, const UiRect& r, const Color& color, u32 flags = 0, u32 mode = 0) noexcept {
-    return ui_scene_text(out, s.widgets, owner, value, r, (mode & ui_text_in_body) ? s.body : s.panel, color, flags, mode);
-}
-bool surface(PaintStream* out, const UiRect& r, const Theme& theme, const Color& fill, const Color& border, float radius = 8) noexcept {
-    return ui_background_paint_surface(out, r, theme, fill, border, radius, 1, .9f,
-        UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high);
-}
-bool focused(const UiPinnedMessagesScene& s, UiWidgetHandle handle) noexcept {
-    return ui_widget_handle_matches(handle, s.widgets.focused);
-}
-bool hovered(const UiPinnedMessagesScene& s, UiWidgetHandle handle) noexcept {
-    return ui_widget_handle_matches(handle, s.widgets.hovered);
-}
+
 } // namespace
 
 bool ui_pinned_messages_scene_current(const UiPinnedMessagesScene& s) noexcept { return current(s); }
@@ -239,9 +215,7 @@ UiPinnedMessagesTarget ui_pinned_messages_scene_focused_target(const UiPinnedMes
     return ui_pinned_messages_scene_target(s, s.widgets.focused);
 }
 bool ui_pinned_messages_scene_set_hover(UiPinnedMessagesScene* s, float x, float y, bool* changed) noexcept {
-    if (!s || !changed || !current(*s) || !ui_widget_manager_hover_at(&s->widgets, x, y, changed)) return false;
-    if (*changed) ++s->revision;
-    return true;
+    return s && current(*s) && set_hover(&s->widgets, &s->revision, x, y, changed);
 }
 bool ui_pinned_messages_scene_scroll(UiPinnedMessagesScene* s, float offset) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(offset)) return false;
@@ -270,36 +244,13 @@ bool ui_pinned_messages_scene_focus(UiPinnedMessagesScene* s, UiPinnedMessagesTa
         }
         if (!found) return false;
     }
-    for (u32 i = 1; i < s->widgets.count; ++i) {
-        const auto handle = UiWidgetHandle{static_cast<u16>(i), s->widgets.generation};
-        if (ui_pinned_messages_target_equal(s->targets[i], target) && ui_widget_manager_focus(&s->widgets, handle)) {
-            s->focused = target;
-            ++s->revision;
-            return true;
-        }
-    }
-    return false;
+    if (!focus_target(&s->widgets, s->targets, target, ui_pinned_messages_target_equal)) return false;
+    s->focused = target;
+    ++s->revision;
+    return true;
 }
 bool ui_pinned_messages_scene_move_focus(UiPinnedMessagesScene* s, UiPinnedMessagesFocusMove move) noexcept {
     if (!s || !current(*s) || move > UiPinnedMessagesFocusMove::page_next) return false;
-    UiPinnedMessagesTarget candidates[2 * kUiPinnedMessagesPageCapacity + 4]{};
-    u32 count = 0;
-    candidates[count++] = {UiPinnedMessagesAction::close, s->content->channel_id};
-    if (s->content->phase != UiPinnedMessagesPhase::loading && !s->content->loading_more)
-        candidates[count++] = {UiPinnedMessagesAction::refresh, s->content->channel_id};
-    for (u32 i = 0; i < s->measured_count; ++i) {
-        UiPinnedMessagesRow row{};
-        if (!s->source->resolve(s->source->context, i, &row)) return false;
-        if (row.jump_enabled) candidates[count++] = {UiPinnedMessagesAction::jump, row.channel_id, row.message_id};
-        if (row.can_unpin && !row.unpin_pending)
-            candidates[count++] = {UiPinnedMessagesAction::unpin, row.channel_id, row.message_id};
-    }
-    if (s->content->phase == UiPinnedMessagesPhase::failed && !s->content->loading_more)
-        candidates[count++] = {UiPinnedMessagesAction::retry, s->content->channel_id};
-    else if (s->content->phase == UiPinnedMessagesPhase::ready && !s->content->loading_more) {
-        if (s->content->has_previous) candidates[count++] = {UiPinnedMessagesAction::previous, s->content->channel_id};
-        if (s->content->has_next) candidates[count++] = {UiPinnedMessagesAction::next, s->content->channel_id};
-    }
     if (move == UiPinnedMessagesFocusMove::page_previous || move == UiPinnedMessagesFocusMove::page_next) {
         const float direction = move == UiPinnedMessagesFocusMove::page_previous ? -1.f : 1.f;
         if (!ui_pinned_messages_scene_scroll(s, s->scroll_dips + direction * ui_rect_height(s->body))) return false;
@@ -309,15 +260,36 @@ bool ui_pinned_messages_scene_move_focus(UiPinnedMessagesScene* s, UiPinnedMessa
                         s->visible[i].channel_id, s->visible[i].message_id});
         return true;
     }
-    u32 index = ~0u;
-    const auto selected = ui_pinned_messages_scene_focused_target(*s);
-    for (u32 i = 0; i < count; ++i)
-        if (ui_pinned_messages_target_equal(candidates[i], selected)) index = i;
-    if (move == UiPinnedMessagesFocusMove::first) index = 0;
-    else if (move == UiPinnedMessagesFocusMove::last) index = count - 1;
-    else if (move == UiPinnedMessagesFocusMove::previous) index = index >= count || index == 0 ? count - 1 : index - 1;
-    else index = index >= count || index + 1 == count ? 0 : index + 1;
-    return ui_pinned_messages_scene_focus(s, candidates[index]);
+    const auto& content = *s->content;
+    const bool idle = !content.loading_more;
+    UiPinnedMessagesTarget pick{};
+    // Close, Refresh, each row's Jump and Unpin, then the footer buttons.
+    return ring_pick(
+               [&](auto emit) noexcept {
+                   emit({UiPinnedMessagesAction::close, content.channel_id});
+                   if (content.phase != UiPinnedMessagesPhase::loading && idle)
+                       emit({UiPinnedMessagesAction::refresh, content.channel_id});
+                   for (u32 i = 0; i < s->measured_count; ++i) {
+                       UiPinnedMessagesRow row{};
+                       if (!s->source->resolve(s->source->context, i, &row)) return false;
+                       if (row.jump_enabled) emit({UiPinnedMessagesAction::jump, row.channel_id, row.message_id});
+                       if (row.can_unpin && !row.unpin_pending)
+                           emit({UiPinnedMessagesAction::unpin, row.channel_id, row.message_id});
+                   }
+                   if (content.phase == UiPinnedMessagesPhase::failed && idle)
+                       emit({UiPinnedMessagesAction::retry, content.channel_id});
+                   else if (content.phase == UiPinnedMessagesPhase::ready && idle) {
+                       if (content.has_previous) emit({UiPinnedMessagesAction::previous, content.channel_id});
+                       if (content.has_next) emit({UiPinnedMessagesAction::next, content.channel_id});
+                   }
+                   return true;
+               },
+               ui_pinned_messages_target_equal, ui_pinned_messages_scene_focused_target(*s),
+               move == UiPinnedMessagesFocusMove::first ? Ring::first
+               : move == UiPinnedMessagesFocusMove::last ? Ring::last
+               : move == UiPinnedMessagesFocusMove::previous ? Ring::previous : Ring::next,
+               &pick) &&
+           ui_pinned_messages_scene_focus(s, pick);
 }
 bool ui_pinned_messages_scene_avatar(const UiPinnedMessagesScene& s, u32 slot, UiRect* rectangle, UiRect* clip) noexcept {
     if (!rectangle || !clip || !current(s) || slot >= s.count) return false;

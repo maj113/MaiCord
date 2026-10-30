@@ -9,25 +9,6 @@ namespace {
 bool positive(float value) noexcept {
     return paint_coordinate_valid(value) && value > 0;
 }
-bool non_negative(float value) noexcept {
-    return paint_coordinate_valid(value) && value >= 0;
-}
-bool style_valid(const UiVideoControlsStyle& style) noexcept {
-    if (!non_negative(style.padding) || !non_negative(style.gap) || !positive(style.target) ||
-        !positive(style.range_height) || !positive(style.status_height) || !positive(style.normal_width) ||
-        !positive(style.minimum_width) || !positive(style.time_width) || !positive(style.volume_width) ||
-        !positive(style.time_advance) || style.normal_width < style.minimum_width ||
-        style.minimum_width <
-            2 * style.padding + 2 * style.target + 3 * style.gap + style.time_width + style.range_height ||
-        style.volume_width < style.range_height * .5f)
-        return false;
-    const Utf8View labels[]{style.play,      style.pause, style.mute,   style.unmute,  style.unavailable_audio,
-                            style.buffering, style.error, style.expand, style.collapse, style.previous_track, style.next_track};
-    for (const auto label : labels)
-        if (!label.bytes || label.bytes > 128 || !utf8_validate(label).valid)
-            return false;
-    return true;
-}
 const UiVideoControlDescriptor* find_control(const UiVideoControlsProjection& projection,
                                              UiVideoControl id) noexcept {
     for (const auto& descriptor : projection.controls)
@@ -48,12 +29,12 @@ void append_number(char* text, u32& cursor, u64 value, bool pad_two_digits = fal
         text[cursor++] = '0';
     cursor += decimal_write(text + cursor, value);
 }
-void append_unknown(char* text, u32& cursor) noexcept {
+inline void append_unknown(char* text, u32& cursor) noexcept {
     static constexpr char unknown[] = "-:--";
     for (u32 i = 0; i < 4; ++i)
         text[cursor++] = unknown[i];
 }
-UiVideoAction fenced(const UiVideoPlaybackState& playback, UiVideoControl id) noexcept {
+inline UiVideoAction fenced(const UiVideoPlaybackState& playback, UiVideoControl id) noexcept {
     UiVideoAction request{};
     request.control = id;
     request.owner = playback.owner;
@@ -100,7 +81,7 @@ void ui_video_append_clock(char* text, u32& cursor, u64 milliseconds, bool hours
     append_number(text, cursor, seconds % 60, true);
 }
 float ui_video_controls_height(const UiVideoControlsStyle& style, float width, bool collection) noexcept {
-    if (!style_valid(style) || !positive(width) || width < style.minimum_width)
+    if (!positive(width) || width < style.minimum_width)
         return 0;
     return 2 * style.padding + maximum(style.target, style.range_height) * (collection ? 2 : 1);
 }

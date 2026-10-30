@@ -106,17 +106,15 @@ bool widget_read(void* context, u64 key, UiScrollRange* range) noexcept {
 }
 bool widget_write(void* context, u64 key, double offset, bool* changed) noexcept {
     auto& manager = *static_cast<UiWidgetManager*>(context);
-    UiWidget* widget = ui_widget_manager_resolve(&manager, widget_handle(key));
     const UiLayoutNode* node = ui_widget_manager_layout_node(manager, widget_handle(key));
-    if (!widget || !node || manager.layout.count == 0)
+    if (!node)
         return false;
     const float next = static_cast<float>(offset);
     *changed = next != node->scroll_offset.y;
     if (!*changed)
         return true;
     const UiRect viewport = manager.layout.storage[0].rectangle;
-    return ui_layout_engine_set_scroll(&manager.layout, widget->layout,
-                                       UiPoint{node->scroll_offset.x, next}) &&
+    return ui_widget_manager_set_scroll(&manager, widget_handle(key), UiPoint{node->scroll_offset.x, next}) &&
            ui_widget_manager_layout_rectangle(&manager, viewport).ok();
 }
 } // namespace

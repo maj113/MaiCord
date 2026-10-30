@@ -278,8 +278,8 @@ bool partial_inline_cell(RegionalFlagSurfacesProbeContext& c,u64 id) noexcept {
     const UiRect viewport=c.message_scene.viewport;UiRect clips[kMaximumMessageTextCommands]{};
     const u32 command_count=c.message_text.command_count;
     const u64 signature=c.message_text.projection_signature;
-    const auto* title=ui_scene_resolve(c.shell_scene,ui_scene_find(c.shell_scene,UiSemantic::title_bar));
-    const auto* composer=ui_scene_resolve(c.shell_scene,ui_scene_find(c.shell_scene,UiSemantic::composer));
+    const auto* title=ui_scene_node(c.shell_scene, UiSemantic::title_bar);
+    const auto* composer=ui_scene_node(c.shell_scene, UiSemantic::composer);
     if (c.shell_scene.view!=UiShellView::guild_channel || !title || !composer) return false;
     auto shell_metrics=kGuildChannelShellLayoutMetrics;
     shell_metrics.revision=c.shell_scene.layout_metrics_revision;
@@ -311,7 +311,7 @@ bool partial_inline_cell(RegionalFlagSurfacesProbeContext& c,u64 id) noexcept {
         // layout APIs; retain the original full text rectangles as overscan.
         if (!ui_scene_layout_with_metrics(&c.shell_scene,UiShellView::guild_channel,metrics,shell_width,shell_height))
             return diagnostic("regional_flag_surfaces_partial_shell_layout_failed",axis);
-        const auto* message_view=ui_scene_resolve(c.shell_scene,ui_scene_find(c.shell_scene,UiSemantic::message_view));
+        const auto* message_view=ui_scene_node(c.shell_scene, UiSemantic::message_view);
         if (!message_view || !ui_rect_equal(message_view->rectangle,cut)) {
             if (message_view) diagnostic_rectangle(message_view->rectangle);
             return diagnostic("regional_flag_surfaces_partial_shell_viewport_mismatch",axis);

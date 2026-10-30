@@ -7,10 +7,11 @@ cbuffer UiFrame : register(b0) {
     float3 backdrop_surface;
 };
 
+// D3D11BackgroundConstants: stop colours (colors[1].w flags a light theme),
+// then direction XY and stop count.
 cbuffer UiBackground : register(b1) {
     float4 background_colors[5];
     float4 background_controls;
-    float4 background_motion;
 };
 
 // R8 coverage written by the icon atlas compute rasterizer.
@@ -184,23 +185,19 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
     }
     float4 surface_fill = input.fill;
     float4 surface_border = input.border;
-    if (input.parameters.y == -8.0f) {
-        if (background_controls.z >= 1.0f) {
-            const float3 gradient = backdrop_gradient(input.dip_position);
-            const float mode = background_colors[1].w > 0.5f ? 1.0f : 0.0f;
-            surface_fill.rgb = lerp(mode.xxx, gradient, saturate(input.parameters.w));
-        }
-        // Stars, Comets and plugin effects draw in their own pass over the
-        // finished canvas (background_fx.hlsl).
-        surface_fill.rgb = background_dither(surface_fill.rgb, input.position.xy);
-    }
-    if (input.parameters.y == -7.0f) {
-        const float3 gradient = backdrop_gradient(input.dip_position);
+    if (input.parameters.y == -7.0f || input.parameters.y == -8.0f) {
+        // Panels (-7) always tint toward the backdrop; plain surfaces (-8)
+        // only while a backdrop gradient is active. Stars, Comets and plugin
+        // effects draw in their own pass over the finished canvas
+        // (background_fx.hlsl).
+        const bool panel = input.parameters.y == -7.0f;
         const bool light = background_colors[1].w > 0.5f;
-        const float3 mode_color = light ? float3(1, 1, 1) : float3(0, 0, 0);
-        surface_fill.rgb =
-            background_dither(lerp(mode_color, gradient, saturate(input.parameters.w)), input.position.xy);
-        if (input.parameters.z < 0.0f) {
+        if (panel || background_controls.z >= 1.0f) {
+            const float3 mode_color = light ? float3(1, 1, 1) : float3(0, 0, 0);
+            surface_fill.rgb = lerp(mode_color, backdrop_gradient(input.dip_position), saturate(input.parameters.w));
+        }
+        surface_fill.rgb = background_dither(surface_fill.rgb, input.position.xy);
+        if (panel && input.parameters.z < 0.0f) {
             const float3 edge_tone = light ? float3(0, 0, 0) : float3(1, 1, 1);
             surface_border.rgb = lerp(surface_fill.rgb, edge_tone, 0.12f);
         }

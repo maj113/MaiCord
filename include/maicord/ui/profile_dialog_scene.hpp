@@ -74,7 +74,10 @@ struct UiProfileDialogPart {
     u32 style;
     u8 role;
 };
-inline constexpr u32 kUiProfileDialogPartCapacity = 160;
+// The most parts any dialog lays out: a picker's frame, grid, section header,
+// at most 7 rows of 3 visible tiles, previews, status and buttons come to
+// about 35.
+inline constexpr u32 kUiProfileDialogPartCapacity = 64;
 
 struct UiProfileDialogScene {
     UiWidgetManager widgets;
@@ -88,7 +91,7 @@ struct UiProfileDialogScene {
     UiRect viewport, rectangle, crop_viewport, slider_track, grid_viewport;
     float grid_scroll, grid_height;
     u32 revision;
-    bool active, focus_visible;
+    bool active, focus_visible, failed; // failed: a part could not be added during the last update
 };
 
 // The crop editor area for a viewport: the host lays its ImageCropState out

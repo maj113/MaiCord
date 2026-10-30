@@ -15,11 +15,33 @@ struct DeflateInputSpan {
     u32 bytes;
 };
 
-// Code lengths of the current dynamic block. Decode tables live on the
-// inflating thread's stack (about 11 KiB per call).
+// Two-level decode tables with root widths 11 (literal/length), 8 (distance)
+// and 7 (code lengths): the largest complete codes of 288/32/19 symbols need
+// these entry counts, subtables included.
+inline constexpr u32 kDeflateLitlenTableEntries = 2342;
+inline constexpr u32 kDeflateDistanceTableEntries = 402;
+inline constexpr u32 kDeflatePrecodeTableEntries = 128;
+struct DeflateTables {
+    u32 litlen[kDeflateLitlenTableEntries];
+    u32 distance[kDeflateDistanceTableEntries];
+    u32 precode[kDeflatePrecodeTableEntries];
+    u8 litlen_maximum;
+    u8 distance_maximum;
+    u8 precode_maximum;
+};
+
+// The current dynamic block's decode tables and code lengths (about
+// 11.5 KiB). Keep it in storage the inflating owner already holds, or take
+// one from deflate_workspace_allocate; never on the stack. Needs no
+// initialization.
 struct DeflateWorkspace {
+    DeflateTables tables;
     u8 lengths[kDeflateDynamicLengthCapacity];
 };
+// Process-heap workspace for one-shot inflates; null when the heap is out of
+// memory. deflate_workspace_free accepts null.
+DeflateWorkspace* deflate_workspace_allocate() noexcept;
+void deflate_workspace_free(DeflateWorkspace* workspace) noexcept;
 
 enum class ZlibInflateError : u8 {
     none,
@@ -72,6 +94,6 @@ ZlibInflateResult gzip_inflate(ConstSlice<u8> input, Slice<u8> output,
                                DeflateWorkspace* workspace) noexcept;
 
 static_assert(sizeof(DeflateInputSpan) == 16);
-static_assert(sizeof(DeflateWorkspace) == 320);
+static_assert(sizeof(DeflateWorkspace) == 11812);
 
 } // namespace maicord

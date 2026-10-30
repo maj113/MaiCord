@@ -163,17 +163,15 @@ Utf8View element_name(LoginElement element) noexcept {
     return Utf8View{};
 }
 
-bool add_widget(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element, UiWidgetHandle parent,
+// UiWidgetBuilder stops at its first error, so these report nothing: a failed add leaves
+// its element handle invalid and build_login_widgets checks widgets.ok() once.
+void add_widget(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element, UiWidgetHandle parent,
                 UiWidgetKind kind, u16 widget_flags, const UiLayoutStyle& style, UiSize intrinsic = UiSize{},
                 float baseline = 0.0f) noexcept {
-    const u32 id = login_element_id(element);
-    const UiWidgetResult result =
-        widgets.widget(parent, {id, element_name(element)}, kind, widget_flags, style, intrinsic, baseline);
-    if (!result.ok()) {
-        return false;
-    }
-    scene->elements[static_cast<u32>(element)] = result.handle;
-    return true;
+    const UiWidgetResult result = widgets.widget(parent, {login_element_id(element), element_name(element)}, kind,
+                                                 widget_flags, style, intrinsic, baseline);
+    if (result.ok())
+        scene->elements[static_cast<u32>(element)] = result.handle;
 }
 
 UiLayoutStyle text_style(float height, float margin_top, UiLayoutAlignment alignment) noexcept {
@@ -186,38 +184,32 @@ UiLayoutStyle text_style(float height, float margin_top, UiLayoutAlignment align
     return style;
 }
 
-bool add_text(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element, UiWidgetHandle parent,
-              float width, float height, float margin_top, UiLayoutAlignment alignment) noexcept {
+void add_text(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element, UiWidgetHandle parent, float width,
+              float height, float margin_top, UiLayoutAlignment alignment) noexcept {
     const UiWidgetResult result =
         widgets.text(parent, {login_element_id(element), element_name(element)},
                      text_style(height, margin_top, alignment), {width, height}, height * 0.8f);
-    if (!result.ok()) {
-        return false;
-    }
-    scene->elements[static_cast<u32>(element)] = result.handle;
-    return true;
+    if (result.ok())
+        scene->elements[static_cast<u32>(element)] = result.handle;
 }
 
-bool add_control(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element, UiWidgetHandle parent,
+void add_control(LoginScene* scene, UiWidgetBuilder& widgets, LoginElement element, UiWidgetHandle parent,
                  UiWidgetKind kind, const UiLayoutStyle& style, bool keyboard_focusable = true) noexcept {
     const UiWidgetKey key{login_element_id(element), element_name(element)};
-    if (kind == UiWidgetKind::button || kind == UiWidgetKind::text_field) {
-        const UiWidgetResult result = kind == UiWidgetKind::button
-                                          ? widgets.button(parent, key, style, keyboard_focusable)
-                                          : widgets.text_field(parent, key, style, keyboard_focusable);
-        if (!result.ok()) {
-            return false;
-        }
-        scene->elements[static_cast<u32>(element)] = result.handle;
-        return true;
+    if (kind != UiWidgetKind::button && kind != UiWidgetKind::text_field) {
+        add_widget(scene, widgets, element, parent, kind,
+                   static_cast<u16>(ui_widget_enabled | ui_widget_hit_test |
+                                    (keyboard_focusable ? ui_widget_focusable : 0)),
+                   style);
+        return;
     }
-    return add_widget(scene, widgets, element, parent, kind,
-                      static_cast<u16>(ui_widget_enabled | ui_widget_hit_test |
-                                       (keyboard_focusable ? ui_widget_focusable : 0)),
-                      style);
+    const UiWidgetResult result = kind == UiWidgetKind::button ? widgets.button(parent, key, style, keyboard_focusable)
+                                                               : widgets.text_field(parent, key, style, keyboard_focusable);
+    if (result.ok())
+        scene->elements[static_cast<u32>(element)] = result.handle;
 }
 
-bool add_auxiliary_link(LoginScene* scene, UiWidgetBuilder& widgets, UiWidgetHandle parent,
+void add_auxiliary_link(LoginScene* scene, UiWidgetBuilder& widgets, UiWidgetHandle parent,
                         float margin_top) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fixed(144.0f);
@@ -225,17 +217,13 @@ bool add_auxiliary_link(LoginScene* scene, UiWidgetBuilder& widgets, UiWidgetHan
     style.margin.top = margin_top;
     style.vertical_alignment = UiLayoutAlignment::center;
     style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_text_content);
-    if (!add_control(scene, widgets, LoginElement::forgot_password, parent, UiWidgetKind::button, style))
-        return false;
-    const UiWidget* widget = ui_widget_manager_resolve(
-        scene->widgets, scene->elements[static_cast<u32>(LoginElement::forgot_password)]);
-    UiLayoutNode* node =
-        widget ? ui_layout_engine_resolve(&scene->widgets.layout, widget->layout) : nullptr;
-    if (!node)
-        return false;
-    node->spec.intrinsic_size = UiSize{144.0f, 22.0f};
-    node->spec.intrinsic_baseline = 17.0f;
-    return true;
+    add_control(scene, widgets, LoginElement::forgot_password, parent, UiWidgetKind::button, style);
+    UiLayoutNode* node = ui_widget_manager_layout_node(
+        &scene->widgets, scene->elements[static_cast<u32>(LoginElement::forgot_password)]);
+    if (node) {
+        node->spec.intrinsic_size = UiSize{144.0f, 22.0f};
+        node->spec.intrinsic_baseline = 17.0f;
+    }
 }
 
 u8 login_layout_variant(bool full_viewport, bool qr_visible, float width, float height,
@@ -246,7 +234,7 @@ u8 login_layout_variant(bool full_viewport, bool qr_visible, float width, float 
                            (intermediate_width ? 4u : 0u) | (short_viewport ? 8u : 0u));
 }
 
-bool login_metrics_valid(const LoginLayoutMetrics& metrics) noexcept {
+constexpr bool login_metrics_valid(const LoginLayoutMetrics& metrics) noexcept {
     return metrics.revision != 0 && ui_extent_valid(metrics.full_viewport_max_width) &&
            ui_extent_valid(metrics.qr_min_width) && ui_extent_valid(metrics.intermediate_max_width) &&
            ui_extent_valid(metrics.short_viewport_height) && ui_extent_valid(metrics.wide_card_width) &&
@@ -261,6 +249,8 @@ bool login_metrics_valid(const LoginLayoutMetrics& metrics) noexcept {
            metrics.wide_card_width > 0.0f && metrics.compact_card_width > 0.0f &&
            metrics.card_height > 0.0f && metrics.input_height > 0.0f && metrics.submit_height > 0.0f;
 }
+// The only runtime callers pass the default metrics (tests pass valid copies).
+static_assert(login_metrics_valid(kDefaultLoginLayoutMetrics));
 
 bool build_login_widgets(LoginScene* scene, float width, float height,
                          const LoginLayoutMetrics& metrics) noexcept {
@@ -284,10 +274,8 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     root_style.width = ui_layout_fill();
     root_style.height = ui_layout_fill();
     root_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
-    if (!add_widget(scene, widgets, LoginElement::root, ui_widget_invalid_handle(), UiWidgetKind::container,
-                    ui_widget_enabled, root_style)) {
-        return false;
-    }
+    add_widget(scene, widgets, LoginElement::root, ui_widget_invalid_handle(), UiWidgetKind::container,
+               ui_widget_enabled, root_style);
     const UiWidgetHandle root = scene->elements[static_cast<u32>(LoginElement::root)];
 
     const bool short_viewport = height < metrics.short_viewport_height;
@@ -305,10 +293,7 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     card_style.margin = scene->full_viewport ? UiInsets{} : metrics.outer_margin;
     card_style.padding = scene->full_viewport ? metrics.full_viewport_padding : metrics.card_padding;
     card_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
-    if (!add_widget(scene, widgets, LoginElement::card, root, UiWidgetKind::container, ui_widget_enabled,
-                    card_style)) {
-        return false;
-    }
+    add_widget(scene, widgets, LoginElement::card, root, UiWidgetKind::container, ui_widget_enabled, card_style);
     const UiWidgetHandle card = scene->elements[static_cast<u32>(LoginElement::card)];
 
     UiLayoutStyle row_style = ui_layout_style();
@@ -318,10 +303,8 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     row_style.gap = scene->qr_visible ? metrics.qr_gap : 0.0f;
     row_style.horizontal_alignment = UiLayoutAlignment::stretch;
     row_style.vertical_alignment = UiLayoutAlignment::stretch;
-    if (!add_widget(scene, widgets, LoginElement::content_row, card, UiWidgetKind::container,
-                    ui_widget_enabled, row_style)) {
-        return false;
-    }
+    add_widget(scene, widgets, LoginElement::content_row, card, UiWidgetKind::container, ui_widget_enabled,
+               row_style);
     const UiWidgetHandle row = scene->elements[static_cast<u32>(LoginElement::content_row)];
 
     UiLayoutStyle form_style = ui_layout_style();
@@ -330,23 +313,17 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     form_style.height = ui_layout_fill();
     form_style.horizontal_alignment = UiLayoutAlignment::stretch;
     form_style.vertical_alignment = UiLayoutAlignment::stretch;
-    if (!add_widget(scene, widgets, LoginElement::form, row, UiWidgetKind::container, ui_widget_enabled,
-                    form_style)) {
-        return false;
-    }
+    add_widget(scene, widgets, LoginElement::form, row, UiWidgetKind::container, ui_widget_enabled, form_style);
     const UiWidgetHandle form = scene->elements[static_cast<u32>(LoginElement::form)];
     // Recovery copy uses the form width instead of the shorter sign-in copy's
     // intrinsic boxes. Reserve two subtitle lines before laying out Back/fields.
     const bool alternate = scene->phone_mode || scene->recovery_mode || scene->reset_mode || scene->browser_mode;
     const auto recovery_alignment = alternate ? UiLayoutAlignment::stretch : UiLayoutAlignment::center;
-    if (!add_text(scene, widgets, LoginElement::heading, form, 200.0f, 30.0f, 0.0f, recovery_alignment) ||
-        !add_text(scene, widgets, LoginElement::subtitle, form, 300.0f, alternate ? 44.0f : 20.0f, 4.0f,
-                  recovery_alignment) ||
-        (!scene->phone_mode && !scene->reset_mode && !scene->browser_mode && !(scene->recovery_mode && scene->back_only) &&
-         !add_text(scene, widgets, LoginElement::login_label, form, 180.0f, 16.0f, 13.0f,
-                   UiLayoutAlignment::start))) {
-        return false;
-    }
+    add_text(scene, widgets, LoginElement::heading, form, 200.0f, 30.0f, 0.0f, recovery_alignment);
+    add_text(scene, widgets, LoginElement::subtitle, form, 300.0f, alternate ? 44.0f : 20.0f, 4.0f,
+             recovery_alignment);
+    if (!scene->phone_mode && !scene->reset_mode && !scene->browser_mode && !(scene->recovery_mode && scene->back_only))
+        add_text(scene, widgets, LoginElement::login_label, form, 180.0f, 16.0f, 13.0f, UiLayoutAlignment::start);
 
     UiLayoutStyle field_style = ui_layout_style();
     field_style.width = ui_layout_fill();
@@ -357,15 +334,12 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     // The password field reserves room for its show/hide toggle.
     UiLayoutStyle secret_style = field_style;
     if (!scene->phone_mode) secret_style.padding.right = 40.0f;
-    if ((!scene->phone_mode && !scene->reset_mode && !scene->browser_mode && !(scene->recovery_mode && scene->back_only) &&
-         !add_control(scene, widgets, LoginElement::login_field, form, UiWidgetKind::text_field,
-                      field_style, scene->mfa_capabilities == 0)) ||
-        ((scene->phone_mode || !scene->credential_fields_hidden) &&
-         (!add_text(scene, widgets, LoginElement::password_label, form, 180.0f, 16.0f, 15.0f,
-                    UiLayoutAlignment::start) ||
-          !add_control(scene, widgets, LoginElement::password_field, form, UiWidgetKind::text_field,
-                       secret_style)))) {
-        return false;
+    if (!scene->phone_mode && !scene->reset_mode && !scene->browser_mode && !(scene->recovery_mode && scene->back_only))
+        add_control(scene, widgets, LoginElement::login_field, form, UiWidgetKind::text_field, field_style,
+                    scene->mfa_capabilities == 0);
+    if (scene->phone_mode || !scene->credential_fields_hidden) {
+        add_text(scene, widgets, LoginElement::password_label, form, 180.0f, 16.0f, 15.0f, UiLayoutAlignment::start);
+        add_control(scene, widgets, LoginElement::password_field, form, UiWidgetKind::text_field, secret_style);
     }
 
     UiLayoutStyle auxiliary_style = ui_layout_style();
@@ -375,27 +349,22 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     auxiliary_style.margin.top = 4.0f;
     auxiliary_style.gap = 4.0f;
     auxiliary_style.horizontal_alignment = UiLayoutAlignment::stretch;
-    if (!add_widget(scene, widgets, LoginElement::auxiliary, form, UiWidgetKind::container,
-                    ui_widget_enabled, auxiliary_style)) {
-        return false;
-    }
+    add_widget(scene, widgets, LoginElement::auxiliary, form, UiWidgetKind::container, ui_widget_enabled,
+               auxiliary_style);
     const UiWidgetHandle auxiliary = scene->elements[static_cast<u32>(LoginElement::auxiliary)];
-    if (scene->mfa_capabilities == 0 && !add_auxiliary_link(scene, widgets, auxiliary, 0.0f))
-        return false;
+    if (scene->mfa_capabilities == 0)
+        add_auxiliary_link(scene, widgets, auxiliary, 0.0f);
     if (scene->browser_available) {
         auto browser_style = text_style(22.0f, 0.0f, UiLayoutAlignment::end);
         browser_style.width = ui_layout_fill();
-        if (!add_control(scene, widgets, LoginElement::browser_sign_in, auxiliary, UiWidgetKind::button, browser_style))
-            return false;
+        add_control(scene, widgets, LoginElement::browser_sign_in, auxiliary, UiWidgetKind::button, browser_style);
     }
     if (scene->phone_mode) {
         UiLayoutStyle resend_style = ui_layout_style();
         resend_style.width = ui_layout_fixed(128.0f);
         resend_style.height = ui_layout_fill();
         resend_style.horizontal_alignment = UiLayoutAlignment::end;
-        if (!add_control(scene, widgets, LoginElement::mfa_sms, auxiliary, UiWidgetKind::button,
-                         resend_style))
-            return false;
+        add_control(scene, widgets, LoginElement::mfa_sms, auxiliary, UiWidgetKind::button, resend_style);
     }
     if (scene->mfa_capabilities != 0) {
         for (u32 index = 0; index < kLoginMfaPresentationMethodCount; ++index) {
@@ -408,26 +377,21 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
             method_style.height = ui_layout_fill();
             method_style.horizontal_alignment = UiLayoutAlignment::stretch;
             method_style.vertical_alignment = UiLayoutAlignment::stretch;
-            if (!add_control(scene, widgets, method.element, auxiliary, UiWidgetKind::button,
-                             method_style)) {
-                return false;
-            }
+            add_control(scene, widgets, method.element, auxiliary, UiWidgetKind::button, method_style);
         }
     }
 
     // Allocate the separate reset Back row after its visual method row. Native
     // focus traversal follows widget order, so Tab and Shift+Tab agree with it.
-    if (scene->reset_mode && scene->mfa_capabilities && !add_auxiliary_link(scene, widgets, form, 4.0f))
-        return false;
+    if (scene->reset_mode && scene->mfa_capabilities)
+        add_auxiliary_link(scene, widgets, form, 4.0f);
 
     UiLayoutStyle submit_style = ui_layout_style();
     submit_style.width = ui_layout_fill();
     submit_style.height = ui_layout_fixed(metrics.submit_height);
     submit_style.margin.top = 17.0f;
     submit_style.horizontal_alignment = UiLayoutAlignment::stretch;
-    if (!add_control(scene, widgets, LoginElement::submit, form, UiWidgetKind::button, submit_style)) {
-        return false;
-    }
+    add_control(scene, widgets, LoginElement::submit, form, UiWidgetKind::button, submit_style);
     UiLayoutStyle status_style = ui_layout_style();
     status_style.flow = UiLayoutFlow::vertical;
     status_style.width = ui_layout_fill();
@@ -435,18 +399,13 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
     status_style.margin.top = 8.0f;
     status_style.horizontal_alignment = UiLayoutAlignment::stretch;
     status_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
-    if (!add_widget(scene, widgets, LoginElement::status, form, UiWidgetKind::container, ui_widget_none,
-                    status_style, UiSize{}, 0.0f)) {
-        return false;
-    }
+    add_widget(scene, widgets, LoginElement::status, form, UiWidgetKind::container, ui_widget_none, status_style,
+               UiSize{}, 0.0f);
     const UiWidgetHandle status = scene->elements[static_cast<u32>(LoginElement::status)];
-    if (!add_text(scene, widgets, LoginElement::status_message, status, 0.0f,
-                  scene->reset_mode && scene->mfa_capabilities ? 48.0f : alternate ? 64.0f : 18.0f, 0.0f,
-                  UiLayoutAlignment::stretch) ||
-        !add_text(scene, widgets, LoginElement::status_account, status, 0.0f, 18.0f, 0.0f,
-                  UiLayoutAlignment::stretch)) {
-        return false;
-    }
+    add_text(scene, widgets, LoginElement::status_message, status, 0.0f,
+             scene->reset_mode && scene->mfa_capabilities ? 48.0f : alternate ? 64.0f : 18.0f, 0.0f,
+             UiLayoutAlignment::stretch);
+    add_text(scene, widgets, LoginElement::status_account, status, 0.0f, 18.0f, 0.0f, UiLayoutAlignment::stretch);
 
     if (scene->qr_visible) {
         UiLayoutStyle qr_column_style = ui_layout_style();
@@ -455,25 +414,20 @@ bool build_login_widgets(LoginScene* scene, float width, float height,
         qr_column_style.height = ui_layout_fill();
         qr_column_style.horizontal_alignment = UiLayoutAlignment::stretch;
         qr_column_style.vertical_alignment = UiLayoutAlignment::stretch;
-        if (!add_widget(scene, widgets, LoginElement::qr_column, row, UiWidgetKind::container,
-                        ui_widget_enabled, qr_column_style)) {
-            return false;
-        }
+        add_widget(scene, widgets, LoginElement::qr_column, row, UiWidgetKind::container, ui_widget_enabled,
+                   qr_column_style);
         const UiWidgetHandle qr_column = scene->elements[static_cast<u32>(LoginElement::qr_column)];
         UiLayoutStyle qr_style = ui_layout_style();
         qr_style.width = ui_layout_fixed(metrics.qr_extent);
         qr_style.height = ui_layout_fixed(metrics.qr_extent);
         qr_style.margin.top = 44.0f;
         qr_style.horizontal_alignment = UiLayoutAlignment::center;
-        if (!add_control(scene, widgets, LoginElement::qr, qr_column, UiWidgetKind::image, qr_style) ||
-            !add_text(scene, widgets, LoginElement::qr_title, qr_column, 216.0f, 20.0f, 14.0f,
-                      UiLayoutAlignment::center) ||
-            !add_text(scene, widgets, LoginElement::qr_subtitle, qr_column, 240.0f, 40.0f, 6.0f,
-                      UiLayoutAlignment::center)) {
-            return false;
-        }
+        add_control(scene, widgets, LoginElement::qr, qr_column, UiWidgetKind::image, qr_style);
+        add_text(scene, widgets, LoginElement::qr_title, qr_column, 216.0f, 20.0f, 14.0f, UiLayoutAlignment::center);
+        add_text(scene, widgets, LoginElement::qr_subtitle, qr_column, 240.0f, 40.0f, 6.0f,
+                 UiLayoutAlignment::center);
     }
-    return ui_widget_manager_layout(&scene->widgets, UiSize{width, height}).ok();
+    return widgets.ok() && ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok();
 }
 
 void discard_login_layout(LoginScene* scene) noexcept {
@@ -608,8 +562,7 @@ void login_scene_release(LoginScene* scene) noexcept {
 
 bool login_scene_layout_with_metrics(LoginScene* scene, float width, float height,
                                      const LoginLayoutMetrics& metrics) noexcept {
-    if (!scene || !ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f ||
-        !login_metrics_valid(metrics)) {
+    if (!scene || !ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f) {
         return false;
     }
     const LoginControl focus = scene->focus;
@@ -650,7 +603,7 @@ bool login_scene_layout_with_metrics(LoginScene* scene, float width, float heigh
         return login_scene_focus(scene, scene->focus);
     }
     if (same_structure) {
-        if (!ui_widget_manager_layout(&scene->widgets, UiSize{width, height}).ok()) {
+        if (!ui_widget_manager_layout_rectangle(&scene->widgets, {0, 0, width, height}).ok()) {
             discard_login_layout(scene);
             return false;
         }

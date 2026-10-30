@@ -48,6 +48,10 @@ using AnsiTextSink = bool (*)(void* context, u32 begin, u32 end, AnsiTextStyle s
 // One linear pass over the input; false only when the sink stops it.
 bool ansi_text_scan(Utf8View input, AnsiTextSink sink, void* context) noexcept;
 
+// The byte length of the reply-preview SGR escape /\x1B\[\d+([:;]\d+)*m/ at the
+// start of text, or 0 (the narrower pattern reply previews strip).
+u32 ansi_text_sgr_bytes(const char* text, u32 bytes) noexcept;
+
 // Code-block spans carry their colours in TextStyleSpan::reserved: bytes 0/1
 // hold the foreground/background xterm index, byte 2 bits 0/1 say they are set.
 constexpr void ansi_span_set_colors(TextStyleSpan& span, u16 foreground, u16 background) noexcept {

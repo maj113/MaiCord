@@ -65,8 +65,7 @@ bool member_paging_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure,
                          bool (*capture)(const wchar_t*) noexcept) noexcept {
     if (!capture || !renderer.ui_scene || !renderer.chat_state ||
         !renderer.navigation_view || !renderer.shell_navigation_scene) return false;
-    const auto* pane = ui_scene_resolve(*renderer.ui_scene,
-        ui_scene_find(*renderer.ui_scene, UiSemantic::member_sidebar));
+    const auto* pane = ui_scene_node(*renderer.ui_scene, UiSemantic::member_sidebar);
     if (!pane || !ui_rect_has_area(pane->rectangle)) return false;
     log_u64(LogLevel::info, "member_paging", "member_store_bytes", sizeof(GuildMemberStore));
     log_u64(LogLevel::info, "member_paging", "member_record_bytes", sizeof(GuildMemberRecord));

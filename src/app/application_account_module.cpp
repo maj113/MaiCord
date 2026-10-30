@@ -132,7 +132,7 @@ bool synchronize_member_subscription_impl(u64 now_ms) noexcept {
     const auto* selected = chat_state_store_find_channel(state, state.selected_channel_id);
     const auto& scene = g_app.member_list_scene;
     const auto* pane =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::member_sidebar));
+        ui_scene_node(g_app.shell_scene, UiSemantic::member_sidebar);
     const bool visible = g_app.member_pane_visible && !g_app.login.visible &&
                          !application_friends_active() && !renderer_settings_hides_shell(g_app.renderer) &&
                          selected &&

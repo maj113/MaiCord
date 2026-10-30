@@ -1900,12 +1900,12 @@ void test_ui_scene() noexcept {
                ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
                                             1280.0f, 800.0f),
            "ui_scene_bootstrap_layout");
-    const UiNode* guild = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::guild_rail));
-    const UiNode* channels = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_sidebar));
-    const UiNode* content = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::content));
-    const UiNode* members = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::member_sidebar));
-    const UiNode* composer = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::composer));
-    const UiNode* messages = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::message_view));
+    const UiLayoutNode* guild = ui_scene_node(scene, UiSemantic::guild_rail);
+    const UiLayoutNode* channels = ui_scene_node(scene, UiSemantic::channel_sidebar);
+    const UiLayoutNode* content = ui_scene_node(scene, UiSemantic::content);
+    const UiLayoutNode* members = ui_scene_node(scene, UiSemantic::member_sidebar);
+    const UiLayoutNode* composer = ui_scene_node(scene, UiSemantic::composer);
+    const UiLayoutNode* messages = ui_scene_node(scene, UiSemantic::message_view);
     expect(guild && guild->rectangle.left == 0.0f && guild->rectangle.right == 72.0f && channels &&
                channels->rectangle.left == 72.0f && channels->rectangle.right == 312.0f && content &&
                content->rectangle.left == 312.0f && content->rectangle.right == 1040.0f && members &&
@@ -1915,9 +1915,9 @@ void test_ui_scene() noexcept {
                composer->rectangle.right == 1032.0f && composer->rectangle.bottom == 792.0f && messages &&
                messages->rectangle.top == 48.0f && messages->rectangle.bottom == 726.0f,
            "ui_scene_nested_margin_fill");
-    const auto* footer = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_footer));
-    const auto* guild_list = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::guild_navigation));
-    const auto* channel_list = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_navigation));
+    const auto* footer = ui_scene_node(scene, UiSemantic::channel_footer);
+    const auto* guild_list = ui_scene_node(scene, UiSemantic::guild_navigation);
+    const auto* channel_list = ui_scene_node(scene, UiSemantic::channel_navigation);
     expect(footer && guild && channels && composer && guild_list && channel_list &&
                footer->rectangle.left - guild->rectangle.left == kUiFloatingSurfaceInset &&
                channels->rectangle.right - footer->rectangle.right == kUiFloatingSurfaceInset &&
@@ -1935,10 +1935,10 @@ void test_ui_scene() noexcept {
                        ui_scene_layout_with_metrics(&call_scene, UiShellView::guild_channel, call_metrics, 1280.0f,
                                                     800.0f);
     if (call_layout) {
-        const auto* call_footer = ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::channel_footer));
-        const auto* call_guilds = ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::guild_navigation));
+        const auto* call_footer = ui_scene_node(call_scene, UiSemantic::channel_footer);
+        const auto* call_guilds = ui_scene_node(call_scene, UiSemantic::guild_navigation);
         const auto* call_channels =
-            ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::channel_navigation));
+            ui_scene_node(call_scene, UiSemantic::channel_navigation);
         const UiRect card = call_footer ? ui_voice_panel_rectangle(call_footer->rectangle) : UiRect{};
         call_layout = call_footer && call_guilds && call_channels && footer &&
                       call_footer->rectangle.left == footer->rectangle.left &&
@@ -1953,9 +1953,9 @@ void test_ui_scene() noexcept {
     const bool bare_layout =
         call_layout && ui_scene_layout_with_metrics(&call_scene, UiShellView::guild_channel, bare_metrics, 1280.0f,
                                                     800.0f);
-    const auto* bare_guilds = ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::guild_navigation));
+    const auto* bare_guilds = ui_scene_node(call_scene, UiSemantic::guild_navigation);
     expect(bare_layout && bare_guilds && bare_guilds->rectangle.bottom == 800.0f &&
-               !ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::channel_footer)),
+               !ui_scene_node(call_scene, UiSemantic::channel_footer),
            "ui_scene_voice_card_spans_both_columns_and_lists_end_above_it");
     ui_scene_release(&call_scene);
     // Speaking in a connected call rings the account avatar.
@@ -1981,7 +1981,7 @@ void test_ui_scene() noexcept {
     UiLayoutDiagnostic scene_diagnostics[32]{};
     const u32 scene_rebuilds = scene.layout_rebuilds;
     const u32 scene_layout_passes = scene.layout_passes;
-    const u16 scene_generation = scene.generation;
+    const u16 scene_generation = scene.widgets.generation;
     expect(ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{scene_diagnostics, 32}).clean() &&
                ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
                                             1280.0f, 800.0f) &&
@@ -1990,7 +1990,7 @@ void test_ui_scene() noexcept {
     expect(ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
                                         1200.0f, 800.0f) &&
                scene.layout_rebuilds == scene_rebuilds &&
-               scene.layout_passes == scene_layout_passes + 1 && scene.generation == scene_generation &&
+               scene.layout_passes == scene_layout_passes + 1 && scene.widgets.generation == scene_generation &&
                ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
                                             1280.0f, 800.0f) &&
                scene.layout_rebuilds == scene_rebuilds &&
@@ -2029,10 +2029,10 @@ void test_ui_scene() noexcept {
     ShellNavigationRowWidget chrome_navigation_rows[4]{};
     UiWidget chrome_navigation_widgets[18]{};
     UiLayoutNode chrome_navigation_layout[18]{};
-    const UiNode* chrome_navigation_viewport =
-        ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_navigation));
-    const UiNode* chrome_guild_viewport =
-        ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::guild_navigation));
+    const UiLayoutNode* chrome_navigation_viewport =
+        ui_scene_node(scene, UiSemantic::channel_navigation);
+    const UiLayoutNode* chrome_guild_viewport =
+        ui_scene_node(scene, UiSemantic::guild_navigation);
     const bool chrome_navigation_ready =
         guild_rail_scene_initialize(&chrome_guild_scene, Slice<GuildRailRowWidget>{chrome_guild_rows, 2},
                                     Slice<UiWidget>{chrome_guild_widgets, 4},
@@ -2254,7 +2254,9 @@ void test_ui_scene() noexcept {
         guild_after_reflow ? guild_rail_scene_layout_node(virtual_guild_scene, *guild_after_reflow)
                            : nullptr;
     const UiLayoutContentBounds virtual_guild_content{
-        virtual_guild_content_widget ? virtual_guild_content_widget->layout : ui_layout_invalid_handle(),
+        virtual_guild_content_widget
+            ? ui_widget_manager_layout_handle(virtual_guild_scene.widgets, guild_after_reflow->widget)
+            : ui_layout_invalid_handle(),
         virtual_guild_content_layout ? virtual_guild_content_layout->rectangle : UiRect{},
         UiLayoutContentKind::control, ui_layout_content_bounds_collision};
     const UiLayoutValidationResult virtual_guild_emitted = ui_layout_engine_validate_content_bounds(
@@ -2362,7 +2364,7 @@ void test_ui_scene() noexcept {
     const UiLayoutValidationResult virtual_structure_validation = ui_layout_engine_validate(
         virtual_navigation_scene.widgets.layout, Slice<UiLayoutDiagnostic>{virtual_diagnostics, 16});
     const UiLayoutContentBounds virtual_text_bounds{
-        retained_row ? virtual_navigation_scene.widgets.storage[retained_row->widget.slot].layout
+        retained_row ? ui_widget_manager_layout_handle(virtual_navigation_scene.widgets, retained_row->widget)
                      : ui_layout_invalid_handle(),
         retained_row
             ? shell_navigation_scene_layout_node(virtual_navigation_scene, *retained_row)->content_rectangle
@@ -2750,7 +2752,9 @@ void test_ui_scene() noexcept {
         const UiWidget* content_widget =
             ui_widget_manager_resolve(virtual_message_scene.widgets, message_after_reflow->content);
         if (content_widget) {
-            UiLayoutContentBounds emitted{content_widget->layout, message_content_layout->content_rectangle,
+            UiLayoutContentBounds emitted{
+                ui_widget_manager_layout_handle(virtual_message_scene.widgets, message_after_reflow->content),
+                message_content_layout->content_rectangle,
                                           UiLayoutContentKind::text, ui_layout_content_bounds_collision};
             message_content_clean = ui_layout_engine_validate_content_bounds(
                 virtual_message_scene.widgets.layout, ConstSlice<UiLayoutContentBounds>{&emitted, 1},
@@ -2866,11 +2870,11 @@ void test_ui_scene() noexcept {
     expect(
         ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
                                      632.0f, 480.0f) &&
-            ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_sidebar)) &&
-            !ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::member_sidebar)) &&
-            ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::member_toggle)) &&
-            ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::content))->rectangle.left == 312.0f &&
-            ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::content))->rectangle.right == 632.0f,
+            ui_scene_node(scene, UiSemantic::channel_sidebar) &&
+            !ui_scene_node(scene, UiSemantic::member_sidebar) &&
+            ui_scene_node(scene, UiSemantic::member_toggle) &&
+            ui_scene_node(scene, UiSemantic::content)->rectangle.left == 312.0f &&
+            ui_scene_node(scene, UiSemantic::content)->rectangle.right == 632.0f,
         "ui_scene_narrow_transition_suppresses_members_and_preserves_toggle");
 
     UiScene friends_scene{};
@@ -2878,30 +2882,30 @@ void test_ui_scene() noexcept {
                ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends,
                                             kFriendsShellLayoutMetrics, 480.0f, 930.0f),
            "ui_scene_friends_policy_layout");
-    const UiNode* friends_guild =
-        ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::guild_rail));
-    const UiNode* friends_navigation =
-        ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::channel_sidebar));
-    const UiNode* friends_content =
-        ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::content));
-    const UiNode* friends_messages =
-        ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::message_view));
+    const UiLayoutNode* friends_guild =
+        ui_scene_node(friends_scene, UiSemantic::guild_rail);
+    const UiLayoutNode* friends_navigation =
+        ui_scene_node(friends_scene, UiSemantic::channel_sidebar);
+    const UiLayoutNode* friends_content =
+        ui_scene_node(friends_scene, UiSemantic::content);
+    const UiLayoutNode* friends_messages =
+        ui_scene_node(friends_scene, UiSemantic::message_view);
     expect(friends_guild && friends_guild->rectangle.right == 72.0f && friends_navigation &&
                friends_navigation->rectangle.left == 72.0f &&
                friends_navigation->rectangle.right == 312.0f && friends_content &&
                friends_content->rectangle.left == 312.0f && friends_content->rectangle.right == 480.0f &&
                friends_messages && friends_messages->rectangle.top == 48.0f &&
                friends_messages->rectangle.bottom == 930.0f &&
-               !ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::member_sidebar)) &&
-               !ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::composer)),
+               !ui_scene_node(friends_scene, UiSemantic::member_sidebar) &&
+               !ui_scene_node(friends_scene, UiSemantic::composer),
            "ui_scene_friends_confirmed_fixed_columns");
     const u32 friends_rebuilds = friends_scene.layout_rebuilds;
-    const u16 friends_generation = friends_scene.generation;
+    const u16 friends_generation = friends_scene.widgets.generation;
     expect(ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends, kFriendsShellLayoutMetrics,
                                         1102.0f, 930.0f) &&
                friends_scene.layout_rebuilds == friends_rebuilds &&
-               friends_scene.generation == friends_generation &&
-               ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::content))
+               friends_scene.widgets.generation == friends_generation &&
+               ui_scene_node(friends_scene, UiSemantic::content)
                        ->rectangle.left == 312.0f,
            "ui_scene_friends_resize_retains_fixed_policy_tree");
     UiShellLayoutMetrics revised_friends = kFriendsShellLayoutMetrics;
@@ -2910,7 +2914,7 @@ void test_ui_scene() noexcept {
     expect(ui_scene_layout_with_metrics(&friends_scene, UiShellView::friends, revised_friends, 1102.0f,
                                         930.0f) &&
                friends_scene.layout_rebuilds == friends_rebuilds + 1 &&
-               ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::content))
+               ui_scene_node(friends_scene, UiSemantic::content)
                        ->rectangle.left == 372.0f,
            "ui_scene_metrics_revision_rebuilds_structure");
     UiShellLayoutMetrics invalid_friends = revised_friends;
@@ -2935,11 +2939,11 @@ void test_ui_scene() noexcept {
                 home_columns_stable &&
                 ui_scene_layout_with_metrics(&friends_scene, home_view, home_metrics, 1102.f, 930.f);
             const auto* home_rail =
-                ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::guild_rail));
+                ui_scene_node(friends_scene, UiSemantic::guild_rail);
             const auto* home_navigation =
-                ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::channel_sidebar));
+                ui_scene_node(friends_scene, UiSemantic::channel_sidebar);
             const auto* home_content =
-                ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::content));
+                ui_scene_node(friends_scene, UiSemantic::content);
             home_columns_stable = home_columns_stable && home_rail && home_navigation && home_content &&
                                   home_rail->rectangle.right == home_navigation->rectangle.left &&
                                   home_navigation->rectangle.right == home_content->rectangle.left &&
@@ -2948,17 +2952,14 @@ void test_ui_scene() noexcept {
     }
     expect(home_columns_stable,
            "ui_scene_home_private_switch_preserves_width_and_has_no_exposed_root_gutters");
-    UiNodeHandle title = ui_scene_find(scene, UiSemantic::title_bar);
-    UiNodeHandle stale = title;
-    ++stale.generation;
-    expect(ui_scene_resolve(scene, title) && !ui_scene_resolve(scene, stale) &&
+    expect(ui_scene_node(scene, UiSemantic::title_bar) &&
                !ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
                                              0.0f, 480.0f) &&
                scene.rejected == 1,
-           "ui_scene_handle_and_bounds");
+           "ui_scene_node_and_bounds");
     ui_scene_release(&friends_scene);
     ui_scene_release(&scene);
-    expect(!scene.storage.arena.base && !scene.nodes, "ui_scene_owned_storage_release");
+    expect(!scene.storage.arena.base && !scene.count, "ui_scene_owned_storage_release");
 }
 
 void test_message_text_copy_projection() noexcept {
@@ -3251,8 +3252,9 @@ void test_message_text_presentation() noexcept {
         const UiWidget* item = ui_widget_manager_resolve(scene.widgets, retained_rich_items[index]);
         const UiLayoutNode* item_layout = message_scene_layout_node(scene, retained_rich_items[index]);
         rich_item_hierarchy_owned = item && item_layout &&
-                                    item->parent.slot == retained_rich_parents[index].slot &&
-                                    item->parent.generation == retained_rich_parents[index].generation &&
+                                    ui_widget_handle_equal(
+                                        ui_widget_manager_parent(scene.widgets, retained_rich_items[index]),
+                                        retained_rich_parents[index]) &&
                                     message_scene_resolve(scene, retained_rich_items[index]) == row;
     }
     const UiLayoutNode* first_attachment_layout =
@@ -3800,7 +3802,9 @@ void test_message_text_presentation() noexcept {
         UiWidget* item_widget = ui_widget_manager_resolve(
             &scene.widgets, message_scene_rich_item_widget(*rich_row, MessageSceneRichItemKind::embed, 0));
         displaced_rich_item =
-            item_widget ? ui_layout_engine_resolve(&scene.widgets.layout, item_widget->layout) : nullptr;
+            item_widget ? ui_widget_manager_layout_node(
+                              &scene.widgets, message_scene_rich_item_widget(*rich_row, MessageSceneRichItemKind::embed, 0))
+                        : nullptr;
     }
     if (displaced_rich_item) {
         displaced_rich_item->rectangle.left += 3.0f;
@@ -3919,11 +3923,15 @@ void test_message_text_presentation() noexcept {
         }
         if (reaction_command && reaction_widget) {
             reaction_content[reaction_content_count++] =
-                UiLayoutContentBounds{reaction_widget->layout, reaction_command->rectangle,
+                UiLayoutContentBounds{
+                    ui_widget_manager_layout_handle(scene.widgets, narrow_row->reaction_buttons[index]),
+                    reaction_command->rectangle,
                                       UiLayoutContentKind::text, ui_layout_content_bounds_collision};
             if (visual_ready && reaction_visuals[index].emoji_id != 0) {
                 reaction_content[reaction_content_count++] =
-                    UiLayoutContentBounds{reaction_widget->layout, reaction_visuals[index].emoji_rectangle,
+                    UiLayoutContentBounds{
+                        ui_widget_manager_layout_handle(scene.widgets, narrow_row->reaction_buttons[index]),
+                        reaction_visuals[index].emoji_rectangle,
                                           UiLayoutContentKind::icon, ui_layout_content_bounds_collision};
             }
         }
@@ -4275,12 +4283,13 @@ void test_message_rich_widget_materializer() noexcept {
                                                              0.5f),
                               0}
             : MessageSceneHit{};
-    expect(built && manager.count == 18 && message_rich_widgets_structure_matches(row, &rich),
+    expect(built && manager.count == 16 && message_rich_widgets_structure_matches(row, &rich),
            "message_rich_widget_materializer_builds_complete_bounded_subtree");
-    expect(attachment_widget && attachment_widget->parent.slot == row.attachments.slot &&
-               first_embed_widget && first_embed_widget->parent.slot == row.embeds.slot &&
-               second_embed_widget && second_embed_widget->parent.slot == row.embeds.slot &&
-               first_component_widget && first_component_widget->parent.slot == row.components.slot,
+    expect(attachment_widget && ui_widget_manager_parent(manager, attachment).slot == row.attachments.slot &&
+               first_embed_widget && ui_widget_manager_parent(manager, first_embed).slot == row.embeds.slot &&
+               second_embed_widget && ui_widget_manager_parent(manager, second_embed).slot == row.embeds.slot &&
+               first_component_widget &&
+               ui_widget_manager_parent(manager, first_component).slot == row.components.slot,
            "message_rich_widget_materializer_assigns_exact_group_parents");
     expect(first_embed_widget && first_embed_widget->kind == UiWidgetKind::button &&
                (first_embed_widget->flags & ui_widget_hit_test) != 0 && second_embed_widget &&
@@ -4629,7 +4638,7 @@ void test_layout_engine_and_widget_manager() noexcept {
                      static_cast<u16>(ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable),
                      UiLayoutNodeSpec{utf8_literal("Button"), button_style, UiSize{}, 0.0f, 4}});
     expect(root.ok() && header.ok() && body.ok() && button.ok() &&
-               ui_widget_manager_layout(&manager, UiSize{200.0f, 100.0f}).ok(),
+               ui_widget_manager_layout_rectangle(&manager, {0, 0, 200.0f, 100.0f}).ok(),
            "layout_engine_widget_tree_layout");
 
     const UiLayoutNode* header_layout = ui_widget_manager_layout_node(manager, header.handle);
@@ -4649,9 +4658,9 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiLayoutValidationResult clean =
         ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16});
     expect(clean.clean(), "layout_engine_clean_validation");
-    const UiLayoutNodeHandle header_owner = ui_widget_manager_resolve(manager, header.handle)->layout;
-    const UiLayoutNodeHandle body_owner = ui_widget_manager_resolve(manager, body.handle)->layout;
-    const UiLayoutNodeHandle button_owner = ui_widget_manager_resolve(manager, button.handle)->layout;
+    const UiLayoutNodeHandle header_owner = ui_widget_manager_layout_handle(manager, header.handle);
+    const UiLayoutNodeHandle body_owner = ui_widget_manager_layout_handle(manager, body.handle);
+    const UiLayoutNodeHandle button_owner = ui_widget_manager_layout_handle(manager, button.handle);
     const UiLayoutContentBounds contained_text{button_owner, UiRect{68.0f, 50.0f, 132.0f, 70.0f},
                                                UiLayoutContentKind::text,
                                                ui_layout_content_bounds_collision};
@@ -4681,8 +4690,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     }
     expect(found_rendered_text_overflow && found_rendered_collision,
            "layout_engine_reports_actual_render_bounds_failures");
-    UiLayoutNode* mutable_button = ui_layout_engine_resolve(
-        &manager.layout, ui_widget_manager_resolve(manager, button.handle)->layout);
+    UiLayoutNode* mutable_button = ui_widget_manager_layout_node(&manager, button.handle);
     mutable_button->rectangle.left -= 5.0f;
     mutable_button->rectangle.right -= 5.0f;
     const UiLayoutValidationResult misaligned =
@@ -4695,8 +4703,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     expect(found_misalignment, "layout_engine_reports_incorrect_center_alignment");
     mutable_button->rectangle.left += 5.0f;
     mutable_button->rectangle.right += 5.0f;
-    UiLayoutNode* mutable_header = ui_layout_engine_resolve(
-        &manager.layout, ui_widget_manager_resolve(manager, header.handle)->layout);
+    UiLayoutNode* mutable_header = ui_widget_manager_layout_node(&manager, header.handle);
     mutable_header->rectangle.bottom = 30.0f;
     const UiLayoutValidationResult collision =
         ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16});
@@ -4750,23 +4757,23 @@ void test_layout_engine_and_widget_manager() noexcept {
         UiWidgetDesc{11, UiWidgetKind::text, ui_widget_enabled,
                      UiLayoutNodeSpec{utf8_literal("WrappedText"), text_style, UiSize{}, 0.0f, 11}});
     expect(measure_root.ok() && measured_text.ok() &&
-               ui_widget_manager_layout(&manager, UiSize{80.0f, 100.0f}).ok(),
+               ui_widget_manager_layout_rectangle(&manager, {0, 0, 80.0f, 100.0f}).ok(),
            "layout_engine_constrained_text_layout");
     const UiLayoutNode* measured_layout = ui_widget_manager_layout_node(manager, measured_text.handle);
     const u32 narrow_measure_passes = manager.layout.measure_passes;
     expect(measured_layout && measured_layout->rectangle.right == 80.0f &&
                measured_layout->rectangle.bottom == 40.0f &&
-               measured_layout->measured_intrinsic_size.height == 40.0f &&
+               measured_layout->spec.intrinsic_size.height == 40.0f &&
                measured_layout->measured_baseline == 15.0f,
            "layout_engine_constrained_text_narrow_measurement");
-    expect(ui_widget_manager_layout(&manager, UiSize{160.0f, 100.0f}).ok() &&
+    expect(ui_widget_manager_layout_rectangle(&manager, {0, 0, 160.0f, 100.0f}).ok() &&
                manager.layout.measure_passes == narrow_measure_passes + 2,
            "layout_engine_width_change_remeasures_until_stable");
     measured_layout = ui_widget_manager_layout_node(manager, measured_text.handle);
     expect(measured_layout && measured_layout->rectangle.right == 160.0f &&
                measured_layout->rectangle.bottom == 20.0f &&
                measured_layout->measure_constraint.width == 160.0f &&
-               measured_layout->measured_intrinsic_size.height == 20.0f,
+               measured_layout->spec.intrinsic_size.height == 20.0f,
            "layout_engine_constrained_text_wide_measurement");
 
     ui_widget_manager_reset(&manager);
@@ -4781,7 +4788,7 @@ void test_layout_engine_and_widget_manager() noexcept {
         &manager, unstable_root.handle,
         UiWidgetDesc{21, UiWidgetKind::text, ui_widget_enabled,
                      UiLayoutNodeSpec{utf8_literal("UnstableText"), text_style, UiSize{}, 0.0f, 21}});
-    const UiLayoutResult unstable_result = ui_widget_manager_layout(&manager, UiSize{100.0f, 100.0f});
+    const UiLayoutResult unstable_result = ui_widget_manager_layout_rectangle(&manager, {0, 0, 100.0f, 100.0f});
     const UiLayoutValidationResult unstable_validation =
         ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16});
     bool found_unstable_measurement = false;
@@ -4830,7 +4837,7 @@ void test_layout_engine_and_widget_manager() noexcept {
     }
     const bool wrap_added = wrap_root.ok() && wrap.ok() && wrap_items[0].ok() && wrap_items[1].ok() &&
                             wrap_items[2].ok() && wrap_items[3].ok();
-    const UiLayoutResult two_column_wrap = ui_widget_manager_layout(&manager, UiSize{180.0f, 200.0f});
+    const UiLayoutResult two_column_wrap = ui_widget_manager_layout_rectangle(&manager, {0, 0, 180.0f, 200.0f});
     const UiLayoutNode* wrap_layout = ui_widget_manager_layout_node(manager, wrap.handle);
     const UiLayoutNode* wrap_first = ui_widget_manager_layout_node(manager, wrap_items[0].handle);
     const UiLayoutNode* wrap_second = ui_widget_manager_layout_node(manager, wrap_items[1].handle);
@@ -4843,7 +4850,7 @@ void test_layout_engine_and_widget_manager() noexcept {
             wrap_third->rectangle.top == 30.0f && wrap_fourth->rectangle.left == 86.0f &&
             ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16}).clean(),
         "layout_engine_horizontal_wrap_two_rows_clean");
-    const UiLayoutResult single_column_wrap = ui_widget_manager_layout(&manager, UiSize{80.0f, 200.0f});
+    const UiLayoutResult single_column_wrap = ui_widget_manager_layout_rectangle(&manager, {0, 0, 80.0f, 200.0f});
     wrap_layout = ui_widget_manager_layout_node(manager, wrap.handle);
     wrap_fourth = ui_widget_manager_layout_node(manager, wrap_items[3].handle);
     expect(
@@ -4851,8 +4858,7 @@ void test_layout_engine_and_widget_manager() noexcept {
             ui_rect_height(wrap_layout->rectangle) == 114.0f && wrap_fourth->rectangle.top == 90.0f &&
             ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16}).clean(),
         "layout_engine_horizontal_wrap_width_reflow");
-    UiLayoutNode* displaced_wrap_item = ui_layout_engine_resolve(
-        &manager.layout, ui_widget_manager_resolve(manager, wrap_items[2].handle)->layout);
+    UiLayoutNode* displaced_wrap_item = ui_widget_manager_layout_node(&manager, wrap_items[2].handle);
     displaced_wrap_item->rectangle.left += 3.0f;
     displaced_wrap_item->rectangle.right += 3.0f;
     const UiLayoutValidationResult wrap_displaced =
@@ -7664,7 +7670,7 @@ void test_member_list_scene() noexcept {
     for (u32 test = 0; test < 5; ++test) {
         for (u32 row = 0; row < scene.count; ++row) {
             if (scene.rows[row].kind == MemberListRowKind::member)
-                members.records[scene.rows[row].record_slot].status = badge_statuses[test];
+                members.records[scene.rows[row].source_row.member_slot].status = badge_statuses[test];
         }
         paint_stream_reset(&status_paint, viewport.right, viewport.bottom);
         bool colored = shell_presentation_build_member_status_overlay(&scene, kDefaultTheme, &status_paint) &&
@@ -7850,9 +7856,9 @@ void test_popup_scene() noexcept {
     const UiWidget* command_rail_row = ui_widget_manager_resolve(command_scene.widgets,
                                                                 command_scene.rows[7].widget);
     const auto* command_body = command_body_row ? popup_scene_layout_node(command_scene,
-        command_body_row->parent) : nullptr;
+        ui_widget_manager_parent(command_scene.widgets, command_scene.rows[5].widget)) : nullptr;
     const auto* command_rail = command_rail_row ? popup_scene_layout_node(command_scene,
-        command_rail_row->parent) : nullptr;
+        ui_widget_manager_parent(command_scene.widgets, command_scene.rows[7].widget)) : nullptr;
     const u16 command_generation = command_scene.widgets.generation;
     bool command_revealed = false;
     expect(compact_commands.ok() && command_body && command_rail &&
@@ -8759,8 +8765,12 @@ void test_reaction_picker() noexcept {
         return reaction_picker_result_at(model, index, &selection) && !selection.custom ? selection.catalog_index
                                                                                          : ~0u;
     };
+    constexpr u64 preference_now = 1'800'000'000'000ull;
+    ReactionPreferenceStore seeded{};
     ReactionPickerModel picker{};
-    const ReactionPickerResult opened = reaction_picker_open(&picker, 77);
+    const ReactionPickerResult opened = reaction_preferences_initialize(&seeded)
+                                            ? reaction_picker_open(&picker, 77, &seeded, preference_now)
+                                            : ReactionPickerResult{};
     const u32 frequent = section_of(picker, kReactionPickerSectionFrequent);
     const u32 first = frequent != ~0u ? catalog_at(picker, picker.sections[frequent].first) : ~0u;
     bool categories_ordered = picker.section_count == 1 + kEmojiCategoryCount;
@@ -8774,7 +8784,6 @@ void test_reaction_picker() noexcept {
 
     ReactionPreferenceStore preferences{};
     ReactionPickerModel personalized{};
-    constexpr u64 preference_now = 1'800'000'000'000ull;
     const ReactionPickerResult personalized_opened =
         reaction_preferences_initialize(&preferences)
             ? reaction_picker_open(&personalized, 88, &preferences, preference_now)
@@ -8879,7 +8888,7 @@ void test_reaction_picker() noexcept {
     }
     expect(exact_aging, "reaction_preferences_exact_age_weight_buckets");
 
-    reaction_picker_open(&picker, 77);
+    reaction_picker_open(&picker, 77, &seeded, preference_now);
     const auto query = utf8_literal("thumbs_up");
     bool searched = picker.search && message_composer_restore(picker.search, 1, query, query.bytes, query.bytes) &&
                     reaction_picker_refresh_search(&picker).ok();
@@ -8932,7 +8941,9 @@ void test_emoji_category_rail() noexcept {
     }
     state.emojis = emojis; state.emoji_count = 8; state.emoji_roles = roles;
     ReactionPickerModel picker{};
-    valid = valid && reaction_picker_open(&picker, 1, nullptr, 0, &state, 103).ok();
+    ReactionPreferenceStore preferences{};
+    valid = valid && reaction_preferences_initialize(&preferences) &&
+            reaction_picker_open(&picker, 1, &preferences, 1000, &state, 103).ok();
     bool server_order = valid && picker.section_count == 1 + 8 + kEmojiCategoryCount &&
                         picker.sections[0].local == kReactionPickerSectionFrequent;
     for (u32 i = 0; server_order && i < 8; ++i)
@@ -16305,7 +16316,6 @@ void test_message_media_controller() noexcept {
     scene.widgets.generation = 1;
     scene.widgets.layout.count = 1;
     scene.widgets.layout.generation = 1;
-    primary_widgets[0].layout = UiLayoutNodeHandle{0, 1};
     primary_layout[0].generation = 1;
     primary_layout[0].rectangle = UiRect{0.0f, 120.0f, 64.0f, 184.0f};
     primary_layout[0].content_rectangle = primary_layout[0].rectangle;
@@ -18620,8 +18630,11 @@ void test_chat_state() noexcept {
     const CustomEmojiRecord* staff_emoji = chat_state_store_find_emoji(store, 504);
     ReactionPickerModel custom_picker{};
     ReactionPickerSelection custom_selection{};
+    ReactionPreferenceStore custom_preferences{};
     const ReactionPickerResult custom_opened =
-        reaction_picker_open(&custom_picker, 900, nullptr, 0, &store, 100);
+        reaction_preferences_initialize(&custom_preferences)
+            ? reaction_picker_open(&custom_picker, 900, &custom_preferences, 1000, &store, 100)
+            : ReactionPickerResult{};
     constexpr Utf8View fresh_query = utf8_literal("fresh");
     const bool custom_search = custom_opened.ok() && custom_picker.search &&
         message_composer_restore(custom_picker.search, 1, fresh_query, fresh_query.bytes, fresh_query.bytes) &&
@@ -18704,8 +18717,8 @@ void test_chat_state() noexcept {
                                         ui_scene_layout_with_metrics(&shell_text_scene, UiShellView::guild_channel,
                                                                      kGuildChannelShellLayoutMetrics, 1280.0f,
                                                                      800.0f);
-    const UiNode* shell_navigation =
-        ui_scene_resolve(shell_text_scene, ui_scene_find(shell_text_scene, UiSemantic::channel_navigation));
+    const UiLayoutNode* shell_navigation =
+        ui_scene_node(shell_text_scene, UiSemantic::channel_navigation);
     const bool shell_text_ready =
         shell_text_scene_ready &&
         shell_navigation_scene_initialize(&shell_text_navigation_scene,
@@ -18722,15 +18735,15 @@ void test_chat_state() noexcept {
             {shell_text_owned_bytes, sizeof(shell_text_owned_bytes)}) &&
         shell_text_presentation_build(shell_text_scene, store, navigation, kDefaultTheme,
                                       shell_text_navigation_scene, &shell_text_stream);
-    const UiNode* shell_title =
-        ui_scene_resolve(shell_text_scene, ui_scene_find(shell_text_scene, UiSemantic::title_bar));
-    const UiNode* shell_title_label =
-        ui_scene_resolve(shell_text_scene, ui_scene_find(shell_text_scene, UiSemantic::title_label));
-    const UiNode* shell_member_toggle =
-        ui_scene_resolve(shell_text_scene, ui_scene_find(shell_text_scene, UiSemantic::member_toggle));
+    const UiLayoutNode* shell_title =
+        ui_scene_node(shell_text_scene, UiSemantic::title_bar);
+    const UiLayoutNode* shell_title_label =
+        ui_scene_node(shell_text_scene, UiSemantic::title_label);
+    const UiLayoutNode* shell_member_toggle =
+        ui_scene_node(shell_text_scene, UiSemantic::member_toggle);
     // Guild views draw the server name on the header's dropdown button.
-    const UiNode* shell_channel_header =
-        ui_scene_resolve(shell_text_scene, ui_scene_find(shell_text_scene, UiSemantic::guild_menu));
+    const UiLayoutNode* shell_channel_header =
+        ui_scene_node(shell_text_scene, UiSemantic::guild_menu);
     bool found_channel_title = false;
     bool found_guild_header = false;
     bool found_member_toggle = false;
@@ -18740,19 +18753,19 @@ void test_chat_state() noexcept {
         const UiTextCommand& command = shell_text_stream.storage[index];
         found_home_label = found_home_label || utf8_equal(command.text, utf8_literal("Home"));
         if (shell_title && shell_title_label && command.owner.manager == &shell_text_scene.widgets &&
-            command.owner.handle.slot == shell_title_label->widget.slot) {
+            command.owner.handle.slot == ui_scene_widget(shell_text_scene, UiSemantic::title_label).slot) {
             found_channel_title = utf8_equal(command.text, utf8_literal("general")) &&
                                   command.rectangle.left == shell_title_label->rectangle.left &&
                                   command.clip.left == shell_title_label->rectangle.left &&
                                   command.vertical_alignment == UiTextAlignment::center;
         }
         if (shell_channel_header && command.owner.manager == &shell_text_scene.widgets &&
-            command.owner.handle.slot == shell_channel_header->widget.slot) {
+            command.owner.handle.slot == ui_scene_widget(shell_text_scene, UiSemantic::guild_menu).slot) {
             found_guild_header = utf8_equal(command.text, utf8_literal("MaiCord")) &&
                                  command.vertical_alignment == UiTextAlignment::center;
         }
         if (shell_member_toggle && command.owner.manager == &shell_text_scene.widgets &&
-            command.owner.handle.slot == shell_member_toggle->widget.slot) {
+            command.owner.handle.slot == ui_scene_widget(shell_text_scene, UiSemantic::member_toggle).slot) {
             found_member_toggle = utf8_equal(command.text, utf8_literal("Hide Members"));
         }
         if (command.owner.manager == &shell_text_navigation_scene.widgets) {
@@ -18801,7 +18814,7 @@ void test_chat_state() noexcept {
         for (u32 i = 0; location_text_ready && i < shell_text_stream.count; ++i) {
             const auto& command = shell_text_stream.storage[i];
             if (shell_title_label && command.owner.manager == &shell_text_scene.widgets &&
-                command.owner.handle.slot == shell_title_label->widget.slot)
+                command.owner.handle.slot == ui_scene_widget(shell_text_scene, UiSemantic::title_label).slot)
                 location_title = utf8_equal(command.text, utf8_literal("first"));
             if (command.owner.manager == &shell_text_navigation_scene.widgets &&
                 utf8_equal(command.text, utf8_literal("first")))
@@ -18895,8 +18908,8 @@ void test_chat_state() noexcept {
         paint_stream_release(&location_paint);
     }
 
-    const UiNode* shell_composer_host =
-        ui_scene_resolve(shell_text_scene, ui_scene_find(shell_text_scene, UiSemantic::composer));
+    const UiLayoutNode* shell_composer_host =
+        ui_scene_node(shell_text_scene, UiSemantic::composer);
     char shell_composer_text[64]{};
     MessageComposer shell_composer_model{};
     UiWidget shell_composer_widgets[kMessageComposerWidgetCapacity]{};
@@ -18961,7 +18974,7 @@ void test_chat_state() noexcept {
     const UiTextCommand clipped_shell_label{
         utf8_literal("retained overscan label"),
         UiWidgetReference{&shell_text_scene.widgets,
-                          shell_title_label ? shell_title_label->widget : ui_widget_invalid_handle()},
+                          shell_title_label ? ui_scene_widget(shell_text_scene, UiSemantic::title_label) : ui_widget_invalid_handle()},
         UiRect{16.0f, 16.0f, 160.0f, 36.0f},
         UiRect{16.0f, 36.0f, 160.0f, 36.0f},
         kDefaultTheme.text_primary,
@@ -18984,10 +18997,9 @@ void test_chat_state() noexcept {
     bool friends_label_padded = false;
     if (ui_scene_layout_with_metrics(&shell_text_scene, UiShellView::friends, kFriendsShellLayoutMetrics,
                                      1280.f, 800.f)) {
-        const auto* friends_text_navigation = ui_scene_resolve(shell_text_scene,
-            ui_scene_find(shell_text_scene, UiSemantic::channel_navigation));
+        const auto* friends_text_navigation = ui_scene_node(shell_text_scene, UiSemantic::channel_navigation);
         const auto* friends_text_node =
-            ui_scene_resolve(shell_text_scene, ui_scene_find(shell_text_scene, UiSemantic::friends_button));
+            ui_scene_node(shell_text_scene, UiSemantic::friends_button);
         if (friends_text_navigation && friends_text_node &&
             shell_navigation_scene_update(&shell_text_navigation_scene, &navigation,
                                           friends_text_navigation->rectangle, 0.f)
@@ -18996,8 +19008,8 @@ void test_chat_state() noexcept {
                                           shell_text_navigation_scene, &shell_text_stream)) {
             for (u32 index = 0; index < shell_text_stream.count; ++index) {
                 const auto& command = shell_text_commands[index];
-                if (command.owner.handle.slot == friends_text_node->widget.slot &&
-                    command.owner.handle.generation == friends_text_node->widget.generation &&
+                if (command.owner.handle.slot == ui_scene_widget(shell_text_scene, UiSemantic::friends_button).slot &&
+                    command.owner.handle.generation == ui_scene_widget(shell_text_scene, UiSemantic::friends_button).generation &&
                     utf8_equal(command.text, utf8_literal("Friends"))) {
                     friends_label_padded =
                         command.rectangle.left == friends_text_node->rectangle.left + 16.f &&

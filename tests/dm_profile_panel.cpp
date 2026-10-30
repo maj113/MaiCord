@@ -127,8 +127,8 @@ void layout_cases() noexcept {
         if (!ui_scene_layout_with_metrics(&scene, UiShellView::private_channels, shell_metrics(in, window), window,
                                           800))
             return false;
-        const auto* messages = ui_scene_resolve_semantic(scene, UiSemantic::message_view);
-        const auto* members = ui_scene_resolve_semantic(scene, UiSemantic::member_sidebar);
+        const auto* messages = ui_scene_node(scene, UiSemantic::message_view);
+        const auto* members = ui_scene_node(scene, UiSemantic::member_sidebar);
         *chat = messages ? messages->rectangle : UiRect{};
         *slot = members ? members->rectangle : UiRect{};
         return messages != nullptr;
@@ -142,19 +142,19 @@ void layout_cases() noexcept {
               !ui_rect_has_area(none) && chat.right <= slot.left &&
               near(ui_rect_width(wide_chat) - ui_rect_width(chat), kUiDmProfilePanelWidth),
           "side panel layout: the profile takes its slot at the right and the chat narrows by exactly that");
-    check(ui_scene_resolve_semantic(scene, UiSemantic::member_toggle) != nullptr,
+    check(ui_scene_node(scene, UiSemantic::member_toggle) != nullptr,
           "side panel layout: the hidden profile keeps its header toggle");
     dm.profile_visible = true;
     dm.window_width = 1131;
     const bool narrow = measure(dm, 1131, &chat, &slot);
-    check(narrow && !ui_rect_has_area(slot) && ui_scene_resolve_semantic(scene, UiSemantic::member_toggle),
+    check(narrow && !ui_rect_has_area(slot) && ui_scene_node(scene, UiSemantic::member_toggle),
           "side panel layout: a narrower window drops the panel and keeps the toggle");
     // A wide channel list leaves less than a readable chat: the shell drops it too.
     auto metrics = shell_metrics({1, true, false, false, true, 0, 1200}, 1200);
     metrics.navigation_width = 600;
     const bool squeezed = ui_scene_layout_with_metrics(&scene, UiShellView::private_channels, metrics, 1200, 800);
-    const auto* members = ui_scene_resolve_semantic(scene, UiSemantic::member_sidebar);
-    const auto* messages = ui_scene_resolve_semantic(scene, UiSemantic::message_view);
+    const auto* members = ui_scene_node(scene, UiSemantic::member_sidebar);
+    const auto* messages = ui_scene_node(scene, UiSemantic::message_view);
     check(squeezed && (!members || !ui_rect_has_area(members->rectangle)) && messages &&
               ui_rect_width(messages->rectangle) >= kUiShellMinimumMessageWidthDips,
           "side panel layout: the chat keeps its minimum width before the panel");
@@ -359,7 +359,7 @@ void header_cases() noexcept {
     UiPrivateHeaderActivity activity{};
     const bool shown = layout_shell() &&
                        ui_private_header_activity(g_app.shell_scene, source, 9998, {line, sizeof(line)}, &activity);
-    const auto* label = ui_scene_resolve_semantic(g_app.shell_scene, UiSemantic::title_label);
+    const auto* label = ui_scene_node(g_app.shell_scene, UiSemantic::title_label);
     // "Mai" is 24 DIPs wide after the 24 DIP avatar and its 8 DIP gap.
     const float name_end = label ? label->rectangle.left + kUiPrivateHeaderAvatar + 8 + 24 : 0;
     check(shown && activity.glyph == UiActivityGlyph::music && utf8_equal(activity.line, utf8_literal("Panchiko")) &&
@@ -654,7 +654,7 @@ constexpr auto kLoaded = utf8_literal(R"({"user":{"id":"123","username":"mai","g
 void geometry_cases() noexcept {
     application_dm_profile_release();
     auto* s = show_loaded(9998, kLoaded);
-    const auto* node = ui_scene_resolve_semantic(g_app.shell_scene, UiSemantic::member_sidebar);
+    const auto* node = ui_scene_node(g_app.shell_scene, UiSemantic::member_sidebar);
     const UiRect slot = node ? node->rectangle : UiRect{};
     const auto& theme = kDefaultTheme;
     check(s && near(ui_rect_width(slot), kUiDmProfilePanelWidth) &&

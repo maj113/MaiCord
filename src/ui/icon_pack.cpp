@@ -61,13 +61,14 @@ const IconPack& icon_pack_builtin() noexcept {
         if (state == 0 && InterlockedCompareExchange(&builtin_state, 1, 0) == 0) {
             constexpr u32 bytes = sizeof(kUiIconPackData);
             auto* data = static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-            DeflateWorkspace workspace;
+            DeflateWorkspace* workspace = deflate_workspace_allocate();
             const DeflateInputSpan input{kUiIconPackPacked, sizeof(kUiIconPackPacked)};
-            if (data && zlib_inflate({&input, 1}, {data, bytes}, bytes, &workspace).ok()) {
+            if (data && workspace && zlib_inflate({&input, 1}, {data, bytes}, bytes, workspace).ok()) {
                 g_builtin = {data, bytes, kBuiltinIconCount};
             } else if (data) {
                 VirtualFree(data, 0, MEM_RELEASE);
             }
+            deflate_workspace_free(workspace);
             builtin_state = 2;
             return g_builtin;
         }

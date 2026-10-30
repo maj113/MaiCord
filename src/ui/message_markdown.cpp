@@ -545,26 +545,10 @@ void transform_ansi_block(Parser* parser, u32 begin) noexcept {
 
 // A reply preview removes /\x1B\[(\d+(?:[:;]\d+)*)m/g from a ```ansi block
 // (the tail of the output) and shows the remaining text uncoloured.
-u32 ansi_sgr_bytes(const char* text, u32 bytes) noexcept {
-    if (bytes < 4 || text[0] != '\x1B' || text[1] != '[' || !ascii_is_digit(text[2]))
-        return 0;
-    u32 at = 2;
-    while (true) {
-        while (at < bytes && ascii_is_digit(text[at]))
-            ++at;
-        if (at < bytes && text[at] == 'm')
-            return at + 1;
-        if (at + 1 < bytes && (text[at] == ';' || text[at] == ':') && ascii_is_digit(text[at + 1])) {
-            ++at;
-            continue;
-        }
-        return 0;
-    }
-}
 void strip_ansi_sgr(Parser* parser, u32 begin) noexcept {
     u32 write = begin;
     for (u32 read = begin; read < parser->output_bytes;) {
-        const u32 escape = ansi_sgr_bytes(parser->output.data + read, parser->output_bytes - read);
+        const u32 escape = ansi_text_sgr_bytes(parser->output.data + read, parser->output_bytes - read);
         if (escape) {
             read += escape;
             continue;
@@ -2042,6 +2026,30 @@ bool emit_closed_source_code(Parser* parser) noexcept {
     return true;
 }
 
+constexpr u64 rule_bit(char value) noexcept {
+    return u64{1} << (static_cast<u8>(value) & 63u);
+}
+// ASCII bytes an inline or line rule can start at: \n * : < @ [ \ ] _ ` | ~
+// (h and s only when "http" or "steam" follows). Anything else, and every
+// non-ASCII byte, is emitted unchanged by walk().
+constexpr u64 kRuleStartLow = rule_bit('\n') | rule_bit('*') | rule_bit(':') | rule_bit('<');
+constexpr u64 kRuleStartHigh = rule_bit('@') | rule_bit('[') | rule_bit('\\') | rule_bit(']') | rule_bit('_') |
+                               rule_bit('`') | rule_bit('|') | rule_bit('~');
+
+inline bool plain_text_byte(Utf8View input, u32 at) noexcept {
+    const u8 value = static_cast<u8>(input.data[at]);
+    if (value >= 0x80u)
+        return true;
+    if (((value < 64u ? kRuleStartLow : kRuleStartHigh) >> (value & 63u)) & 1u)
+        return false;
+    const u32 left = input.bytes - at;
+    if (value == 'h')
+        return !(left > 3 && bytes_equal(input.data + at + 1, "ttp", 3));
+    if (value == 's')
+        return !(left > 4 && bytes_equal(input.data + at + 1, "team", 4));
+    return true;
+}
+
 MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
     Parser& parser = *state;
     const auto& options = *parser.options;
@@ -2073,6 +2081,30 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
             parser.line_start = value == '\n';
             ++parser.input_offset;
             continue;
+        }
+
+        // Mid-line plain text: no block rule applies, so a run of bytes no rule
+        // starts at is copied with the line's style.
+        if (parser.output_mode == OutputMode::transformed && (!parser.line_start || parser.depth != 0)) {
+            const u32 begin = parser.input_offset;
+            const u32 capacity = minimum(parser.output.count, parser.styles.count);
+            const u32 room = parser.output_bytes < capacity ? capacity - parser.output_bytes : 0;
+            u32 stop = have_flag ? flag.first_byte : input.bytes;
+            stop = stop - begin > room ? begin + room : stop;
+            const u32 base = parser.line_style | parser.persistent_style;
+            u32 end = begin;
+            for (u32 out = parser.output_bytes; end < stop && plain_text_byte(input, end); ++end, ++out) {
+                const char byte = input.data[end];
+                parser.output.data[out] = byte;
+                parser.styles.data[out] =
+                    base | (parser.emoji_only && !ascii_space(byte) ? text_style_jumbo_emoji : 0u);
+            }
+            if (end != begin) {
+                parser.output_bytes += end - begin;
+                parser.input_offset = end;
+                parser.line_start = false;
+                continue;
+            }
         }
 
         if (!block_prefix(&parser)) {
@@ -2225,6 +2257,48 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
     return MessageMarkdownError::none;
 }
 
+bool fenced(Utf8View input) noexcept {
+    // Skipping three bytes after a non-backtick cannot step over a triple.
+    for (u32 at = 2; at < input.bytes;) {
+        if (input.data[at] != '`')
+            at += 3;
+        else if (input.data[at - 1] == '`' && input.data[at - 2] == '`')
+            return true;
+        else
+            ++at;
+    }
+    return false;
+}
+
+MessageMarkdownResult parse_validated(Utf8View input, Slice<char> text_output, Slice<u32> byte_style_scratch,
+                                      Slice<TextStyleSpan> span_output, const MessageMarkdownOptions& options,
+                                      Slice<MessageMarkdownSemantic> semantic_output,
+                                      Slice<AnsiColorRun> ansi_runs) noexcept {
+    Parser parser{};
+    parser.input = input;
+    parser.output = text_output;
+    parser.ansi_runs = ansi_runs;
+    parser.styles = byte_style_scratch;
+    parser.spans = span_output;
+    parser.semantics = semantic_output;
+    parser.options = &options;
+    parser.line_start = true;
+    parser.emoji_only = emoji_only_source(input);
+    const auto error = walk(&parser);
+    if (error != MessageMarkdownError::none) return parse_error(error);
+    return finish(&parser);
+}
+
+__declspec(noinline) MessageMarkdownResult parse_fenced(Utf8View input, Slice<char> text_output,
+                                                        Slice<u32> byte_style_scratch,
+                                                        Slice<TextStyleSpan> span_output,
+                                                        const MessageMarkdownOptions& options,
+                                                        Slice<MessageMarkdownSemantic> semantic_output) noexcept {
+    AnsiColorRun ansi_runs[kMessageMarkdownAnsiRunMaximum];
+    return parse_validated(input, text_output, byte_style_scratch, span_output, options, semantic_output,
+                           Slice<AnsiColorRun>{ansi_runs, kMessageMarkdownAnsiRunMaximum});
+}
+
 } // namespace
 
 MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_output,
@@ -2253,20 +2327,11 @@ MessageMarkdownResult message_markdown_parse(Utf8View input, Slice<char> text_ou
     if (!utf8_validate(input).valid) {
         return parse_error(MessageMarkdownError::invalid_utf8);
     }
-    AnsiColorRun ansi_runs[kMessageMarkdownAnsiRunMaximum];
-    Parser parser{};
-    parser.input = input;
-    parser.output = text_output;
-    parser.ansi_runs = Slice<AnsiColorRun>{ansi_runs, kMessageMarkdownAnsiRunMaximum};
-    parser.styles = byte_style_scratch;
-    parser.spans = span_output;
-    parser.semantics = semantic_output;
-    parser.options = &options;
-    parser.line_start = true;
-    parser.emoji_only = emoji_only_source(input);
-    const auto error = walk(&parser);
-    if (error != MessageMarkdownError::none) return parse_error(error);
-    return finish(&parser);
+    // Only a ``` fence can open a ```ansi block, the one user of the run buffer;
+    // other messages parse without its 12 KiB frame.
+    return fenced(input) ? parse_fenced(input, text_output, byte_style_scratch, span_output, options, semantic_output)
+                         : parse_validated(input, text_output, byte_style_scratch, span_output, options,
+                                           semantic_output, Slice<AnsiColorRun>{});
 }
 
 u32 message_markdown_source_styles(Utf8View input, Slice<TextStyleSpan> output) noexcept {

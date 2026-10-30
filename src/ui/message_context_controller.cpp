@@ -61,7 +61,6 @@ struct PopupRollback {
         const auto retained_widgets = value->widgets.storage;
         const auto retained_layout = value->widgets.layout.storage;
         const auto retained_owned_storage = value->owned_storage;
-        const u32 rejected = value->rejected;
         copy_value(value, scene);
         // Successful backing materialization/reservation is reusable even when
         // the commit fails; reserve guarantees that existing pointers stay put.
@@ -70,7 +69,6 @@ struct PopupRollback {
         value->widgets.storage = retained_widgets;
         value->widgets.layout.storage = retained_layout;
         value->owned_storage = retained_owned_storage;
-        value->rejected = rejected;
         copy_bytes(value->items.data, items, item_count * static_cast<u32>(sizeof(items[0])));
         copy_bytes(value->rows.data, rows, item_count * static_cast<u32>(sizeof(rows[0])));
         copy_bytes(value->widgets.storage.data, widgets, widget_count * static_cast<u32>(sizeof(widgets[0])));

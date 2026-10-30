@@ -51,7 +51,7 @@ bool in_call(const GatewayClientVoiceSnapshot& s) noexcept {
 const UiRect* footer() noexcept {
     static UiRect rectangle;
     const auto* node =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::channel_footer));
+        ui_scene_node(g_app.shell_scene, UiSemantic::channel_footer);
     if (!node || !g_app.account_ui || g_app.login.visible)
         return nullptr;
     rectangle = node->rectangle;

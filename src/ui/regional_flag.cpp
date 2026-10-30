@@ -65,7 +65,14 @@ bool regional_flag_next(Utf8View text, u32* cursor, RegionalFlagRange* range) no
     if (range) reset_value(range);
     if (!cursor || !range || (!text.data && text.bytes) || *cursor > text.bytes) return false;
     u32 position = *cursor;
+    // A flag starts at a 4-byte scalar. An ASCII byte followed by another ASCII
+    // byte neither starts a candidate nor can its look-ahead be malformed.
+    const auto skip_ascii = [&]() noexcept {
+        while (position + 1 < text.bytes && static_cast<u8>(text.data[position] | text.data[position + 1]) < 0x80u)
+            ++position;
+    };
     while (position < text.bytes) {
+        skip_ascii();
         const u32 first = position;
         const auto base = utf8_decode_one(text.data + position, text.bytes - position);
         if (!base.valid) return false;

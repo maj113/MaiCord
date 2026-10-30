@@ -61,22 +61,24 @@ static_assert(kMaxPaintQuads == kD3D11MaximumUiInstanceCapacity);
 
 // The glyph atlas and draw-pipeline objects built by the device prestart
 // worker while the main thread creates the swap chain, composition tree and
-// icon atlas. The atlas comes first: the main thread's first frame needs it,
-// and its texture and buffer contend less with the swap chain than shader
-// creation does. The device pointers identify which device they belong to;
-// they are not owned.
+// icon atlas. The atlas comes first: the main thread's first frame needs it.
+// The worker also draws once with each pipeline, so the driver finishes them
+// off the main thread. The device pointers identify which device they belong
+// to; they are not owned.
 D3D11DrawPipelineOwner g_prestarted_pipeline{};
 ID3D11Device* g_prestarted_pipeline_device = nullptr;
 GlyphAtlasGpu g_prestarted_glyph_atlas{};
 ID3D11Device* g_prestarted_glyph_atlas_device = nullptr;
 
-void prestart_pipeline(ID3D11Device* device) noexcept {
+void prestart_objects(ID3D11Device* device, ID3D11DeviceContext* context) noexcept {
     if (glyph_atlas_gpu_initialize(&g_prestarted_glyph_atlas, device, kRendererGlyphAtlasExtent,
                                    kRendererGlyphAtlasExtent, kRendererPathCapacity)
             .ok())
         g_prestarted_glyph_atlas_device = device;
-    if (d3d11_draw_pipeline_create(&g_prestarted_pipeline, device, kPipelineConfig).ok())
+    if (d3d11_draw_pipeline_create(&g_prestarted_pipeline, device, kPipelineConfig).ok()) {
+        d3d11_draw_pipeline_warm(&g_prestarted_pipeline, device, context, kPipelineConfig);
         g_prestarted_pipeline_device = device;
+    }
 }
 
 void release_prestarted_pipeline() noexcept {
@@ -106,103 +108,28 @@ D3D11DrawPipelineResult initialize_pipeline(D3D11Renderer* renderer) noexcept {
     const bool prestarted = g_prestarted_pipeline_device && g_prestarted_pipeline_device == renderer->graphics.device;
     reset_value(&g_prestarted_pipeline);
     g_prestarted_pipeline_device = nullptr;
+    D3D11DrawPipelineResult created{S_OK, D3D11DrawPipelineError::none};
     if (prestarted) {
         renderer->startup_prestart |= 2;
-        return d3d11_draw_pipeline_publish(&renderer->pipeline, &staged, renderer->graphics.context, renderer->width,
-                                           renderer->height, renderer->dpi);
+    } else {
+        d3d11_draw_pipeline_release(&staged);
+        created = d3d11_draw_pipeline_create(&staged, renderer->graphics.device, kPipelineConfig);
+        if (created.ok())
+            d3d11_draw_pipeline_warm(&staged, renderer->graphics.device, renderer->graphics.context, kPipelineConfig);
     }
-    d3d11_draw_pipeline_release(&staged);
-    return d3d11_draw_pipeline_initialize(&renderer->pipeline, renderer->graphics.device, renderer->graphics.context,
-                                          renderer->width, renderer->height, renderer->dpi, kPipelineConfig);
-}
-
-// Drivers finish a graphics pipeline (shaders with input layout, blend,
-// rasterizer and target format) on its first draw. Drawing each of the three
-// once into a tiny offscreen target, then flushing, moves that work off the
-// first presented frame onto the driver while the client waits for its data.
-void warm_draw_pipelines(D3D11Renderer* renderer) noexcept {
-    auto& pipeline = renderer->pipeline;
-    ID3D11DeviceContext* context = renderer->graphics.context;
-    if (!context || !pipeline.ui_instance_buffer || !pipeline.glyph_instance_buffer ||
-        !pipeline.media_instance_buffer)
-        return;
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = 4;
-    description.Height = 4;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    description.SampleDesc.Count = 1;
-    description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_RENDER_TARGET;
-    ID3D11Texture2D* texture = nullptr;
-    ID3D11RenderTargetView* target = nullptr;
-    if (FAILED(renderer->graphics.device->CreateTexture2D(&description, nullptr, &texture)) ||
-        FAILED(renderer->graphics.device->CreateRenderTargetView(texture, nullptr, &target))) {
-        com_release(texture);
-        return;
-    }
-    const auto zero_instance = [&](ID3D11Buffer* buffer, u32 bytes) noexcept {
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        if (FAILED(context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)) || !mapped.pData)
-            return false;
-        clear_bytes(mapped.pData, bytes);
-        context->Unmap(buffer, 0);
-        return true;
-    };
-    const D3D11_VIEWPORT viewport{0, 0, 4, 4, 0, 1};
-    const D3D11_RECT scissor{0, 0, 4, 4};
-    const float blend_factor[4]{};
-    const UINT offset = 0;
-    context->RSSetViewports(1, &viewport);
-    context->OMSetRenderTargets(1, &target, nullptr);
-    context->RSSetState(pipeline.ui_rasterizer_state);
-    context->RSSetScissorRects(1, &scissor);
-    context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
-    context->VSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
-    context->PSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
-    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-    if (zero_instance(pipeline.ui_instance_buffer, sizeof(PaintQuad))) {
-        const UINT stride = sizeof(PaintQuad);
-        context->IASetInputLayout(pipeline.ui_input_layout);
-        context->IASetVertexBuffers(0, 1, &pipeline.ui_instance_buffer, &stride, &offset);
-        context->VSSetShader(pipeline.ui_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.ui_pixel_shader, nullptr, 0);
-        context->DrawInstanced(4, 1, 0, 0);
-    }
-    // The glyph ring restarts with a discard on the first real upload.
-    if (zero_instance(pipeline.glyph_instance_buffer, sizeof(GlyphQuad))) {
-        const UINT stride = sizeof(GlyphQuad);
-        pipeline.glyph_instance_end = 0;
-        context->IASetInputLayout(pipeline.glyph_input_layout);
-        context->IASetVertexBuffers(0, 1, &pipeline.glyph_instance_buffer, &stride, &offset);
-        context->VSSetShader(pipeline.glyph_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.glyph_pixel_shader, nullptr, 0);
-        context->PSSetSamplers(0, 1, &pipeline.glyph_sampler);
-        context->DrawInstanced(4, 1, 0, 0);
-    }
-    if (zero_instance(pipeline.media_instance_buffer, sizeof(MediaQuad))) {
-        const UINT stride = sizeof(MediaQuad);
-        context->IASetInputLayout(pipeline.media_input_layout);
-        context->IASetVertexBuffers(0, 1, &pipeline.media_instance_buffer, &stride, &offset);
-        context->VSSetShader(pipeline.media_vertex_shader, nullptr, 0);
-        context->PSSetShader(pipeline.media_pixel_shader, nullptr, 0);
-        context->DrawInstanced(4, 1, 0, 0);
-    }
-    ID3D11SamplerState* null_sampler = nullptr;
-    context->PSSetSamplers(0, 1, &null_sampler);
-    context->OMSetRenderTargets(0, nullptr, nullptr);
-    // Frames set the viewport only with the transform (startup and resize).
-    update_frame_transform(renderer);
-    context->Flush();
-    com_release(target);
-    com_release(texture);
+    if (!created.ok())
+        return created;
+    d3d11_draw_pipeline_publish(&renderer->pipeline, &staged);
+    // Sets the viewport, which warming left on its scratch target.
+    return update_frame_transform(renderer)
+               ? created
+               : D3D11DrawPipelineResult{E_INVALIDARG, D3D11DrawPipelineError::invalid_input};
 }
 
 } // namespace
 
 void renderer_prestart() noexcept {
-    d3d11_device_prestart(prestart_pipeline);
+    d3d11_device_prestart(prestart_objects);
 }
 
 void renderer_prestart_cancel() noexcept {
@@ -278,9 +205,6 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
     renderer->present_logical_damage_valid = false;
     renderer->present_logical_damage_full = false;
     renderer->begin_frame_permit = false;
-    LARGE_INTEGER performance_frequency{};
-    QueryPerformanceFrequency(&performance_frequency);
-    renderer->performance_frequency = performance_frequency.QuadPart;
     wchar_t gpu_metrics[2]{};
     const bool gpu_timestamps_enabled =
         GetEnvironmentVariableW(L"MAICORD_GPU_METRICS", gpu_metrics,
@@ -344,16 +268,9 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
         renderer_shutdown(renderer);
         return false;
     }
-    // Created now, the content glyph ring costs a fraction of growing the
-    // pipeline's small ring when content text first binds. A failure grows it then.
-    D3D11DrawPipelineOwner content_glyphs{};
-    if (content_text)
-        d3d11_draw_pipeline_reserve_glyph_instances(&content_glyphs, renderer->graphics.device, sizeof(GlyphQuad),
-                                                    kRendererContentGlyphCapacity);
-    // Last: the prestart worker builds these objects meanwhile when it ran.
+    // The prestart worker's pipeline, or one built here when it did not run.
     const D3D11DrawPipelineResult pipeline = initialize_pipeline(renderer);
     if (!pipeline.ok()) {
-        d3d11_draw_pipeline_release(&content_glyphs);
         log_write(LogLevel::error, "render", "d3d11_draw_pipeline_initialization_failed");
         log_u64(LogLevel::error, "render", "d3d11_draw_pipeline_stage", static_cast<u32>(pipeline.error));
         log_u64(LogLevel::error, "render", "d3d11_draw_pipeline_native_error",
@@ -361,22 +278,18 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window, bool content_text
         renderer_shutdown(renderer);
         return false;
     }
-    if (content_glyphs.glyph_instance_buffer) {
-        com_release(renderer->pipeline.glyph_instance_buffer);
-        renderer->pipeline.glyph_instance_buffer = content_glyphs.glyph_instance_buffer;
-        renderer->pipeline.glyph_instance_capacity = content_glyphs.glyph_instance_capacity;
-        renderer->pipeline.glyph_instance_end = 0;
-    }
-
-    warm_draw_pipelines(renderer);
+    // Created now, the content glyph ring costs a fraction of growing the
+    // pipeline's small ring when content text first binds. A failure grows it then.
+    if (content_text)
+        d3d11_draw_pipeline_reserve_glyph_instances(&renderer->pipeline, renderer->graphics.device,
+                                                    sizeof(GlyphQuad), kRendererContentGlyphCapacity);
     log_u64(LogLevel::info, "render", "startup_prestart", renderer->startup_prestart);
     log_write(LogLevel::info, "render", "hardware_d3d11_instanced_ui_ready");
     return true;
 }
 
 bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
-    if (!renderer || !renderer->graphics.swap_chain || !renderer->graphics.swap_chain2 || width == 0 ||
-        height == 0) {
+    if (!renderer || !renderer->graphics.swap_chain || width == 0 || height == 0) {
         return true;
     }
     const u32 target_height = height + renderer->caption_height;
@@ -482,20 +395,20 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
         }
         renderer->begin_frame_permit = true;
     }
+    const bool first_paint = renderer->painted_frames == 0;
     LARGE_INTEGER paint_begin{};
-    LARGE_INTEGER paint_end{};
-    QueryPerformanceCounter(&paint_begin);
+    if (first_paint)
+        QueryPerformanceCounter(&paint_begin);
     if (!d3d11_renderer_paint_layout(renderer, theme, current)) {
         return false;
     }
-    QueryPerformanceCounter(&paint_end);
-    u64 paint_us = 0;
-    if (renderer->performance_frequency > 0 && paint_end.QuadPart > paint_begin.QuadPart) {
-        paint_us = (static_cast<u64>(paint_end.QuadPart - paint_begin.QuadPart) * 1'000'000ull) /
-                   static_cast<u64>(renderer->performance_frequency);
-    }
-    if (renderer->painted_frames == 0) {
-        renderer->first_frame_cpu_us = paint_us;
+    if (first_paint) {
+        LARGE_INTEGER paint_end{}, frequency{};
+        QueryPerformanceCounter(&paint_end);
+        QueryPerformanceFrequency(&frequency);
+        renderer->first_frame_cpu_us =
+            static_cast<u64>(paint_end.QuadPart - paint_begin.QuadPart) * 1'000'000ull /
+            static_cast<u64>(frequency.QuadPart);
     }
     ++renderer->painted_frames;
     if (!renderer->present_required) {
@@ -847,6 +760,7 @@ void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     paint_stream_release(&renderer->paint_stream);
     renderer_paint_diff_release(renderer);
     d3d11_renderer_shell_segment_release(&renderer->shell_segment);
+    d3d11_renderer_layout_release(renderer);
     text_edit_layout_release(&renderer->composer_layout);
     com_release(renderer->text_effect_buffer);
     renderer_release_settings_backdrop(renderer);

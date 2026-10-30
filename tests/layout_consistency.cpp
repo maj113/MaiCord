@@ -446,9 +446,9 @@ void shell() noexcept {
     ok = ok && member_list_scene_initialize(&f.member_scene, {f.member_widgets, 8},
                                             {f.member_ui, 1 + 8 * kMemberListWidgetsPerRow},
                                             {f.member_nodes, 1 + 8 * kMemberListWidgetsPerRow});
-    const auto* rail = ui_scene_resolve(f.scene, ui_scene_find(f.scene, UiSemantic::guild_navigation));
-    const auto* channels = ui_scene_resolve(f.scene, ui_scene_find(f.scene, UiSemantic::channel_navigation));
-    const auto* members = ui_scene_resolve(f.scene, ui_scene_find(f.scene, UiSemantic::member_sidebar));
+    const auto* rail = ui_scene_node(f.scene, UiSemantic::guild_navigation);
+    const auto* channels = ui_scene_node(f.scene, UiSemantic::channel_navigation);
+    const auto* members = ui_scene_node(f.scene, UiSemantic::member_sidebar);
     ok = ok && rail && channels && members && guild_rail_scene_update(&f.rail, &f.view, rail->rectangle, 0).ok() &&
          shell_navigation_scene_update(&f.navigation, &f.view, channels->rectangle, 0).ok() &&
          member_list_scene_update(&f.member_scene, &f.members, &f.guild_members, &f.user_store, &f.state,

@@ -2,7 +2,7 @@
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/rect_edges.hpp"
-#include "maicord/ui/scene_text.hpp"
+#include "maicord/ui/popout_scene.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/spinner.hpp"
@@ -11,6 +11,7 @@
 
 namespace maicord {
 namespace {
+using namespace popout;
 bool current(const UiThreadBrowserScene& s) noexcept {
     return s.active && s.backing && s.view && s.view->source_publication == s.source_publication &&
         s.view->revision == s.content_revision && s.view->rows.data == s.observed_rows &&
@@ -48,16 +49,8 @@ UiThreadBrowserTarget target(const UiThreadBrowserScene& s, UiThreadBrowserActio
 bool semantic_equal(UiThreadBrowserTarget a, UiThreadBrowserTarget b) noexcept {
     return a.action == b.action && a.thread_id == b.thread_id;
 }
-UiRect bounds(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
-    const auto* node = ui_widget_manager_layout_node(s.widgets, handle);
-    return node ? node->rectangle : UiRect{};
-}
-bool selected(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
-    return ui_widget_handle_matches(handle, s.widgets.focused);
-}
-bool hovered(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
-    return ui_widget_handle_matches(handle, s.widgets.hovered);
-}
+
+
 UiWidgetHandle add(UiThreadBrowserScene& s, const UiRect& r, UiThreadBrowserAction action,
     const Utf8View& label, UiWidgetHandle parent, u64 id = 0) noexcept {
     if (!ui_rect_has_area(r)) return {};
@@ -186,14 +179,7 @@ bool rebuild(UiThreadBrowserScene& s) noexcept {
     ++s.layout_passes;
     return true;
 }
-bool text(UiTextOutput* out, const UiThreadBrowserScene& s, UiWidgetHandle owner, const Utf8View& value,
-    const UiRect& r, const Color& color, u32 flags = 0, u32 mode = 0) noexcept {
-    return ui_scene_text(out, s.widgets, owner, value, r, (mode & ui_text_in_body) ? s.body : s.panel, color, flags, mode);
-}
-bool surface(PaintStream* out, const UiRect& r, const Theme& t, const Color& fill, const Color& border, float radius) noexcept {
-    return ui_background_paint_surface(out, r, t, fill, border, radius, 1, .9f,
-        UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high);
-}
+
 bool button(PaintStream* out, const UiThreadBrowserScene& s, const Theme& t, UiWidgetHandle handle,
     bool tab = false) noexcept {
     if (!handle.generation) return true;
@@ -201,7 +187,7 @@ bool button(PaintStream* out, const UiThreadBrowserScene& s, const Theme& t, UiW
     // and checked menu rows do), so it reads as chosen rather than as a well.
     return surface(out, bounds(s, handle), t,
         tab ? ui_emphasis_selected(t, UiElevation::popover) : hovered(s, handle) ? t.surface_high : t.surface,
-        selected(s, handle) ? t.tokens.border.focus : tab ? t.tokens.emphasis.outline : t.surface_high, s.style.radius);
+        focused(s, handle) ? t.tokens.border.focus : tab ? t.tokens.emphasis.outline : t.surface_high, s.style.radius);
 }
 Utf8View state_text(const UiThreadBrowserScene& s) noexcept {
     if (s.view->loading) return utf8_literal("Loading threads…");
@@ -332,9 +318,7 @@ UiThreadBrowserTarget ui_thread_browser_scene_focused_target(const UiThreadBrows
     return ui_thread_browser_scene_target(s, s.widgets.focused);
 }
 bool ui_thread_browser_scene_set_hover(UiThreadBrowserScene* s, float x, float y, bool* changed) noexcept {
-    if (!s || !changed || !current(*s) || !ui_widget_manager_hover_at(&s->widgets, x, y, changed)) return false;
-    if (*changed) ++s->revision;
-    return true;
+    return s && current(*s) && set_hover(&s->widgets, &s->revision, x, y, changed);
 }
 float ui_thread_browser_scene_scroll_maximum(const UiThreadBrowserScene& s) noexcept {
     return maximum(0.f, content_height(s) - ui_rect_height(s.body));
@@ -361,50 +345,44 @@ bool ui_thread_browser_scene_focus(UiThreadBrowserScene* s, UiThreadBrowserTarge
             break;
         }
     }
-    for (u32 i = 1; i < s->widgets.count; ++i) {
-        const UiWidgetHandle handle{static_cast<u16>(i), s->widgets.generation};
-        if (semantic_equal(s->backing->targets[i], value) && ui_widget_manager_focus(&s->widgets, handle)) {
-            s->focused = s->backing->targets[i];
-            ++s->revision;
-            return true;
-        }
-    }
-    return false;
+    const u32 slot = focus_target(&s->widgets, s->backing->targets, value, semantic_equal);
+    if (!slot) return false;
+    s->focused = s->backing->targets[slot];
+    ++s->revision;
+    return true;
 }
 bool ui_thread_browser_scene_move_focus(UiThreadBrowserScene* s, bool reverse) noexcept {
     if (!s || !current(*s)) return false;
-    // Close, Create post, both tabs, Retry and both page buttons, plus the
-    // forum controls (sort, List, Gallery, tag chips) and the page rows.
-    UiThreadBrowserTarget candidates[kUiThreadBrowserPageCapacity + 7 + kUiThreadBrowserForumControlCapacity];
-    u32 count = 0;
-    const UiThreadBrowserAction header[]{UiThreadBrowserAction::close, UiThreadBrowserAction::create_post,
-        UiThreadBrowserAction::active, UiThreadBrowserAction::archived, UiThreadBrowserAction::forum_sort,
-        UiThreadBrowserAction::forum_list, UiThreadBrowserAction::forum_gallery};
-    for (const auto action : header) {
-        const auto value = target(*s, action);
-        if (eligible(*s, value)) candidates[count++] = value;
-    }
-    if (s->forum && s->view->forum)
-        for (u32 i = 0; i < s->view->forum->tags.count && i < s->backing->toolbar.chip_count; ++i) {
-            if (!s->backing->chips[i].generation) continue;
-            const auto value = target(*s, UiThreadBrowserAction::forum_tag, s->view->forum->tags[i].id);
-            if (eligible(*s, value)) candidates[count++] = value;
-        }
-    for (u32 i = 0; i < s->view->rows.count; ++i) {
-        const auto value = target(*s, UiThreadBrowserAction::open_thread, s->view->rows[i].thread_id);
-        if (eligible(*s, value)) candidates[count++] = value;
-    }
-    const UiThreadBrowserAction footer[]{UiThreadBrowserAction::retry, UiThreadBrowserAction::previous, UiThreadBrowserAction::next};
-    for (const auto action : footer) {
-        const auto value = target(*s, action);
-        if (eligible(*s, value)) candidates[count++] = value;
-    }
-    const auto focused = ui_thread_browser_scene_focused_target(*s);
-    u32 index = count;
-    for (u32 i = 0; i < count; ++i) if (semantic_equal(candidates[i], focused)) { index = i; break; }
-    index = reverse ? (index >= count || !index ? count - 1 : index - 1)
-        : (index + 1 >= count ? 0 : index + 1);
-    return count && ui_thread_browser_scene_focus(s, candidates[index]);
+    UiThreadBrowserTarget pick{};
+    // Close, Create post, both tabs, the forum controls (sort, List, Gallery, tag chips), the page rows, then
+    // Retry and both page buttons.
+    return ring_pick(
+               [&](auto emit) noexcept {
+                   const auto emit_action = [&](UiThreadBrowserAction action, u64 id = 0) noexcept {
+                       const auto value = target(*s, action, id);
+                       if (eligible(*s, value)) emit(value);
+                   };
+                   const UiThreadBrowserAction header[]{UiThreadBrowserAction::close, UiThreadBrowserAction::create_post,
+                                                        UiThreadBrowserAction::active, UiThreadBrowserAction::archived,
+                                                        UiThreadBrowserAction::forum_sort, UiThreadBrowserAction::forum_list,
+                                                        UiThreadBrowserAction::forum_gallery};
+                   for (const auto action : header)
+                       emit_action(action);
+                   if (s->forum && s->view->forum)
+                       for (u32 i = 0; i < s->view->forum->tags.count && i < s->backing->toolbar.chip_count; ++i)
+                           if (s->backing->chips[i].generation)
+                               emit_action(UiThreadBrowserAction::forum_tag, s->view->forum->tags[i].id);
+                   for (u32 i = 0; i < s->view->rows.count; ++i)
+                       emit_action(UiThreadBrowserAction::open_thread, s->view->rows[i].thread_id);
+                   const UiThreadBrowserAction footer[]{UiThreadBrowserAction::retry, UiThreadBrowserAction::previous,
+                                                        UiThreadBrowserAction::next};
+                   for (const auto action : footer)
+                       emit_action(action);
+                   return true;
+               },
+               semantic_equal, ui_thread_browser_scene_focused_target(*s), reverse ? Ring::previous : Ring::next,
+               &pick) &&
+           ui_thread_browser_scene_focus(s, pick);
 }
 bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t, PaintStream* out) noexcept {
     if (!current(s)) return true;
@@ -426,7 +404,7 @@ bool ui_thread_browser_scene_paint(const UiThreadBrowserScene& s, const Theme& t
             if (!handle.generation) continue;
             const auto r = s.backing->cards[i];
             ok = surface(out, r, t, hovered(s, handle) ? t.surface_high : t.surface,
-                selected(s, handle) ? t.tokens.border.focus : t.surface_high, s.style.radius) &&
+                focused(s, handle) ? t.tokens.border.focus : t.surface_high, s.style.radius) &&
                 ui_icon_paint(out, s.view->rows[i].type == 12 ? UiIcon::lock : UiIcon::thread,
                     ui_rect_edges(r, ui_start(8), ui_start(16), ui_start(30), ui_start(38)), t.text_secondary);
         }

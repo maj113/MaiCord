@@ -183,7 +183,7 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
     const auto* status = ui_widget_manager_layout_node(scene.widgets, scene.footer_status);
     const auto* footer_box =
         status ? ui_widget_manager_layout_node(scene.widgets,
-                                               scene.widgets.storage[scene.footer_status.slot].parent)
+                                               ui_widget_manager_parent(scene.widgets, scene.footer_status))
                : nullptr;
     const auto* save = ui_widget_manager_layout_node(scene.widgets, scene.footer_save);
     // Fields and the footer bar share the form column; the scrolling body

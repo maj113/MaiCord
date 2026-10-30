@@ -21,17 +21,17 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
         ui_thread_header_bind_shell(&header, &shell), "thread header: borrows six actual shell slots without another widget owner");
     if (!header.manager) { ui_scene_release(&shell); return; }
     const u32 shell_count = shell.widgets.count;
-    const auto* message = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::message_view));
+    const auto* message = ui_scene_node(shell, UiSemantic::message_view);
     const UiRect original_message = message ? message->rectangle : UiRect{};
     UiThreadHeaderView view{};
     view.thread_id = 55; view.source_publication = 1; view.visible = true;
     view.archive_known = true; view.enabled_actions = ui_thread_action_bit(UiThreadAction::check_status);
     check(ui_thread_header_update(&header, view, strip, clip, style) && header.active &&
         ui_thread_header_height(view, style) == 44 && shell.widgets.count == shell_count &&
-        shell.nodes[header.widgets.root.slot].visible &&
-        ui_rect_equal(shell.nodes[header.widgets.root.slot].rectangle, header.geometry.rectangle) &&
+        shell.widgets.layout.storage[header.widgets.root.slot].visible &&
+        ui_rect_equal(shell.widgets.layout.storage[header.widgets.root.slot].rectangle, header.geometry.rectangle) &&
         disjoint(header.geometry.status, header.geometry.primary) && disjoint(header.geometry.primary, header.geometry.overflow),
-        "thread header: minimum content width projects distinct status and native controls into synchronized shell snapshots");
+        "thread header: minimum content width projects distinct status and native controls into the shell layout");
     check(ui_thread_header_primary_action(view) == UiThreadAction::check_status,
         "thread header: an unknown current-user membership checks its status");
     const auto unknown = ui_thread_header_widget_target(header, header.widgets.primary);
@@ -145,7 +145,7 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
     warm = true;
     for (u32 i = 0; i < 64; ++i) warm = warm && !ui_thread_header_update(&header, view, strip, clip, style);
     check(!header.active && warm && header.revision == inactive_revision && header.projections == inactive_projections &&
-        !shell.nodes[header.widgets.root.slot].visible && !ui_thread_header_current(header, unknown) &&
+        !shell.widgets.layout.storage[header.widgets.root.slot].visible && !ui_thread_header_current(header, unknown) &&
         ui_thread_header_height(view, style) == 0 && message && ui_rect_equal(message->rectangle, original_message),
         "thread header: scope retirement clears status and all controls, ordinary message geometry and inactive warm frames remain unchanged");
     ui_scene_release(&shell);

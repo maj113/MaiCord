@@ -212,7 +212,7 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
                                             UiWidgetKind::text_field,
                                             ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable,
                                             {utf8_literal("Previous focus"), style}});
-    valid = valid && old.ok() && ui_widget_manager_layout(&previous, {300, 40}).ok() &&
+    valid = valid && old.ok() && ui_widget_manager_layout_rectangle(&previous, {0, 0, 300, 40}).ok() &&
             ui_widget_manager_focus(&previous, old.handle);
     g_app.context_focus = &previous;
     g_app.message_composer.focused = true;

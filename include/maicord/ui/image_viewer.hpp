@@ -25,7 +25,6 @@ enum UiImageViewerAction : u8 {
     ui_image_viewer_action_copy = 1u << 2,
 };
 enum class UiImageViewerMedia : u8 { ready, loading, failed };
-inline constexpr float kUiImageViewerScrimOpacity = .92f;
 // Zoom bounds relative to fit, and one wheel notch (120 units).
 inline constexpr float kUiImageViewerMaximumZoom = 16, kUiImageViewerWheelStep = 1.25f;
 // Reusable modal media surface. Image ownership and decoding remain external.

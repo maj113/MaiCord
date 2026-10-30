@@ -41,9 +41,9 @@ bool source_current(const UiTooltipKey& key) noexcept {
         const auto* layout = ui_widget_manager_layout_node(*key.owner.manager, handle);
         if (!ancestor || !layout || !layout->visible || (ancestor->flags & ui_widget_block_input))
             return false;
-        if (!ancestor->parent.generation)
+        handle = ui_widget_manager_parent(*key.owner.manager, handle);
+        if (!handle.generation)
             return true;
-        handle = ancestor->parent;
     }
     return false;
 }

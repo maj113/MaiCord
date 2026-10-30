@@ -64,8 +64,8 @@ bool initialize() noexcept {
 }
 bool update() noexcept {
     auto& f = fixture;
-    const auto* guild = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::guild_navigation));
-    const auto* channels = ui_scene_resolve(f.shell, ui_scene_find(f.shell, UiSemantic::channel_navigation));
+    const auto* guild = ui_scene_node(f.shell, UiSemantic::guild_navigation);
+    const auto* channels = ui_scene_node(f.shell, UiSemantic::channel_navigation);
     return guild && channels && guild_rail_scene_update(&f.rail, &f.view, guild->rectangle, 0).ok() &&
         shell_navigation_scene_update(&f.navigation, &f.view, channels->rectangle, 0).ok() &&
         shell_text_presentation_build(f.shell, f.state, f.view, kDefaultTheme,

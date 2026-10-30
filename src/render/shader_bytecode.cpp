@@ -1,5 +1,7 @@
 #include "maicord/render/shader_bytecode.hpp"
 
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_process.hpp"
 #include "maicord/media/deflate.hpp"
 #include "maicord/sys/d3d11.hpp"
 
@@ -56,15 +58,22 @@ bool inflate(const PackedShader& entry, DeflateWorkspace* workspace, Slice<u8> o
     return true;
 }
 
-// Inflates the shader onto this frame and runs `create` on it before the bytes
-// go out of scope; the D3D11 Create* call copies the bytecode.
+// Inflates the shader into heap scratch (the deflate workspace, then the
+// exact-size bytecode) and runs `create` on it; the D3D11 Create* call copies
+// the bytecode. Not stack: workspace and shader reach 38 KB, and every stack
+// page a thread touches stays committed for its lifetime.
 template <typename Create>
 HRESULT create_from_bytes(ShaderId id, Create create) noexcept {
     const PackedShader* entry = packed_shader(id);
     if (!entry) return E_FAIL;
-    DeflateWorkspace workspace;
-    auto* bytes = static_cast<u8*>(_alloca(entry->raw_bytes));
-    return inflate(*entry, &workspace, {bytes, entry->raw_bytes}) ? create(bytes, entry->raw_bytes) : E_FAIL;
+    auto* workspace =
+        static_cast<DeflateWorkspace*>(HeapAlloc(process_heap(), 0, sizeof(DeflateWorkspace) + entry->raw_bytes));
+    if (!workspace) return E_OUTOFMEMORY;
+    u8* bytes = reinterpret_cast<u8*>(workspace + 1);
+    const HRESULT result =
+        inflate(*entry, workspace, {bytes, entry->raw_bytes}) ? create(bytes, entry->raw_bytes) : E_FAIL;
+    HeapFree(process_heap(), 0, workspace);
+    return result;
 }
 } // namespace
 

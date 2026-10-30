@@ -235,10 +235,10 @@ bool read_state_probe(D3D11Renderer& renderer, UiTextMeasureCache&,
     bool (*capture)(const wchar_t*) noexcept) noexcept {
     if (!capture || !renderer.ui_scene || !renderer.chat_state || !renderer.navigation_view ||
         !renderer.guild_rail_scene || !renderer.shell_navigation_scene) return false;
-    const auto* guild_pane = ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::guild_navigation));
-    const auto* channel_pane = ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::channel_navigation));
-    const auto* root = ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::root));
-    const auto* messages = ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::message_view));
+    const auto* guild_pane = ui_scene_node(*renderer.ui_scene, UiSemantic::guild_navigation);
+    const auto* channel_pane = ui_scene_node(*renderer.ui_scene, UiSemantic::channel_navigation);
+    const auto* root = ui_scene_node(*renderer.ui_scene, UiSemantic::root);
+    const auto* messages = ui_scene_node(*renderer.ui_scene, UiSemantic::message_view);
     if (!guild_pane || !channel_pane || !root || !messages || !ui_rect_has_area(guild_pane->rectangle) || !ui_rect_has_area(channel_pane->rectangle)) return false;
     ReadStateFixture f{};
     const auto* previous_state = renderer.chat_state;

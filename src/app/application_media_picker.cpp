@@ -1888,7 +1888,7 @@ bool application_media_picker_synchronize() noexcept {
     const auto* composer = ui_widget_manager_layout_node(g_app.message_composer_scene.widgets,
                                                          g_app.message_composer_scene.surface);
     if (const auto* title =
-            ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::title_bar)))
+            ui_scene_node(g_app.shell_scene, UiSemantic::title_bar))
         viewport.top = maximum(viewport.top, title->rectangle.bottom);
     // The composer picker sits above the composer; the reaction popout may
     // use the whole client area below the title bar beside its message;
@@ -1908,7 +1908,7 @@ bool application_media_picker_synchronize() noexcept {
         revoke_capture(*p);
     const u32 prior_generation = p->scene.generation;
     if ((!reaction && !p->inline_mode && !composer) ||
-        !ui_media_picker_scene_update(&p->scene, &p->source, &p->content, viewport, anchor, nullptr,
+        !ui_media_picker_scene_update(&p->scene, &p->source, &p->content, viewport, anchor,
                                       p->preferred_width))
         return false;
     // A new result set starts with its first result selected.

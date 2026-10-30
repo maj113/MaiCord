@@ -273,10 +273,6 @@ HRESULT create_media_surface(ID3D11Device* device, ID3D11DeviceContext1* context
                              ID3D11Texture2D** texture, ID3D11ShaderResourceView** texture_view,
                              ID3D11RenderTargetView** target,
                              ID3D11UnorderedAccessView** texture_uav) noexcept {
-    if (!device || !context || !texture || !texture_view || !target || !texture_uav ||
-        !dimensions_valid(width, height) || *texture || *texture_view || *target || *texture_uav) {
-        return E_INVALIDARG;
-    }
     D3D11_TEXTURE2D_DESC description{};
     description.Width = width;
     description.Height = height;

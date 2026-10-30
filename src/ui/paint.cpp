@@ -129,12 +129,13 @@ bool paint_stream_push_rounded_border(PaintStream* stream, const UiRect& rectang
         left >= clip.right || top >= clip.bottom) {
         return true;
     }
-    if (stream->count >= stream->quad_capacity &&
-        !stable_storage_grow(&stream->quad_storage, stream->count + 1u)) {
-        ++stream->rejected;
-        return false;
+    if (stream->count >= stream->quad_capacity) {
+        if (!stable_storage_grow(&stream->quad_storage, stream->count + 1u)) {
+            ++stream->rejected;
+            return false;
+        }
+        stream->quad_capacity = stream->quad_storage.capacity;
     }
-    stream->quad_capacity = stream->quad_storage.capacity;
 
     PaintBatch* batch = stream->batch_count != 0 ? &stream->batches[stream->batch_count - 1] : nullptr;
     if (!batch || batch->clip_index != clip_index || stream->batch_count <= stream->sealed_batches ||

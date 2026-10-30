@@ -51,12 +51,9 @@ inline bool message_author_layout(const MessageScene& scene, const MessageTextCo
         return false;
     // Only the row's author widget carries the name header. Every other
     // unmeasured styled run (poll labels, card text) keeps its own style.
-    bool author_owner = false;
-    for (u32 i = 0; i < scene.count && !author_owner; ++i)
-        author_owner = scene.rows[i].message_id == record->id &&
-                       scene.rows[i].author.slot == command.owner.handle.slot &&
-                       scene.rows[i].author.generation == command.owner.handle.generation;
-    if (!author_owner)
+    const auto* owner_row = message_scene_resolve(scene, command.owner.handle);
+    if (!owner_row || owner_row->message_id != record->id || owner_row->author.slot != command.owner.handle.slot ||
+        owner_row->author.generation != command.owner.handle.generation)
         return false;
     const auto* global = user_appearance_find(users.appearance, record->author_id);
     const auto* channel = chat_state_store_find_channel(state, record->channel_id);

@@ -174,8 +174,12 @@ void decode_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, CdnStaticP
     if (parsed.ok()) {
         // Interlaced files and files with many IDAT chunks need room past the output.
         ensure_scanlines(pipeline, png_decode_buffer_bytes(out->image));
+        // Decode tables on the heap for this decode only, not on the lane's
+        // stack; a failed allocation fails the decode (null workspace).
+        DeflateWorkspace* workspace = deflate_workspace_allocate();
         out->decode = png_decode_parsed_scanlines(
-            &out->image, &pipeline->workspace, {pipeline->scanline_storage, pipeline->scanline_capacity});
+            &out->image, workspace, {pipeline->scanline_storage, pipeline->scanline_capacity});
+        deflate_workspace_free(workspace);
     } else {
         out->decode.error = parsed.error;
     }
@@ -692,9 +696,11 @@ void decode_apng_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 f
     }
     if (validate_default && !animation.default_in_animation) {
         PngImage default_image{};
+        DeflateWorkspace* workspace = deflate_workspace_allocate();
         const PngDecodeResult decoded_default =
-            apng_decode_parsed_default(encoded, animation, &pipeline->workspace, &default_image,
+            apng_decode_parsed_default(encoded, animation, workspace, &default_image,
                                        Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity});
+        deflate_workspace_free(workspace);
         if (!decoded_default.ok()) {
             pipeline->apng_metadata_valid = false;
             out->decode.png = decoded_default;
@@ -704,9 +710,10 @@ void decode_apng_bytes(CdnMediaPipeline* pipeline, ConstSlice<u8> encoded, u32 f
         }
     }
     const ApngParseResult parse = out->decode.parse;
-    out->decode =
-        apng_decode_parsed_frame(encoded, animation, frame_index, &pipeline->workspace, &out->image,
-                                 Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity});
+    DeflateWorkspace* workspace = deflate_workspace_allocate();
+    out->decode = apng_decode_parsed_frame(encoded, animation, frame_index, workspace, &out->image,
+                                           Slice<u8>{pipeline->scanline_storage, pipeline->scanline_capacity});
+    deflate_workspace_free(workspace);
     out->decode.parse = parse;
     if (!out->decode.ok()) {
         pipeline->apng_metadata_valid = false;

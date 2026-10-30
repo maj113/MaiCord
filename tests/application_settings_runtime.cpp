@@ -381,7 +381,7 @@ bool fixture_path(wchar_t* output, u32* count) noexcept {
     return true;
 }
 LPARAM shell_point(UiSemantic semantic) noexcept {
-    const auto* node = ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, semantic));
+    const auto* node = ui_scene_node(g_app.shell_scene, semantic);
     if (!node)
         return 0;
     return MAKELPARAM(static_cast<short>((node->rectangle.left + node->rectangle.right) * .5f),
@@ -2047,7 +2047,7 @@ void test_controller() noexcept {
                                            kGuildChannelShellLayoutMetrics, 1280, 700),
           "shell: actual bootstrap scene lays out settings gear, member toggle and account footer");
     const auto* gear =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::settings));
+        ui_scene_node(g_app.shell_scene, UiSemantic::settings);
     check(gear && gear->visible, "shell: retained layout exposes visible settings gear");
     if (gear && gear->visible) {
         const LPARAM point = shell_point(UiSemantic::settings);

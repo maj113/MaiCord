@@ -74,7 +74,7 @@ inline bool picker_text_capacity_probe(D3D11Renderer& renderer) noexcept {
     const auto* anchor = message_composer_scene_layout_node(*renderer.message_composer_scene,
                                                            MessageComposerControl::gif);
     if (!anchor || !ui_media_picker_scene_update(&scene, &source, &content,
-            {0, 0, renderer.width / scale, renderer.height / scale}, anchor->rectangle, nullptr, 760))
+            {0, 0, renderer.width / scale, renderer.height / scale}, anchor->rectangle, 760))
         return false;
     renderer.media_picker_scene = &scene;
     surface_motion_probe_detail::Readback readback;

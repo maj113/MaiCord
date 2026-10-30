@@ -10,6 +10,15 @@
 #include "d3d11_renderer_interaction_state.hpp"
 
 namespace maicord {
+namespace {
+// A bound scene changed what the frame shows: the retained presentation and
+// the retained content text are stale.
+void invalidate_retained_frame(D3D11Renderer* renderer) noexcept {
+    renderer->retained_presentation.valid = false;
+    content_text_retention_invalidate(&renderer->content_text_retention);
+}
+} // namespace
+
 void renderer_bind_focus_owner(D3D11Renderer* renderer, const UiWidgetManager* owner) noexcept {
     if (renderer)
         renderer->focus_owner = owner;
@@ -26,8 +35,7 @@ bool renderer_bind_audio_scene(D3D11Renderer* renderer, const UiAudioScene* scen
     if (scene)
         renderer->video_scene = nullptr;
     renderer->interaction_text_audio_revision = ~0ull;
-    renderer->retained_presentation.valid = false;
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
     return true;
 }
 
@@ -40,8 +48,7 @@ bool renderer_bind_poll_scene(D3D11Renderer* renderer, const UiPollScene* scene)
         return true;
     renderer->poll_scene = scene;
     renderer->interaction_text_poll_revision = ~u64{0};
-    renderer->retained_presentation.valid = false;
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
     return true;
 }
 
@@ -54,14 +61,13 @@ bool renderer_bind_poll_voters_scene(D3D11Renderer* renderer, const UiPollVoters
         return true;
     renderer->poll_voters_scene = scene;
     renderer->interaction_text_poll_voters_revision = ~u64{0};
-    renderer->retained_presentation.valid = false;
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
     return true;
 }
 
 bool renderer_bind_ui_scene(D3D11Renderer* renderer, const UiScene* scene) noexcept {
     if (!renderer || !scene || scene->count == 0 ||
-        !ui_scene_resolve(*scene, ui_scene_find(*scene, UiSemantic::root))) {
+        !ui_scene_node(*scene, UiSemantic::root)) {
         return false;
     }
     renderer->ui_scene = scene;
@@ -74,8 +80,7 @@ bool renderer_bind_thread_header(D3D11Renderer* renderer, const UiThreadHeader* 
     if (renderer->thread_header == header)
         return true;
     renderer->thread_header = header;
-    renderer->retained_presentation.valid = false;
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
     return true;
 }
 
@@ -154,8 +159,7 @@ void renderer_bind_forum_form(D3D11Renderer* renderer, ForumPostSurface* surface
     renderer->forum_form = surface;
     renderer->interaction_text_forum_form_revision =
         ~(surface && surface->scene ? surface->scene->revision : 0u);
-    renderer->retained_presentation.valid = false;
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
 }
 
 void renderer_bind_text_form(D3D11Renderer* renderer, TextFormSurface* surface) noexcept {
@@ -163,8 +167,7 @@ void renderer_bind_text_form(D3D11Renderer* renderer, TextFormSurface* surface) 
         return;
     renderer->text_form = surface;
     renderer->interaction_text_form_revision = ~(surface && surface->scene ? surface->scene->revision : 0u);
-    renderer->retained_presentation.valid = false;
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
 }
 
 void renderer_bind_settings_scene(D3D11Renderer* renderer, const UiSettingsScene* scene) noexcept {
@@ -182,8 +185,7 @@ void renderer_bind_settings_scene(D3D11Renderer* renderer, const UiSettingsScene
         text_edit_layout_invalidate(&renderer->composer_layout);
     }
     renderer->interaction_text_settings_revision = ~(scene ? scene->revision : 0u);
-    renderer->retained_presentation.valid = false;
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
 }
 
 bool renderer_bind_message_text_presentation(D3D11Renderer* renderer,
@@ -206,8 +208,7 @@ void renderer_bind_friends_scene(D3D11Renderer* renderer, const UiFriendsScene* 
     reset_value(&renderer->friends_search_geometry);
     text_edit_layout_invalidate(&renderer->composer_layout);
     renderer->interaction_text_friends_revision = ~(scene ? scene->revision : 0u);
-    renderer->retained_presentation.valid = false;
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
 }
 void renderer_bind_friends_requests_scene(D3D11Renderer* renderer, const UiFriendsScene* scene) noexcept {
     if (!renderer || renderer->friends_requests_scene == scene)
@@ -216,8 +217,7 @@ void renderer_bind_friends_requests_scene(D3D11Renderer* renderer, const UiFrien
     reset_value(&renderer->friends_search_geometry);
     text_edit_layout_invalidate(&renderer->composer_layout);
     renderer->interaction_text_friends_requests_revision = ~(scene ? scene->revision : 0u);
-    renderer->retained_presentation.valid = false;
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
 }
 
 void renderer_unbind_message_text_presentation(D3D11Renderer* renderer) noexcept {
@@ -243,9 +243,8 @@ bool renderer_bind_search_message_text_presentation(D3D11Renderer* renderer,
     renderer->search_message_text = presentation;
     renderer->search_message_users = users;
     renderer->search_message_measure_cache = cache;
-    renderer->retained_presentation.valid = false;
     message_hit_test_cache_invalidate(&renderer->message_hit_test);
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
     return true;
 }
 void renderer_unbind_search_message_text_presentation(D3D11Renderer* renderer) noexcept {
@@ -257,9 +256,8 @@ void renderer_unbind_search_message_text_presentation(D3D11Renderer* renderer) n
     renderer->search_message_text = nullptr;
     renderer->search_message_users = nullptr;
     renderer->search_message_measure_cache = nullptr;
-    renderer->retained_presentation.valid = false;
     message_hit_test_cache_invalidate(&renderer->message_hit_test);
-    content_text_retention_invalidate(&renderer->content_text_retention);
+    invalidate_retained_frame(renderer);
 }
 
 bool renderer_login_edit_hit_test(const D3D11Renderer& renderer, const UiRect& text_rectangle,

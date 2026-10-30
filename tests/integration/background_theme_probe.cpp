@@ -831,7 +831,7 @@ bool full_scene_visible(D3D11Renderer& r, const Theme& theme) noexcept {
     float points[3][2][2]{};
     const float width = r.width * 96.f / r.dpi, height = r.height * 96.f / r.dpi;
     for (u32 s = 0; s < 3; ++s) {
-        const auto* node = ui_scene_resolve(*r.ui_scene, ui_scene_find(*r.ui_scene, surfaces[s]));
+        const auto* node = ui_scene_node(*r.ui_scene, surfaces[s]);
         if (!node || !ui_rect_has_area(node->rectangle))
             return false;
         for (u32 p = 0; p < 2; ++p) {
@@ -884,7 +884,7 @@ bool chrome_native_pixels(D3D11Renderer& r, const Theme& theme) noexcept {
     if (!r.ui_scene || !r.message_composer_scene || !r.message_composer_scene->active)
         return failure(40);
     const auto node = [&](UiSemantic semantic) noexcept {
-        return ui_scene_resolve(*r.ui_scene, ui_scene_find(*r.ui_scene, semantic));
+        return ui_scene_node(*r.ui_scene, semantic);
     };
     const auto* messages = node(UiSemantic::message_view);
     const auto* root = node(UiSemantic::root);

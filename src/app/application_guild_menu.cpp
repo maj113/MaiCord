@@ -87,7 +87,7 @@ u32 notification_settings_action(u64 guild_id) noexcept {
 }
 UiRect header_rectangle() noexcept {
     const auto* node =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::guild_menu));
+        ui_scene_node(g_app.shell_scene, UiSemantic::guild_menu);
     return node && node->visible ? node->rectangle : UiRect{};
 }
 bool enabled_in_popup(u32 action) noexcept {

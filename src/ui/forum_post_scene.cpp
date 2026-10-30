@@ -390,15 +390,12 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
     const float pad = ui_rect_width(viewport) < 240 ? 8.f : style.padding;
     const float panel_width = minimum(style.maximum_width, ui_rect_width(viewport) - inset);
     if (!was || rebuilt || layout != s->layout_signature) {
-        auto* panel = ui_layout_engine_resolve(
-            &s->widgets.layout, s->widgets.storage[s->elements[idx(ForumPostElement::panel)].slot].layout);
+        auto* panel = ui_widget_manager_layout_node(&s->widgets, s->elements[idx(ForumPostElement::panel)]);
         panel->spec.style.width = ui_layout_fixed(panel_width);
         const float panel_height =
             minimum(760.f, ui_rect_height(viewport) - minimum(inset, ui_rect_height(viewport) * .25f));
         panel->spec.style.height = ui_layout_fixed(panel_height);
-        auto* content = ui_layout_engine_resolve(
-            &s->widgets.layout,
-            s->widgets.storage[s->elements[idx(ForumPostElement::content)].slot].layout);
+        auto* content = ui_widget_manager_layout_node(&s->widgets, s->elements[idx(ForumPostElement::content)]);
         const bool compact = ui_rect_height(viewport) < 240;
         panel->spec.style.flags = ui_layout_node_visible | ui_layout_node_clip_children |
                                   (compact ? ui_layout_node_scroll_vertical : 0);
@@ -406,8 +403,7 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
         content->spec.style.gap = style.gap;
         static constexpr ForumPostElement fields[]{ForumPostElement::title, ForumPostElement::body};
         for (const auto field : fields) {
-            auto* node = ui_layout_engine_resolve(&s->widgets.layout,
-                                                  s->widgets.storage[s->elements[idx(field)].slot].layout);
+            auto* node = ui_widget_manager_layout_node(&s->widgets, s->elements[idx(field)]);
             node->spec.style.height =
                 ui_layout_fixed(field == ForumPostElement::title ? style.title_height : style.body_height);
         }
@@ -428,7 +424,7 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
             if (!natural(s, i, {kMaximumUiCoordinate, kMaximumUiCoordinate}, &value))
                 return false;
             auto* node =
-                ui_layout_engine_resolve(&s->widgets.layout, s->widgets.storage[handle.slot].layout);
+                ui_widget_manager_layout_node(&s->widgets, handle);
             node->spec.style.minimum_size.width =
                 minimum(maximum(tag ? 40.f : 80.f, value.size.width + 24), available);
             node->spec.style.maximum_size.width = available;
@@ -446,7 +442,7 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
                     return false;
                 const auto handle = s->attachment_list.parts[row][part];
                 auto* node =
-                    ui_layout_engine_resolve(&s->widgets.layout, s->widgets.storage[handle.slot].layout);
+                    ui_widget_manager_layout_node(&s->widgets, handle);
                 node->spec.style.minimum_size.width =
                     minimum(maximum(40.f, value.size.width + c.attachment_style.control_padding * 2),
                             node->spec.style.maximum_size.width);
@@ -568,7 +564,7 @@ bool forum_post_scroll(ForumPostScene* s, float delta) noexcept {
     if (offset == geometry.offset.y)
         return true;
     const bool ok =
-        ui_layout_engine_set_scroll(&s->widgets.layout, s->widgets.storage[h.slot].layout, {0, offset}) &&
+        ui_widget_manager_set_scroll(&s->widgets, h, {0, offset}) &&
         ui_widget_manager_layout_rectangle(&s->widgets, s->viewport).ok();
     if (ok)
         ++s->revision;

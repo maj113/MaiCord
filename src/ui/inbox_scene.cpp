@@ -2,7 +2,7 @@
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/rect_edges.hpp"
-#include "maicord/ui/scene_text.hpp"
+#include "maicord/ui/popout_scene.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/spinner.hpp"
@@ -12,6 +12,7 @@
 
 namespace maicord {
 namespace {
+using namespace popout;
 constexpr float header_height = 52.f, filter_height = 40.f, footer_height = 48.f, inset = 12.f, gap = 8.f;
 // Mention cards: avatar in the left gutter beside the author and message text.
 constexpr float mention_text_left = 12.f + kUiInboxAvatarExtent + 10.f;
@@ -43,29 +44,9 @@ bool current(const UiInboxScene& s) noexcept {
            (!s.source || (s.source->revision == s.source_revision && s.source->count == s.measured_count &&
                           (!s.source->current || s.source->current(s.source->context))));
 }
-UiRect bounds(const UiInboxScene& s, UiWidgetHandle handle) noexcept {
-    const auto* node = ui_widget_manager_layout_node(s.widgets, handle);
-    return node ? node->rectangle : UiRect{};
-}
-bool focused(const UiInboxScene& s, UiWidgetHandle handle) noexcept {
-    return ui_widget_handle_matches(s.widgets.focused, handle);
-}
-bool hovered(const UiInboxScene& s, UiWidgetHandle handle) noexcept {
-    return ui_widget_handle_matches(s.widgets.hovered, handle);
-}
 UiWidgetHandle add(UiInboxScene& s, const UiRect& r, const UiInboxTarget& target, const Utf8View& name, bool enabled,
                    UiWidgetHandle parent) noexcept {
-    if (!ui_rect_has_area(r))
-        return {};
-    const auto origin = s.body_owner.generation && parent.slot == s.body_owner.slot ? s.body : s.panel;
-    const auto result = ui_widget_manager_add_placed(
-        &s.widgets, parent, target.action == UiInboxAction::none ? UiWidgetKind::container : UiWidgetKind::button,
-        static_cast<u16>(enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : 0), name, r,
-        origin);
-    if (!result.ok())
-        return {};
-    s.targets[result.handle.slot] = target;
-    return result.handle;
+    return popout::add(s, r, target, name, enabled, parent);
 }
 // Server headers carry a quiet "Mark all read" text button; channel rows a
 // check icon button that only shows while the row is hovered or focused
@@ -171,14 +152,7 @@ bool rebuild(UiInboxScene& s) noexcept {
     ++s.revision;
     return true;
 }
-bool text(UiTextOutput* out, const UiInboxScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r, const Color& color,
-          u32 flags = 0, u32 mode = 0) noexcept {
-    return ui_scene_text(out, s.widgets, owner, value, r, (mode & ui_text_in_body) ? s.body : s.panel, color, flags, mode);
-}
-bool surface(PaintStream* out, const UiRect& r, const Theme& theme, const Color& fill, const Color& border, float radius = 8) noexcept {
-    return ui_background_paint_surface(out, r, theme, fill, border, radius, 1, .9f, UiBackgroundSurfaceMode::gradient,
-                                       UiBackgroundTier::high);
-}
+
 bool pill(PaintStream* out, const UiInboxScene& s, UiWidgetHandle handle, const Theme& theme, bool selected) noexcept {
     if (!handle.generation)
         return true;
@@ -307,11 +281,7 @@ UiInboxTarget ui_inbox_scene_focused_target(const UiInboxScene& s) noexcept {
                : UiInboxTarget{};
 }
 bool ui_inbox_scene_set_hover(UiInboxScene* s, float x, float y, bool* changed) noexcept {
-    if (!s || !changed || !current(*s) || !ui_widget_manager_hover_at(&s->widgets, x, y, changed))
-        return false;
-    if (*changed)
-        ++s->revision;
-    return true;
+    return s && current(*s) && set_hover(&s->widgets, &s->revision, x, y, changed);
 }
 bool ui_inbox_scene_scroll(UiInboxScene* s, float offset) noexcept {
     if (!s || !current(*s) || !ui_coordinate_valid(offset))
@@ -356,59 +326,51 @@ bool ui_inbox_scene_focus(UiInboxScene* s, UiInboxTarget target) noexcept {
             break;
         }
     }
-    for (u32 i = 1; i < s->widgets.count; ++i) {
-        const UiWidgetHandle handle{static_cast<u16>(i), s->widgets.generation};
-        if (ui_inbox_target_equal(s->targets[i], target) && ui_widget_manager_focus(&s->widgets, handle)) {
-            s->focused = target;
-            ++s->revision;
-            return true;
-        }
-    }
-    return false;
+    if (!focus_target(&s->widgets, s->targets, target, ui_inbox_target_equal))
+        return false;
+    s->focused = target;
+    ++s->revision;
+    return true;
 }
 bool ui_inbox_scene_move_focus(UiInboxScene* s, UiInboxFocusMove move) noexcept {
     if (!s || !current(*s))
         return false;
-    UiInboxTarget candidates[2 * kUiInboxMaximumRows + 8]{};
-    u32 count = 0;
-    candidates[count++] = {UiInboxAction::tab_mentions};
-    candidates[count++] = {UiInboxAction::tab_unreads};
-    if (s->tab == UiInboxTab::mentions) {
-        if (s->content->this_server_available)
-            candidates[count++] = {UiInboxAction::filter_server};
-        candidates[count++] = {UiInboxAction::filter_everyone};
-        candidates[count++] = {UiInboxAction::filter_roles};
-    }
-    for (u32 i = 0; i < s->measured_count; ++i) {
-        UiInboxRow row{};
-        if (!s->source->resolve(s->source->context, i, &row))
-            return false;
-        if (row.kind == UiInboxRowKind::mention)
-            candidates[count++] = {UiInboxAction::jump, row.id, row.channel_id};
-        else if (row.kind == UiInboxRowKind::group)
-            candidates[count++] = {UiInboxAction::mark_guild, row.guild_id, 0};
-        else {
-            candidates[count++] = {UiInboxAction::open_channel, row.channel_id, row.channel_id};
-            candidates[count++] = {UiInboxAction::mark_channel, row.channel_id, row.channel_id};
-        }
-    }
-    if (s->more.generation)
-        candidates[count++] = s->targets[s->more.slot];
-    candidates[count++] = {UiInboxAction::close};
-    u32 index = ~0u;
-    const auto selected = ui_inbox_scene_focused_target(*s);
-    for (u32 i = 0; i < count; ++i)
-        if (ui_inbox_target_equal(candidates[i], selected))
-            index = i;
-    if (move == UiInboxFocusMove::first)
-        index = 0;
-    else if (move == UiInboxFocusMove::last)
-        index = count - 1;
-    else if (move == UiInboxFocusMove::previous)
-        index = index >= count || index == 0 ? count - 1 : index - 1;
-    else
-        index = index >= count || index + 1 == count ? 0 : index + 1;
-    return ui_inbox_scene_focus(s, candidates[index]);
+    UiInboxTarget pick{};
+    // Tabs, filters, every row's actions, Load more / Retry, then Close.
+    return ring_pick(
+               [&](auto emit) noexcept {
+                   emit({UiInboxAction::tab_mentions});
+                   emit({UiInboxAction::tab_unreads});
+                   if (s->tab == UiInboxTab::mentions) {
+                       if (s->content->this_server_available)
+                           emit({UiInboxAction::filter_server});
+                       emit({UiInboxAction::filter_everyone});
+                       emit({UiInboxAction::filter_roles});
+                   }
+                   for (u32 i = 0; i < s->measured_count; ++i) {
+                       UiInboxRow row{};
+                       if (!s->source->resolve(s->source->context, i, &row))
+                           return false;
+                       if (row.kind == UiInboxRowKind::mention)
+                           emit({UiInboxAction::jump, row.id, row.channel_id});
+                       else if (row.kind == UiInboxRowKind::group)
+                           emit({UiInboxAction::mark_guild, row.guild_id, 0});
+                       else {
+                           emit({UiInboxAction::open_channel, row.channel_id, row.channel_id});
+                           emit({UiInboxAction::mark_channel, row.channel_id, row.channel_id});
+                       }
+                   }
+                   if (s->more.generation)
+                       emit(s->targets[s->more.slot]);
+                   emit({UiInboxAction::close});
+                   return true;
+               },
+               ui_inbox_target_equal, ui_inbox_scene_focused_target(*s),
+               move == UiInboxFocusMove::first ? Ring::first
+               : move == UiInboxFocusMove::last ? Ring::last
+               : move == UiInboxFocusMove::previous ? Ring::previous : Ring::next,
+               &pick) &&
+           ui_inbox_scene_focus(s, pick);
 }
 
 bool ui_inbox_scene_spinner_visible(const UiInboxScene& s) noexcept {

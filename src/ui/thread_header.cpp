@@ -57,7 +57,7 @@ bool project_nodes(UiThreadHeader* h) noexcept {
     for (u32 i = 0; i < 6; ++i) {
         const auto id = handle(h->widgets, i);
         auto* w = ui_widget_manager_resolve(&m, id);
-        auto* n = w ? ui_layout_engine_resolve(&m.layout, w->layout) : nullptr;
+        auto* n = ui_widget_manager_layout_node(&m, id);
         if (!n) return false;
         const auto r = rectangle(h->geometry, i);
         const bool visible = ui_rect_intersects(r, h->geometry.clip);
@@ -80,11 +80,6 @@ bool project_nodes(UiThreadHeader* h) noexcept {
         n->clip_rectangle = visible ? ui_rect_intersection(r, h->geometry.clip) : UiRect{};
         n->measured_size = {ui_rect_width(r), ui_rect_height(r)};
         n->visible = visible;
-        if (h->shell && id.slot < h->shell->count) {
-            auto& snapshot = h->shell->nodes[id.slot];
-            snapshot.rectangle = r;
-            snapshot.visible = visible;
-        }
     }
     ui_widget_manager_reconcile_input(&m);
     return true;
@@ -206,7 +201,6 @@ bool ui_thread_header_bind(UiThreadHeader* h, UiWidgetManager* manager, UiThread
         for (u32 j = 0; j < i; ++j) if (ui_widget_handle_equal(handle(widgets, i), handle(widgets, j))) return false;
     }
     h->manager = manager;
-    h->shell = nullptr;
     h->widgets = widgets;
     h->active = false;
     h->published = false;
@@ -222,9 +216,7 @@ bool ui_thread_header_bind_shell(UiThreadHeader* h, UiScene* shell) noexcept {
         shell->semantics[static_cast<u32>(UiSemantic::thread_overflow)],
         shell->semantics[static_cast<u32>(UiSemantic::thread_feedback)],
         shell->semantics[static_cast<u32>(UiSemantic::thread_cancel)]};
-    if (!ui_thread_header_bind(h, &shell->widgets, w)) return false;
-    h->shell = shell;
-    return true;
+    return ui_thread_header_bind(h, &shell->widgets, w);
 }
 bool ui_thread_header_update(UiThreadHeader* h, const UiThreadHeaderView& v, UiRect r, UiRect clip,
     const UiThreadHeaderStyle& style) noexcept {

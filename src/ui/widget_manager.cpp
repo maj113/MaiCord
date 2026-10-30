@@ -34,7 +34,9 @@ UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const
     }
     UiLayoutNodeHandle layout_handle{};
     const UiLayoutResult layout_result =
-        ui_layout_engine_add(&manager->layout, root ? ui_layout_invalid_handle() : parent_widget->layout,
+        ui_layout_engine_add(&manager->layout,
+                             root ? ui_layout_invalid_handle()
+                                  : UiLayoutNodeHandle{parent.slot, manager->layout.generation},
                              description.layout, &layout_handle);
     // Scroll flags do not affect admission; set them on the retained copy.
     if (layout_result.ok() && description.kind == UiWidgetKind::scroll_view) {
@@ -48,13 +50,7 @@ UiWidgetResult add_widget(UiWidgetManager* manager, UiWidgetHandle parent, const
         return UiWidgetResult{UiWidgetError::layout, ui_widget_invalid_handle()};
     }
     const u16 slot = static_cast<u16>(manager->count++);
-    UiWidget& widget = manager->storage[slot];
-    reset_value<UiWidget>(&widget);
-    widget.layout = layout_handle;
-    widget.parent = root ? ui_widget_invalid_handle() : parent;
-    widget.id = description.id;
-    widget.kind = description.kind;
-    widget.flags = description.flags;
+    manager->storage[slot] = UiWidget{description.id, description.kind, description.flags};
     return UiWidgetResult{UiWidgetError::none, UiWidgetHandle{slot, manager->generation}};
 }
 
@@ -186,10 +182,9 @@ bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handl
                                   UiRect origin, bool visible, bool enabled,
                                   bool focusable) noexcept {
     auto* widget = ui_widget_manager_resolve(manager, handle);
-    auto* node = widget ? ui_layout_engine_resolve(&manager->layout, widget->layout) : nullptr;
-    if (!node)
+    if (!widget)
         return false;
-    auto& style = node->spec.style;
+    auto& style = manager->layout.storage[handle.slot].spec.style;
     const float width = visible ? ui_rect_width(rectangle) : 0;
     const float height = visible ? ui_rect_height(rectangle) : 0;
     const float left = visible ? rectangle.left - origin.left : 0;
@@ -210,20 +205,7 @@ bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handl
     return changed;
 }
 
-UiLayoutResult ui_widget_manager_layout(UiWidgetManager* manager, UiSize viewport) noexcept {
-    if (!manager) {
-        return UiLayoutResult{UiLayoutError::invalid_argument, 0, 0};
-    }
-    const auto result = ui_layout_engine_layout(&manager->layout, viewport);
-    if (result.ok())
-        ui_widget_manager_reconcile_input(manager);
-    return result;
-}
-
 UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, const UiRect& viewport) noexcept {
-    if (!manager) {
-        return UiLayoutResult{UiLayoutError::invalid_argument, 0, 0};
-    }
     const auto result = ui_layout_engine_layout_rectangle(&manager->layout, viewport);
     if (result.ok())
         ui_widget_manager_reconcile_input(manager);
@@ -261,10 +243,10 @@ UiWidgetHandle ui_widget_manager_hit_test(const UiWidgetManager& manager, float 
     for (u32 reverse = manager.count; reverse != 0; --reverse) {
         const u32 index = reverse - 1;
         const UiWidget& widget = manager.storage[index];
-        const UiLayoutNode* layout = ui_layout_engine_resolve(manager.layout, widget.layout);
-        if (!layout || !layout->visible || (widget.flags & ui_widget_enabled) == 0 ||
-            (widget.flags & ui_widget_hit_test) == 0 || !ui_rect_contains(layout->rectangle, x, y) ||
-            !ui_rect_contains(layout->clip_rectangle, x, y)) {
+        const UiLayoutNode& layout = manager.layout.storage[index];
+        if (!layout.visible || (widget.flags & ui_widget_enabled) == 0 ||
+            (widget.flags & ui_widget_hit_test) == 0 || !ui_rect_contains(layout.rectangle, x, y) ||
+            !ui_rect_contains(layout.clip_rectangle, x, y)) {
             continue;
         }
         const UiWidgetHandle handle{static_cast<u16>(index), manager.generation};
@@ -334,22 +316,18 @@ bool ui_widget_manager_hover_at(UiWidgetManager* manager, float x, float y, bool
 }
 
 bool ui_widget_manager_input_reachable(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
-    for (u32 depth = 0; depth < kMaximumUiLayoutDepth; ++depth) {
-        const auto* widget = ui_widget_manager_resolve(manager, handle);
-        if (!widget || (widget->flags & ui_widget_block_input))
+    if (!ui_widget_manager_resolve(manager, handle))
+        return false;
+    // A node's parent was added before it, so the walk only moves to lower slots.
+    for (u16 slot = handle.slot;;) {
+        const UiLayoutNode& layout = manager.layout.storage[slot];
+        if ((manager.storage[slot].flags & ui_widget_block_input) || !layout.visible ||
+            !(layout.spec.style.flags & ui_layout_node_visible))
             return false;
-        const auto* layout = ui_layout_engine_resolve(manager.layout, widget->layout);
-        if (!layout || !layout->visible || !(layout->spec.style.flags & ui_layout_node_visible))
-            return false;
-        if (!widget->parent.generation)
-            return handle.slot == 0 && widget->parent.slot == kInvalidUiWidgetSlot &&
-                   layout->parent == kInvalidUiLayoutSlot;
-        const auto* parent = ui_widget_manager_resolve(manager, widget->parent);
-        if (!parent || widget->parent.slot >= handle.slot || layout->parent != parent->layout.slot)
-            return false;
-        handle = widget->parent;
+        if (layout.parent == kInvalidUiLayoutSlot)
+            return true;
+        slot = layout.parent;
     }
-    return false;
 }
 
 bool ui_widget_manager_input_enabled(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
@@ -440,10 +418,30 @@ UiWidgetHandle ui_widget_manager_next_focus(const UiWidgetManager& manager, UiWi
     return ui_widget_invalid_handle();
 }
 
+// A live widget's node shares its slot (add_widget admits only that) and was
+// added with it, so the node needs no second handle check.
 const UiLayoutNode* ui_widget_manager_layout_node(const UiWidgetManager& manager,
                                                   UiWidgetHandle handle) noexcept {
-    const UiWidget* widget = ui_widget_manager_resolve(manager, handle);
-    return widget ? ui_layout_engine_resolve(manager.layout, widget->layout) : nullptr;
+    return ui_widget_manager_resolve(manager, handle) ? &manager.layout.storage[handle.slot] : nullptr;
+}
+
+UiLayoutNode* ui_widget_manager_layout_node(UiWidgetManager* manager, UiWidgetHandle handle) noexcept {
+    return ui_widget_manager_resolve(*manager, handle) ? &manager->layout.storage[handle.slot] : nullptr;
+}
+
+UiLayoutNodeHandle ui_widget_manager_layout_handle(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
+    return ui_widget_manager_resolve(manager, handle) ? UiLayoutNodeHandle{handle.slot, manager.layout.generation}
+                                                      : ui_layout_invalid_handle();
+}
+
+bool ui_widget_manager_set_scroll(UiWidgetManager* manager, UiWidgetHandle handle, UiPoint offset) noexcept {
+    return ui_layout_engine_set_scroll(&manager->layout, ui_widget_manager_layout_handle(*manager, handle), offset);
+}
+
+UiWidgetHandle ui_widget_manager_parent(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
+    const UiLayoutNode* node = ui_widget_manager_layout_node(manager, handle);
+    return node && node->parent != kInvalidUiLayoutSlot ? UiWidgetHandle{node->parent, manager.generation}
+                                                         : ui_widget_invalid_handle();
 }
 
 } // namespace maicord

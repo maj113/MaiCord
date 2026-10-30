@@ -11,11 +11,15 @@
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/protocol/gateway_reaction_events.hpp"
 #include "maicord/app/message_send_tracker.hpp"
+#include "maicord/app/message_event_scratch.hpp"
 
 namespace maicord {
 namespace {
 
 static_assert(sizeof(MessageEventPump) == 344 + sizeof(ReservedBytes));
+
+// Decode arrays of consume_with_message_source (single-threaded, never nested).
+MessageEventScratch g_message_scratch;
 
 ReadStateEntry read_model_entry(const GatewayClientReadStateMutation& record) noexcept {
     return {record.channel_id,
@@ -510,8 +514,9 @@ bool observe_message_users(MessageEventPump* pump, const GatewayClientEvent& eve
         });
 }
 
-bool observe_message_member(MessageEventPump* pump, const GatewayClientEvent& event,
-                            ConstSlice<u8> payload) noexcept {
+// Out of line: its role-id array would otherwise join message_event_pump_consume's stack frame.
+__declspec(noinline) bool observe_message_member(MessageEventPump* pump, const GatewayClientEvent& event,
+                                                 ConstSlice<u8> payload) noexcept {
     if (!pump->members || !pump->state ||
         (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
          event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
@@ -524,7 +529,7 @@ bool observe_message_member(MessageEventPump* pump, const GatewayClientEvent& ev
         event.message.member_role_count > kGatewayMessageMemberRoleMaximumIds) {
         return false;
     }
-    u64 roles[kGatewayMessageMemberRoleMaximumIds]{};
+    u64 roles[kGatewayMessageMemberRoleMaximumIds];
     for (u32 index = 0; index < event.message.member_role_count; ++index) {
         if (!gateway_client_event_message_member_role_at(event, payload, index, &roles[index])) {
             return false;
@@ -678,36 +683,9 @@ template <class Consume>
 __declspec(noinline) MessageEventPumpConsumeResult
 consume_with_message_source(MessageEventPump* pump, const GatewayClientEvent& event, ConstSlice<u8> payload,
                             Consume consume) noexcept {
-    // The observer and canonical mutation borrow one decoded body. This
-    // bounded stack scratch is entered only while the host has retained intents.
-    GatewayMessageReaction reactions[kGatewayMessageReactionMaximum];
-    GatewayMessageAttachment attachments[kGatewayMessageAttachmentMaximum];
-    GatewayMessageEmbed embeds[kGatewayMessageEmbedMaximum];
-    GatewayMessageEmbedField fields[kGatewayMessageEmbedFieldMaximum];
-    GatewayMessageSticker stickers[kGatewayMessageStickerMaximum];
-    GatewayMessageComponent components[kGatewayMessageComponentMaximum];
-    GatewayMessageAttachment child_attachments[kGatewayMessageAttachmentMaximum];
-    GatewayMessageEmbed child_embeds[kGatewayMessageEmbedMaximum];
-    GatewayMessageEmbedField child_fields[kGatewayMessageEmbedFieldMaximum];
-    GatewayMessageSticker child_stickers[kGatewayMessageStickerMaximum];
-    GatewayMessageComponent child_components[kGatewayMessageComponentMaximum];
-    GatewayMessageNamedUser child_users[kGatewayMessageMentionUserMaximum];
-    GatewayMessagePollAnswer poll_answers[kGatewayMessagePollMaximumAnswers];
-    GatewayMessagePollAnswerCount poll_counts[kGatewayMessagePollMaximumAnswers];
-    const GatewayMessageRichScratch scratch{{reactions, kGatewayMessageReactionMaximum},
-                                            {attachments, kGatewayMessageAttachmentMaximum},
-                                            {embeds, kGatewayMessageEmbedMaximum},
-                                            {fields, kGatewayMessageEmbedFieldMaximum},
-                                            {stickers, kGatewayMessageStickerMaximum},
-                                            {components, kGatewayMessageComponentMaximum},
-                                            {{child_attachments, kGatewayMessageAttachmentMaximum},
-                                             {child_embeds, kGatewayMessageEmbedMaximum},
-                                             {child_fields, kGatewayMessageEmbedFieldMaximum},
-                                             {child_stickers, kGatewayMessageStickerMaximum},
-                                             {child_components, kGatewayMessageComponentMaximum},
-                                             {child_users, kGatewayMessageMentionUserMaximum}},
-                                            {{poll_answers, kGatewayMessagePollMaximumAnswers},
-                                             {poll_counts, kGatewayMessagePollMaximumAnswers}}};
+    // The observer and canonical mutation borrow one decoded body, which lives
+    // in the pump's static scratch until the consumer returns.
+    const GatewayMessageRichScratch scratch = g_message_scratch.view(true);
     GatewayMessageEvent message{};
     GatewayMessageNamedUser system_target{};
     bool valid = gateway_client_event_as_message(event, payload, scratch, &message) &&

@@ -54,7 +54,8 @@ constexpr float kPreviewWidth = 300;
 // the thumbnail bit, so composer and forum previews never collide with them.
 constexpr u64 kPreviewIdBase = 0x5052000000000000ull;
 // The official client's bio box is 136 DIP tall; the rest is the settings default.
-constexpr UiSettingsStyle kEditorStyle{680, 12, 24, 40, 136, kUiEditCornerRadius, kUiControlCornerRadius, 64};
+constexpr UiSettingsStyle kEditorStyle{12, 40, 136};
+static_assert(ui_settings_style_valid(kEditorStyle));
 
 enum : u64 {
     control_tabs = 1,

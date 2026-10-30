@@ -907,8 +907,8 @@ bool upload_rows(Fixture& f, D3D11Renderer& r) noexcept {
     return ok;
 }
 
-const UiNode* node(const UiScene& scene, UiSemantic semantic) noexcept {
-    return ui_scene_resolve(scene, ui_scene_find(scene, semantic));
+const UiLayoutNode* node(const UiScene& scene, UiSemantic semantic) noexcept {
+    return ui_scene_node(scene, semantic);
 }
 
 // Lays the shell out at the renderer's size and converges message text.
@@ -927,11 +927,11 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
     if (!navigation_view_rebuild(&f.view, f.state).ok() ||
         !ui_scene_layout_with_metrics(&f.shell, UiShellView::guild_channel, metrics, width, height))
         return check(false, "shell_layout_failed");
-    const UiNode* rail = node(f.shell, UiSemantic::guild_navigation);
-    const UiNode* channels = node(f.shell, UiSemantic::channel_navigation);
-    const UiNode* body = node(f.shell, UiSemantic::message_view);
-    const UiNode* compose = node(f.shell, UiSemantic::composer);
-    const UiNode* pane = node(f.shell, UiSemantic::member_sidebar);
+    const UiLayoutNode* rail = node(f.shell, UiSemantic::guild_navigation);
+    const UiLayoutNode* channels = node(f.shell, UiSemantic::channel_navigation);
+    const UiLayoutNode* body = node(f.shell, UiSemantic::message_view);
+    const UiLayoutNode* compose = node(f.shell, UiSemantic::composer);
+    const UiLayoutNode* pane = node(f.shell, UiSemantic::member_sidebar);
     const MessageComposerProjectionContext projection{&f.users, &f.state, kGuild};
     if (!check(rail && channels && body && compose && pane, "shell_nodes_missing") ||
         !check(guild_rail_scene_update(&f.rail, &f.view, rail->rectangle, 0).ok(), "rail_update_failed") ||
@@ -951,7 +951,7 @@ bool project(Fixture& f, D3D11Renderer& r) noexcept {
     UiRect search_viewport = ui_scene_content_rectangle(f.shell, UiSemantic::content);
     search_viewport.right = width;
     const UiShellHeaderGeometry header = ui_scene_header_geometry(f.shell);
-    const UiNode* title = node(f.shell, UiSemantic::title_bar);
+    const UiLayoutNode* title = node(f.shell, UiSemantic::title_bar);
     if (!check(title && ui_search_scene_update(&f.search, nullptr, &f.search_content, search_viewport,
                                                title->rectangle, &header),
                "search_update_failed"))

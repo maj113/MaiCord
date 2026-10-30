@@ -150,39 +150,13 @@ Utf8View ui_guild_acronym(Utf8View name, Slice<char> storage, u32* characters) n
     return {storage.data, used};
 }
 
-bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateStore& state,
-                                          const NavigationView& navigation, const Theme& theme,
-                                          const ShellNavigationScene& channel_scene,
-                                          const MessageComposerScene* composer_scene,
-                                          const MemberListScene* member_scene,
-                                          const UiRect* composer_text_rectangle, UiTextOutput* stream,
-                                          const UserStore* users,
-                                          const GuildRailScene* guild_scene,
-                                          u64 visual_selected_channel_id, UiTextMeasureCache* measure) noexcept {
-    if (!ui_text_output_valid(stream) || scene.count == 0 ||
-        navigation.channel_count > navigation.channel_capacity ||
-        (navigation.channel_count != 0 && !navigation.channel_rows) ||
-        (guild_scene && guild_scene->active &&
-         (!guild_scene->rows.data || guild_scene->count > guild_scene->rows.count ||
-          !ui_rect_has_area(guild_scene->viewport))) ||
-        (channel_scene.active &&
-         (!ui_rect_has_area(channel_scene.viewport) || channel_scene.count > channel_scene.rows.count))) {
-        return reject(stream);
-    }
-    ui_text_output_reset(stream);
-    const UiNode* title = ui_scene_resolve_semantic(scene, UiSemantic::title_bar);
-    if (const auto* friends = ui_scene_resolve_semantic(scene, UiSemantic::friends_button)) {
-        if (!append_command(scene.widgets, friends->widget, utf8_literal("Friends"),
-                            ui_scene_content_rectangle(scene, UiSemantic::friends_button),
-                            friends->rectangle, theme.text_primary, stream, kLookClipped))
-            return reject(stream);
-    }
-    const UiNode* title_label = ui_scene_resolve_semantic(scene, UiSemantic::title_label);
-    const UiNode* channel_header = ui_scene_resolve_semantic(scene, UiSemantic::channel_header);
-    const UiNode* channel_navigation = ui_scene_resolve_semantic(scene, UiSemantic::channel_navigation);
-    if (!title)
-        return reject(stream);
-
+// The channel or DM name in the header with its plugin badge and a DM's activity line; outlined with its
+// name and activity buffers so they stay off the main frame.
+static __declspec(noinline) bool title_output(const UiScene& scene, const ChatStateStore& state,
+                                              const NavigationView& navigation, const Theme& theme,
+                                              UiTextOutput* stream, const UserStore* users,
+                                              u64 visual_selected_channel_id, const UiLayoutNode* title,
+                                              const UiLayoutNode* title_label) noexcept {
     Utf8View title_text = scene.view == UiShellView::friends ? utf8_literal("Friends")
                           : state.home_selected              ? utf8_literal("Direct messages")
                                                              : utf8_literal("MaiCord");
@@ -203,7 +177,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             title_text = name;
         }
     }
-    const UiNode* title_text_owner = title_label ? title_label : title;
+    const UiLayoutNode* title_text_owner = title_label ? title_label : title;
     UiRect title_text_rectangle = title_text_owner->rectangle;
     // Header padding owns horizontal insets only. Center both labels against
     // the complete 48-DIP bar so asymmetric top/bottom padding cannot shift
@@ -214,12 +188,12 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
         scene.view != UiShellView::friends)
         title_text_rectangle.left += kUiPrivateHeaderAvatar + 8.0f;
     UiPluginSlotBadge header_slot{};
-    if (title_label && ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, title_label->widget,
+    if (title_label && ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, ui_scene_widget(scene, UiSemantic::title_label),
                                                  title_text_rectangle, nullptr, &header_slot))
         title_text_rectangle.right = header_slot.badge.rectangle.left - 8;
     if (header_slot.badge.label.bytes && !ui_badge_text_output(header_slot.badge, scene.widgets, theme, stream))
         return reject(stream);
-    if (!append_command(scene.widgets, title_text_owner->widget, title_text, title_text_rectangle,
+    if (!append_command(scene.widgets, ui_scene_widget(scene, title_label ? UiSemantic::title_label : UiSemantic::title_bar), title_text, title_text_rectangle,
                         title_text_owner->rectangle, theme.text_primary, stream,
                         selected_channel && channel_is_private(selected_channel->type) ? kLookLineOwned : kLookLine))
         return reject(stream);
@@ -229,9 +203,126 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
     if (selected_channel && navigation.private_rows && title_label &&
         ui_private_header_activity(scene, *navigation.private_rows, selected_channel->id,
                                    {activity_line, sizeof(activity_line)}, &activity) &&
-        !append_command(scene.widgets, title_label->widget, activity.line, activity.text, title_label->rectangle,
+        !append_command(scene.widgets, ui_scene_widget(scene, UiSemantic::title_label), activity.line, activity.text, title_label->rectangle,
                         theme.text_secondary, stream, kLookCode))
         return reject(stream);
+    return true;
+}
+
+// The account name and status line and the voice panel text; outlined so the buffers stay off the main frame.
+static __declspec(noinline) bool footer_output(const UiScene& scene, const ChatStateStore& state,
+                                        const NavigationView& navigation, const Theme& theme, UiTextOutput* stream,
+                                        const UserStore* users) noexcept {
+    if (const auto* footer = ui_scene_node(scene, UiSemantic::channel_footer); footer && users) {
+        const auto* self = user_store_find(*users, state.self_user_id);
+        if (self) {
+            auto r = footer->rectangle;
+            r.left += 52;
+            r.right -= navigation.voice_panel ? kUiVoiceAccountButtonsWidth + 4 + ui_plugin_slot_account_width() : 44;
+            r.top += 6;
+            r.bottom = r.top + 22;
+            if (!append_command(scene.widgets, ui_scene_widget(scene, UiSemantic::channel_footer), user_store_name(*users, *self), r,
+                                footer->rectangle, theme.text_primary, stream, kLookBold))
+                return false;
+            r.top = r.bottom;
+            r.bottom = footer->rectangle.bottom - 4;
+            // A custom status replaces the username line.
+            const auto* appearance = user_appearance_find(users->appearance, state.self_user_id);
+            char status[kAppearanceStatusEmojiBytes + 1 + kAppearanceActivityBytes];
+            u32 status_bytes = 0;
+            if (appearance && (appearance->fields & appearance_activity)) {
+                if (!appearance->status_emoji_id && appearance->status_emoji.bytes) {
+                    copy_bytes(status, appearance->status_emoji.view().data,
+                               appearance->status_emoji.bytes);
+                    status_bytes = appearance->status_emoji.bytes;
+                    if (appearance->activity.bytes)
+                        status[status_bytes++] = ' ';
+                }
+                copy_bytes(status + status_bytes, appearance->activity.view().data,
+                           appearance->activity.bytes);
+                status_bytes += appearance->activity.bytes;
+            }
+            if (!append_command(scene.widgets, ui_scene_widget(scene, UiSemantic::channel_footer),
+                                status_bytes ? Utf8View{status, status_bytes}
+                                             : user_store_username(*users, *self),
+                                r,
+                                footer->rectangle, ui_background_muted_text_color(theme), stream, kLookSub))
+                return false;
+        }
+        if (const auto* voice = navigation.voice_panel; voice && voice->state != UiVoicePanelState::hidden) {
+            const UiRect panel = ui_voice_panel_rectangle(footer->rectangle);
+            const Utf8View status = voice->state == UiVoicePanelState::connected  ? utf8_literal("Voice connected")
+                                    : voice->state == UiVoicePanelState::connecting ? utf8_literal("Connecting…")
+                                                                                     : utf8_literal("Couldn't connect");
+            // "Channel / Server", copied into the output.
+            char place[192];
+            u32 used = 0;
+            const auto put = [&](Utf8View text) noexcept {
+                for (u32 i = 0; i < text.bytes && used < sizeof(place); ++i)
+                    place[used++] = text.data[i];
+            };
+            if (const auto* channel = chat_state_store_find_channel(state, voice->channel_id)) {
+                char call_title[128];
+                put(channel_is_private(channel->type)
+                        ? private_channel_title(state, users, *channel, {call_title, sizeof(call_title)})
+                        : chat_state_store_channel_name(state, *channel));
+                if (const auto* guild = chat_state_store_find_guild(state, voice->guild_id)) {
+                    put(utf8_literal(" / "));
+                    put(chat_state_store_guild_name(state, *guild));
+                }
+            }
+            while (used && used == sizeof(place) && (static_cast<u8>(place[used - 1]) & 0xc0) == 0x80)
+                --used; // Never cut a UTF-8 sequence.
+            if (used == sizeof(place))
+                --used;
+            const bool hovered = voice->hovered == UiVoiceControl::channel;
+            if (!append_command(scene.widgets, ui_scene_widget(scene, UiSemantic::channel_footer), status, ui_voice_panel_status_text(panel), panel,
+                                ui_voice_panel_status_color(*voice, theme), stream, kLookBold) ||
+                !append_command(scene.widgets, ui_scene_widget(scene, UiSemantic::channel_footer), {place, used}, ui_voice_panel_channel_text(panel),
+                                panel, hovered ? theme.text_primary : ui_background_muted_text_color(theme),
+                                stream, kLookSubOwned))
+                return false;
+        }
+    }
+    return true;
+}
+
+bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateStore& state,
+                                          const NavigationView& navigation, const Theme& theme,
+                                          const ShellNavigationScene& channel_scene,
+                                          const MessageComposerScene* composer_scene,
+                                          const MemberListScene* member_scene,
+                                          const UiRect* composer_text_rectangle, UiTextOutput* stream,
+                                          const UserStore* users,
+                                          const GuildRailScene* guild_scene,
+                                          u64 visual_selected_channel_id, UiTextMeasureCache* measure) noexcept {
+    if (!ui_text_output_valid(stream) || scene.count == 0 ||
+        navigation.channel_count > navigation.channel_capacity ||
+        (navigation.channel_count != 0 && !navigation.channel_rows) ||
+        (guild_scene && guild_scene->active &&
+         (!guild_scene->rows.data || guild_scene->count > guild_scene->rows.count ||
+          !ui_rect_has_area(guild_scene->viewport))) ||
+        (channel_scene.active &&
+         (!ui_rect_has_area(channel_scene.viewport) || channel_scene.count > channel_scene.rows.count))) {
+        return reject(stream);
+    }
+    ui_text_output_reset(stream);
+    const UiLayoutNode* title = ui_scene_node(scene, UiSemantic::title_bar);
+    if (const auto* friends = ui_scene_node(scene, UiSemantic::friends_button)) {
+        if (!append_command(scene.widgets, ui_scene_widget(scene, UiSemantic::friends_button), utf8_literal("Friends"),
+                            ui_scene_content_rectangle(scene, UiSemantic::friends_button),
+                            friends->rectangle, theme.text_primary, stream, kLookClipped))
+            return reject(stream);
+    }
+    const UiLayoutNode* title_label = ui_scene_node(scene, UiSemantic::title_label);
+    const UiLayoutNode* channel_header = ui_scene_node(scene, UiSemantic::channel_header);
+    const UiLayoutNode* channel_navigation = ui_scene_node(scene, UiSemantic::channel_navigation);
+    if (!title)
+        return reject(stream);
+
+    if (!title_output(scene, state, navigation, theme, stream, users, visual_selected_channel_id, title, title_label))
+        return false;
+    char private_title[512];
 
     if (channel_header) {
         const GuildRecord* selected_guild =
@@ -241,8 +332,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                                  : utf8_literal("Direct messages");
             // A guild header draws the name on its dropdown button, ahead of
             // the trailing chevron.
-            const UiNode* guild_menu = selected_guild ? ui_scene_resolve_semantic(scene, UiSemantic::guild_menu) : nullptr;
-            const UiNode* owner = guild_menu ? guild_menu : channel_header;
+            const UiLayoutNode* guild_menu = selected_guild ? ui_scene_node(scene, UiSemantic::guild_menu) : nullptr;
+            const UiLayoutNode* owner = guild_menu ? guild_menu : channel_header;
             UiRect header_text_rectangle =
                 ui_scene_content_rectangle(scene, guild_menu ? UiSemantic::guild_menu : UiSemantic::channel_header);
             header_text_rectangle.top = channel_header->rectangle.top;
@@ -255,24 +346,24 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             if (banner) {
                 const UiRect shadow{header_text_rectangle.left, header_text_rectangle.top + 1,
                                     header_text_rectangle.right, header_text_rectangle.bottom + 1};
-                if (!append_command(scene.widgets, owner->widget, name, shadow, owner->rectangle,
+                if (!append_command(scene.widgets, ui_scene_widget(scene, guild_menu ? UiSemantic::guild_menu : UiSemantic::channel_header), name, shadow, owner->rectangle,
                                     theme.tokens.overlay.shadow, stream, kLookLine))
                     return reject(stream);
             }
-            if (!append_command(scene.widgets, owner->widget, name, header_text_rectangle, owner->rectangle,
+            if (!append_command(scene.widgets, ui_scene_widget(scene, guild_menu ? UiSemantic::guild_menu : UiSemantic::channel_header), name, header_text_rectangle, owner->rectangle,
                                 banner ? theme.tokens.text.on_accent : theme.text_primary, stream, kLookLine))
                 return reject(stream);
         }
     }
 
-    const auto* home = ui_scene_resolve_semantic(scene, UiSemantic::home_button);
-    const auto* rail = ui_scene_resolve_semantic(scene, UiSemantic::guild_rail);
+    const auto* home = ui_scene_node(scene, UiSemantic::home_button);
+    const auto* rail = ui_scene_node(scene, UiSemantic::guild_rail);
     if (home && rail && navigation.home_badge &&
-        !ui_mention_badge_text_output(navigation.home_badge, scene.widgets, home->widget,
+        !ui_mention_badge_text_output(navigation.home_badge, scene.widgets, ui_scene_widget(scene, UiSemantic::home_button),
                                       ui_mention_badge_guild_rectangle(home->rectangle, navigation.home_badge),
                                       rail->rectangle, stream))
         return reject(stream);
-    const auto* guild_navigation = ui_scene_resolve_semantic(scene, UiSemantic::guild_navigation);
+    const auto* guild_navigation = ui_scene_node(scene, UiSemantic::guild_navigation);
     if (guild_navigation && guild_scene && guild_scene->active) {
         for (u32 index = 0; index < guild_scene->count; ++index) {
             const auto& row = guild_scene->rows[index];
@@ -596,77 +687,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                             kLookSub))
             return reject(stream);
     }
-    if (const auto* footer = ui_scene_resolve_semantic(scene, UiSemantic::channel_footer); footer && users) {
-        const auto* self = user_store_find(*users, state.self_user_id);
-        if (self) {
-            auto r = footer->rectangle;
-            r.left += 52;
-            r.right -= navigation.voice_panel ? kUiVoiceAccountButtonsWidth + 4 + ui_plugin_slot_account_width() : 44;
-            r.top += 6;
-            r.bottom = r.top + 22;
-            if (!append_command(scene.widgets, footer->widget, user_store_name(*users, *self), r,
-                                footer->rectangle, theme.text_primary, stream, kLookBold))
-                return false;
-            r.top = r.bottom;
-            r.bottom = footer->rectangle.bottom - 4;
-            // A custom status replaces the username line.
-            const auto* appearance = user_appearance_find(users->appearance, state.self_user_id);
-            char status[kAppearanceStatusEmojiBytes + 1 + kAppearanceActivityBytes];
-            u32 status_bytes = 0;
-            if (appearance && (appearance->fields & appearance_activity)) {
-                if (!appearance->status_emoji_id && appearance->status_emoji.bytes) {
-                    copy_bytes(status, appearance->status_emoji.view().data,
-                               appearance->status_emoji.bytes);
-                    status_bytes = appearance->status_emoji.bytes;
-                    if (appearance->activity.bytes)
-                        status[status_bytes++] = ' ';
-                }
-                copy_bytes(status + status_bytes, appearance->activity.view().data,
-                           appearance->activity.bytes);
-                status_bytes += appearance->activity.bytes;
-            }
-            if (!append_command(scene.widgets, footer->widget,
-                                status_bytes ? Utf8View{status, status_bytes}
-                                             : user_store_username(*users, *self),
-                                r,
-                                footer->rectangle, ui_background_muted_text_color(theme), stream, kLookSub))
-                return false;
-        }
-        if (const auto* voice = navigation.voice_panel; voice && voice->state != UiVoicePanelState::hidden) {
-            const UiRect panel = ui_voice_panel_rectangle(footer->rectangle);
-            const Utf8View status = voice->state == UiVoicePanelState::connected  ? utf8_literal("Voice connected")
-                                    : voice->state == UiVoicePanelState::connecting ? utf8_literal("Connecting…")
-                                                                                     : utf8_literal("Couldn't connect");
-            // "Channel / Server", copied into the output.
-            char place[192];
-            u32 used = 0;
-            const auto put = [&](Utf8View text) noexcept {
-                for (u32 i = 0; i < text.bytes && used < sizeof(place); ++i)
-                    place[used++] = text.data[i];
-            };
-            if (const auto* channel = chat_state_store_find_channel(state, voice->channel_id)) {
-                char call_title[128];
-                put(channel_is_private(channel->type)
-                        ? private_channel_title(state, users, *channel, {call_title, sizeof(call_title)})
-                        : chat_state_store_channel_name(state, *channel));
-                if (const auto* guild = chat_state_store_find_guild(state, voice->guild_id)) {
-                    put(utf8_literal(" / "));
-                    put(chat_state_store_guild_name(state, *guild));
-                }
-            }
-            while (used && used == sizeof(place) && (static_cast<u8>(place[used - 1]) & 0xc0) == 0x80)
-                --used; // Never cut a UTF-8 sequence.
-            if (used == sizeof(place))
-                --used;
-            const bool hovered = voice->hovered == UiVoiceControl::channel;
-            if (!append_command(scene.widgets, footer->widget, status, ui_voice_panel_status_text(panel), panel,
-                                ui_voice_panel_status_color(*voice, theme), stream, kLookBold) ||
-                !append_command(scene.widgets, footer->widget, {place, used}, ui_voice_panel_channel_text(panel),
-                                panel, hovered ? theme.text_primary : ui_background_muted_text_color(theme),
-                                stream, kLookSubOwned))
-                return false;
-        }
-    }
+    if (!footer_output(scene, state, navigation, theme, stream, users))
+        return false;
     return !member_scene || shell_text_presentation_member_output(*member_scene, theme, stream);
 }
 
@@ -678,6 +700,8 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
     if (!member_scene->active || !member_scene->source || !member_scene->members || !member_scene->users ||
         !member_scene->state)
         return true;
+    char group_storage[160];
+    const auto* hovered_row = member_list_scene_resolve(*member_scene, member_scene->widgets.hovered);
     for (u32 index = 0; index < member_scene->count; ++index) {
         const auto& row = member_scene->rows[index];
         const auto* label = member_list_scene_layout_node(*member_scene, row.label);
@@ -686,14 +710,13 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
         if (!label || row.source_index >= member_scene->source_count)
             return false;
         const bool group = row.kind == MemberListRowKind::group;
-        const auto name = group ? row.group_label.view()
+        const auto name = group ? member_list_group_label(*member_scene, index, {group_storage, sizeof(group_storage)})
                                 : member_list_row_label(row.source_row, *member_scene->members,
                                                         *member_scene->users, *member_scene->state);
         auto color =
-            group ? ui_background_muted_text_color(theme) : packed_role_color(row.role_color, theme);
+            group ? ui_background_muted_text_color(theme) : packed_role_color(row.source_row.role_color, theme);
         const bool offline = !group && row.source_row.status == GuildMemberStatus::offline;
-        const bool hovered =
-            member_list_scene_resolve(*member_scene, member_scene->widgets.hovered) == &row;
+        const bool hovered = hovered_row == &row;
         if (offline && !hovered)
             color.alpha = .4f;
         auto r = label->content_rectangle;
@@ -724,6 +747,7 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
         if (!group && !name_effect.kind)
             name_effect = member_role_effect(*member_scene, row.source_row, theme);
         TextLook look = group ? kLookGroup : kLookLine;
+        look.owned = group; // the heading is formatted into a local buffer
         if (!group && name_style)
             look.face = profile_name_face(name_style->name.font_id);
         look.effect = &name_effect;

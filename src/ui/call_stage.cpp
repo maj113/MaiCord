@@ -34,11 +34,11 @@ u8 format(char* output, u32 capacity, Utf8View prefix, u32 value) noexcept {
         output[at++] = digits[i];
     return static_cast<u8>(at);
 }
-UiRect control(const UiCallScene& s, UiCallControl c) noexcept {
+inline UiRect control(const UiCallScene& s, UiCallControl c) noexcept {
     return s.controls[static_cast<u32>(c)];
 }
 // Audience slots that fit the band; the last one turns into "+K" on overflow.
-u32 audience_slots(const UiCallScene& s) noexcept {
+inline u32 audience_slots(const UiCallScene& s) noexcept {
     if (!ui_rect_has_area(s.stage_audience))
         return 0;
     const float width = ui_rect_width(s.stage_audience) - 2 * kPad + (kAvatarStep - kAvatar);
@@ -49,7 +49,7 @@ u32 audience_drawn(const UiCallScene& s) noexcept {
     const u32 shown = minimum(s.stage_audience_shown, slots);
     return s.stage_audience_count > shown && shown == slots && shown ? shown - 1 : shown;
 }
-bool audience_more(const UiCallScene& s) noexcept {
+inline bool audience_more(const UiCallScene& s) noexcept {
     return audience_slots(s) && s.stage_audience_count > audience_drawn(s);
 }
 UiRect audience_slot(const UiCallScene& s, u32 index) noexcept {
@@ -57,7 +57,7 @@ UiRect audience_slot(const UiCallScene& s, u32 index) noexcept {
     const float left = a.left + kPad + static_cast<float>(index) * kAvatarStep;
     return {left, a.top + 40, left + kAvatar, a.top + 40 + kAvatar};
 }
-UiRect audience_label(const UiCallScene& s) noexcept {
+inline UiRect audience_label(const UiCallScene& s) noexcept {
     const auto& a = s.stage_audience;
     return {a.left + kPad + 24, a.top + 8, a.right - kPad, a.top + 30};
 }
@@ -67,7 +67,7 @@ u32 request_rows(const UiCallScene& s) noexcept {
     const float rows = (ui_rect_height(s.stage_requests) - 40) / kUiCallStageRowHeight;
     return minimum(s.stage_request_shown, rows > 0 ? static_cast<u32>(rows) : 0u);
 }
-UiRect request_row(const UiCallScene& s, u32 index) noexcept {
+inline UiRect request_row(const UiCallScene& s, u32 index) noexcept {
     const auto& r = s.stage_requests;
     const float top = r.top + 40 + static_cast<float>(index) * kUiCallStageRowHeight;
     return {r.left, top, r.right, top + kUiCallStageRowHeight};
@@ -77,18 +77,18 @@ UiRect request_avatar(const UiCallScene& s, u32 index) noexcept {
     const float y = (row.top + row.bottom) * .5f;
     return {row.left + kPad, y - kRowAvatar * .5f, row.left + kPad + kRowAvatar, y + kRowAvatar * .5f};
 }
-UiRect requests_label(const UiCallScene& s) noexcept {
+inline UiRect requests_label(const UiCallScene& s) noexcept {
     const auto& r = s.stage_requests;
     return {r.left + kPad + 24, r.top + 8, r.right - kPad, r.top + 32};
 }
-Color shaded(Color fill, bool hovered, bool pressed) noexcept {
+inline Color shaded(Color fill, bool hovered, bool pressed) noexcept {
     const float shade = pressed ? .8f : hovered ? .9f : 1.f;
     fill.red *= shade;
     fill.green *= shade;
     fill.blue *= shade;
     return fill;
 }
-Utf8View person_name(const UiCallStagePerson& person) noexcept {
+inline Utf8View person_name(const UiCallStagePerson& person) noexcept {
     return person.name.bytes ? person.name : utf8_literal("Unknown user");
 }
 } // namespace

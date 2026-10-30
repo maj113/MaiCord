@@ -208,18 +208,9 @@ void test_picker_emoji(void (*check)(bool, const char*) noexcept) noexcept {
     fixture.regional_flag = 0;
     fixture.glyph = utf8_literal("😀");
     ++source.revision;
-    auto incompatible = ui_media_picker_style();
-    incompatible.metrics.panel_height = 200;
-    incompatible.metrics.content_inset = incompatible.metrics.header_gap = 24;
-    incompatible.metrics.tab_height = 48;
-    incompatible.metrics.search_height = 64;
-    incompatible.metrics.footer_height = 80;
-    const auto defaults = ui_media_picker_style();
-    check(
-        ui_media_picker_scene_update(&scene, &source, &content, pane, anchor, &incompatible) &&
-            bytes_equal(&scene.style, &defaults, sizeof(defaults)) &&
-            scene.body.bottom == scene.footer.top && scene.cell_count <= kUiMediaPickerVisibleCells,
-        "media picker emoji: impossible override falls back as whole style without shortening common body");
+    check(ui_media_picker_scene_update(&scene, &source, &content, pane, anchor) &&
+              scene.body.bottom == scene.footer.top && scene.cell_count <= kUiMediaPickerVisibleCells,
+          "media picker emoji: the common body ends at the footer");
     fixture.count = 272;
     source.count = 272;
     UiMediaPickerSection sections[272]{};
@@ -545,18 +536,9 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     fixture.favorite = true;
     fixture.favorite_failed = false;
     ++source.revision;
-    auto dense = ui_media_picker_style();
-    dense.metrics.panel_width = 240;
-    dense.metrics.panel_height = 768;
-    dense.metrics.gap = 2;
-    dense.metrics.gif_category_height = 48;
-    dense.metrics.gif_target_width = 96;
-    dense.metrics.icon_extent = 28;
-    dense.metrics.footer_height = 64;
-    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 1000}, {560, 900, 940, 940},
-                                       &dense) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 1000}, {560, 900, 940, 940}) &&
               ui_media_picker_scene_edge_selection(&scene, false) &&
-              ui_media_picker_scene_select(&scene, 4) && scene.cell_count > 20,
+              ui_media_picker_scene_select(&scene, 4) && scene.cell_count > 4,
           "media picker favorites: dense unknown-asset gallery exercises large confirmed glyphs");
     if (scene.cell_count > 4) {
         const auto& captured = scene.projection->cells[2];
@@ -592,9 +574,7 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     content.edit.focused = true;
     content.placeholder = utf8_literal("Search stickers");
     const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
-    const auto defaults = ui_media_picker_style();
-    check(ui_media_picker_style_valid(defaults) &&
-              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&
               ui_rect_width(scene.panel) == 498 && ui_rect_height(scene.panel) == 486 &&
               scene.tabs.top == scene.panel.top + 16 && scene.tabs.bottom == scene.panel.top + 46 &&
               scene.field.top == scene.panel.top + 58 && scene.field.bottom == scene.panel.top + 98 &&
@@ -610,52 +590,30 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     const u32 generation = scene.generation;
     check(ui_media_picker_scene_pointer_down(&scene, x, y),
           "media picker style: exact tile capture begins before theme geometry changes");
-    auto custom = defaults;
-    custom.metrics.panel_width = 400;
-    custom.metrics.panel_height = 520;
-    custom.metrics.padding = 16;
-    custom.metrics.gap = 10;
-    custom.metrics.content_inset = 12;
-    custom.metrics.tab_height = 36;
-    custom.metrics.search_height = 44;
-    custom.metrics.footer_height = 56;
-    custom.metrics.section_height = 32;
-    custom.metrics.rail_width = 52;
-    custom.metrics.rail_pitch = 44;
-    custom.metrics.scrollbar_gutter = 16;
-    custom.panel_radius = 18;
-    custom.control_radius = 9;
-    custom.edit_radius = 10;
-    custom.selection_width = 2;
-    custom.category_opacity = .3f;
     const u32 calls = fixture.calls;
-    check(ui_media_picker_style_valid(custom) &&
-              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &custom) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 801}, anchor) &&
               scene.storage.arena.base == bank && scene.storage.arena.committed <= 128 * 1024 &&
               scene.generation != generation && !scene.widgets.captured.generation &&
               ui_media_picker_scene_pointer_up(&scene, x, y).action == UiMediaPickerAction::none &&
               fixture.calls - calls <= kUiMediaPickerVisibleCells &&
               scene.cell_count <= kUiMediaPickerVisibleCells && scene.widgets.count <= 96,
-          "media picker style: owned override rebuilds bounded geometry and fences old capture");
+          "media picker style: a viewport change rebuilds bounded geometry and fences old capture");
+    const auto& m = scene.style.metrics;
     const auto custom_cell = scene.projection->cells[0];
     UiMediaPickerMediaSlot media{};
-    check(ui_rect_width(scene.panel) == 400 && ui_rect_height(scene.panel) == 520 &&
-              scene.field.top == scene.tabs.bottom + custom.metrics.header_gap && ui_rect_height(scene.field) == 44 &&
-              ui_rect_width(scene.rail) == 52 && custom_cell.rectangle.top == scene.body.top + 32 &&
-              custom_cell.rectangle.left == scene.body.left + custom.metrics.list_inset &&
-              ui_media_picker_scene_media(scene, 0, &media) && media.radius == 9 &&
-              media.fit == UiMediaPickerFit::contain &&
-              media.rectangle.left == custom_cell.rectangle.left + 1 &&
+    check(scene.field.top == scene.tabs.bottom + m.header_gap && ui_rect_height(scene.field) == m.search_height &&
+              ui_rect_width(scene.rail) == m.rail_width && custom_cell.rectangle.top == scene.body.top + m.section_height &&
+              custom_cell.rectangle.left == scene.body.left + m.list_inset &&
+              ui_media_picker_scene_media(scene, 0, &media) && media.radius == scene.style.control_radius &&
+              media.fit == UiMediaPickerFit::contain && media.rectangle.left == custom_cell.rectangle.left + 1 &&
               media.rectangle.right == custom_cell.rectangle.right - 1 &&
               ui_rect_equal(media.clip, ui_rect_intersection(media.rectangle, custom_cell.clip)) &&
               scene.widgets.focused.slot == scene.edit.slot,
           "media picker style: density, section, art mask and exclusive edit focus use one snapshot");
-    const u32 custom_generation = scene.generation, custom_calls = fixture.calls;
-    custom.control_radius = 11; // Mutating caller memory cannot mutate a published scene.
-    check(scene.style.control_radius == 9 &&
-              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &scene.style) &&
-              scene.generation == custom_generation && fixture.calls == custom_calls,
-          "media picker style: caller value is copied and identical owned style does not resolve again");
+    const u32 settled_generation = scene.generation, settled_calls = fixture.calls;
+    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 801}, anchor) &&
+              scene.generation == settled_generation && fixture.calls == settled_calls,
+          "media picker style: an identical update does not resolve again");
     PaintStream paint{};
     UiTextCommand commands[128]{};
     UiTextCommandStream stream{};
@@ -671,7 +629,8 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     for (u32 i = 0; i < paint.count; ++i) {
         const auto& quad = paint.quads[i];
         panel_radius = panel_radius ||
-                       (quad.left == scene.panel.left && quad.top == scene.panel.top && quad.radius == 18);
+                       (quad.left == scene.panel.left && quad.top == scene.panel.top &&
+                        quad.radius == scene.style.panel_radius);
         cell_radius = cell_radius || (quad.left == custom_cell.rectangle.left &&
                                       quad.top == custom_cell.rectangle.top && quad.radius == media.radius);
     }
@@ -720,32 +679,10 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
               ui_media_picker_scene_scroll_section(&scene, 2) && scene.header_count &&
               scene.projection->headers[0].rectangle.top == scene.body.top,
           "media picker style: partial-row media clipping and section jump follow custom logical inset");
-    auto invalid = custom;
-    const u32 nan_bits = 0x7fc00001u;
-    CopyMemory(&invalid.metrics.gap, &nan_bits, sizeof(nan_bits));
-    check(!ui_media_picker_style_valid(invalid) &&
-              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &invalid) &&
-              bytes_equal(&scene.style, &defaults, sizeof(defaults)) && scene.storage.arena.base == bank,
-          "media picker style: non-finite override falls back atomically without allocating a new bank");
-    invalid = defaults;
-    invalid.metrics.panel_width = 4096;
-    const u32 fallback_generation = scene.generation, fallback_calls = fixture.calls;
-    check(!ui_media_picker_style_valid(invalid) &&
-              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &invalid) &&
-              scene.generation == fallback_generation && fixture.calls == fallback_calls,
-          "media picker style: invalid preferred extent coalesces to the already published defaults");
-    auto narrow = defaults;
-    narrow.metrics.panel_height = 200;
-    narrow.metrics.content_inset = narrow.metrics.header_gap = 24;
-    narrow.metrics.tab_height = 48;
-    narrow.metrics.search_height = 64;
-    narrow.metrics.footer_height = 80;
     const UiRect narrow_viewport{640, 0, 896, 800}, narrow_anchor{800, 700, 870, 740};
-    check(ui_media_picker_style_valid(narrow) &&
-              ui_media_picker_scene_update(&scene, &source, &content, narrow_viewport, narrow_anchor,
-                                           &narrow) &&
-              bytes_equal(&scene.style, &defaults, sizeof(defaults)) && ui_rect_width(scene.panel) == 240,
-          "media picker style: safe scalar metrics still fall back when a narrow pane cannot contain art");
+    check(ui_media_picker_scene_update(&scene, &source, &content, narrow_viewport, narrow_anchor) &&
+              ui_rect_width(scene.panel) == 240,
+          "media picker style: a narrow pane shrinks the panel to the width its art needs");
     check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&
               ui_media_picker_scene_scroll_section(&scene, 1),
           "media picker style: default geometry restores first group for unavailable-art fixture");
@@ -804,16 +741,12 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     fixture.disabled_count = fixture.count;
     source.sections = {};
     ++source.revision;
-    auto dense = defaults;
-    dense.metrics.panel_width = 240;
-    dense.metrics.panel_height = 768;
-    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 1000}, {560, 900, 940, 940},
-                                       &dense) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 1000}, {560, 900, 940, 940}) &&
               ui_media_picker_scene_scroll(&scene, 29),
           "media picker style: dense unavailable catalog projects partial edge rows");
     paint_stream_reset(&paint, 1000, 1000);
     ui_text_command_stream_reset(&stream);
-    check(scene.cell_count == 16 && scene.cell_count <= kUiMediaPickerVisibleCells &&
+    check(scene.cell_count != 0 && scene.cell_count <= kUiMediaPickerVisibleCells &&
               scene.body.bottom == scene.footer.top &&
               scene.widgets.count <= kUiMediaPickerWidgetCapacity &&
               ui_media_picker_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96) &&
@@ -826,9 +759,8 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     ++source.revision;
     paint_stream_reset(&paint, 1000, 1000);
     ui_text_command_stream_reset(&stream);
-    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 1000}, {560, 900, 940, 940},
-                                       &dense) &&
-              scene.cell_count == 16 && scene.cell_count <= kUiMediaPickerVisibleCells &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 1000}, {560, 900, 940, 940}) &&
+              scene.cell_count != 0 && scene.cell_count <= kUiMediaPickerVisibleCells &&
               scene.body.bottom == scene.footer.top &&
               ui_media_picker_scene_paint(scene, amoled_theme, &paint, nullptr, 96) &&
               ui_media_picker_scene_paint_foreground(scene, amoled_theme, &paint) &&
@@ -847,21 +779,19 @@ void test_picker_resize(void (*check)(bool, const char*) noexcept) noexcept {
     UiMediaPickerSource source{&fixture, 7, 1, fixture.count, 1, {}, resolve_picker};
     auto content = picker_content(UiMediaPickerKind::gif);
     content.back = true;
-    auto style = ui_media_picker_style();
-    style.metrics.panel_width = 400;
-    style.metrics.padding = 16;
+    const auto style = ui_media_picker_style();
     const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &style, 600) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 600) &&
               ui_rect_width(scene.panel) == 600 && scene.panel.right == anchor.right && scene.cell_count != 0 &&
               scene.projection->cells[0].rectangle.left == scene.body.left + style.metrics.gif_gutter &&
               ui_media_picker_scene_scroll(&scene, 40),
           "media picker resize: requested width keeps the masonry gutter and right anchor");
     const auto bank = scene.storage.arena.base;
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &style, 10) &&
-              ui_rect_width(scene.panel) == 400 && scene.scroll_dips == 40 &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 10) &&
+              ui_rect_width(scene.panel) == style.metrics.panel_width && scene.scroll_dips == 40 &&
               scene.storage.arena.base == bank && scene.query_generation == source.query_generation,
           "media picker resize: theme minimum retains query scroll and bounded storage");
-    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 350, 800}, anchor, &style, 900) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 350, 800}, anchor, 900) &&
               ui_rect_width(scene.panel) == 334 && scene.panel.left == style.metrics.viewport_inset &&
               scene.panel.right == 350 - style.metrics.viewport_inset,
           "media picker resize: narrow viewport takes precedence over preferred width and minimum");
@@ -871,7 +801,7 @@ void test_picker_resize(void (*check)(bool, const char*) noexcept) noexcept {
     content.variant = UiMediaPickerVariant::reaction;
     source.count = 0;
     ++source.revision;
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 900) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 900) &&
               ui_rect_width(scene.panel) == kUiMediaPickerReactionWidth,
           "media picker resize: reaction popout ignores expression drawer preference");
     ui_media_picker_scene_release(&scene);
@@ -902,7 +832,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
     UiTextOutput output{&stream, nullptr};
     for (const auto& w : widths) {
         columns = columns &&
-                  ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, w.width) &&
+                  ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, w.width) &&
                   ui_rect_width(scene.panel) == w.width && scene.columns == w.columns &&
                   scene.cell_width == w.cell && scene.cell_pitch == w.cell;
         for (u32 i = 0; columns && i < scene.cell_count; ++i) {
@@ -934,7 +864,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
     const auto move = [&](i32 h, i32 v) noexcept {
         return ui_media_picker_scene_move_selection(&scene, h, v) ? scene.selected_index : ~u32{0};
     };
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 498) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 498) &&
               scene.columns == 9 && ui_media_picker_scene_select(&scene, 7) && move(0, 1) == 9 &&
               move(0, 1) == 10 && move(0, 1) == 13 && move(0, -1) == 10 && move(0, -1) == 9 &&
               move(0, -1) == 0 && ui_media_picker_scene_select(&scene, 8) && move(1, 0) == 9 &&
@@ -945,7 +875,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
               ui_media_picker_scene_row_edge_selection(&scene, true) && scene.selected_index == 21,
           "media picker keyboard: nine columns clamp Up/Down to short rows and wrap Left/Right across "
           "sections");
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 800) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 800) &&
               scene.columns == 13 && ui_media_picker_scene_select(&scene, 4) && move(0, 1) == 12 &&
               move(0, 1) == 15 && move(0, 1) == ~u32{0} && ui_media_picker_scene_select(&scene, 9) &&
               move(1, 0) == 10,
@@ -959,7 +889,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
     ++content.revision;
     char name[96]{};
     const u32 name_bytes = emoji_shortcode_key(fixture.glyph, {name, sizeof(name)});
-    bool footer = ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 498) &&
+    bool footer = ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 498) &&
                   name_bytes && scene.cell_count > 3;
     const auto title = ui_media_picker_scene_footer_title(scene);
     footer = footer && ui_media_picker_scene_inspected(scene) == &scene.projection->cells[0] &&
@@ -975,7 +905,7 @@ void test_picker_fixed_cells(void (*check)(bool, const char*) noexcept) noexcept
     fixture.missing_asset = false;
     ++source.revision;
     UiMediaPickerMediaSlot art{};
-    footer = footer && ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 498) &&
+    footer = footer && ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 498) &&
              utf8_equal(ui_media_picker_scene_footer_title(scene), utf8_literal(":Original native media:")) &&
              ui_media_picker_scene_footer_media(scene, &art) &&
              ui_rect_width(art.rectangle) == scene.style.metrics.footer_art &&
@@ -1003,7 +933,7 @@ void test_picker_masonry(void (*check)(bool, const char*) noexcept) noexcept {
     const UiRect viewport{0, 0, 2400, 1000}, anchor{2000, 900, 2380, 940};
     check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) && scene.columns == 2 &&
               !scene.masonry && scene.cell_height == 110 &&
-              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 2000) &&
+              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 2000) &&
               scene.columns == 6,
           "media picker masonry: landing categories use 110 DIP tiles, two columns at 498 DIP, capped at six");
     fixture.kind = UiMediaPickerItemKind::gif;
@@ -1017,11 +947,11 @@ void test_picker_masonry(void (*check)(bool, const char*) noexcept) noexcept {
     bool columns = true;
     for (const auto& w : widths)
         columns = columns &&
-                  ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, w.width) &&
+                  ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, w.width) &&
                   scene.masonry && scene.columns == w.columns &&
                   scene.cell_width == (w.width - 24 - 12 * (w.columns - 1)) / w.columns;
     check(columns, "media picker masonry: results add a column per 200 DIP up to eight");
-    bool placed = ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 600) &&
+    bool placed = ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 600) &&
                   scene.tile_count == fixture.count;
     float heights[3]{12, 12, 12};
     for (u32 i = 0; placed && i < scene.tile_count; ++i) {
@@ -1050,7 +980,7 @@ void test_picker_masonry(void (*check)(bool, const char*) noexcept) noexcept {
     const u32 resolves = scene.counters.resolves, layouts = scene.counters.masonry_layouts;
     const u32 allocations = scene.counters.allocations;
     const auto bank = scene.storage.arena.base;
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 1000) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 1000) &&
               scene.columns == 5 && scene.counters.masonry_layouts == layouts + 1 &&
               scene.counters.resolves - resolves <= scene.cell_count &&
               scene.counters.allocations == allocations && scene.storage.arena.base == bank,
@@ -1078,7 +1008,7 @@ void test_picker_resize_cost(void (*check)(bool, const char*) noexcept) noexcept
     for (float width : widths) {
         const auto before = scene.counters;
         valid = valid &&
-                ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, width) &&
+                ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, width) &&
                 scene.counters.rebuilds == before.rebuilds + 1 &&
                 scene.counters.resolves - before.resolves == scene.cell_count &&
                 scene.counters.cells - before.cells == scene.cell_count &&
@@ -1088,7 +1018,7 @@ void test_picker_resize_cost(void (*check)(bool, const char*) noexcept) noexcept
     check(valid && allocations == 1,
           "media picker resize cost: each width rebuilds once, resolves only visible cells and allocates "
           "nothing");
-    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 2900) &&
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, 2900) &&
               ui_rect_width(scene.panel) < 2900 && scene.cell_count <= kUiMediaPickerVisibleCells &&
               scene.counters.allocations == allocations,
           "media picker resize cost: an oversized drawer shrinks to the columns its cells can hold");

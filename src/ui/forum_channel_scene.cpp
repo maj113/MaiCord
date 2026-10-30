@@ -2,6 +2,7 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/thread_browser_scene.hpp"
+#include "maicord/ui/popout_scene.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/rect_edges.hpp"
 #include "maicord/ui/scene_text.hpp"
@@ -11,6 +12,7 @@
 
 namespace maicord {
 namespace {
+using namespace popout;
 float chip_width(Utf8View name, const UiForumStyle& s) noexcept {
     const auto valid = utf8_validate(name);
     const float width = static_cast<float>(valid.valid ? valid.codepoints : 0) * s.chip_scalar_width + s.chip_padding;
@@ -26,10 +28,7 @@ bool before(const UiForumSortKey& a, const UiForumSortKey& b, UiForumSort sort) 
     }
     return a.thread_id > b.thread_id;
 }
-UiRect bounds(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
-    const auto* node = ui_widget_manager_layout_node(s.widgets, handle);
-    return node ? node->rectangle : UiRect{};
-}
+
 bool active(const UiThreadBrowserScene& s) noexcept {
     return ui_thread_browser_scene_current(s) && s.forum && s.view->forum &&
         s.view->forum->posts.count == s.count;
@@ -38,10 +37,7 @@ const UiForumTag* find_tag(const UiForumChannelView& view, u64 id) noexcept {
     for (u32 i = 0; i < view.tags.count; ++i) if (view.tags[i].id == id) return view.tags.data + i;
     return nullptr;
 }
-bool surface(PaintStream* out, const UiRect& r, const Theme& t, const Color& fill, const Color& border, float radius) noexcept {
-    return ui_background_paint_surface(out, r, t, fill, border, radius, 1, .9f,
-        UiBackgroundSurfaceMode::gradient, UiBackgroundTier::high);
-}
+
 bool text(UiTextOutput* out, const UiThreadBrowserScene& s, UiWidgetHandle owner, const Utf8View& value, const UiRect& r,
     const UiRect& clip, const Color& color, u32 flags, u32 mode = 0) noexcept {
     return ui_scene_text(out, s.widgets, owner, value, r, clip, color, flags, mode);

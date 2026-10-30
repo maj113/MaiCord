@@ -49,7 +49,7 @@ inline constexpr usize kReactionPickerStorageBytes =
     sizeof(ReactionPickerGuild) * kReactionPickerGuildCapacity + sizeof(MessageComposer) +
     sizeof(ReactionPickerSection) * kReactionPickerSectionCapacity + 128;
 
-bool storage_valid(const ReactionPickerModel* picker) noexcept {
+inline bool storage_valid(const ReactionPickerModel* picker) noexcept {
     return picker && picker->storage.base && picker->results && picker->custom_order && picker->guilds &&
            picker->sections;
 }
@@ -86,7 +86,7 @@ bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state
     return true;
 }
 
-bool push_result(ReactionPickerModel* picker, u32 value) noexcept {
+inline bool push_result(ReactionPickerModel* picker, u32 value) noexcept {
     if (!storage_valid(picker) || picker->result_count >= picker->result_capacity)
         return false;
     picker->results[picker->result_count++] = value;
@@ -101,13 +101,13 @@ const CustomEmojiRecord* custom_emoji(const ReactionPickerModel& picker, u32 ind
                : nullptr;
 }
 
-Utf8View custom_name(const CustomEmojiRecord& emoji) noexcept {
+inline Utf8View custom_name(const CustomEmojiRecord& emoji) noexcept {
     return emoji.id != 0 && emoji.name_bytes != 0 && emoji.name_bytes <= kCustomEmojiNameMaximumBytes
                ? Utf8View{emoji.name, emoji.name_bytes}
                : Utf8View{};
 }
 
-bool push_section(ReactionPickerModel* picker, u32 section) noexcept {
+inline bool push_section(ReactionPickerModel* picker, u32 section) noexcept {
     if (!storage_valid(picker) || picker->section_count >= picker->guild_count + 10)
         return false;
     if (picker->section_count) {
@@ -119,12 +119,12 @@ bool push_section(ReactionPickerModel* picker, u32 section) noexcept {
                           ? picker->guilds[section - kReactionPickerSectionGuild].id
                           : 0;
     const u32 local = guild ? kReactionPickerSectionGuild : section;
-    const bool collapsed = picker->preferences && section != kReactionPickerSectionSearch &&
+    const bool collapsed = section != kReactionPickerSectionSearch &&
                            reaction_preferences_section_collapsed(*picker->preferences, local, guild);
     picker->sections[picker->section_count++] = {guild, local, picker->result_count, 0, collapsed};
     return true;
 }
-u32 query_limit(const ReactionPickerModel& picker) noexcept {
+inline u32 query_limit(const ReactionPickerModel& picker) noexcept {
     return picker.search_borrowed ? kReactionPickerBorrowedQueryMaximumBytes
                                   : kReactionPickerMaximumQueryBytes;
 }
@@ -232,15 +232,9 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
     return valid;
 }
 
-bool find_exact_name(Utf8View name, u32* catalog_index) noexcept {
-    const ConstSlice<EmojiCatalogEntry> catalog = unicode_emoji_catalog();
-    for (u32 index = 0; index < catalog.count; ++index) {
-        if (utf8_equal(catalog[index].name(), name)) {
-            *catalog_index = index;
-            return true;
-        }
-    }
-    return false;
+inline bool find_exact_name(Utf8View name, u32* catalog_index) noexcept {
+    *catalog_index = emoji_catalog_find_name(name);
+    return *catalog_index != ~0u;
 }
 
 bool seed_preferences(ReactionPreferenceStore* preferences, ReactionPreferenceKind kind, u64 now_ms) noexcept {
@@ -324,46 +318,30 @@ ReactionPickerResult rebuild_results(ReactionPickerModel* picker) noexcept {
         return {ReactionPickerError::invalid_input, false};
     const Utf8View query = message_composer_text(*picker->search);
     if (!query.bytes) {
-        if (picker->preferences) {
-            const auto favorites = reaction_preferences_favorites(*picker->preferences);
-            u32 values[kReactionPreferenceFavoriteCapacity];
-            const ConstSlice<ReactionEmojiRef> listed{favorites.data,
-                                                      minimum(favorites.count, kReactionPreferenceFavoriteCapacity)};
-            preference_results(*picker, listed, catalog.count, values);
-            bool shown = false;
-            for (u32 i = 0; i < listed.count; ++i) {
-                const u32 value = values[i];
-                if (value == ~0u)
-                    continue;
-                if ((!shown && !push_section(picker, kReactionPickerSectionFavorites)) ||
-                    !push_result(picker, value))
-                    return {ReactionPickerError::capacity, false};
-                shown = true;
-            }
+        const auto favorites = reaction_preferences_favorites(*picker->preferences);
+        u32 values[kReactionPreferenceFavoriteCapacity];
+        const ConstSlice<ReactionEmojiRef> favored{favorites.data,
+                                                   minimum(favorites.count, kReactionPreferenceFavoriteCapacity)};
+        preference_results(*picker, favored, catalog.count, values);
+        bool shown = false;
+        for (u32 i = 0; i < favored.count; ++i) {
+            const u32 value = values[i];
+            if (value == ~0u)
+                continue;
+            if ((!shown && !push_section(picker, kReactionPickerSectionFavorites)) || !push_result(picker, value))
+                return {ReactionPickerError::capacity, false};
+            shown = true;
         }
         if (!push_section(picker, kReactionPickerSectionFrequent))
             return {ReactionPickerError::capacity, false};
-        if (picker->preferences) {
-            const auto frequent = reaction_preferences_frequently(*picker->preferences, picker->preference_kind);
-            u32 values[kReactionPreferenceFavoriteCapacity];
-            const ConstSlice<ReactionEmojiRef> listed{frequent.data,
-                                                      minimum(frequent.count, kReactionPreferenceFavoriteCapacity)};
-            preference_results(*picker, listed, catalog.count, values);
-            for (u32 i = 0; i < listed.count; ++i) {
-                const u32 value = values[i];
-                if (value != ~0u && !push_result(picker, value))
-                    return {ReactionPickerError::capacity, false};
-            }
-        } else {
-            u8 included[kReactionPickerCatalogCapacity]{};
-            for (const auto name : kReactionSeeds) {
-                u32 index = 0;
-                if (find_exact_name(name, &index) && !included[index]) {
-                    if (!push_result(picker, index))
-                        return {ReactionPickerError::capacity, false};
-                    included[index] = 1;
-                }
-            }
+        const auto frequent = reaction_preferences_frequently(*picker->preferences, picker->preference_kind);
+        const ConstSlice<ReactionEmojiRef> used{frequent.data,
+                                                minimum(frequent.count, kReactionPreferenceFavoriteCapacity)};
+        preference_results(*picker, used, catalog.count, values);
+        for (u32 i = 0; i < used.count; ++i) {
+            const u32 value = values[i];
+            if (value != ~0u && !push_result(picker, value))
+                return {ReactionPickerError::capacity, false};
         }
         for (u32 guild = 0; guild < picker->guild_count; ++guild) {
             const auto& server = picker->guilds[guild];
@@ -417,12 +395,12 @@ ReactionPickerResult reaction_picker_open(ReactionPickerModel* picker, u64 messa
                                           const ChatStateStore* state, u64 guild_id,
                                           MessageComposer* borrowed_search,
                                           ReactionPreferenceKind kind) noexcept {
-    if (!picker || message_id == 0 || static_cast<u32>(kind) >= kReactionPreferenceKindCount ||
+    if (!picker || !preferences || message_id == 0 || static_cast<u32>(kind) >= kReactionPreferenceKindCount ||
         (borrowed_search && (borrowed_search->bytes > kReactionPickerBorrowedQueryMaximumBytes ||
                              !utf8_validate(message_composer_text(*borrowed_search)).valid))) {
         return ReactionPickerResult{ReactionPickerError::invalid_input, false};
     }
-    if (preferences && !seed_preferences(preferences, kind, now_ms)) {
+    if (!seed_preferences(preferences, kind, now_ms)) {
         return ReactionPickerResult{ReactionPickerError::invalid_input, false};
     }
     reaction_picker_release(picker);
@@ -478,7 +456,7 @@ ReactionPickerResult reaction_picker_refresh_search(ReactionPickerModel* picker)
 }
 
 ReactionPickerResult reaction_picker_refresh_preferences(ReactionPickerModel* picker) noexcept {
-    if (!storage_valid(picker) || !picker->message_id || !picker->preferences)
+    if (!storage_valid(picker) || !picker->message_id)
         return {ReactionPickerError::invalid_input, false};
     return rebuild_results(picker);
 }
@@ -488,8 +466,7 @@ ReactionPickerResult reaction_picker_toggle_section(ReactionPickerModel* picker,
         picker->sections[section].local == kReactionPickerSectionSearch)
         return {ReactionPickerError::invalid_input, false};
     auto& target = picker->sections[section];
-    if (picker->preferences &&
-        !reaction_preferences_toggle_section(picker->preferences, target.local, target.guild_id).ok())
+    if (!reaction_preferences_toggle_section(picker->preferences, target.local, target.guild_id).ok())
         return {ReactionPickerError::capacity, false};
     target.collapsed = !target.collapsed;
     saturating_increment(picker->revision);

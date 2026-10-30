@@ -170,7 +170,6 @@ enum class ProfileTone : u8 {
     custom
 };
 struct ProfilePart {
-    UiBadgeWidget badge;
     u64 target;
     UiWidgetHandle widget;
     Utf8View text;
@@ -187,6 +186,8 @@ struct ProfilePart {
     // action's reason).
     Utf8View hint;
     bool wrap, centered;
+    // 1-based index of the part's chip in the scene's badge list; 0 for none.
+    u8 badge;
 };
 inline constexpr u16 kProfileNoIcon = 0xFFFF;
 // A public application's icon hash (GET /applications/public); an empty hash
@@ -336,6 +337,8 @@ bool profile_scene_foreground(const ProfileScene& scene, const Theme& theme, Pai
 ProfileAction profile_scene_action(const ProfileScene& scene, UiWidgetHandle widget) noexcept;
 // The part behind a widget, or null.
 const ProfilePart* profile_scene_part(const ProfileScene& scene, UiWidgetHandle widget) noexcept;
+// The chip a part draws (a tag or plugin chip), or null.
+const UiBadgeWidget* profile_scene_badge(const ProfileScene& scene, const ProfilePart& part) noexcept;
 UiWidgetHandle profile_scene_hit_test(const ProfileScene&, float x, float y) noexcept;
 // Adds the card's widgets beneath parent for UI Automation and returns its
 // node (kUiAccessNone when inactive or full). Hinted parts are named by their

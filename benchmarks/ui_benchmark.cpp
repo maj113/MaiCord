@@ -408,7 +408,7 @@ int run() noexcept {
                                           width, 800.0f)) {
             return 2;
         }
-        const UiNode* content = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::content));
+        const UiLayoutNode* content = ui_scene_node(scene, UiSemantic::content);
         if (!content) {
             return 3;
         }
@@ -474,13 +474,13 @@ int run() noexcept {
                                            UiLayoutNodeSpec{utf8_literal("MeasuredText"),
                                                             measured_text_style, UiSize{}, 0.0f, 2}});
     if (!measure_root.ok() || !measured_text.ok() ||
-        !ui_widget_manager_layout(&measure_manager, UiSize{80.0f, 100.0f}).ok()) {
+        !ui_widget_manager_layout_rectangle(&measure_manager, {0, 0, 80.0f, 100.0f}).ok()) {
         return 26;
     }
     begin = clock_now();
     for (u32 iteration = 0; iteration < kLayoutReflowIterations; ++iteration) {
         const float width = (iteration & 1u) != 0 ? 160.0f : 80.0f;
-        if (!ui_widget_manager_layout(&measure_manager, UiSize{width, 100.0f}).ok()) {
+        if (!ui_widget_manager_layout_rectangle(&measure_manager, {0, 0, width, 100.0f}).ok()) {
             return 27;
         }
         checksum += measure_manager.layout.measure_passes;
@@ -527,25 +527,25 @@ int run() noexcept {
                     UiLayoutNodeSpec{utf8_literal("WrapItem"), wrap_item_style, UiSize{}, 0.0f, 3 + index}})
                 .ok();
     }
-    if (!wrap_ready || !ui_widget_manager_layout(&wrap_manager, UiSize{720.0f, 512.0f}).ok()) {
+    if (!wrap_ready || !ui_widget_manager_layout_rectangle(&wrap_manager, {0, 0, 720.0f, 512.0f}).ok()) {
         return 37;
     }
     begin = clock_now();
     for (u32 iteration = 0; iteration < kWrapLayoutIterations; ++iteration) {
         const float width = (iteration & 1u) != 0 ? 720.0f : 280.0f;
-        if (!ui_widget_manager_layout(&wrap_manager, UiSize{width, 512.0f}).ok()) {
+        if (!ui_widget_manager_layout_rectangle(&wrap_manager, {0, 0, width, 512.0f}).ok()) {
             return 37;
         }
         checksum += wrap_manager.layout.measure_passes + static_cast<u32>(wrap_nodes[17].rectangle.top);
     }
     const u64 wrap_layout_us = clock_microseconds(clock, begin, clock_now());
 
-    const UiNode* friends_title =
-        ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::title_bar));
-    const UiNode* friends_navigation =
-        ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::channel_navigation));
-    const UiNode* friends_messages =
-        ui_scene_resolve(friends_scene, ui_scene_find(friends_scene, UiSemantic::message_view));
+    const UiLayoutNode* friends_title =
+        ui_scene_node(friends_scene, UiSemantic::title_bar);
+    const UiLayoutNode* friends_navigation =
+        ui_scene_node(friends_scene, UiSemantic::channel_navigation);
+    const UiLayoutNode* friends_messages =
+        ui_scene_node(friends_scene, UiSemantic::message_view);
     if (!friends_title || !friends_navigation || !friends_messages) {
         return 28;
     }
@@ -555,17 +555,20 @@ int run() noexcept {
     const UiRect friends_messages_content =
         ui_scene_content_rectangle(friends_scene, UiSemantic::message_view);
     const UiLayoutContentBounds content_bounds[3]{
-        UiLayoutContentBounds{friends_scene.storage.widgets[friends_title->widget.slot].layout,
+        UiLayoutContentBounds{ui_widget_manager_layout_handle(friends_scene.widgets,
+                                                              ui_scene_widget(friends_scene, UiSemantic::title_bar)),
                               UiRect{friends_title_content.left + 8.0f, friends_title_content.top + 2.0f,
                                      friends_title_content.left + 80.0f, friends_title_content.top + 18.0f},
                               UiLayoutContentKind::text, ui_layout_content_bounds_collision},
         UiLayoutContentBounds{
-            friends_scene.storage.widgets[friends_navigation->widget.slot].layout,
+            ui_widget_manager_layout_handle(friends_scene.widgets,
+                                            ui_scene_widget(friends_scene, UiSemantic::channel_navigation)),
             UiRect{friends_navigation_content.left + 8.0f, friends_navigation_content.top + 8.0f,
                    friends_navigation_content.left + 120.0f, friends_navigation_content.top + 28.0f},
             UiLayoutContentKind::text, ui_layout_content_bounds_collision},
         UiLayoutContentBounds{
-            friends_scene.storage.widgets[friends_messages->widget.slot].layout,
+            ui_widget_manager_layout_handle(friends_scene.widgets,
+                                            ui_scene_widget(friends_scene, UiSemantic::message_view)),
             UiRect{friends_messages_content.left + 8.0f, friends_messages_content.top + 8.0f,
                    friends_messages_content.left + 120.0f, friends_messages_content.top + 28.0f},
             UiLayoutContentKind::text, ui_layout_content_bounds_collision},
@@ -1018,11 +1021,11 @@ int run() noexcept {
     }
     const u64 guild_rail_layout_us = clock_microseconds(clock, begin, clock_now());
     GuildRailScene guild_rail_scene{};
-    const UiNode* guild_rail_viewport =
-        ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::guild_navigation));
+    const UiLayoutNode* guild_rail_viewport =
+        ui_scene_node(scene, UiSemantic::guild_navigation);
     ShellNavigationScene shell_navigation_scene{};
-    const UiNode* shell_navigation_viewport =
-        ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_navigation));
+    const UiLayoutNode* shell_navigation_viewport =
+        ui_scene_node(scene, UiSemantic::channel_navigation);
     if (!guild_rail_viewport || !shell_navigation_viewport ||
         !guild_rail_scene_initialize(&guild_rail_scene, Slice<GuildRailRowWidget>{g_guild_rail_rows, 4},
                                      Slice<UiWidget>{g_guild_rail_widgets, 6},

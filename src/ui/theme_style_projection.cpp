@@ -62,14 +62,8 @@ UiPollVotersStyle ui_theme_poll_voters_style(const UiResolvedThemeStyles* bank) 
 }
 UiSettingsStyle ui_theme_settings_style(const UiResolvedThemeStyles* bank) noexcept {
     const auto& m = ui_theme_metrics(bank);
-    return {m.form_width,
-            m.form_field_padding,
-            m.form_group_gap,
-            maximum(m.control_height, m.form_single_height),
-            maximum(96.f, maximum(m.form_multiline_height, m.form_single_height)),
-            m.edit_radius,
-            m.control_radius,
-            maximum(64.f, m.form_footer_height)};
+    return {m.form_field_padding, maximum(m.control_height, m.form_single_height),
+            maximum(96.f, maximum(m.form_multiline_height, m.form_single_height))};
 }
 ForumPostStyle ui_theme_forum_style(const UiResolvedThemeStyles* bank) noexcept {
     const auto& m = ui_theme_metrics(bank);

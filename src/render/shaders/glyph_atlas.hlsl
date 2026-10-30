@@ -108,11 +108,35 @@ uint relevance(float2 low, float2 high) {
     return low.x - tile_high.x > reach ? 1u : 2u;
 }
 
+// The relevance is uniform across the group, so the branch skips the distance
+// work coherently instead of computing it and selecting it away.
 void accumulate_segment(float2 segment_start, float2 segment_end, uint relevant) {
-    if (relevant == 2) {
+    [branch] if (relevant == 2) {
         accumulate_distance(sample_position, segment_start, segment_end, minimum_distance_squared);
     }
     accumulate_crossing(sample_position, segment_start, segment_end, winding);
+}
+
+// `distance` is a literal at each call site: a winding-only curve keeps no
+// distance arithmetic in its loop.
+void accumulate_cubic(float2 start, GlyphPathCommand command, bool distance) {
+    float2 segment_start = start;
+    // Three copies keep loop overhead bounded without twelve copies
+    // of projection, distance and winding arithmetic in the shader.
+    [loop]
+    for (uint first_segment = 0; first_segment < 12; first_segment += 3) {
+        [unroll]
+        for (uint local_segment = 0; local_segment < 3; ++local_segment) {
+            const float4 weights = cubic_weights[first_segment + local_segment];
+            const float2 segment_end = weights.x * start + weights.y * command.point1 +
+                                       weights.z * command.point2 + weights.w * command.point3;
+            if (distance) {
+                accumulate_distance(sample_position, segment_start, segment_end, minimum_distance_squared);
+            }
+            accumulate_crossing(sample_position, segment_start, segment_end, winding);
+            segment_start = segment_end;
+        }
+    }
 }
 
 void trace_commands(uint first_command, uint command_count) {
@@ -143,21 +167,10 @@ void trace_commands(uint first_command, uint command_count) {
                 contour_filled ? relevance(min(min(current, command.point1), min(command.point2, command.point3)),
                                            max(max(current, command.point1), max(command.point2, command.point3)))
                                : 0;
-            if (relevant) {
-                float2 segment_start = current;
-                // Three copies keep loop overhead bounded without twelve copies
-                // of projection, distance and winding arithmetic in the shader.
-                [loop]
-                for (uint first_segment = 0; first_segment < 12; first_segment += 3) {
-                    [unroll]
-                    for (uint local_segment = 0; local_segment < 3; ++local_segment) {
-                        const float4 weights = cubic_weights[first_segment + local_segment];
-                        const float2 segment_end = weights.x * current + weights.y * command.point1 +
-                                                   weights.z * command.point2 + weights.w * command.point3;
-                        accumulate_segment(segment_start, segment_end, relevant);
-                        segment_start = segment_end;
-                    }
-                }
+            [branch] if (relevant == 2) {
+                accumulate_cubic(current, command, true);
+            } else if (relevant) {
+                accumulate_cubic(current, command, false);
             }
             current = command.point3;
         }
@@ -235,7 +248,9 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
             contour_start = current;
             contour_filled = command.kind == 0;
         } else if (command.kind == 2) {
-            if (contour_filled) {
+            // Uniform per command: a filled contour skips the stroke distance
+            // instead of computing it and selecting it away.
+            [branch] if (contour_filled) {
                 accumulate_line(sample_position, current, command.point1, winding,
                                 minimum_distance_squared);
             } else if (stroking) {
@@ -273,7 +288,7 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
             }
             current = command.point3;
         } else if (command.kind == 5) {
-            if (contour_filled) {
+            [branch] if (contour_filled) {
                 accumulate_line(sample_position, current, contour_start, winding,
                                 minimum_distance_squared);
             } else if (stroking) {

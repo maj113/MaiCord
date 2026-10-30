@@ -22,11 +22,9 @@ void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
               metrics.menu_row_height == kUiMenuRowHeight && metrics.menu_radius == kUiMenuCornerRadius &&
               metrics.composer_padding == kUiComposerPadding,
           "Theme metric defaults preserve actual shell and shared control/menu/composer primitives");
-    check(metrics.form_width == kUiDefaultSettingsStyle.form_width &&
-              metrics.form_field_padding == kUiDefaultSettingsStyle.field_padding &&
+    check(metrics.form_field_padding == kUiDefaultSettingsStyle.field_padding &&
               metrics.form_single_height == kUiDefaultSettingsStyle.single_height &&
               metrics.form_multiline_height == kUiDefaultSettingsStyle.multiline_height &&
-              metrics.form_footer_height == kUiDefaultSettingsStyle.footer_height &&
               metrics.audio_padding == kDefaultUiAudioControlsStyle.padding &&
               metrics.audio_target == kDefaultUiAudioControlsStyle.target &&
               metrics.audio_minimum_width == kDefaultUiAudioControlsStyle.minimum_width &&

@@ -39,13 +39,13 @@ struct UiWidgetDesc {
 };
 
 // All active slots share the manager generation; reset invalidates the whole tree.
+// A widget's layout node shares its slot; the node's parent is the widget's parent.
 struct UiWidget {
-    UiLayoutNodeHandle layout;
-    UiWidgetHandle parent;
     u32 id;
     UiWidgetKind kind;
     u16 flags;
 };
+static_assert(sizeof(UiWidget) == 8);
 
 enum class UiWidgetError : u8 {
     none,
@@ -150,7 +150,6 @@ UiWidgetResult ui_widget_manager_add_placed(UiWidgetManager* manager, UiWidgetHa
 bool ui_widget_manager_place_part(UiWidgetManager* manager, UiWidgetHandle handle, UiRect rectangle,
                                   UiRect origin, bool visible, bool enabled,
                                   bool focusable = true) noexcept;
-UiLayoutResult ui_widget_manager_layout(UiWidgetManager* manager, UiSize viewport) noexcept;
 UiLayoutResult ui_widget_manager_layout_rectangle(UiWidgetManager* manager, const UiRect& viewport) noexcept;
 const UiWidget* ui_widget_manager_resolve(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept;
 UiWidget* ui_widget_manager_resolve(UiWidgetManager* manager, UiWidgetHandle handle) noexcept;
@@ -171,6 +170,10 @@ bool ui_widget_manager_block_input(UiWidgetManager* manager, UiWidgetHandle hand
 // Logical capture is owned by the manager. The platform separately owns OS
 // capture and must release it on cancellation. Invalid handle releases capture.
 bool ui_widget_manager_capture(UiWidgetManager* manager, UiWidgetHandle handle) noexcept;
+// Releases capture and hover: a cancelled gesture or a surface that stops taking the pointer.
+inline void ui_widget_manager_release_pointer(UiWidgetManager* manager) noexcept {
+    manager->captured = manager->hovered = ui_widget_invalid_handle();
+}
 UiWidgetHandle ui_widget_manager_pointer_target(UiWidgetManager* manager, float x, float y) noexcept;
 // Clears stale, hidden, disabled or blocked focus/hover/capture. Returns change.
 bool ui_widget_manager_reconcile_input(UiWidgetManager* manager) noexcept;
@@ -181,5 +184,17 @@ UiWidgetHandle ui_widget_manager_next_focus(const UiWidgetManager& manager, UiWi
                                             bool reverse, bool wrap) noexcept;
 const UiLayoutNode* ui_widget_manager_layout_node(const UiWidgetManager& manager,
                                                   UiWidgetHandle handle) noexcept;
+UiLayoutNode* ui_widget_manager_layout_node(UiWidgetManager* manager, UiWidgetHandle handle) noexcept;
+// The handle of a live widget's layout node; invalid for a stale widget.
+UiLayoutNodeHandle ui_widget_manager_layout_handle(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept;
+// Scrolls a live widget's node; false for a stale widget or an axis it does not scroll.
+bool ui_widget_manager_set_scroll(UiWidgetManager* manager, UiWidgetHandle handle, UiPoint offset) noexcept;
+// A live widget's parent; invalid for the root or a stale widget.
+UiWidgetHandle ui_widget_manager_parent(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept;
+// The widget's laid-out rectangle; empty for a stale handle.
+inline UiRect ui_widget_manager_rectangle(const UiWidgetManager& manager, UiWidgetHandle handle) noexcept {
+    const UiLayoutNode* node = ui_widget_manager_layout_node(manager, handle);
+    return node ? node->rectangle : UiRect{};
+}
 
 } // namespace maicord

@@ -79,10 +79,11 @@ bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner*, ID3D11Device*, ID3
                                      const Theme&, float phase_seconds, u32 width, u32 height, u32 dpi,
                                      u64 now_ms) noexcept;
 // Draws the effect over one canvas (DIP rectangle, paint quad index) under the
-// bound scissor and layer transform. True when it drew: it bound its shaders,
-// topology, input layout, pixel constants, view 0 and blend state, which the
-// caller binds again (VS b2 is bound once per frame). Skips canvases already
-// drawn this frame.
+// bound scissor, layer transform, strip topology and input layout, which it
+// leaves alone. True when it drew: it bound its shaders, pixel constant slot 0
+// and blend state (and cleared view 0 for a plugin shader), which the caller
+// binds again (VS b2 is bound once per frame). Skips canvases already drawn
+// this frame.
 bool d3d11_background_fx_draw(D3D11BackgroundFxOwner*, ID3D11DeviceContext*, UiRect canvas,
                               u32 quad_index) noexcept;
 void d3d11_background_fx_end_frame(D3D11BackgroundFxOwner*, ID3D11DeviceContext*) noexcept;

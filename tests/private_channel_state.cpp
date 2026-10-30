@@ -285,11 +285,11 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
 
     UiScene shell{};
     check(ui_scene_initialize_bootstrap(&shell) && ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1280, 800), "Home shell initializes");
-    const auto* home = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::home_button));
-    const auto* rail = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::guild_navigation));
+    const auto* home = ui_scene_node(shell, UiSemantic::home_button);
+    const auto* rail = ui_scene_node(shell, UiSemantic::guild_navigation);
     check(home && rail && home->rectangle.bottom <= rail->rectangle.top &&
-          ui_widget_manager_input_enabled(shell.widgets, home->widget) &&
-          ui_widget_manager_focus(&shell.widgets, home->widget),
+          ui_widget_manager_input_enabled(shell.widgets, ui_scene_widget(shell, UiSemantic::home_button)) &&
+          ui_widget_manager_focus(&shell.widgets, ui_scene_widget(shell, UiSemantic::home_button)),
           "Home is a shared focusable widget outside the virtual guild viewport");
     UiTextCommand text_commands[2]{};
     UiTextCommandStream text_stream{};
@@ -298,7 +298,7 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     check(ui_text_command_stream_initialize(&text_stream, {text_commands, 2}, {owned_text, 16}),
           "owned text stream initializes caller storage");
     UiTextCommand text_command{};
-    text_command.owner = {&shell.widgets, home->widget};
+    text_command.owner = {&shell.widgets, ui_scene_widget(shell, UiSemantic::home_button)};
     text_command.text = {temporary_text, 4};
     text_command.rectangle = text_command.clip = home->rectangle;
     check(ui_text_command_stream_push_owned(&text_stream, text_command), "generated label copies into stream lifetime");
@@ -326,8 +326,8 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     metrics.flags = ui_shell_layout_navigation;
     metrics.member_sidebar_width = 0;
     check(ui_scene_layout_with_metrics(&shell, UiShellView::private_channels, metrics, 960, 600) &&
-          !ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::member_toggle)) &&
-          !ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::composer)) &&
+          !ui_scene_node(shell, UiSemantic::member_toggle) &&
+          !ui_scene_node(shell, UiSemantic::composer) &&
           ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(),
           "empty Home has no guild member controls or composer and validates after scope switch");
     metrics.revision += 1;

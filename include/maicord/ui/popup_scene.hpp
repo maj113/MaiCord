@@ -12,7 +12,6 @@ namespace maicord {
 inline constexpr float kPopupRowHeight = kUiMenuCompactRowHeight;
 inline constexpr float kPopupAvatarRowHeight = 44.0f;
 inline constexpr float kPopupOuterMargin = 8.0f;
-inline constexpr float kPopupPanelPadding = kUiMenuPadding;
 inline constexpr u32 kPopupWidgetsPerItem = 2;
 inline constexpr u32 kPopupQuickReactionCount = 4;
 inline constexpr float kPopupQuickReactionExtent = 44.0f;
@@ -259,7 +258,6 @@ struct PopupScene {
     u32 revision;
     u32 opens;
     u32 closes;
-    u32 rejected;
     u32 owned_capacity;
     float preferred_width;
     float scroll_offset;

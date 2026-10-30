@@ -60,7 +60,7 @@ bool search_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) no
     const auto show = [&](const wchar_t* name) noexcept {
         const u32 stage = ++capture_stage * 10;
         const auto* title =
-            ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::title_bar));
+            ui_scene_node(*renderer.ui_scene, UiSemantic::title_bar);
         if (!title) {
             failure_stage = stage + 1;
             return false;

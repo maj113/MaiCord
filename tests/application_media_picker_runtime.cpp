@@ -1402,7 +1402,7 @@ void run() noexcept {
                           static_cast<short>((rectangle.top + rectangle.bottom) * .5f));
     };
     const auto* member_node =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::member_toggle));
+        ui_scene_node(g_app.shell_scene, UiSemantic::member_toggle);
     check(member_node != nullptr, "button host: actual shell publishes a member toggle");
     if (member_node) {
         const auto member_point = center(member_node->rectangle);

@@ -18,7 +18,7 @@ u32 time_text(u32 milliseconds, char* out) noexcept {
     out[used++] = static_cast<char>('0' + seconds % 10);
     return used;
 }
-bool rounded(PaintStream* paint, UiRect r, Color color, float radius) noexcept {
+inline bool rounded(PaintStream* paint, UiRect r, Color color, float radius) noexcept {
     return paint_stream_push_rounded(paint, r, color, radius);
 }
 } // namespace

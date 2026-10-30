@@ -243,8 +243,8 @@ struct __declspec(uuid("6007896c-3244-4afd-bf18-a6d3beda5023")) __declspec(novta
 struct __declspec(uuid("a8be2ac4-199f-4946-b331-79599fb98de7")) __declspec(novtable) IDXGISwapChain2 : IDXGISwapChain1 {
     MAICORD_COM_UNUSED(SetSourceSize);
     MAICORD_COM_UNUSED(GetSourceSize);
-    virtual HRESULT __stdcall SetMaximumFrameLatency(UINT MaxLatency) = 0;
-    MAICORD_COM_UNUSED(GetMaximumFrameLatency);
+    MAICORD_COM_UNUSED(SetMaximumFrameLatency);
+    virtual HRESULT __stdcall GetMaximumFrameLatency(UINT* pMaxLatency) = 0;
     virtual HANDLE __stdcall GetFrameLatencyWaitableObject() = 0;
 };
 // <dxgi1_4.h>

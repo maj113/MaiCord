@@ -60,7 +60,6 @@ struct UiDownloadScene {
 bool ui_download_scene_update(UiDownloadScene*, const UiDownloadSource*, const UiDownloadContent*, UiRect) noexcept;
 void ui_download_scene_release(UiDownloadScene*) noexcept;
 bool ui_download_scene_current(const UiDownloadScene&) noexcept;
-bool ui_download_scene_contains(const UiDownloadScene&, float x, float y) noexcept;
 UiDownloadTarget ui_download_scene_target(const UiDownloadScene&, UiWidgetHandle) noexcept;
 UiDownloadTarget ui_download_scene_hit_test(const UiDownloadScene&, float x, float y) noexcept;
 bool ui_download_scene_page(UiDownloadScene*, u32 page) noexcept;

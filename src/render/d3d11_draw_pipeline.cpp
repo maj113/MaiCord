@@ -200,21 +200,83 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_create(D3D11DrawPipelineOwner* stage
     return pipeline_success();
 }
 
-D3D11DrawPipelineResult d3d11_draw_pipeline_publish(D3D11DrawPipelineOwner* owner,
-                                                    D3D11DrawPipelineOwner* staged,
-                                                    ID3D11DeviceContext* context, u32 width, u32 height,
-                                                    u32 dpi) noexcept {
-    if (!owner || !staged) {
-        return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
+void d3d11_draw_pipeline_warm(D3D11DrawPipelineOwner* pipeline, ID3D11Device* device, ID3D11DeviceContext* context,
+                              const D3D11DrawPipelineConfig& config) noexcept {
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = 4;
+    description.Height = 4;
+    description.MipLevels = 1;
+    description.ArraySize = 1;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.SampleDesc.Count = 1;
+    description.Usage = D3D11_USAGE_DEFAULT;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+    ID3D11Texture2D* texture = nullptr;
+    ID3D11RenderTargetView* target = nullptr;
+    if (FAILED(device->CreateTexture2D(&description, nullptr, &texture)) ||
+        FAILED(device->CreateRenderTargetView(texture, nullptr, &target))) {
+        com_release(texture);
+        return;
     }
-    if (!d3d11_draw_pipeline_update_transform(*staged, context, width, height, dpi)) {
-        d3d11_draw_pipeline_release(staged);
-        return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
+    const auto zero_instance = [&](ID3D11Buffer* buffer, u32 bytes) noexcept {
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(context->Map(buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)) || !mapped.pData)
+            return false;
+        clear_bytes(mapped.pData, bytes);
+        context->Unmap(buffer, 0);
+        return true;
+    };
+    const D3D11_VIEWPORT viewport{0, 0, 4, 4, 0, 1};
+    const D3D11_RECT scissor{0, 0, 4, 4};
+    const float blend_factor[4]{};
+    const UINT offset = 0;
+    context->RSSetViewports(1, &viewport);
+    context->OMSetRenderTargets(1, &target, nullptr);
+    context->RSSetState(pipeline->ui_rasterizer_state);
+    context->RSSetScissorRects(1, &scissor);
+    context->OMSetBlendState(pipeline->ui_blend_state, blend_factor, 0xFFFFFFFFu);
+    context->VSSetConstantBuffers(0, 1, &pipeline->ui_frame_buffer);
+    context->PSSetConstantBuffers(0, 1, &pipeline->ui_frame_buffer);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    if (zero_instance(pipeline->ui_instance_buffer, config.ui_instance_stride)) {
+        const UINT stride = config.ui_instance_stride;
+        context->IASetInputLayout(pipeline->ui_input_layout);
+        context->IASetVertexBuffers(0, 1, &pipeline->ui_instance_buffer, &stride, &offset);
+        context->VSSetShader(pipeline->ui_vertex_shader, nullptr, 0);
+        context->PSSetShader(pipeline->ui_pixel_shader, nullptr, 0);
+        context->DrawInstanced(4, 1, 0, 0);
     }
+    // The glyph ring restarts with a discard on the first real upload.
+    if (zero_instance(pipeline->glyph_instance_buffer, config.glyph_instance_stride)) {
+        const UINT stride = config.glyph_instance_stride;
+        pipeline->glyph_instance_end = 0;
+        context->IASetInputLayout(pipeline->glyph_input_layout);
+        context->IASetVertexBuffers(0, 1, &pipeline->glyph_instance_buffer, &stride, &offset);
+        context->VSSetShader(pipeline->glyph_vertex_shader, nullptr, 0);
+        context->PSSetShader(pipeline->glyph_pixel_shader, nullptr, 0);
+        context->PSSetSamplers(0, 1, &pipeline->glyph_sampler);
+        context->DrawInstanced(4, 1, 0, 0);
+    }
+    if (zero_instance(pipeline->media_instance_buffer, config.media_instance_stride)) {
+        const UINT stride = config.media_instance_stride;
+        context->IASetInputLayout(pipeline->media_input_layout);
+        context->IASetVertexBuffers(0, 1, &pipeline->media_instance_buffer, &stride, &offset);
+        context->VSSetShader(pipeline->media_vertex_shader, nullptr, 0);
+        context->PSSetShader(pipeline->media_pixel_shader, nullptr, 0);
+        context->DrawInstanced(4, 1, 0, 0);
+    }
+    ID3D11SamplerState* null_sampler = nullptr;
+    context->PSSetSamplers(0, 1, &null_sampler);
+    context->OMSetRenderTargets(0, nullptr, nullptr);
+    context->Flush();
+    com_release(target);
+    com_release(texture);
+}
+
+void d3d11_draw_pipeline_publish(D3D11DrawPipelineOwner* owner, D3D11DrawPipelineOwner* staged) noexcept {
     d3d11_draw_pipeline_release(owner);
     copy_value(owner, *staged);
     reset_value<D3D11DrawPipelineOwner>(staged);
-    return pipeline_success();
 }
 
 D3D11DrawPipelineResult d3d11_draw_pipeline_initialize(D3D11DrawPipelineOwner* owner, ID3D11Device* device,
@@ -223,7 +285,14 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_initialize(D3D11DrawPipelineOwner* o
                                                        const D3D11DrawPipelineConfig& config) noexcept {
     D3D11DrawPipelineOwner staged{};
     const D3D11DrawPipelineResult created = d3d11_draw_pipeline_create(&staged, device, config);
-    return created.ok() ? d3d11_draw_pipeline_publish(owner, &staged, context, width, height, dpi) : created;
+    if (!created.ok())
+        return created;
+    if (!d3d11_draw_pipeline_update_transform(staged, context, width, height, dpi)) {
+        d3d11_draw_pipeline_release(&staged);
+        return pipeline_failure(D3D11DrawPipelineError::invalid_input, E_INVALIDARG);
+    }
+    d3d11_draw_pipeline_publish(owner, &staged);
+    return pipeline_success();
 }
 
 D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_ui_instances(D3D11DrawPipelineOwner* owner,
@@ -365,8 +434,7 @@ void d3d11_draw_pipeline_release(D3D11DrawPipelineOwner* owner) noexcept {
 }
 
 bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner* owner, ID3D11Device* device,
-                                           ID3D11DeviceContext* context, const Theme& theme,
-                                           float phase_seconds) noexcept {
+                                           ID3D11DeviceContext* context, const Theme& theme) noexcept {
     if (!owner || !context || !device)
         return false;
     const auto& background = theme.background;
@@ -386,19 +454,10 @@ bool d3d11_draw_pipeline_update_background(D3D11DrawPipelineOwner* owner, ID3D11
             next.colors[i][1] = colors[i].green;
             next.colors[i][2] = colors[i].blue;
         }
-        next.colors[0][3] = background.density / 100.f;
         next.colors[1][3] = light ? 1.f : 0.f;
         ui_background_direction(background.angle_degrees, &next.controls[0], &next.controls[1]);
         next.controls[2] = background.color_count;
-        next.controls[3] = background.intensity / 100.f;
-        next.motion[1] = background.speed / 100.f;
-        next.motion[2] = static_cast<u8>(background.effect);
-        next.motion[3] = background.strength / 100.f;
     }
-    next.motion[0] = background_effects_active(background) && background.speed && phase_seconds >= 0 &&
-                             phase_seconds <= 3.402823466e38f
-                         ? phase_seconds
-                         : 0;
     if (!owner->background_buffer) {
         D3D11_BUFFER_DESC description{};
         description.ByteWidth = sizeof(next);

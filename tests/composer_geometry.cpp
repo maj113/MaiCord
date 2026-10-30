@@ -18,12 +18,12 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         for (const float width : widths) {
             responsive &=
                 ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, width, 800.f);
-            const auto* center = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::content));
-            const auto* members = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::member_sidebar));
-            const auto* composer = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::composer));
+            const auto* center = ui_scene_node(shell, UiSemantic::content);
+            const auto* members = ui_scene_node(shell, UiSemantic::member_sidebar);
+            const auto* composer = ui_scene_node(shell, UiSemantic::composer);
             responsive &= center && ui_rect_width(center->rectangle) >= kUiShellMinimumMessageWidthDips &&
                           (members != nullptr) == (width >= 872.f) &&
-                          ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::member_toggle)) &&
+                          ui_scene_node(shell, UiSemantic::member_toggle) &&
                           composer &&
                           ui_scene_composer_width(metrics, width) ==
                               ui_rect_width(ui_scene_content_rectangle(shell, UiSemantic::composer));
@@ -44,12 +44,12 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         metrics.member_sidebar_width = 225.f;
         bool custom =
             ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 901.5f, 800.f) &&
-            !ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::member_sidebar)) &&
+            !ui_scene_node(shell, UiSemantic::member_sidebar) &&
             ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 902.f, 800.f);
-        const auto* center = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::content));
-        const auto* custom_composer = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::composer));
+        const auto* center = ui_scene_node(shell, UiSemantic::content);
+        const auto* custom_composer = ui_scene_node(shell, UiSemantic::composer);
         custom &= center && center->rectangle.left == 357.f && ui_rect_width(center->rectangle) == 320.f &&
-                  ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::member_sidebar)) &&
+                  ui_scene_node(shell, UiSemantic::member_sidebar) &&
                   custom_composer &&
                   ui_scene_composer_width(metrics, 902.f) ==
                       ui_rect_width(ui_scene_content_rectangle(shell, UiSemantic::composer));
@@ -58,13 +58,13 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
         check(
             custom &&
                 ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 1280.f, 800.f) &&
-                !ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::member_sidebar)),
+                !ui_scene_node(shell, UiSemantic::member_sidebar),
             "shell_responsive_member_boundary_honors_custom_gutters_widths_and_explicit_hidden_preference");
         metrics.flags = static_cast<u16>(metrics.flags & ~ui_shell_layout_navigation);
         metrics.revision++;
         bool hidden_navigation =
             ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 320.f, 800.f);
-        const auto* narrow_composer = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::composer));
+        const auto* narrow_composer = ui_scene_node(shell, UiSemantic::composer);
         hidden_navigation &=
             narrow_composer && ui_scene_composer_width(metrics, 320.f) ==
                                    ui_rect_width(ui_scene_content_rectangle(shell, UiSemantic::composer));
@@ -76,7 +76,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
             hidden_navigation &= ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics,
                                                               shell_width, 800.f);
             const auto* boundary_composer =
-                ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::composer));
+                ui_scene_node(shell, UiSemantic::composer);
             hidden_navigation &=
                 boundary_composer && ui_scene_composer_width(metrics, shell_width) == composer_width &&
                 ui_rect_width(ui_scene_content_rectangle(shell, UiSemantic::composer)) == composer_width;

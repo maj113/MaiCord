@@ -114,6 +114,7 @@ struct UiFriendsScene {
     UiFriendsTab tab;
     UiFriendsPhase phase;
     bool active,focus_visible,search_active;
+    bool build_failed; // a widget could not be added during the last rebuild
 };
 // Lazy retained viewport list, maximum 16,384 logical rows.
 bool ui_friends_scene_update(UiFriendsScene*,const UiFriendsSource*,UiFriendsTab,UiFriendsPhase,const Utf8View& status,const UiRect& viewport,const UiFriendsContent* content=nullptr,const UiFriendsSections* sections=nullptr,const UiFriendsActiveNow* active_now=nullptr) noexcept;

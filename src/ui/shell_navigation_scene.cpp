@@ -226,10 +226,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
 
     const float local_scroll = include_spacer ? scroll : maximum(0.0f, scroll - (inset + first_prefix));
     if (!source_changed && scene->active && scene->first == first && scene->count == row_count) {
-        const UiWidget* retained_root = ui_widget_manager_resolve(scene->widgets, scene->root);
-        if (!retained_root ||
-            !ui_layout_engine_set_scroll(&scene->widgets.layout, retained_root->layout,
-                                         UiPoint{0.0f, local_scroll}) ||
+        if (!ui_widget_manager_set_scroll(&scene->widgets, scene->root, UiPoint{0.0f, local_scroll}) ||
             !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
             return scene_error(scene, ShellNavigationSceneError::layout);
         }
@@ -293,10 +290,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
                                                       label.handle, mention_badge, source_index};
     }
 
-    const UiWidget* root_widget = ui_widget_manager_resolve(scene->widgets, root.handle);
-    if (!root_widget ||
-        !ui_layout_engine_set_scroll(&scene->widgets.layout, root_widget->layout,
-                                     UiPoint{0.0f, local_scroll}) ||
+    if (!ui_widget_manager_set_scroll(&scene->widgets, root.handle, UiPoint{0.0f, local_scroll}) ||
         !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
         return teardown_error(scene, ShellNavigationSceneError::layout);
     }

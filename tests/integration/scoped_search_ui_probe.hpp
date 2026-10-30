@@ -174,7 +174,7 @@ inline bool scoped_search_ui_probe(D3D11Renderer& renderer) noexcept {
     renderer_bind_text_form(&renderer, nullptr);
     renderer_bind_focus_owner(&renderer, nullptr);
     const auto* title =
-        ui_scene_resolve(*renderer.ui_scene, ui_scene_find(*renderer.ui_scene, UiSemantic::title_bar));
+        ui_scene_node(*renderer.ui_scene, UiSemantic::title_bar);
     if (!title)
         return fail();
     auto viewport = ui_scene_content_rectangle(*renderer.ui_scene, UiSemantic::content);

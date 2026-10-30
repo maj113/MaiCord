@@ -54,11 +54,16 @@ float crop_height(UiRect viewport) noexcept {
     return kTop + kTitleLine + kBodyGap * 2 + image_crop_editor_height(ui_rect_height(viewport)) + kToolsPad * 2 +
            kTool + kFooterButton + kFooterPad * 2;
 }
+// A part that cannot be added (no room or no area) marks the scene failed and
+// returns a stand-in; ui_profile_dialog_update reports it once.
 UiProfileDialogPart* add(UiProfileDialogScene* s, UiWidgetHandle parent, const UiRect& origin, const UiRect& r, Role role,
                          UiProfileDialogAction action = UiProfileDialogAction::none, const Utf8View& text = {},
                          u16 source = 0, u32 style = 0, bool clip = false) noexcept {
-    if (s->part_count >= kUiProfileDialogPartCapacity || !ui_rect_has_area(r))
-        return nullptr;
+    static UiProfileDialogPart sink;
+    if (s->part_count >= kUiProfileDialogPartCapacity || !ui_rect_has_area(r)) {
+        s->failed = true;
+        return &sink;
+    }
     auto layout = ui_layout_style();
     layout.width = ui_layout_fixed(ui_rect_width(r));
     layout.height = ui_layout_fixed(ui_rect_height(r));
@@ -75,8 +80,10 @@ UiProfileDialogPart* add(UiProfileDialogScene* s, UiWidgetHandle parent, const U
         {id, clip ? UiWidgetKind::container : interactive ? UiWidgetKind::button : UiWidgetKind::text,
          static_cast<u16>(ui_widget_enabled | (interactive ? ui_widget_hit_test | ui_widget_focusable : 0)),
          {utf8_literal("ProfileDialogPart"), layout, {}, 0, id}});
-    if (!widget.ok())
-        return nullptr;
+    if (!widget.ok()) {
+        s->failed = true;
+        return &sink;
+    }
     auto& part = s->parts[s->part_count++];
     new (&part) UiProfileDialogPart{};
     part.widget = widget.handle;
@@ -88,14 +95,14 @@ UiProfileDialogPart* add(UiProfileDialogScene* s, UiWidgetHandle parent, const U
     return &part;
 }
 // The panel with its title and close button, shared by every dialog kind.
-bool add_frame(UiProfileDialogScene* s, UiWidgetHandle root, const UiRect& viewport, const UiRect& panel) noexcept {
+void add_frame(UiProfileDialogScene* s, UiWidgetHandle root, const UiRect& viewport, const UiRect& panel) noexcept {
     s->rectangle = panel;
-    return add(s, root, viewport, panel, role_panel) &&
-           add(s, root, viewport, {panel.left + kSide, panel.top + kTop, panel.right - kSide - kClose, panel.top + kTop + kTitleLine},
-               role_title, UiProfileDialogAction::none, s->content.title, 0, text_style_heading_2 | text_style_bold) &&
-           add(s, root, viewport,
-               {panel.right - kTop - kClose, panel.top + kTop - 2, panel.right - kTop, panel.top + kTop - 2 + kClose},
-               role_close, UiProfileDialogAction::close);
+    add(s, root, viewport, panel, role_panel);
+    add(s, root, viewport, {panel.left + kSide, panel.top + kTop, panel.right - kSide - kClose, panel.top + kTop + kTitleLine},
+        role_title, UiProfileDialogAction::none, s->content.title, 0, text_style_heading_2 | text_style_bold);
+    add(s, root, viewport,
+        {panel.right - kTop - kClose, panel.top + kTop - 2, panel.right - kTop, panel.top + kTop - 2 + kClose},
+        role_close, UiProfileDialogAction::close);
 }
 const UiLayoutNode* node(const UiProfileDialogScene& s, const UiProfileDialogPart& part) noexcept {
     return ui_widget_manager_layout_node(s.widgets, part.widget);
@@ -130,26 +137,24 @@ u32 grid_columns(float width) noexcept {
     return columns < 1 ? 1 : columns > 3 ? 3 : columns;
 }
 // Apply and Cancel, right-aligned on the footer row at top.
-bool add_buttons(UiProfileDialogScene* s, UiWidgetHandle root, const UiRect& viewport, float right, float top) noexcept {
+void add_buttons(UiProfileDialogScene* s, UiWidgetHandle root, const UiRect& viewport, float right, float top) noexcept {
     const UiSettingsStyleTokens t(kDefaultTheme.styles);
     const float apply_w = ui_settings_button_width(
         t, UiSettingsButtonSize::regular, ui_settings_text_width(s->content.apply_label, kUiSettingsDescriptionEm) * 1.08f);
     const float cancel_w = ui_settings_button_width(
         t, UiSettingsButtonSize::regular, ui_settings_text_width(utf8_literal("Cancel"), kUiSettingsDescriptionEm) * 1.08f);
-    return add(s, root, viewport, {right - apply_w, top, right, top + kFooterButton}, role_apply,
-               UiProfileDialogAction::apply, s->content.apply_label, 0, text_style_subtext | text_style_bold) &&
-           add(s, root, viewport, {right - apply_w - kFooterGap - cancel_w, top, right - apply_w - kFooterGap, top + kFooterButton},
-               role_cancel, UiProfileDialogAction::cancel, utf8_literal("Cancel"), 0, text_style_subtext | text_style_bold);
+    add(s, root, viewport, {right - apply_w, top, right, top + kFooterButton}, role_apply, UiProfileDialogAction::apply,
+        s->content.apply_label, 0, text_style_subtext | text_style_bold);
+    add(s, root, viewport, {right - apply_w - kFooterGap - cancel_w, top, right - apply_w - kFooterGap, top + kFooterButton},
+        role_cancel, UiProfileDialogAction::cancel, utf8_literal("Cancel"), 0, text_style_subtext | text_style_bold);
 }
-bool build_crop(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) noexcept {
+void build_crop(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) noexcept {
     const auto panel = panel_rect(UiProfileDialogKind::crop, viewport, crop_height(viewport));
-    if (!add_frame(s, root, viewport, panel))
-        return false;
+    add_frame(s, root, viewport, panel);
     const float left = panel.left + kSide, right = panel.right - kSide;
     s->crop_viewport = ui_profile_dialog_crop_editor(viewport);
     const auto editor = s->crop_viewport;
-    if (!add(s, root, viewport, editor, role_editor, UiProfileDialogAction::pan))
-        return false;
+    add(s, root, viewport, editor, role_editor, UiProfileDialogAction::pan);
     // Tools: centred zoom control (36 DIP inline padding balances the rotate
     // button), the rotate button at the end.
     const float tools_top = editor.bottom + kToolsPad;
@@ -158,29 +163,26 @@ bool build_crop(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) n
     const float middle = tools_top + kTool * .5f;
     s->slider_track = {group_left + 16 + kSliderGap, middle - kSliderTrack * .5f,
                        group_left + 16 + kSliderGap + kSliderWidth, middle + kSliderTrack * .5f};
-    if (!add(s, root, viewport, {group_left, middle - 8, group_left + 16, middle + 8}, role_small_icon) ||
-        !add(s, root, viewport,
-             {s->slider_track.left - kSliderThumb * .5f, middle - kSliderThumb * .5f,
-              s->slider_track.right + kSliderThumb * .5f, middle + kSliderThumb * .5f},
-             role_slider, UiProfileDialogAction::zoom) ||
-        !add(s, root, viewport,
-             {s->slider_track.right + kSliderGap, tools_top, s->slider_track.right + kSliderGap + kTool,
-              tools_top + kTool},
-             role_large_icon) ||
-        !add(s, root, viewport, {editor.right - kRotateBox, middle - kRotateBox * .5f, editor.right, middle + kRotateBox * .5f},
-             role_rotate, UiProfileDialogAction::rotate))
-        return false;
+    add(s, root, viewport, {group_left, middle - 8, group_left + 16, middle + 8}, role_small_icon);
+    add(s, root, viewport,
+        {s->slider_track.left - kSliderThumb * .5f, middle - kSliderThumb * .5f,
+         s->slider_track.right + kSliderThumb * .5f, middle + kSliderThumb * .5f},
+        role_slider, UiProfileDialogAction::zoom);
+    add(s, root, viewport,
+        {s->slider_track.right + kSliderGap, tools_top, s->slider_track.right + kSliderGap + kTool, tools_top + kTool},
+        role_large_icon);
+    add(s, root, viewport, {editor.right - kRotateBox, middle - kRotateBox * .5f, editor.right, middle + kRotateBox * .5f},
+        role_rotate, UiProfileDialogAction::rotate);
     const float top = tools_top + kTool + kToolsPad + kFooterPad;
-    return add(s, root, viewport, {left, top, left + 64, top + kFooterButton}, role_reset, UiProfileDialogAction::reset,
-               utf8_literal("Reset"), 0, text_style_subtext | text_style_bold) &&
-           add_buttons(s, root, viewport, right, top);
+    add(s, root, viewport, {left, top, left + 64, top + kFooterButton}, role_reset, UiProfileDialogAction::reset,
+        utf8_literal("Reset"), 0, text_style_subtext | text_style_bold);
+    add_buttons(s, root, viewport, right, top);
 }
-bool build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) noexcept {
+void build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) noexcept {
     const float height = minimum(kTop + kTitleLine + 16 + kPickerHeight + kFooterButton + kFooterPad * 2,
                                  maximum(240.f, ui_rect_height(viewport) - 32));
     const auto panel = panel_rect(s->content.kind, viewport, height);
-    if (!add_frame(s, root, viewport, panel))
-        return false;
+    add_frame(s, root, viewport, panel);
     const float left = panel.left + kSide, right = panel.right - kSide;
     const float body_top = panel.top + kTop + kTitleLine + 16;
     const float footer_top = panel.bottom - kFooterPad - kFooterButton;
@@ -188,8 +190,6 @@ bool build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport)
     const float grid_right = side ? right - kPreviewPanel - 16 : right;
     s->grid_viewport = {left, body_top, grid_right, footer_top - kFooterPad};
     auto* grid = add(s, root, viewport, s->grid_viewport, role_grid, UiProfileDialogAction::none, {}, 0, 0, true);
-    if (!grid)
-        return false;
     // One section: "Your Decorations" / "Your Effects" (owned and None).
     const u32 columns = grid_columns(ui_rect_width(s->grid_viewport));
     const float tile_w = (ui_rect_width(s->grid_viewport) - (columns - 1) * kTileGap) / columns;
@@ -211,36 +211,32 @@ bool build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport)
         const float y = origin.top + kSectionHeader + row * (kTile + kTileGap);
         if (y + kTile < s->grid_viewport.top || y > s->grid_viewport.bottom)
             continue;
-        if (!add(s, grid->widget, origin, {x, y, x + tile_w, y + kTile}, role_tile, UiProfileDialogAction::item,
-                 s->content.items[i].sku ? Utf8View{} : utf8_literal("None"), static_cast<u16>(i)))
-            return false;
+        add(s, grid->widget, origin, {x, y, x + tile_w, y + kTile}, role_tile, UiProfileDialogAction::item,
+            s->content.items[i].sku ? Utf8View{} : utf8_literal("None"), static_cast<u16>(i));
     }
     if (side) {
         const float px = right - kPreviewPanel;
         const UiRect box{px, body_top + 24, px + kPreviewBox, body_top + 24 + kPreviewBox};
-        if (!add(s, root, viewport, box, role_preview) ||
-            (s->content.preview_label.bytes &&
-             !add(s, root, viewport, {box.left, box.bottom + 8, right, box.bottom + 30}, role_preview_label,
-                  UiProfileDialogAction::none, s->content.preview_label, 0, text_style_bold)))
-            return false;
+        add(s, root, viewport, box, role_preview);
+        if (s->content.preview_label.bytes)
+            add(s, root, viewport, {box.left, box.bottom + 8, right, box.bottom + 30}, role_preview_label,
+                UiProfileDialogAction::none, s->content.preview_label, 0, text_style_bold);
         // Four small previews beside the large one.
         if (s->content.kind == UiProfileDialogKind::decoration) {
             const float sizes[] = {40, 32, 40, 32};
             float y = box.top + 8;
             for (u32 i = 0; i < 4; ++i) {
                 const float cx = box.right + 12 + 8 + 20;
-                if (!add(s, root, viewport, {cx - sizes[i] * .5f, y, cx + sizes[i] * .5f, y + sizes[i]},
-                         role_small_preview, UiProfileDialogAction::none, {}, static_cast<u16>(i)))
-                    return false;
+                add(s, root, viewport, {cx - sizes[i] * .5f, y, cx + sizes[i] * .5f, y + sizes[i]}, role_small_preview,
+                    UiProfileDialogAction::none, {}, static_cast<u16>(i));
                 y += sizes[i] + 12;
             }
         }
     }
-    if (s->content.status.bytes &&
-        !add(s, root, viewport, {left, footer_top, right - 200, footer_top + kFooterButton}, role_status,
-             UiProfileDialogAction::none, s->content.status, 0, text_style_subtext))
-        return false;
-    return add_buttons(s, root, viewport, right, footer_top);
+    if (s->content.status.bytes)
+        add(s, root, viewport, {left, footer_top, right - 200, footer_top + kFooterButton}, role_status,
+            UiProfileDialogAction::none, s->content.status, 0, text_style_subtext);
+    add_buttons(s, root, viewport, right, footer_top);
 }
 const UiProfileDialogPart* find(const UiProfileDialogScene& s, Role role, u32 source = 0) noexcept {
     for (u32 i = 0; i < s.part_count; ++i)
@@ -297,8 +293,12 @@ bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogCont
                                              {utf8_literal("ProfileDialog"), style, {}, 0, 1}});
     if (!root.ok())
         return false;
-    const bool built = crop(*s) ? build_crop(s, root.handle, viewport) : build_picker(s, root.handle, viewport);
-    if (!built || !ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok())
+    s->failed = false;
+    if (crop(*s))
+        build_crop(s, root.handle, viewport);
+    else
+        build_picker(s, root.handle, viewport);
+    if (s->failed || !ui_widget_manager_layout_rectangle(&s->widgets, viewport).ok())
         return false;
     bool (*const restore[3])(UiWidgetManager*, UiWidgetHandle) noexcept{
         ui_widget_manager_capture, ui_widget_manager_hover, ui_widget_manager_focus};

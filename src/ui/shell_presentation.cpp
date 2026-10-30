@@ -285,20 +285,20 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         viewport_width <= 0.0f || viewport_height <= 0.0f) {
         return false;
     }
-    const UiNode* root = ui_scene_resolve_semantic(scene, UiSemantic::root);
-    const UiNode* guild = ui_scene_resolve_semantic(scene, UiSemantic::guild_rail);
-    const UiNode* guild_navigation = ui_scene_resolve_semantic(scene, UiSemantic::guild_navigation);
-    const UiNode* home = ui_scene_resolve_semantic(scene, UiSemantic::home_button);
-    const UiNode* channels = ui_scene_resolve_semantic(scene, UiSemantic::channel_sidebar);
-    const UiNode* channel_header = ui_scene_resolve_semantic(scene, UiSemantic::channel_header);
-    const UiNode* channel_navigation = ui_scene_resolve_semantic(scene, UiSemantic::channel_navigation);
-    const UiNode* channel_footer = ui_scene_resolve_semantic(scene, UiSemantic::channel_footer);
-    const UiNode* title = ui_scene_resolve_semantic(scene, UiSemantic::title_bar);
-    const UiNode* member_toggle = ui_scene_resolve_semantic(scene, UiSemantic::member_toggle);
-    const UiNode* content = ui_scene_resolve_semantic(scene, UiSemantic::content);
-    const UiNode* messages = ui_scene_resolve_semantic(scene, UiSemantic::message_view);
-    const UiNode* composer = ui_scene_resolve_semantic(scene, UiSemantic::composer);
-    const UiNode* members = ui_scene_resolve_semantic(scene, UiSemantic::member_sidebar);
+    const UiLayoutNode* root = ui_scene_node(scene, UiSemantic::root);
+    const UiLayoutNode* guild = ui_scene_node(scene, UiSemantic::guild_rail);
+    const UiLayoutNode* guild_navigation = ui_scene_node(scene, UiSemantic::guild_navigation);
+    const UiLayoutNode* home = ui_scene_node(scene, UiSemantic::home_button);
+    const UiLayoutNode* channels = ui_scene_node(scene, UiSemantic::channel_sidebar);
+    const UiLayoutNode* channel_header = ui_scene_node(scene, UiSemantic::channel_header);
+    const UiLayoutNode* channel_navigation = ui_scene_node(scene, UiSemantic::channel_navigation);
+    const UiLayoutNode* channel_footer = ui_scene_node(scene, UiSemantic::channel_footer);
+    const UiLayoutNode* title = ui_scene_node(scene, UiSemantic::title_bar);
+    const UiLayoutNode* member_toggle = ui_scene_node(scene, UiSemantic::member_toggle);
+    const UiLayoutNode* content = ui_scene_node(scene, UiSemantic::content);
+    const UiLayoutNode* messages = ui_scene_node(scene, UiSemantic::message_view);
+    const UiLayoutNode* composer = ui_scene_node(scene, UiSemantic::composer);
+    const UiLayoutNode* members = ui_scene_node(scene, UiSemantic::member_sidebar);
     if (!root || !guild || !guild_navigation || !home || !title || !messages) {
         return false;
     }
@@ -325,7 +325,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         return false;
     }
 
-    const bool home_hovered = ui_widget_handle_equal(scene.widgets.hovered, home->widget);
+    const bool home_hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::home_button));
     const bool home_selected = navigation && !navigation->selected_guild_id;
     if (!paint_guild_indicator(stream, guild->rectangle.left, home->rectangle,
                                guild_scene ? &guild_scene->home_indicator : nullptr, home_selected,
@@ -363,6 +363,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         }
         if (!paint_folder_groups(stream, *guild_scene, theme))
             return false;
+        const GuildRailRowWidget* hovered_row = guild_rail_scene_resolve(*guild_scene, guild_scene->widgets.hovered);
         for (u32 index = 0; index < guild_scene->count; ++index) {
             const GuildRailRowWidget& row_widget = guild_scene->rows[index];
             const GuildViewRow& row = row_widget.view;
@@ -372,9 +373,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             }
             const bool header = row.folder_role == GuildFolderRole::header;
             const UiRect rectangle = guild_rail_icon_rectangle(layout->rectangle);
-            const GuildRailRowWidget* hovered =
-                guild_rail_scene_resolve(*guild_scene, guild_scene->widgets.hovered);
-            const bool row_hovered = hovered == &row_widget;
+            const bool row_hovered = hovered_row == &row_widget;
             if (rectangle.bottom <= guild->rectangle.top || rectangle.top >= guild->rectangle.bottom) {
                 continue;
             }
@@ -452,6 +451,8 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             if (!paint_stream_push_clip(stream, channel_navigation->rectangle)) {
                 return false;
             }
+            const ShellNavigationRowWidget* hovered_row =
+                shell_navigation_scene_resolve(*channel_scene, channel_scene->widgets.hovered);
             for (u32 index = 0; index < channel_scene->count; ++index) {
                 const ShellNavigationRowWidget& row_widget = channel_scene->rows[index];
                 const ChannelViewRow& row = row_widget.view;
@@ -473,9 +474,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                     return false;
                 }
                 const UiRect& row_rectangle = layout->rectangle;
-                const ShellNavigationRowWidget* hovered =
-                    shell_navigation_scene_resolve(*channel_scene, channel_scene->widgets.hovered);
-                const bool row_hovered = hovered == &row_widget;
+                const bool row_hovered = hovered_row == &row_widget;
                 const float row_top = row_rectangle.top;
                 // Voice rows extend below their head (and status line) for users and the invite row.
                 const float row_height = row.voice_count || row.stage_live || row.voice_subtitle || row.voice_invite
@@ -574,18 +573,18 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         (members && !ui_background_paint_canvas(stream, members->rectangle, theme, theme.base_lower))) {
         return false;
     }
-    if (const UiNode* title_label = ui_scene_resolve_semantic(scene, UiSemantic::title_label); title_label && title) {
+    if (const UiLayoutNode* title_label = ui_scene_node(scene, UiSemantic::title_label); title_label && title) {
         UiRect line = title_label->rectangle;
         line.top = title->rectangle.top;
         line.bottom = title->rectangle.bottom;
         UiPluginSlotBadge header{};
-        if (ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, title_label->widget, line, nullptr, &header) &&
+        if (ui_plugin_slot_line_badge(kUiPluginSlotHeaderToolbar, 0, 0, 0, ui_scene_widget(scene, UiSemantic::title_label), line, nullptr, &header) &&
             !ui_plugin_slot_badge_paint(header, scene.widgets, theme, stream))
             return false;
     }
     if (member_toggle) {
         // A one-to-one DM's toggle shows the recipient's profile.
-        if (!ui_button_icon_paint(stream, scene.widgets, member_toggle->widget,
+        if (!ui_button_icon_paint(stream, scene.widgets, ui_scene_widget(scene, UiSemantic::member_toggle),
                                   scene.side_panel_profile ? UiIcon::user_circle : UiIcon::members, theme,
                                   members != nullptr, false, UiButtonSurface::palette)) {
             return false;
@@ -602,13 +601,13 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                         {UiSemantic::private_add, UiIcon::user_plus, UiButtonSurface::palette},
                         {UiSemantic::private_call, UiIcon::phone, UiButtonSurface::palette}};
     for (const auto& item : toolbar_buttons) {
-        if (const auto* button = ui_scene_resolve_semantic(scene, item.semantic);
-            button && !ui_button_icon_paint(stream, scene.widgets, button->widget, item.icon, theme, false, false,
+        if (const auto* button = ui_scene_node(scene, item.semantic);
+            button && !ui_button_icon_paint(stream, scene.widgets, ui_scene_widget(scene, item.semantic), item.icon, theme, false, false,
                                             item.surface))
             return false;
     }
-    if (const auto* create = ui_scene_resolve_semantic(scene, UiSemantic::private_create)) {
-        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, create->widget);
+    if (const auto* create = ui_scene_node(scene, UiSemantic::private_create)) {
+        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::private_create));
         const UiRect r = create->rectangle;
         if (!ui_icon_paint(stream, UiIcon::plus, {r.left + 4, r.top + 4, r.right - 4, r.bottom - 4},
                            hovered ? theme.text_primary : theme.text_secondary))
@@ -616,10 +615,10 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     }
     // Server header dropdown: hover (and open) fill, then the chevron that
     // becomes an X while the popout is open.
-    if (const auto* menu = ui_scene_resolve_semantic(scene, UiSemantic::guild_menu);
+    if (const auto* menu = ui_scene_node(scene, UiSemantic::guild_menu);
         menu && navigation && navigation->selected_guild_id &&
         !shell_presentation_guild_banner_visible(scene, channel_scene)) {
-        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, menu->widget);
+        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::guild_menu));
         const UiRect r = menu->rectangle;
         if ((hovered || scene.guild_menu_expanded) &&
             !paint_stream_push_rounded(stream, r, ui_background_hover_color(theme, theme.surface_high, scene.guild_menu_expanded ? .28f : .20f), kUiShellGuildMenuRadius))
@@ -652,8 +651,8 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                 return false;
         }
     }
-    if (const auto* friends = ui_scene_resolve_semantic(scene, UiSemantic::friends_button)) {
-        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, friends->widget);
+    if (const auto* friends = ui_scene_node(scene, UiSemantic::friends_button)) {
+        const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::friends_button));
         if (!paint_stream_push_rounded(stream, friends->rectangle, scene.view == UiShellView::friends
             ? ui_background_hover_color(theme, theme.interactive, .28f)
         : hovered ? ui_background_hover_color(theme, theme.surface_high, .20f)
@@ -672,8 +671,8 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                 return false;
             }
 
-            if (member_list_scene_row_resident(*member_scene, index) &&
-                row.kind == MemberListRowKind::group) {
+            const bool resident = member_list_scene_row_resident(*member_scene, index);
+            if (resident && row.kind == MemberListRowKind::group) {
                 continue;
             }
             const UiLayoutNode* avatar_layout = member_list_scene_layout_node(*member_scene, row.avatar);
@@ -682,7 +681,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                 paint_stream_pop_clip(stream);
                 return false;
             }
-            if (!member_list_scene_row_resident(*member_scene, index)) {
+            if (!resident) {
                 const auto* label = member_list_scene_layout_node(*member_scene, row.label);
                 if (!label ||
                     !paint_stream_push_rounded(
@@ -961,8 +960,8 @@ bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene
 }
 
 bool shell_presentation_guild_banner_visible(const UiScene& scene, const ShellNavigationScene* channel_scene) noexcept {
-    const UiNode* channels = ui_scene_resolve_semantic(scene, UiSemantic::channel_sidebar);
-    const UiNode* header = ui_scene_resolve_semantic(scene, UiSemantic::channel_header);
+    const UiLayoutNode* channels = ui_scene_node(scene, UiSemantic::channel_sidebar);
+    const UiLayoutNode* header = ui_scene_node(scene, UiSemantic::channel_header);
     return channel_scene && channel_scene->banner_inset > 0 && channels && header &&
            ui_guild_banner_geometry(channels->rectangle, header->rectangle, channel_scene->scroll_dips, false).visible;
 }
@@ -972,8 +971,8 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
                                                    PaintStream* stream) noexcept {
     if (!stream)
         return false;
-    const UiNode* channels = ui_scene_resolve_semantic(scene, UiSemantic::channel_sidebar);
-    const UiNode* header = ui_scene_resolve_semantic(scene, UiSemantic::channel_header);
+    const UiLayoutNode* channels = ui_scene_node(scene, UiSemantic::channel_sidebar);
+    const UiLayoutNode* header = ui_scene_node(scene, UiSemantic::channel_header);
     if (!channel_scene || channel_scene->banner_inset <= 0 || !channels || !header)
         return true;
     const auto banner = ui_guild_banner_geometry(channels->rectangle, header->rectangle, channel_scene->scroll_dips,
@@ -996,10 +995,10 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
     if (edge.alpha > 0 && !paint_stream_push(stream, bar.left, bar.bottom, bar.right, bar.bottom + 1, edge))
         return false;
     // The dropdown over the banner: hover fill, then the white chevron (or X).
-    const auto* menu = ui_scene_resolve_semantic(scene, UiSemantic::guild_menu);
+    const auto* menu = ui_scene_node(scene, UiSemantic::guild_menu);
     if (!menu || !navigation || !navigation->selected_guild_id)
         return true;
-    const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, menu->widget);
+    const bool hovered = ui_widget_handle_equal(scene.widgets.hovered, ui_scene_widget(scene, UiSemantic::guild_menu));
     const UiRect r = menu->rectangle;
     if ((hovered || scene.guild_menu_expanded) &&
         !paint_stream_push_rounded(stream, r, scene.guild_menu_expanded ? theme.tokens.state.pressed : theme.tokens.state.hover, kUiShellGuildMenuRadius))
@@ -1023,6 +1022,7 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
         !paint_stream_push_clip(stream, member_scene->viewport)) {
         return false;
     }
+    const MemberListRowWidget* hovered_row = member_list_scene_resolve(*member_scene, member_scene->widgets.hovered);
     for (u32 index = 0; index < member_scene->count; ++index) {
         const MemberListRowWidget& row = member_scene->rows[index];
         if (!member_list_scene_row_resident(*member_scene, index) ||
@@ -1034,7 +1034,7 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
             paint_stream_pop_clip(stream);
             return false;
         }
-        if (member_list_scene_resolve(*member_scene, member_scene->widgets.hovered) == &row) {
+        if (hovered_row == &row) {
             const auto* node = member_list_scene_layout_node(*member_scene, row.widget);
             if (node && !paint_stream_push_rounded(stream, node->rectangle.left + 4,
                                                    node->rectangle.top + 2, node->rectangle.right - 4,
@@ -1048,8 +1048,8 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
         if (!ui_plugin_slot_badge_paint(member_list_plugin_badge(*member_scene, index), member_scene->widgets, theme,
                                         stream))
             return false;
-        const GuildMemberRecord* member = member_scene->members && row.record_slot < member_scene->members->capacity
-                                              ? &member_scene->members->records[row.record_slot]
+        const GuildMemberRecord* member = member_scene->members && row.source_row.member_slot < member_scene->members->capacity
+                                              ? &member_scene->members->records[row.source_row.member_slot]
                                               : nullptr;
         // Rows without a server record (private conversations) carry their resolved status.
         const auto presence = static_cast<UiPresence>(member ? member->status : row.source_row.status);
@@ -1079,8 +1079,8 @@ bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const Gui
                                                  const Theme& theme, PaintStream* stream) noexcept {
     if (!stream)
         return false;
-    const UiNode* guild = ui_scene_resolve_semantic(scene, UiSemantic::guild_rail);
-    const UiNode* navigation = ui_scene_resolve_semantic(scene, UiSemantic::guild_navigation);
+    const UiLayoutNode* guild = ui_scene_node(scene, UiSemantic::guild_rail);
+    const UiLayoutNode* navigation = ui_scene_node(scene, UiSemantic::guild_navigation);
     if (!guild_scene || !guild_scene->active || !guild || !navigation)
         return true;
     if (!paint_stream_push_clip(stream, navigation->rectangle))

@@ -47,7 +47,7 @@ bool initialize(UiQuickSwitcherScene& s) noexcept {
     const auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Quick switcher"));
     if (!root.ok()) return false;
     s.root = root.handle;
-    auto* root_node = ui_layout_engine_resolve(&s.widgets.layout, s.widgets.storage[s.root.slot].layout);
+    auto* root_node = ui_widget_manager_layout_node(&s.widgets, s.root);
     root_node->spec.style.width = root_node->spec.style.height = ui_layout_fill();
     const auto edit = add(s.root, UiWidgetKind::text_field, utf8_literal("Quick switch query"));
     const auto close = add(s.root, UiWidgetKind::button, utf8_literal("Close quick switcher"));
@@ -154,15 +154,18 @@ bool ui_quick_switcher_scene_update(UiQuickSwitcherScene* s, const UiQuickSwitch
     const auto selected_kind = s->active && s->selected < s->accepted_count ?
         s->accepted[s->selected].kind : UiQuickSwitcherKind::text_channel;
     if (receipt) {
-        UiQuickSwitcherRow accepted[kUiQuickSwitcherMaximumRows]{};
-        for (u32 i = 0; i < count; ++i) {
-            if (!source->resolve(source->context, i, &accepted[i]) || !row_valid(accepted[i])) return false;
-            for (u32 previous = 0; previous < i; ++previous)
-                if (accepted[previous].key == accepted[i].key && accepted[previous].kind == accepted[i].kind) return false;
-        }
         if (!initialize(*s)) return false;
         cancel_row_capture(*s);
-        copy_bytes(s->accepted, accepted, sizeof(UiQuickSwitcherRow) * count);
+        // Rows resolve straight into the bank. The old rows belong to a superseded receipt, so a rejected row
+        // leaves the scene inactive rather than half published.
+        s->accepted_count = 0;
+        for (u32 i = 0; i < count; ++i) {
+            auto& row = s->accepted[i];
+            bool valid = source->resolve(source->context, i, &row) && row_valid(row);
+            for (u32 previous = 0; valid && previous < i; ++previous)
+                valid = s->accepted[previous].key != row.key || s->accepted[previous].kind != row.kind;
+            if (!valid) { s->active = false; return false; }
+        }
         s->accepted_count = count; s->selected = ~0u; s->scroll_dips = 0;
         for (u32 i = 0; i < count; ++i)
             if (s->accepted[i].enabled && (s->selected == ~0u ||

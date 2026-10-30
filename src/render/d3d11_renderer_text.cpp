@@ -401,8 +401,20 @@ struct ContentTextRequest {
     bool force_new_batch, selection_active, cluster_effect, plain_flags, publish_semantics;
 };
 
-bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& request, float* shaped_height,
-                         bool* atlas_invalidated) noexcept {
+// Plain text of a flag-capable owner is projected into object cells (a flag
+// per cell); the projection is large, so only that path keeps one.
+bool flag_projection_wanted(const D3D11Renderer& renderer, const ContentTextRequest& request,
+                            RendererInlineMediaLayer* layer) noexcept {
+    const ConstSlice<TextStyleSpan> styles = request.styles;
+    return request.plain_flags && !request.semantics.count && !request.selection_active &&
+           renderer_inline_media_owner(renderer, request.layout_owner, layer) &&
+           ui_widget_manager_resolve(*request.layout_owner.manager, request.layout_owner.handle)->kind !=
+               UiWidgetKind::text_field &&
+           (!styles.count || (styles.count == 1 && !styles[0].byte_offset && styles[0].byte_count == request.input.bytes));
+}
+
+bool append_content_text_with(D3D11Renderer* renderer, const ContentTextRequest& request, float* shaped_height,
+                              bool* atlas_invalidated, UiInlineFlagProjection& flag_projection) noexcept {
     const Utf8View& input = request.input;
     const float maximum_width = request.maximum_width, maximum_height = request.maximum_height;
     float origin_x = request.origin_x, origin_y = request.origin_y;
@@ -424,8 +436,7 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
     bool selection_active = request.selection_active;
     const u32 selection_anchor = request.selection_anchor, selection_caret = request.selection_caret;
     const UiTextFace face = request.face;
-    const bool cluster_effect = request.cluster_effect, plain_flags = request.plain_flags,
-               publish_semantics = request.publish_semantics;
+    const bool cluster_effect = request.cluster_effect, publish_semantics = request.publish_semantics;
     auto text_system = command_text_system(renderer, face);
     text_system.independent_letters = cluster_effect;
     RendererTextStorage* storage = renderer->content_text;
@@ -438,14 +449,8 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
         return true;
     }
     const auto original_styles = styles;
-    UiInlineFlagProjection flag_projection;
     RendererInlineMediaLayer flag_layer{};
-    if (plain_flags && !semantics.count && !selection_active &&
-        renderer_inline_media_owner(*renderer, layout_owner, &flag_layer) &&
-        ui_widget_manager_resolve(*layout_owner.manager, layout_owner.handle)->kind !=
-            UiWidgetKind::text_field &&
-        (!styles.count ||
-         (styles.count == 1 && !styles[0].byte_offset && styles[0].byte_count == input.bytes))) {
+    if (flag_projection_wanted(*renderer, request, &flag_layer)) {
         const bool projected =
             ui_inline_flag_project(input, styles.count ? styles[0].flags : 0, &flag_projection);
         if (!projected || flag_projection.count > storage->hit_span_capacity ||
@@ -822,6 +827,24 @@ bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& requ
         shaped_text_cache_insert(shape_cache, cache_request, cache_hash, &storage->scratch);
     shaped_text_reset(&storage->scratch);
     return true;
+}
+
+__declspec(noinline) bool append_flag_text(D3D11Renderer* renderer, const ContentTextRequest& request,
+                                           float* shaped_height, bool* atlas_invalidated) noexcept {
+    // About 6 KiB, read only within this call: statics, not a guard-page walk.
+    static UiInlineFlagProjection projection;
+    projection.count = projection.style_count = 0;
+    return append_content_text_with(renderer, request, shaped_height, atlas_invalidated, projection);
+}
+
+bool append_content_text(D3D11Renderer* renderer, const ContentTextRequest& request, float* shaped_height,
+                         bool* atlas_invalidated) noexcept {
+    RendererInlineMediaLayer layer{};
+    if (flag_projection_wanted(*renderer, request, &layer))
+        return append_flag_text(renderer, request, shaped_height, atlas_invalidated);
+    // Without flags the projection is only ever read as empty and reset to empty.
+    static UiInlineFlagProjection none;
+    return append_content_text_with(renderer, request, shaped_height, atlas_invalidated, none);
 }
 
 Color profile_tone(const Color& c, float light_scale, float floor = 0, float saturation_scale = 1,
@@ -1857,7 +1880,7 @@ u64 shell_scene_stamp(const D3D11Renderer& renderer) noexcept {
         mix(scene->layout_passes);
         mix(scene->layout_rebuilds);
         mix(scene->layout_metrics_revision);
-        mix(scene->generation);
+        mix(scene->widgets.generation);
         mix(static_cast<u8>(scene->view));
         mix(scene->guild_menu_expanded);
         widgets(scene->widgets);

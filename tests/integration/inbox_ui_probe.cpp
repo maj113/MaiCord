@@ -158,7 +158,8 @@ bool show_dialog(D3D11Renderer& renderer, UiRect viewport, bool (*capture)(const
         const auto& l = p.dialog.layout;
         const auto* status_node = ui_widget_manager_layout_node(p.dialog.widgets, p.dialog.footer_status);
         const auto* band = status_node ? ui_widget_manager_layout_node(
-                                             p.dialog.widgets, p.dialog.widgets.storage[p.dialog.footer_status.slot].parent)
+                                             p.dialog.widgets,
+                                             ui_widget_manager_parent(p.dialog.widgets, p.dialog.footer_status))
                                        : nullptr;
         if (p.dialog.search_field.generation || ui_rect_width(l.sidebar) > 0 ||
             ui_rect_width(l.modal) > kUiSettingsDialogWidth + .01f ||

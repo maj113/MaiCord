@@ -140,10 +140,11 @@ u64 inputs_signature(const NativePluginSdkRuntime& rt, const MessageStore& store
 } // namespace
 
 void application_plugins_render_prepare() noexcept {
-    // The query and the scene switch are cheap no-ops without decorators.
-    g_ui_plugin_render_query = render_query;
-    g_app.message_scene.plugin_decorations = true;
+    // The scene reads cached verdicts only while a decorator is loaded; with
+    // none, a null query lets every row skip the lookup.
     auto* rt = application_plugins_runtime();
+    g_ui_plugin_render_query = decorating(rt) ? render_query : nullptr;
+    g_app.message_scene.plugin_decorations = true;
     if (!decorating(rt) || !g_app.account_ui || application_plugins_busy()) {
         g_render.pending = false;
         publish();

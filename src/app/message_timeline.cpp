@@ -1,10 +1,14 @@
 #include "maicord/app/message_timeline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/app/message_event_scratch.hpp"
 #include "maicord/model/message_rich_store.hpp"
 
 namespace maicord {
 namespace {
+
+// Decode arrays of message_timeline_apply; applying never nests.
+MessageEventScratch g_event_scratch;
 
 MessageTimelineApplyResult timeline_error(MessageTimelineError error) noexcept {
     MessageTimelineApplyResult result{};
@@ -764,31 +768,7 @@ MessageTimelineApplyResult message_timeline_apply(
     if (event.dispatch_kind == GatewayClientDispatchKind::message_create ||
         event.dispatch_kind == GatewayClientDispatchKind::message_update) {
         GatewayMessageEvent message{};
-        GatewayMessageReaction reactions[kGatewayMessageReactionMaximum];
-        GatewayMessageAttachment attachments[kGatewayMessageAttachmentMaximum];
-        GatewayMessageEmbed embeds[kGatewayMessageEmbedMaximum];
-        GatewayMessageEmbedField embed_fields[kGatewayMessageEmbedFieldMaximum];
-        GatewayMessageSticker stickers[kGatewayMessageStickerMaximum];
-        GatewayMessageComponent components[kGatewayMessageComponentMaximum];
-        GatewayMessageAttachment snapshot_attachments[kGatewayMessageAttachmentMaximum];
-        GatewayMessageEmbed snapshot_embeds[kGatewayMessageEmbedMaximum];
-        GatewayMessageEmbedField snapshot_embed_fields[kGatewayMessageEmbedFieldMaximum];
-        GatewayMessageSticker snapshot_stickers[kGatewayMessageStickerMaximum];
-        GatewayMessageComponent snapshot_components[kGatewayMessageComponentMaximum];
-        GatewayMessageNamedUser snapshot_users[kGatewayMessageMentionUserMaximum];
-        const GatewayMessageRichScratch rich_scratch{
-            Slice<GatewayMessageReaction>{reactions, kGatewayMessageReactionMaximum},
-            Slice<GatewayMessageAttachment>{attachments, kGatewayMessageAttachmentMaximum},
-            Slice<GatewayMessageEmbed>{embeds, kGatewayMessageEmbedMaximum},
-            Slice<GatewayMessageEmbedField>{embed_fields, kGatewayMessageEmbedFieldMaximum},
-            Slice<GatewayMessageSticker>{stickers, kGatewayMessageStickerMaximum},
-            Slice<GatewayMessageComponent>{components, kGatewayMessageComponentMaximum},
-            {{snapshot_attachments, kGatewayMessageAttachmentMaximum},
-             {snapshot_embeds, kGatewayMessageEmbedMaximum},
-             {snapshot_embed_fields, kGatewayMessageEmbedFieldMaximum},
-             {snapshot_stickers, kGatewayMessageStickerMaximum},
-             {snapshot_components, kGatewayMessageComponentMaximum},
-             {snapshot_users, kGatewayMessageMentionUserMaximum}}};
+        const GatewayMessageRichScratch rich_scratch = g_event_scratch.view(false);
         GatewayMessageNamedUser system_target{};
         const bool decoded = (timeline->rich_store
                                   ? gateway_client_event_as_message(event, payload, rich_scratch, &message)

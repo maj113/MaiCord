@@ -1082,7 +1082,7 @@ void costs() noexcept {
 // ---- server menus --------------------------------------------------------------------
 UiRect header_rectangle() noexcept {
     const auto* node =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::guild_menu));
+        ui_scene_node(g_app.shell_scene, UiSemantic::guild_menu);
     return node ? node->rectangle : UiRect{};
 }
 bool click_header() noexcept {

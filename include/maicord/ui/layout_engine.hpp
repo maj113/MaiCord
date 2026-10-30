@@ -55,7 +55,6 @@ struct UiLayoutLength {
 };
 
 struct UiLayoutStyle {
-    UiLayoutFlow flow;
     UiLayoutLength width;
     UiLayoutLength height;
     UiSize minimum_size;
@@ -63,6 +62,7 @@ struct UiLayoutStyle {
     UiInsets margin;
     UiInsets padding;
     float gap;
+    UiLayoutFlow flow;
     UiLayoutAlignment horizontal_alignment;
     UiLayoutAlignment vertical_alignment;
     UiLayoutJustification justification;
@@ -72,6 +72,8 @@ struct UiLayoutStyle {
 struct UiLayoutNodeSpec {
     Utf8View debug_name;
     UiLayoutStyle style;
+    // The declared content extent; a text node measured through the engine's
+    // callback holds its latest measurement here instead.
     UiSize intrinsic_size;
     float intrinsic_baseline;
     u32 key;
@@ -97,19 +99,18 @@ struct UiLayoutNode {
     UiRect content_rectangle;
     UiRect clip_rectangle;
     UiSize measured_size;
-    UiSize measured_intrinsic_size;
     UiSize measure_constraint;
     UiPoint scroll_offset;
     float measured_baseline;
-    float measured_intrinsic_baseline;
     u16 parent;
     u16 first_child;
     u16 last_child;
     u16 next_sibling;
     u16 generation;
-    u16 depth;
+    u8 depth;
     bool visible;
 };
+static_assert(sizeof(UiLayoutNode) == 200 && kMaximumUiLayoutDepth <= 0xFF);
 
 enum class UiLayoutError : u8 {
     none,
@@ -224,7 +225,6 @@ constexpr UiLayoutLength ui_layout_fill(float weight = 1.0f) noexcept {
 
 __declspec(noinline) constexpr UiLayoutStyle ui_layout_style() noexcept {
     return UiLayoutStyle{
-        UiLayoutFlow::overlay,
         ui_layout_content(),
         ui_layout_content(),
         UiSize{0.0f, 0.0f},
@@ -232,6 +232,7 @@ __declspec(noinline) constexpr UiLayoutStyle ui_layout_style() noexcept {
         UiInsets{},
         UiInsets{},
         0.0f,
+        UiLayoutFlow::overlay,
         UiLayoutAlignment::start,
         UiLayoutAlignment::start,
         UiLayoutJustification::start,
@@ -284,7 +285,6 @@ bool ui_layout_engine_set_measure_callback(UiLayoutEngine* engine, UiLayoutMeasu
 UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle parent,
                                     const UiLayoutNodeSpec& specification,
                                     UiLayoutNodeHandle* handle) noexcept;
-UiLayoutResult ui_layout_engine_layout(UiLayoutEngine* engine, UiSize viewport) noexcept;
 UiLayoutResult ui_layout_engine_layout_rectangle(UiLayoutEngine* engine, UiRect viewport) noexcept;
 bool ui_layout_engine_set_scroll(UiLayoutEngine* engine, UiLayoutNodeHandle handle,
                                  UiPoint offset) noexcept;

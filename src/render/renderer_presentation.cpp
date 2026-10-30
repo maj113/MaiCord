@@ -82,14 +82,37 @@ StampWriter& StampWriter::bytes(const void* bytes, u32 count) noexcept {
         return *this;
     }
     const u8* source = static_cast<const u8*>(bytes);
-    while (count >= sizeof(u64) && stamp_->valid) {
+    RendererPresentationStamp* stamp = stamp_;
+    const u32 words = count / sizeof(u64);
+    // The same per-word fold as push(), with the accumulators in registers
+    // (a theme is hundreds of words). A stamp whose count would reach its
+    // ceiling is unusable, as push() makes it.
+    if (!stamp->valid || stamp->count >= ~0u - words) {
+        stamp->valid = false;
+        return *this;
+    }
+    u64 primary = stamp->primary, secondary = stamp->secondary, shell = stamp->shell;
+    u64 ordinal = stamp->count, shell_count = stamp->shell_count;
+    const bool shell_input = !stamp->timeline;
+    for (u32 i = 0; i < words; ++i, ++ordinal, source += sizeof(u64)) {
         u64 value;
         CopyMemory(&value, source, sizeof(value));
-        push(value);
-        source += sizeof(value);
-        count -= sizeof(value);
+        primary = (primary ^ (value + 0x9E3779B97F4A7C15ull + ordinal)) * 0x100000001B3ull;
+        const u64 mixed =
+            (secondary ^ (((value << 29) | (value >> 35)) ^ (ordinal * 0xD6E8FEB86659FD93ull))) * 0xC2B2AE3D27D4EB4Full;
+        secondary = (mixed << 23) | (mixed >> 41);
+        if (shell_input) {
+            const u64 folded = shell ^ (value + 0x9E3779B97F4A7C15ull * ++shell_count);
+            shell = (folded ^ (folded >> 31)) * 0xC2B2AE3D27D4EB4Full;
+        }
     }
-    if (count != 0 && stamp_->valid) {
+    stamp->primary = primary;
+    stamp->secondary = secondary;
+    stamp->shell = shell;
+    stamp->count = static_cast<u32>(ordinal);
+    stamp->shell_count = static_cast<u32>(shell_count);
+    count -= words * sizeof(u64);
+    if (count != 0) {
         u64 value = 0;
         CopyMemory(&value, source, count);
         push(value);
@@ -491,7 +514,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
             .push(scene.layout_rebuilds)
             .push(scene.layout_passes)
             .push(scene.layout_metrics_revision)
-            .push(scene.generation)
+            .push(scene.widgets.generation)
             .push(static_cast<u64>(scene.view))
             .push(scene.guild_menu_expanded)
             .bytes(&scene.width, sizeof(scene.width))

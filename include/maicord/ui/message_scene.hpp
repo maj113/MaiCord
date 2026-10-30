@@ -45,6 +45,9 @@ inline constexpr float kMessageSceneEphemeralAlpha = 0.05f;
 inline constexpr float kMessageScenePreparationMarginDips = 512.0f;
 inline constexpr u64 kMessageGroupIntervalMilliseconds = 7ull * 60ull * 1'000ull;
 inline constexpr u32 kMessageSceneBaseWidgetsPerRow = 14;
+// Widgets of a plain text row: row, avatar, body, reply, author, content and
+// the notice group. Rich groups, reactions and polls add widgets only when present.
+inline constexpr u32 kMessageScenePlainRowWidgets = 7;
 inline constexpr u32 kMessageSceneAttachmentItemOffset = kMessageRichAttachmentItemOffset;
 inline constexpr u32 kMessageSceneEmbedItemOffset = kMessageRichEmbedItemOffset;
 inline constexpr u32 kMessageSceneStickerItemOffset = kMessageRichStickerItemOffset;
@@ -228,6 +231,11 @@ struct MessageScene {
     Slice<MessageSceneRowWidget> rows;
     StableStorage owned_rows;
     StableStorage owned_measurements;
+    // Item layouts of measurements that have any (see message_scene_measurements.hpp).
+    StableStorage owned_item_layouts;
+    // Measurement slots handed out so far (body and forwarded snapshot): the
+    // only ones geometry invalidation has to zero.
+    u32 measured_slots, measured_snapshot_slots;
     Slice<MessageSceneRowWidget> snapshot_rows;
     u32 snapshot_storage_offset;
     u32 snapshot_count;
@@ -356,13 +364,17 @@ MessageMediaObscure message_scene_media_obscure(const MessageScene&, MessageMedi
 // Cached plugin decoration of a message revision (never runs plugin code).
 inline bool message_scene_plugin_decoration(const MessageScene& scene, u64 message_id, u32 revision,
                                             UiPluginRenderDecoration* output) noexcept {
+    if (scene.plugin_decorations)
+        return ui_plugin_render(message_id, revision, output);
     reset_value(output);
-    return scene.plugin_decorations && ui_plugin_render(message_id, revision, output);
+    return false;
 }
 inline u8 message_scene_plugin_visibility(const MessageScene& scene, const MessageRecord& record) noexcept {
-    UiPluginRenderDecoration decoration{};
-    return message_scene_plugin_decoration(scene, record.id, record.revision, &decoration) ? decoration.visibility
-                                                                                           : ui_plugin_render_normal;
+    if (!scene.plugin_decorations || !g_ui_plugin_render_query)
+        return ui_plugin_render_normal;
+    UiPluginRenderDecoration decoration;
+    return ui_plugin_render(record.id, record.revision, &decoration) ? decoration.visibility
+                                                                     : ui_plugin_render_normal;
 }
 // Returns true when the item was newly revealed; the host repaints.
 bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept;

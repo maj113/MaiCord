@@ -2337,7 +2337,7 @@ bool application_search_synchronize() noexcept {
         s->bank ? ConstSlice<MessageHandle>{s->bank->result_handles, s->bank->page.message_count}
                 : ConstSlice<MessageHandle>{};
     const auto* title_node =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::title_bar));
+        ui_scene_node(g_app.shell_scene, UiSemantic::title_bar);
     const auto title = title_node ? title_node->rectangle : UiRect{};
     auto header = ui_scene_header_geometry(g_app.shell_scene);
     // Over the call view the field takes its own slot in the call header (left

@@ -260,7 +260,7 @@ void test_message_context_controller_extensions(void (*check)(bool, const char*)
 
     const u32 old_revision = fixture.popup.revision, old_opens = controller.opens;
     const auto old_panel = fixture.popup.panel;
-    const UiRect old_rectangle = fixture.layout[fixture.widgets[old_panel.slot].layout.slot].rectangle;
+    const UiRect old_rectangle = fixture.layout[old_panel.slot].rectangle;
     message.id = 11;
     auto preserved = [&]() noexcept {
         const auto* panel = popup_scene_layout_node(fixture.popup, old_panel);

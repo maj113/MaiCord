@@ -442,12 +442,12 @@ bool pointer(TextFormElement element) noexcept {
 }
 bool menu(bool keyboard) noexcept {
     const auto* footer =
-        ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::channel_footer));
+        ui_scene_node(g_app.shell_scene, UiSemantic::channel_footer);
     if (!footer)
         return false;
     if (keyboard) {
         Keyboard state;
-        const auto widget = footer->widget;
+        const auto widget = ui_scene_widget(g_app.shell_scene, UiSemantic::channel_footer);
         if (!state.valid || !ui_widget_manager_focus(&g_app.shell_scene.widgets, widget))
             return false;
         g_app.context_focus = &g_app.shell_scene.widgets;
@@ -599,8 +599,7 @@ bool visual(const D3D11_MAPPED_SUBRESOURCE& mapped) noexcept {
             }
         }
     } else if (!g_app.text_form) {
-        const auto* footer = ui_scene_resolve(g_app.shell_scene,
-                                              ui_scene_find(g_app.shell_scene, UiSemantic::channel_footer));
+        const auto* footer = ui_scene_node(g_app.shell_scene, UiSemantic::channel_footer);
         if (!footer || !require(probe_ink(mapped, footer->rectangle, fixture->theme.text_primary), 226))
             return false;
     }

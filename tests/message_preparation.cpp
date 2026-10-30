@@ -141,6 +141,24 @@ void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcep
           row->measured_content_height == 182 && f.heights[0] == measured_height,
           "message_preparation_measurements_survive_widget_recycling");
 
+    // An update with nothing new runs no row pass (no layout, no change), yet a
+    // store edit of a visible message is still picked up by the next one.
+    const bool settled = message_scene_update(&f.scene, viewport).ok();
+    const u32 layouts = f.scene.layout_passes;
+    const MessageSceneResult idle = message_scene_update(&f.scene, viewport);
+    const u32 layouts_after_idle = f.scene.layout_passes;
+    const auto* edited_row = message_scene_find_row(f.scene, 1);
+    const u32 revision_before = edited_row ? edited_row->message_revision : 0;
+    const bool edited = edited_row && message_store_upsert(&f.store, MessageInput{edited_row->message_id, 7, 21, 0, 0,
+                                                                                utf8_literal("edited message"), 0})
+                                          .ok();
+    const bool updated = edited && message_scene_update(&f.scene, viewport).ok();
+    edited_row = message_scene_find_row(f.scene, 1);
+    check(settled && idle.ok() && !idle.changed, "message_preparation_unchanged_update_reports_no_change");
+    check(layouts_after_idle == layouts, "message_preparation_unchanged_update_runs_no_layout");
+    check(edited && updated && edited_row && edited_row->message_revision != revision_before,
+          "message_preparation_unchanged_update_still_sees_store_edits");
+
     const u32 passes = f.scene.preparation_passes;
     bool scrolled = true;
     // Each of the 100 distinct offsets is visited once; repeats added no new rows or passes.
