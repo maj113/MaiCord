@@ -3479,7 +3479,6 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                      : utf8_literal("\xE2\x80\x83\xE2\x80\x83\xE2\x80\x85\xE2\x80\x8D");
         const u32 bytes = cell.bytes + name.bytes + suffix.bytes;
         if (bytes > presentation->utf8.count - presentation->utf8_count ||
-            presentation->style_count >= presentation->styles.count ||
             presentation->semantic_count >= presentation->semantics.count)
             return fail(presentation, MessageTextPresentationError::capacity);
         char* retained = presentation->utf8.data + presentation->utf8_count;
@@ -3488,9 +3487,6 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         copy_bytes(retained + cell.bytes + name.bytes, suffix.data, suffix.bytes);
         presentation->utf8_count += bytes;
         display_content = {retained, bytes};
-        auto& run = presentation->styles[presentation->style_count++];
-        run = {0, bytes, text_style_none};
-        styles = {&run, 1};
         auto& icon = presentation->semantics[presentation->semantic_count++];
         icon = MessageMarkdownSemantic{
             static_cast<u64>(failed ? MessageMarkdownChipIcon::failed : MessageMarkdownChipIcon::pending_dots), 0,

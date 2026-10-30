@@ -833,6 +833,13 @@ void test_presentation(Check check) noexcept {
     };
     check(status_icon(MessageMarkdownChipIcon::pending_dots) && f.presentation.status_dots,
           "presentation_loading_leads_with_the_status_dots");
+    // The text engine rejects a style span without flags.
+    bool plain_status = true;
+    for (u32 i = 0; i < f.presentation.command_count; ++i)
+        if (f.commands[i].message_id == thinking.id)
+            for (u32 s = 0; s < f.commands[i].styles.count; ++s)
+                plain_status = plain_status && f.commands[i].styles[s].flags;
+    check(plain_status, "presentation_status_line_has_no_flagless_span");
     const u64 thinking_deadline = snowflake_timestamp_ms(thinking.id) / 1000 + 15 * 60;
     check(f.presentation.next_timestamp_update_unix_seconds &&
               f.presentation.next_timestamp_update_unix_seconds <= thinking_deadline,
