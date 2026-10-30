@@ -579,11 +579,11 @@ void composer_slowmode_cases() noexcept {
         const u64 policy_now = clock_monotonic_milliseconds();
         channels[0].slowmode_code = slowmode_encode(60);
         application_message_interaction_tick(policy_now);
-        check(application_message_interaction_next_wake(policy_now + 59'999) == policy_now + 60'000,
+        check(application_message_interaction_next_wake(policy_now + 59'999) == policy_now + 60'100,
             "slowmode nonzero policy decrease caps the running prediction to the new duration");
         channels[0].slowmode_code = slowmode_encode(21'600);
         application_message_interaction_tick(policy_now + 1000);
-        check(application_message_interaction_next_wake(policy_now + 59'999) == policy_now + 60'000,
+        check(application_message_interaction_next_wake(policy_now + 59'999) == policy_now + 60'100,
             "slowmode policy increase preserves the earlier predicted deadline");
         ui.active_channel_id = 0;
         channels[0].slowmode_code = slowmode_encode(30);
@@ -592,14 +592,14 @@ void composer_slowmode_cases() noexcept {
             "slowmode offscreen policy change leaves no composer countdown wake");
         ui.active_channel_id = channel_id;
         application_message_interaction_tick(policy_now + 3000);
-        check(application_message_interaction_next_wake(policy_now + 31'999) == policy_now + 32'000,
+        check(application_message_interaction_next_wake(policy_now + 31'999) == policy_now + 32'100,
             "slowmode returning to a channel preserves the deadline reduced while offscreen");
         channels[0].slowmode_code = slowmode_encode(20);
         application_message_interaction_tick(policy_now + 31'000);
-        check(application_message_interaction_next_wake(policy_now + 31'999) == policy_now + 32'000,
+        check(application_message_interaction_next_wake(policy_now + 31'999) == policy_now + 32'100,
             "slowmode decrease longer than remaining wait cannot extend the prediction");
-        application_message_interaction_tick(policy_now + 32'000);
-        check(!application_message_interaction_next_wake(policy_now + 32'000) &&
+        application_message_interaction_tick(policy_now + 32'100);
+        check(!application_message_interaction_next_wake(policy_now + 32'100) &&
             !application_composer_status_notice().bytes && !application_composer_slowmode_active(channel_id) &&
             utf8_equal(message_composer_text(g_app.message_composer), draft),
             "slowmode reduced deadline expires exactly and preserves the unsent draft");
@@ -617,12 +617,19 @@ void composer_slowmode_cases() noexcept {
         application_composer_note_sent(other_channel_id);
         check(application_composer_slowmode_active(channel_id) && application_composer_slowmode_active(other_channel_id),
             "slowmode cooldowns of two channels run side by side");
-        application_composer_slowmode_cooldown(other_channel_id, 5000);
+        application_composer_slowmode_cooldown(other_channel_id, 5000, 0);
         application_message_interaction_tick(clock_monotonic_milliseconds() + 6000);
         check(application_composer_slowmode_active(channel_id) && !application_composer_slowmode_active(other_channel_id),
             "slowmode a server cooldown from the typing response replaces one channel's deadline only");
-        application_composer_slowmode_cooldown(other_channel_id, 0);
+        application_composer_slowmode_cooldown(other_channel_id, 0, 0);
         check(!application_composer_slowmode_active(other_channel_id), "slowmode a zero server cooldown arms nothing");
+        application_composer_slowmode_cooldown(other_channel_id, 0, 7000);
+        check(application_thread_create_cooldown_active(other_channel_id) && !application_composer_slowmode_active(other_channel_id),
+            "slowmode the typing response's thread cooldown is separate from the send cooldown");
+        application_thread_create_note_created(channel_id);
+        application_composer_slowmode_clear(channel_id);
+        check(application_thread_create_cooldown_active(channel_id) && !application_composer_slowmode_active(channel_id),
+            "slowmode a discarded upload retires the send cooldown only; thread creation keeps its own");
 
         auto& controller = ui.message_composer_controller;
         const auto queued = message_composer_controller_queue_send(&controller, true, self_id, 1000, 100, 0);

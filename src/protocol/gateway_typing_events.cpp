@@ -52,19 +52,11 @@ bool visit_typing(void* opaque, JsonString name, JsonValue value) noexcept {
 } // namespace
 
 GatewayEventDecodeResult gateway_decode_typing_start(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
     GatewayTypingStartEvent* output) noexcept {
     reset_value<GatewayTypingStartEvent>(output);
-    const JsonScanResult scan =
-        json_scan_structurals_avx1(data.source, structural_scratch);
-    if (!scan.ok()) {
-        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
-    }
     TypingContext context{};
-    const JsonReadResult read = json_visit_value_object(
-        data,
-        ConstSlice<u32>{structural_scratch.data, scan.count}, maximum_depth,
-        visit_typing, &context);
+    const JsonReadResult read = json_visit_indexed_object(document, data, maximum_depth, visit_typing, &context);
     if (!read.ok()) {
         return read_failure(context.error, read);
     }

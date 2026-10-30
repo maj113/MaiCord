@@ -1,5 +1,6 @@
 #include "application_thread_creation.hpp"
 #include "application_state.hpp"
+#include "application_message_feedback.hpp"
 #include "application_text_form.hpp"
 #include "application_content_input.hpp"
 #include "application_thread_browser.hpp"
@@ -359,6 +360,10 @@ bool application_thread_creation_name_submit(const ApplicationThreadCreationTick
     if (g_app.account.status.required_action != AccountRequirement::none) {
         fail(owner, utf8_literal("Verify your account to create threads."), owner.uncertain, true); return false;
     }
+    if (application_thread_create_cooldown_active(owner.source.parent)) {
+        fail(owner, utf8_literal("Slowmode is on. Wait a moment before creating another thread."), owner.uncertain);
+        return false;
+    }
     owner.uncertain = owner.uncertain || ledger_contains(owner, owner.source.message);
     queue(owner, owner.uncertain ? Operation::reconcile : Operation::from_message);
     return true;
@@ -371,6 +376,10 @@ bool application_thread_creation_retry(const ApplicationThreadCreationTicket& va
     }
     if (g_app.account.status.required_action != AccountRequirement::none) {
         fail(owner, utf8_literal("Verify your account to create threads."), owner.uncertain, true); return false;
+    }
+    if (application_thread_create_cooldown_active(owner.source.parent)) {
+        fail(owner, utf8_literal("Slowmode is on. Wait a moment before creating another thread."), owner.uncertain);
+        return false;
     }
     queue(owner, owner.uncertain ? Operation::reconcile : Operation::from_message);
     return true;
@@ -501,6 +510,7 @@ bool application_thread_creation_response(const RestClientResponse& response, Ut
             chat_state_store_preflight_channel(state, input) == ChatStateStoreError::none &&
             chat_state_store_upsert_channel(&state, input).ok()) {
             chat_state_store_recompute_guild_permissions(&state, owner.source.guild);
+            application_thread_create_note_created(owner.source.parent);
             if (settle(owner)) return true;
         }
         fail(owner, utf8_literal("Thread created, but couldn't be opened. Check again."), true);

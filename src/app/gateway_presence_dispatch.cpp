@@ -71,12 +71,9 @@ bool visit_user(void* opaque, JsonString key, JsonValue value) noexcept {
     return true;
 }
 
-GatewayEventDecodeResult read_object(JsonValue value, Slice<u32> scratch, u32 depth,
+GatewayEventDecodeResult read_object(const JsonIndexedDocument& document, JsonValue value, u32 depth,
                                     bool user, PresenceContext* context) noexcept {
-    const auto scan = json_scan_structurals_avx1(value.source, scratch);
-    if (!scan.ok()) return {scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error};
-    const auto read = json_visit_value_object(value, {scratch.data, scan.count}, depth,
-                                              user ? visit_user : visit_presence, context);
+    const auto read = json_visit_indexed_object(document, value, depth, user ? visit_user : visit_presence, context);
     if (!read.ok()) return {read.error_offset, context->error != GatewayEventDecodeError::none
         ? context->error : GatewayEventDecodeError::invalid_json, JsonScanError::none, read.error};
     return {};
@@ -85,25 +82,22 @@ GatewayEventDecodeResult read_object(JsonValue value, Slice<u32> scratch, u32 de
 } // namespace
 
 GatewayEventDecodeResult gateway_client_decode_presence(
-    JsonValue data, Slice<u32> scratch, u32 maximum_depth,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
     GatewayClientPresenceUpdate* output, UserAppearance* appearance) noexcept {
-    if (!output || !scratch.data || scratch.count == 0 || maximum_depth == 0 ||
-        !data.source.data || data.source.bytes == 0) return {0, GatewayEventDecodeError::invalid_input};
+    if (!output || maximum_depth == 0 || !data.source.data || data.source.bytes == 0)
+        return {0, GatewayEventDecodeError::invalid_input};
     reset_value(output);
     PresenceContext context{};
-    auto decoded = read_object(data, scratch, maximum_depth, false, &context);
+    auto decoded = read_object(document, data, maximum_depth, false, &context);
     if (!decoded.ok()) return decoded;
     if ((context.fields & 6) != 6) return {0, GatewayEventDecodeError::missing_required_field};
-    // The presence user object is partial: only id is required. Reuse the scanner
-    // after the outer visitor is finished; no nested scratch arena or strings.
-    decoded = read_object(context.user, scratch, maximum_depth, true, &context);
+    // The presence user object is partial: only id is required.
+    decoded = read_object(document, context.user, maximum_depth, true, &context);
     if (!decoded.ok()) return decoded;
     if ((context.fields & 8) == 0) return {0, GatewayEventDecodeError::missing_required_field};
     if (appearance) {
         reset_value(appearance); appearance->user_id = context.value.user_id; appearance->guild_id = context.value.guild_id;
-        const auto scan = json_scan_structurals_avx1(data.source, scratch);
-        if (!scan.ok() || !activity_decode({data.source, {scratch.data, scan.count}},
-            {data.source, 0, JsonValueKind::object}, appearance)) return {0, GatewayEventDecodeError::invalid_data};
+        if (!activity_decode(document, data, appearance)) return {0, GatewayEventDecodeError::invalid_data};
     }
     *output = context.value;
     return {};

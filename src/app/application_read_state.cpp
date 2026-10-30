@@ -353,6 +353,27 @@ u64 predecessor(u64 channel, u64 message) noexcept {
     const u64 timestamp = message >> 22;
     return timestamp ? (timestamp - 1) << 22 : 0;
 }
+u32 mentions_after(u64 channel, u64 cursor) noexcept {
+    const auto& store = g_app.message_view.store;
+    u32 count = 0;
+    if (g_app.account_ui->chat_state.selected_channel_id != channel || !store.records || !store.order ||
+        store.count > store.capacity)
+        return 0;
+    for (u32 i = 0; i < store.count; ++i) {
+        const u32 slot = store.order[i];
+        if (slot >= store.capacity)
+            continue;
+        const auto& record = store.records[slot];
+        // A message with a cached badge decision (live CREATE) uses it; otherwise the raw mention flag.
+        const u8 badge = (record.presentation_flags & message_presentation_read_badge_known)
+                             ? message_presentation_read_badge
+                             : message_presentation_mentions_current_user;
+        if (record.occupied && record.channel_id == channel && record.id > cursor &&
+            record.delivery == MessageDeliveryState::authoritative && (record.presentation_flags & badge))
+            count = count == ~0u ? count : count + 1;
+    }
+    return count;
+}
 void manual_failed(ApplicationReadState& o, const ReadActionSource& source,
                    const RestClientResponse& response) noexcept {
     const auto* latest = action(o, source.channel_id);
@@ -383,9 +404,9 @@ bool queue_manual(ApplicationReadState& o, ReadActionSource source) noexcept {
     desired.channel_id = source.channel_id;
     desired.message_id = source.cursor;
     desired.kind = ReadAckKind::manual;
-    // The complete current-user mention predicate needs mute/block/suppress
-    // inputs that this timeline does not hold. Omit that unknown field.
-    desired.mention_count_known = false;
+    // As the client counts: resident messages after the boundary that carry a mention badge.
+    desired.mention_count_known = true;
+    desired.mention_count = mentions_after(source.channel_id, source.cursor);
     if (!read_ack_controller_queue(&o.queue, desired, clock_monotonic_milliseconds(), true))
         return false;
     source.serial = ++o.action_serial;
@@ -513,7 +534,9 @@ bool application_read_state_mark(u64 channel_id, bool immediate) noexcept {
     if (tracked && !action_capacity(*owner, channel_id))
         return false;
     const u32 flags = channel_is_thread(channel->type) ? 2u : channel->guild_id ? 1u : 0u;
-    const ReadAckIntent desired{channel_id, channel->last_message_id, viewed_day(), flags, 0};
+    ReadAckIntent desired{channel_id, channel->last_message_id, viewed_day(), flags, 0};
+    // The client sends flags only when they differ from the value the server holds.
+    desired.flags_known = channel->read_flags != flags;
     if (!read_ack_controller_queue(&owner->queue, desired, clock_monotonic_milliseconds(),
                                    immediate || channel->mention_count != 0))
         return false;
@@ -674,8 +697,7 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
         read_ack_controller_cancel(&owner.queue, intent.channel_id);
         return false;
     }
-    // Local marking already retains the desired flags; sending them remains
-    // legal and avoids keeping a duplicate pre-mark metadata cache.
+    // Flags ride along only when they changed (the intent's flags_known), as in the client.
     MessageAckRequest body_request{};
     if (manual) {
         body_request.manual = true;
@@ -686,7 +708,8 @@ bool application_read_state_submit(u64 request_id, u64 now_ms) noexcept {
         body_request.last_viewed = intent.last_viewed;
         body_request.flags = intent.flags;
         body_request.token_known = owner.token_known;
-        body_request.last_viewed_known = body_request.flags_known = true;
+        body_request.last_viewed_known = true;
+        body_request.flags_known = intent.flags_known;
     }
     const auto body = write_message_ack_body(
         body_request, {g_app.account_ui->response_shape_scratch.response, kMessageAckMaximumBodyBytes});
@@ -1016,7 +1039,9 @@ bool application_read_state_scoped_commit(ConstSlice<ReadScopeTarget> targets, b
         if (o->selected_manual.channel_id == t.channel_id)
             reset_value(&o->selected_manual);
         if (individual && t.outbound) {
-            const ReadAckIntent intent{t.channel_id, t.message_id, viewed, flags, 0};
+            ReadAckIntent intent{t.channel_id, t.message_id, viewed, flags, 0};
+            const auto* current = chat_state_store_find_channel(g_app.account_ui->chat_state, t.channel_id);
+            intent.flags_known = !current || current->read_flags != flags;
             if (!read_ack_controller_queue(&o->queue, intent, clock_monotonic_milliseconds(), true))
                 return false;
         }

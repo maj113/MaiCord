@@ -552,6 +552,11 @@ GatewayEventDecodeResult gateway_decode_message_update(
     Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
     Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
     u64 current_user_id, GatewayMessageEvent* output) noexcept;
+GatewayEventDecodeResult gateway_decode_message_update(
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth, Slice<char> content_scratch,
+    Slice<u64> mention_role_scratch, Slice<u64> member_role_scratch,
+    Slice<GatewayMessageNamedUser> mention_user_scratch, const GatewayMessageRichScratch& rich_scratch,
+    u64 current_user_id, GatewayMessageEvent* output) noexcept;
 
 GatewayEventDecodeResult gateway_decode_message_rich_fields(JsonValue data, Slice<u32> structural_scratch,
                                                             u32 maximum_depth, Slice<char> text_output,

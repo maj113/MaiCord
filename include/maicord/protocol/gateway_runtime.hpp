@@ -34,17 +34,21 @@ void gateway_resume_clear(GatewayResumeState* state) noexcept;
 bool gateway_resume_validate(const GatewayResumeState& state) noexcept;
 
 struct GatewayReconnectBackoff {
-    u32 attempt;
+    u32 delay_ms; // The last delay; zero before the first failure.
 };
 
 struct GatewayReconnectDelay {
     u32 delay_ms;
 };
 
-// Full-jitter exponential backoff: random value in [0, ceiling], with a 1 s
-// base and 30 s cap. The state is reset after READY/RESUMED.
+// The official client's reconnect backoff: the delay starts at 1 s and each failure adds up to twice the
+// previous one (random in [0, 2]x), capped at 60 s, so a retry never comes sooner than the last one did.
+// The state is reset after READY/RESUMED.
 GatewayReconnectDelay gateway_reconnect_next(GatewayReconnectBackoff* backoff, u32 random) noexcept;
 void gateway_reconnect_reset(GatewayReconnectBackoff* backoff) noexcept;
+// Whether a session whose last heartbeat acknowledgement (or connection start) was at last_ack_ms is too
+// old to resume: the client identifies afresh after three minutes without one. Zero is unknown.
+bool gateway_resume_expired(u64 last_ack_ms, u64 now_ms) noexcept;
 u32 gateway_invalid_session_delay(u32 random) noexcept;
 // Floor before re-identifying after the n-th consecutive READY that could not
 // be projected: 5 s doubling to a 10 min cap (at most ~150 IDENTIFYs a day,

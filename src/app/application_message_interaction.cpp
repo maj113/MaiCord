@@ -27,6 +27,7 @@
 
 #include "application_account_presentation.hpp"
 #include "application_composer.hpp"
+#include "application_message_feedback.hpp"
 #include "application_message_delete.hpp"
 #include "application_message_edit.hpp"
 #include "application_message_history.hpp"
@@ -381,6 +382,10 @@ static bool discard_failed_message(u64 nonce) noexcept {
     if (!g_app.account_ui || nonce == 0) {
         return false;
     }
+    u64 armed_channel = 0;
+    for (const auto& request : g_app.account_ui->message_composer_controller.requests)
+        if (request.occupied && request.nonce == nonce && request.attachment_bytes)
+            armed_channel = request.channel_id;
     const MessageComposerControllerResult discarded =
         message_composer_controller_discard_failed(&g_app.account_ui->message_composer_controller, nonce);
     if (!discarded.ok()) {
@@ -388,6 +393,8 @@ static bool discard_failed_message(u64 nonce) noexcept {
                 static_cast<u64>(discarded.error));
         return false;
     }
+    if (armed_channel)
+        application_composer_slowmode_clear(armed_channel);
     application_attachment_complete(nonce);
     return refresh_account_frame(true);
 }

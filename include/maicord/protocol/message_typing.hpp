@@ -26,7 +26,11 @@ struct MessageTypingWriteResult {
 
 MessageTypingWriteResult write_message_typing_target(
     u64 channel_id, Slice<u8> output) noexcept;
-// Reads message_send_cooldown_ms from a 200 response; false when the body is not that object.
-bool decode_message_typing_cooldown(Utf8View body, Slice<u32> structural_scratch, u64* send_cooldown_ms) noexcept;
+// Reads the cooldowns of a 200 response; false when the body is not an object of that shape.
+struct MessageTypingCooldowns {
+    u64 message_send_ms, thread_create_ms;
+};
+bool decode_message_typing_cooldowns(Utf8View body, Slice<u32> structural_scratch,
+                                     MessageTypingCooldowns* output) noexcept;
 
 } // namespace maicord

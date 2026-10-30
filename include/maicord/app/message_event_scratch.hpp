@@ -46,4 +46,12 @@ struct MessageEventScratch {
     }
 };
 
+// Everything one MESSAGE_CREATE/UPDATE route borrows: the rich arrays plus the mention user and member role
+// lists. The gateway worker owns one per client, so routing a message costs no stack probe.
+struct GatewayMessageDecodeScratch {
+    MessageEventScratch rich;
+    GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum];
+    u64 member_roles[kGatewayMessageMemberRoleMaximumIds];
+};
+
 } // namespace maicord

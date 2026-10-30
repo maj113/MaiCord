@@ -805,7 +805,8 @@ struct GatewayClientPresenceUpdate {
     u8 client_status;
 };
 
-GatewayEventDecodeResult gateway_client_decode_presence(JsonValue data, Slice<u32> scratch,
+// Decodes a PRESENCE_UPDATE value of an indexed document (no scan); with appearance also its activities.
+GatewayEventDecodeResult gateway_client_decode_presence(const JsonIndexedDocument& document, JsonValue data,
                                                         u32 maximum_depth,
                                                         GatewayClientPresenceUpdate* output,
                                                         UserAppearance* appearance = nullptr) noexcept;
@@ -1378,10 +1379,13 @@ bool gateway_client_channel_cursor_record(ConstSlice<u8> payload, u32 index,
 // Deterministic worker-side routing boundary. It decodes supported message
 // mutations while the Gateway envelope views are still valid. Returned payload
 // bytes point into content_scratch or bulk_ids and must be copied before reuse.
+// message_scratch (message_event_scratch.hpp) is the worker's storage for decoding a message; without it the
+// decode uses the stack.
+struct GatewayMessageDecodeScratch;
 GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, GatewayClientEvent* event,
-    ConstSlice<u8>* payload) noexcept;
+    ConstSlice<u8>* payload, GatewayMessageDecodeScratch* message_scratch = nullptr) noexcept;
 inline GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, GatewayClientEvent* event,
@@ -1408,7 +1412,8 @@ struct GatewayClientLargeRecord {
 GatewayClientDispatchRouteResult gateway_client_route_dispatch_large(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, GatewayClientLargeRecord large,
-    GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept;
+    GatewayClientEvent* event, ConstSlice<u8>* payload,
+    GatewayMessageDecodeScratch* message_scratch = nullptr) noexcept;
 GatewayClientDispatchRouteResult gateway_client_route_state_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> payload_scratch, u64 self_user_id, GatewayClientEvent* event, ConstSlice<u8>* payload,

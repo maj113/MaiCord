@@ -20,8 +20,13 @@ namespace maicord::app_detail {
 namespace {
 // The cooldowns the composer predicts; the server stays authoritative. The oldest is recycled when full.
 constexpr u32 kSlowmodeSlots = 8;
+// Every deadline is the interval plus this margin, as the official client's.
+constexpr u64 kSlowmodeSlackMs = 100;
+// Messages and thread creation have separate cooldowns per channel.
+enum SlowmodeKind : u8 { slowmode_send, slowmode_create_thread };
 struct SlowmodeDeadline {
     u64 channel_id, until_ms;
+    u8 kind;
 };
 struct ComposerFeedback {
     const void* account_instance;
@@ -52,20 +57,20 @@ u32 slowmode_seconds(u64 channel_id) noexcept {
     return channel_slowmode_seconds(*channel);
 }
 
-SlowmodeDeadline* slowmode_find(u64 channel_id) noexcept {
+SlowmodeDeadline* slowmode_find(u64 channel_id, u8 kind = slowmode_send) noexcept {
     for (auto& slot : feedback.slowmode)
-        if (channel_id && slot.channel_id == channel_id)
+        if (channel_id && slot.channel_id == channel_id && slot.kind == kind)
             return &slot;
     return nullptr;
 }
 
-u64 slowmode_remaining(u64 channel_id, u64 now_ms) noexcept {
+u64 slowmode_remaining(u64 channel_id, u64 now_ms, u8 kind = slowmode_send) noexcept {
     feedback_bind_account();
-    SlowmodeDeadline* slot = slowmode_find(channel_id);
+    SlowmodeDeadline* slot = slowmode_find(channel_id, kind);
     if (!slot)
         return 0;
-    const u64 duration_ms = u64{slowmode_seconds(channel_id)} * 1000;
-    if (!duration_ms) {
+    const u64 duration_ms = u64{slowmode_seconds(channel_id)} * 1000 + kSlowmodeSlackMs;
+    if (duration_ms == kSlowmodeSlackMs) {
         // This deadline predicts channel slowmode; server rate limits belong
         // to the send controller and REST scheduler and remain authoritative.
         reset_value(slot);
@@ -79,8 +84,8 @@ u64 slowmode_remaining(u64 channel_id, u64 now_ms) noexcept {
     return now_ms < slot->until_ms ? slot->until_ms - now_ms : 0;
 }
 
-void slowmode_start(u64 channel_id, u64 until_ms) noexcept {
-    SlowmodeDeadline* slot = slowmode_find(channel_id);
+void slowmode_start(u64 channel_id, u8 kind, u64 until_ms) noexcept {
+    SlowmodeDeadline* slot = slowmode_find(channel_id, kind);
     for (auto& candidate : feedback.slowmode)
         if (!slot && !candidate.channel_id)
             slot = &candidate;
@@ -90,7 +95,7 @@ void slowmode_start(u64 channel_id, u64 until_ms) noexcept {
             if (candidate.until_ms < slot->until_ms)
                 slot = &candidate;
     }
-    *slot = {channel_id, until_ms};
+    *slot = {channel_id, until_ms, kind};
 }
 
 const MessageRecord* latest_message(u64 channel_id) noexcept {
@@ -209,18 +214,44 @@ void application_composer_note_sent(u64 channel_id) noexcept {
     if (!seconds)
         return;
     const u64 now_ms = clock_monotonic_milliseconds();
-    slowmode_start(channel_id, now_ms + u64{seconds} * 1000);
+    slowmode_start(channel_id, slowmode_send, now_ms + u64{seconds} * 1000 + kSlowmodeSlackMs);
     slowmode_label_refresh(now_ms);
 }
 
-void application_composer_slowmode_cooldown(u64 channel_id, u64 cooldown_ms) noexcept {
+void application_composer_slowmode_clear(u64 channel_id) noexcept {
     feedback_bind_account();
-    if (!cooldown_ms || !slowmode_seconds(channel_id))
+    if (SlowmodeDeadline* slot = slowmode_find(channel_id)) {
+        reset_value(slot);
+        if (slowmode_label_refresh(clock_monotonic_milliseconds()) && g_app.account_ui)
+            refresh_message_composer_ui();
+    }
+}
+
+void application_composer_slowmode_cooldown(u64 channel_id, u64 send_ms, u64 create_thread_ms) noexcept {
+    feedback_bind_account();
+    if (!slowmode_seconds(channel_id))
         return;
     const u64 now_ms = clock_monotonic_milliseconds();
-    slowmode_start(channel_id, now_ms + minimum<u64>(cooldown_ms, 21'600'000)); // The longest slowmode: six hours.
+    // At most the longest slowmode: six hours.
+    if (send_ms)
+        slowmode_start(channel_id, slowmode_send, now_ms + minimum<u64>(send_ms, 21'600'000) + kSlowmodeSlackMs);
+    if (create_thread_ms)
+        slowmode_start(channel_id, slowmode_create_thread,
+                       now_ms + minimum<u64>(create_thread_ms, 21'600'000) + kSlowmodeSlackMs);
     if (slowmode_label_refresh(now_ms) && g_app.account_ui)
         refresh_message_composer_ui();
+}
+
+bool application_thread_create_cooldown_active(u64 channel_id) noexcept {
+    return slowmode_remaining(channel_id, clock_monotonic_milliseconds(), slowmode_create_thread) != 0;
+}
+
+void application_thread_create_note_created(u64 channel_id) noexcept {
+    const u32 seconds = slowmode_seconds(channel_id);
+    feedback_bind_account();
+    if (seconds)
+        slowmode_start(channel_id, slowmode_create_thread,
+                       clock_monotonic_milliseconds() + u64{seconds} * 1000 + kSlowmodeSlackMs);
 }
 
 void application_composer_gateway_event(GatewayClientEventKind kind) noexcept {
@@ -308,7 +339,7 @@ void application_message_interaction_tick(u64 now_ms) noexcept {
             continue;
         slowmode_live = true;
         // Apply policy changes even while another channel owns the composer.
-        if (!slowmode_remaining(slot.channel_id, now_ms))
+        if (!slowmode_remaining(slot.channel_id, now_ms, slot.kind))
             reset_value(&slot);
     }
     if (slowmode_live)

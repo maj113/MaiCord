@@ -158,6 +158,16 @@ struct ProtoWriter {
     void tag(u32 field, u32 type) noexcept {
         varint((static_cast<u64>(field) << 3) | type);
     }
+    // A varint field, and a length-delimited string field.
+    void scalar(u32 field, u64 value) noexcept {
+        tag(field, 0);
+        varint(value);
+    }
+    void string(u32 field, Utf8View text) noexcept {
+        tag(field, 2);
+        varint(text.bytes);
+        bytes(text.data, text.bytes);
+    }
     __declspec(noinline) void fixed64(u64 value) noexcept {
         for (u32 i = 0; i < 8; ++i)
             byte(static_cast<u8>(value >> (i * 8)));

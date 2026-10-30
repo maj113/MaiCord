@@ -15,68 +15,24 @@ using E = EmojiPreferencesError;
 // sticker_frecency (4) is read only; patches never write it.
 constexpr u32 kStickerFrecency = 4, kFavorites = 5, kFrecency = 6, kReactionFrecency = 13;
 
+// A cursor over [at, end) of a raw buffer, reading through the shared wire helpers.
 struct Reader {
     const u8* data;
     u32 at, end;
+    ProtoSource source() const noexcept {
+        return proto_source({data, end});
+    }
     bool varint(u64& n) noexcept {
-        n = 0;
-        for (u32 i = 0; i < 10; ++i) {
-            if (at == end)
-                return false;
-            const u8 b = data[at++];
-            if (i == 9 && b > 1)
-                return false;
-            n |= static_cast<u64>(b & 127) << (i * 7);
-            if (!(b & 128))
-                return true;
-        }
-        return false;
+        return proto_varint(source(), at, end, n);
     }
     bool tag(u32& field, u32& type) noexcept {
-        u64 n = 0;
-        if (!varint(n) || n > ~u32{0} || !(n >> 3))
-            return false;
-        field = static_cast<u32>(n >> 3);
-        type = static_cast<u32>(n & 7);
-        return true;
+        return proto_tag(source(), at, end, field, type);
     }
     bool length(u32& stop) noexcept {
-        u64 n = 0;
-        if (!varint(n) || n > end - at)
-            return false;
-        stop = at + static_cast<u32>(n);
-        return true;
+        return proto_length(source(), at, end, stop);
     }
-    bool skip(u32 type, u32 field, u32 depth = 0) noexcept {
-        u64 n = 0;
-        if (type == 0)
-            return varint(n);
-        if (type == 1 || type == 5) {
-            const u32 bytes = type == 1 ? 8 : 4;
-            if (bytes > end - at)
-                return false;
-            at += bytes;
-            return true;
-        }
-        if (type == 2) {
-            u32 stop = 0;
-            if (!length(stop))
-                return false;
-            at = stop;
-            return true;
-        }
-        if (type != 3 || depth >= 16)
-            return false;
-        while (at < end) {
-            u32 f = 0, t = 0;
-            if (!tag(f, t))
-                return false;
-            if (t == 4)
-                return f == field;
-            if (!skip(t, f, depth + 1))
-                return false;
-        }
-        return false;
+    bool skip(u32 type, u32 field) noexcept {
+        return proto_skip(source(), at, end, type, field);
     }
 };
 
@@ -229,58 +185,17 @@ E check_versions(Reader r, u32& data_version) noexcept {
     return E::none;
 }
 
-struct Writer {
-    u8* data;
-    u32 used, limit;
-    bool overflow;
-    void bytes(const u8* source, u32 count) noexcept {
-        if (count > limit - minimum(used, limit))
-            overflow = true;
-        else if (data && count)
-            copy_bytes(data + used, source, count);
-        used += count;
-    }
-    void byte(u8 value) noexcept {
-        bytes(&value, 1);
-    }
-    void number(u64 n) noexcept {
-        do {
-            const u8 b = static_cast<u8>((n & 127) | (n > 127 ? 128 : 0));
-            byte(b);
-            n >>= 7;
-        } while (n);
-    }
-    void scalar(u32 field, u64 n) noexcept {
-        number(static_cast<u64>(field) << 3);
-        number(n);
-    }
-    void string(u32 field, Utf8View text) noexcept {
-        number((static_cast<u64>(field) << 3) | 2);
-        number(text.bytes);
-        bytes(reinterpret_cast<const u8*>(text.data), text.bytes);
-    }
-};
-
-u32 varint_bytes(u64 n) noexcept {
-    u32 bytes = 1;
-    while (n > 127) {
-        n >>= 7;
-        ++bytes;
-    }
-    return bytes;
-}
-
-void write_item(Writer& out, const EmojiFrecencyItem& item) noexcept {
+void write_item(ProtoWriter& out, const EmojiFrecencyItem& item) noexcept {
     if (item.total_uses)
         out.scalar(1, item.total_uses);
     u32 packed = 0;
     for (u32 i = 0; i < item.recent_count; ++i)
-        packed += varint_bytes(item.recent_uses[i]);
+        packed += proto_varint_size(item.recent_uses[i]);
     if (packed) {
-        out.number((2 << 3) | 2);
-        out.number(packed);
+        out.tag(2, 2);
+        out.varint(packed);
         for (u32 i = 0; i < item.recent_count; ++i)
-            out.number(item.recent_uses[i]);
+            out.varint(item.recent_uses[i]);
     }
     // int32 negatives are sign-extended to ten bytes on the wire.
     if (item.frecency)
@@ -290,19 +205,19 @@ void write_item(Writer& out, const EmojiFrecencyItem& item) noexcept {
 }
 
 u32 item_bytes(const EmojiFrecencyItem& item) noexcept {
-    Writer counter{nullptr, 0, ~0u, false};
+    ProtoWriter counter{};
     write_item(counter, item);
-    return counter.used;
+    return counter.at;
 }
 
-void write_entry(Writer& out, Utf8View key, const EmojiFrecencyItem& item) noexcept {
+void write_entry(ProtoWriter& out, Utf8View key, const EmojiFrecencyItem& item) noexcept {
     const u32 value = item_bytes(item);
-    const u32 entry = 1 + varint_bytes(key.bytes) + key.bytes + 1 + varint_bytes(value) + value;
-    out.number((1 << 3) | 2);
-    out.number(entry);
+    const u32 entry = 1 + proto_varint_size(key.bytes) + key.bytes + 1 + proto_varint_size(value) + value;
+    out.tag(1, 2);
+    out.varint(entry);
     out.string(1, key);
-    out.number((2 << 3) | 2);
-    out.number(value);
+    out.tag(2, 2);
+    out.varint(value);
     write_item(out, item);
 }
 
@@ -379,7 +294,7 @@ bool observed_has(ConstSlice<u8> group, const Identities& ids, u64 id, Utf8View 
 }
 
 // Returns the resulting favorite count; ~0u when an add exceeds the limit.
-u32 write_favorites(Writer& out, ConstSlice<u8> group, ConstSlice<EmojiFavoriteEdit> edits,
+u32 write_favorites(ProtoWriter& out, ConstSlice<u8> group, ConstSlice<EmojiFavoriteEdit> edits,
                     const Identities& ids) noexcept {
     u32 count = 0, ordinal = 0;
     Reader r{group.data, 0, group.count};
@@ -425,7 +340,7 @@ u32 matching_entry(ConstSlice<EmojiFrecencyEntry> entries, const u64* entry_ids,
     return kNoEntry;
 }
 
-void write_frecency(Writer& out, ConstSlice<u8> group, ConstSlice<EmojiFrecencyEntry> entries,
+void write_frecency(ProtoWriter& out, ConstSlice<u8> group, ConstSlice<EmojiFrecencyEntry> entries,
                     const u64* entry_ids, const u64* cache, const Identities& ids) noexcept {
     constexpr u32 limit = kEmojiPreferencesMaximumFrecencyEntries;
     // The last observed occurrence of an entry's emoji is authoritative.
@@ -486,11 +401,11 @@ void write_frecency(Writer& out, ConstSlice<u8> group, ConstSlice<EmojiFrecencyE
         }
 }
 
-template <class Body> void group(Writer& out, u32 field, Body body) noexcept {
-    Writer counter{nullptr, 0, ~0u, false};
+template <class Body> void group(ProtoWriter& out, u32 field, Body body) noexcept {
+    ProtoWriter counter{};
     body(counter);
-    out.number((static_cast<u64>(field) << 3) | 2);
-    out.number(counter.used);
+    out.tag(field, 2);
+    out.varint(counter.at);
     body(out);
 }
 
@@ -669,37 +584,37 @@ EmojiPreferencesWriteResult emoji_preferences_write_patch(const EmojiPreferences
     }
     u32 favorite_count = 0;
     bool full = false;
-    const auto body = [&](Writer& out) noexcept {
+    const auto body = [&](ProtoWriter& out) noexcept {
         if (patch.favorite_edits.count)
-            group(out, kFavorites, [&](Writer& inner) noexcept {
+            group(out, kFavorites, [&](ProtoWriter& inner) noexcept {
                 favorite_count = write_favorites(inner, patch.observed_favorites, patch.favorite_edits, ids);
                 full |= favorite_count == ~0u;
             });
         if (patch.write_frecency) {
-            group(out, kFrecency, [&](Writer& inner) noexcept {
+            group(out, kFrecency, [&](ProtoWriter& inner) noexcept {
                 write_frecency(inner, patch.observed_frecency, patch.frecency, ids.entries[0], ids.frecency, ids);
             });
-            group(out, kReactionFrecency, [&](Writer& inner) noexcept {
+            group(out, kReactionFrecency, [&](ProtoWriter& inner) noexcept {
                 write_frecency(inner, patch.observed_reaction_frecency, patch.reaction_frecency, ids.entries[1],
                                ids.reaction, ids);
             });
         }
     };
-    Writer counted{nullptr, 0, ~0u, false};
+    ProtoWriter counted{};
     body(counted);
     if (full)
         return fail(E::capacity);
-    if (counted.used > scratch.count || counted.used > 3 * (kEmojiPreferencesMaximumGroupBytes + 8))
+    if (counted.at > scratch.count || counted.at > 3 * (kEmojiPreferencesMaximumGroupBytes + 8))
         return fail(E::capacity);
-    const u32 json_bytes = proto_settings_patch_bytes(counted.used, patch.required_data_version, true);
+    const u32 json_bytes = proto_settings_patch_bytes(counted.at, patch.required_data_version, true);
     if (json_bytes > json.count || json_bytes > kEmojiPreferencesMaximumPatchBytes)
         return fail(E::capacity);
-    Writer proto{scratch.data, 0, scratch.count, false};
+    ProtoWriter proto{scratch, 0, true};
     body(proto);
-    if (proto.overflow || proto.used != counted.used)
+    if (!proto.ok || proto.at != counted.at)
         return fail(E::capacity);
-    proto_write_settings_patch({scratch.data, proto.used}, patch.required_data_version, json, true);
-    return {json_bytes, proto.used, patch.favorite_edits.count ? favorite_count : 0, E::none};
+    proto_write_settings_patch({scratch.data, proto.at}, patch.required_data_version, json, true);
+    return {json_bytes, proto.at, patch.favorite_edits.count ? favorite_count : 0, E::none};
 }
 
 EmojiPreferencesError emoji_preferences_validate_patch_json(Utf8View input) noexcept {

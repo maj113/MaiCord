@@ -431,15 +431,6 @@ const GifFavoriteRecord* gif_favorites_find(ConstSlice<GifFavoriteRecord> record
     return nullptr;
 }
 namespace {
-void write_scalar(ProtoWriter& out, u32 field, u64 n) noexcept {
-    out.tag(field, 0);
-    out.varint(n);
-}
-void write_string(ProtoWriter& out, u32 field, Utf8View text) noexcept {
-    out.tag(field, 2);
-    out.varint(text.bytes);
-    out.bytes(text.data, text.bytes);
-}
 struct MutationPlan {
     u32 winning_offset, order, records;
     bool found, set_hide_tooltip;
@@ -470,12 +461,12 @@ void changed_value(const ProtoSource& group, const Entry* observed, const GifFav
         }
     }
     if (mutation.kind == GifFavoriteMutationKind::add) {
-        write_scalar(out, 1, static_cast<u32>(mutation.format));
-        write_string(out, 2, mutation.src);
-        write_scalar(out, 3, mutation.width);
-        write_scalar(out, 4, mutation.height);
+        out.scalar(1, static_cast<u32>(mutation.format));
+        out.string(2, mutation.src);
+        out.scalar(3, mutation.width);
+        out.scalar(4, mutation.height);
     }
-    write_scalar(out, 5, order);
+    out.scalar(5, order);
 }
 void changed_entry(const ProtoSource& group, const Entry* observed, const GifFavoriteMutation& mutation, u32 order,
                    ProtoWriter& out) noexcept {
@@ -490,7 +481,7 @@ void changed_entry(const ProtoSource& group, const Entry* observed, const GifFav
                 out.bytes(group.raw.data + begin, p - begin);
         }
     } else
-        write_string(out, 1, mutation.url);
+        out.string(1, mutation.url);
     ProtoWriter inner{};
     changed_value(group, observed, mutation, order, inner);
     out.varint(18);
@@ -535,7 +526,7 @@ void write_group(const ProtoSource& group, const GifFavoriteMutation& mutation, 
         changed_entry(group, nullptr, mutation, plan.order, out);
     }
     if (plan.set_hide_tooltip)
-        write_scalar(out, 2, 1);
+        out.scalar(2, 1);
 }
 } // namespace
 GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 data_version,

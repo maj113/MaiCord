@@ -1,6 +1,7 @@
 #include "maicord/model/user_activity.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/app/message_event_scratch.hpp"
 
 #include "maicord/core/byte_order.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
@@ -1195,10 +1196,91 @@ GatewayReactionBatchVisitResult gateway_client_publish_poll_vote_batch(
     return settle_batch(result, binding, cursor);
 }
 
+namespace {
+// The index of the dispatch's frame: the envelope's own while it still holds it (every route before the
+// by-name decoders filters by event name before it scans), else one scan of the data for an envelope built
+// by hand.
+GatewayClientDispatchRouteResult frame_index(const GatewayEnvelope& envelope, Slice<u32> structural_scratch,
+                                             JsonIndexedDocument* frame) noexcept {
+    if (envelope.document.structurals.data && envelope.document.structurals.data == structural_scratch.data) {
+        *frame = envelope.document;
+        return route_error(GatewayClientDispatchRouteError::none);
+    }
+    const JsonScanResult scan = json_scan_structurals_avx1(envelope.data.source, structural_scratch);
+    if (!scan.ok())
+        return route_decode_error(GatewayEventDecodeResult{scan.error_offset, GatewayEventDecodeError::scan_failed,
+                                                           scan.error});
+    *frame = JsonIndexedDocument{envelope.data.source, {structural_scratch.data, scan.count}};
+    return route_error(GatewayClientDispatchRouteError::none);
+}
+} // namespace
+
+namespace {
+// Out of line: the activity set (3.5 KB) would otherwise cost every dispatch route a stack probe. Appends
+// the rich-presence record behind the appearance bytes already written; false when it does not fit.
+__declspec(noinline) bool append_presence_activities(const JsonIndexedDocument& document, JsonValue presence,
+                                                     Slice<char> content_scratch, u64 user_id,
+                                                     u32* extra) noexcept {
+    UserActivitySet activities{};
+    bool has_activities = false;
+    if (user_activities_decode(document, presence, user_id, &activities, &has_activities) && has_activities &&
+        activities.count) {
+        const u32 tail = user_activities_write(
+            activities, {reinterpret_cast<u8*>(content_scratch.data) + *extra, content_scratch.count - *extra});
+        if (!tail)
+            return false;
+        *extra += tail;
+    }
+    return true;
+}
+} // namespace
+
+namespace {
+// Decodes a MESSAGE_CREATE/UPDATE with the arrays of `scratch`.
+__declspec(noinline) GatewayClientDispatchRouteResult route_message_create_update(
+    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
+    Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, bool create, GatewayClientEvent* event,
+    ConstSlice<u8>* payload, GatewayMessageDecodeScratch* scratch) noexcept {
+    GatewayMessageEvent message{};
+    const GatewayMessageRichScratch rich_scratch = scratch->rich.view(true);
+    // The envelope's index is still intact here (every earlier route filters by name before it scans), so a
+    // message is decoded from it instead of being scanned again.
+    JsonIndexedDocument frame;
+    const GatewayClientDispatchRouteResult indexed = frame_index(envelope, structural_scratch, &frame);
+    if (!indexed.ok())
+        return indexed;
+    const Slice<u64> member_roles{scratch->member_roles, kGatewayMessageMemberRoleMaximumIds};
+    const Slice<GatewayMessageNamedUser> mention_users{scratch->mention_users, kGatewayMessageMentionUserMaximum};
+    const GatewayEventDecodeResult decoded =
+        create ? gateway_decode_message_create(frame, envelope.data, maximum_depth, content_scratch, bulk_ids,
+                                               member_roles, mention_users, rich_scratch, self_user_id, &message)
+               : gateway_decode_message_update(frame, envelope.data, maximum_depth, content_scratch, bulk_ids,
+                                               member_roles, mention_users, rich_scratch, self_user_id, &message);
+    if (!decoded.ok())
+        return route_decode_error(decoded);
+    event->dispatch_kind =
+        create ? GatewayClientDispatchKind::message_create : GatewayClientDispatchKind::message_update;
+    copy_message(message, &event->message);
+    if (!append_message_metadata(content_scratch, message, message.mention_roles, &event->message, payload))
+        return route_error(GatewayClientDispatchRouteError::payload_capacity);
+    return route_error(GatewayClientDispatchRouteError::none);
+}
+
+// The same without the worker's scratch (tests): its ~36 KB of arrays live on this frame instead of the route's.
+__declspec(noinline) GatewayClientDispatchRouteResult route_message_on_stack(
+    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
+    Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, bool create, GatewayClientEvent* event,
+    ConstSlice<u8>* payload) noexcept {
+    GatewayMessageDecodeScratch scratch;
+    return route_message_create_update(envelope, structural_scratch, maximum_depth, content_scratch, bulk_ids,
+                                       self_user_id, create, event, payload, &scratch);
+}
+} // namespace
+
 GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, GatewayClientEvent* event,
-    ConstSlice<u8>* payload) noexcept {
+    ConstSlice<u8>* payload, GatewayMessageDecodeScratch* message_scratch) noexcept {
     if (!event || !payload || envelope.opcode != 0 || !envelope.has_event_name ||
         !envelope.data.source.data || envelope.data.source.bytes == 0 || !structural_scratch.data ||
         structural_scratch.count == 0 || maximum_depth == 0 ||
@@ -1386,10 +1468,16 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         "MESSAGE_POLL_VOTE_REMOVE", "MESSAGE_REACTION_ADD", "MESSAGE_REACTION_REMOVE",
         "MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI", "MESSAGE_DELETE",
         "MESSAGE_DELETE_BULK">(envelope.event_name);
+    JsonIndexedDocument frame;
+    if (late <= 1) {
+        const GatewayClientDispatchRouteResult indexed = frame_index(envelope, structural_scratch, &frame);
+        if (!indexed.ok())
+            return indexed;
+    }
     if (late == 0) {
         UserAppearance appearance{};
-        decoded = gateway_client_decode_presence(envelope.data, structural_scratch, maximum_depth,
-                                                 &event->presence, &appearance);
+        decoded = gateway_client_decode_presence(frame, envelope.data, maximum_depth, &event->presence,
+                                                 &appearance);
         if (!decoded.ok())
             return route_decode_error(decoded);
         u32 extra = user_appearance_write(
@@ -1398,27 +1486,14 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
             return route_error(GatewayClientDispatchRouteError::payload_capacity);
         // Rich presence rides behind the appearance record (user_activity.hpp);
         // an appearance with activities but no trailer means none are rich.
-        if (extra) {
-            UserActivitySet activities{};
-            bool has_activities = false;
-            const auto scan = json_scan_structurals_avx1(envelope.data.source, structural_scratch);
-            if (scan.ok() &&
-                user_activities_decode({envelope.data.source, {structural_scratch.data, scan.count}},
-                                       {envelope.data.source, 0, JsonValueKind::object}, event->presence.user_id,
-                                       &activities, &has_activities) &&
-                has_activities && activities.count) {
-                const u32 tail = user_activities_write(
-                    activities, {reinterpret_cast<u8*>(content_scratch.data) + extra, content_scratch.count - extra});
-                if (!tail)
-                    return route_error(GatewayClientDispatchRouteError::payload_capacity);
-                extra += tail;
-            }
-        }
+        if (extra && !append_presence_activities(frame, envelope.data, content_scratch, event->presence.user_id,
+                                                 &extra))
+            return route_error(GatewayClientDispatchRouteError::payload_capacity);
         *payload = {reinterpret_cast<const u8*>(content_scratch.data), extra};
         event->dispatch_kind = GatewayClientDispatchKind::presence_update;
     } else if (late == 1) {
         GatewayTypingStartEvent typing{};
-        decoded = gateway_decode_typing_start(envelope.data, structural_scratch, maximum_depth, &typing);
+        decoded = gateway_decode_typing_start(frame, envelope.data, maximum_depth, &typing);
         if (!decoded.ok()) {
             return route_decode_error(decoded);
         }
@@ -1426,60 +1501,14 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
         event->typing = GatewayClientTypingStartEvent{typing.channel_id, typing.guild_id, typing.user_id,
                                                       typing.timestamp_seconds};
     } else if (late == 2 || late == 3) {
-        GatewayMessageEvent message{};
-        GatewayMessageNamedUser mention_users[kGatewayMessageMentionUserMaximum];
-        GatewayMessageReaction reactions[kGatewayMessageReactionMaximum];
-        GatewayMessageAttachment attachments[kGatewayMessageAttachmentMaximum];
-        GatewayMessageEmbed embeds[kGatewayMessageEmbedMaximum];
-        GatewayMessageEmbedField embed_fields[kGatewayMessageEmbedFieldMaximum];
-        GatewayMessageSticker stickers[kGatewayMessageStickerMaximum];
-        GatewayMessageComponent components[kGatewayMessageComponentMaximum];
-        GatewayMessageAttachment snapshot_attachments[kGatewayMessageAttachmentMaximum];
-        GatewayMessageEmbed snapshot_embeds[kGatewayMessageEmbedMaximum];
-        GatewayMessageEmbedField snapshot_fields[kGatewayMessageEmbedFieldMaximum];
-        GatewayMessageSticker snapshot_stickers[kGatewayMessageStickerMaximum];
-        GatewayMessageComponent snapshot_components[kGatewayMessageComponentMaximum];
-        GatewayMessageNamedUser snapshot_users[kGatewayMessageMentionUserMaximum];
-        GatewayMessagePollAnswer poll_answers[kGatewayMessagePollMaximumAnswers];
-        GatewayMessagePollAnswerCount poll_counts[kGatewayMessagePollMaximumAnswers];
-        u64 member_roles[kGatewayMessageMemberRoleMaximumIds];
-        const GatewayMessageRichScratch rich_scratch{
-            Slice<GatewayMessageReaction>{reactions, kGatewayMessageReactionMaximum},
-            Slice<GatewayMessageAttachment>{attachments, kGatewayMessageAttachmentMaximum},
-            Slice<GatewayMessageEmbed>{embeds, kGatewayMessageEmbedMaximum},
-            Slice<GatewayMessageEmbedField>{embed_fields, kGatewayMessageEmbedFieldMaximum},
-            Slice<GatewayMessageSticker>{stickers, kGatewayMessageStickerMaximum},
-            Slice<GatewayMessageComponent>{components, kGatewayMessageComponentMaximum},
-            {{snapshot_attachments, kGatewayMessageAttachmentMaximum},
-             {snapshot_embeds, kGatewayMessageEmbedMaximum},
-             {snapshot_fields, kGatewayMessageEmbedFieldMaximum},
-             {snapshot_stickers, kGatewayMessageStickerMaximum},
-             {snapshot_components, kGatewayMessageComponentMaximum},
-             {snapshot_users, kGatewayMessageMentionUserMaximum}},
-            {{poll_answers, kGatewayMessagePollMaximumAnswers},
-             {poll_counts, kGatewayMessagePollMaximumAnswers}}};
-        const bool create = late == 2;
-        decoded =
-            create ? gateway_decode_message_create(
-                         envelope.data, structural_scratch, maximum_depth, content_scratch, bulk_ids,
-                         Slice<u64>{member_roles, kGatewayMessageMemberRoleMaximumIds},
-                         Slice<GatewayMessageNamedUser>{mention_users, kGatewayMessageMentionUserMaximum},
-                         rich_scratch, self_user_id, &message)
-                   : gateway_decode_message_update(
-                         envelope.data, structural_scratch, maximum_depth, content_scratch, bulk_ids,
-                         Slice<u64>{member_roles, kGatewayMessageMemberRoleMaximumIds},
-                         Slice<GatewayMessageNamedUser>{mention_users, kGatewayMessageMentionUserMaximum},
-                         rich_scratch, self_user_id, &message);
-        if (!decoded.ok()) {
-            return route_decode_error(decoded);
-        }
-        event->dispatch_kind =
-            create ? GatewayClientDispatchKind::message_create : GatewayClientDispatchKind::message_update;
-        copy_message(message, &event->message);
-        if (!append_message_metadata(content_scratch, message, message.mention_roles, &event->message,
-                                     payload)) {
-            return route_error(GatewayClientDispatchRouteError::payload_capacity);
-        }
+        const GatewayClientDispatchRouteResult routed_message =
+            message_scratch
+                ? route_message_create_update(envelope, structural_scratch, maximum_depth, content_scratch,
+                                              bulk_ids, self_user_id, late == 2, event, payload, message_scratch)
+                : route_message_on_stack(envelope, structural_scratch, maximum_depth, content_scratch, bulk_ids,
+                                         self_user_id, late == 2, event, payload);
+        if (!routed_message.ok())
+            return routed_message;
     } else if (late == 4 || late == 5) {
         const bool add = late == 4;
         GatewayMessagePollVoteEvent vote{};

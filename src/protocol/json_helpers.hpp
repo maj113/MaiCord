@@ -3,6 +3,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
+#include "maicord/core/arena.hpp"
 #include "maicord/protocol/writer.hpp"
 
 namespace maicord::protocol_detail {
@@ -127,4 +128,43 @@ struct JsonBody {
     }
 };
 
+struct MemberFinder {
+    Utf8View name;
+    JsonValue value;
+    bool found;
+};
+inline bool find_first_member(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& finder = *static_cast<MemberFinder*>(opaque);
+    if (!finder.found && json_string_equals_utf8(name, finder.name)) {
+        finder.value = value;
+        finder.found = true;
+    }
+    return true;
+}
+// The first member `name` of an object of the indexed document; an empty value when absent.
+__declspec(noinline) inline JsonValue object_member(const JsonIndexedDocument& document, const JsonValue& object,
+                                                    Utf8View name, u32 maximum_depth) noexcept {
+    MemberFinder finder{name, {}, false};
+    if (object.source.bytes && object.kind == JsonValueKind::object)
+        json_visit_indexed_object(document, object, maximum_depth, find_first_member, &finder);
+    return finder.value;
+}
+
+// A string value: borrowed from the document when it has no escapes, else decoded into the arena.
+// Empty when it is not a string or the arena is full.
+__declspec(noinline) inline Utf8View arena_string(Arena* storage, const JsonValue& value) noexcept {
+    JsonString string{};
+    if (!json_value_as_string(value, &string))
+        return {};
+    if (!string.has_escapes)
+        return string.encoded;
+    const auto size = json_string_decode_utf8(string, {});
+    if (size.error != JsonStringDecodeError::output_too_small && size.error != JsonStringDecodeError::none)
+        return {};
+    char* decoded = arena_allocate<char>(storage, size.bytes ? size.bytes : 1u);
+    if (!decoded)
+        return {};
+    const auto result = json_string_decode_utf8(string, {decoded, size.bytes});
+    return result.ok() ? Utf8View{decoded, result.bytes} : Utf8View{};
+}
 } // namespace maicord::protocol_detail

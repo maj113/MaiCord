@@ -4,29 +4,14 @@
 #include "maicord/protocol/rest.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "json_field_lists.hpp"
+#include "json_helpers.hpp"
 
 namespace maicord {
 namespace {
 constexpr u32 depth_limit = 32;
 
-struct Member {
-    Utf8View name;
-    JsonValue value;
-    bool found;
-};
-bool find_member(void* p, JsonString name, JsonValue value) noexcept {
-    auto& m = *static_cast<Member*>(p);
-    if (!m.found && json_string_equals_utf8(name, m.name)) {
-        m.value = value;
-        m.found = true;
-    }
-    return true;
-}
 JsonValue field(const JsonIndexedDocument& doc, const JsonValue& object, const char* name) noexcept {
-    Member member{{name, c_string_length(name)}, {}, false};
-    if (object.source.bytes && object.kind == JsonValueKind::object)
-        json_visit_indexed_object(doc, object, depth_limit, find_member, &member);
-    return member.value;
+    return protocol_detail::object_member(doc, object, {name, c_string_length(name)}, depth_limit);
 }
 
 Utf8View report_menu_name(ReportMenuName name) noexcept {
@@ -186,19 +171,7 @@ struct Decoder {
     bool failed;
 };
 Utf8View text(ReportMenu& menu, const JsonValue& value) noexcept {
-    JsonString string{};
-    if (!json_value_as_string(value, &string))
-        return {};
-    if (!string.has_escapes)
-        return string.encoded;
-    const auto size = json_string_decode_utf8(string, {});
-    if (size.error != JsonStringDecodeError::output_too_small && size.error != JsonStringDecodeError::none)
-        return {};
-    char* decoded = arena_allocate<char>(&menu.storage, maximum(1u, size.bytes));
-    if (!decoded)
-        return {};
-    const auto result = json_string_decode_utf8(string, {decoded, size.bytes});
-    return result.ok() ? Utf8View{decoded, result.bytes} : Utf8View{};
+    return protocol_detail::arena_string(&menu.storage, value);
 }
 Utf8View named(ReportMenu& menu, const JsonValue& object, const char* key) noexcept {
     return text(menu, field(menu.document, object, key));

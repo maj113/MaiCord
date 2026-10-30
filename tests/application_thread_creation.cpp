@@ -324,6 +324,8 @@ Application g_app{};
 bool application_request_frame() noexcept { return true; }
 bool application_settings_active() noexcept { return false; }
 bool application_friends_active() noexcept { return false; }
+bool application_thread_create_cooldown_active(u64) noexcept { return false; }
+void application_thread_create_note_created(u64) noexcept {}
 bool application_thread_browser_active() noexcept { return false; }
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept {
     if (!creation_test::form_open_ok || g_app.text_form || !request.valid(request.owner)) return false;

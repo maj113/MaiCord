@@ -11,8 +11,13 @@ namespace maicord::app_detail {
 // typed text must not be sent (it was consumed, or slowmode is cooling down).
 bool application_composer_prepare_send(bool* handled) noexcept;
 void application_composer_note_sent(u64 channel_id) noexcept;
-// The server's remaining send cooldown for the channel (the typing response); 0 changes nothing.
-void application_composer_slowmode_cooldown(u64 channel_id, u64 cooldown_ms) noexcept;
+// The server's remaining send / thread-creation cooldowns for the channel (the typing response); 0 changes nothing.
+void application_composer_slowmode_cooldown(u64 channel_id, u64 send_ms, u64 create_thread_ms) noexcept;
+// The failed message that armed the cooldown (an upload) was discarded: the interval never started.
+void application_composer_slowmode_clear(u64 channel_id) noexcept;
+// Thread creation shares the channel's interval but has its own countdown.
+bool application_thread_create_cooldown_active(u64 channel_id) noexcept;
+void application_thread_create_note_created(u64 channel_id) noexcept;
 // A predicted channel slowmode cooldown is running. Current bypass permission
 // or disabled slowmode retires it; authoritative server retry deadlines are separate.
 // A reduced duration caps the remaining prediction; increases never extend it.

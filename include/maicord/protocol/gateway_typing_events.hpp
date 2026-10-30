@@ -11,8 +11,9 @@ struct GatewayTypingStartEvent {
     u64 timestamp_seconds;
 };
 
+// Decodes a TYPING_START value of an indexed document (no scan).
 GatewayEventDecodeResult gateway_decode_typing_start(
-    JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
+    const JsonIndexedDocument& document, JsonValue data, u32 maximum_depth,
     GatewayTypingStartEvent* output) noexcept;
 
 } // namespace maicord

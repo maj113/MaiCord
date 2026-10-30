@@ -6,38 +6,18 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/user_settings_proto.hpp"
+#include "json_helpers.hpp"
 #include "proto_wire.hpp"
 
 namespace maicord {
 namespace {
 constexpr u32 depth_limit = 64;
-struct Member {
-    Utf8View name;
-    JsonValue value;
-};
-bool find_member(void* p, JsonString name, JsonValue value) noexcept {
-    auto& m = *static_cast<Member*>(p);
-    if (json_string_equals_utf8(name, m.name))
-        m.value = value;
-    return true;
-}
+
 JsonValue field(const JsonIndexedDocument& doc, JsonValue obj, const char* name) noexcept {
     return command_member(doc, obj, {name, c_string_length(name)});
 }
 Utf8View text(CommandIndex& index, JsonValue value) noexcept {
-    JsonString string{};
-    if (!json_value_as_string(value, &string))
-        return {};
-    if (!string.has_escapes)
-        return string.encoded;
-    const auto size = json_string_decode_utf8(string, {});
-    if (size.error != JsonStringDecodeError::output_too_small && size.error != JsonStringDecodeError::none)
-        return {};
-    char* decoded = arena_allocate<char>(&index.storage, maximum(1u, size.bytes));
-    if (!decoded)
-        return {};
-    const auto result = json_string_decode_utf8(string, {decoded, size.bytes});
-    return result.error == JsonStringDecodeError::none ? Utf8View{decoded, result.bytes} : Utf8View{};
+    return protocol_detail::arena_string(&index.storage, value);
 }
 Utf8View named(CommandIndex& index, JsonValue value, const char* key) noexcept {
     return text(index, field(index.document, value, key));
@@ -178,10 +158,7 @@ bool visit_application(void* context, u32, JsonValue value) noexcept {
 }
 } // namespace
 JsonValue command_member(const JsonIndexedDocument& doc, JsonValue object, Utf8View name) noexcept {
-    Member member{name, {}};
-    if (object.source.bytes && object.kind == JsonValueKind::object)
-        json_visit_indexed_object(doc, object, depth_limit, find_member, &member);
-    return member.value;
+    return protocol_detail::object_member(doc, object, name, depth_limit);
 }
 bool command_json_text(JsonValue value, Slice<char> output, Utf8View* result) noexcept {
     JsonString string{};

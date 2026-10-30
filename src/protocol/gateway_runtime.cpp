@@ -85,13 +85,14 @@ bool gateway_resume_validate(const GatewayResumeState& state) noexcept {
 }
 
 GatewayReconnectDelay gateway_reconnect_next(GatewayReconnectBackoff* backoff, u32 random) noexcept {
-    const u32 shift = backoff->attempt < 5 ? backoff->attempt : 5;
-    u32 ceiling = 1'000u << shift;
-    if (ceiling > 30'000) {
-        ceiling = 30'000;
-    }
-    saturating_increment(backoff->attempt);
-    return GatewayReconnectDelay{scale_inclusive(random, ceiling)};
+    const u32 current = backoff->delay_ms ? backoff->delay_ms : 1'000u;
+    const u32 next = current + scale_inclusive(random, 2 * current);
+    backoff->delay_ms = next < 60'000u ? next : 60'000u;
+    return GatewayReconnectDelay{backoff->delay_ms};
+}
+
+bool gateway_resume_expired(u64 last_ack_ms, u64 now_ms) noexcept {
+    return last_ack_ms != 0 && now_ms > last_ack_ms && now_ms - last_ack_ms > 180'000;
 }
 
 void gateway_reconnect_reset(GatewayReconnectBackoff* backoff) noexcept {

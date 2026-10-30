@@ -124,6 +124,7 @@ GatewayDecodeResult gateway_decode_envelope(Utf8View input, Slice<u32> structura
     }
 
     *output = context.envelope;
+    output->document = JsonIndexedDocument{input, structurals};
     return GatewayDecodeResult{input.bytes, GatewayDecodeError::none, JsonScanError::none,
                                JsonReadError::none};
 }

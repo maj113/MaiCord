@@ -854,15 +854,23 @@ GatewayClientDispatchRouteResult gateway_client_route_member_list_dispatch(
     if (!*handled) {
         return result(GatewayClientDispatchRouteError::none);
     }
-    const JsonScanResult root_scan = json_scan_structurals_avx1(envelope.data.source, structural_scratch);
-    if (!root_scan.ok()) {
-        return result(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed,
-                      root_scan.error, JsonReadError::none, root_scan.error_offset);
+    // The envelope's index serves the whole route (nothing before it scans); a hand-built envelope is
+    // scanned here instead.
+    const bool indexed = envelope.document.structurals.data &&
+                         envelope.document.structurals.data == structural_scratch.data;
+    JsonIndexedDocument scanned{};
+    if (!indexed) {
+        const JsonScanResult root_scan = json_scan_structurals_avx1(envelope.data.source, structural_scratch);
+        if (!root_scan.ok()) {
+            return result(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::scan_failed,
+                          root_scan.error, JsonReadError::none, root_scan.error_offset);
+        }
+        scanned = JsonIndexedDocument{envelope.data.source, {structural_scratch.data, root_scan.count}};
     }
+    const JsonIndexedDocument& document = indexed ? envelope.document : scanned;
     RootContext root{};
-    const JsonReadResult root_read = json_visit_value_object(
-        envelope.data, ConstSlice<u32>{structural_scratch.data, root_scan.count}, maximum_depth,
-        visit_root, &root);
+    const JsonReadResult root_read =
+        json_visit_indexed_object(document, envelope.data, maximum_depth, visit_root, &root);
     if (!root_read.ok() || !root.guild_seen ||
         (chunk ? !root.member_array_seen : !member_update && !root.ops_seen)) {
         return result(GatewayClientDispatchRouteError::decode,
@@ -871,7 +879,6 @@ GatewayClientDispatchRouteResult gateway_client_route_member_list_dispatch(
                                                            : GatewayEventDecodeError::invalid_json,
                       JsonScanError::none, root_read.error, root_read.error_offset);
     }
-    const JsonIndexedDocument document{envelope.data.source, {structural_scratch.data, root_scan.count}};
     PayloadWriter writer{{payload_scratch, 0}, 0, 0, 0};
     if (chunk || member_update) {
         ItemArrayContext members{&writer, &document, maximum_depth, 0, 0, GatewayEventDecodeError::none};
@@ -1046,7 +1053,8 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
     *cursor += mutation->member_appearance_bytes;
     UserAppearance decoded;
     u32 appearance_bytes = 0;
-    UserActivitySet activities;
+    // Validation only; the consumer thread reads one record at a time.
+    static UserActivitySet activities;
     if (member &&
         (!user_appearance_read(global_extra, mutation->user_id, 0, &decoded) ||
          !user_appearance_read_prefix(guild_extra, mutation->user_id, event.member_list.guild_id, &decoded,

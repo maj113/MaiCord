@@ -62,6 +62,9 @@ bool queue_composer_message(bool mention_confirmed) noexcept {
         log_u64(LogLevel::error, "message", "message_send_queue_error", static_cast<u64>(queued.error));
     } else {
         application_attachment_did_queue({attachment_ids, attachment_count}, queued.nonce);
+        // Uploads arm the cooldown as they start (the client's UPLOAD_START); a discarded failure retires it.
+        if (attachment_count)
+            application_composer_note_sent(composer.channel_id);
         application_emoji_preferences_track_message(emoji_uses);
         const TypingStoreResult typing_stopped =
             typing_store_note_message(&g_app.account_ui->typing_store, composer.channel_id,

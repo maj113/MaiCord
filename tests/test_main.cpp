@@ -6867,15 +6867,17 @@ void test_message_composer() noexcept {
         "message_typing_route_and_validation");
     {
         u32 structurals[32];
-        u64 cooldown = 7;
-        expect(decode_message_typing_cooldown(utf8_literal("{\"message_send_cooldown_ms\":4200,\"thread_create_cooldown_ms\":0}"),
-                                              {structurals, 32}, &cooldown) &&
-                   cooldown == 4200 &&
-                   decode_message_typing_cooldown(utf8_literal("{}"), {structurals, 32}, &cooldown) && cooldown == 0 &&
-                   !decode_message_typing_cooldown(utf8_literal("{\"message_send_cooldown_ms\":\"x\"}"),
-                                                   {structurals, 32}, &cooldown) &&
-                   !decode_message_typing_cooldown(utf8_literal("[1]"), {structurals, 32}, &cooldown) &&
-                   !decode_message_typing_cooldown(Utf8View{}, {structurals, 32}, &cooldown),
+        MessageTypingCooldowns cooldowns{7, 7};
+        expect(decode_message_typing_cooldowns(
+                   utf8_literal("{\"message_send_cooldown_ms\":4200,\"thread_create_cooldown_ms\":900}"), {structurals, 32},
+                   &cooldowns) &&
+                   cooldowns.message_send_ms == 4200 && cooldowns.thread_create_ms == 900 &&
+                   decode_message_typing_cooldowns(utf8_literal("{}"), {structurals, 32}, &cooldowns) &&
+                   cooldowns.message_send_ms == 0 && cooldowns.thread_create_ms == 0 &&
+                   !decode_message_typing_cooldowns(utf8_literal("{\"message_send_cooldown_ms\":\"x\"}"),
+                                                    {structurals, 32}, &cooldowns) &&
+                   !decode_message_typing_cooldowns(utf8_literal("[1]"), {structurals, 32}, &cooldowns) &&
+                   !decode_message_typing_cooldowns(Utf8View{}, {structurals, 32}, &cooldowns),
                "message_typing_cooldown_decode");
     }
     expect(write_message_create_target(0, Slice<u8>{target, 96}).error ==
@@ -20178,6 +20180,9 @@ void test_gateway_message_events() noexcept {
         envelope, Slice<u32>{rich_structurals, 2'048}, 32, Slice<char>{rich_text, 32 * 1024},
         Slice<u64>{routed_ids, kGatewayBulkDeleteMaximumIds}, 11, &routed_event, &packed_rich_payload);
     bool rich_payload_copied = rich_routed.ok() && packed_rich_payload.count <= sizeof(rich_owned_payload);
+    // The standalone decode above rescanned the shared index; the route needs the frame's own.
+    expect(gateway_decode_envelope(rich_payload, Slice<u32>{rich_structurals, 2'048}, 32, &envelope).ok(),
+           "gateway_envelope_index_rebuilt_for_route");
     if (rich_payload_copied) {
         for (u32 byte = 0; byte < packed_rich_payload.count; ++byte) {
             rich_owned_payload[byte] = static_cast<char>(packed_rich_payload[byte]);
@@ -21313,6 +21318,13 @@ void test_gateway_lifecycle() noexcept {
                gateway_classify_close(4010) == GatewayCloseDisposition::stop &&
                gateway_classify_close(4011) == GatewayCloseDisposition::stop &&
                gateway_classify_close(4012) == GatewayCloseDisposition::stop &&
+    expect(gateway_classify_close(1000) == GatewayCloseDisposition::resume &&
+               gateway_classify_close(1001) == GatewayCloseDisposition::resume &&
+               gateway_classify_close(1006) == GatewayCloseDisposition::resume,
+           "gateway_close_server_going_away_reconnects");
+    expect(!gateway_resume_expired(0, 1'000'000) && !gateway_resume_expired(1'000, 181'000) &&
+               gateway_resume_expired(1'000, 181'001) && !gateway_resume_expired(5'000, 1'000),
+           "gateway_resume_expires_after_three_minutes");
                gateway_classify_close(4013) == GatewayCloseDisposition::stop &&
                gateway_classify_close(4014) == GatewayCloseDisposition::stop,
            "gateway_close_fatal_codes");
@@ -21366,15 +21378,18 @@ void test_gateway_runtime() noexcept {
     GatewayReconnectBackoff backoff{};
     const GatewayReconnectDelay first = gateway_reconnect_next(&backoff, 0);
     const GatewayReconnectDelay second = gateway_reconnect_next(&backoff, ~0u);
-    expect(first.delay_ms == 0 && second.delay_ms == 2'000 && backoff.attempt == 2,
-           "gateway_reconnect_full_jitter");
+    expect(first.delay_ms == 1'000 && second.delay_ms == 3'000 && backoff.delay_ms == 3'000,
+           "gateway_reconnect_backoff_grows_from_one_second");
+    GatewayReconnectBackoff steady{};
+    expect(gateway_reconnect_next(&steady, 0).delay_ms == 1'000 && gateway_reconnect_next(&steady, 0).delay_ms == 1'000,
+           "gateway_reconnect_backoff_never_shrinks");
     GatewayReconnectDelay capped{};
     for (u32 index = 0; index < 8; ++index) {
         capped = gateway_reconnect_next(&backoff, ~0u);
     }
-    expect(capped.delay_ms == 30'000, "gateway_reconnect_backoff_cap");
+    expect(capped.delay_ms == 60'000, "gateway_reconnect_backoff_cap");
     gateway_reconnect_reset(&backoff);
-    expect(backoff.attempt == 0 && gateway_invalid_session_delay(0) == 1'000 &&
+    expect(backoff.delay_ms == 0 && gateway_invalid_session_delay(0) == 1'000 &&
                gateway_invalid_session_delay(~0u) == 5'000,
            "gateway_reconnect_reset_invalid_session_delay");
 

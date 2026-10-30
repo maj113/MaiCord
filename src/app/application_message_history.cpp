@@ -927,13 +927,14 @@ static bool pump_message_history_main(bool admit) noexcept {
                 } else if (response.status_code != 200 && response.status_code != 204) {
                     log_u64(LogLevel::warning, "typing", "http_status", response.status_code);
                 } else if (response.status_code == 200) {
-                    // The official client adopts the server's remaining send cooldown from this response.
-                    u64 cooldown_ms = 0;
-                    if (decode_message_typing_cooldown(taken_body,
-                                                       {g_app.account_ui->message_history_object_structurals,
-                                                        kMessageHistoryObjectStructuralCount},
-                                                       &cooldown_ms))
-                        application_composer_slowmode_cooldown(typing_request_channel_id, cooldown_ms);
+                    // The official client adopts the server's remaining cooldowns from this response.
+                    MessageTypingCooldowns cooldowns{};
+                    if (decode_message_typing_cooldowns(taken_body,
+                                                        {g_app.account_ui->message_history_object_structurals,
+                                                         kMessageHistoryObjectStructuralCount},
+                                                        &cooldowns))
+                        application_composer_slowmode_cooldown(typing_request_channel_id, cooldowns.message_send_ms,
+                                                               cooldowns.thread_create_ms);
                 }
             } else if (owner == MessageHistoryRequestOwner::message_send) {
                 if (!accept_message_send_response(response, taken_body))

@@ -15,6 +15,8 @@ struct ReadAckIntent {
     // Manual wire metadata. Presence is separate from whether local history
     // was complete when estimating this count; it never asserts completeness.
     bool mention_count_known = false;
+    // Automatic ACK: the flags differ from the server-known value, so the request carries them.
+    bool flags_known = false;
     u32 mention_count = 0;
 };
 // Full cursor, deadline and u32 metadata remain intact. The kind adds

@@ -555,6 +555,8 @@ bool application_settings_active() noexcept {
 bool application_friends_active() noexcept {
     return false;
 }
+bool application_thread_create_cooldown_active(u64) noexcept { return false; }
+void application_thread_create_note_created(u64) noexcept {}
 #ifndef MAICORD_FORUM_ACTUAL_ATTACHMENTS
 ApplicationForumAttachmentView application_forum_attachments_view(const ApplicationForumPostTicket&) noexcept { return {{}, {}, 0, false, false, true, false}; }
 void application_forum_attachments_retire(const ApplicationForumPostTicket&) noexcept {}

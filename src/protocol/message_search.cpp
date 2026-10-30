@@ -157,12 +157,17 @@ bool snapshot_excerpt(DecodeContext& context, const HitContext& hit,
     if (!present)
         return true;
     // The scoped core validates all child scalars/named mentions without an
-    // invented author. Only the bounded quote is copied into the result bank.
-    char temporary[32 * 1024];
+    // invented author. Its text is decoded into the arena's free tail; only the
+    // bounded quote is kept, moved down over it.
+    const u32 used = context.result.page.text_bytes + item.message.transient_bytes;
+    if (used >= context.text.count || !context.text.data) {
+        context.result.message_error = GatewayEventDecodeError::message_content_capacity;
+        return reject(&context, MessageSearchDecodeError::message_decode, body.source_offset);
+    }
     GatewayMessageNamedUser mentions[kGatewayMessageMentionUserMaximum];
     GatewayMessageEvent child;
     const auto decoded = gateway_decode_message_snapshot_core(
-        context.document, body, context.maximum_depth, {temporary, sizeof(temporary)},
+        context.document, body, context.maximum_depth, {context.text.data + used, context.text.count - used},
         {mentions, kGatewayMessageMentionUserMaximum}, &child);
     if (!decoded.ok()) {
         context.result.message_error = decoded.error;
@@ -175,17 +180,20 @@ bool snapshot_excerpt(DecodeContext& context, const HitContext& hit,
                                                 visit_snapshot_media, &media);
     if (!read.ok() || !media.valid)
         return reject(&context, MessageSearchDecodeError::invalid_field, body.source_offset);
-    const u32 used = context.result.page.text_bytes + item.message.transient_bytes;
-    if (used >= context.text.count || !context.text.data) {
+    const u32 quote_end = used + child.transient_bytes;
+    if (quote_end >= context.text.count) {
         context.result.message_error = GatewayEventDecodeError::message_content_capacity;
         return reject(&context, MessageSearchDecodeError::message_decode, body.source_offset);
     }
     const auto card =
         message_card_excerpt({item.message.content, child.content, true, true, media.counts[0],
                               media.counts[1], media.counts[2], media.counts[3]},
-                             {context.text.data + used, context.text.count - used});
+                             {context.text.data + quote_end, context.text.count - quote_end});
     if (!card.bytes)
         return reject(&context, MessageSearchDecodeError::message_decode, body.source_offset);
+    // The quote was only needed to build the card; slide the card over it.
+    for (u32 at = 0; at < card.bytes; ++at)
+        context.text.data[used + at] = context.text.data[quote_end + at];
     item.card_excerpt = {context.text.data + used, card.bytes};
     item.forwarded = true;
     item.excerpt_truncated = card.truncated;

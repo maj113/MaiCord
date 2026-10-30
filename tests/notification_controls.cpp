@@ -215,7 +215,7 @@ void mentions(Check check) noexcept {
                  utf8_literal("/api/v10/users/@me/mentions?limit=25&roles=false&everyone=true&guild_id=10&before=300")),
           "mentions: later pages filter the server and continue before the oldest mention");
     check(!write_mentions_target({0, 0, 0, true, true}, {target, sizeof(target)}), "mentions: zero limit rejected");
-    static u32 page[2048], message[2048];
+    static u32 page[2048];
     static char text[4096];
     static GatewayMessageEvent events[4];
     constexpr auto body = utf8_literal(

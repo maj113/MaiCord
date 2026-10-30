@@ -7,6 +7,9 @@ namespace maicord {
 struct GatewayEnvelope {
     JsonValue data;
     JsonString event_name;
+    // The whole frame and its structural index (the caller's scratch). Valid only until something scans into
+    // that scratch again; empty for an envelope built by hand.
+    JsonIndexedDocument document;
     u64 sequence;
     u32 opcode;
     bool has_sequence;

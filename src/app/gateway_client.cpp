@@ -33,6 +33,7 @@
 #include "gateway_subscription_thread_owner.hpp"
 #include "gateway_self_status_owner.hpp"
 #include "maicord/app/gateway_member_request_owner.hpp"
+#include "maicord/app/message_event_scratch.hpp"
 #include "maicord/app/gateway_channel_info_requests.hpp"
 #include "maicord/app/rest_client.hpp"
 #if defined(MAICORD_GATEWAY_SELF_STATUS_TEST)
@@ -223,6 +224,9 @@ struct GatewayClientRuntime {
     u64 member_deadline_ms;
     u64 channel_info_deadline_ms;
     u64 reconnect_deadline_ms;
+    // The last heartbeat acknowledgement or connection start (zero before the first); a session silent for
+    // three minutes is identified afresh rather than resumed.
+    u64 last_ack_ms;
     u64 self_user_id;
     GatewayStateRecovery state_recovery;
     u8 pending_pong_bytes;
@@ -248,6 +252,8 @@ struct GatewayClientRuntime {
     u8 gateway_payload[4096];
     u8 gateway_etf[kEtfCommandBytes];
     u8 record_output[kRecordOutputBytes];
+    // The arrays one message dispatch decodes into (~36 KB, committed when the first message arrives).
+    GatewayMessageDecodeScratch message_scratch;
 };
 
 template <u32 Capacity> struct GatewayUserTextStorage {
@@ -958,9 +964,6 @@ void clear_resume(GatewayClientRuntime* runtime) noexcept {
 }
 
 void clear_user_transport(GatewayClientRuntime* runtime) noexcept {
-    if (!is_user(runtime)) {
-        return;
-    }
     zstd_stream_clear(&runtime->user->zstd);
     wipe_storage(runtime->zstd_storage);
     SecureZeroMemory(runtime->handshake_output, kHandshakeBytes);
@@ -1012,7 +1015,7 @@ bool self_settings_json(Utf8View source, SelfSettingsJson* parsed) noexcept {
 // settings without them leave the current values.
 void observe_settings_metadata(GatewayClientRuntime* runtime, JsonValue value, bool partial) noexcept {
     JsonString encoded{};
-    if (!is_user(runtime) || !json_value_as_string(value, &encoded) || encoded.has_escapes)
+    if (!json_value_as_string(value, &encoded) || encoded.has_escapes)
         return;
     u8 extracted[1024];
     const UserSettingsExtractResult settings = user_settings_proto_extract_base64(
@@ -1139,6 +1142,10 @@ void settings_stores_dispatch(GatewayClient* client, GatewayClientRuntime* runti
 
 bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, NetworkLoop* loop,
                       u64 now_ms) noexcept {
+    if (runtime->resume.valid && gateway_resume_expired(runtime->last_ack_ms, now_ms)) {
+        reset_voice(client, runtime);
+        clear_resume(runtime);
+    }
     runtime->failure_stage = GatewayClientFailureStage::none;
     runtime->session_error = GatewaySessionError::none;
     runtime->handshake_error = WebSocketHandshakeError::none;
@@ -1160,11 +1167,7 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
     if (runtime->session.input.data) {
         byte_queue_clear(&runtime->session.input, true);
     }
-    if (is_user(runtime)) {
-        clear_user_transport(runtime);
-    } else if (runtime->session.message_bytes != 0) {
-        SecureZeroMemory(runtime->handshake_output, runtime->session.message_bytes);
-    }
+    clear_user_transport(runtime);
     gateway_outbound_reset(&runtime->outbound);
     runtime->qos.has_immediate = false;
     runtime->send_data = nullptr;
@@ -1398,8 +1401,7 @@ bool initialize_session(GatewayClientRuntime* runtime,
     reserved_bytes_decommit(&runtime->compressed_spill);
     if (!gateway_session_initialize(
             &runtime->session, Slice<u8>{runtime->session_input, kSessionInputBytes},
-            is_user(runtime) ? Slice<u8>{runtime->handshake_output + kMessageBytes, kMessageBytes}
-                             : Slice<u8>{runtime->handshake_output, kMessageBytes},
+            Slice<u8>{runtime->handshake_output + kMessageBytes, kMessageBytes},
             main_index_view(runtime), ConstSlice<u8>{client_key, kWebSocketClientKeyBytes},
             kSessionInputBytes - 14, kMessageBytes, runtime->resume.valid, runtime->resume.valid,
             static_cast<u64>(ReadAcquire64(&runtime->resume_sequence)))) {
@@ -1408,17 +1410,16 @@ bool initialize_session(GatewayClientRuntime* runtime,
     runtime->session.grow_index = grow_main_index;
     runtime->session.grow_index_context = runtime;
     runtime->session.cookies = endpoint_cookies(runtime, &runtime->session.cookie_request);
-    return !is_user(runtime) ||
-           (zstd_stream_initialize(&runtime->user->zstd, zstd_storage_view(runtime), kZstdStorageBytes,
-                                   grow_zstd_storage, runtime) &&
-            gateway_session_enable_zstd_etf(&runtime->session, &runtime->user->zstd,
-                                            {runtime->handshake_output, kMessageBytes}) &&
-            gateway_session_enable_output_growth(&runtime->session, decoded_message_view(runtime),
-                                                 kGatewaySessionMaximumDecodedMessageBytes,
-                                                 grow_decoded_message, runtime) &&
-            (!runtime->compressed_spill.base ||
-             gateway_session_enable_compressed_growth(&runtime->session, kGatewaySessionMaximumDecodedMessageBytes,
-                                                      grow_compressed_message, runtime)));
+    return zstd_stream_initialize(&runtime->user->zstd, zstd_storage_view(runtime), kZstdStorageBytes,
+                                  grow_zstd_storage, runtime) &&
+           gateway_session_enable_zstd_etf(&runtime->session, &runtime->user->zstd,
+                                           {runtime->handshake_output, kMessageBytes}) &&
+           gateway_session_enable_output_growth(&runtime->session, decoded_message_view(runtime),
+                                                kGatewaySessionMaximumDecodedMessageBytes,
+                                                grow_decoded_message, runtime) &&
+           (!runtime->compressed_spill.base ||
+            gateway_session_enable_compressed_growth(&runtime->session, kGatewaySessionMaximumDecodedMessageBytes,
+                                                     grow_compressed_message, runtime));
 }
 
 bool begin_websocket_opening(GatewayClientRuntime* runtime) noexcept {
@@ -1541,20 +1542,16 @@ OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommand
     if (!command.ok() || command.bytes == 0 || command.bytes > sizeof(runtime->gateway_payload)) {
         return OutboundDrive::failed;
     }
-    ConstSlice<u8> payload{runtime->gateway_payload, command.bytes};
-    WebSocketOpcode opcode = WebSocketOpcode::text;
-    if (is_user(runtime)) {
-        const EtfResult packed =
-            etf_from_json({reinterpret_cast<const char*>(runtime->gateway_payload), command.bytes},
-                          {runtime->gateway_etf, kEtfCommandBytes});
-        SecureZeroMemory(runtime->gateway_payload, command.bytes);
-        if (!packed.ok()) {
-            SecureZeroMemory(runtime->gateway_etf, kEtfCommandBytes);
-            return OutboundDrive::failed;
-        }
-        payload = {runtime->gateway_etf, packed.bytes};
-        opcode = WebSocketOpcode::binary;
+    const EtfResult packed =
+        etf_from_json({reinterpret_cast<const char*>(runtime->gateway_payload), command.bytes},
+                      {runtime->gateway_etf, kEtfCommandBytes});
+    SecureZeroMemory(runtime->gateway_payload, command.bytes);
+    if (!packed.ok()) {
+        SecureZeroMemory(runtime->gateway_etf, kEtfCommandBytes);
+        return OutboundDrive::failed;
     }
+    const ConstSlice<u8> payload{runtime->gateway_etf, packed.bytes};
+    const WebSocketOpcode opcode = WebSocketOpcode::binary;
     u32 masking_key = 0;
     if (!secure_random_u32(&masking_key).ok()) {
         SecureZeroMemory(const_cast<u8*>(payload.data), payload.count);
@@ -1637,7 +1634,7 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
     GatewayCommandWriteResult command{};
     const ConstSlice<u8> credential = secure_buffer_view(runtime->credential);
     const Utf8View token{reinterpret_cast<const char*>(credential.data), credential.count};
-    if (next.action == GatewayLifecycleAction::send_identify && is_user(runtime)) {
+    if (next.action == GatewayLifecycleAction::send_identify) {
         command = write_user_identify_command(runtime, token);
     } else if (next.action == GatewayLifecycleAction::send_resume && runtime->resume.valid) {
         const GatewayResume resume{token,
@@ -1653,7 +1650,7 @@ OutboundDrive drive_gateway_outbound(GatewayClient* client, GatewayClientRuntime
                                     Slice<u8>{runtime->gateway_payload, sizeof(runtime->gateway_payload)});
         command.bytes = heartbeat.bytes;
         command.error = heartbeat.ok() ? GatewayCommandError::none : GatewayCommandError::output_too_small;
-    } else if (next.action == GatewayLifecycleAction::send_time_spent_session && is_user(runtime)) {
+    } else if (next.action == GatewayLifecycleAction::send_time_spent_session) {
         command = gateway_write_time_spent_session(
             runtime->time_spent.created_ms, {runtime->time_spent.uuid, kGatewayUserLaunchIdBytes},
             user_text(runtime->user->client_launch_id),
@@ -1694,7 +1691,6 @@ bool acquire_send(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
 
 OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
     if (runtime->send_purpose != SendPurpose::none ||
-        runtime->identity != GatewayClientIdentity::normal_user ||
         runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready) {
         return OutboundDrive::idle;
     }
@@ -1725,7 +1721,7 @@ OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms
 
 OutboundDrive drive_voice_output(GatewayClient* client, GatewayClientRuntime* runtime,
                                  u64 now_ms) noexcept {
-    if (!is_user(runtime) || runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
+    if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
         return OutboundDrive::idle;
     gateway_voice_expire(&runtime->voice, now_ms);
     GatewayVoiceStateUpdate desired{};
@@ -1765,7 +1761,7 @@ OutboundDrive drive_voice_output(GatewayClient* client, GatewayClientRuntime* ru
 // Go Live commands (ops 19-21). UI watch requests apply here, after the voice
 // request, so a join and a watch posted together see the joined channel.
 OutboundDrive drive_stream_output(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
-    if (!is_user(runtime) || runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
+    if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
         return OutboundDrive::idle;
     auto& control = runtime->stream.control;
     AcquireSRWLockExclusive(&runtime->voice_lock);
@@ -1808,7 +1804,7 @@ OutboundDrive drive_stream_output(GatewayClient* client, GatewayClientRuntime* r
 }
 
 OutboundDrive drive_self_status(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
-    if (!is_user(runtime) || runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
+    if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
         return OutboundDrive::idle;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     auto& owner = runtime->self_status;
@@ -1853,8 +1849,7 @@ OutboundDrive drive_self_status(GatewayClientRuntime* runtime, u64 now_ms) noexc
     return sent;
 }
 OutboundDrive drive_member_requests(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
-    if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready ||
-        runtime->identity != GatewayClientIdentity::normal_user)
+    if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
         return OutboundDrive::idle;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     const GatewayGuildMemberRequest* next = gateway_member_request_next(runtime->member_requests, now_ms);
@@ -1879,8 +1874,7 @@ OutboundDrive drive_member_requests(GatewayClientRuntime* runtime, u64 now_ms) n
 
 // Request Channel Info (opcode 43), once per guild per session.
 OutboundDrive drive_channel_info(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
-    if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready ||
-        runtime->identity != GatewayClientIdentity::normal_user)
+    if (runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready)
         return OutboundDrive::idle;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     const u64 guild = gateway_channel_info_next(runtime->channel_info, now_ms);
@@ -2133,6 +2127,127 @@ void note_route_error(Target* target, const GatewayClientDispatchRouteResult& ro
     target->route_detail = route.detail;
 }
 
+// Out of line: its resume capture would otherwise join process_session's stack frame.
+// receive means the READY was handled and the session loop continues.
+__declspec(noinline) PlaintextDrive process_ready(GatewayClient* client, GatewayClientRuntime* runtime,
+                                                  const GatewaySessionEvent& event, u64 now_ms) noexcept {
+    // One deadline spans the whole READY projection. No lock is
+    // held while producer backpressure waits for the UI consumer.
+    runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
+    if (!gateway_client_ready_matches_identity(runtime->identity, event.ready)) {
+        return fail_plaintext(runtime, GatewayClientFailureStage::ready_identity);
+    }
+    // A READY without one drops the stored data, as the client does.
+    JsonString qos{};
+    GatewayUserRuntime& user = *runtime->user;
+    user.has_qos_derived =
+        json_value_as_string(event.ready.qos_token, &qos) && !qos.has_escapes &&
+        gateway_qos_derived_from_ready(qos.encoded, {user.qos_derived, kGatewayQosDerivedMaximumBytes},
+                                       &user.qos_derived_bytes);
+    GatewayResumeState captured_state{};
+    const GatewayResumeCaptureError captured = gateway_resume_capture(
+        &captured_state, event.ready, runtime->session.lifecycle.last_sequence);
+    if (captured != GatewayResumeCaptureError::none) {
+        return fail_plaintext(runtime, GatewayClientFailureStage::ready_resume_capture);
+    }
+    ReadyProjectionBinding binding{client, runtime, event.ready.required_action};
+    // The zero-copy READY packet stays in the current session message
+    // backing while both passes run. No push/next/compaction occurs
+    // until all typed routes validate and the commit has finished.
+    const auto projection = gateway_ready_project(
+        event.ready,
+        {main_index_view(runtime),
+         ready_record_index_view(runtime),
+         dispatch_scratch(runtime),
+         {reinterpret_cast<char*>(runtime->gateway_payload), sizeof(runtime->gateway_payload)},
+         grow_ready_record_index,
+         runtime,
+         {acquire_large_record, runtime},
+         runtime->ready_staging.base ? &runtime->ready_staging : nullptr},
+        captured_state.sequence, now_ms, publish_ready_projection, ready_projection_work, &binding);
+    settle_large_record(runtime);
+    if (!projection.ok()) {
+        note_route_error(runtime, projection.route);
+        const GatewayClientFailureStage stage =
+            projection.failure_stage == GatewayClientFailureStage::none ? GatewayClientFailureStage::ready_route
+                                                                        : projection.failure_stage;
+        // An accepted READY prefix may already have replaced model
+        // state. No prior resume checkpoint can certify that prefix,
+        // so the next attempt is always a fresh IDENTIFY.
+        if (projection.publication_started)
+            clear_resume(runtime);
+        // Owner shutdown (stop or mailbox cancel) ends the worker as before.
+        if (runtime->stopping || WaitForSingleObject(runtime->mailbox_cancel, 0) == WAIT_OBJECT_0)
+            return fail_plaintext(runtime, stage);
+        // A READY that cannot be projected is not an authentication
+        // failure: report the categorical reason, keep the session and
+        // identify again later. The growing floor keeps a READY that
+        // fails the same way every time far below the server's daily
+        // IDENTIFY budget.
+        GatewayClientEvent diagnostic{};
+        diagnostic.timestamp_ms = now_ms;
+        diagnostic.kind = GatewayClientEventKind::reconnecting;
+        diagnostic.error = GatewayClientError::session;
+        diagnostic.failure_stage = stage;
+        note_route_error(&diagnostic, projection.route);
+        publish_event(runtime, diagnostic);
+        u32 random = 0;
+        if (!secure_random_u32(&random).ok())
+            return fail_plaintext(runtime, stage);
+        const u32 failures = runtime->ready_failures < 16 ? ++runtime->ready_failures : 16;
+        const u32 floor_ms = gateway_ready_failure_delay(failures);
+        const u32 jitter_ms = gateway_reconnect_next(&runtime->reconnect_backoff, random).delay_ms;
+        return schedule_reconnect(client, runtime, GatewayLifecycleAction::reconnect_identify, now_ms,
+                                  floor_ms + jitter_ms)
+                   ? PlaintextDrive::reconnecting
+                   : fail_plaintext(runtime, stage);
+    }
+    runtime->ready_failures = 0;
+    if (projection.degraded_guilds) {
+        // Guilds left unavailable are reported with their first
+        // categorical failure; the rest of READY was applied.
+        GatewayClientEvent degraded{};
+        degraded.timestamp_ms = now_ms;
+        degraded.kind = GatewayClientEventKind::dispatch;
+        degraded.dispatch_kind = GatewayClientDispatchKind::unknown;
+        degraded.failure_stage = GatewayClientFailureStage::ready_guild_route;
+        note_route_error(&degraded, projection.degraded_route);
+        if (degraded.event_decode_error == GatewayEventDecodeError::none)
+            degraded.event_decode_error = GatewayEventDecodeError::invalid_data;
+        degraded.native_error = projection.degraded_guilds;
+        degraded.sequence = captured_state.sequence;
+        degraded.has_sequence = true;
+        publish_event_payload(client, runtime, degraded, {});
+    }
+    runtime->mailbox_deadline_ms = 0;
+    // Save the resume token only after the READY projection has
+    // entered the consumer queue. Saving it before routing can persist
+    // a session whose model never existed, so the next process would
+    // resume into an empty shell.
+    publish_resume(runtime, captured_state);
+    AcquireSRWLockExclusive(&runtime->subscription_lock);
+    gateway_state_recovery_ready(&runtime->state_recovery);
+    gateway_subscription_thread_owner_ready(&runtime->thread_subscription_owner, true);
+    gateway_channel_info_reset_session(&runtime->channel_info);
+    if (gateway_self_status_bind(&runtime->self_status, event.ready.user_id))
+        self_settings_observe_locked(runtime, event.ready.user_settings_proto, false);
+    else {
+        runtime->self_status.authoritative = false;
+        runtime->self_status_error = GatewaySelfStatusError::settings;
+        ++runtime->self_status.revision_serial;
+    }
+    runtime->sent_subscription_revision = 0;
+    runtime->active_subscription_revision = 0;
+    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+    gateway_reconnect_reset(&runtime->reconnect_backoff);
+    runtime->deadline_ms = 0;
+    InterlockedIncrement64(&client->frecency_settings_revision);
+    publish_phase(client, GatewayClientPhase::ready);
+    SetEvent(client->state_event);
+    client_session_ready(runtime);
+    return PlaintextDrive::receive;
+}
+
 PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runtime, u64 now_ms) noexcept {
     for (;;) {
         trim_message_banks(runtime);
@@ -2147,6 +2262,7 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
         }
         if (event.kind == GatewaySessionEventKind::opened || event.kind == GatewaySessionEventKind::pong) {
             if (event.kind == GatewaySessionEventKind::opened) {
+                runtime->last_ack_ms = now_ms;
                 GatewayClientEvent opened{};
                 opened.timestamp_ms = now_ms;
                 opened.kind = GatewayClientEventKind::websocket_opened;
@@ -2208,126 +2324,14 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             GatewayClientEvent acknowledged{};
             acknowledged.timestamp_ms = now_ms;
             acknowledged.kind = GatewayClientEventKind::heartbeat_acknowledged;
+            runtime->last_ack_ms = now_ms;
             publish_event(runtime, acknowledged);
             continue;
         }
         if (event.kind == GatewaySessionEventKind::ready) {
-            // One deadline spans the whole READY projection. No lock is
-            // held while producer backpressure waits for the UI consumer.
-            runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
-            if (!gateway_client_ready_matches_identity(runtime->identity, event.ready)) {
-                return fail_plaintext(runtime, GatewayClientFailureStage::ready_identity);
-            }
-            if (is_user(runtime)) {
-                // A READY without one drops the stored data, as the client does.
-                JsonString qos{};
-                GatewayUserRuntime& user = *runtime->user;
-                user.has_qos_derived =
-                    json_value_as_string(event.ready.qos_token, &qos) && !qos.has_escapes &&
-                    gateway_qos_derived_from_ready(qos.encoded, {user.qos_derived, kGatewayQosDerivedMaximumBytes},
-                                                   &user.qos_derived_bytes);
-            }
-            GatewayResumeState captured_state{};
-            const GatewayResumeCaptureError captured = gateway_resume_capture(
-                &captured_state, event.ready, runtime->session.lifecycle.last_sequence);
-            if (captured != GatewayResumeCaptureError::none) {
-                return fail_plaintext(runtime, GatewayClientFailureStage::ready_resume_capture);
-            }
-            ReadyProjectionBinding binding{client, runtime, event.ready.required_action};
-            // The zero-copy READY packet stays in the current session message
-            // backing while both passes run. No push/next/compaction occurs
-            // until all typed routes validate and the commit has finished.
-            const auto projection = gateway_ready_project(
-                event.ready,
-                {main_index_view(runtime),
-                 ready_record_index_view(runtime),
-                 dispatch_scratch(runtime),
-                 {reinterpret_cast<char*>(runtime->gateway_payload), sizeof(runtime->gateway_payload)},
-                 grow_ready_record_index,
-                 runtime,
-                 {acquire_large_record, runtime},
-                 runtime->ready_staging.base ? &runtime->ready_staging : nullptr},
-                captured_state.sequence, now_ms, publish_ready_projection, ready_projection_work, &binding);
-            settle_large_record(runtime);
-            if (!projection.ok()) {
-                note_route_error(runtime, projection.route);
-                const GatewayClientFailureStage stage =
-                    projection.failure_stage == GatewayClientFailureStage::none ? GatewayClientFailureStage::ready_route
-                                                                                : projection.failure_stage;
-                // An accepted READY prefix may already have replaced model
-                // state. No prior resume checkpoint can certify that prefix,
-                // so the next attempt is always a fresh IDENTIFY.
-                if (projection.publication_started)
-                    clear_resume(runtime);
-                // Owner shutdown (stop or mailbox cancel) ends the worker as before.
-                if (runtime->stopping || WaitForSingleObject(runtime->mailbox_cancel, 0) == WAIT_OBJECT_0)
-                    return fail_plaintext(runtime, stage);
-                // A READY that cannot be projected is not an authentication
-                // failure: report the categorical reason, keep the session and
-                // identify again later. The growing floor keeps a READY that
-                // fails the same way every time far below the server's daily
-                // IDENTIFY budget.
-                GatewayClientEvent diagnostic{};
-                diagnostic.timestamp_ms = now_ms;
-                diagnostic.kind = GatewayClientEventKind::reconnecting;
-                diagnostic.error = GatewayClientError::session;
-                diagnostic.failure_stage = stage;
-                note_route_error(&diagnostic, projection.route);
-                publish_event(runtime, diagnostic);
-                u32 random = 0;
-                if (!secure_random_u32(&random).ok())
-                    return fail_plaintext(runtime, stage);
-                const u32 failures = runtime->ready_failures < 16 ? ++runtime->ready_failures : 16;
-                const u32 floor_ms = gateway_ready_failure_delay(failures);
-                const u32 jitter_ms = gateway_reconnect_next(&runtime->reconnect_backoff, random).delay_ms;
-                return schedule_reconnect(client, runtime, GatewayLifecycleAction::reconnect_identify, now_ms,
-                                          floor_ms + jitter_ms)
-                           ? PlaintextDrive::reconnecting
-                           : fail_plaintext(runtime, stage);
-            }
-            runtime->ready_failures = 0;
-            if (projection.degraded_guilds) {
-                // Guilds left unavailable are reported with their first
-                // categorical failure; the rest of READY was applied.
-                GatewayClientEvent degraded{};
-                degraded.timestamp_ms = now_ms;
-                degraded.kind = GatewayClientEventKind::dispatch;
-                degraded.dispatch_kind = GatewayClientDispatchKind::unknown;
-                degraded.failure_stage = GatewayClientFailureStage::ready_guild_route;
-                note_route_error(&degraded, projection.degraded_route);
-                if (degraded.event_decode_error == GatewayEventDecodeError::none)
-                    degraded.event_decode_error = GatewayEventDecodeError::invalid_data;
-                degraded.native_error = projection.degraded_guilds;
-                degraded.sequence = captured_state.sequence;
-                degraded.has_sequence = true;
-                publish_event_payload(client, runtime, degraded, {});
-            }
-            runtime->mailbox_deadline_ms = 0;
-            // Save the resume token only after the READY projection has
-            // entered the consumer queue. Saving it before routing can persist
-            // a session whose model never existed, so the next process would
-            // resume into an empty shell.
-            publish_resume(runtime, captured_state);
-            AcquireSRWLockExclusive(&runtime->subscription_lock);
-            gateway_state_recovery_ready(&runtime->state_recovery);
-            gateway_subscription_thread_owner_ready(&runtime->thread_subscription_owner, true);
-            gateway_channel_info_reset_session(&runtime->channel_info);
-            if (gateway_self_status_bind(&runtime->self_status, event.ready.user_id))
-                self_settings_observe_locked(runtime, event.ready.user_settings_proto, false);
-            else {
-                runtime->self_status.authoritative = false;
-                runtime->self_status_error = GatewaySelfStatusError::settings;
-                ++runtime->self_status.revision_serial;
-            }
-            runtime->sent_subscription_revision = 0;
-            runtime->active_subscription_revision = 0;
-            ReleaseSRWLockExclusive(&runtime->subscription_lock);
-            gateway_reconnect_reset(&runtime->reconnect_backoff);
-            runtime->deadline_ms = 0;
-            InterlockedIncrement64(&client->frecency_settings_revision);
-            publish_phase(client, GatewayClientPhase::ready);
-            SetEvent(client->state_event);
-            client_session_ready(runtime);
+            const PlaintextDrive handled = process_ready(client, runtime, event, now_ms);
+            if (handled != PlaintextDrive::receive)
+                return handled;
             continue;
         }
         if (event.kind == GatewaySessionEventKind::resumed) {
@@ -2520,7 +2524,8 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                     // corrupts the source in place and surfaces later as an
                     // unterminated string.
                     scratch, Slice<u64>{bulk_ids, kGatewayBulkDeleteMaximumIds},
-                    runtime->self_user_id, {acquire_large_record, runtime}, &dispatch, &dispatch_payload);
+                    runtime->self_user_id, {acquire_large_record, runtime}, &dispatch, &dispatch_payload,
+                    &runtime->message_scratch);
             if (!routed.ok()) {
                 settle_large_record(runtime);
                 note_route_error(runtime, routed);

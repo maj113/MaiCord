@@ -43,6 +43,17 @@ bool digits_only(Utf8View text) noexcept {
             return false;
     return true;
 }
+// "Playing " and its siblings; empty for an unknown type. A status line leaves out the playing verb.
+Utf8View activity_verb(UserActivityType type, bool playing_verb) noexcept {
+    switch (type) {
+    case UserActivityType::playing: return playing_verb ? utf8_literal("Playing ") : Utf8View{};
+    case UserActivityType::streaming: return utf8_literal("Streaming ");
+    case UserActivityType::listening: return utf8_literal("Listening to ");
+    case UserActivityType::watching: return utf8_literal("Watching ");
+    case UserActivityType::competing: return utf8_literal("Competing in ");
+    default: return {};
+    }
+}
 // A media proxy path must stay a plain URL path: no scheme switch, query
 // injection or whitespace. The media proxy's paths are "external/<token>/..."
 // and "attachments/...".
@@ -74,29 +85,10 @@ bool user_activity_is_spotify(const UserActivity& a) noexcept {
            utf8_equal(user_activity_text(a, UserActivityField::name), utf8_literal("Spotify"));
 }
 u32 user_activity_summary(UserActivityType type, Utf8View name, Utf8View details, Slice<char> output) noexcept {
-    Utf8View verb{};
-    Utf8View subject = name;
-    switch (type) {
-    case UserActivityType::playing:
-        verb = utf8_literal("Playing ");
-        break;
-    case UserActivityType::streaming:
-        verb = utf8_literal("Streaming ");
-        if (details.bytes)
-            subject = details;
-        break;
-    case UserActivityType::listening:
-        verb = utf8_literal("Listening to ");
-        break;
-    case UserActivityType::watching:
-        verb = utf8_literal("Watching ");
-        break;
-    case UserActivityType::competing:
-        verb = utf8_literal("Competing in ");
-        break;
-    default:
+    const Utf8View verb = activity_verb(type, true);
+    if (!verb.bytes)
         return 0;
-    }
+    Utf8View subject = type == UserActivityType::streaming && details.bytes ? details : name;
     if (!subject.bytes || output.count <= verb.bytes)
         return 0;
     Writer w{output.data, static_cast<u32>(output.count), 0};
@@ -131,25 +123,9 @@ u32 user_activity_status_text(const UserActivity& a, Slice<char> output) noexcep
         value = details;
     else if (display == 1)
         value = name;
-    Utf8View verb{};
-    switch (a.type) {
-    case UserActivityType::playing:
-        break;
-    case UserActivityType::streaming:
-        verb = utf8_literal("Streaming ");
-        break;
-    case UserActivityType::listening:
-        verb = utf8_literal("Listening to ");
-        break;
-    case UserActivityType::watching:
-        verb = utf8_literal("Watching ");
-        break;
-    case UserActivityType::competing:
-        verb = utf8_literal("Competing in ");
-        break;
-    default:
+    const Utf8View verb = activity_verb(a.type, false);
+    if (a.type != UserActivityType::playing && !verb.bytes)
         return 0;
-    }
     if (!value.bytes || output.count <= verb.bytes)
         return 0;
     w.put(verb);
@@ -210,29 +186,12 @@ u32 user_activity_heading(const UserActivity& a, Slice<char> output) noexcept {
         w.put(platform);
         return w.finish();
     }
-    Utf8View verb{};
-    switch (a.type) {
-    case UserActivityType::playing:
-        w.put(utf8_literal("Playing"));
-        return w.finish();
-    case UserActivityType::streaming:
-        w.put(utf8_literal("Streaming"));
-        return w.finish();
-    case UserActivityType::listening:
-        verb = utf8_literal("Listening to");
-        break;
-    case UserActivityType::watching:
-        verb = utf8_literal("Watching");
-        break;
-    case UserActivityType::competing:
-        verb = utf8_literal("Competing in");
-        break;
-    default:
+    const Utf8View verb = activity_verb(a.type, true);
+    if (!verb.bytes)
         return 0;
-    }
+    w.put({verb.data, verb.bytes - 1}); // the verb without its trailing space
     // "Listening to Spotify" names the application only beside details.
-    w.put(verb);
-    if (details && name.bytes) {
+    if (a.type != UserActivityType::playing && a.type != UserActivityType::streaming && details && name.bytes) {
         w.put(utf8_literal(" "));
         w.put({name.data, utf8_truncated_length(name, w.ok ? w.capacity - w.used : 0)});
     }

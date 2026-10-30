@@ -1,5 +1,6 @@
 #include "application_forum_post.hpp"
 #include "application_state.hpp"
+#include "application_message_feedback.hpp"
 #include "application_content_input.hpp"
 #include "application_account_presentation.hpp"
 #include "application_thread_browser.hpp"
@@ -405,6 +406,7 @@ bool forum_publish_thread(ForumOwner& owner, const ForumFlight& flight) noexcept
         g_app.message_pump.read_ack_cancel)
         g_app.message_pump.read_ack_cancel(g_app.message_pump.read_ack_cancel_context, receipt.parent_id);
     owner.known_created = receipt.id;
+    application_thread_create_note_created(receipt.parent_id);
     return forum_known_created(owner);
 }
 bool forum_phase_editable(const ForumOwner& owner) noexcept {
@@ -604,6 +606,10 @@ bool application_forum_post_draft_submit(const ApplicationForumPostTicket& value
     }
     if (!g_app.account.status.running || g_app.account.stop_failed) {
         forum_fail(owner, utf8_literal("You're offline. Reconnect to post."));
+        return false;
+    }
+    if (application_thread_create_cooldown_active(owner.source.parent)) {
+        forum_publish(owner, ForumPhase::editing, utf8_literal("Slowmode is on. Wait a moment before posting again."), true);
         return false;
     }
     owner.due = owner.actor_floor;

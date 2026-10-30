@@ -2296,9 +2296,9 @@ GatewayClientDispatchRouteResult gateway_client_route_self_members(JsonValue mem
 GatewayClientDispatchRouteResult gateway_client_route_dispatch_large(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, GatewayClientLargeRecord large,
-    GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
+    GatewayClientEvent* event, ConstSlice<u8>* payload, GatewayMessageDecodeScratch* message_scratch) noexcept {
     auto routed = gateway_client_route_dispatch(envelope, structural_scratch, maximum_depth, content_scratch,
-                                                bulk_ids, self_user_id, event, payload);
+                                                bulk_ids, self_user_id, event, payload, message_scratch);
     u32 capacity = content_scratch.count;
     while (!routed.ok() && routed.payload_overflow && large.acquire &&
            capacity < kGatewayClientGuildRecordCapacity) {
@@ -2311,7 +2311,8 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch_large(
         reset_value(event);
         reset_value(payload);
         routed = gateway_client_route_dispatch(envelope, structural_scratch, maximum_depth,
-                                               {storage.data, capacity}, bulk_ids, self_user_id, event, payload);
+                                               {storage.data, capacity}, bulk_ids, self_user_id, event, payload,
+                                               message_scratch);
     }
     return routed;
 }

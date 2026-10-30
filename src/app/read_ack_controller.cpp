@@ -17,7 +17,7 @@ bool valid_intent(const ReadAckIntent& intent) noexcept {
 }
 bool same_target(const ReadAckIntent& a, const ReadAckIntent& b) noexcept {
     return a.channel_id == b.channel_id && a.message_id == b.message_id &&
-        a.last_viewed == b.last_viewed && a.flags == b.flags && a.kind == b.kind &&
+        a.last_viewed == b.last_viewed && a.flags == b.flags && a.flags_known == b.flags_known && a.kind == b.kind &&
         a.mention_count_known == b.mention_count_known && a.mention_count == b.mention_count;
 }
 u32 lower_bound(const ReadAckController& controller, u64 channel_id) noexcept {
@@ -73,6 +73,8 @@ bool read_ack_controller_queue(ReadAckController* controller,
     if (position < controller->count && controller->pending[position].channel_id == desired.channel_id) {
         const auto old = controller->pending[position];
         queued.due_at_ms = minimum(old.due_at_ms, queued.due_at_ms);
+        // Flags not yet sent stay due until a request carries them.
+        if (old.flags == queued.flags) queued.flags_known = queued.flags_known || old.flags_known;
         if (same_target(old, queued) && old.due_at_ms == queued.due_at_ms) {
             if (supersede) { controller->inflight_superseded = true; saturating_increment(controller->revision); }
             return true;

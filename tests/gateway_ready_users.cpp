@@ -159,6 +159,7 @@ bool projection_packet(bool malformed) noexcept {
     runtime.session.opened = true;
     runtime.session.lifecycle.phase = GatewayLifecyclePhase::awaiting_session;
     runtime.identity = GatewayClientIdentity::normal_user;
+    runtime.user = &growth_user;
     runtime.authenticated = true;
     runtime.stopping = false;
     runtime.self_user_id = runtime.resume_user_id = 77;

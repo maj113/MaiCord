@@ -10,8 +10,12 @@ MessageTypingWriteResult failure(MessageTypingWriteError error) noexcept {
 }
 
 bool cooldown_member(void* context, JsonString name, JsonValue value) noexcept {
-    if (!json_name_is(name, utf8_literal("message_send_cooldown_ms"))) return true;
-    return json_value_to_u64(value, static_cast<u64*>(context));
+    auto& cooldowns = *static_cast<MessageTypingCooldowns*>(context);
+    if (json_name_is(name, utf8_literal("message_send_cooldown_ms")))
+        return json_value_to_u64(value, &cooldowns.message_send_ms);
+    if (json_name_is(name, utf8_literal("thread_create_cooldown_ms")))
+        return json_value_to_u64(value, &cooldowns.thread_create_ms);
+    return true;
 }
 
 } // namespace
@@ -29,14 +33,15 @@ MessageTypingWriteResult write_message_typing_target(u64 channel_id, Slice<u8> o
     return MessageTypingWriteResult{writer.used, MessageTypingWriteError::none};
 }
 
-bool decode_message_typing_cooldown(Utf8View body, Slice<u32> structural_scratch, u64* send_cooldown_ms) noexcept {
-    if (!body.data || !body.bytes || body.bytes > kMessageTypingMaximumResponseBytes || !send_cooldown_ms) return false;
+bool decode_message_typing_cooldowns(Utf8View body, Slice<u32> structural_scratch,
+                                     MessageTypingCooldowns* output) noexcept {
+    if (!body.data || !body.bytes || body.bytes > kMessageTypingMaximumResponseBytes || !output) return false;
     const auto scanned = json_scan_structurals_avx1(body, structural_scratch);
     if (!scanned.ok()) return false;
-    u64 cooldown = 0;
-    if (!json_visit_root_object(body, {structural_scratch.data, scanned.count}, 8, cooldown_member, &cooldown).ok())
+    MessageTypingCooldowns cooldowns{};
+    if (!json_visit_root_object(body, {structural_scratch.data, scanned.count}, 8, cooldown_member, &cooldowns).ok())
         return false;
-    *send_cooldown_ms = cooldown;
+    *output = cooldowns;
     return true;
 }
 

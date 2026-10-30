@@ -20,6 +20,9 @@ static_assert(sizeof(MessageEventPump) == 344 + sizeof(ReservedBytes));
 
 // Decode arrays of consume_with_message_source (single-threaded, never nested).
 MessageEventScratch g_message_scratch;
+// One presence record's activities (consume_presence and observe_member_extras: single-threaded, never
+// nested). A UserActivitySet is 3.5 KB, which would otherwise cost every presence a stack probe.
+UserActivitySet g_activity_scratch;
 
 ReadStateEntry read_model_entry(const GatewayClientReadStateMutation& record) noexcept {
     return {record.channel_id,
@@ -195,6 +198,38 @@ bool affects_visible_members(const GuildMemberStore& members, u64 guild_id, u64 
            first <= visible.last && last >= visible.first;
 }
 
+// Out of line: the activity set would otherwise join observe_member_list's stack frame. Applies a
+// member record's appearance and presence activities; *changed reports a store revision change.
+__declspec(noinline) bool observe_member_extras(MessageEventPump* pump, u64 guild_id,
+                                                const GatewayClientMemberListMutation& mutation,
+                                                ConstSlice<u8> global_extra, ConstSlice<u8> guild_extra,
+                                                bool* changed) noexcept {
+    UserAppearance appearance;
+    // Only these two fields are read when the record carries no trailer
+    // (an empty set clears); a trailer read fills the rest.
+    UserActivitySet& activities = g_activity_scratch;
+    activities.user_id = mutation.user_id;
+    activities.count = 0;
+    u32 appearance_bytes = 0;
+    const u32 appearance_revision = pump->users->appearance.revision;
+    const u32 activity_revision = pump->users->activities.revision;
+    if (!user_appearance_read(global_extra, mutation.user_id, 0, &appearance) ||
+        !user_appearance_upsert(&pump->users->appearance, appearance) ||
+        !user_appearance_read_prefix(guild_extra, mutation.user_id, guild_id, &appearance, &appearance_bytes) ||
+        !user_appearance_upsert(&pump->users->appearance, appearance) ||
+        (appearance_bytes < guild_extra.count &&
+         !user_activities_read({guild_extra.data + appearance_bytes, guild_extra.count - appearance_bytes},
+                               mutation.user_id, &activities)))
+        return false;
+    // The member's presence activities, scoped like a guild PRESENCE_UPDATE.
+    if (mutation.hydration_flags & gateway_member_activities_known)
+        user_activity_apply(&pump->users->activities, activities, guild_id,
+                            mutation.status == GatewayClientMemberListStatus::offline);
+    *changed = appearance_revision != pump->users->appearance.revision ||
+               activity_revision != pump->users->activities.revision;
+    return true;
+}
+
 bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event,
                          ConstSlice<u8> payload) noexcept {
     if (!pump->members || !pump->users || !pump->state || event.member_list.guild_id == 0) {
@@ -329,28 +364,9 @@ bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event
              !user_store_set_avatar(pump->users, mutation.user_id, avatar_hash))) {
             return false;
         }
-        UserAppearance appearance;
-        // Only these two fields are read when the record carries no trailer
-        // (an empty set clears); a trailer read fills the rest.
-        UserActivitySet activities;
-        activities.user_id = mutation.user_id;
-        activities.count = 0;
-        u32 appearance_bytes = 0;
-        const u32 appearance_revision = pump->users->appearance.revision;
-        const u32 activity_revision = pump->users->activities.revision;
-        if (!user_appearance_read(global_extra, mutation.user_id, 0, &appearance) ||
-            !user_appearance_upsert(&pump->users->appearance, appearance) ||
-            !user_appearance_read_prefix(guild_extra, mutation.user_id, event.member_list.guild_id,
-                                         &appearance, &appearance_bytes) ||
-            !user_appearance_upsert(&pump->users->appearance, appearance) ||
-            (appearance_bytes < guild_extra.count &&
-             !user_activities_read({guild_extra.data + appearance_bytes, guild_extra.count - appearance_bytes},
-                                   mutation.user_id, &activities)))
+        bool extras_changed = false;
+        if (!observe_member_extras(pump, list.guild_id, mutation, global_extra, guild_extra, &extras_changed))
             return false;
-        // The member's presence activities, scoped like a guild PRESENCE_UPDATE.
-        if (mutation.hydration_flags & gateway_member_activities_known)
-            user_activity_apply(&pump->users->activities, activities, event.member_list.guild_id,
-                                mutation.status == GatewayClientMemberListStatus::offline);
         const bool row_visible =
             !targeted && guild_member_store_visible_index(*pump->members, list.guild_id, list_id, mutation.index);
         // Repeated identical appearance is not a change. An in-place UPDATE's
@@ -362,8 +378,7 @@ bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event
                                        user_store_set_client_status(
                                            pump->users, mutation.user_id,
                                            platform_presence(pump, mutation.user_id, mutation.client_status));
-        if (appearance_revision != pump->users->appearance.revision ||
-            activity_revision != pump->users->activities.revision || platforms_changed) {
+        if (extras_changed || platforms_changed) {
             if (!in_place || !pump->presence_visible)
                 ++pump->users->revision;
             else if (row_visible)
@@ -644,6 +659,94 @@ MessageEventPumpConsumeResult consume_voice_states(MessageEventPump* pump, const
     ++pump->applied;
     result.kind = MessageEventPumpConsumeKind::state_applied;
     result.repaint = revision != pump->voice_states->revision;
+    return result;
+}
+
+// Out of line: its activity set would otherwise join message_event_pump_consume's stack frame.
+__declspec(noinline) MessageEventPumpConsumeResult consume_presence(MessageEventPump* pump,
+                                                                    const GatewayClientEvent& event,
+                                                                    ConstSlice<u8> payload) noexcept {
+    MessageEventPumpConsumeResult result{};
+    const auto& presence = event.presence;
+    UserAppearance appearance;
+    appearance.fields = 0;
+    UserActivitySet& activities = g_activity_scratch;
+    u32 appearance_bytes = 0;
+    bool valid = presence.user_id != 0 && presence.status <= GatewayClientMemberListStatus::offline;
+    bool has_activities = false;
+    if (valid && payload.count) {
+        // Appearance record, then the optional activities trailer.
+        valid = user_appearance_read_prefix(payload, presence.user_id, presence.guild_id, &appearance,
+                                            &appearance_bytes);
+        has_activities = valid && appearance_bytes < payload.count;
+        if (has_activities)
+            valid = user_activities_read({payload.data + appearance_bytes, payload.count - appearance_bytes},
+                                         presence.user_id, &activities);
+    } else if (valid)
+        valid = user_appearance_read(payload, presence.user_id, presence.guild_id, &appearance);
+    if (!valid) {
+        reject(pump, &result, MessageEventPumpRejectReason::presence_payload,
+               static_cast<u8>((payload.count ? 1 : 0) | (has_activities ? 2 : 0)));
+        return result;
+    }
+    // Large guilds stream presence for members nobody can see. The model
+    // always updates; only an on-screen row or author invalidates text,
+    // and the owner coalesces that repaint (see presence_visible_dirty).
+    const bool filtered = pump->presence_visible && presence.guild_id != 0;
+    // Activities without a trailer (or an offline presence) carry no rich
+    // presence; user_activity_apply decides which scope may clear them.
+    const bool activity_update =
+        pump->users && (has_activities || (appearance.fields & appearance_activity) ||
+                        presence.status == GatewayClientMemberListStatus::offline);
+    // client_status is per user (the server keeps one per session set), so a
+    // friend presence and a guild presence update the same record.
+    const bool platforms_changed =
+        pump->users && presence.status != GatewayClientMemberListStatus::unknown &&
+        user_store_set_client_status(pump->users, presence.user_id,
+                                     presence.status == GatewayClientMemberListStatus::offline
+                                         ? u8{0}
+                                         : platform_presence(pump, presence.user_id, presence.client_status));
+    if (pump->users && (payload.count || activity_update || platforms_changed)) {
+        const u32 appearance_revision = pump->users->appearance.revision;
+        const u32 activity_revision = pump->users->activities.revision;
+        if (payload.count && !user_appearance_upsert(&pump->users->appearance, appearance))
+            return result;
+        if (activity_update) {
+            if (!has_activities) {
+                activities.user_id = presence.user_id;
+                activities.count = 0;
+            }
+            user_activity_apply(&pump->users->activities, activities, presence.guild_id,
+                                presence.status == GatewayClientMemberListStatus::offline);
+        }
+        if (appearance_revision != pump->users->appearance.revision ||
+            activity_revision != pump->users->activities.revision || platforms_changed) {
+            if (!filtered) {
+                ++pump->users->revision;
+                result.repaint = true;
+            } else if (pump->presence_visible(pump->presence_visible_context, presence.guild_id,
+                                              presence.user_id)) {
+                pump->presence_visible_dirty = true;
+            } else {
+                saturating_increment(pump->presence_offscreen);
+            }
+        }
+    }
+    // A guild-less friend presence is a different scope, not permission to
+    // overwrite every cached guild status for that user.
+    if (!pump->members || presence.guild_id == 0) {
+        ignore(pump, &result);
+        return result;
+    }
+    const u32 presence_revision = pump->members->presence_revision;
+    if (!guild_member_store_set_status(pump->members, presence.guild_id, presence.user_id,
+                                       member_status(presence.status))) {
+        reject(pump, &result, MessageEventPumpRejectReason::presence_status);
+        return result;
+    }
+    ++pump->applied;
+    result.kind = MessageEventPumpConsumeKind::state_applied;
+    result.repaint = result.repaint || (!filtered && presence_revision != pump->members->presence_revision);
     return result;
 }
 
@@ -1307,89 +1410,8 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                          (!pump->presence_visible && presence_revision != pump->members->presence_revision);
         return result;
     }
-    if (event.dispatch_kind == GatewayClientDispatchKind::presence_update) {
-        const auto& presence = event.presence;
-        UserAppearance appearance;
-        appearance.fields = 0;
-        UserActivitySet activities;
-        u32 appearance_bytes = 0;
-        bool valid = presence.user_id != 0 && presence.status <= GatewayClientMemberListStatus::offline;
-        bool has_activities = false;
-        if (valid && payload.count) {
-            // Appearance record, then the optional activities trailer.
-            valid = user_appearance_read_prefix(payload, presence.user_id, presence.guild_id, &appearance,
-                                                &appearance_bytes);
-            has_activities = valid && appearance_bytes < payload.count;
-            if (has_activities)
-                valid = user_activities_read({payload.data + appearance_bytes, payload.count - appearance_bytes},
-                                             presence.user_id, &activities);
-        } else if (valid)
-            valid = user_appearance_read(payload, presence.user_id, presence.guild_id, &appearance);
-        if (!valid) {
-            reject(pump, &result, MessageEventPumpRejectReason::presence_payload,
-                   static_cast<u8>((payload.count ? 1 : 0) | (has_activities ? 2 : 0)));
-            return result;
-        }
-        // Large guilds stream presence for members nobody can see. The model
-        // always updates; only an on-screen row or author invalidates text,
-        // and the owner coalesces that repaint (see presence_visible_dirty).
-        const bool filtered = pump->presence_visible && presence.guild_id != 0;
-        // Activities without a trailer (or an offline presence) carry no rich
-        // presence; user_activity_apply decides which scope may clear them.
-        const bool activity_update =
-            pump->users && (has_activities || (appearance.fields & appearance_activity) ||
-                            presence.status == GatewayClientMemberListStatus::offline);
-        // client_status is per user (the server keeps one per session set), so a
-        // friend presence and a guild presence update the same record.
-        const bool platforms_changed =
-            pump->users && presence.status != GatewayClientMemberListStatus::unknown &&
-            user_store_set_client_status(pump->users, presence.user_id,
-                                         presence.status == GatewayClientMemberListStatus::offline
-                                             ? u8{0}
-                                             : platform_presence(pump, presence.user_id, presence.client_status));
-        if (pump->users && (payload.count || activity_update || platforms_changed)) {
-            const u32 appearance_revision = pump->users->appearance.revision;
-            const u32 activity_revision = pump->users->activities.revision;
-            if (payload.count && !user_appearance_upsert(&pump->users->appearance, appearance))
-                return result;
-            if (activity_update) {
-                if (!has_activities) {
-                    activities.user_id = presence.user_id;
-                    activities.count = 0;
-                }
-                user_activity_apply(&pump->users->activities, activities, presence.guild_id,
-                                    presence.status == GatewayClientMemberListStatus::offline);
-            }
-            if (appearance_revision != pump->users->appearance.revision ||
-                activity_revision != pump->users->activities.revision || platforms_changed) {
-                if (!filtered) {
-                    ++pump->users->revision;
-                    result.repaint = true;
-                } else if (pump->presence_visible(pump->presence_visible_context, presence.guild_id,
-                                                  presence.user_id)) {
-                    pump->presence_visible_dirty = true;
-                } else {
-                    saturating_increment(pump->presence_offscreen);
-                }
-            }
-        }
-        // A guild-less friend presence is a different scope, not permission to
-        // overwrite every cached guild status for that user.
-        if (!pump->members || presence.guild_id == 0) {
-            ignore(pump, &result);
-            return result;
-        }
-        const u32 presence_revision = pump->members->presence_revision;
-        if (!guild_member_store_set_status(pump->members, presence.guild_id, presence.user_id,
-                                                   member_status(presence.status))) {
-            reject(pump, &result, MessageEventPumpRejectReason::presence_status);
-            return result;
-        }
-        ++pump->applied;
-        result.kind = MessageEventPumpConsumeKind::state_applied;
-        result.repaint = result.repaint || (!filtered && presence_revision != pump->members->presence_revision);
-        return result;
-    }
+    if (event.dispatch_kind == GatewayClientDispatchKind::presence_update)
+        return consume_presence(pump, event, payload);
     if (event.dispatch_kind == GatewayClientDispatchKind::message_catchup_required) {
         pump->catchup_required = true;
         pump->timeline->newer_refetch_required = true;

@@ -252,7 +252,7 @@ bool ack_event(u64 cursor, bool manual, u64 channel_id = 70) noexcept {
 }
 bool manual_body(Body& body) noexcept {
     return submitted_body(&body) && body.manual_seen && body.manual && !body.token_seen &&
-           !body.viewed_seen && !body.flags_seen && !body.mention_seen;
+           !body.viewed_seen && !body.flags_seen && body.mention_seen;
 }
 void manual_tests() noexcept {
     Body body{};
@@ -272,7 +272,7 @@ void manual_tests() noexcept {
               channel().mention_count == 3 && !application_read_state_channel_unread_available(70) &&
               admit() && seen.message_id == 710 && manual_body(body),
           "manual read: cached predecessor preserves selected suppression and sends only manual with "
-          "unknown count omitted");
+          "the resident mention count");
     check(reply(200, utf8_literal(R"({"token":"manual-token-must-be-ignored"})")) &&
               channel().last_read_message_id == 710 && channel().read_auto_ack_suppressed &&
               equals(message_composer_text(g_app.message_composer).data,
@@ -298,6 +298,18 @@ void manual_tests() noexcept {
             channel().last_read_message_id == (499ull << 22) && admit() &&
             seen.message_id == (499ull << 22) && reply(204),
         "manual read: absent cached predecessor uses previous millisecond rather than snowflake minus one");
+    fresh_owner();
+    channel().last_message_id = channel().last_read_message_id = 720;
+    check(seed(700) && seed(710) && seed(720) &&
+              message_store_set_presentation_flags(&g_app.message_view.store, 720,
+                                                   message_presentation_mentions_current_user) &&
+              message_store_set_presentation_flags(
+                  &g_app.message_view.store, 710,
+                  message_presentation_mentions_current_user | message_presentation_read_badge_known) &&
+              application_read_state_mark_message_unread(710) && admit() && seen.message_id == 700 &&
+              manual_body(body) && body.mention_count == 1 && reply(204),
+          "manual read: mention_count counts resident badged messages after the boundary and a cached "
+          "badge decision wins over the raw mention flag");
 
     fresh_owner();
     channel().last_message_id = channel().last_read_message_id = 720;
@@ -543,8 +555,12 @@ void run() noexcept {
           "read runtime: stale duplicate cannot replace token and known empty token differs from null for "
           "thread ACK");
     check(reply(200, utf8_literal(R"({"token":null})")) && mark(2) && admit() && submitted_body(&body) &&
-              body.token_null && body.flags_seen && body.flags == 0,
-          "read runtime: explicit null token clears rotation and private-channel flags remain zero");
+              body.token_null && !body.flags_seen,
+          "read runtime: explicit null token clears rotation and private-channel flags, unchanged at zero, are omitted");
+    // The server already holds the thread flags now: the next ACK of the same channel omits them.
+    check(reply(200, utf8_literal(R"({"token":"flags-sent"})")) && mark(1) && admit() && submitted_body(&body) &&
+              body.viewed_seen && !body.flags_seen,
+          "read runtime: flags are sent only while they differ from the server-known value");
     check(reply(200, utf8_literal(R"({"token":"retained"})")) && mark() && admit() &&
               reply(200, utf8_literal("{}")) && mark() && admit() && submitted_body(&body) &&
               equals(body.token, body.token_bytes, utf8_literal("retained")),

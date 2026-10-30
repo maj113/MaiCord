@@ -134,8 +134,6 @@ GatewayLifecycleStep gateway_lifecycle_invalid_session(GatewayLifecycle* lifecyc
 
 GatewayCloseDisposition gateway_classify_close(u16 close_code) noexcept {
     switch (close_code) {
-    case 1000:
-    case 1001:
     case 4004:
     case 4010:
     case 4011:
