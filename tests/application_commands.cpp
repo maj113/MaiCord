@@ -23,7 +23,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
             {reinterpret_cast<const u8*>(interaction.data), interaction.bytes}, 1, autocomplete);
         RestRequestHead head{request.target,
             {reinterpret_cast<const u8*>(fixture_token.data), fixture_token.bytes}, request.body.count,
-            request.route.method, RestAuthorization::normal_user, request.json_body, false, &fixture_headers, false};
+            request.route.method, RestAuthorization::normal_user, request.json_body, &fixture_headers, false};
         const auto written = write_rest_request_head(head, {request_head, sizeof(request_head)});
         constexpr auto json_header = utf8_literal("Content-Type: application/json\r\n");
         bool has_json_header = false;
@@ -49,7 +49,7 @@ void test_application_commands(void (*check)(bool, const char*) noexcept) noexce
             {target, sizeof(target)});
         RestRequestHead head{nick.target,
             {reinterpret_cast<const u8*>(fixture_token.data), fixture_token.bytes}, nick.body.count,
-            nick.route.method, RestAuthorization::normal_user, nick.json_body, false, &fixture_headers, false};
+            nick.route.method, RestAuthorization::normal_user, nick.json_body, &fixture_headers, false};
         check(utf8_equal({reinterpret_cast<const char*>(nick.target.data), nick.target.count},
                          utf8_literal("/api/v9/guilds/55/members/@me/nick")) &&
                   nick.route.method == RestMethod::patch && nick.route.major == RestMajorParameter::guild &&

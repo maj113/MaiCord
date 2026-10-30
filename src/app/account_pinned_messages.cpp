@@ -11,7 +11,7 @@ RestClientSubmitResult account_pinned_messages_submit(
     const bool unpin = request->operation == MessagePinsOperation::unpin;
     if ((!fetch && !pin && !unpin) || (fetch && request->message_id) ||
         (!fetch && (!request->message_id || request->query.before.bytes ||
-                    (request->query.limit && request->query.limit != kMessagePinsMaximumItems))))
+                    (request->query.limit && request->query.limit != kMessagePinsPageLimit))))
         return {RestClientSubmitError::invalid_input};
     u8 target[kMessagePinsMaximumTargetBytes];
     const auto written = fetch

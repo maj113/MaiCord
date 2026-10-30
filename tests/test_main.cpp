@@ -23273,8 +23273,16 @@ void test_http1() noexcept {
            "http_websocket_upgrade_head");
     expect(visitor.fields == 3 && http_ascii_equal_case_insensitive(visitor.websocket_accept, "abc123="),
            "http_header_visitor");
-    expect(http_response_body_kind(upgrade.head, false, false) == HttpBodyKind::tunnel,
-           "http_switching_protocols_body_kind");
+    {
+        u8 switching_input[256]{}, switching_body[8]{};
+        HttpResponseDecoder switching_decoder{};
+        const bool initialized = http_response_decoder_initialize(
+            &switching_decoder, Slice<u8>{switching_input, sizeof(switching_input)}, {},
+            Slice<u8>{switching_body, sizeof(switching_body)}, 256, 16);
+        const auto step = http_response_decoder_feed(&switching_decoder, switching);
+        expect(initialized && !step.ok() && switching_decoder.error == HttpResponseDecoderError::unsupported_tunnel,
+               "http_switching_protocols_is_not_a_response_body");
+    }
 
     const auto fixed =
         byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 5, 5\r\nConnection: close\r\n\r\nhello");
@@ -23282,15 +23290,15 @@ void test_http1() noexcept {
     expect(fixed_head.ok() && fixed_head.head.has_content_length && fixed_head.head.content_length == 5 &&
                fixed_head.head.connection_close,
            "http_content_length_head");
-    expect(http_response_body_kind(fixed_head.head, false, false) == HttpBodyKind::content_length &&
-               http_response_body_kind(fixed_head.head, true, false) == HttpBodyKind::none,
+    expect(http_response_body_kind(fixed_head.head, false) == HttpBodyKind::content_length &&
+               http_response_body_kind(fixed_head.head, true) == HttpBodyKind::none,
            "http_content_length_body_kind");
 
     const auto chunked =
         byte_literal("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n0\r\n\r\n");
     const HttpHeadResult chunked_head = http_parse_response_head(chunked, 4096, 16, nullptr, nullptr);
     expect(chunked_head.ok() && chunked_head.head.chunked &&
-               http_response_body_kind(chunked_head.head, false, false) == HttpBodyKind::chunked,
+               http_response_body_kind(chunked_head.head, false) == HttpBodyKind::chunked,
            "http_chunked_head");
 
     bool prefixes_wait = true;
@@ -23360,11 +23368,10 @@ void test_http1() noexcept {
 
     HttpResponseHead no_body{};
     no_body.status_code = 204;
-    expect(http_response_body_kind(no_body, false, false) == HttpBodyKind::none, "http_204_no_body");
+    expect(http_response_body_kind(no_body, false) == HttpBodyKind::none, "http_204_no_body");
     no_body.status_code = 200;
-    expect(http_response_body_kind(no_body, false, true) == HttpBodyKind::tunnel &&
-               http_response_body_kind(no_body, false, false) == HttpBodyKind::until_close,
-           "http_connect_and_close_body_kinds");
+    expect(http_response_body_kind(no_body, false) == HttpBodyKind::until_close,
+           "http_close_delimited_body_kind");
 
     const auto chunk_document =
         byte_literal("4;name=value\r\nWiki\r\n5\r\npedia\r\n0\r\nX-Test: yes\r\n\r\n");
@@ -23498,7 +23505,6 @@ void test_rest() noexcept {
                                                 0,
                                                 RestMethod::get,
                                                 RestAuthorization::none,
-                                                false,
                                                 false},
                                 Slice<u8>{request_output, 512});
     expect(get.ok() &&
@@ -23510,29 +23516,13 @@ void test_rest() noexcept {
                                         "Accept: */*\r\n\r\n")),
            "rest_get_request_head");
 
-    const RestRequestWriteResult post = write_rest_request_head(
-        RestRequestHead{byte_literal("/api/v10/channels/7/messages"), byte_literal("secret.token"),
-                        4, RestMethod::post, RestAuthorization::bearer, true, true},
-        Slice<u8>{request_output, 512});
-    expect(post.ok() &&
-               bytes_equal(ConstSlice<u8>{request_output, post.bytes},
-                           byte_literal("POST /api/v10/channels/7/messages HTTP/1.1\r\n"
-                                        "Host: discord.com\r\n"
-                                        "Connection: close\r\n"
-                                        "Content-Length: 4\r\n"
-                                        "Authorization: Bearer secret.token\r\n"
-                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
-                                        "Content-Type: application/json\r\n"
-                                        "Accept: */*\r\n\r\n")),
-           "rest_authenticated_json_request_head");
-
     // The page's XMLHttpRequests: Chromium's field order with its client
     // hints, fetch metadata, Referer and the jar's cookies.
     {
         const RestUserRequestHeaders user{byte_literal("e30="), utf8_literal("en-US"),
                                           utf8_literal("Europe/Ljubljana"), utf8_literal("en-US,en;q=0.9")};
         RestRequestHead page{byte_literal("/api/v9/users/@me"), byte_literal("user.token"), 0, RestMethod::get,
-                             RestAuthorization::normal_user, false, false, &user, true};
+                             RestAuthorization::normal_user, false, &user, true};
         page.cookie = byte_literal("__dcfduid=visitor; _cfuvid=session");
         static u8 page_output[2048];
         auto page_written = write_rest_request_head(page, Slice<u8>{page_output, sizeof(page_output)});
@@ -23604,7 +23594,7 @@ void test_rest() noexcept {
                               RestRequestError::invalid_input;
         expect(injected && write_rest_request_head(RestRequestHead{byte_literal("/api/v10/gateway"), {}, 0,
                                                                    RestMethod::get, RestAuthorization::none,
-                                                                   false, false, nullptr, false, {}, {}, {},
+                                                                   false, nullptr, false, {}, {}, {},
                                                                    false, byte_literal("a=1")},
                                                    Slice<u8>{page_output, sizeof(page_output)})
                                        .error == RestRequestError::invalid_input,
@@ -23644,7 +23634,7 @@ void test_rest() noexcept {
     // The client page origin goes on user requests other than GET and HEAD.
     const RestUserRequestHeaders page{byte_literal("e30="), utf8_literal("en-US"), {}};
     RestRequestHead user_head{byte_literal("/api/v9/channels/7/messages"), byte_literal("user.token"), 0,
-                              RestMethod::get, RestAuthorization::normal_user, false, false};
+                              RestMethod::get, RestAuthorization::normal_user, false};
     user_head.user_headers = &page;
     const auto origin_count = [&](RestMethod method) noexcept {
         user_head.method = method;
@@ -23662,8 +23652,8 @@ void test_rest() noexcept {
     u8 atomic_output[16]{};
     guard_fill(atomic_output, sizeof(atomic_output));
     const RestRequestWriteResult too_small = write_rest_request_head(
-        RestRequestHead{byte_literal("/api/v10/gateway"), byte_literal("secret"), 0,
-                        RestMethod::get, RestAuthorization::bearer, false, false},
+        RestRequestHead{byte_literal("/api/v10/gateway"), {}, 0,
+                        RestMethod::get, RestAuthorization::none, false},
         Slice<u8>{atomic_output, 16});
     const bool untouched = guard_intact(atomic_output, sizeof(atomic_output));
     expect(too_small.error == RestRequestError::output_capacity && untouched,
@@ -23674,7 +23664,6 @@ void test_rest() noexcept {
                                0,
                                RestMethod::get,
                                RestAuthorization::none,
-                               false,
                                false},
                Slice<u8>{request_output, 512})
                        .error == RestRequestError::invalid_target &&
@@ -23684,14 +23673,12 @@ void test_rest() noexcept {
                                    0,
                                    RestMethod::get,
                                    RestAuthorization::none,
-                                   false,
                                    false},
                    Slice<u8>{request_output, 512})
                        .error == RestRequestError::invalid_target &&
                write_rest_request_head(
                    RestRequestHead{byte_literal("/api/v10/gateway"), byte_literal("bad\r\ntoken"), 0,
-                                   RestMethod::get, RestAuthorization::bearer, false,
-                                   false},
+                                   RestMethod::get, RestAuthorization::normal_user, false, &page},
                    Slice<u8>{request_output, 512})
                        .error == RestRequestError::invalid_token,
            "rest_request_injection_guards");

@@ -728,10 +728,8 @@ bool push_rest(Module& m, u64 request_id, u16 status, ConstSlice<u8> body) noexc
         entry.response.request_id = request_id;
         entry.response.status_code = status;
         entry.response.body_bytes = static_cast<u32>(body.count);
-        entry.response.wire_body_bytes = static_cast<u32>(body.count);
         entry.response.content_type = RestContentType::json;
         entry.response.content_encoding = RestContentEncoding::identity;
-        entry.response.wire_content_encoding = RestContentEncoding::identity;
         entry.response.body_kind = body.count == 0 ? RestBodyKind::empty
                                    : body.data[0] == '[' ? RestBodyKind::json_array
                                                           : RestBodyKind::json_object;

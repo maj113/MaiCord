@@ -24,7 +24,7 @@ bool request_gateway(ProbeTransport* transport, const Clock& clock,
                     reinterpret_cast<const u8*>("/api/v10/gateway"),
                     16},
                 {}, 0, RestMethod::get,
-                RestAuthorization::none, false, false},
+                RestAuthorization::none, false},
             Slice<u8>{g_request, 512});
     if (!request.ok()) {
         return false;

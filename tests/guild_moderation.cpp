@@ -132,6 +132,9 @@ void test_search_bodies() noexcept {
               !guild_member_search_snowflake(utf8_literal("1234567890123456")) &&
               !guild_member_search_snowflake(utf8_literal("12345678901234567890")),
           "members search: snowflakes before the epoch are \"0\", the chunk is max(5 x page, 250), IDs are 17-19 digits");
+    check(utf8_equal(guild_member_search_trim(utf8_literal(" \t\r\n\v\fa b \n")), utf8_literal("a b")) &&
+              !guild_member_search_trim(utf8_literal(" \t ")).bytes && !guild_member_search_trim({}).bytes,
+          "members search: the text trims ASCII white space at both ends");
 }
 
 void test_bans() noexcept {
@@ -153,6 +156,14 @@ void test_bans() noexcept {
     check(!guild_moderation_reason_header(request), "bulk ban: a null reason sends no header");
     request.user_ids = {};
     check(!guild_moderation_request_valid(request), "bulk ban: needs users");
+    u64 many[kGuildBulkBanMaximumUsers + 1];
+    for (u32 i = 0; i <= kGuildBulkBanMaximumUsers; ++i)
+        many[i] = i + 1;
+    request.user_ids = {many, kGuildBulkBanMaximumUsers};
+    const bool at_limit = guild_moderation_request_valid(request);
+    request.user_ids = {many, kGuildBulkBanMaximumUsers + 1};
+    check(kGuildBulkBanMaximumUsers == 200 && at_limit && !guild_moderation_request_valid(request),
+          "bulk ban: up to 200 users, as the API allows");
 
     GuildModerationRequest search{};
     search.operation = GuildModerationOperation::ban_search;

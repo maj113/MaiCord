@@ -58,12 +58,6 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
         check(!login_verification_consume_link(link, &token).ok() && cleared(token),
               "verification rejects ambiguous/foreign/malformed links and erases stale output");
     }
-    constexpr Utf8View overlapping_link = utf8_literal("https://discord.com/verify?token=synthetic");
-    secure_buffer_assign(&token, {reinterpret_cast<const u8*>(overlapping_link.data), overlapping_link.bytes});
-    check(login_verification_consume_link(
-              {reinterpret_cast<const char*>(token.data), token.bytes}, &token).error ==
-              LoginVerificationLinkError::invalid_input && cleared(token),
-          "verification rejects source/output aliasing and clears its invalid output");
     SecureBuffer small{token.data, 2, 2, true};
     check(login_verification_consume_link(utf8_literal("https://discord.com/verify?token=123"), &small).error ==
               LoginVerificationLinkError::output_too_small && cleared(small),

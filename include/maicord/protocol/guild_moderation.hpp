@@ -30,7 +30,8 @@ inline constexpr u32 kGuildMemberSearchInviteCodeBytes = 32;
 // HTTP 202 ("still indexing") is retried this many times, then it fails.
 inline constexpr u32 kGuildMemberSearchRetryMaximum = 3;
 inline constexpr u32 kGuildBanSearchLimit = 10;
-inline constexpr u32 kGuildBulkBanMaximumUsers = 1'000;
+// The API takes at most 200 user IDs per bulk ban.
+inline constexpr u32 kGuildBulkBanMaximumUsers = 200;
 inline constexpr u32 kGuildModerationBanDeleteMaximumSeconds = 604'800;
 // unusual_dm_activity_until counts the last two days.
 inline constexpr u64 kGuildMemberSignalDmWindowMs = 2ull * 24 * 60 * 60 * 1000;

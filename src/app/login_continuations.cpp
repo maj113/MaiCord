@@ -1,15 +1,13 @@
 #include "maicord/app/login_continuations.hpp"
 #include "maicord/protocol/login_continuations.hpp"
 #include "maicord/core/ascii.hpp"
-#include "maicord/core/byte_range.hpp"
 
 namespace maicord {
 namespace {
 inline constexpr Utf8View kPrefix = utf8_literal("https://discord.com/verify");
 inline constexpr Utf8View kResetPrefix = utf8_literal("https://discord.com/reset");
 bool link_candidate(Utf8View link, Utf8View prefix) noexcept {
-    if (!link.data || link.bytes < prefix.bytes ||
-        !byte_range_valid({reinterpret_cast<const u8*>(link.data), link.bytes})) return false;
+    if (!link.data || link.bytes < prefix.bytes) return false;
     for (u32 i = 0; i < prefix.bytes; ++i)
         if (link.data[i] != prefix.data[i]) return false;
     return link.bytes == prefix.bytes || link.data[prefix.bytes] == '?' || link.data[prefix.bytes] == '#';
@@ -57,8 +55,7 @@ LoginVerificationLinkError find_token(Utf8View parameters, Utf8View* selected, b
     return LoginVerificationLinkError::none;
 }
 LoginVerificationLinkResult fail_link(SecureBuffer* output, LoginVerificationLinkError error) noexcept {
-    if (output && output->locked && output->data &&
-        byte_range_valid({output->data, output->capacity})) secure_buffer_clear(output);
+    if (output && output->locked && output->data) secure_buffer_clear(output);
     return {0, error};
 }
 // Validate form-percent UTF-8 without copying either selected or ignored data.
@@ -124,12 +121,8 @@ bool login_verification_link_candidate(Utf8View link) noexcept {
 }
 
 LoginVerificationLinkResult login_verification_consume_link(Utf8View link, SecureBuffer* output) noexcept {
-    if (!output || !output->locked || !output->data || !output->capacity ||
-        !byte_range_valid({output->data, output->capacity}) || !link.data || !link.bytes ||
-        link.bytes > kLoginVerificationMaximumLinkBytes ||
-        !byte_range_valid({reinterpret_cast<const u8*>(link.data), link.bytes}) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(link.data), link.bytes},
-                            {output->data, output->capacity})) {
+    if (!output || !output->locked || !output->data || !output->capacity || !link.data || !link.bytes ||
+        link.bytes > kLoginVerificationMaximumLinkBytes) {
         return fail_link(output, LoginVerificationLinkError::invalid_input);
     }
     constexpr Utf8View prefix = kPrefix;
@@ -168,11 +161,8 @@ LoginVerificationLinkResult login_verification_consume_link(Utf8View link, Secur
 }
 bool login_reset_link_candidate(Utf8View link) noexcept { return link_candidate(link, kResetPrefix); }
 LoginResetLinkResult login_reset_consume_link(Utf8View link, SecureBuffer* output) noexcept {
-    if (!output || !output->locked || !output->data || !output->capacity ||
-        !byte_range_valid({output->data, output->capacity}) || !link.data || !link.bytes ||
-        link.bytes > kLoginResetMaximumLinkBytes ||
-        !byte_range_valid({reinterpret_cast<const u8*>(link.data), link.bytes}) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(link.data), link.bytes}, {output->data, output->capacity}))
+    if (!output || !output->locked || !output->data || !output->capacity || !link.data || !link.bytes ||
+        link.bytes > kLoginResetMaximumLinkBytes)
         return fail_link(output, LoginResetLinkError::invalid_input);
     if (!login_reset_link_candidate(link)) return fail_link(output, LoginResetLinkError::unsupported_link);
     u32 fragment = kResetPrefix.bytes;

@@ -45,12 +45,12 @@ struct PinnedMessageRequest {
     u64 revision{};
     bool ready{};
 };
-// One complete page of at most fifty pins, with Older/Newer navigation
+// One complete page of at most twenty-five pins, with Older/Newer navigation
 // and copied cursors. Refresh returns to the first page. No initialization
 // allocates memory: keep this relatively large value in the lazily created panel.
 // Cancelling keeps the outstanding request ID until its response is taken.
 struct PinnedMessageController {
-    PinnedMessageRow rows[kMessagePinsMaximumItems]{};
+    PinnedMessageRow rows[kMessagePinsPageLimit]{};
     PinnedMessageScope scope{};
     MessagePinsPage page{};
     MessagePinsRequest pending{};
@@ -63,7 +63,7 @@ struct PinnedMessageController {
     u8 rate_attempts{};
     bool active{}, available{}, can_pin{}, permission_denied{}, read_denied{}, authoritative{}, has_page{}, queued{}, has_previous{};
 };
-static_assert(sizeof(PinnedMessageController) <= 72 * 1024);
+static_assert(sizeof(PinnedMessageController) <= 36 * 1024);
 bool pinned_message_scope_equal(PinnedMessageScope, PinnedMessageScope) noexcept;
 bool pinned_message_controller_open(PinnedMessageController*, PinnedMessageScope, bool available,
                                     bool can_pin) noexcept;

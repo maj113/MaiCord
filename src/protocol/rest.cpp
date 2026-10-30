@@ -589,10 +589,7 @@ u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
     writer.bytes(request.target);
     writer.literal(" HTTP/1.1\r\nHost: ");
     writer.literal(kApiHost);
-    if (request.close_connection)
-        writer.literal("\r\nConnection: close\r\n");
-    else
-        writer.literal("\r\nConnection: keep-alive\r\n");
+    writer.literal("\r\nConnection: keep-alive\r\n");
     if (request.json_body) {
         writer.literal("Content-Length: ");
         writer.number(request.content_length);
@@ -606,10 +603,7 @@ u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
         writer.literal("\r\nsec-ch-ua-mobile: ?0\r\nsec-ch-ua-platform: \"Windows\"\r\n");
     }
     if (request.authorization != RestAuthorization::none) {
-        if (request.authorization == RestAuthorization::bearer)
-            writer.literal("Authorization: Bearer ");
-        else
-            writer.literal("Authorization: ");
+        writer.literal("Authorization: ");
         writer.bytes(request.token);
         writer.literal("\r\n");
     }
@@ -685,11 +679,7 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         return RestRequestWriteResult{0, RestRequestError::invalid_input};
     const bool normal_user = request.authorization == RestAuthorization::normal_user;
     if (!method || (!output.data && output.count != 0) ||
-        (request.authorization == RestAuthorization::none && request.token.count != 0) ||
-        (request.authorization != RestAuthorization::none &&
-         request.authorization != RestAuthorization::bearer && !normal_user) ||
-        (normal_user && !request.user_headers) ||
-        (request.authorization == RestAuthorization::bearer && request.user_headers) ||
+        (!normal_user && request.token.count != 0) || (normal_user && !request.user_headers) ||
         (request.user_headers && !rest_user_headers_valid(*request.user_headers)) ||
         (!request.token.data && request.token.count != 0) ||
         (!request.json_body && request.content_length != 0) ||

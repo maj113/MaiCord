@@ -8,7 +8,7 @@
 #include "application_read_state.hpp"
 #include "application_scoped_read.hpp"
 #include "application_scrolling.hpp"
-#include "application_settings.hpp"
+#include "application_panel_cover.hpp"
 #include "application_state.hpp"
 #include "maicord/protocol/message_card_excerpt.hpp"
 #include "maicord/protocol/user_guild_settings.hpp"
@@ -74,9 +74,7 @@ struct InboxRetained {
 } retained;
 
 bool front() noexcept {
-    return g_app.account_ui && !g_app.login.visible && !application_settings_active() && !g_app.text_form &&
-           !g_app.popup_scene.active && !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active &&
-           !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active);
+    return g_app.account_ui && !g_app.login.visible && application_panel_uncovered();
 }
 bool connected() noexcept {
     return g_app.account.instance && g_app.account.status.running && g_app.account.api.mentions;

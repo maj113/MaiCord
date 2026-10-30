@@ -7,6 +7,10 @@
 namespace maicord {
 
 inline constexpr u32 kTlsStreamMaximumWriteSpans = 4;
+// The edge closes an idle HTTP/1.1 connection after about 400 s and nothing
+// reads an idle stream, so an owner that reuses one connects afresh after this
+// idle time (Chromium's used-idle-socket timeout) instead of failing a request.
+inline constexpr u32 kTlsStreamIdleReuseMs = 5 * 60 * 1000;
 
 enum class TlsStreamState : u8 {
     empty,

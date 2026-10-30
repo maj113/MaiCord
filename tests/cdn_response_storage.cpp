@@ -117,6 +117,14 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
                 runtime->response_capacity == kMediaMaximumEncodedVideoBytes;
     }
     check(valid, "cdn_response_owner_releases_large_body_and_recommits_next_response_exactly");
+    runtime->transport_ready = true;
+    runtime->connection_request_count = 1;
+    runtime->transport_idle_since_ms = 500;
+    retire_idle_transport(runtime, 500 + kTlsStreamIdleReuseMs - 1);
+    const bool kept = runtime->transport_ready && runtime->connection_request_count == 1;
+    retire_idle_transport(runtime, 500 + kTlsStreamIdleReuseMs);
+    check(kept && !runtime->transport_ready && !runtime->connection_request_count,
+          "cdn_idle_connection_is_retired_before_the_edge_closes_it");
     if (client.response_event)
         CloseHandle(client.response_event);
     VirtualFree(runtime, 0, MEM_RELEASE);

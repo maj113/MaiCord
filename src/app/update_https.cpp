@@ -245,7 +245,7 @@ UpdateTransportError update_http_read(UpdateHttpReader* r, const UpdateHttpReque
             if (head.head.status_code >= 300 && (!read_error_body || head.head.status_code < 400)) {
                 r->complete = true; *bytes = 0; return E::none;
             }
-            r->kind = http_response_body_kind(head.head, false, false);
+            r->kind = http_response_body_kind(head.head, false);
             if (head.head.has_content_length && head.head.content_length > request.maximum_body_bytes) return E::oversize;
             if (r->kind == HttpBodyKind::chunked &&
                 !http_chunk_decoder_initialize(&r->chunks, request.maximum_body_bytes, 1024, kHeadBytes, kFields)) return E::http;

@@ -25,7 +25,7 @@ bool usable(const PinnedMessageController& value) noexcept {
     return value.active && value.available && value.revision != ~u64{0};
 }
 void fetch(PinnedMessageController& value, MessagePinsCursor before = {}, u32 page_index = 0) noexcept {
-    value.pending = {{value.scope.channel_id, before, kMessagePinsMaximumItems}, 0,
+    value.pending = {{value.scope.channel_id, before, kMessagePinsPageLimit}, 0,
         MessagePinsOperation::fetch};
     value.queued = true;
     value.requested_page_index = page_index;
@@ -48,7 +48,7 @@ u16 excerpt(char* destination, u32 capacity, Utf8View source) noexcept {
 bool page_valid(const PinnedMessageController& value, const MessagePinsPage& page,
                 ConstSlice<MessagePin> items) noexcept {
     if (page.channel_id != value.scope.channel_id || page.count != items.count ||
-        page.count > value.pending.query.limit || page.count > kMessagePinsMaximumItems ||
+        page.count > value.pending.query.limit || page.count > kMessagePinsPageLimit ||
         (!items.data && items.count) || !message_pins_cursor_valid(page.next_before) ||
         (page.has_more && (!page.count || cursor_equal(page.next_before, value.pending.query.before))))
         return false;
@@ -224,7 +224,7 @@ bool pinned_message_controller_mutate(PinnedMessageController* value, u64 messag
     // callers still authorize their resident message type before this entry.
     if (value->has_page) for (u32 at = 0; at < value->page.count; ++at)
         if (value->rows[at].message_id == message_id && value->rows[at].type == 6) return false;
-    value->pending = {{value->scope.channel_id, {}, kMessagePinsMaximumItems}, message_id,
+    value->pending = {{value->scope.channel_id, {}, kMessagePinsPageLimit}, message_id,
         pin ? MessagePinsOperation::pin : MessagePinsOperation::unpin};
     value->queued = true;
     value->authoritative = false;

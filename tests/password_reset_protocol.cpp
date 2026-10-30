@@ -188,11 +188,6 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
             filled_reset({link_token.data, link_token.capacity}, 0),
             "reset URI rejects foreign, duplicate, array and malformed parameters in either component and erases output");
     }
-    constexpr Utf8View aliased = utf8_literal("https://discord.com/reset?token=synthetic");
-    secure_buffer_assign(&link_token, {reinterpret_cast<const u8*>(aliased.data), aliased.bytes});
-    check(login_reset_consume_link({reinterpret_cast<const char*>(link_token.data), link_token.bytes}, &link_token).error ==
-        LoginResetLinkError::invalid_input && filled_reset({link_token.data, link_token.capacity}, 0),
-        "reset URI rejects aliasing and clears valid locked output");
     constexpr Utf8View url_prefix = utf8_literal("https://discord.com/reset?token=");
     char long_link[url_prefix.bytes + kLoginResetMaximumTokenBytes + 1]{};
     copy_bytes(long_link, url_prefix.data, url_prefix.bytes);

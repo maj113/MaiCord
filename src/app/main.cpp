@@ -480,9 +480,12 @@ int application_run() noexcept {
             // display signal even when an earlier account handle or queued
             // window message won the primary wait.
             frame_signal = d3d11_device_owner_wait(g_app.renderer.graphics, 0) == WAIT_OBJECT_0;
-        } else if (!frame_signal && video_signal && frame_clock_available) {
-            // A new call picture uses a free display slot in this turn instead
-            // of waking again for it.
+        } else if (!frame_signal && frame_clock_available &&
+                   (video_signal ||
+                    (waited == WAIT_TIMEOUT && application_visual_frame_requested(restart_now_ms, restart_now_us)))) {
+            // A new call picture, or a timer that just made a visual deadline
+            // due, uses a free display slot in this turn instead of waking
+            // again for it.
             frame_signal = d3d11_device_owner_wait(g_app.renderer.graphics, 0) == WAIT_OBJECT_0;
         }
         const bool frame_timeout = frame_handle_index != 0xFFFFFFFFu && !frame_signal &&

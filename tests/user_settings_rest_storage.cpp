@@ -102,7 +102,7 @@ u32 user_settings_rest_storage_fixture() noexcept {
     wrong = patch; wrong.target.count--;
     check(rest_client_submit_user_settings(&probe.client, wrong, 2 * 1024 * 1024).error ==
         RestClientSubmitError::invalid_input, "settings exact origin target fenced");
-    r->authorization = RestAuthorization::bearer;
+    r->authorization = RestAuthorization::none;
     check(rest_client_submit_user_settings(&probe.client, patch, 2 * 1024 * 1024).error ==
         RestClientSubmitError::invalid_input, "settings normal user authorization fenced");
     r->authorization = RestAuthorization::normal_user;

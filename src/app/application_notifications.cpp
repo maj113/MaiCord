@@ -1097,6 +1097,8 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
             n->settings.thread_count=kept; ++n->settings.revision;
         }
     }
+    // Only a trailing sidecar changes the settings below; without one the trim returns the event unchanged.
+    if(!event.notification_payload_bytes) return;
     GatewayClientEvent normal{}; ConstSlice<u8> normal_payload{};
     if(!gateway_client_notification_trim(event,payload,&normal,&normal_payload)) {
         message_notifications_mark_incomplete(&n->settings,0); return;

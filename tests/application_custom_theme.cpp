@@ -19,6 +19,7 @@ bool custom_fixture_io_save(ClientThemeIo*, const ClientThemeStorageSnapshot&, u
 bool custom_fixture_io_catalog(ClientThemeIo*, u64*) noexcept;
 HANDLE custom_fixture_io_event(const ClientThemeIo*) noexcept;
 bool custom_fixture_io_poll(ClientThemeIo*, ClientThemeIoCompletion*, bool*) noexcept;
+bool custom_fixture_io_pending(ClientThemeIo*) noexcept;
 void custom_fixture_io_cancel(ClientThemeIo*, u64) noexcept;
 bool custom_fixture_io_stop(ClientThemeIo**, u32) noexcept;
 NativeFilePickerError custom_fixture_picker_start(NativeFilePicker*, HWND, u32, Utf8View) noexcept;
@@ -72,6 +73,7 @@ bool custom_fixture_request_frame() noexcept;
 #define client_theme_io_submit_catalog custom_fixture_io_catalog
 #define client_theme_io_completion_event custom_fixture_io_event
 #define client_theme_io_poll custom_fixture_io_poll
+#define client_theme_io_completion_pending custom_fixture_io_pending
 #define client_theme_io_cancel custom_fixture_io_cancel
 #define client_theme_io_stop custom_fixture_io_stop
 #define native_file_picker_start custom_fixture_picker_start
@@ -169,6 +171,9 @@ bool custom_fixture_io_poll(ClientThemeIo*, ClientThemeIoCompletion* out, bool* 
         t.ready = false;
     }
     return true;
+}
+bool custom_fixture_io_pending(ClientThemeIo*) noexcept {
+    return custom_theme_test::transport.ready;
 }
 void custom_fixture_io_cancel(ClientThemeIo*, u64 generation) noexcept {
     custom_theme_test::transport.cancelled = generation;

@@ -23,10 +23,10 @@ void run() noexcept {
     RestClient rest{};
     MessagePinsRequest request{};
     request.query.channel_id = 20;
-    request.query.limit = 50;
+    request.query.limit = kMessagePinsPageLimit;
     check(account_pinned_messages_submit(&rest, &request, 101).ok() && capture.submissions == 1 &&
               exact(&rest, 20, 101, kMessagePinsRouteId, RestMethod::get,
-                    utf8_literal("/api/v10/channels/20/messages/pins?limit=50")),
+                    utf8_literal("/api/v10/channels/20/messages/pins?limit=25")),
           "pins account: bounded first page uses exact modern endpoint and channel-major authenticated owner");
     constexpr auto timestamp = utf8_literal("2026-10-05T00:00:00.123456+00:00");
     copy_bytes(request.query.before.timestamp, timestamp.data, timestamp.bytes);
@@ -51,7 +51,7 @@ void run() noexcept {
           "pins account: PUT admits exact full-width channel and message snowflakes with no body or optimistic receipt");
     request.query.channel_id = 20;
     request.message_id = 30;
-    request.query.limit = 50;
+    request.query.limit = kMessagePinsPageLimit;
     request.operation = MessagePinsOperation::unpin;
     check(account_pinned_messages_submit(&rest, &request, 104).ok() &&
               exact(&rest, 20, 104, kMessagePinRouteId, RestMethod::delete_method,

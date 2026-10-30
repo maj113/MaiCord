@@ -1009,6 +1009,14 @@ void test_profile_and_boost() noexcept {
     boost.banner_original = {};
     check(account_guild_admin_submit(&details, &request, 164).ok() && !capture.header_bytes,
           "guild admin account: without new images there is no MD5 header");
+    boost.fields = guild_settings_patch_splash | guild_settings_patch_progress_bar;
+    boost.banner_original = {original, 3};
+    check(!guild_admin_request_valid(request), "guild admin account: an original file needs its image field");
+    boost.banner_original = {};
+    boost.splash_original = {original, 3};
+    check(!guild_admin_request_valid(request), "guild admin account: an original splash file needs a new image");
+    boost.splash_original = {};
+    check(guild_admin_request_valid(request), "guild admin account: a stored splash hash is valid on its own");
 }
 
 

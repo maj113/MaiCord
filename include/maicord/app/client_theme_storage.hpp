@@ -123,6 +123,8 @@ HANDLE client_theme_io_completion_event(const ClientThemeIo*) noexcept;
 // One active job plus replaceable latest request/completion; no growing queue.
 // Success copies complete owning snapshot. ready=false leaves completion untouched.
 bool client_theme_io_poll(ClientThemeIo*, ClientThemeIoCompletion*, bool* ready) noexcept;
+// True when a completion awaits client_theme_io_poll; copies nothing. io must be live.
+bool client_theme_io_completion_pending(ClientThemeIo*) noexcept;
 // Cancels publication of this exact generation; cancels it if still queued.
 // An admitted atomic write may finish and cannot be rolled back by cancellation.
 void client_theme_io_cancel(ClientThemeIo*, u64 generation) noexcept;

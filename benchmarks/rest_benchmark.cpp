@@ -12,7 +12,7 @@ inline constexpr u32 kHeadIterations = 1'000'000;
 inline constexpr u32 kResponseIterations = 500'000;
 inline constexpr u32 kSchedulerIterations = 1'000'000;
 
-u8 g_request[512]{};
+u8 g_request[2048]{};
 u8 g_response_input[kRestMaximumHeaderBytes]{};
 u8 g_response_body[256]{};
 RestRateBucket g_buckets[8]{};
@@ -27,15 +27,17 @@ constexpr ConstSlice<u8> bytes(const char (&value)[Count]) noexcept {
 int run() noexcept {
     const Clock clock = clock_initialize();
     u64 checksum = 0;
+    const RestUserRequestHeaders page{bytes("e30="), utf8_literal("en-US"), utf8_literal("Europe/Ljubljana"),
+                                      utf8_literal("en-US,en;q=0.9")};
     const RestRequestHead request{
         bytes("/api/v10/channels/1260000000000000001/messages?limit=100"),
         bytes("benchmark.token"), 0, RestMethod::get,
-        RestAuthorization::bearer, false, false};
+        RestAuthorization::normal_user, false, &page, true};
     i64 begin = clock_now();
     for (u32 iteration = 0; iteration < kRequestIterations; ++iteration) {
         const RestRequestWriteResult written =
             write_rest_request_head(request,
-                                    Slice<u8>{g_request, 512});
+                                    Slice<u8>{g_request, sizeof(g_request)});
         if (!written.ok()) {
             return 1;
         }

@@ -472,13 +472,10 @@ HttpHeadResult http_parse_response_head(ConstSlice<u8> input, u32 maximum_header
     return HttpHeadResult{head, 0, HttpError::none, HttpParseState::complete};
 }
 
-HttpBodyKind http_response_body_kind(const HttpResponseHead& head, bool request_was_head,
-                                     bool request_was_connect) noexcept {
+HttpBodyKind http_response_body_kind(const HttpResponseHead& head, bool request_was_head) noexcept {
     if (request_was_head || (head.status_code >= 100 && head.status_code < 200) || head.status_code == 204 ||
         head.status_code == 304)
-        return head.status_code == 101 ? HttpBodyKind::tunnel : HttpBodyKind::none;
-    if (request_was_connect && head.status_code >= 200 && head.status_code < 300)
-        return HttpBodyKind::tunnel;
+        return HttpBodyKind::none;
     if (head.chunked)
         return HttpBodyKind::chunked;
     if (head.has_content_length)
@@ -703,8 +700,8 @@ HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder,
                 return decoder_failure(decoder, HttpResponseDecoderError::body_framing, accepted);
             decoder->parsed_head = parsed.head;
             decoder->connection_reusable = decoder_connection_reusable(parsed.head);
-            body_kind = http_response_body_kind(parsed.head, decoder->request_was_head, false);
-            if (body_kind == HttpBodyKind::tunnel)
+            body_kind = http_response_body_kind(parsed.head, decoder->request_was_head);
+            if (parsed.head.status_code == 101)
                 return decoder_failure(decoder, HttpResponseDecoderError::unsupported_tunnel, accepted);
             if (body_kind == HttpBodyKind::none) {
                 decoder->state = HttpResponseDecoderState::complete;
@@ -723,7 +720,7 @@ HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder,
             }
             decoder->state = HttpResponseDecoderState::body;
         } else {
-            body_kind = http_response_body_kind(decoder->parsed_head, decoder->request_was_head, false);
+            body_kind = http_response_body_kind(decoder->parsed_head, decoder->request_was_head);
         }
 
         if (body_kind == HttpBodyKind::content_length) {

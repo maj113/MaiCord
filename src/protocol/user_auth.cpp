@@ -377,16 +377,13 @@ UserAuthWriteResult user_auth_write_password_request(const UserAuthPasswordReque
         return UserAuthWriteResult{0, UserAuthWriteError::invalid_input};
     EncodedString login{};
     EncodedString password{};
-    EncodedString source{};
     if (!encoded_string(request.login, kUserAuthMaximumLoginBytes, &login))
         return UserAuthWriteResult{0, string_error(request.login, kUserAuthMaximumLoginBytes)};
     if (!encoded_string(request.password, kUserAuthMaximumPasswordBytes, &password))
         return UserAuthWriteResult{0, string_error(request.password, kUserAuthMaximumPasswordBytes)};
-    if (!encoded_string(request.login_source, kUserAuthMaximumSourceBytes, &source))
-        return UserAuthWriteResult{0, string_error(request.login_source, kUserAuthMaximumSourceBytes)};
 
-    constexpr u32 fixed_bytes = sizeof("{\"login\":,\"password\":,\"undelete\":false,\"login_source\":}") - 1;
-    const u64 required = static_cast<u64>(fixed_bytes) + login.bytes + password.bytes + source.bytes -
+    constexpr u32 fixed_bytes = sizeof("{\"login\":,\"password\":,\"undelete\":false}") - 1;
+    const u64 required = static_cast<u64>(fixed_bytes) + login.bytes + password.bytes -
                          (request.undelete ? 1u : 0u);
     if (required > output.count)
         return UserAuthWriteResult{0, UserAuthWriteError::output_too_small};
@@ -400,8 +397,6 @@ UserAuthWriteResult user_auth_write_password_request(const UserAuthPasswordReque
         write_literal(output.data, &offset, ",\"undelete\":true");
     else
         write_literal(output.data, &offset, ",\"undelete\":false");
-    write_literal(output.data, &offset, ",\"login_source\":");
-    write_encoded(output.data, &offset, source);
     output.data[offset++] = '}';
     return UserAuthWriteResult{offset, UserAuthWriteError::none};
 }
@@ -463,7 +458,6 @@ UserAuthWriteResult user_auth_write_mfa_request(const UserAuthMfaRequest& reques
         return UserAuthWriteResult{0, UserAuthWriteError::invalid_input};
     EncodedString code{};
     EncodedString ticket{};
-    EncodedString source{};
     EncodedString instance{};
     const u32 code_maximum = user_auth_mfa_data_maximum(request.type);
     if (code_maximum == 0 || !encoded_string(request.code, code_maximum, &code))
@@ -471,14 +465,11 @@ UserAuthWriteResult user_auth_write_mfa_request(const UserAuthMfaRequest& reques
                                                         : string_error(request.code, code_maximum)};
     if (!encoded_string(request.ticket, kUserAuthMaximumTicketBytes, &ticket))
         return UserAuthWriteResult{0, string_error(request.ticket, kUserAuthMaximumTicketBytes)};
-    if (!encoded_string(request.login_source, kUserAuthMaximumSourceBytes, &source))
-        return UserAuthWriteResult{0, string_error(request.login_source, kUserAuthMaximumSourceBytes)};
     if (!encoded_string(request.login_instance_id, kUserAuthMaximumLoginInstanceBytes, &instance))
         return UserAuthWriteResult{0, string_error(request.login_instance_id, kUserAuthMaximumLoginInstanceBytes)};
 
-    constexpr u32 fixed_bytes = sizeof("{\"code\":,\"ticket\":,\"login_source\":,\"login_instance_id\":}") - 1;
-    const u64 required =
-        static_cast<u64>(fixed_bytes) + code.bytes + ticket.bytes + source.bytes + instance.bytes;
+    constexpr u32 fixed_bytes = sizeof("{\"code\":,\"ticket\":,\"login_instance_id\":}") - 1;
+    const u64 required = static_cast<u64>(fixed_bytes) + code.bytes + ticket.bytes + instance.bytes;
     if (required > output.count)
         return UserAuthWriteResult{0, UserAuthWriteError::output_too_small};
 
@@ -487,8 +478,6 @@ UserAuthWriteResult user_auth_write_mfa_request(const UserAuthMfaRequest& reques
     write_encoded(output.data, &offset, code);
     write_literal(output.data, &offset, ",\"ticket\":");
     write_encoded(output.data, &offset, ticket);
-    write_literal(output.data, &offset, ",\"login_source\":");
-    write_encoded(output.data, &offset, source);
     write_literal(output.data, &offset, ",\"login_instance_id\":");
     write_encoded(output.data, &offset, instance);
     output.data[offset++] = '}';
@@ -599,7 +588,6 @@ UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u6
                         RestMethod::post,
                         RestAuthorization::none,
                         true,
-                        false,
                         user_headers},
         Slice<u8>{output.data, output.count - captcha_bytes});
     if (!base.ok())

@@ -246,6 +246,7 @@ struct RestClientRuntime {
     ClientSessionMetadata* metadata;
     u32 metadata_revision;
     u64 rate_wait_until_ms;
+    u64 transport_idle_since_ms;
     u32 allocation_bytes;
     u32 response_capacity;
     u32 request_body_capacity;
@@ -738,6 +739,14 @@ void close_transport(RestClientRuntime* runtime) noexcept {
     runtime->connection_request_count = 0;
 }
 
+// Connects afresh once an idle connection is old enough for the edge to have
+// closed it (see kTlsStreamIdleReuseMs).
+void retire_idle_transport(RestClientRuntime* runtime, u64 now_ms) noexcept {
+    if (runtime->transport_ready &&
+        now_ms >= deadline_after(runtime->transport_idle_since_ms, kTlsStreamIdleReuseMs))
+        close_transport(runtime);
+}
+
 bool transaction_in_progress(const RestTransaction& transaction) noexcept {
     return transaction.phase == RestTransactionPhase::acquired ||
            transaction.phase == RestTransactionPhase::sending ||
@@ -800,12 +809,14 @@ void publish_completed(RestClient* client, RestClientRuntime* runtime,
         line.field("native_error", response.native_error);
         line.field("elapsed_us", response.elapsed_us);
         line.field("transfer_decode_us", runtime->first_byte_counter ? clock_microseconds(runtime->clock, runtime->first_byte_counter, clock_now()) : 0);
-        line.field("wire_bytes", response.wire_body_bytes);
+        line.field("wire_bytes", runtime->wire_body_bytes);
         line.field("body_bytes", response.body_bytes);
-        line.field("encoding", static_cast<u64>(response.wire_content_encoding));
-        line.field("decode_us", response.decode_us);
+        line.field("encoding", static_cast<u64>(runtime->wire_encoding));
+        line.field("decode_us", runtime->decode_us);
         line.field("reused", static_cast<u64>(response.reused_connection));
         g_trace(line.text);
+        runtime->wire_body_bytes = runtime->decode_us = 0;
+        runtime->wire_encoding = RestContentEncoding::missing;
     }
     runtime->completed = response;
     runtime->rate_wait_until_ms = 0;
@@ -994,7 +1005,7 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
         const RestRequestWriteResult written = write_rest_request_head(
             RestRequestHead{ConstSlice<u8>{runtime->request_target, runtime->command.target_bytes},
                             token, runtime->command.body_bytes, runtime->command.route.method,
-                            runtime->authorization, runtime->command.json_body, false,
+                            runtime->authorization, runtime->command.json_body,
                             normal_user ? &user_headers : nullptr,
                             !runtime->command.identity_response,
                             {runtime->audit_reason, runtime->command.audit_reason_bytes},
@@ -1037,7 +1048,8 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
 void prepare_response_metadata(RestClientRuntime* runtime,
                                const RestRateObservation& observation,
                                RestClientResponse* completed) noexcept {
-    completed->rate = runtime->response.parsed_head.rate;
+    const RateLimitHeaders& rate = runtime->response.parsed_head.rate;
+    completed->rate = {rate.reset_after_ms, rate.retry_after_ms, rate.fields, rate.remaining};
     completed->retry_at_ms = observation.retry_at_ms;
     completed->body_bytes = runtime->response.http.body_bytes;
     completed->status_code = runtime->response.parsed_head.head.status_code;
@@ -1048,9 +1060,6 @@ void prepare_response_metadata(RestClientRuntime* runtime,
     completed->rate_limited = observation.rate_limited;
     completed->global_rate_limit = observation.global;
     completed->reused_connection = runtime->transaction.reused_connection;
-    completed->wire_body_bytes = runtime->wire_body_bytes;
-    completed->decode_us = runtime->decode_us;
-    completed->wire_content_encoding = runtime->wire_encoding;
 }
 
 bool finalize_response(RestClient* client, RestClientRuntime* runtime,
@@ -1189,6 +1198,7 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
         completed.rate_limited = false;
         completed.retry_at_ms = 0;
     }
+    runtime->transport_idle_since_ms = now_ms;
     ++runtime->connection_request_count;
     if (!runtime->response.http.connection_reusable) {
         close_transport(runtime);
@@ -1352,6 +1362,7 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
     }
     runtime->rate_wait_until_ms = 0;
     const u64 deadline = deadline_after(now_ms, runtime->command.timeout_ms);
+    retire_idle_transport(runtime, now_ms);
     const bool reused = runtime->transport_ready && runtime->connection_request_count != 0;
     if (!rest_transaction_acquire(&runtime->transaction, runtime->command.request_id,
                                   acquired.lease, deadline, reused)) {

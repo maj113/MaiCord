@@ -73,13 +73,11 @@ enum class HttpBodyKind : u8 {
     content_length,
     chunked,
     until_close,
-    tunnel,
 };
 
 HttpHeadResult http_parse_response_head(ConstSlice<u8> input, u32 maximum_header_bytes, u32 maximum_fields,
                                         HttpFieldVisitor visitor, void* context) noexcept;
-HttpBodyKind http_response_body_kind(const HttpResponseHead& head, bool request_was_head,
-                                     bool request_was_connect) noexcept;
+HttpBodyKind http_response_body_kind(const HttpResponseHead& head, bool request_was_head) noexcept;
 bool http_ascii_equal_case_insensitive(ConstSlice<u8> value, const char* literal) noexcept;
 // Strips optional whitespace (spaces and tabs) from both ends of a field value.
 ConstSlice<u8> http_trim_ows(ConstSlice<u8> value) noexcept;

@@ -317,7 +317,7 @@ void complete_command() noexcept {
                        ? (kind == Kind::add_provider ? utf8_literal("Provider added.") : utf8_literal("The new key is trusted."))
                        : utf8_literal("Couldn't save the provider. Try again."),
             g_view.add.error != PluginProviderAddError::none);
-        if (g_view.add.error == PluginProviderAddError::none) plugin_browser_worker_check(true, g_view.address.id);
+        if (g_view.add.error == PluginProviderAddError::none) plugin_browser_worker_check(g_view.address.id);
         break;
     case Kind::remove_provider:
         set_status(g_view.record.ok() ? utf8_literal("Provider removed.") : utf8_literal("Couldn't remove the provider. Try again."), !g_view.record.ok());
@@ -653,7 +653,7 @@ bool provider_action(u32 slot, u32 choice) noexcept {
     const auto& provider = s->providers[map.providers[slot]];
     PluginBrowserCommand cmd{};
     switch (map.provider_actions[slot][choice]) {
-    case PluginBrowserProviderAction::refresh: return plugin_browser_worker_check(true, provider.id);
+    case PluginBrowserProviderAction::refresh: return plugin_browser_worker_check(provider.id);
     case PluginBrowserProviderAction::checks:
         cmd.kind = Kind::provider_flags;
         cmd.provider = provider.id;
@@ -883,7 +883,7 @@ bool application_plugin_browser_activate(u64 id, const UiSettingsActivation& req
         if (state.tab == PluginBrowserTab::installed && !application_plugins_catalog_current()) application_plugins_discover();
         return true;
     }
-    if (id == kPluginBrowserStatusId) result = plugin_browser_worker_check(true);
+    if (id == kPluginBrowserStatusId) result = plugin_browser_worker_check();
     else if (id == kPluginBrowserRevokedId) result = g_revoked.owner && uninstall_owner(g_revoked.owner);
     else if (id == kPluginBrowserSearchId) {
         if (choice == 0) return open_search_form();
@@ -919,7 +919,7 @@ bool application_plugin_browser_activate(u64 id, const UiSettingsActivation& req
         result = e && command(cmd);
     } else if (id == kPluginBrowserUpdatesHeaderId) {
         const bool all = map.update_all && choice == 0;
-        result = all ? update_all() : plugin_browser_worker_check(true);
+        result = all ? update_all() : plugin_browser_worker_check();
     } else if (id == kPluginBrowserUpdatesToggleId || id == kPluginBrowserOfficialId) {
         PluginBrowserCommand cmd{};
         cmd.kind = Kind::official_flags;

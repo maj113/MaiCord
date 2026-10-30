@@ -7,7 +7,7 @@
 #include "application_friends.hpp"
 #include "application_retained_projection.hpp"
 #include "application_search.hpp"
-#include "application_settings.hpp"
+#include "application_panel_cover.hpp"
 #include "application_text_form.hpp"
 #include "rest_rate_retry.hpp"
 #include "maicord/app/pinned_message_controller.hpp"
@@ -26,15 +26,15 @@ struct ApplicationPinnedMessages {
     PinnedMessageController controller;
     PinnedMessageRequest submitted;
     PinnedMessageScope pressed_scope;
-    MessagePin decoded[kMessagePinsMaximumItems];
+    MessagePin decoded[kMessagePinsPageLimit];
     UiPinnedMessagesScene scene;
     UiPinnedMessagesSource source;
     UiPinnedMessagesContent content;
     UiPinnedMessagesTarget pressed;
-    char timestamps[kMessagePinsMaximumItems][128];
-    char details[kMessagePinsMaximumItems][192];
-    u16 timestamp_bytes[kMessagePinsMaximumItems], detail_bytes[kMessagePinsMaximumItems];
-    float body_heights[kMessagePinsMaximumItems];
+    char timestamps[kMessagePinsPageLimit][128];
+    char details[kMessagePinsPageLimit][192];
+    u16 timestamp_bytes[kMessagePinsPageLimit], detail_bytes[kMessagePinsPageLimit];
+    float body_heights[kMessagePinsPageLimit];
     char channel[160];
     u16 channel_bytes;
     u64 projected_revision, pressed_source_revision;
@@ -45,7 +45,7 @@ struct ApplicationPinnedMessages {
     TextFormOwnerKey confirmation;
     bool panel, captured, scrollbar_dragging, submitted_cancelled, confirming, confirmation_pin;
 };
-static_assert(sizeof(ApplicationPinnedMessages) <= 128 * 1024);
+static_assert(sizeof(ApplicationPinnedMessages) <= 68 * 1024);
 namespace {
 PinnedMessageScope scope() noexcept {
     if (!g_app.account_ui) return {};
@@ -73,9 +73,7 @@ bool source_current(void* context) noexcept {
            static_cast<ApplicationPinnedMessages*>(context)->panel;
 }
 bool front() noexcept {
-    return application_pinned_messages_available() && !application_settings_active() && !g_app.text_form &&
-           !g_app.popup_scene.active && !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active &&
-           !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active);
+    return application_pinned_messages_available() && application_panel_uncovered();
 }
 ApplicationPinnedMessages* ensure_owner() noexcept {
     if (!g_app.pinned_messages) {
@@ -418,8 +416,8 @@ bool application_pinned_messages_response(const RestClientResponse& response, Ut
             MessageHistoryDecodeScratch scratch{};
             if (application_message_decode_scratch(*g_app.account_ui, &scratch, body)) {
                 decoded = decode_message_pins_page(body, submitted.payload.query, scratch.page_structurals,
-                    scratch.message_structurals, scratch.maximum_depth, scratch.content,
-                    {value->decoded, kMessagePinsMaximumItems}, scratch.mention_users, scratch.rich);
+                    scratch.maximum_depth, scratch.content,
+                    {value->decoded, kMessagePinsPageLimit}, scratch.mention_users, scratch.rich);
                 if (decoded.ok()) completion.kind = PinnedMessageCompletionKind::success;
             }
         }

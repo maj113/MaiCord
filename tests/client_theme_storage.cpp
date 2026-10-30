@@ -230,6 +230,7 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
     completion.generation = 99;
     bool ready = true;
     check(client_theme_io_poll(io, &completion, &ready) && !ready && completion.generation == 99 &&
+              !client_theme_io_completion_pending(io) &&
               WaitForSingleObject(client_theme_io_completion_event(io), 0) == WAIT_TIMEOUT,
           "theme empty poll performs no file IO or snapshot publication");
     u64 generation = 0;
@@ -271,7 +272,8 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
               completion.result.error == ClientThemeStorageError::changed,
           "theme changed selected file is rejected by exact worker reopen identity fence");
     check(client_theme_io_submit_save(io, inactive, &generation) &&
-              WaitForSingleObject(client_theme_io_completion_event(io), 1500) == WAIT_OBJECT_0,
+              WaitForSingleObject(client_theme_io_completion_event(io), 1500) == WAIT_OBJECT_0 &&
+              client_theme_io_completion_pending(io),
           "theme accepted save publishes completion for exact cancellation test");
     client_theme_io_cancel(io, generation);
     completion.generation = 77;

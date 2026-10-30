@@ -43,7 +43,7 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
             if (d->expected_body_bytes == kHttpResponseLengthFromHead) {
                 if (parsed.head.has_content_length)
                     d->expected_body_bytes = parsed.head.content_length;
-                else if (http_response_body_kind(parsed.head, false, false) != HttpBodyKind::chunked)
+                else if (http_response_body_kind(parsed.head, false) != HttpBodyKind::chunked)
                     return fail(d, HttpResponseStreamError::unsupported_body, accepted);
             }
             if (parsed.head.has_content_length && parsed.head.content_length != d->expected_body_bytes)
@@ -57,7 +57,7 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
             if (readable.count) return fail(d, HttpResponseStreamError::unexpected_data, accepted);
             return step(*d, accepted);
         }
-        const auto kind = http_response_body_kind(d->parsed_head, false, false);
+        const auto kind = http_response_body_kind(d->parsed_head, false);
         if (kind == HttpBodyKind::chunked) {
             const bool open = d->expected_body_bytes == kHttpResponseLengthFromHead;
             const auto chunk = http_chunk_decode(&d->chunk_decoder, readable);

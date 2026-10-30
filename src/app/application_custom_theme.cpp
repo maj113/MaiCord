@@ -416,41 +416,12 @@ bool application_custom_theme_restore(const ClientThemeStorageSnapshot& snapshot
     adopt_effective(*o);
     return !persist || save(*o);
 }
-void application_custom_theme_poll() noexcept {
-    auto* o = owner;
-    if (!o || o->releasing)
-        return;
-    if (o->selecting && !interaction_current(*o))
-        cancel(*o);
-    if (o->picker.runtime) {
-        const auto selected = native_file_picker_status(&o->picker);
-        if (selected.phase == NativeFilePickerPhase::complete && !o->picker_consumed) {
-            if (o->selecting && interaction_current(*o) && selected.ok() && selected.count == 1) {
-                const auto path = native_file_picker_path(&o->picker, 0);
-                if (path.count && path.count < kClientThemeIoMaximumPathUnits &&
-                    native_file_picker_snapshot(&o->picker, 0, &o->import_identity)) {
-                    copy_bytes(o->import_path, path.data, path.count * sizeof(wchar_t));
-                    o->import_path[path.count] = 0;
-                    o->import_units = path.count;
-                    start_import(*o);
-                } else {
-                    o->status =
-                        utf8_literal("The selected path is too long or unavailable. Choose another file.");
-                    changed(*o);
-                }
-            } else if (o->selecting) {
-                reset_value<Utf8View>(&o->status);
-                changed(*o);
-            }
-            o->selecting = false;
-            o->picker_consumed = true;
-        }
-        if (o->picker_consumed)
-            native_file_picker_release(&o->picker, 0);
-    }
+namespace {
+// Out of line: the completion holds a whole theme snapshot, and the poll runs on every loop wake.
+__declspec(noinline) void complete_io(CustomThemeOwner* o) noexcept {
     ClientThemeIoCompletion completion{};
     bool ready{};
-    if (!o->io || !client_theme_io_poll(o->io, &completion, &ready) || !ready)
+    if (!client_theme_io_poll(o->io, &completion, &ready) || !ready)
         return;
     if (completion.operation == ClientThemeIoOperation::load &&
         completion.generation == o->load_generation && o->loading) {
@@ -519,6 +490,42 @@ void application_custom_theme_poll() noexcept {
     }
     if (o->catalog_wanted)
         submit_catalog(*o);
+}
+} // namespace
+void application_custom_theme_poll() noexcept {
+    auto* o = owner;
+    if (!o || o->releasing)
+        return;
+    if (o->selecting && !interaction_current(*o))
+        cancel(*o);
+    if (o->picker.runtime) {
+        const auto selected = native_file_picker_status(&o->picker);
+        if (selected.phase == NativeFilePickerPhase::complete && !o->picker_consumed) {
+            if (o->selecting && interaction_current(*o) && selected.ok() && selected.count == 1) {
+                const auto path = native_file_picker_path(&o->picker, 0);
+                if (path.count && path.count < kClientThemeIoMaximumPathUnits &&
+                    native_file_picker_snapshot(&o->picker, 0, &o->import_identity)) {
+                    copy_bytes(o->import_path, path.data, path.count * sizeof(wchar_t));
+                    o->import_path[path.count] = 0;
+                    o->import_units = path.count;
+                    start_import(*o);
+                } else {
+                    o->status =
+                        utf8_literal("The selected path is too long or unavailable. Choose another file.");
+                    changed(*o);
+                }
+            } else if (o->selecting) {
+                reset_value<Utf8View>(&o->status);
+                changed(*o);
+            }
+            o->selecting = false;
+            o->picker_consumed = true;
+        }
+        if (o->picker_consumed)
+            native_file_picker_release(&o->picker, 0);
+    }
+    if (o->io && client_theme_io_completion_pending(o->io))
+        complete_io(o);
 }
 bool application_custom_theme_synchronize() noexcept {
     auto* o = owner;

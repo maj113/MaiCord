@@ -929,5 +929,19 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
             valid = r->response_input[byte] == 0;
     }
     check(valid, "rest_partial_header_cancel_clears_unsent_header_suffix");
+    {
+        RestStorageProbe probe;
+        bool valid = probe.initialize(4096) && probe.begin_request(true) &&
+                     probe.respond(200, utf8_literal("{}"), {}, 1000);
+        auto* r = probe.runtime;
+        valid = valid && r->transport_idle_since_ms == 1000 && r->connection_request_count == 1;
+        r->transport_ready = true;
+        retire_idle_transport(r, 1000 + kTlsStreamIdleReuseMs - 1);
+        valid = valid && r->transport_ready && r->transport.state == TlsStreamState::ready;
+        retire_idle_transport(r, 1000 + kTlsStreamIdleReuseMs);
+        valid = valid && !r->transport_ready && !r->connection_request_count &&
+                r->transport.state == TlsStreamState::closed;
+        check(valid, "rest_idle_connection_is_retired_before_the_edge_closes_it");
+    }
 }
 } // namespace maicord

@@ -170,8 +170,17 @@ struct RestRequestDiagnostics {
     RestMethod method;
 };
 
+// The server's rate-limit timing for one response; bucket identity and limits
+// stay with the scheduler.
+struct RestClientRate {
+    u64 reset_after_ms;
+    u64 retry_after_ms;
+    u32 fields;
+    u32 remaining;
+};
+
 struct RestClientResponse {
-    RateLimitHeaders rate;
+    RestClientRate rate;
     u64 request_id;
     // Monotonic Retry-After deadline; a floor for eligible retries, never
     // permission to replay. Action-required responses clear this value.
@@ -189,12 +198,13 @@ struct RestClientResponse {
     bool reused_connection;
     ApiRejection rejection;
     RestRequestDiagnostics diagnostics;
-    u32 wire_body_bytes;
-    u32 decode_us;
-    RestContentEncoding wire_content_encoding;
 
     constexpr bool transport_ok() const noexcept {
         return error == RestClientError::none;
+    }
+    // A completed exchange with a 2xx status.
+    constexpr bool succeeded() const noexcept {
+        return error == RestClientError::none && status_code >= 200 && status_code < 300;
     }
 };
 

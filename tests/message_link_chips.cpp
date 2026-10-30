@@ -447,7 +447,6 @@ void test_refresh_request(Check check) noexcept {
                                kAttachmentRefreshRoute.method,
                                RestAuthorization::normal_user,
                                true,
-                               false,
                                &headers};
     static u8 output[4096];
     const auto written = write_rest_request_head(head, {output, sizeof(output)});

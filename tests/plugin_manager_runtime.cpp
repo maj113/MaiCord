@@ -469,7 +469,7 @@ void test_worker() noexcept {
         providers.count == 0, "plugin worker: removing the provider drops its entry");
     // A revocation reaches the UI through the view.
     const u64 revoked_serial = g_view.revoked_serial;
-    check(publish({kSequence + 7, true, g.sha[2], false, true}) && plugin_browser_worker_check(true) &&
+    check(publish({kSequence + 7, true, g.sha[2], false, true}) && plugin_browser_worker_check() &&
         wait_view([revoked_serial](const PluginBrowserWorkerView& v) noexcept { return v.revoked_serial > revoked_serial && v.phase == PluginBrowserPhase::idle; }) &&
         g_view.revoked_count == 1 && g_view.revoked[0].owner == kOwner && trust_count() == 0,
         "plugin worker: a manual check publishes the revocation and removes the trust");

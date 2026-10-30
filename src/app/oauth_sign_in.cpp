@@ -27,12 +27,6 @@ struct Runtime {
 };
 Runtime* get(const OAuthSignIn* owner) noexcept { return owner ? static_cast<Runtime*>(owner->runtime) : nullptr; }
 bool empty(const SecureBuffer* b) noexcept { return b && !b->data && !b->capacity && !b->bytes && !b->locked; }
-bool external(const OAuthSignIn* owner, const Runtime& r, const SecureBuffer* b) noexcept {
-    return empty(b) && !byte_ranges_overlap_or_wrap(b, sizeof(*b), owner, sizeof(*owner)) &&
-        !byte_ranges_overlap_or_wrap(b, sizeof(*b), &r, sizeof(r)) &&
-        !byte_ranges_overlap_or_wrap(b, sizeof(*b), r.proof.data, r.proof.capacity) &&
-        !byte_ranges_overlap_or_wrap(b, sizeof(*b), r.wire.data, r.wire.capacity);
-}
 OAuthSignInStatus snapshot(Runtime& r) noexcept {
     AcquireSRWLockShared(&r.lock); const auto status = r.status; ReleaseSRWLockShared(&r.lock); return status;
 }
@@ -218,7 +212,7 @@ bool oauth_sign_in_url(const OAuthSignIn* owner, u64 generation, SecureBuffer* o
     SecureBuffer url{};
     if (!secure_buffer_initialize(&url, 1024).ok()) return false;
     AcquireSRWLockShared(&r->lock);
-    if (external(owner, *r, output) && r->status.generation == generation && r->status.phase == Phase::waiting) {
+    if (r->status.generation == generation && r->status.phase == Phase::waiting) {
         const auto& proof = *reinterpret_cast<OAuthProof*>(r->proof.data);
         url.bytes = oauth_authorize(r->provider, {r->client_id, r->client_bytes}, r->status.port,
             {proof.state, kOAuthProofBytes}, {proof.challenge, kOAuthProofBytes}, {url.data, url.capacity});
@@ -230,7 +224,7 @@ bool oauth_sign_in_url(const OAuthSignIn* owner, u64 generation, SecureBuffer* o
 bool oauth_sign_in_take(OAuthSignIn* owner, u64 generation, SecureBuffer* output) noexcept {
     auto* r = get(owner); if (!r) return false;
     AcquireSRWLockExclusive(&r->lock);
-    const bool taken = external(owner, *r, output) && r->status.generation == generation && r->status.phase == Phase::ready &&
+    const bool taken = empty(output) && r->status.generation == generation && r->status.phase == Phase::ready &&
                        secure_buffer_transfer(output, &r->tokens);
     if (taken) r->status.phase = Phase::complete;
     ReleaseSRWLockExclusive(&r->lock); return taken;

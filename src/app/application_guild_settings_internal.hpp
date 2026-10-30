@@ -319,6 +319,9 @@ struct Settings {
     u64 order[kGuildRoleMaximum];
     u32 order_count;
     bool order_dirty;
+    // The reorder request's roles and rows, built as the save is sent.
+    const RoleRecord* order_rows[kGuildRoleMaximum];
+    GuildAdminPosition positions[kGuildRoleMaximum];
     u64 count_role[kGuildRoleMaximum];
     u32 count_value[kGuildRoleMaximum];
     u32 counts;

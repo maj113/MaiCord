@@ -265,7 +265,6 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
                             RestMethod::get,
                             RestAuthorization::normal_user,
                             false,
-                            false,
                             &headers};
     auto written = write_rest_request_head(request, {output, sizeof(output)});
     auto view = Utf8View{reinterpret_cast<const char*>(output), written.bytes};

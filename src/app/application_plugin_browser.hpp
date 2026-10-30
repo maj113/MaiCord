@@ -81,8 +81,8 @@ bool plugin_browser_worker_running() noexcept;
 HANDLE plugin_browser_worker_notification() noexcept;
 // Copies the view when its revision differs from seen; false otherwise.
 bool plugin_browser_worker_view(PluginBrowserWorkerView* view, u64 seen) noexcept;
-// manual: the user asked (Check now, Refresh); provider 0 checks every enabled provider.
-bool plugin_browser_worker_check(bool manual, u64 provider = 0) noexcept;
+// The user asked (Check now, Refresh); provider 0 checks every enabled provider.
+bool plugin_browser_worker_check(u64 provider = 0) noexcept;
 // Browse was opened: checks may run from now on, and once per hour on open.
 void plugin_browser_worker_browse() noexcept;
 // A snapshot is wanted (after every change) until cleared.

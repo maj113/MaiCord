@@ -283,6 +283,17 @@ u32 inline_cache_index(const ApplicationMediaPicker& p, Utf8View query) noexcept
             return i;
     return kInlineGifCacheCapacity;
 }
+// Makes `bank` the first entry, shifting the entries before `last` down over slot `last`.
+void inline_cache_front(ApplicationMediaPicker& p, u32 last, Utf8View query, CatalogBank* bank) noexcept {
+    for (u32 i = last; i; --i) {
+        p.inline_cache[i] = p.inline_cache[i - 1];
+        p.inline_cache_query_bytes[i] = p.inline_cache_query_bytes[i - 1];
+        CopyMemory(p.inline_cache_query[i], p.inline_cache_query[i - 1], p.inline_cache_query_bytes[i]);
+    }
+    p.inline_cache[0] = bank;
+    p.inline_cache_query_bytes[0] = static_cast<u16>(query.bytes);
+    CopyMemory(p.inline_cache_query[0], query.data, query.bytes);
+}
 // Keeps a query's results first, evicting the least recently used.
 void inline_cache_keep(ApplicationMediaPicker& p, Utf8View query, CatalogBank* bank) noexcept {
     if (!bank || query.bytes > kMediaCatalogMaximumQueryBytes)
@@ -294,14 +305,7 @@ void inline_cache_keep(ApplicationMediaPicker& p, Utf8View query, CatalogBank* b
         inline_cache_drop(p, at);
     if (p.inline_cache[kInlineGifCacheCapacity - 1])
         inline_cache_drop(p, kInlineGifCacheCapacity - 1);
-    for (u32 i = kInlineGifCacheCapacity - 1; i; --i) {
-        p.inline_cache[i] = p.inline_cache[i - 1];
-        p.inline_cache_query_bytes[i] = p.inline_cache_query_bytes[i - 1];
-        CopyMemory(p.inline_cache_query[i], p.inline_cache_query[i - 1], p.inline_cache_query_bytes[i]);
-    }
-    p.inline_cache[0] = bank;
-    p.inline_cache_query_bytes[0] = static_cast<u16>(query.bytes);
-    CopyMemory(p.inline_cache_query[0], query.data, query.bytes);
+    inline_cache_front(p, kInlineGifCacheCapacity - 1, query, bank);
 }
 // A cached query's bank, moved first; null when the query was never answered.
 CatalogBank* inline_cache_take(ApplicationMediaPicker& p, Utf8View query) noexcept {
@@ -309,14 +313,7 @@ CatalogBank* inline_cache_take(ApplicationMediaPicker& p, Utf8View query) noexce
     if (at == kInlineGifCacheCapacity)
         return nullptr;
     auto* bank = p.inline_cache[at];
-    for (u32 i = at; i; --i) {
-        p.inline_cache[i] = p.inline_cache[i - 1];
-        p.inline_cache_query_bytes[i] = p.inline_cache_query_bytes[i - 1];
-        CopyMemory(p.inline_cache_query[i], p.inline_cache_query[i - 1], p.inline_cache_query_bytes[i]);
-    }
-    p.inline_cache[0] = bank;
-    p.inline_cache_query_bytes[0] = static_cast<u16>(query.bytes);
-    CopyMemory(p.inline_cache_query[0], query.data, query.bytes);
+    inline_cache_front(p, at, query, bank);
     return bank;
 }
 // The account's cache goes with it; current results keep their own bank.

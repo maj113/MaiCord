@@ -59,6 +59,7 @@ struct CdnClientRuntime {
     u8* response_head;
     u8* response_body;
     u64 deadline_ms;
+    u64 transport_idle_since_ms;
     u32 allocation_bytes;
     u32 storage_committed_bytes;
     u32 response_capacity;
@@ -209,6 +210,14 @@ void close_transport(CdnClientRuntime* runtime) noexcept {
     }
     runtime->transport_ready = false;
     runtime->connection_request_count = 0;
+}
+
+// Connects afresh once an idle connection is old enough for the edge to have
+// closed it (see kTlsStreamIdleReuseMs).
+void retire_idle_transport(CdnClientRuntime* runtime, u64 now_ms) noexcept {
+    if (runtime->transport_ready &&
+        now_ms >= deadline_after(runtime->transport_idle_since_ms, kTlsStreamIdleReuseMs))
+        close_transport(runtime);
 }
 
 bool transport_drained(CdnClientRuntime* runtime) noexcept {
@@ -515,6 +524,7 @@ bool finish_http_response(CdnClient* client, CdnClientRuntime* runtime, NetworkL
         begin_drain(client, runtime, CdnClientError::response, runtime->policy.error, 0);
         return false;
     }
+    runtime->transport_idle_since_ms = now_ms;
     ++runtime->connection_request_count;
     const bool reusable =
         runtime->response.connection_reusable && runtime->transport.state == TlsStreamState::ready;
@@ -625,6 +635,7 @@ void activate_request(CdnClient* client, CdnClientRuntime* runtime, NetworkLoop*
     runtime->request_started_counter = clock_now();
     runtime->deadline_ms = deadline_after(now_ms, runtime->command.timeout_ms);
     runtime->redirects = 0;
+    retire_idle_transport(runtime, now_ms);
     runtime->logical_reused_connection = runtime->transport_ready &&
                                          runtime->transport_host == runtime->command.host &&
                                          runtime->connection_request_count != 0;

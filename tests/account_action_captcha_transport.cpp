@@ -72,7 +72,7 @@ void retry() noexcept {
     u8 head[16 * 1024]{};
     const auto written = write_rest_request_head(
         {{p.runtime->request_target, p.runtime->command.target_bytes}, {}, p.runtime->command.body_bytes,
-         RestMethod::post, RestAuthorization::none, true, false, nullptr, true, {}, p.headers()},
+         RestMethod::post, RestAuthorization::none, true, nullptr, true, {}, p.headers()},
         {head, sizeof(head)});
     check(written.ok() && contains({head, written.bytes}, utf8_literal("\r\nX-Captcha-Rqtoken: rq.abc\r\n")) &&
               contains({head, written.bytes}, utf8_literal("X-Context-Properties: eyJ4IjoxfQ==\r\nX-Captcha-Key")) &&

@@ -1075,6 +1075,53 @@ bool application_poll_submit(u64 id, u64 now) noexcept {
     changed();
     return true;
 }
+// The decode branches of a poll response keep their scratch (several KB) out of the response handler's frame.
+static __declspec(noinline) bool decode_voter_page(PollOwner& value, Utf8View body, u8 bank,
+                                                   ConstSlice<ReactionUser>* users) noexcept {
+    if (!page_storage(bank))
+        return false;
+    auto& page = *value.pages[bank];
+    u32 object_scratch[256]{};
+    const auto decoded = decode_poll_voters(
+        body, {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
+        {object_scratch, 256}, 64, {page.users, page_limit}, {page.text, page_text_bytes});
+    if (!decoded.ok())
+        return false;
+    *users = {page.users, decoded.users.user_count};
+    return true;
+}
+static __declspec(noinline) bool apply_poll_message(PollOwner& value, Utf8View body) noexcept {
+    GatewayMessagePollAnswer answers[kGatewayMessagePollMaximumAnswers]{};
+    GatewayMessagePollAnswerCount counts[kGatewayMessagePollMaximumAnswers]{};
+    char text[kGatewayMessagePollQuestionMaximumBytes +
+              kGatewayMessagePollMaximumAnswers *
+                  (kGatewayMessagePollAnswerMaximumBytes + kGatewayMessagePollEmojiMaximumBytes)]{};
+    GatewayMessagePoll dto{};
+    const auto decoded = decode_poll_message(
+        body, value.source.source.channel_id, value.source.source.message_id,
+        {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount}, 64,
+        {text, sizeof(text)},
+        {{answers, kGatewayMessagePollMaximumAnswers}, {counts, kGatewayMessagePollMaximumAnswers}}, &dto);
+    if (!decoded.ok())
+        return false;
+    const auto applied = message_poll_store_apply(&g_app.account_ui->message_poll_store,
+                                                  value.source.source.message_id,
+                                                  value.source.source.channel_id, dto, 0, &value.result_ticket);
+    const bool valid = applied.ok();
+    const auto* p = poll(value.source);
+    if (valid && p) {
+        const auto authority = snapshot(value.source, *p);
+        poll_controller_observe(&value.controller, authority, !applied.results_ignored);
+        if (!applied.results_ignored && authority.mine_known) {
+            for (auto& id : value.uncertain_messages)
+                if (id == p->message_id)
+                    id = 0;
+            value.source_checked = true;
+        }
+    } else if (!p)
+        application_poll_close();
+    return valid;
+}
 bool application_poll_response(const RestClientResponse& response, Utf8View body) noexcept {
     if (!owner || !owner->controller.flight.active || !response.request_id ||
         owner->controller.flight.ticket.request_id != response.request_id)
@@ -1089,53 +1136,10 @@ bool application_poll_response(const RestClientResponse& response, Utf8View body
     const u8 candidate_bank = value.bank ^ 1;
     if (fresh && flight.command.kind != PollControllerWorkKind::vote && successful) {
         valid = body.data && body.bytes == response.body_bytes && body.bytes <= kPollMaximumResponseBytes;
-        if (valid && flight.command.kind == PollControllerWorkKind::voters) {
-            valid = page_storage(candidate_bank);
-            if (valid) {
-                auto& page = *value.pages[candidate_bank];
-                u32 object_scratch[256]{};
-                const auto decoded = decode_poll_voters(
-                    body,
-                    {g_app.account_ui->message_history_page_structurals,
-                     kMessageHistoryPageStructuralCount},
-                    {object_scratch, 256}, 64, {page.users, page_limit}, {page.text, page_text_bytes});
-                valid = decoded.ok();
-                if (valid)
-                    users = {page.users, decoded.users.user_count};
-            }
-        } else if (valid) {
-            GatewayMessagePollAnswer answers[kGatewayMessagePollMaximumAnswers]{};
-            GatewayMessagePollAnswerCount counts[kGatewayMessagePollMaximumAnswers]{};
-            char text[kGatewayMessagePollQuestionMaximumBytes +
-                      kGatewayMessagePollMaximumAnswers *
-                          (kGatewayMessagePollAnswerMaximumBytes + kGatewayMessagePollEmojiMaximumBytes)]{};
-            GatewayMessagePoll dto{};
-            const auto decoded = decode_poll_message(
-                body, value.source.source.channel_id, value.source.source.message_id,
-                {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
-                64, {text, sizeof(text)},
-                {{answers, kGatewayMessagePollMaximumAnswers}, {counts, kGatewayMessagePollMaximumAnswers}},
-                &dto);
-            valid = decoded.ok();
-            if (valid) {
-                const auto applied = message_poll_store_apply(
-                    &g_app.account_ui->message_poll_store, value.source.source.message_id,
-                    value.source.source.channel_id, dto, 0, &value.result_ticket);
-                valid = applied.ok();
-                const auto* p = poll(value.source);
-                if (valid && p) {
-                    const auto authority = snapshot(value.source, *p);
-                    poll_controller_observe(&value.controller, authority, !applied.results_ignored);
-                    if (!applied.results_ignored && authority.mine_known) {
-                        for (auto& id : value.uncertain_messages)
-                            if (id == p->message_id)
-                                id = 0;
-                        value.source_checked = true;
-                    }
-                } else if (!p)
-                    application_poll_close();
-            }
-        }
+        if (valid && flight.command.kind == PollControllerWorkKind::voters)
+            valid = decode_voter_page(value, body, candidate_bank, &users);
+        else if (valid)
+            valid = apply_poll_message(value, body);
     }
     // The official client applies an accepted vote locally and waits for the
     // gateway echo instead of refetching the message; the store update is

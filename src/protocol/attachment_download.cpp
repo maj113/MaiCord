@@ -139,7 +139,7 @@ HttpHeadResult attachment_download_parse_response_head(void* context, ConstSlice
     if (parsed.head.has_content_length && parsed.head.content_length > policy->maximum_size)
         return rejected(policy, AttachmentDownloadResponseError::size_limit, parsed.head);
     if (from_head && !parsed.head.has_content_length &&
-        http_response_body_kind(parsed.head, false, false) != HttpBodyKind::chunked)
+        http_response_body_kind(parsed.head, false) != HttpBodyKind::chunked)
         return rejected(policy, AttachmentDownloadResponseError::size_mismatch, parsed.head);
     if (!from_head && parsed.head.has_content_length && parsed.head.content_length != policy->expected_size)
         return rejected(policy, AttachmentDownloadResponseError::size_mismatch, parsed.head);

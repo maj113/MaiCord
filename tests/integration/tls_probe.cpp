@@ -45,7 +45,7 @@ bool request_http(ProbeTransport* transport) noexcept {
                 continue;
             }
             return parsed.head.status_code >= 200 && parsed.head.status_code < 400 &&
-                   http_response_body_kind(parsed.head, true, false) == HttpBodyKind::none;
+                   http_response_body_kind(parsed.head, true) == HttpBodyKind::none;
         }
     }
     return false;

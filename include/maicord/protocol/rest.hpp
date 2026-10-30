@@ -36,7 +36,6 @@ enum class RestMethod : u8 {
 
 enum class RestAuthorization : u8 {
     none,
-    bearer,
     normal_user,
 };
 
@@ -62,7 +61,6 @@ struct RestRequestHead {
     // False sends no Content-Type; a bodyless POST or PUT still carries
     // Content-Length: 0.
     bool json_body;
-    bool close_connection;
     const RestUserRequestHeaders* user_headers;
     bool accept_gzip;
     // Already percent-encoded (rest_encode_audit_reason); empty omits

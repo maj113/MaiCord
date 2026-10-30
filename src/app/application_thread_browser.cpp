@@ -9,7 +9,7 @@
 #include "application_message_interaction.hpp"
 #include "application_search.hpp"
 #include "application_pinned_messages.hpp"
-#include "application_settings.hpp"
+#include "application_panel_cover.hpp"
 #include "application_friends.hpp"
 #include "application_forum_post.hpp"
 #include "application_forum_form.hpp"
@@ -147,14 +147,8 @@ bool current(const ApplicationThreadBrowser& value) noexcept {
         parent->guild_id == value.scope.guild && g_app.account_ui->active_channel_id == value.scope.underlying_channel &&
         g_app.account_ui->chat_state.selected_guild_id == value.scope.guild;
 }
-// No settings page, form, popup, viewer or profile covers the browser's host view.
-bool uncovered() noexcept {
-    return !application_settings_active() && !g_app.text_form && !g_app.popup_scene.active &&
-        !g_app.image_viewer.scene.active && !g_app.reaction_viewer.active &&
-        !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active);
-}
 bool front() noexcept {
-    return application_thread_browser_active() && !application_forum_form_active() && uncovered();
+    return application_thread_browser_active() && !application_forum_form_active() && application_panel_uncovered();
 }
 void invalidate(ApplicationThreadBrowser& value) noexcept {
     value.publication = ++browser_publication;
@@ -1041,7 +1035,7 @@ bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lpar
     const float client_x = static_cast<short>(LOWORD(lparam)) * scale;
     const float client_y = static_cast<short>(HIWORD(lparam)) * scale;
     const bool header = ui_rect_contains(ui_scene_header_geometry(g_app.shell_scene).threads, client_x, client_y);
-    const bool header_front = application_thread_browser_available() && !application_forum_form_active() && uncovered();
+    const bool header_front = application_thread_browser_available() && !application_forum_form_active() && application_panel_uncovered();
     if (message == WM_LBUTTONDOWN && header && header_front) {
         if (!ensure_owner()) return true;
         auto& value = *browser_owner;
@@ -1131,7 +1125,7 @@ bool application_thread_browser_window_message(UINT message, WPARAM, LPARAM lpar
 bool application_thread_browser_input(UiInputKind kind, u32 code, bool repeated) noexcept {
     auto* value = browser_owner;
     if ((kind == UiInputKind::key_down || kind == UiInputKind::system_key_down) &&
-        (code == VK_RETURN || code == VK_SPACE) && application_thread_browser_available() && uncovered() &&
+        (code == VK_RETURN || code == VK_SPACE) && application_thread_browser_available() && application_panel_uncovered() &&
         g_app.context_focus == &g_app.shell_scene.widgets) {
         const auto handle = g_app.shell_scene.semantics[static_cast<u32>(UiSemantic::threads_toggle)];
         const auto focused = g_app.shell_scene.widgets.focused;

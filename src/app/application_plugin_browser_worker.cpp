@@ -42,7 +42,7 @@ struct Worker {
     PluginCatalogSnapshot* snapshot;
     PluginBrowserCommand command;
     u64 command_serial, next_serial, check_provider;
-    bool command_pending, command_running, check_requested, manual_check, browse_opened, want_snapshot, snapshot_dirty;
+    bool command_pending, command_running, check_requested, browse_opened, want_snapshot, snapshot_dirty;
     UpdateHttpsTransport* volatile active_https;
     // Worker thread only.
     u32 failures;
@@ -419,18 +419,18 @@ DWORD WINAPI worker_main(void* parameter) noexcept {
         const u64 serial = w->command_serial;
         w->command_pending = false;
         w->command_running = command;
-        const bool check = w->check_requested, manual = w->manual_check, browse = w->browse_opened, snapshot = w->snapshot_dirty && w->want_snapshot;
+        const bool check = w->check_requested, browse = w->browse_opened, snapshot = w->snapshot_dirty && w->want_snapshot;
         const u64 provider = w->check_provider;
-        w->check_requested = w->manual_check = w->browse_opened = w->snapshot_dirty = false;
+        w->check_requested = w->browse_opened = w->snapshot_dirty = false;
         w->check_provider = 0;
         const u64 checked = w->view.checked_unix;
         ReleaseSRWLockExclusive(w->lock.native());
         if (command) run_command(w, cmd, serial);
         const u64 at = now_unix(w);
         bool due = check || (w->next_check && at >= w->next_check);
-        if (browse || manual) w->catalog_used = true;
+        if (browse || check) w->catalog_used = true;
         if (browse && (!checked || at - checked >= kBrowseRefreshSeconds)) due = true;
-        if (due) run_check(w, manual, manual ? provider : 0);
+        if (due) run_check(w, check, provider);
         else if (snapshot) build_snapshot(w);
     }
     return 0;
@@ -494,12 +494,11 @@ bool plugin_browser_worker_view(PluginBrowserWorkerView* view, u64 seen) noexcep
     ReleaseSRWLockShared(w->lock.native());
     return changed;
 }
-bool plugin_browser_worker_check(bool manual, u64 provider) noexcept {
+bool plugin_browser_worker_check(u64 provider) noexcept {
     Worker* w = g_worker;
     if (!w) return false;
     AcquireSRWLockExclusive(w->lock.native());
     w->check_requested = true;
-    w->manual_check = w->manual_check || manual;
     w->check_provider = provider;
     ReleaseSRWLockExclusive(w->lock.native());
     return SetEvent(w->wake) != FALSE;

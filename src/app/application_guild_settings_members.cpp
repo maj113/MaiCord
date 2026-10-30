@@ -740,9 +740,10 @@ bool members_search_request(GuildModerationRequest* request, GuildMemberSearchQu
     request->operation = GuildModerationOperation::members_search;
     request->guild_id = p.guild_id;
     request->search = query;
-    // An identical body was already asked; a 202 retry sends it again.
-    u8 body[kGuildModerationMaximumBodyBytes];
-    const auto written = guild_moderation_write_body(*request, {body, sizeof(body)});
+    // An identical body was already asked; a 202 retry sends it again. The page scratch is idle while a request is built.
+    static_assert(kGuildModerationMaximumBodyBytes <= sizeof(p.scratch));
+    auto* body = reinterpret_cast<u8*>(p.scratch);
+    const auto written = guild_moderation_write_body(*request, {body, kGuildModerationMaximumBodyBytes});
     if (!written.ok())
         return false;
     const u64 hash = hash64_counted_bytes(kHash64Seed, body, written.bytes);

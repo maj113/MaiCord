@@ -162,21 +162,22 @@ bool feature_names_valid(ConstSlice<u8> names, u16 count) noexcept {
 bool guild_patch_valid(const GuildSettingsPatch& patch) noexcept {
     const u16 f = patch.fields;
     constexpr u16 alone = guild_settings_patch_widget | guild_settings_patch_profile | guild_settings_patch_vanity;
-    // An original file accompanies only a new image (a data URI).
-    const auto original_valid = [&](ConstSlice<u8> original, u16 field, Utf8View value) noexcept {
-        return original.data ? original.count && (f & field) && data_uri_valid(value) : !original.count;
+    // A banner or splash: an original file accompanies only a new image (a data URI); otherwise a data URI, a
+    // stored hash or null.
+    const auto image_valid = [&](u16 field, Utf8View value, ConstSlice<u8> original) noexcept {
+        if (!(f & field))
+            return !original.data && !original.count;
+        return original.data ? original.count && data_uri_valid(value) : !original.count && image_value_valid(value);
     };
     return f && (!(f & alone) || !(f & (f - 1))) &&
            ((f & guild_settings_patch_profile) ? patch.profile && profile_write_valid(*patch.profile)
                                                : !patch.profile) &&
            ((f & guild_settings_patch_vanity) ? vanity_code_valid(patch.vanity_code) : !patch.vanity_code.bytes) &&
-           original_valid(patch.banner_original, guild_settings_patch_banner, patch.banner) &&
-           original_valid(patch.splash_original, guild_settings_patch_splash, patch.splash) &&
+           image_valid(guild_settings_patch_banner, patch.banner, patch.banner_original) &&
+           image_valid(guild_settings_patch_splash, patch.splash, patch.splash_original) &&
            (!(f & guild_settings_patch_features) || feature_names_valid(patch.feature_names, patch.feature_count)) &&
            (!(f & guild_settings_patch_name) || text_valid(patch.name, 2, kGuildAdminNameCodepoints, true)) &&
            (!(f & guild_settings_patch_icon) || image_value_valid(patch.icon)) &&
-           (!(f & guild_settings_patch_banner) || image_value_valid(patch.banner)) &&
-           (!(f & guild_settings_patch_splash) || image_value_valid(patch.splash)) &&
            (!(f & guild_settings_patch_afk_timeout) ||
             patch.afk_timeout_seconds == 60 || patch.afk_timeout_seconds == 300 ||
             patch.afk_timeout_seconds == 900 || patch.afk_timeout_seconds == 1800 ||
@@ -1472,7 +1473,7 @@ RestRouteKey guild_admin_route(const GuildAdminRequest& r) noexcept {
 }
 
 GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> output) noexcept {
-    if (!guild_admin_request_valid(r) || !byte_range_valid({output.data, output.count}))
+    if (!byte_range_valid({output.data, output.count}))
         return {0, 0, GuildAdminError::input};
     u8 target[kGuildAdminMaximumTargetBytes];
     ProtocolWriter w{{target, sizeof(target)}, 0};
@@ -1572,7 +1573,7 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
 }
 
 GuildAdminResult guild_admin_write_body(const GuildAdminRequest& r, Slice<u8> output) noexcept {
-    if (!guild_admin_request_valid(r) || !byte_range_valid({output.data, output.count}))
+    if (!byte_range_valid({output.data, output.count}))
         return {0, 0, GuildAdminError::input};
     if (!guild_admin_has_body(r.operation))
         return {0, 0, GuildAdminError::none};
@@ -1588,7 +1589,7 @@ GuildAdminResult guild_admin_write_body(const GuildAdminRequest& r, Slice<u8> ou
 }
 
 bool guild_admin_reason_header(const GuildAdminRequest& r) noexcept {
-    return guild_admin_request_valid(r) && r.reason.data && r.operation != Op::member_kick;
+    return r.reason.data && r.operation != Op::member_kick;
 }
 
 u32 guild_admin_image_bytes(const GuildAdminRequest& r) noexcept {
@@ -1656,7 +1657,7 @@ void guild_admin_md5_hex(const u8 (&digest)[16], char (&output)[32]) noexcept {
 }
 
 GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& r, Slice<u8> output) noexcept {
-    if (!guild_admin_request_valid(r) || !byte_range_valid({output.data, output.count}))
+    if (!byte_range_valid({output.data, output.count}))
         return {0, 0, GuildAdminError::input};
     if (!r.reason.bytes || r.operation == Op::member_kick)
         return {0, 0, GuildAdminError::none};

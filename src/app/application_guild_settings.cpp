@@ -1523,7 +1523,6 @@ bool application_guild_settings_submit(u64 now) noexcept {
     GuildServerProfileTraitWrite profile_traits[kGuildAdminProfileTraits];
     RolePatch role_patch{};
     GuildAdminPageQuery query{};
-    GuildAdminPosition positions[kGuildRoleMaximum];
     GuildAssetRequest asset{};
     asset.guild_id = p.guild_id;
     asset.target_id = p.request.target;
@@ -1654,12 +1653,11 @@ bool application_guild_settings_submit(u64 now) noexcept {
         break;
     case Op::role_reorder: {
         request.operation = GuildAdminOperation::role_reorder;
-        const RoleRecord* order[kGuildRoleMaximum];
-        const u32 count = resolve_order(order);
-        const u32 written =
-            guild_settings_role_positions({order, count}, p.guild_id, {positions, kGuildRoleMaximum});
+        const u32 count = resolve_order(p.order_rows);
+        const u32 written = guild_settings_role_positions({p.order_rows, count}, p.guild_id,
+                                                          {p.positions, kGuildRoleMaximum});
         valid = written != ~0u && written;
-        request.positions = {positions, written == ~0u ? 0 : written};
+        request.positions = {p.positions, written == ~0u ? 0 : written};
         break;
     }
     case Op::ban_list:

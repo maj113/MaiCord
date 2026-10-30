@@ -5,6 +5,8 @@
 namespace maicord {
 
 inline constexpr u32 kMessagePinsMaximumItems = 50;
+// The pins panel's page size, as in the official client's list requests.
+inline constexpr u32 kMessagePinsPageLimit = 25;
 inline constexpr u32 kMessagePinsCursorMaximumBytes = 40;
 inline constexpr u32 kMessagePinsMaximumTargetBytes = 256;
 inline constexpr u64 kMessagePinsRouteId = 0x4d534750494e534cull;

@@ -645,6 +645,12 @@ bool client_theme_io_poll(ClientThemeIo* io, ClientThemeIoCompletion* completion
     ReleaseSRWLockExclusive(&io->lock);
     return true;
 }
+bool client_theme_io_completion_pending(ClientThemeIo* io) noexcept {
+    AcquireSRWLockExclusive(&io->lock);
+    const bool ready = io->completion_ready;
+    ReleaseSRWLockExclusive(&io->lock);
+    return ready;
+}
 void client_theme_io_cancel(ClientThemeIo* io, u64 generation) noexcept {
     if (!io || !generation)
         return;

@@ -355,6 +355,7 @@ struct GuildAdminResult {
 
 RestMethod guild_admin_method(GuildAdminOperation operation) noexcept;
 bool guild_admin_has_body(GuildAdminOperation operation) noexcept;
+// The writers below, the reason header and the image sizes take a request that passed this; they do not check it again.
 bool guild_admin_request_valid(const GuildAdminRequest& request) noexcept;
 // Rate identity: one template per operation, guild- or channel-major.
 RestRouteKey guild_admin_route(const GuildAdminRequest& request) noexcept;
