@@ -4,6 +4,8 @@
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/initguid.hpp"
 #include "maicord/sys/dxva.hpp"
+// DXVA submission, once per frame: the slice copy is one memcpy per slice. Compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 
@@ -531,3 +533,4 @@ void gpu_stream_decoder_destroy(GpuStreamDecoder* stream) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

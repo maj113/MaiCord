@@ -77,18 +77,7 @@ struct _BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO {
     ULONG dwFlags;
 };
 typedef _BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO;
-struct _BCryptBuffer {
-    ULONG cbBuffer;
-    ULONG BufferType;
-    PVOID pvBuffer;
-};
-typedef _BCryptBuffer* PBCryptBuffer;
-struct _BCryptBufferDesc {
-    ULONG ulVersion;
-    ULONG cBuffers;
-    PBCryptBuffer pBuffers;
-};
-typedef _BCryptBufferDesc BCryptBufferDesc;
+typedef struct _BCryptBufferDesc BCryptBufferDesc;
 struct _BCRYPT_RSAKEY_BLOB {
     ULONG Magic;
     ULONG BitLength;
@@ -108,9 +97,6 @@ struct _CRYPTOAPI_BLOB {
     DWORD cbData;
     BYTE* pbData;
 };
-typedef _CRYPTOAPI_BLOB CRYPT_INTEGER_BLOB;
-typedef _CRYPTOAPI_BLOB CRYPT_OBJID_BLOB;
-typedef _CRYPTOAPI_BLOB CERT_NAME_BLOB;
 typedef _CRYPTOAPI_BLOB DATA_BLOB;
 struct _CRYPTPROTECT_PROMPTSTRUCT {
     DWORD cbSize;
@@ -120,52 +106,7 @@ struct _CRYPTPROTECT_PROMPTSTRUCT {
 };
 typedef _CRYPTPROTECT_PROMPTSTRUCT CRYPTPROTECT_PROMPTSTRUCT;
 // <wincrypt.h>
-struct _CRYPT_BIT_BLOB {
-    DWORD cbData;
-    BYTE* pbData;
-    DWORD cUnusedBits;
-};
-typedef _CRYPT_BIT_BLOB CRYPT_BIT_BLOB;
-struct _CRYPT_ALGORITHM_IDENTIFIER {
-    LPSTR pszObjId;
-    CRYPT_OBJID_BLOB Parameters;
-};
-typedef _CRYPT_ALGORITHM_IDENTIFIER CRYPT_ALGORITHM_IDENTIFIER;
-struct _CERT_EXTENSION {
-    LPSTR pszObjId;
-    BOOL fCritical;
-    CRYPT_OBJID_BLOB Value;
-};
-typedef _CERT_EXTENSION* PCERT_EXTENSION;
-struct _CERT_PUBLIC_KEY_INFO {
-    CRYPT_ALGORITHM_IDENTIFIER Algorithm;
-    CRYPT_BIT_BLOB PublicKey;
-};
-typedef _CERT_PUBLIC_KEY_INFO CERT_PUBLIC_KEY_INFO;
-struct _CERT_INFO {
-    DWORD dwVersion;
-    CRYPT_INTEGER_BLOB SerialNumber;
-    CRYPT_ALGORITHM_IDENTIFIER SignatureAlgorithm;
-    CERT_NAME_BLOB Issuer;
-    FILETIME NotBefore;
-    FILETIME NotAfter;
-    CERT_NAME_BLOB Subject;
-    CERT_PUBLIC_KEY_INFO SubjectPublicKeyInfo;
-    CRYPT_BIT_BLOB IssuerUniqueId;
-    CRYPT_BIT_BLOB SubjectUniqueId;
-    DWORD cExtension;
-    PCERT_EXTENSION rgExtension;
-};
-typedef _CERT_INFO* PCERT_INFO;
-struct _CERT_CONTEXT {
-    DWORD dwCertEncodingType;
-    BYTE* pbCertEncoded;
-    DWORD cbCertEncoded;
-    PCERT_INFO pCertInfo;
-    HCERTSTORE hCertStore;
-};
-typedef _CERT_CONTEXT CERT_CONTEXT;
-typedef const CERT_CONTEXT* PCCERT_CONTEXT;
+typedef const struct _CERT_CONTEXT* PCCERT_CONTEXT;
 MAICORD_SYS_TYPES_END
 
 // <bcrypt.h>

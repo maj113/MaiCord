@@ -1,6 +1,8 @@
 #include "maicord/media/mp4_fragment_audio.hpp"
 #include "maicord/media/mp4_segment_store.hpp"
 #include "maicord/core/byte_range.hpp"
+// Container parsing, once per packet and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -167,3 +169,4 @@ Mp4DemuxError mp4_fragment_audio_seek(Mp4FragmentAudio* audio, u32 packet) noexc
     return E::none;
 }
 } // namespace maicord
+#pragma clang attribute pop

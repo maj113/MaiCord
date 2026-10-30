@@ -1,6 +1,8 @@
 #include "av1_dxva_parameters.hpp"
 
 #include "maicord/core/memory.hpp"
+// Picture parameters, once per frame and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -204,3 +206,4 @@ void av1_dxva_picture_parameters(const Av1SequenceHeader& s, const Av1FrameHeade
 }
 
 } // namespace maicord
+#pragma clang attribute pop

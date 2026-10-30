@@ -85,7 +85,9 @@ to the tag and the `.sha256` value.
 
 A test is one `maicord_test()` call; more cases on the same executable use
 `maicord_add_tests()`. Tests link non-LTO copies of the shipping libraries
-automatically. Small tests share an executable with `BUNDLE <name>` on their
+automatically and compile their own `tests/` sources at `/Od` (code from `src/`
+stays `/O2`); a test that needs the optimizer is listed in `cmake/tests.cmake`.
+Small tests share an executable with `BUNDLE <name>` on their
 `maicord_test()`, which needs no `LIBS`: the executable's libraries and include
 directories are declared once by `maicord_test_bundle()` at the top of
 `test_registry.cmake` (add what a new member needs there). Each case runs its own

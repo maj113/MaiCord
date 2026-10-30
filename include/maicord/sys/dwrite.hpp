@@ -72,8 +72,6 @@ struct IDWriteTextAnalysisSink;
 struct IDWriteTextAnalysisSource;
 struct IDWriteTextAnalyzer1;
 struct IDWriteTextAnalyzer;
-struct IDWriteTextFormat1;
-struct IDWriteTextFormat2;
 struct IDWriteTextFormat3;
 struct IDWriteTextFormat;
 struct IDWriteTextLayout1;
@@ -94,9 +92,7 @@ enum DWRITE_GLYPH_IMAGE_FORMATS {
 
 // <DWrite.h>
 enum DWRITE_FONT_FACE_TYPE {
-    DWRITE_FONT_FACE_TYPE_CFF,
-    DWRITE_FONT_FACE_TYPE_TRUETYPE,
-    DWRITE_FONT_FACE_TYPE_OPENTYPE_COLLECTION,
+    DWRITE_FONT_FACE_TYPE_TRUETYPE = 1,
 };
 enum DWRITE_FONT_SIMULATIONS {
     DWRITE_FONT_SIMULATIONS_NONE = 0x0000,
@@ -112,8 +108,7 @@ enum DWRITE_FONT_STRETCH {
 };
 enum DWRITE_FONT_STYLE {
     DWRITE_FONT_STYLE_NORMAL,
-    DWRITE_FONT_STYLE_OBLIQUE,
-    DWRITE_FONT_STYLE_ITALIC
+    DWRITE_FONT_STYLE_ITALIC = 2
 };
 struct DWRITE_FONT_METRICS {
     UINT16 designUnitsPerEm;
@@ -159,16 +154,8 @@ struct __declspec(uuid("739d886a-cef5-47dc-8769-1a8b41bebbb0")) __declspec(novta
     virtual __declspec(nothrow) HRESULT __stdcall GetLoader(IDWriteFontFileLoader** fontFileLoader) = 0;
 };
 enum DWRITE_PIXEL_GEOMETRY {
-    DWRITE_PIXEL_GEOMETRY_FLAT,
 };
 enum DWRITE_RENDERING_MODE {
-    DWRITE_RENDERING_MODE_DEFAULT,
-    DWRITE_RENDERING_MODE_ALIASED,
-    DWRITE_RENDERING_MODE_GDI_CLASSIC,
-    DWRITE_RENDERING_MODE_GDI_NATURAL,
-    DWRITE_RENDERING_MODE_NATURAL,
-    DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
-    DWRITE_RENDERING_MODE_OUTLINE,
 };
 struct DWRITE_MATRIX {
     FLOAT m11;
@@ -177,13 +164,6 @@ struct DWRITE_MATRIX {
     FLOAT m22;
     FLOAT dx;
     FLOAT dy;
-};
-struct __declspec(uuid("2f0da53a-2add-47cd-82ee-d9ec34688e75")) __declspec(novtable) IDWriteRenderingParams : IUnknown {
-    MAICORD_COM_UNUSED(GetGamma);
-    MAICORD_COM_UNUSED(GetEnhancedContrast);
-    MAICORD_COM_UNUSED(GetClearTypeLevel);
-    MAICORD_COM_UNUSED(GetPixelGeometry);
-    MAICORD_COM_UNUSED(GetRenderingMode);
 };
 typedef ID2D1SimplifiedGeometrySink IDWriteGeometrySink;
 struct __declspec(uuid("5f49804d-7024-4d43-bfa9-d25984f53849")) __declspec(novtable) IDWriteFontFace : IUnknown {
@@ -255,8 +235,7 @@ enum DWRITE_FLOW_DIRECTION {
 };
 enum DWRITE_TEXT_ALIGNMENT {
     DWRITE_TEXT_ALIGNMENT_LEADING,
-    DWRITE_TEXT_ALIGNMENT_TRAILING,
-    DWRITE_TEXT_ALIGNMENT_CENTER,
+    DWRITE_TEXT_ALIGNMENT_CENTER = 2,
 };
 enum DWRITE_PARAGRAPH_ALIGNMENT {
     DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
@@ -333,8 +312,7 @@ struct DWRITE_SCRIPT_ANALYSIS {
 };
 enum DWRITE_BREAK_CONDITION {
     DWRITE_BREAK_CONDITION_NEUTRAL,
-    DWRITE_BREAK_CONDITION_CAN_BREAK,
-    DWRITE_BREAK_CONDITION_MAY_NOT_BREAK,
+    DWRITE_BREAK_CONDITION_MAY_NOT_BREAK = 2,
 };
 struct DWRITE_LINE_BREAKPOINT {
     UINT8 breakConditionBefore : 2;
@@ -572,8 +550,6 @@ struct __declspec(uuid("53737037-6d14-410b-9bfe-0b182bb70961")) __declspec(novta
     using IDWriteTextFormat::GetLocaleNameLength;
     using IDWriteTextFormat::GetLocaleName;
 };
-struct __declspec(uuid("7d97dbf7-e085-42d4-81e3-6a883bded118")) __declspec(novtable) IDWriteGlyphRunAnalysis : IUnknown {
-};
 struct __declspec(uuid("b859ee5a-d838-4b5b-a2e8-1adc7d93db48")) __declspec(novtable) IDWriteFactory : IUnknown {
     virtual __declspec(nothrow) HRESULT __stdcall GetSystemFontCollection(IDWriteFontCollection** fontCollection,
         BOOL checkForUpdates = 0) = 0;
@@ -607,7 +583,6 @@ struct __declspec(uuid("b859ee5a-d838-4b5b-a2e8-1adc7d93db48")) __declspec(novta
 };
 // <DWrite_1.h>
 enum DWRITE_OUTLINE_THRESHOLD {
-    DWRITE_OUTLINE_THRESHOLD_ANTIALIASED,
 };
 struct DWRITE_FONT_METRICS1 : public DWRITE_FONT_METRICS {
     INT16 glyphBoxLeft;
@@ -655,9 +630,6 @@ struct __declspec(uuid("acd16696-8c14-4f5d-877e-fe3fc1d32738")) __declspec(novta
     MAICORD_COM_UNUSED(IsMonospacedFont);
     using IDWriteFont::GetMetrics;
 };
-struct __declspec(uuid("94413cf4-a6fc-4248-8b50-6674348fcad3")) __declspec(novtable) IDWriteRenderingParams1 : IDWriteRenderingParams {
-    MAICORD_COM_UNUSED(GetGrayscaleEnhancedContrast);
-};
 struct __declspec(uuid("80DAD800-E21F-4E83-96CE-BFCCE500DB7C")) __declspec(novtable) IDWriteTextAnalyzer1 : IDWriteTextAnalyzer {
     virtual __declspec(nothrow) HRESULT __stdcall ApplyCharacterSpacing(FLOAT leadingSpacing, FLOAT trailingSpacing,
         FLOAT minimumAdvanceWidth, UINT32 textLength, UINT32 glyphCount, UINT16 const* clusterMap,
@@ -673,25 +645,11 @@ struct __declspec(uuid("9064D822-80A7-465C-A986-DF65F78B8FEB")) __declspec(novta
     MAICORD_COM_UNUSED(GetCharacterSpacing);
 };
 enum DWRITE_TEXT_ANTIALIAS_MODE {
-    DWRITE_TEXT_ANTIALIAS_MODE_CLEARTYPE,
 };
 // <DWrite_2.h>
 enum DWRITE_GRID_FIT_MODE {
-    DWRITE_GRID_FIT_MODE_DEFAULT,
 };
-struct DWRITE_TEXT_METRICS1 : DWRITE_TEXT_METRICS {
-    FLOAT heightIncludingTrailingWhitespace;
-};
-struct __declspec(uuid("5F174B49-0D8B-4CFB-8BCA-F1CCE9D06C67")) __declspec(novtable) IDWriteTextFormat1 : IDWriteTextFormat {
-    MAICORD_COM_UNUSED(SetVerticalGlyphOrientation);
-    MAICORD_COM_UNUSED(GetVerticalGlyphOrientation);
-    MAICORD_COM_UNUSED(SetLastLineWrapping);
-    MAICORD_COM_UNUSED(GetLastLineWrapping);
-    MAICORD_COM_UNUSED(SetOpticalAlignment);
-    MAICORD_COM_UNUSED(GetOpticalAlignment);
-    virtual __declspec(nothrow) HRESULT __stdcall SetFontFallback(IDWriteFontFallback* fontFallback) = 0;
-    MAICORD_COM_UNUSED(GetFontFallback);
-};
+struct DWRITE_TEXT_METRICS1;
 struct __declspec(uuid("1093C18F-8D5E-43F0-B064-0917311B525E")) __declspec(novtable) IDWriteTextLayout2 : IDWriteTextLayout1 {
     virtual __declspec(nothrow) HRESULT __stdcall GetMetrics(DWRITE_TEXT_METRICS1* textMetrics) = 0;
     MAICORD_COM_UNUSED(SetVerticalGlyphOrientation);
@@ -735,9 +693,6 @@ struct __declspec(uuid("d31fbe17-f157-41a2-8d24-cb779e0560e8")) __declspec(novta
     virtual __declspec(nothrow) HRESULT __stdcall MoveNext(BOOL* hasRun) = 0;
     virtual __declspec(nothrow) HRESULT __stdcall GetCurrentRun(DWRITE_COLOR_GLYPH_RUN const** colorGlyphRun) = 0;
 };
-struct __declspec(uuid("F9D711C3-9777-40AE-87E8-3E5AF9BF0948")) __declspec(novtable) IDWriteRenderingParams2 : IDWriteRenderingParams1 {
-    MAICORD_COM_UNUSED(GetGridFitMode);
-};
 struct __declspec(uuid("0439fc60-ca44-4994-8dee-3a9af7b732ec")) __declspec(novtable) IDWriteFactory2 : IDWriteFactory1 {
     virtual __declspec(nothrow) HRESULT __stdcall GetSystemFontFallback(IDWriteFontFallback** fontFallback) = 0;
     MAICORD_COM_UNUSED(CreateFontFallbackBuilder);
@@ -756,20 +711,7 @@ struct __declspec(uuid("0439fc60-ca44-4994-8dee-3a9af7b732ec")) __declspec(novta
 };
 // <dwrite_3.h>
 enum DWRITE_FONT_PROPERTY_ID {
-    DWRITE_FONT_PROPERTY_ID_NONE,
-    DWRITE_FONT_PROPERTY_ID_WEIGHT_STRETCH_STYLE_FAMILY_NAME,
-    DWRITE_FONT_PROPERTY_ID_TYPOGRAPHIC_FAMILY_NAME,
-    DWRITE_FONT_PROPERTY_ID_WEIGHT_STRETCH_STYLE_FACE_NAME,
-    DWRITE_FONT_PROPERTY_ID_FULL_NAME,
-    DWRITE_FONT_PROPERTY_ID_WIN32_FAMILY_NAME,
-    DWRITE_FONT_PROPERTY_ID_POSTSCRIPT_NAME,
-    DWRITE_FONT_PROPERTY_ID_DESIGN_SCRIPT_LANGUAGE_TAG,
-    DWRITE_FONT_PROPERTY_ID_SUPPORTED_SCRIPT_LANGUAGE_TAG,
-    DWRITE_FONT_PROPERTY_ID_SEMANTIC_TAG,
-    DWRITE_FONT_PROPERTY_ID_WEIGHT,
-    DWRITE_FONT_PROPERTY_ID_STRETCH,
-    DWRITE_FONT_PROPERTY_ID_STYLE,
-    DWRITE_FONT_PROPERTY_ID_TYPOGRAPHIC_FACE_NAME,
+    DWRITE_FONT_PROPERTY_ID_WEIGHT = 10,
 };
 struct DWRITE_FONT_PROPERTY {
     DWRITE_FONT_PROPERTY_ID propertyId;
@@ -777,8 +719,6 @@ struct DWRITE_FONT_PROPERTY {
     WCHAR const* localeName;
 };
 enum DWRITE_RENDERING_MODE1 {
-};
-struct __declspec(uuid("B7924BAA-391B-412A-8C5C-E44CC2D867DC")) __declspec(novtable) IDWriteRenderingParams3 : IDWriteRenderingParams2 {
 };
 struct __declspec(uuid("9A1B41C3-D3BB-466A-87FC-FE67556A3B65")) __declspec(novtable) IDWriteFactory3 : IDWriteFactory2 {
     virtual __declspec(nothrow) HRESULT __stdcall CreateGlyphRunAnalysis(DWRITE_GLYPH_RUN const* glyphRun,
@@ -881,37 +821,6 @@ struct __declspec(uuid("D37D7598-09BE-4222-A236-2081341CC1F2")) __declspec(novta
     MAICORD_COM_UNUSED(AreCharactersLocal);
     MAICORD_COM_UNUSED(AreGlyphsLocal);
 };
-struct __declspec(uuid("CFEE3140-1157-47CA-8B85-31BFCF3F2D0E")) __declspec(novtable) IDWriteStringList : IUnknown {
-    virtual __declspec(nothrow) UINT32 __stdcall GetCount() = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall GetLocaleNameLength(UINT32 listIndex, UINT32* length) = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall GetLocaleName(UINT32 listIndex, WCHAR* localeName, UINT32 size) = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall GetStringLength(UINT32 listIndex, UINT32* length) = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall GetString(UINT32 listIndex, WCHAR* stringBuffer,
-        UINT32 stringBufferSize) = 0;
-};
-enum DWRITE_FONT_LINE_GAP_USAGE {
-    DWRITE_FONT_LINE_GAP_USAGE_DEFAULT,
-};
-struct DWRITE_LINE_SPACING {
-    DWRITE_LINE_SPACING_METHOD method;
-    FLOAT height;
-    FLOAT baseline;
-    FLOAT leadingBefore;
-    DWRITE_FONT_LINE_GAP_USAGE fontLineGapUsage;
-};
-struct __declspec(uuid("F67E0EDD-9E3D-4ECC-8C32-4183253DFE70")) __declspec(novtable) IDWriteTextFormat2 : IDWriteTextFormat1 {
-    virtual __declspec(nothrow) HRESULT __stdcall SetLineSpacing(DWRITE_LINE_SPACING const* lineSpacingOptions) = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall GetLineSpacing(DWRITE_LINE_SPACING* lineSpacingOptions) = 0;
-    using IDWriteTextFormat1::GetLineSpacing;
-};
-struct DWRITE_COLOR_GLYPH_RUN1 : DWRITE_COLOR_GLYPH_RUN {
-    DWRITE_GLYPH_IMAGE_FORMATS glyphImageFormat;
-    DWRITE_MEASURING_MODE measuringMode;
-};
-struct __declspec(uuid("7C5F86DA-C7A1-4F05-B8E1-55A179FE5A35")) __declspec(novtable) IDWriteColorGlyphRunEnumerator1 : IDWriteColorGlyphRunEnumerator {
-    virtual __declspec(nothrow) HRESULT __stdcall GetCurrentRun(DWRITE_COLOR_GLYPH_RUN1 const** colorGlyphRun) = 0;
-    using IDWriteColorGlyphRunEnumerator::GetCurrentRun;
-};
 struct __declspec(uuid("27F2A904-4EB8-441D-9678-0563F53E3E2F")) __declspec(novtable) IDWriteFontFace4 : IDWriteFontFace3 {
     virtual __declspec(nothrow) DWRITE_GLYPH_IMAGE_FORMATS __stdcall GetGlyphImageFormats() = 0;
     virtual __declspec(nothrow) HRESULT __stdcall GetGlyphImageFormats(UINT16 glyphId, UINT32 pixelsPerEmFirst,
@@ -931,9 +840,6 @@ struct __declspec(uuid("4B0B5BD3-0797-4549-8AC5-FE915CC53856")) __declspec(novta
     virtual __declspec(nothrow) HRESULT __stdcall ComputeGlyphOrigins(DWRITE_GLYPH_RUN const* glyphRun,
         D2D1_POINT_2F baselineOrigin, D2D1_POINT_2F* glyphOrigins) = 0;
     using IDWriteFactory2::TranslateColorGlyphRun;
-};
-struct __declspec(uuid("3FF7715F-3CDC-4DC6-9B72-EC5621DCCAFD")) __declspec(novtable) IDWriteFontSetBuilder1 : IDWriteFontSetBuilder {
-    MAICORD_COM_UNUSED(AddFontFile);
 };
 struct __declspec(uuid("958DB99A-BE2A-4F09-AF7D-65189803D1D3")) __declspec(novtable) IDWriteFactory5 : IDWriteFactory4 {
     virtual __declspec(nothrow) HRESULT __stdcall CreateFontSetBuilder(IDWriteFontSetBuilder1** fontSetBuilder) = 0;
@@ -957,7 +863,6 @@ struct DWRITE_FONT_AXIS_RANGE {
     FLOAT maxValue;
 };
 enum DWRITE_FONT_FAMILY_MODEL {
-    DWRITE_FONT_FAMILY_MODEL_TYPOGRAPHIC,
 };
 struct __declspec(uuid("F3744D80-21F7-42EB-B35D-995BC72FC223")) __declspec(novtable) IDWriteFactory6 : IDWriteFactory5 {
     virtual __declspec(nothrow) HRESULT __stdcall CreateFontFaceReference(IDWriteFontFile* fontFile, UINT32 faceIndex,
@@ -1007,15 +912,6 @@ struct __declspec(uuid("1F803A76-6871-48E8-987F-B975551C50F2")) __declspec(novta
         DWRITE_FONT_AXIS_VALUE const* fontAxisValues, UINT32 fontAxisValueCount,
         IDWriteFontFaceReference1** fontFaceReference) = 0;
 };
-struct __declspec(uuid("C081FE77-2FD1-41AC-A5A3-34983C4BA61A")) __declspec(novtable) IDWriteFontFaceReference1 : IDWriteFontFaceReference {
-    virtual __declspec(nothrow) HRESULT __stdcall CreateFontFace(IDWriteFontFace5** fontFace) = 0;
-    virtual __declspec(nothrow) UINT32 __stdcall GetFontAxisValueCount() = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall GetFontAxisValues(DWRITE_FONT_AXIS_VALUE* fontAxisValues,
-        UINT32 fontAxisValueCount) = 0;
-    using IDWriteFontFaceReference::CreateFontFace;
-};
-struct __declspec(uuid("EE5BA612-B131-463C-8F4F-3189B9401E45")) __declspec(novtable) IDWriteFontSetBuilder2 : IDWriteFontSetBuilder1 {
-};
 struct __declspec(uuid("7E9FDA85-6C92-4053-BC47-7AE3530DB4D3")) __declspec(novtable) IDWriteFontSet1 : IDWriteFontSet {
     MAICORD_COM_UNUSED(GetMatchingFonts);
     MAICORD_COM_UNUSED(GetFirstFontResources);
@@ -1043,17 +939,6 @@ struct __declspec(uuid("7E9FDA85-6C92-4053-BC47-7AE3530DB4D3")) __declspec(novta
 };
 struct __declspec(uuid("3ED49E77-A398-4261-B9CF-C126C2131EF3")) __declspec(novtable) IDWriteFontFamily2 : IDWriteFontFamily1 {
 };
-struct __declspec(uuid("514039C6-4617-4064-BF8B-92EA83E506E0")) __declspec(novtable) IDWriteFontCollection2 : IDWriteFontCollection1 {
-    virtual __declspec(nothrow) HRESULT __stdcall GetFontFamily(UINT32 index, IDWriteFontFamily2** fontFamily) = 0;
-    using IDWriteFontCollection::GetFontFamily;
-    using IDWriteFontCollection1::GetFontFamily;
-};
-struct __declspec(uuid("6D3B5641-E550-430D-A85B-B7BF48A93427")) __declspec(novtable) IDWriteTextFormat3 : IDWriteTextFormat2 {
-    MAICORD_COM_UNUSED(SetFontAxisValues);
-    virtual __declspec(nothrow) UINT32 __stdcall GetFontAxisValueCount() = 0;
-    virtual __declspec(nothrow) HRESULT __stdcall GetFontAxisValues(DWRITE_FONT_AXIS_VALUE* fontAxisValues,
-        UINT32 fontAxisValueCount) = 0;
-};
 struct __declspec(uuid("C4B1FE1B-6E84-47D5-B54C-A597981B06AD")) __declspec(novtable) IDWriteFontFace6 : IDWriteFontFace5 {
     virtual __declspec(nothrow) HRESULT __stdcall GetFamilyNames(DWRITE_FONT_FAMILY_MODEL fontFamilyModel,
         IDWriteLocalizedStrings** names) = 0;
@@ -1073,7 +958,6 @@ struct DWRITE_PAINT_COLOR {
     DWRITE_PAINT_ATTRIBUTES colorAttributes;
 };
 enum DWRITE_COLOR_COMPOSITE_MODE {
-    DWRITE_COLOR_COMPOSITE_CLEAR,
 };
 enum DWRITE_PAINT_TYPE {
     DWRITE_PAINT_TYPE_NONE,

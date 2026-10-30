@@ -2,6 +2,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "mp4_demux_detail.hpp"
+// Container parsing, once per sample and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -312,3 +314,4 @@ Mp4DemuxError mp4_fragment_initialize(ConstSlice<u8> prefix, u64 source_offset, 
     return E::none;
 }
 } // namespace maicord
+#pragma clang attribute pop

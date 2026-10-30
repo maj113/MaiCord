@@ -199,23 +199,7 @@ struct __declspec(uuid("5F20AA40-B57A-4F34-96AB-3576F377CC79")) __declspec(novta
     virtual HRESULT __stdcall OnUpdateComposition(ITfCompositionView* pComposition, ITfRange* pRangeNew) = 0;
     virtual HRESULT __stdcall OnEndComposition(ITfCompositionView* pComposition) = 0;
 };
-struct __declspec(uuid("2433bf8e-0f9b-435c-ba2c-180611978c30")) __declspec(novtable) ITfContextView : IUnknown {
-    MAICORD_COM_UNUSED(GetRangeFromPoint);
-    virtual HRESULT __stdcall GetTextExt(TfEditCookie ec, ITfRange* pRange, RECT* prc, BOOL* pfClipped) = 0;
-    virtual HRESULT __stdcall GetScreenExt(RECT* prc) = 0;
-    virtual HRESULT __stdcall GetWnd(HWND* phwnd) = 0;
-};
-enum __MIDL_ITfContext_0001 {
-};
-typedef __MIDL_ITfContext_0001 TfActiveSelEnd;
-struct TF_SELECTIONSTYLE {
-    TfActiveSelEnd ase;
-    BOOL fInterimChar;
-};
-struct TF_SELECTION {
-    ITfRange* range;
-    TF_SELECTIONSTYLE style;
-};
+struct TF_SELECTION;
 typedef __declspec(uuid("bc7d979a-846a-444d-afef-0a9bfa82b961")) TS_STATUS TF_STATUS;
 struct __declspec(uuid("aa80e7fd-2021-11d2-93e0-0060b067b86e")) __declspec(novtable) ITfContext : IUnknown {
     virtual HRESULT __stdcall RequestEditSession(TfClientId tid, ITfEditSession* pes, DWORD dwFlags,
@@ -330,8 +314,7 @@ enum __MIDL___MIDL_itf_msctf_0000_0070_0004 {
     TF_ATTR_CONVERTED = 2,
     TF_ATTR_TARGET_NOTCONVERTED = 3,
     TF_ATTR_INPUT_ERROR = 4,
-    TF_ATTR_FIXEDCONVERTED = 5,
-    TF_ATTR_OTHER = - 1
+    TF_ATTR_FIXEDCONVERTED = 5
 };
 typedef __MIDL___MIDL_itf_msctf_0000_0070_0004 TF_DA_ATTR_INFO;
 struct TF_DISPLAYATTRIBUTE {
@@ -378,13 +361,7 @@ struct __declspec(uuid("4ea48a35-60ae-446f-8fd6-e6a8d82459f7")) __declspec(novta
 enum __MIDL___MIDL_itf_inputscope_0000_0000_0001 {
     IS_DEFAULT = 0,
     IS_LOGINNAME = 6,
-    IS_DIGITS = 28,
-    IS_PASSWORD = 31,
-    IS_PHRASELIST = - 1,
-    IS_REGULAREXPRESSION = - 2,
-    IS_SRGS = - 3,
-    IS_XML = - 4,
-    IS_ENUMSTRING = - 5
+    IS_DIGITS = 28
 };
 typedef __MIDL___MIDL_itf_inputscope_0000_0000_0001 InputScope;
 struct __declspec(uuid("fde1eaee-6924-4cdf-91e7-da38cff5559d")) __declspec(novtable) ITfInputScope : IUnknown {

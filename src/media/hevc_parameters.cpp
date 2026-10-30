@@ -2,6 +2,8 @@
 #include "maicord/media/gpu_video_frame.hpp"
 #include "maicord/core/memory.hpp"
 #include "hevc_bits.hpp"
+// Header parsing, once per picture and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -386,7 +388,8 @@ HevcError hevc_parse_reference_set(HevcBits& b, const HevcReferenceSet* sets, u3
 HevcError hevc_parse_sps(ConstSlice<u8> nal, HevcSps* output) noexcept {
     if (!output)
         return HevcError::invalid_input;
-    HevcSps s{};
+    // Parsed in place: *output holds a valid SPS only when this returns none.
+    HevcSps& s = *output;
     clear_bytes(&s, sizeof(s));
     s.sar_width = s.sar_height = 1;
     s.matrix = 2; // Unspecified when VUI colour description is absent.
@@ -486,8 +489,6 @@ HevcError hevc_parse_sps(ConstSlice<u8> nal, HevcSps* output) noexcept {
         b.error = HevcError::unsupported;
     if (b.error == HevcError::none)
         b.trailing();
-    if (b.error == HevcError::none)
-        *output = s;
     return b.error;
 }
 HevcError hevc_sps_id(ConstSlice<u8> nal, u8* id) noexcept {
@@ -740,3 +741,4 @@ HevcError hevc_validate_parameter(ConstSlice<u8> nal, const HevcConfiguration& c
     return HevcError::invalid_input;
 }
 } // namespace maicord
+#pragma clang attribute pop

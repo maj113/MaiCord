@@ -3,6 +3,9 @@
 #include "maicord/media/gpu_video_frame.hpp"
 #include "maicord/core/memory.hpp"
 #include "h264_bits.hpp"
+// Parameter sets and picture bookkeeping, once per picture: compiled for size. The Annex B
+// scanner walks every byte of the frame and stays at full speed.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -52,6 +55,7 @@ u8 reference_frames(const H264Sps& sps) noexcept {
 
 } // namespace
 
+#pragma clang attribute pop
 H264Nal h264_annexb_next(H264AnnexBCursor* cursor) noexcept {
     if (!cursor || (!cursor->bytes.data && cursor->bytes.count) || cursor->offset > cursor->bytes.count)
         return {{}, H264Error::invalid_input};
@@ -103,6 +107,7 @@ H264Nal h264_annexb_next(H264AnnexBCursor* cursor) noexcept {
     }
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 H264Error h264_parameter_sets_store(H264ParameterSets* sets, ConstSlice<u8> nal) noexcept {
     if (!sets || !nal.data || nal.count < 2) return H264Error::invalid_input;
     const u8 type = nal.data[0] & 31u;
@@ -438,3 +443,4 @@ bool h264_stream_pop(H264StreamState* state, H264StreamOutput* output) noexcept 
 }
 
 } // namespace maicord
+#pragma clang attribute pop

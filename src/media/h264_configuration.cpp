@@ -1,5 +1,7 @@
 #include "maicord/media/h264_parameters.hpp"
 #include "h264_bits.hpp"
+// Header parsing, once per picture and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 
@@ -47,3 +49,4 @@ H264Error h264_select_parameters(ConstSlice<u8> avcc, u8 pps_id,
 }
 
 } // namespace maicord
+#pragma clang attribute pop

@@ -3,6 +3,8 @@
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/dxva.hpp"
 #include "hevc_dxva_parameters.hpp"
+// DXVA submission, once per frame and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -134,3 +136,4 @@ void hevc_gpu_stream_stats(const GpuStream& stream, GpuStreamDecoderStats* stats
 }
 
 } // namespace maicord
+#pragma clang attribute pop

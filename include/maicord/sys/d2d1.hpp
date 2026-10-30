@@ -129,16 +129,11 @@ struct D2D1_STROKE_STYLE_PROPERTIES {
     D2D1_DASH_STYLE dashStyle;
     FLOAT dashOffset;
 };
-enum D2D1_DEBUG_LEVEL {
-    D2D1_DEBUG_LEVEL_FORCE_DWORD = 0xffffffff
-};
 enum D2D1_FACTORY_TYPE {
     D2D1_FACTORY_TYPE_SINGLE_THREADED = 0,
     D2D1_FACTORY_TYPE_FORCE_DWORD = 0xffffffff
 };
-struct D2D1_FACTORY_OPTIONS {
-    D2D1_DEBUG_LEVEL debugLevel;
-};
+struct D2D1_FACTORY_OPTIONS;
 struct __declspec(uuid("2cd90691-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1Resource : IUnknown {
     MAICORD_COM_UNUSED(GetFactory);
 };
@@ -177,18 +172,6 @@ struct __declspec(uuid("2cd906a1-12e2-11dc-9fed-001143a055f9")) __declspec(novta
     virtual __declspec(nothrow) HRESULT __stdcall Widen(FLOAT strokeWidth, ID2D1StrokeStyle* strokeStyle,
         const D2D1_MATRIX_3X2_F* worldTransform, FLOAT flatteningTolerance,
         ID2D1SimplifiedGeometrySink* geometrySink) const = 0;
-    __declspec(nothrow) HRESULT Simplify(D2D1_GEOMETRY_SIMPLIFICATION_OPTION simplificationOption, const D2D1_MATRIX_3X2_F& worldTransform, FLOAT flatteningTolerance, ID2D1SimplifiedGeometrySink* geometrySink) const { return Simplify(simplificationOption,& worldTransform, flatteningTolerance, geometrySink); }
-    __declspec(nothrow) HRESULT Simplify(D2D1_GEOMETRY_SIMPLIFICATION_OPTION simplificationOption, const D2D1_MATRIX_3X2_F* worldTransform, ID2D1SimplifiedGeometrySink* geometrySink) const { return Simplify(simplificationOption, worldTransform, (0.25f), geometrySink); }
-    __declspec(nothrow) HRESULT Simplify(D2D1_GEOMETRY_SIMPLIFICATION_OPTION simplificationOption, const D2D1_MATRIX_3X2_F& worldTransform, ID2D1SimplifiedGeometrySink* geometrySink) const { return Simplify(simplificationOption,& worldTransform, (0.25f), geometrySink); }
-    __declspec(nothrow) HRESULT CombineWithGeometry(ID2D1Geometry* inputGeometry, D2D1_COMBINE_MODE combineMode, const D2D1_MATRIX_3X2_F& inputGeometryTransform, FLOAT flatteningTolerance, ID2D1SimplifiedGeometrySink* geometrySink) const { return CombineWithGeometry(inputGeometry, combineMode,& inputGeometryTransform, flatteningTolerance, geometrySink); }
-    __declspec(nothrow) HRESULT CombineWithGeometry(ID2D1Geometry* inputGeometry, D2D1_COMBINE_MODE combineMode, const D2D1_MATRIX_3X2_F* inputGeometryTransform, ID2D1SimplifiedGeometrySink* geometrySink) const { return CombineWithGeometry(inputGeometry, combineMode, inputGeometryTransform, (0.25f), geometrySink); }
-    __declspec(nothrow) HRESULT CombineWithGeometry(ID2D1Geometry* inputGeometry, D2D1_COMBINE_MODE combineMode, const D2D1_MATRIX_3X2_F& inputGeometryTransform, ID2D1SimplifiedGeometrySink* geometrySink) const { return CombineWithGeometry(inputGeometry, combineMode,& inputGeometryTransform, (0.25f), geometrySink); }
-    __declspec(nothrow) HRESULT ComputeArea(const D2D1_MATRIX_3X2_F& worldTransform, FLOAT flatteningTolerance, FLOAT* area) const { return ComputeArea(& worldTransform, flatteningTolerance, area); }
-    __declspec(nothrow) HRESULT ComputeArea(const D2D1_MATRIX_3X2_F* worldTransform, FLOAT* area) const { return ComputeArea(worldTransform, (0.25f), area); }
-    __declspec(nothrow) HRESULT ComputeArea(const D2D1_MATRIX_3X2_F& worldTransform, FLOAT* area) const { return ComputeArea(& worldTransform, (0.25f), area); }
-    __declspec(nothrow) HRESULT Widen(FLOAT strokeWidth, ID2D1StrokeStyle* strokeStyle, const D2D1_MATRIX_3X2_F& worldTransform, FLOAT flatteningTolerance, ID2D1SimplifiedGeometrySink* geometrySink) const { return Widen(strokeWidth, strokeStyle,& worldTransform, flatteningTolerance, geometrySink); }
-    __declspec(nothrow) HRESULT Widen(FLOAT strokeWidth, ID2D1StrokeStyle* strokeStyle, const D2D1_MATRIX_3X2_F* worldTransform, ID2D1SimplifiedGeometrySink* geometrySink) const { return Widen(strokeWidth, strokeStyle, worldTransform, (0.25f), geometrySink); }
-    __declspec(nothrow) HRESULT Widen(FLOAT strokeWidth, ID2D1StrokeStyle* strokeStyle, const D2D1_MATRIX_3X2_F& worldTransform, ID2D1SimplifiedGeometrySink* geometrySink) const { return Widen(strokeWidth, strokeStyle,& worldTransform, (0.25f), geometrySink); }
 };
 struct __declspec(uuid("2cd906a2-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1RectangleGeometry : ID2D1Geometry {
 };
@@ -212,10 +195,6 @@ struct __declspec(uuid("2cd9069f-12e2-11dc-9fed-001143a055f9")) __declspec(novta
     virtual __declspec(nothrow) void __stdcall AddBezier(const D2D1_BEZIER_SEGMENT* bezier) = 0;
     __declspec(nothrow) void AddBezier(const D2D1_BEZIER_SEGMENT& bezier) { AddBezier(& bezier); }
 };
-struct __declspec(uuid("2cd906c1-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1TessellationSink : IUnknown {
-    MAICORD_COM_UNUSED(AddTriangles);
-    virtual __declspec(nothrow) HRESULT __stdcall Close() = 0;
-};
 struct __declspec(uuid("2cd906a5-12e2-11dc-9fed-001143a055f9")) __declspec(novtable) ID2D1PathGeometry : ID2D1Geometry {
     virtual __declspec(nothrow) HRESULT __stdcall Open(ID2D1GeometrySink** geometrySink) = 0;
 };
@@ -236,7 +215,6 @@ struct __declspec(uuid("06152247-6f50-465a-9245-118bfd3b6007")) __declspec(novta
         const FLOAT* dashes, UINT32 dashesCount, ID2D1StrokeStyle** strokeStyle) = 0;
     __declspec(nothrow) HRESULT CreateRoundedRectangleGeometry(const D2D1_ROUNDED_RECT& roundedRectangle, ID2D1RoundedRectangleGeometry** roundedRectangleGeometry) { return CreateRoundedRectangleGeometry(& roundedRectangle, roundedRectangleGeometry); }
     __declspec(nothrow) HRESULT CreateEllipseGeometry(const D2D1_ELLIPSE& ellipse, ID2D1EllipseGeometry** ellipseGeometry) { return CreateEllipseGeometry(& ellipse, ellipseGeometry); }
-    __declspec(nothrow) HRESULT CreateTransformedGeometry(ID2D1Geometry* sourceGeometry, const D2D1_MATRIX_3X2_F& transform, ID2D1TransformedGeometry** transformedGeometry) { return CreateTransformedGeometry(sourceGeometry,& transform, transformedGeometry); }
     __declspec(nothrow) HRESULT CreateStrokeStyle(const D2D1_STROKE_STYLE_PROPERTIES& strokeStyleProperties, const FLOAT* dashes, UINT32 dashesCount, ID2D1StrokeStyle** strokeStyle) { return CreateStrokeStyle(& strokeStyleProperties, dashes, dashesCount, strokeStyle); }
 };
 MAICORD_SYS_TYPES_END

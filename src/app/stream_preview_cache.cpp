@@ -1,6 +1,8 @@
 #include "maicord/app/stream_preview_cache.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/asset.hpp"
+// Preview scheduling is bookkeeping, not a byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -132,3 +134,4 @@ bool stream_preview_ready(const StreamPreviewEntry& entry) noexcept {
     return entry.serial && entry.url_bytes;
 }
 } // namespace maicord
+#pragma clang attribute pop

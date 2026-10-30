@@ -1,4 +1,6 @@
 #include "maicord/media/hevc_references.hpp"
+// Reference bookkeeping, once per picture: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 namespace maicord {
 u32 hevc_reference_surfaces(const HevcReferenceState& s) noexcept {
     u32 mask{};
@@ -110,3 +112,4 @@ HevcError hevc_reference_plan(const HevcReferenceState& s, const HevcSps& a, con
     return HevcError::none;
 }
 } // namespace maicord
+#pragma clang attribute pop

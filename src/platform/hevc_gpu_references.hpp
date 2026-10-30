@@ -7,6 +7,7 @@ struct HevcGpuReferences {
     u8 before[8]{}, following[8]{}, long_term[8]{};
     u8 count{}, before_count{}, following_count{}, long_count{};
 };
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // DXVA sees the DPB after current RPS marking, excluding the destination picture.
 // Current reference lists still name old DPB positions and must be remapped.
 inline bool hevc_gpu_reference_map(const HevcReferenceState& previous, const HevcReferencePlan& plan,
@@ -84,4 +85,5 @@ inline bool hevc_gpu_reference_map(const HevcReferenceState& previous, const Hev
     *output = mapped;
     return true;
 }
+#pragma clang attribute pop
 } // namespace maicord

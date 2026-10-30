@@ -213,9 +213,6 @@ struct _NT_TIB;
 struct _PROCESS_INFORMATION;
 struct _STARTUPINFOW;
 struct _SYSTEMTIME;
-struct _TIME_DYNAMIC_ZONE_INFORMATION;
-struct _TIME_ZONE_INFORMATION;
-struct _TP_CALLBACK_ENVIRON_V3;
 struct _WIN32_FILE_ATTRIBUTE_DATA;
 struct _XSAVE_FORMAT;
 
@@ -312,27 +309,11 @@ typedef _WIN32_FIND_DATAW* LPWIN32_FIND_DATAW;
 enum _FILE_INFO_BY_HANDLE_CLASS {
     FileBasicInfo,
     FileStandardInfo,
-    FileNameInfo,
-    FileRenameInfo,
+    FileRenameInfo = 3,
     FileDispositionInfo,
-    FileAllocationInfo,
-    FileEndOfFileInfo,
-    FileStreamInfo,
-    FileCompressionInfo,
-    FileAttributeTagInfo,
-    FileIdBothDirectoryInfo,
-    FileIdBothDirectoryRestartInfo,
-    FileIoPriorityHintInfo,
-    FileRemoteProtocolInfo,
-    FileFullDirectoryInfo,
-    FileFullDirectoryRestartInfo,
-    FileStorageInfo,
-    FileAlignmentInfo,
-    FileIdInfo,
-    FileIdExtdDirectoryInfo,
-    FileIdExtdDirectoryRestartInfo,
-    FileDispositionInfoEx,
-    FileRenameInfoEx,
+    FileAttributeTagInfo = 9,
+    FileIdInfo = 18,
+    FileRenameInfoEx = 22,
 };
 typedef _FILE_INFO_BY_HANDLE_CLASS FILE_INFO_BY_HANDLE_CLASS;
 struct _PROCESS_HEAP_ENTRY {
@@ -356,20 +337,7 @@ struct _PROCESS_HEAP_ENTRY {
 };
 typedef _PROCESS_HEAP_ENTRY PROCESS_HEAP_ENTRY;
 typedef _PROCESS_HEAP_ENTRY* LPPROCESS_HEAP_ENTRY;
-struct _REASON_CONTEXT {
-    ULONG Version;
-    DWORD Flags;
-    union {
-        struct {
-            HMODULE LocalizedReasonModule;
-            ULONG LocalizedReasonId;
-            ULONG ReasonStringCount;
-            LPWSTR* ReasonStrings;
-        } Detailed;
-        LPWSTR SimpleReasonString;
-    } Reason;
-};
-typedef _REASON_CONTEXT* PREASON_CONTEXT;
+typedef struct _REASON_CONTEXT* PREASON_CONTEXT;
 // <fileapi.h>
 struct _BY_HANDLE_FILE_INFORMATION {
     DWORD dwFileAttributes;
@@ -423,7 +391,6 @@ MAICORD_SYS_TYPES_END
 // <processenv.h>
 extern "C" __declspec(dllimport) HANDLE WINAPI GetStdHandle(DWORD nStdHandle);
 extern "C" __declspec(dllimport) LPWSTR WINAPI GetCommandLineW();
-extern "C" __declspec(dllimport) DWORD WINAPI GetEnvironmentVariableA(LPCSTR lpName, LPSTR lpBuffer, DWORD nSize);
 extern "C" __declspec(dllimport) DWORD WINAPI GetEnvironmentVariableW(LPCWSTR lpName, LPWSTR lpBuffer, DWORD nSize);
 extern "C" __declspec(dllimport) BOOL WINAPI SetEnvironmentVariableW(LPCWSTR lpName, LPCWSTR lpValue);
 

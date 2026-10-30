@@ -1,6 +1,6 @@
 #requires -Version 5.1
-# Dot-sourced by tools/benchmark_*.ps1 and opus_conformance.ps1. Sets $repository and
-# $cacheRoot and defines Invoke-BenchmarkTarget, which builds one opt-in benchmark inside
+# Dot-sourced by tools/benchmark_*.ps1, opus_conformance.ps1 and probe_network.ps1. Sets $repository and
+# $cacheRoot and defines Invoke-BenchmarkTarget, which builds one opt-in benchmark or probe inside
 # the single Release cache under the shared build mutex, runs it, then removes the binary
 # and objects and restores the shipping-only configuration.
 $repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath

@@ -4,6 +4,8 @@
 #include "maicord/platform/mp4_decoder.hpp"
 #include "maicord/sys/initguid.hpp"
 #include "maicord/sys/dxva.hpp"
+// Surface setup, once per stream: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 
@@ -130,3 +132,4 @@ void gpu_decoder_surfaces_release(GpuDecoderSurfaces* surfaces) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

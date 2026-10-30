@@ -1,6 +1,7 @@
 #include "maicord/render/d3d11_background_fx.hpp"
 
 #include "maicord/core/log.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/render/shader_bytecode.hpp"
 
@@ -10,10 +11,7 @@ namespace maicord {
 namespace {
 
 u64 code_hash(ConstSlice<u8> code) noexcept {
-    u64 value = 0xcbf29ce484222325ull ^ code.count;
-    for (usize i = 0; i < code.count; ++i)
-        value = (value ^ code.data[i]) * 0x100000001b3ull;
-    return value;
+    return hash64_bytes(kHash64Seed ^ code.count, code.data, code.count);
 }
 
 void release_timing(D3D11BackgroundFxTiming& timing) noexcept {

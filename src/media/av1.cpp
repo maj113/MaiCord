@@ -1,6 +1,8 @@
 #include "maicord/media/av1.hpp"
 
 #include "maicord/core/memory.hpp"
+// Header parsing, once per frame and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -920,3 +922,4 @@ Av1Status av1_parse_tile_group(const Av1FrameHeader& header, ConstSlice<u8> payl
     return Av1Status::ok;
 }
 } // namespace maicord
+#pragma clang attribute pop

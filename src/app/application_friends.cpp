@@ -1,5 +1,6 @@
 #include "application_action_captcha.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/hash.hpp"
 #include "application_content_point.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "application_friends.hpp"
@@ -521,10 +522,8 @@ bool more(ApplicationFriends& friends, const UiFriendsTarget& target, UiRect anc
 }
 // Nonzero key of a relationship request a CAPTCHA belongs to.
 u64 captcha_subject(RelationshipOperation operation, u64 id, Utf8View username) noexcept {
-    u64 hash = 1469598103934665603ull ^ (static_cast<u64>(operation) << 56) ^ id;
-    for (u32 i = 0; i < username.bytes; ++i)
-        hash = (hash ^ static_cast<u8>(username.data[i])) * 1099511628211ull;
-    return hash | 1;
+    return hash64_bytes(1469598103934665603ull ^ (static_cast<u64>(operation) << 56) ^ id, username.data,
+                        username.bytes) | 1;
 }
 u64 captcha_subject(const FriendsRequest& request) noexcept {
     return captcha_subject(request.operation, request.user_id, {request.username, request.username_bytes});

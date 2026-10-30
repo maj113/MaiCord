@@ -13,6 +13,7 @@ static_assert(sizeof(AacConfiguration) == 16);
 // Bounded explicit AAC-LC/SBR/PS metadata. No inference from compressed audio,
 // no 960-frame mode, PCE, core dependency or unknown nonzero extension bits.
 // Output uses the post-SBR/PS PCM domain. Failure leaves output unchanged.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 __declspec(noinline) inline bool aac_configuration_decode(ConstSlice<u8> source,
                                                           AacConfiguration* output) noexcept {
     if (!output || source.count < 2 || source.count > 16 || !byte_range_valid(source) ||
@@ -108,4 +109,5 @@ __declspec(noinline) inline bool aac_configuration_decode(ConstSlice<u8> source,
     *output = next;
     return true;
 }
+#pragma clang attribute pop
 } // namespace maicord

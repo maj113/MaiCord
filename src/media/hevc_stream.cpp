@@ -3,6 +3,8 @@
 #include "maicord/media/video_display.hpp"
 #include "maicord/core/memory.hpp"
 #include "hevc_bits.hpp"
+// Parameter sets and picture bookkeeping, once per picture: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -61,10 +63,11 @@ HevcError hevc_parameter_sets_store(HevcParameterSets* sets, ConstSlice<u8> nal)
         if (error != HevcError::none)
             return sets->last_sps_error = error;
         // Validated now so an unsupported stream (Main10, 4:4:4) is known at
-        // once; the chain is parsed again when a picture activates it.
-        HevcSps parsed;
-        error =
-            nal.count > kHevcStreamMaximumSpsBytes ? HevcError::unsupported : hevc_parse_sps(nal, &parsed);
+        // once. The parse goes straight into the active chain, which it replaces:
+        // a picture that activates this SPS then parses only its PPS.
+        sets->active_sps = sets->active_pps = 0;
+        error = nal.count > kHevcStreamMaximumSpsBytes ? HevcError::unsupported
+                                                       : hevc_parse_sps(nal, &sets->active.sps);
         if (error != HevcError::none) {
             invalidate(sets->sps, id);
             return sets->last_sps_error = error;
@@ -75,6 +78,7 @@ HevcError hevc_parameter_sets_store(HevcParameterSets* sets, ConstSlice<u8> nal)
         slot->id = id;
         slot->stored = ++sets->clock;
         slot->valid = true;
+        sets->active_sps = slot->stored;
         sets->last_sps_error = HevcError::none;
         return HevcError::none;
     }
@@ -116,14 +120,19 @@ HevcError hevc_parameter_sets_resolve(HevcParameterSets* sets, u8 pps_id) noexce
                                                               : HevcError::malformed;
     if (sets->active_sps == sequence->stored && sets->active_pps == picture->stored)
         return HevcError::none;
-    sets->active_sps = sets->active_pps = 0;
+    HevcError error = HevcError::none;
     auto& active = sets->active;
-    HevcError error = hevc_parse_sps({sequence->raw, sequence->bytes}, &active.sps);
+    sets->active_pps = 0;
+    if (sets->active_sps != sequence->stored) {
+        sets->active_sps = 0;
+        error = hevc_parse_sps({sequence->raw, sequence->bytes}, &active.sps);
+        if (error == HevcError::none)
+            sets->active_sps = sequence->stored;
+    }
     if (error == HevcError::none)
         error = hevc_parse_pps({picture->raw, picture->bytes}, active.sps, &active.pps);
     if (error != HevcError::none)
         return error;
-    sets->active_sps = sequence->stored;
     sets->active_pps = picture->stored;
     return HevcError::none;
 }
@@ -391,3 +400,4 @@ bool hevc_stream_pop(HevcStreamState* state, H264StreamOutput* output) noexcept 
 }
 
 } // namespace maicord
+#pragma clang attribute pop

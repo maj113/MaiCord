@@ -32,10 +32,11 @@ struct HevcScaling {
     u8 list4x4[6][16]{}, list8x8[6][64]{}, list16x16[6][64]{}, list32x32[2][64]{};
     u8 dc16[6]{}, dc32[2]{};
 };
+// Plain aggregates (no member initialisers): the arrays that hold them zero-fill as one block.
 struct HevcReferenceSet {
-    i32 delta[15]{};
-    u16 used{};
-    u8 negative{}, positive{};
+    i32 delta[15];
+    u16 used;
+    u8 negative, positive;
 };
 struct HevcSps {
     HevcScaling scaling{};
@@ -70,13 +71,13 @@ struct HevcConfiguration {
     u8 nal_length_bytes{};
 };
 struct HevcLongTermReference {
-    u32 delta_msb_cycles{};
-    u16 poc_lsb{};
-    bool delta_msb_present{}, used{};
+    u32 delta_msb_cycles;
+    u16 poc_lsb;
+    bool delta_msb_present, used;
 };
+// NAL extent within the access unit (header included, start code excluded).
 struct HevcSliceSpan {
-    u32 offset{}, bytes{}, segment_address{};
-    bool dependent{};
+    u32 offset, bytes;
 };
 // Picture-level slice header fields (equal in every slice of a picture).
 struct HevcPictureHeader {
@@ -87,7 +88,8 @@ struct HevcPictureHeader {
     bool output{true}, no_output_prior{}, irap{}, idr{}, reference{};
 };
 struct HevcPicture : HevcPictureHeader {
-    HevcSliceSpan slices[kHevcMaximumSlices]{};
+    // Only entries below slice_count are meaningful; parsing writes no others.
+    HevcSliceSpan slices[kHevcMaximumSlices];
     u32 bitstream_bytes{};
     u8 slice_count{};
 };
@@ -101,6 +103,7 @@ struct HevcSlice {
 HevcError hevc_parse_slice(const HevcNal& nal, const HevcConfiguration& c, const HevcPictureHeader* previous,
                            HevcSlice* output) noexcept;
 bool hevc_picture_header_same(const HevcPictureHeader& a, const HevcPictureHeader& b) noexcept;
+// Parsed in place: *output is unspecified unless this returns none.
 HevcError hevc_parse_sps(ConstSlice<u8>, HevcSps*) noexcept;
 // sps_seq_parameter_set_id of an SPS NAL of any profile.
 HevcError hevc_sps_id(ConstSlice<u8> nal, u8* id) noexcept;
@@ -109,8 +112,9 @@ HevcError hevc_parse_pps(ConstSlice<u8>, const HevcSps&, HevcPps*) noexcept;
 HevcError hevc_select_parameters(ConstSlice<u8> hvcc, u8 pps_id, HevcConfiguration*) noexcept;
 HevcError hevc_validate_parameter(ConstSlice<u8> nal, const HevcConfiguration&) noexcept;
 HevcError hevc_picture_parameter_id(ConstSlice<u8> unit, u8 length_bytes, u8*) noexcept;
-// Output is transactional. No allocation, retained input, or invented POC.
+// Output is transactional: on failure *output is unchanged, on success the header, counts and
+// slices[0, slice_count) are replaced. No allocation, retained input, or invented POC.
 HevcError hevc_parse_picture(ConstSlice<u8> unit, const HevcConfiguration&, HevcPicture*) noexcept;
 static_assert(sizeof(HevcConfiguration) <= 8192);
-static_assert(sizeof(HevcPicture) <= 2560);
+static_assert(sizeof(HevcPicture) <= 1280);
 } // namespace maicord

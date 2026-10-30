@@ -5,6 +5,8 @@
 #include "maicord/media/h264_stream.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
+// Segment indexing, once per segment and no byte loop of consequence: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -247,3 +249,4 @@ Mp4DemuxError mpeg_ts_segment_store_accept(Mp4SegmentStore* s,u32 number,u64 ser
     return fill(*s,number,bytes,duration);
 }
 } // namespace maicord
+#pragma clang attribute pop

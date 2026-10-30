@@ -13,8 +13,7 @@
 
 MAICORD_SYS_TYPES_BEGIN
 enum _FINDEX_INFO_LEVELS {
-    FindExInfoStandard,
-    FindExInfoBasic,
+    FindExInfoBasic = 1,
 };
 typedef _FINDEX_INFO_LEVELS FINDEX_INFO_LEVELS;
 enum _FINDEX_SEARCH_OPS {

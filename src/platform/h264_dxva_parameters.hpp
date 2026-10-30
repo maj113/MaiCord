@@ -10,6 +10,7 @@ namespace maicord {
 // and the live stream decoder. References are the CURRENT DPB (before the
 // picture's own marking); feedback is the last accepted status number.
 // output and matrix must be zero-initialized.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 inline void h264_dxva_picture_parameters(const H264Sps& a, const H264Pps& b, const H264Slice& first,
                                          bool all_intra, const H264ReferenceState& references,
                                          const H264PictureOrder& decode_order, u8 surface, u32 feedback,
@@ -55,5 +56,6 @@ inline void h264_dxva_picture_parameters(const H264Sps& a, const H264Pps& b, con
     copy_bytes(matrix->bScalingLists4x4, b.scaling.list4x4, sizeof(matrix->bScalingLists4x4));
     copy_bytes(matrix->bScalingLists8x8, b.scaling.list8x8, sizeof(matrix->bScalingLists8x8));
 }
+#pragma clang attribute pop
 
 } // namespace maicord

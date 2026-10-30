@@ -1,5 +1,7 @@
 #include "maicord/media/h264_output_queue.hpp"
 #include "maicord/core/memory.hpp"
+// Output bookkeeping, once per picture: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 u32 h264_pending_surfaces(const H264OutputQueue& queue) noexcept {
@@ -40,3 +42,4 @@ bool h264_output_pop(H264OutputQueue* queue, H264Output* picture) noexcept {
     return true;
 }
 } // namespace maicord
+#pragma clang attribute pop

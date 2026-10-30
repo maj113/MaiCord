@@ -69,20 +69,6 @@ struct _D3DCOLORVALUE {
     float a;
 };
 typedef _D3DCOLORVALUE D3DCOLORVALUE;
-enum DXGI_MODE_SCANLINE_ORDER {
-};
-enum DXGI_MODE_SCALING {
-};
-enum DXGI_MODE_ROTATION {
-};
-struct DXGI_MODE_DESC {
-    UINT Width;
-    UINT Height;
-    DXGI_RATIONAL RefreshRate;
-    DXGI_FORMAT Format;
-    DXGI_MODE_SCANLINE_ORDER ScanlineOrdering;
-    DXGI_MODE_SCALING Scaling;
-};
 // <dxgi.h>
 struct DXGI_ADAPTER_DESC {
     WCHAR Description[128];
@@ -95,29 +81,14 @@ struct DXGI_ADAPTER_DESC {
     SIZE_T SharedSystemMemory;
     LUID AdapterLuid;
 };
-struct DXGI_OUTPUT_DESC {
-    WCHAR DeviceName[32];
-    RECT DesktopCoordinates;
-    BOOL AttachedToDesktop;
-    DXGI_MODE_ROTATION Rotation;
-    HMONITOR Monitor;
-};
+struct DXGI_OUTPUT_DESC;
 enum DXGI_SWAP_EFFECT {
     DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL = 3,
 };
 enum DXGI_SWAP_CHAIN_FLAG {
     DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT = 64,
 };
-struct DXGI_SWAP_CHAIN_DESC {
-    DXGI_MODE_DESC BufferDesc;
-    DXGI_SAMPLE_DESC SampleDesc;
-    DXGI_USAGE BufferUsage;
-    UINT BufferCount;
-    HWND OutputWindow;
-    BOOL Windowed;
-    DXGI_SWAP_EFFECT SwapEffect;
-    UINT Flags;
-};
+struct DXGI_SWAP_CHAIN_DESC;
 struct __declspec(uuid("aec22fb8-76f3-4639-9be0-28eb43a67a2e")) __declspec(novtable) IDXGIObject : IUnknown {
     MAICORD_COM_UNUSED(SetPrivateData);
     virtual HRESULT __stdcall SetPrivateDataInterface(const GUID& Name, const IUnknown* pUnknown) = 0;
@@ -170,7 +141,7 @@ struct __declspec(uuid("29038f61-3839-4626-91fd-086879011a05")) __declspec(novta
     MAICORD_COM_UNUSED(GetDesc1);
 };
 struct __declspec(uuid("77db970f-6276-48ba-ba28-070143b4392c")) __declspec(novtable) IDXGIDevice1 : IDXGIDevice {
-    virtual HRESULT __stdcall SetMaximumFrameLatency(UINT MaxLatency) = 0;
+    MAICORD_COM_UNUSED(SetMaximumFrameLatency);
     MAICORD_COM_UNUSED(GetMaximumFrameLatency);
 };
 // <dxgi1_2.h>
@@ -184,7 +155,6 @@ struct __declspec(uuid("05008617-fbfd-4051-a790-144884b4f6a9")) __declspec(novta
     MAICORD_COM_UNUSED(EnqueueSetEvent);
 };
 enum DXGI_SCALING {
-    DXGI_SCALING_STRETCH = 0,
 };
 struct DXGI_SWAP_CHAIN_DESC1 {
     UINT Width;

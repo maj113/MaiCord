@@ -1,6 +1,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/decimal.hpp"
+#include "maicord/core/memory.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_system_time.hpp"
@@ -11,16 +12,19 @@ namespace {
 
 constexpr u32 kPathCapacity = 768;
 constexpr u32 kLineCapacity = 1024;
+// A line keeps at most this many bytes, its CRLF included when it fits.
+constexpr u32 kLineBytes = kLineCapacity - 1;
 constexpr u32 kBufferBytes = 16u * 1024u;
 constexpr u64 kLogFileMaximumBytes = 16ull * 1024ull * 1024ull;
 // Relative due time in 100 ns units for the deferred flush.
 constexpr i64 kFlushDelay = -100ll * 10'000ll;
 constexpr u32 kStampCharacters = 19; // "YYYY-MM-DD HH:MM:SS"
+constexpr u32 kPrefixCharacters = kStampCharacters + 10; // stamp, ".mmm [L] ["
 
-// Lines are appended to a bounded buffer under the lock. Error lines, a full
-// buffer and close write synchronously; everything else reaches the file within
-// kFlushDelay through one thread-pool timer, so external log readers still see
-// lines without further log traffic.
+// Lines are formatted in place after the buffered bytes, under the lock.
+// Error lines, a full buffer and close write synchronously; everything else
+// reaches the file within kFlushDelay through one thread-pool timer, so
+// external log readers still see lines without further log traffic.
 struct LogState {
     HANDLE file;
     SRWLOCK lock;
@@ -35,42 +39,22 @@ struct LogState {
 
 LogState g_log{};
 
-void append_char(char* output, u32 capacity, u32* length, char value) noexcept {
-    if (*length + 1 < capacity) {
-        output[*length] = value;
-        ++*length;
-        output[*length] = 0;
-    }
-}
+// Appends to a line, dropping what does not fit.
+struct LineWriter {
+    char* at;
+    char* end;
 
-void append_text(char* output, u32 capacity, u32* length, const char* text) noexcept {
-    if (!text) {
-        return;
+    void put(const char* text) noexcept {
+        for (; *text != 0 && at != end; ++text)
+            *at++ = *text;
     }
-    while (*text != 0 && *length + 1 < capacity) {
-        output[*length] = *text;
-        ++*length;
-        ++text;
-    }
-    output[*length] = 0;
-}
+};
 
-void append_fixed_decimal(char* output, u32 capacity, u32* length, u32 value, u32 digits) noexcept {
-    char buffer[10]{};
-    for (u32 index = 0; index < digits; ++index) {
-        buffer[digits - index - 1] = static_cast<char>('0' + (value % 10));
+// The low `digits` decimal digits of value, zero-padded.
+void put_fixed_decimal(char* output, u32 value, u32 digits) noexcept {
+    while (digits != 0) {
+        output[--digits] = static_cast<char>('0' + value % 10);
         value /= 10;
-    }
-    for (u32 index = 0; index < digits; ++index) {
-        append_char(output, capacity, length, buffer[index]);
-    }
-}
-
-void append_u64_decimal(char* output, u32 capacity, u32* length, u64 value) noexcept {
-    char digits[20];
-    const u32 count = decimal_write(digits, value);
-    for (u32 index = 0; index < count; ++index) {
-        append_char(output, capacity, length, digits[index]);
     }
 }
 
@@ -88,27 +72,7 @@ char level_letter(LogLevel level) noexcept {
     return '?';
 }
 
-// The local date/time prefix changes once per second and is copied into the
-// line's first kStampCharacters bytes by commit_line under the lock it takes
-// anyway; only milliseconds are formatted per line.
-u32 begin_line(char* line, u32 capacity, LogLevel level, const char* component, u64* second) noexcept {
-    FILETIME now{};
-    GetSystemTimeAsFileTime(&now);
-    const u64 ticks = (static_cast<u64>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
-    *second = ticks / 10'000'000ull;
-    u32 length = kStampCharacters;
-    line[length] = 0;
-    append_char(line, capacity, &length, '.');
-    append_fixed_decimal(line, capacity, &length, static_cast<u32>(ticks / 10'000ull % 1'000ull), 3);
-    append_text(line, capacity, &length, " [");
-    append_char(line, capacity, &length, level_letter(level));
-    append_text(line, capacity, &length, "] [");
-    append_text(line, capacity, &length, component ? component : "unknown");
-    append_text(line, capacity, &length, "] ");
-    return length;
-}
-
-// Caller holds the lock.
+// Caller holds the lock. The local date/time prefix changes once per second.
 void copy_stamp_locked(char* line, u64 second) noexcept {
     if (g_log.stamp_second != second) {
         const u64 ticks = second * 10'000'000ull;
@@ -119,27 +83,21 @@ void copy_stamp_locked(char* line, u64 second) noexcept {
         if (!SystemTimeToTzSpecificLocalTime(nullptr, &utc, &time)) {
             time = utc;
         }
-        char stamp[kStampCharacters + 1];
-        u32 length = 0;
-        append_fixed_decimal(stamp, sizeof(stamp), &length, time.wYear, 4);
-        append_char(stamp, sizeof(stamp), &length, '-');
-        append_fixed_decimal(stamp, sizeof(stamp), &length, time.wMonth, 2);
-        append_char(stamp, sizeof(stamp), &length, '-');
-        append_fixed_decimal(stamp, sizeof(stamp), &length, time.wDay, 2);
-        append_char(stamp, sizeof(stamp), &length, ' ');
-        append_fixed_decimal(stamp, sizeof(stamp), &length, time.wHour, 2);
-        append_char(stamp, sizeof(stamp), &length, ':');
-        append_fixed_decimal(stamp, sizeof(stamp), &length, time.wMinute, 2);
-        append_char(stamp, sizeof(stamp), &length, ':');
-        append_fixed_decimal(stamp, sizeof(stamp), &length, time.wSecond, 2);
-        for (u32 index = 0; index < kStampCharacters; ++index) {
-            g_log.stamp[index] = stamp[index];
-        }
+        char* stamp = g_log.stamp;
+        put_fixed_decimal(stamp, time.wYear, 4);
+        stamp[4] = '-';
+        put_fixed_decimal(stamp + 5, time.wMonth, 2);
+        stamp[7] = '-';
+        put_fixed_decimal(stamp + 8, time.wDay, 2);
+        stamp[10] = ' ';
+        put_fixed_decimal(stamp + 11, time.wHour, 2);
+        stamp[13] = ':';
+        put_fixed_decimal(stamp + 14, time.wMinute, 2);
+        stamp[16] = ':';
+        put_fixed_decimal(stamp + 17, time.wSecond, 2);
         g_log.stamp_second = second;
     }
-    for (u32 index = 0; index < kStampCharacters; ++index) {
-        line[index] = g_log.stamp[index];
-    }
+    copy_bytes(line, g_log.stamp, kStampCharacters);
 }
 
 // Caller holds the lock.
@@ -160,28 +118,44 @@ void CALLBACK flush_timer_callback(PTP_CALLBACK_INSTANCE, void*, PTP_TIMER) noex
     ReleaseSRWLockExclusive(&g_log.lock);
 }
 
-void commit_line(char* line, u32* length, LogLevel level, u64 second) noexcept {
-    append_text(line, kLineCapacity, length, "\r\n");
-
+// Takes the lock and starts a line after the buffered bytes, room for a whole
+// line made first: "YYYY-MM-DD HH:MM:SS.mmm [L] [component] ".
+LineWriter begin_line(LogLevel level, const char* component) noexcept {
+    FILETIME now{};
+    GetSystemTimeAsFileTime(&now);
+    const u64 ticks = (static_cast<u64>(now.dwHighDateTime) << 32) | now.dwLowDateTime;
     AcquireSRWLockExclusive(&g_log.lock);
-    copy_stamp_locked(line, second);
+    if (kBufferBytes - g_log.buffered < kLineBytes) {
+        flush_locked();
+    }
+    char* line = g_log.buffer + g_log.buffered;
+    copy_stamp_locked(line, ticks / 10'000'000ull);
+    line[kStampCharacters] = '.';
+    put_fixed_decimal(line + kStampCharacters + 1, static_cast<u32>(ticks / 10'000ull % 1'000ull), 3);
+    copy_bytes(line + kStampCharacters + 4, " [?] [", 6);
+    line[kStampCharacters + 6] = level_letter(level);
+    LineWriter writer{line + kPrefixCharacters, line + kLineBytes};
+    writer.put(component ? component : "unknown");
+    writer.put("] ");
+    return writer;
+}
+
+// Ends the line begun by begin_line and releases the lock.
+void commit_line(LineWriter writer, LogLevel level) noexcept {
+    writer.put("\r\n");
+    const char* line = g_log.buffer + g_log.buffered;
+    const u32 length = static_cast<u32>(writer.at - line);
 #if defined(MAICORD_LOG_STDOUT)
     const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
     if (output && output != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
-        WriteFile(output, line, *length, &written, nullptr);
+        WriteFile(output, line, length, &written, nullptr);
     }
 #endif
     if (g_log.file && g_log.file != INVALID_HANDLE_VALUE) {
         const u64 pending = g_log.file_bytes + g_log.buffered;
-        if (pending <= kLogFileMaximumBytes && *length <= kLogFileMaximumBytes - pending) {
-            if (*length > kBufferBytes - g_log.buffered) {
-                flush_locked();
-            }
-            for (u32 index = 0; index < *length; ++index) {
-                g_log.buffer[g_log.buffered + index] = line[index];
-            }
-            g_log.buffered += *length;
+        if (pending <= kLogFileMaximumBytes && length <= kLogFileMaximumBytes - pending) {
+            g_log.buffered += length;
             if (level == LogLevel::error) {
                 flush_locked();
             } else if (!g_log.flush_armed) {
@@ -278,21 +252,21 @@ void log_close() noexcept {
 }
 
 void log_write(LogLevel level, const char* component, const char* message) noexcept {
-    char line[kLineCapacity];
-    u64 second = 0;
-    u32 length = begin_line(line, kLineCapacity, level, component, &second);
-    append_text(line, kLineCapacity, &length, message);
-    commit_line(line, &length, level, second);
+    LineWriter line = begin_line(level, component);
+    if (message) {
+        line.put(message);
+    }
+    commit_line(line, level);
 }
 
 void log_u64(LogLevel level, const char* component, const char* key, u64 value) noexcept {
-    char line[kLineCapacity];
-    u64 second = 0;
-    u32 length = begin_line(line, kLineCapacity, level, component, &second);
-    append_text(line, kLineCapacity, &length, key ? key : "value");
-    append_char(line, kLineCapacity, &length, '=');
-    append_u64_decimal(line, kLineCapacity, &length, value);
-    commit_line(line, &length, level, second);
+    char text[22];
+    text[0] = '=';
+    text[1 + decimal_write(text + 1, value)] = 0;
+    LineWriter line = begin_line(level, component);
+    line.put(key ? key : "value");
+    line.put(text);
+    commit_line(line, level);
 }
 
 } // namespace maicord

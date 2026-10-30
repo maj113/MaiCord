@@ -1,6 +1,6 @@
 # Opt-in network probes against the live service endpoints (TLS, REST, Gateway,
-# CDN, voice UDP), used by tools/probe_*.ps1 for transport measurements. They
-# never run in the test suite.
+# CDN, voice UDP). tools/probe_network.ps1 measures the TLS, REST and CDN ones;
+# the others run by hand. They never run in the test suite.
 option(MAICORD_BUILD_INTEGRATION_TESTS "Build opt-in network integration probes" OFF)
 if(NOT MAICORD_BUILD_INTEGRATION_TESTS)
     return()

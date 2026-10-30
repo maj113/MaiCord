@@ -15,6 +15,8 @@
 #include "h264_dxva_parameters.hpp"
 #include "gpu_decoder_fence.hpp"
 #include "gpu_decoder_surfaces.hpp"
+// DXVA submission, once per frame: the slice copy is one memcpy per slice. Compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -560,3 +562,4 @@ bool h264_gpu_decoder_wait(H264GpuDecoder* decoder, u32 timeout_ms) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

@@ -12,12 +12,13 @@
 #include "maicord/sys/d3d11.hpp"
 #include "maicord/sys/initguid.hpp"
 #include "maicord/sys/dxva.hpp"
+// DXVA submission, once per frame: the slice copy is one memcpy per slice. Compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
 struct State {
     HevcConfiguration config;
-    HevcPicture picture;
     Mp4Demuxer demux;
     HevcReferenceState references;
     H264OutputQueue output;
@@ -58,7 +59,7 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
         return result;
     UINT bit_capacity{};
     void* bit_data{};
-    DXVA_Slice_HEVC_Short slices[kHevcMaximumSlices]{};
+    DXVA_Slice_HEVC_Short slices[kHevcMaximumSlices]; // Entries below slice_count are written before use.
     result = s.context->GetDecoderBuffer(s.decoder, D3D11_VIDEO_DECODER_BUFFER_BITSTREAM, &bit_capacity, &bit_data);
     if (FAILED(result))
         return result;
@@ -166,9 +167,10 @@ bool hevc_gpu_decoder_initialize(H264GpuDecoder* handle, ConstSlice<u8> encoded,
                                : HevcError::malformed;
         if (error == HevcError::none)
             error = hevc_select_parameters(hevc_demux_hvcc(s->demux), pps, &s->config);
+        HevcPicture picture;
         if (error == HevcError::none)
-            error = hevc_parse_picture(unit.bytes, s->config, &s->picture);
-        if (error == HevcError::none && !s->picture.irap)
+            error = hevc_parse_picture(unit.bytes, s->config, &picture);
+        if (error == HevcError::none && !picture.irap)
             error = HevcError::unsupported;
         handle->parse_error = mapped(error);
         if (error != HevcError::none)
@@ -276,7 +278,7 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
             frame.error = Mp4DecodeError::needs_service;
             return frame;
         }
-        HevcPicture picture{};
+        HevcPicture picture;
         const auto error =
             unit.ok() ? hevc_parse_picture(unit.bytes, s.config, &picture) : HevcError::malformed;
         handle->parse_error = mapped(error);
@@ -318,7 +320,6 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
             frame.error = Mp4DecodeError::sample;
             return frame;
         }
-        s.picture = picture;
         copy_value(&s.demux, next);
         s.references = plan.after;
         if (++s.feedback == 0)
@@ -372,7 +373,7 @@ Mp4DemuxError hevc_gpu_decoder_seek(H264GpuDecoder* handle, i64 target, Mp4SeekP
     const auto unit = mp4_demux_next_ready(&probe);
     if (unit.error == Mp4DemuxError::data_pending)
         return unit.error;
-    HevcPicture picture{};
+    HevcPicture picture;
     if (!unit.ok() || hevc_parse_picture(unit.bytes, s.config, &picture) != HevcError::none ||
         !picture.irap)
         return Mp4DemuxError::unsupported;
@@ -418,3 +419,4 @@ bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32 timeout) noexcept {
     return SUCCEEDED(result);
 }
 } // namespace maicord
+#pragma clang attribute pop

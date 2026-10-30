@@ -27,28 +27,8 @@ struct _SYSTEMTIME {
 typedef _SYSTEMTIME SYSTEMTIME;
 typedef _SYSTEMTIME* LPSYSTEMTIME;
 // <timezoneapi.h>
-struct _TIME_ZONE_INFORMATION {
-    LONG Bias;
-    WCHAR StandardName[32];
-    SYSTEMTIME StandardDate;
-    LONG StandardBias;
-    WCHAR DaylightName[32];
-    SYSTEMTIME DaylightDate;
-    LONG DaylightBias;
-};
-typedef _TIME_ZONE_INFORMATION TIME_ZONE_INFORMATION;
-struct _TIME_DYNAMIC_ZONE_INFORMATION {
-    LONG Bias;
-    WCHAR StandardName[32];
-    SYSTEMTIME StandardDate;
-    LONG StandardBias;
-    WCHAR DaylightName[32];
-    SYSTEMTIME DaylightDate;
-    LONG DaylightBias;
-    WCHAR TimeZoneKeyName[128];
-    BOOLEAN DynamicDaylightTimeDisabled;
-};
-typedef _TIME_DYNAMIC_ZONE_INFORMATION DYNAMIC_TIME_ZONE_INFORMATION;
+typedef struct _TIME_ZONE_INFORMATION TIME_ZONE_INFORMATION;
+typedef struct _TIME_DYNAMIC_ZONE_INFORMATION DYNAMIC_TIME_ZONE_INFORMATION;
 MAICORD_SYS_TYPES_END
 
 extern "C" __declspec(dllimport) void WINAPI GetLocalTime(LPSYSTEMTIME lpSystemTime);

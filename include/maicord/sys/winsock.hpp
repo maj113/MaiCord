@@ -76,7 +76,6 @@
 #define WSAID_CONNECTEX {0x25a207b9,0xddf3,0x4660,{0x8e,0xe9,0x76,0xe5,0x8c,0x74,0x06,0x3e}}
 
 typedef unsigned short u_short;
-typedef unsigned int u_int;
 typedef unsigned long u_long;
 typedef USHORT ADDRESS_FAMILY;
 typedef unsigned int GROUP;
@@ -160,14 +159,6 @@ struct addrinfoexW {
 typedef addrinfoexW ADDRINFOEXW;
 typedef addrinfoexW* PADDRINFOEXW;
 // <WinSock2.h>
-struct fd_set {
-    u_int fd_count;
-    SOCKET fd_array[64];
-};
-struct timeval {
-    long tv_sec;
-    long tv_usec;
-};
 struct WSAData {
     WORD wVersion;
     WORD wHighVersion;
@@ -186,34 +177,7 @@ struct _WSANETWORKEVENTS {
 };
 typedef _WSANETWORKEVENTS WSANETWORKEVENTS;
 typedef _WSANETWORKEVENTS* LPWSANETWORKEVENTS;
-struct _WSAPROTOCOLCHAIN {
-    int ChainLen;
-    DWORD ChainEntries[7];
-};
-typedef _WSAPROTOCOLCHAIN WSAPROTOCOLCHAIN;
-struct _WSAPROTOCOL_INFOW {
-    DWORD dwServiceFlags1;
-    DWORD dwServiceFlags2;
-    DWORD dwServiceFlags3;
-    DWORD dwServiceFlags4;
-    DWORD dwProviderFlags;
-    GUID ProviderId;
-    DWORD dwCatalogEntryId;
-    WSAPROTOCOLCHAIN ProtocolChain;
-    int iVersion;
-    int iAddressFamily;
-    int iMaxSockAddr;
-    int iMinSockAddr;
-    int iSocketType;
-    int iProtocol;
-    int iProtocolMaxOffset;
-    int iNetworkByteOrder;
-    int iSecurityScheme;
-    DWORD dwMessageSize;
-    DWORD dwProviderReserved;
-    WCHAR szProtocol[255 + 1];
-};
-typedef _WSAPROTOCOL_INFOW* LPWSAPROTOCOL_INFOW;
+typedef struct _WSAPROTOCOL_INFOW* LPWSAPROTOCOL_INFOW;
 typedef void(__stdcall* LPWSAOVERLAPPED_COMPLETION_ROUTINE)(DWORD dwError, DWORD cbTransferred,
     LPWSAOVERLAPPED lpOverlapped, DWORD dwFlags);
 // <in6addr.h>
@@ -256,8 +220,6 @@ extern "C" __declspec(dllimport) u_short WINAPI ntohs(u_short netshort);
 extern "C" __declspec(dllimport) int WINAPI recv(SOCKET s, char* buf, int len, int flags);
 extern "C" __declspec(dllimport) int WINAPI recvfrom(SOCKET s, char* buf, int len, int flags, struct sockaddr* from,
     int* fromlen);
-extern "C" __declspec(dllimport) int WINAPI select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds,
-    const struct timeval* timeout);
 extern "C" __declspec(dllimport) int WINAPI send(SOCKET s, const char* buf, int len, int flags);
 extern "C" __declspec(dllimport) int WINAPI sendto(SOCKET s, const char* buf, int len, int flags,
     const struct sockaddr* to, int tolen);

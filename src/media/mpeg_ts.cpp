@@ -1,6 +1,8 @@
 #include "maicord/media/mpeg_ts.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+// Transport stream parsing, once per segment and no byte loop of consequence: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -256,3 +258,4 @@ bool mpeg_ts_unwrap(u64 raw, u64 reference, u64* output) noexcept {
     return true;
 }
 } // namespace maicord
+#pragma clang attribute pop

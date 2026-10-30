@@ -68,8 +68,7 @@ enum __MIDL___MIDL_itf_mmdeviceapi_0000_0000_0001 {
 typedef __MIDL___MIDL_itf_mmdeviceapi_0000_0000_0001 EDataFlow;
 enum __MIDL___MIDL_itf_mmdeviceapi_0000_0000_0002 {
     eConsole = 0,
-    eMultimedia = (eConsole + 1),
-    eCommunications = (eMultimedia + 1),
+    eCommunications = 2,
 };
 typedef __MIDL___MIDL_itf_mmdeviceapi_0000_0000_0002 ERole;
 struct __declspec(uuid("7991EEC9-7E89-4D85-8390-6C703CEC60C0")) __declspec(novtable) IMMNotificationClient : IUnknown {

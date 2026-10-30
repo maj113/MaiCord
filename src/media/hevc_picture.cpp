@@ -1,6 +1,8 @@
 #include "maicord/media/hevc.hpp"
 #include "maicord/core/memory.hpp"
 #include "hevc_bits.hpp"
+// Header parsing, once per picture and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -263,9 +265,9 @@ HevcError hevc_parse_picture(ConstSlice<u8> unit, const HevcConfiguration& c,
     if (!output || !unit.data || !unit.count || !c.sps.coded_width || !c.sps.max_buffering ||
         c.sps.poc_bits < 4 || c.sps.poc_bits > 16)
         return HevcError::invalid_input;
-    HevcPicture v{};
+    HevcPicture v; // Spans below slice_count are written before they are read.
     HevcNalCursor cursor{unit, 0, c.nal_length_bytes};
-    u32 nals{};
+    u32 nals{}, last_address{};
     bool seen{};
     for (;;) {
         const auto n = hevc_next_nal(&cursor);
@@ -300,18 +302,21 @@ HevcError hevc_parse_picture(ConstSlice<u8> unit, const HevcConfiguration& c,
         if (!seen) {
             static_cast<HevcPictureHeader&>(v) = parsed.header;
             seen = true;
-        } else if (!hevc_picture_header_same(v, parsed.header) ||
-                   parsed.address <= v.slices[v.slice_count - 1].segment_address)
+        } else if (!hevc_picture_header_same(v, parsed.header) || parsed.address <= last_address)
             return HevcError::malformed;
-        const u32 offset = static_cast<u32>(n.bytes.data - unit.data);
-        v.slices[v.slice_count++] = {offset, n.bytes.count, parsed.address, parsed.dependent};
+        v.slices[v.slice_count++] = {static_cast<u32>(n.bytes.data - unit.data), n.bytes.count};
+        last_address = parsed.address;
         if (n.bytes.count > 0xffffffffu - 3 - v.bitstream_bytes)
             return HevcError::unsupported;
         v.bitstream_bytes += n.bytes.count + 3;
     }
     if (!seen)
         return HevcError::malformed;
-    *output = v;
+    static_cast<HevcPictureHeader&>(*output) = v;
+    output->bitstream_bytes = v.bitstream_bytes;
+    output->slice_count = v.slice_count;
+    copy_bytes(output->slices, v.slices, v.slice_count * u32{sizeof(HevcSliceSpan)});
     return HevcError::none;
 }
 } // namespace maicord
+#pragma clang attribute pop

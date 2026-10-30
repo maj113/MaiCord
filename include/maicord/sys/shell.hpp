@@ -107,15 +107,7 @@ typedef ITEMIDLIST __unaligned* LPITEMIDLIST;
 typedef const ITEMIDLIST __unaligned* LPCITEMIDLIST;
 // <shobjidl_core.h>
 enum _SIGDN {
-    SIGDN_PARENTRELATIVEPARSING = (int) 0x80018001,
-    SIGDN_DESKTOPABSOLUTEPARSING = (int) 0x80028000,
-    SIGDN_PARENTRELATIVEEDITING = (int) 0x80031001,
-    SIGDN_DESKTOPABSOLUTEEDITING = (int) 0x8004c000,
-    SIGDN_FILESYSPATH = (int) 0x80058000,
-    SIGDN_URL = (int) 0x80068000,
-    SIGDN_PARENTRELATIVEFORADDRESSBAR = (int) 0x8007c001,
-    SIGDN_PARENTRELATIVE = (int) 0x80080001,
-    SIGDN_PARENTRELATIVEFORUI = (int) 0x80094001
+    SIGDN_FILESYSPATH = (int) 0x80058000
 };
 typedef _SIGDN SIGDN;
 struct __declspec(uuid("43826d1e-e718-42ee-bc55-a1e261c37bfe")) __declspec(novtable) IShellItem : IUnknown {
@@ -221,8 +213,7 @@ class __declspec(uuid("C0B4E2F3-BA21-4773-8DBA-335EC946EB8B")) FileSaveDialog;
 #pragma pack(push, 1)
 typedef enum {
     FD_ATTRIBUTES = 0x00000004,
-    FD_FILESIZE = 0x00000040,
-    FD_UNICODE = (int) 0x80000000
+    FD_FILESIZE = 0x00000040
 } FD_FLAGS;
 #pragma pack(pop)
 #pragma pack(push, 1)

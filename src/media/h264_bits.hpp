@@ -41,6 +41,7 @@ struct H264Bits {
     bool bit() noexcept { return read(1) != 0; }
     __declspec(noinline) u64 code() noexcept {
         u32 zero_count = 0;
+#pragma clang loop unroll(disable)
         while (!bit() && error == H264Error::none) {
             if (++zero_count > 32) { error = H264Error::malformed; return 0; }
         }

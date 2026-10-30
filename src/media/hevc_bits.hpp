@@ -59,6 +59,7 @@ struct HevcBits {
     }
     __declspec(noinline) u32 ue(u32 maximum = 0x7fffffffu) noexcept {
         u32 zeros_count{};
+#pragma clang loop unroll(disable)
         while (error == HevcError::none && !bit())
             if (++zeros_count > 31) {
                 error = HevcError::malformed;

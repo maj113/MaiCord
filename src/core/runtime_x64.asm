@@ -27,6 +27,9 @@ memmove PROC
 move_forward:
     cmp r8, 192
     jb move_forward_remainder
+    cmp r8, 1024
+    jae move_forward_large
+move_forward_loop:
     vmovdqu ymm0, YMMWORD PTR [rdx]
     vmovdqu ymm1, YMMWORD PTR [rdx+32]
     vmovdqu ymm2, YMMWORD PTR [rdx+64]
@@ -43,7 +46,7 @@ move_forward:
     add rdx, 192
     sub r8, 192
     cmp r8, 192
-    jae move_forward
+    jae move_forward_loop
 move_forward_remainder:
     cmp r8, 128
     jbe move_forward_tail
@@ -108,6 +111,25 @@ move_backward_tail:
 move_avx_done:
     vzeroupper
     ret
+
+move_forward_large:
+    ; Large copies store 32-byte aligned, which avoids cache-line-split stores.
+    ; The unaligned head is stored first, which is safe unless the source
+    ; starts within 32 bytes after the destination.
+    mov r9, rcx
+    neg r9
+    and r9d, 31
+    jz move_forward_loop
+    mov r10, rdx
+    sub r10, rcx
+    cmp r10, 32
+    jb move_forward_loop
+    vmovdqu ymm0, YMMWORD PTR [rdx]
+    vmovdqu YMMWORD PTR [rcx], ymm0
+    add rcx, r9
+    add rdx, r9
+    sub r8, r9
+    jmp move_forward_loop
 
 move_small:
     cmp r8, 16
@@ -240,6 +262,9 @@ set_above_64:
     ret
 
 set_loop:
+    cmp r8, 1024
+    jae set_large
+set_loop_body:
     cmp r8, 192
     jb set_loop_remainder
     vmovdqu YMMWORD PTR [rcx], ymm0
@@ -251,7 +276,7 @@ set_loop:
     add rcx, 192
     sub r8, 192
     cmp r8, 192
-    jae set_loop
+    jae set_loop_body
 set_loop_remainder:
     cmp r8, 128
     jbe set_loop_tail
@@ -270,6 +295,17 @@ set_avx_done:
     vzeroupper
 set_done:
     ret
+
+set_large:
+    ; Large fills store 32-byte aligned after one unaligned head store.
+    mov r9, rcx
+    neg r9
+    and r9d, 31
+    jz set_loop_body
+    vmovdqu YMMWORD PTR [rcx], ymm0
+    add rcx, r9
+    sub r8, r9
+    jmp set_loop_body
 memset ENDP
 
 ; LLVM merges chains of equality comparisons into memcmp calls and keeps some
@@ -278,15 +314,32 @@ PUBLIC memcmp
 memcmp PROC
     sub rdx, rcx
     cmp r8, 8
-    jb compare_tail
+    jb compare_short
+    lea r9, [rcx+r8-8]
 compare_words:
     mov rax, QWORD PTR [rcx]
-    cmp rax, QWORD PTR [rcx+rdx]
-    jne compare_word_bytes
+    xor rax, QWORD PTR [rcx+rdx]
+    jnz compare_differs
     add rcx, 8
-    sub r8, 8
-    cmp r8, 8
-    jae compare_words
+    cmp rcx, r9
+    jb compare_words
+    ; The last word overlaps bytes already found equal.
+    mov rcx, r9
+    mov rax, QWORD PTR [rcx]
+    xor rax, QWORD PTR [rcx+rdx]
+    jnz compare_differs
+    ret
+compare_short:
+    cmp r8, 4
+    jb compare_tail
+    mov eax, DWORD PTR [rcx]
+    xor eax, DWORD PTR [rcx+rdx]
+    jnz compare_differs
+    lea rcx, [rcx+r8-4]
+    mov eax, DWORD PTR [rcx]
+    xor eax, DWORD PTR [rcx+rdx]
+    jnz compare_differs
+    ret
 compare_tail:
     test r8, r8
     jz compare_equal
@@ -302,10 +355,16 @@ compare_equal:
     xor eax, eax
 compare_done:
     ret
-compare_word_bytes:
-    ; The words differ, so the byte loop stops within them.
-    mov r8d, 8
-    jmp compare_bytes
+compare_differs:
+    ; The lowest set bit of the XOR is in the first differing byte.
+    bsf rax, rax
+    shr eax, 3
+    movzx r8d, BYTE PTR [rcx+rax]
+    add rcx, rdx
+    movzx eax, BYTE PTR [rcx+rax]
+    sub r8d, eax
+    mov eax, r8d
+    ret
 memcmp ENDP
 
 ; Probe every intervening stack page before a large compiler-generated frame.

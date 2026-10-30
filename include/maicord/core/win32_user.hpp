@@ -398,12 +398,7 @@ struct tagLASTINPUTINFO {
 };
 typedef tagLASTINPUTINFO LASTINPUTINFO;
 typedef tagLASTINPUTINFO* PLASTINPUTINFO;
-struct tagTPMPARAMS {
-    UINT cbSize;
-    RECT rcExclude;
-};
-typedef tagTPMPARAMS TPMPARAMS;
-typedef TPMPARAMS* LPTPMPARAMS;
+typedef struct tagTPMPARAMS* LPTPMPARAMS;
 struct tagMONITORINFO {
     DWORD cbSize;
     RECT rcMonitor;

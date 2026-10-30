@@ -1,5 +1,7 @@
 #include "maicord/media/h264_references.hpp"
 #include "maicord/core/memory.hpp"
+// Reference bookkeeping, once per picture: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -133,3 +135,4 @@ H264Error h264_reference_plan(const H264ReferenceState& state, const H264Sps& sp
 }
 
 } // namespace maicord
+#pragma clang attribute pop

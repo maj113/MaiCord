@@ -13,6 +13,7 @@ namespace maicord {
 // plan its result (hevc_reference_plan); feedback is the last accepted status
 // number. The matrix is filled only when the SPS enables scaling lists, and
 // DXVA forbids sending it otherwise. False when the references do not map.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 inline bool hevc_dxva_picture_parameters(const HevcSps& a, const HevcPps& b,
                                          const HevcPictureHeader& picture, bool intra,
                                          const HevcReferenceState& previous, const HevcReferencePlan& plan,
@@ -122,5 +123,6 @@ inline bool hevc_dxva_picture_parameters(const HevcSps& a, const HevcPps& b,
     }
     return true;
 }
+#pragma clang attribute pop
 
 } // namespace maicord

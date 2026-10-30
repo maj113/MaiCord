@@ -87,8 +87,9 @@ add_custom_command(
         --output "${MAICORD_APP_ICON}"
     DEPENDS tools/generate_app_icon.py
     VERBATIM)
-# Its own target: a custom command listed among MaiCord's sources would wait
-# for every library MaiCord links, and every MaiCord object would wait for it.
+# The icon is an input of the resource compile only (OBJECT_DEPENDS below), so
+# nothing but the resource waits for the generator: this target only hosts its
+# rule. Making MaiCord depend on the target would hold every MaiCord object back.
 add_custom_target(maicord_app_icon DEPENDS "${MAICORD_APP_ICON}")
 set_source_files_properties(config/maicord.rc PROPERTIES
     OBJECT_DEPENDS "${MAICORD_APP_ICON}"

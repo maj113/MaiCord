@@ -142,7 +142,7 @@ target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 # 39 s instead of 57 s at the 1-partition size; other counts land 512 B (one
 # file-alignment unit) larger on this tree. Re-check the count when it drifts.
 target_link_options(MaiCord PRIVATE /opt:lldltopartitions=3)
-add_dependencies(MaiCord maicord_app_icon maicord_sys_conformance)
+add_dependencies(MaiCord maicord_sys_conformance)
 
 # Self-updater publisher. Environment variables override the official defaults,
 # as the release workflow does; setting both empty compiles the updater disabled.

@@ -1,4 +1,6 @@
 #include "h264_gpu_configuration.hpp"
+// Configuration, once per stream: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 H264Error h264_gpu_configuration_from_demux(const Mp4Demuxer& input, H264GpuPicture* out,
@@ -48,3 +50,4 @@ H264Error h264_gpu_configuration_from_unit(const Mp4AccessUnit& unit, ConstSlice
     return H264Error::none;
 }
 } // namespace maicord
+#pragma clang attribute pop

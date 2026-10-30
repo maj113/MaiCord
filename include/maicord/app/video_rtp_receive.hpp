@@ -14,6 +14,7 @@ inline constexpr u32 kVideoRtpMaxStreams = 16;
 inline constexpr u32 kVideoRtpMaxCodecs = 8;
 // Reorder/recovery window per stream (power of two). A 2 MiB access unit at
 // ~1.2 KB per packet needs ~1750 packets, so the window holds a whole cap.
+// Storage starts at a fraction of it and doubles as sequences span more slots.
 inline constexpr u32 kVideoRtpPacketSlots = 2048;
 inline constexpr u32 kVideoRtpPacketBytes = 1500;    // Largest stored RTP payload.
 inline constexpr u32 kVideoRtpFrameBytes = 2u << 20; // Access-unit cap (Annex B bytes).
@@ -87,7 +88,7 @@ struct VideoRtpSlot {
     bool marker;
 };
 struct VideoRtpStream {
-    VideoRtpSlot* slots; // One VirtualAlloc block: slots then payloads.
+    VideoRtpSlot* slots; // One VirtualAlloc block of `capacity` slots then their payloads.
     u8* payloads;
     u64 user_id;
     u64 first, base, highest; // Extended sequences; base is the next to assemble.
@@ -96,7 +97,7 @@ struct VideoRtpStream {
     u64 next_nack_us, oldest_missing_us;
     u32 ssrc, rtx_ssrc, missing;
     u32 last_sender_report, prev_timestamp, last_timestamp, last_transit, jitter_timestamp;
-    u32 consecutive_late;
+    u32 consecutive_late, capacity; // capacity: allocated slots, a power of two up to kVideoRtpPacketSlots.
     i32 jitter_q4;
     u8 fir_sequence;
     bool started, prev_known, prev_marker, has_last_timestamp, has_transit;
@@ -115,7 +116,7 @@ struct VideoRtpReceiver {
 };
 // Zero-initialize, then initialize. local_ssrc is the RTCP sender SSRC (the
 // Ready audio SSRC). Allocates the shared frame buffer; streams allocate
-// their window (~3.1 MiB) on first packet and free it on removal/release.
+// their window (~0.4 MiB, up to ~3.1 MiB) on first packet and free it on removal/release.
 bool video_rtp_initialize(VideoRtpReceiver* receiver, u32 local_ssrc, VideoRtpFrameSink sink,
                           void* context) noexcept;
 void video_rtp_release(VideoRtpReceiver* receiver) noexcept;

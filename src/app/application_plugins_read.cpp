@@ -3,6 +3,7 @@
 // fetches, allocates or keeps a view past the call.
 #include "application_plugins.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/hash.hpp"
 #include "application_plugins_runtime.hpp"
 #include "application_friends.hpp"
 #include "application_profile.hpp"
@@ -491,8 +492,8 @@ struct RevisionTrack {
 };
 RevisionTrack g_revisions;
 template <typename... Parts> u64 mix(Parts... parts) noexcept {
-    u64 hash = 0xcbf29ce484222325ull;
-    ((hash = (hash ^ static_cast<u64>(parts)) * 0x100000001b3ull), ...);
+    u64 hash = kHash64Seed;
+    ((hash = hash64_mix(hash, static_cast<u64>(parts))), ...);
     return hash;
 }
 void read_revisions(void*, mc_read_revisions* revisions) noexcept {

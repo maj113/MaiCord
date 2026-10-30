@@ -2,6 +2,8 @@
 #include "maicord/media/aac_configuration.hpp"
 #include "maicord/media/h264_stream.hpp"
 #include "maicord/core/byte_order.hpp"
+// Codec configuration parsing, once per segment and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -121,3 +123,4 @@ MpegTsError mpeg_ts_avc_sample(ConstSlice<u8> input, Slice<u8> scratch, u32* out
     *output=used; return E::none;
 }
 } // namespace maicord
+#pragma clang attribute pop

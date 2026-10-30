@@ -2,6 +2,8 @@
 #include "maicord/core/memory.hpp"
 #include "h264_bits.hpp"
 #include "maicord/sys/crt.hpp"
+// Header parsing, once per picture and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -263,3 +265,4 @@ u8 h264_sps_output_reorder(const H264Sps& sps) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

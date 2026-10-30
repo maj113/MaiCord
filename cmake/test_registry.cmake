@@ -1455,8 +1455,6 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
 # default constant-evaluation step budget.
 set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/showcase_probe.cpp
     PROPERTIES COMPILE_OPTIONS /clang:-fconstexpr-steps=8388608)
-# The caption probe decodes the client's own icon resource.
-add_dependencies(MaiCordUiProbe maicord_app_icon)
 # The single-scene WIN32 probes link the renderer stack and run with GPU metrics.
 set(maicord_scene_probe_libs maicord_core maicord_text maicord_ui maicord_ui_input maicord_model
     maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu maicord_renderer

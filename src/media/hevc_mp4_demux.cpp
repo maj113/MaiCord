@@ -2,6 +2,8 @@
 #include "maicord/media/hevc.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "mp4_demux_detail.hpp"
+// Container parsing, once per sample and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -118,3 +120,4 @@ Mp4DemuxError hevc_demux_seek_sync(Mp4Demuxer* output, i64 target, Mp4SeekPoint*
     });
 }
 } // namespace maicord
+#pragma clang attribute pop

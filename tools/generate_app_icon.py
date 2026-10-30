@@ -15,12 +15,15 @@ from collections import Counter
 from functools import lru_cache
 import json
 import math
+from operator import mul, sub
 from pathlib import Path
 import struct
 import zlib
 
 SIZES = (16, 20, 24, 32, 40, 48, 64, 256)
 MIN_PSNR = 46.0
+# A filtered byte's magnitude as a signed residual.
+RESIDUAL = bytes(min(v, 256 - v) for v in range(256))
 # Default theme core accent (include/maicord/ui/theme_presets.hpp) and text.on_accent.
 BRAND = (0.3451, 0.3961, 0.9490)
 SHADE = tuple(channel * 0.78 for channel in BRAND)
@@ -137,7 +140,8 @@ def quantize(pixels, limit):
 
 
 def psnr(reference, pixels):
-    error = sum((a - b) ** 2 for a, b in zip(reference, pixels))
+    difference = list(map(sub, reference, pixels))
+    error = sum(map(mul, difference, difference))
     return 10 * math.log10(255 * 255 * len(reference) / error) if error else math.inf
 
 
@@ -156,28 +160,39 @@ def composite_psnr(reference, pixels, background):
 
 
 def filter_rows(rows, bpp):
-    """Try all five PNG filters globally and two adaptive row heuristics."""
+    """Try all five PNG filters globally and two adaptive row heuristics.
+
+    A row is one big integer: the byte-wise subtraction and the rounded average of
+    the Sub, Up and Average filters run on all bytes at once.
+    """
+    size = len(rows[0])
+    high = int.from_bytes(b'\x80' * size, 'little')
+    low = high - (high >> 7)
+    mask = (1 << 8 * size) - 1
+    # Entropy of a byte seen n times in a row of `size`, as the per-row sum adds it up.
+    bits = [0.0] + [n * math.log2(size / n) for n in range(1, size + 1)]
+
+    def minus(x, y):
+        return (((x | high) - (y & low)) ^ (((x ^ y) & high) ^ high)).to_bytes(size, 'little')
+
     streams = [bytearray() for _ in range(7)]
-    previous = bytes(len(rows[0]))
+    previous = bytes(size)
     for row in rows:
-        variants = [bytearray(row)] + [bytearray() for _ in range(4)]
-        for x, value in enumerate(row):
-            a = row[x - bpp] if x >= bpp else 0
-            b = previous[x]
-            c = previous[x - bpp] if x >= bpp else 0
-            p = a + b - c
-            pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
-            predictor = a if pa <= pb and pa <= pc else b if pb <= pc else c
-            for target, predicted in zip(variants[1:], (a, b, (a + b) // 2, predictor)):
-                target.append((value - predicted) & 255)
+        x, b = int.from_bytes(row, 'little'), int.from_bytes(previous, 'little')
+        a, c = (x << 8 * bpp) & mask, (b << 8 * bpp) & mask
+        paeth = int.from_bytes(bytes([
+            left if pa <= pb and pa <= pc else up if pb <= pc else corner
+            for left, up, corner in zip(a.to_bytes(size, 'little'), previous, c.to_bytes(size, 'little'))
+            for pa, pb, pc in ((abs(up - corner), abs(left - corner), abs(left + up - 2 * corner)),)]), 'little')
+        variants = [bytes(row)] + [minus(x, predicted)
+                                   for predicted in (a, b, (a & b) + (((a ^ b) >> 1) & low), paeth)]
         for kind, encoded in enumerate(variants):
             streams[kind].append(kind)
             streams[kind].extend(encoded)
         # Signed residual magnitude and entropy prefer different rows on small
         # flat artwork. The actual compressed byte count decides between them.
-        scores = [sum(min(v, 256 - v) for v in encoded) for encoded in variants]
-        entropies = [sum(n * math.log2(len(row) / n) for n in Counter(encoded).values())
-                     for encoded in variants]
+        scores = [sum(encoded.translate(RESIDUAL)) for encoded in variants]
+        entropies = [sum(map(bits.__getitem__, Counter(encoded).values())) for encoded in variants]
         for stream, costs in zip(streams[5:], (scores, entropies)):
             kind = min(range(5), key=costs.__getitem__)
             stream.append(kind)

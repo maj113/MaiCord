@@ -17,7 +17,6 @@ typedef LONG(__stdcall* PVECTORED_EXCEPTION_HANDLER)(struct _EXCEPTION_POINTERS*
 MAICORD_SYS_TYPES_BEGIN
 // <excpt.h>
 enum _EXCEPTION_DISPOSITION {
-    ExceptionContinueExecution,
 };
 typedef _EXCEPTION_DISPOSITION EXCEPTION_DISPOSITION;
 typedef EXCEPTION_DISPOSITION __stdcall EXCEPTION_ROUTINE(struct _EXCEPTION_RECORD* ExceptionRecord,
@@ -28,7 +27,6 @@ struct __declspec(align(16)) _M128A {
     LONGLONG High;
 };
 typedef _M128A M128A;
-typedef _M128A* PM128A;
 struct __declspec(align(16)) _XSAVE_FORMAT {
     WORD ControlWord;
     WORD StatusWord;
@@ -123,51 +121,7 @@ typedef _CONTEXT CONTEXT;
 typedef _CONTEXT* PCONTEXT;
 typedef struct _IMAGE_RUNTIME_FUNCTION_ENTRY RUNTIME_FUNCTION;
 typedef struct _IMAGE_RUNTIME_FUNCTION_ENTRY* PRUNTIME_FUNCTION;
-struct _KNONVOLATILE_CONTEXT_POINTERS {
-    union {
-        PM128A FloatingContext[16];
-        struct {
-            PM128A Xmm0;
-            PM128A Xmm1;
-            PM128A Xmm2;
-            PM128A Xmm3;
-            PM128A Xmm4;
-            PM128A Xmm5;
-            PM128A Xmm6;
-            PM128A Xmm7;
-            PM128A Xmm8;
-            PM128A Xmm9;
-            PM128A Xmm10;
-            PM128A Xmm11;
-            PM128A Xmm12;
-            PM128A Xmm13;
-            PM128A Xmm14;
-            PM128A Xmm15;
-        };
-    };
-    union {
-        PDWORD64 IntegerContext[16];
-        struct {
-            PDWORD64 Rax;
-            PDWORD64 Rcx;
-            PDWORD64 Rdx;
-            PDWORD64 Rbx;
-            PDWORD64 Rsp;
-            PDWORD64 Rbp;
-            PDWORD64 Rsi;
-            PDWORD64 Rdi;
-            PDWORD64 R8;
-            PDWORD64 R9;
-            PDWORD64 R10;
-            PDWORD64 R11;
-            PDWORD64 R12;
-            PDWORD64 R13;
-            PDWORD64 R14;
-            PDWORD64 R15;
-        };
-    };
-};
-typedef _KNONVOLATILE_CONTEXT_POINTERS* PKNONVOLATILE_CONTEXT_POINTERS;
+typedef struct _KNONVOLATILE_CONTEXT_POINTERS* PKNONVOLATILE_CONTEXT_POINTERS;
 struct _EXCEPTION_RECORD {
     DWORD ExceptionCode;
     DWORD ExceptionFlags;
@@ -183,10 +137,6 @@ struct _EXCEPTION_POINTERS {
     PCONTEXT ContextRecord;
 };
 typedef _EXCEPTION_POINTERS EXCEPTION_POINTERS;
-struct _EXCEPTION_REGISTRATION_RECORD {
-    struct _EXCEPTION_REGISTRATION_RECORD* Next;
-    PEXCEPTION_ROUTINE Handler;
-};
 struct _NT_TIB {
     struct _EXCEPTION_REGISTRATION_RECORD* ExceptionList;
     PVOID StackBase;

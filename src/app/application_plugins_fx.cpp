@@ -7,6 +7,7 @@
 #include "application_state.hpp"
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/background_fx.hpp"
 
@@ -80,7 +81,7 @@ bool save(BackgroundFxChoice choice) noexcept {
 // the set (ids and names, not parameters).
 u32 list(u64* signature = nullptr) noexcept {
     g_effects.count = 0;
-    u64 hash = 0xcbf29ce484222325ull;
+    u64 hash = kHash64Seed;
     if (const auto* rt = application_plugins_runtime()) {
         NativePluginSdkEffectView views[kEffectRows]{};
         const u32 count = native_plugin_sdk_effects(*rt, {views, kEffectRows});
@@ -98,10 +99,8 @@ u32 list(u64* signature = nullptr) noexcept {
         }
         for (u32 i = 0; i < g_effects.count; ++i) {
             const auto& row = g_effects.rows[i];
-            hash = (hash ^ row.key.owner_id) * 0x100000001b3ull;
-            hash = (hash ^ row.key.effect_id) * 0x100000001b3ull;
-            for (u32 b = 0; b < row.name_bytes; ++b)
-                hash = (hash ^ static_cast<u8>(row.name[b])) * 0x100000001b3ull;
+            hash = hash64_mix(hash64_mix(hash, row.key.owner_id), row.key.effect_id);
+            hash = hash64_bytes(hash, row.name, row.name_bytes);
         }
     }
     if (signature)

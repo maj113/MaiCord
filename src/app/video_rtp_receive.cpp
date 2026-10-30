@@ -15,7 +15,7 @@ static_assert(kVideoRtpPacketBytes <= 0xffff && kVideoRtpMaxNackGap < kVideoRtpP
 // Extended sequences start at 2^32 + first so a reordered predecessor never
 // underflows; the RR field is the low 32 bits relative to that base.
 constexpr u64 kExtensionBase = u64{1} << 32;
-constexpr u64 kMask = kVideoRtpPacketSlots - 1;
+constexpr u32 kInitialSlots = 256; // A stream's window starts here and doubles up to kVideoRtpPacketSlots.
 constexpr u32 kLateRestart = 128; // Consecutive late packets: the sender restarted.
 enum SlotState : u8 {
     empty,
@@ -23,14 +23,14 @@ enum SlotState : u8 {
     present,
     padding
 };
-constexpr usize window_bytes() noexcept {
-    return sizeof(VideoRtpSlot) * usize{kVideoRtpPacketSlots} + usize{kVideoRtpPacketBytes} * kVideoRtpPacketSlots;
+constexpr usize window_bytes(u32 slots) noexcept {
+    return (sizeof(VideoRtpSlot) + kVideoRtpPacketBytes) * usize{slots};
 }
 VideoRtpSlot& slot_at(VideoRtpStream& stream, u64 sequence) noexcept {
-    return stream.slots[sequence & kMask];
+    return stream.slots[sequence & (stream.capacity - 1)];
 }
 u8* payload_at(VideoRtpStream& stream, u64 sequence) noexcept {
-    return stream.payloads + (sequence & kMask) * kVideoRtpPacketBytes;
+    return stream.payloads + (sequence & (stream.capacity - 1)) * kVideoRtpPacketBytes;
 }
 const VideoRtpCodecBinding* media_codec(const VideoRtpReceiver& receiver, u8 type) noexcept {
     for (u32 i = 0; i != receiver.codec_count; ++i)
@@ -92,7 +92,7 @@ void start(VideoRtpStream& stream, u16 sequence, u64 now_us) noexcept {
     stream.last_packet_us = now_us;
 }
 void restart(VideoRtpStream& stream, u16 sequence, u64 now_us) noexcept {
-    for (u64 i = 0; i != kVideoRtpPacketSlots; ++i)
+    for (u64 i = 0; i != stream.capacity; ++i)
         stream.slots[i].state = empty;
     const bool seen = stream.keyframe_seen;
     start(stream, sequence, now_us);
@@ -311,6 +311,7 @@ bool keyframe_due(const VideoRtpConfig& config, const VideoRtpStream& stream, u6
            (!stream.keyframe_request_us || now_us >= stream.keyframe_request_us + config.keyframe_retry_us);
 }
 VideoRtpStream* find(VideoRtpReceiver& receiver, u32 ssrc) noexcept {
+#pragma clang loop unroll(disable)
     for (auto& stream : receiver.streams)
         if (stream.slots && stream.ssrc == ssrc)
             return &stream;
@@ -318,6 +319,7 @@ VideoRtpStream* find(VideoRtpReceiver& receiver, u32 ssrc) noexcept {
 }
 VideoRtpStream* create(VideoRtpReceiver& receiver, u32 ssrc, u64 user_id, u64 now_us) noexcept {
     VideoRtpStream* chosen = nullptr;
+#pragma clang loop unroll(disable)
     for (auto& stream : receiver.streams)
         if (!stream.slots) {
             chosen = &stream;
@@ -325,6 +327,7 @@ VideoRtpStream* create(VideoRtpReceiver& receiver, u32 ssrc, u64 user_id, u64 no
         }
     if (!chosen) {
         // Reuse the longest-idle stream if it is past the idle limit.
+#pragma clang loop unroll(disable)
         for (auto& stream : receiver.streams)
             if (now_us >= stream.last_packet_us + receiver.config.idle_stream_us &&
                 (!chosen || stream.last_packet_us < chosen->last_packet_us))
@@ -333,18 +336,44 @@ VideoRtpStream* create(VideoRtpReceiver& receiver, u32 ssrc, u64 user_id, u64 no
             return nullptr;
         release_window(chosen);
     }
-    void* block = VirtualAlloc(nullptr, window_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* block = VirtualAlloc(nullptr, window_bytes(kInitialSlots), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!block)
         return nullptr;
     reset_value(chosen);
     chosen->slots = static_cast<VideoRtpSlot*>(block);
-    chosen->payloads = static_cast<u8*>(block) + sizeof(VideoRtpSlot) * usize{kVideoRtpPacketSlots};
+    chosen->payloads = static_cast<u8*>(block) + sizeof(VideoRtpSlot) * usize{kInitialSlots};
+    chosen->capacity = kInitialSlots;
     chosen->ssrc = ssrc;
     chosen->user_id = user_id;
     chosen->last_packet_us = now_us;
     if (!receiver.next_report_us)
         receiver.next_report_us = now_us + receiver.config.report_interval_us / 2;
     return chosen;
+}
+// Moves the live window [base, highest] into a block of `slots` entries.
+bool grow(VideoRtpStream& stream, u32 slots) noexcept {
+    void* block = VirtualAlloc(nullptr, window_bytes(slots), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (!block)
+        return false;
+    VideoRtpStream next = stream;
+    next.slots = static_cast<VideoRtpSlot*>(block);
+    next.payloads = static_cast<u8*>(block) + sizeof(VideoRtpSlot) * usize{slots};
+    next.capacity = slots;
+    for (u64 sequence = stream.base; sequence <= stream.highest; ++sequence) {
+        const auto& slot = slot_at(stream, sequence);
+        slot_at(next, sequence) = slot;
+        copy_bytes(payload_at(next, sequence), payload_at(stream, sequence), slot.bytes);
+    }
+    VirtualFree(stream.slots, 0, MEM_RELEASE);
+    stream = next;
+    return true;
+}
+// Makes the window hold `span` consecutive sequences (at most kVideoRtpPacketSlots) in distinct slots.
+bool fit(VideoRtpStream& stream, u64 span) noexcept {
+    u32 slots = stream.capacity;
+    while (slots < span)
+        slots *= 2;
+    return slots == stream.capacity || grow(stream, slots);
 }
 VideoRtpPush insert(VideoRtpReceiver& receiver, VideoRtpStream& stream, u16 sequence, u32 timestamp,
                     bool marker, u8 type, ConstSlice<u8> payload, bool rtx, u64 now_us) noexcept {
@@ -353,7 +382,7 @@ VideoRtpPush insert(VideoRtpReceiver& receiver, VideoRtpStream& stream, u16 sequ
         start(stream, sequence, now_us);
     u64 extended = unwrap(stream, sequence);
     if (extended < stream.base && stream.base == stream.first && !stream.prev_known &&
-        stream.highest - extended < kVideoRtpPacketSlots) {
+        stream.highest - extended < kVideoRtpPacketSlots && fit(stream, stream.highest - extended + 1)) {
         // Reordered around the first packet: extend the window backwards.
         for (u64 missing_sequence = extended; missing_sequence < stream.base; ++missing_sequence)
             mark_missing(config, stream, missing_sequence, now_us, false);
@@ -375,6 +404,11 @@ VideoRtpPush insert(VideoRtpReceiver& receiver, VideoRtpStream& stream, u16 sequ
             discard_until(stream, extended - kVideoRtpPacketSlots + 1);
             lose(stream);
         }
+    }
+    if (extended > stream.highest && !fit(stream, extended - stream.base + 1)) {
+        // No memory to grow the window: drop the oldest packets as if it were full.
+        discard_until(stream, extended - stream.capacity + 1);
+        lose(stream);
     }
     auto& slot = slot_at(stream, extended);
     if (extended <= stream.highest) {
@@ -423,11 +457,14 @@ u64 stream_deadline(const VideoRtpConfig& config, const VideoRtpStream& stream, 
     if (feedback && stream.keyframe_needed)
         earliest(stream.keyframe_request_us ? stream.keyframe_request_us + config.keyframe_retry_us : 1);
     if (starting(stream))
-        earliest(stream.slots[stream.base & kMask].time_us + config.start_grace_us);
+        earliest(stream.slots[stream.base & (stream.capacity - 1)].time_us + config.start_grace_us);
     return deadline;
 }
 } // namespace
 
+// The packet path above and video_rtp_receive run per packet and stay at full speed. The rest is
+// setup, timers and RTCP feedback: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 VideoRtpConfig video_rtp_default_config() noexcept {
     VideoRtpConfig config{};
     config.nack_delay_us = 5'000;
@@ -499,6 +536,7 @@ bool video_rtp_set_codecs(VideoRtpReceiver* receiver, ConstSlice<VideoRtpCodecBi
     return true;
 }
 
+#pragma clang attribute pop
 VideoRtpPush video_rtp_receive(VideoRtpReceiver* receiver, const VideoRtpSource& source,
                                const MediaPacketLayout& layout, ConstSlice<u8> plaintext, u64 now_us) noexcept {
     if (!receiver || !receiver->frame || layout.kind != MediaPacketKind::rtp || !source.media_ssrc ||
@@ -541,6 +579,7 @@ VideoRtpPush video_rtp_receive(VideoRtpReceiver* receiver, const VideoRtpSource&
     return result;
 }
 
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 void video_rtp_receive_rtcp(VideoRtpReceiver* receiver, ConstSlice<u8> plaintext, u64 now_us) noexcept {
     if (!receiver)
         return;
@@ -628,18 +667,17 @@ u32 video_rtp_feedback(VideoRtpReceiver* receiver, u64 now_us, Slice<u8> output)
         if (!stream.slots || !stream.started)
             continue;
         if (nack_due(stream, now_us) && output.count - offset >= 16) {
+            // Slots NACK-able now, in sequence order; the first `consumed` of them are the ones packed.
+            const auto wanted = [&](u64 sequence) noexcept {
+                const auto& slot = slot_at(stream, sequence);
+                return slot.state == missing && slot.time_us && slot.nacks < config.max_nacks && now_us >= slot.nack_us;
+            };
             u16 sequences[kVideoRtpMaxNackItems * 17];
-            u64 extended[kVideoRtpMaxNackItems * 17];
             u32 count = 0;
             for (u64 sequence = stream.base; sequence <= stream.highest && count != kVideoRtpMaxNackItems * 17;
-                 ++sequence) {
-                const auto& slot = slot_at(stream, sequence);
-                if (slot.state == missing && slot.time_us && slot.nacks < config.max_nacks &&
-                    now_us >= slot.nack_us) {
-                    extended[count] = sequence;
+                 ++sequence)
+                if (wanted(sequence))
                     sequences[count++] = static_cast<u16>(sequence);
-                }
-            }
             RtcpNackItem items[kVideoRtpMaxNackItems];
             const u32 room = minimum<u32>(kVideoRtpMaxNackItems, (output.count - offset - 12) / 4);
             u32 consumed = 0;
@@ -649,11 +687,13 @@ u32 video_rtp_feedback(VideoRtpReceiver* receiver, u64 now_us, Slice<u8> output)
                     rtcp_write_nack(output, offset, receiver->local_ssrc, stream.ssrc, {items, item_count});
                 if (next) {
                     offset = next;
-                    for (u32 i = 0; i != consumed; ++i) {
-                        auto& slot = slot_at(stream, extended[i]);
-                        ++slot.nacks;
-                        slot.nack_us = now_us + config.nack_retry_us;
-                    }
+                    for (u64 sequence = stream.base; consumed; ++sequence)
+                        if (wanted(sequence)) {
+                            auto& slot = slot_at(stream, sequence);
+                            ++slot.nacks;
+                            slot.nack_us = now_us + config.nack_retry_us;
+                            --consumed;
+                        }
                 }
             }
             rescan(config, stream);
@@ -695,3 +735,4 @@ const VideoRtpStream* video_rtp_find_stream(const VideoRtpReceiver& receiver, u3
     return find(const_cast<VideoRtpReceiver&>(receiver), media_ssrc);
 }
 } // namespace maicord
+#pragma clang attribute pop

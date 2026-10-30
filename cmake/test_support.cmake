@@ -266,13 +266,16 @@ function(maicord_c_plugin target entry)
 endfunction()
 
 # Tests that exercise the shipping pair itself (update staging, the account
-# DLL's exports) depend on it, unless the caller supplies that pair: CI hands
+# DLL's exports) link after it, unless the caller supplies that pair: CI hands
 # the client job's binaries to the test job, and a local run can keep using a
-# client that is open (tools/build.ps1 -PrebuiltClient).
+# client that is open (tools/build.ps1 -PrebuiltClient). The pair is a link
+# input, not a target dependency, so the test's objects compile while it builds.
 function(maicord_test_uses_client target)
     set_property(TARGET ${target} PROPERTY MAICORD_TEST_USES_CLIENT ON)
     if(NOT MAICORD_TEST_PREBUILT_CLIENT)
-        add_dependencies(${target} ${ARGN})
+        foreach(client IN LISTS ARGN)
+            set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "$<TARGET_FILE:${client}>")
+        endforeach()
     endif()
 endfunction()
 

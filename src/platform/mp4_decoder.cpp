@@ -4,6 +4,8 @@
 #include "maicord/platform/hevc_gpu_decoder.hpp"
 #include "maicord/media/hevc_mp4_demux.hpp"
 #include "maicord/sys/d3d11.hpp"
+// Decoder plumbing, once per frame: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 bool mp4_decoder_initialize_fragmented(Mp4Decoder* decoder, Mp4FragmentSource* source,
@@ -183,3 +185,4 @@ void mp4_decoder_release(Mp4Decoder* decoder) noexcept {
     reset_value(decoder);
 }
 } // namespace maicord
+#pragma clang attribute pop

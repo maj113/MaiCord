@@ -1,4 +1,6 @@
 #include "maicord/media/h264_picture_order.hpp"
+// Picture order bookkeeping, once per picture: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -77,3 +79,4 @@ H264Error h264_picture_order_commit(H264PocState* state, const H264Slice& slice,
 }
 
 } // namespace maicord
+#pragma clang attribute pop

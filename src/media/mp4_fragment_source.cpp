@@ -3,6 +3,8 @@
 #include "maicord/media/mp4_segment_store.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "mp4_demux_detail.hpp"
+// Container parsing, once per sample and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -437,3 +439,4 @@ void mp4_fragment_source_release(Mp4FragmentSource* stream) noexcept {
     reset_value(stream);
 }
 } // namespace maicord
+#pragma clang attribute pop

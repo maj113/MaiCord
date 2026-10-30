@@ -1,4 +1,5 @@
 #include "application_thread_header_activation.hpp"
+#include "maicord/core/hash.hpp"
 
 namespace maicord::app_detail {
 namespace {
@@ -6,10 +7,10 @@ u64 publication(const ApplicationThreadActionTicket& t) noexcept {
     // UI capture identity includes actor and channel publication, not merely
     // the request owner's revision. Exact host currentness still compares the
     // complete ticket, so this fingerprint is never access authority.
-    u64 hash = 14695981039346656037ull;
+    u64 hash = kHash64Seed;
     const u64 fields[]{t.serial, t.account_scope, t.profile_id, t.self_user_id, t.thread_id,
         static_cast<u64>(t.account_instance), t.channel_revision, t.publication_revision, t.channel_generation};
-    for (u64 value : fields) { hash ^= value; hash *= 1099511628211ull; }
+    for (u64 value : fields) hash = hash64_mix(hash, value);
     return hash ? hash : 1;
 }
 UiThreadAction operation(ThreadActionOperation op) noexcept {

@@ -5,6 +5,8 @@
 #include "maicord/platform/gpu_stream_decoder.hpp"
 #include "maicord/protocol/voice_video_signaling.hpp"
 #include "maicord/sys/d3d11.hpp"
+// Stream table and per-frame hand-off, not a byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -240,3 +242,4 @@ void video_stream_decoders_release(VideoStreamDecoders* decoders) noexcept {
 }
 
 } // namespace maicord
+#pragma clang attribute pop

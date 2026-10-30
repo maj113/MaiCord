@@ -3,6 +3,8 @@
 #include "maicord/media/aac_configuration.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/sys/media_foundation.hpp"
+// Media Foundation transform plumbing, once per audio packet: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -445,3 +447,4 @@ AacDecodeResult aac_decoder_release(AacDecoder* owner) noexcept {
     return {};
 }
 } // namespace maicord
+#pragma clang attribute pop

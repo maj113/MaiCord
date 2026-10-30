@@ -618,6 +618,24 @@ void test_receiver_bounds(Check check) noexcept {
           "RTX probe padding without an original sequence is ignored");
     video_rtp_release(&r);
 
+    // The window starts small and doubles with the unit: 700 fragments, each adjacent pair swapped
+    // (the first around the stream's first packet), cross two growth steps and still assemble byte-exact.
+    c = {};
+    start_receiver(r, c);
+    const u32 grown = 700;
+    for (u32 i = 0; i != grown; i += 2)
+        for (u32 half = 0; half != 2; ++half) {
+            const u32 j = i + 1 - half;
+            payload[1] = static_cast<u8>(0x05 | (j == 0 ? 0x80 : 0) | (j + 1 == grown ? 0x40 : 0));
+            send(r, static_cast<u16>(1000 + j), 4000, {payload, 1400}, now += 100, j + 1 == grown);
+        }
+    video_rtp_tick(&r, now += 30'000);
+    const auto* grown_stream = video_rtp_find_stream(r, kOracleSsrc);
+    check(c.count == 1 && c.sizes[0] == 5 + grown * 1398 && grown_stream && grown_stream->capacity == 1024 &&
+              !grown_stream->stats.damaged_frames && !grown_stream->missing,
+          "the receive window doubles with the access unit and keeps reordered fragments exact");
+    video_rtp_release(&r);
+
     // A 2.2 MB access unit exceeds the frame cap: dropped, keyframe requested.
     c = {};
     start_receiver(r, c);

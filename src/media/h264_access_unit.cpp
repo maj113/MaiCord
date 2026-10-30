@@ -1,6 +1,8 @@
 #include "maicord/media/h264_slice.hpp"
 #include "maicord/core/memory.hpp"
 #include "h264_bits.hpp"
+// Header parsing, once per picture and no byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -115,3 +117,4 @@ H264Error h264_parse_picture(ConstSlice<u8> bytes, u8 length_bytes, const H264Sp
     return H264Error::none;
 }
 } // namespace maicord
+#pragma clang attribute pop

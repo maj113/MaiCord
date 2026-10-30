@@ -2,6 +2,8 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/win32_kernel.hpp"
+// Per-frame hand-off and call bookkeeping, not a byte loop: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -311,3 +313,4 @@ u32 voice_video_users(const VoiceConnection& connection, const VoiceVideoSink* s
     return count;
 }
 } // namespace maicord
+#pragma clang attribute pop

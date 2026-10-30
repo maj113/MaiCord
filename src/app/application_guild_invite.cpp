@@ -1,5 +1,6 @@
 #include "application_guild_community.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/hash.hpp"
 #include "application_guild_invite.hpp"
 #include "application_link_trust.hpp"
 #include "application_action_captcha.hpp"
@@ -48,10 +49,7 @@ u32 g_scratch[8192];
 
 // Nonzero key of the invite a CAPTCHA belongs to.
 u64 invite_subject() noexcept {
-    u64 hash = 1469598103934665603ull;
-    for (u32 i = 0; i < g_invite.code_bytes; ++i)
-        hash = (hash ^ static_cast<u8>(g_invite.code[i])) * 1099511628211ull;
-    return hash | 1;
+    return hash64_bytes(1469598103934665603ull, g_invite.code, g_invite.code_bytes) | 1;
 }
 ApplicationActionCaptchaPhase invite_captcha_phase() noexcept {
     return application_action_captcha_phase(ApplicationActionCaptchaKind::guild_invite, invite_subject());

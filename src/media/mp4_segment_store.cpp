@@ -1,6 +1,8 @@
 #include "maicord/media/mp4_segment_store.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+// Segment bookkeeping, once per segment: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 
 namespace maicord {
 namespace {
@@ -121,3 +123,4 @@ void mp4_segment_store_release(Mp4SegmentStore* s) noexcept {
     reset_value(s); s->generation = generation; s->request_serial = serial;
 }
 } // namespace maicord
+#pragma clang attribute pop

@@ -21,6 +21,8 @@ constexpr HevcGpuSurfaceExtent hevc_gpu_surface_extent(u32 width, u32 height) no
 constexpr u64 hevc_gpu_bitstream_extent(u32 bytes) noexcept {
     return (u64{bytes} + 128u) & ~u64{127};
 }
+// Once per picture: compiled for size.
+#pragma clang attribute push(__attribute__((minsize)), apply_to = function)
 // DXVA carries the HEVC ScalingList syntax sequence, which is diagonal scan
 // order. Parameter parsing keeps raster matrices for defaults and prediction.
 template <u32 Side>
@@ -33,4 +35,5 @@ constexpr void hevc_gpu_scaling_diagonal(const u8 (&raster)[Side * Side],
             if (sum >= x && sum - x < Side)
                 diagonal[position++] = raster[(sum - x) * Side + x];
 }
+#pragma clang attribute pop
 } // namespace maicord

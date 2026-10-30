@@ -1,5 +1,6 @@
 #include "maicord/platform/random.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/hash.hpp"
 #include "mls_wire.hpp"
 
 namespace maicord {
@@ -29,11 +30,7 @@ struct RawNode {
     u8 type;
 };
 u64 hash_bytes(const void* data, u32 bytes, u64 seed) noexcept {
-    u64 hash = 1469598103934665603ull ^ seed;
-    for (u32 i = 0; i != bytes; ++i) {
-        hash ^= static_cast<const u8*>(data)[i];
-        hash *= 1099511628211ull;
-    }
+    u64 hash = hash64_bytes(1469598103934665603ull ^ seed, data, bytes);
     hash ^= hash >> 33;
     hash *= 0xff51afd7ed558ccdull;
     hash ^= hash >> 33;

@@ -41,7 +41,6 @@ typedef double DATE;
 typedef OLECHAR* BSTR;
 typedef short VARIANT_BOOL;
 typedef unsigned short VARTYPE;
-typedef LONG DISPID;
 typedef WORD PROPVAR_PAD1;
 typedef WORD PROPVAR_PAD2;
 typedef WORD PROPVAR_PAD3;
@@ -101,12 +100,7 @@ struct tagBSTRBLOB {
     BYTE* pData;
 };
 typedef tagBSTRBLOB BSTRBLOB;
-struct tagCLIPDATA {
-    ULONG cbSize;
-    LONG ulClipFmt;
-    BYTE* pClipData;
-};
-typedef tagCLIPDATA CLIPDATA;
+typedef struct tagCLIPDATA CLIPDATA;
 enum VARENUM {
     VT_EMPTY = 0,
     VT_I4 = 3,
@@ -166,38 +160,10 @@ enum _APTTYPEQUALIFIER {
 };
 typedef _APTTYPEQUALIFIER APTTYPEQUALIFIER;
 enum _APTTYPE {
-    APTTYPE_CURRENT = - 1,
     APTTYPE_MTA = 1,
 };
 typedef _APTTYPE APTTYPE;
-struct __declspec(uuid("0000000e-0000-0000-C000-000000000046")) __declspec(novtable) IBindCtx : IUnknown {
-};
-struct __declspec(uuid("0000000b-0000-0000-C000-000000000046")) __declspec(novtable) IStorage : IUnknown {
-    MAICORD_COM_UNUSED(CreateStream);
-    MAICORD_COM_UNUSED(OpenStream);
-    MAICORD_COM_UNUSED(CreateStorage);
-    MAICORD_COM_UNUSED(OpenStorage);
-    MAICORD_COM_UNUSED(CopyTo);
-    MAICORD_COM_UNUSED(MoveElementTo);
-    virtual HRESULT __stdcall Commit(DWORD grfCommitFlags) = 0;
-    MAICORD_COM_UNUSED(Revert);
-    MAICORD_COM_UNUSED(EnumElements);
-    MAICORD_COM_UNUSED(DestroyElement);
-    MAICORD_COM_UNUSED(RenameElement);
-    MAICORD_COM_UNUSED(SetElementTimes);
-    MAICORD_COM_UNUSED(SetClass);
-    MAICORD_COM_UNUSED(SetStateBits);
-    virtual HRESULT __stdcall Stat(STATSTG* pstatstg, DWORD grfStatFlag) = 0;
-};
-struct tagDVTARGETDEVICE {
-    DWORD tdSize;
-    WORD tdDriverNameOffset;
-    WORD tdDeviceNameOffset;
-    WORD tdPortNameOffset;
-    WORD tdExtDevmodeOffset;
-    BYTE tdData[1];
-};
-typedef tagDVTARGETDEVICE DVTARGETDEVICE;
+typedef struct tagDVTARGETDEVICE DVTARGETDEVICE;
 struct tagFORMATETC {
     CLIPFORMAT cfFormat;
     DVTARGETDEVICE* ptd;
@@ -212,13 +178,7 @@ struct __declspec(uuid("00000103-0000-0000-C000-000000000046")) __declspec(novta
     virtual HRESULT __stdcall Reset() = 0;
     virtual HRESULT __stdcall Clone(IEnumFORMATETC** ppenum) = 0;
 };
-struct tagSTATDATA {
-    FORMATETC formatetc;
-    DWORD advf;
-    IAdviseSink* pAdvSink;
-    DWORD dwConnection;
-};
-typedef tagSTATDATA STATDATA;
+typedef struct tagSTATDATA STATDATA;
 struct __declspec(uuid("00000105-0000-0000-C000-000000000046")) __declspec(novtable) IEnumSTATDATA : IUnknown {
     virtual HRESULT __stdcall Next(ULONG celt, STATDATA* rgelt, ULONG* pceltFetched) = 0;
     MAICORD_COM_UNUSED(Skip);
@@ -343,39 +303,7 @@ struct tagVARIANT {
     };
 };
 typedef VARIANT VARIANTARG;
-struct tagDISPPARAMS {
-    VARIANTARG* rgvarg;
-    DISPID* rgdispidNamedArgs;
-    UINT cArgs;
-    UINT cNamedArgs;
-};
-typedef tagDISPPARAMS DISPPARAMS;
-struct tagEXCEPINFO {
-    WORD wCode;
-    WORD wReserved;
-    BSTR bstrSource;
-    BSTR bstrDescription;
-    BSTR bstrHelpFile;
-    DWORD dwHelpContext;
-    PVOID pvReserved;
-    HRESULT(__stdcall* pfnDeferredFillIn)(struct tagEXCEPINFO*);
-    SCODE scode;
-};
-typedef tagEXCEPINFO EXCEPINFO;
-struct __declspec(uuid("00020400-0000-0000-C000-000000000046")) __declspec(novtable) IDispatch : IUnknown {
-    MAICORD_COM_UNUSED(GetTypeInfoCount);
-    MAICORD_COM_UNUSED(GetTypeInfo);
-    MAICORD_COM_UNUSED(GetIDsOfNames);
-    virtual HRESULT __stdcall Invoke(DISPID dispIdMember, const IID& riid, LCID lcid, WORD wFlags,
-        DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr) = 0;
-};
-struct __declspec(uuid("0000002F-0000-0000-C000-000000000046")) __declspec(novtable) IRecordInfo : IUnknown {
-};
 // <propidlbase.h>
-struct tagVersionedStream {
-    GUID guidVersion;
-    IStream* pStream;
-};
 typedef struct tagVersionedStream* LPVERSIONEDSTREAM;
 typedef struct tagPROPVARIANT PROPVARIANT;
 struct tagCAC {

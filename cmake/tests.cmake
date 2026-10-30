@@ -50,6 +50,29 @@ maicord_share_test_objects(maicord_test_targets)
 # The tests compiling the most application sources use the application PCH too.
 maicord_precompile_test_application_sources(maicord_test_targets
     MaiCordUiProbe MaiCordSettingsRuntimeTests MaiCordTests)
+# The tests/ sources only drive the code under test (src/, still /O2), so they
+# compile at /Od: several times faster, and nothing measures their own speed.
+# Sources using an application PCH keep its /O2 (clang rejects a mismatch), and
+# received_attachment_open.cpp, which crashes unoptimized (its `resolver = {}`
+# temporaries are about 130 KB each), stays optimized.
+set(maicord_optimized_test_sources "${CMAKE_CURRENT_SOURCE_DIR}/tests/received_attachment_open.cpp")
+set(maicord_unoptimized_sources)
+foreach(target IN LISTS maicord_test_targets)
+    get_target_property(sources ${target} SOURCES)
+    foreach(source IN LISTS sources)
+        if(source MATCHES "^\\$<" OR NOT source MATCHES "\\.cpp$")
+            continue()
+        endif()
+        set(path "${source}")
+        cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE)
+        get_source_file_property(pch_mode "${path}" MAICORD_APPLICATION_PCH_MODE)
+        if(path MATCHES "^${CMAKE_CURRENT_SOURCE_DIR}/tests/" AND NOT pch_mode
+                AND NOT path IN_LIST maicord_optimized_test_sources AND NOT path IN_LIST maicord_unoptimized_sources)
+            set_property(SOURCE "${path}" APPEND PROPERTY COMPILE_OPTIONS /Od)
+            list(APPEND maicord_unoptimized_sources "${path}")
+        endif()
+    endforeach()
+endforeach()
 set_property(TARGET ${maicord_test_targets} PROPERTY EXCLUDE_FROM_ALL TRUE)
 
 # Per-test environment: no Python bytecode in the source tree and, for the
