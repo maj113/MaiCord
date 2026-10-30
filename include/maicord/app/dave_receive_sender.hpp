@@ -65,15 +65,14 @@ void dave_receive_sender_release(DaveReceiveSender* sender) noexcept;
 // never resurrected. Frame and transition times use the same monotonic clock.
 DaveSenderTransitionResult dave_receive_sender_transition(
     DaveReceiveSender& sender, DaveReceiveIdentity identity, u64 revision, ConstSlice<u8> seed, u64 now_ms,
-    u64 grace_ms, Gcm64Backend backend = Gcm64Backend::automatic) noexcept;
+    u64 grace_ms) noexcept;
 // Derive the seed from a verified MLS exporter secret and identity.user_id,
 // then install it atomically. Caller still verifies group/roster authorization.
 // Stale revisions/identities are rejected before derivation. Temporary seed is
 // erased, and no exporter secret is retained by the receive controller.
 DaveSenderTransitionResult dave_receive_sender_transition_exporter(
     DaveReceiveSender& sender, DaveReceiveIdentity identity, u64 revision, KdfSha256Workspace& workspace,
-    ConstSlice<u8> exporter_secret, u64 now_ms, u64 grace_ms,
-    Gcm64Backend backend = Gcm64Backend::automatic) noexcept;
+    ConstSlice<u8> exporter_secret, u64 now_ms, u64 grace_ms) noexcept;
 // Transition without a replacement key. Does not authorize plaintext. Expires
 // previous epochs after the grace period; the revision is kept.
 DaveSenderError dave_receive_sender_retire(DaveReceiveSender& sender, DaveReceiveIdentity identity,

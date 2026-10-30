@@ -5,11 +5,8 @@
 // it is C as well as C++). Defined as clang's headers define them, so the
 // generated code is the same: vector extensions and the compiler's builtins,
 // usable in C++ constant expressions where clang's are. Every unit compiles
-// with /arch:AVX, so they need no target attributes, except AES-NI (not implied
-// by AVX): functions that use the _mm_aes* intrinsics carry MAICORD_TARGET_AES
-// and run only after a CPUID check. Add what you use.
-
-#define MAICORD_TARGET_AES __attribute__((__target__("aes")))
+// with /arch:AVX, so they need no target attributes; the AES intrinsics also need
+// the C++ build's -maes. Add what you use.
 
 #if defined(MAICORD_SDK_INCLUDES)
 #include <immintrin.h>
@@ -78,13 +75,10 @@ typedef unsigned int __v8su __attribute__((__vector_size__(32)));
 #define _mm_srli_si128(a, i) ((__m128i)__builtin_ia32_psrldqi128_byteshift((__v16qi)(__m128i)(a), (int)(i)))
 #define _mm_aeskeygenassist_si128(a, i) ((__m128i)__builtin_ia32_aeskeygenassist128((__v2di)(__m128i)(a), (char)(i)))
 
-// AES-NI: callers carry MAICORD_TARGET_AES.
-static __inline__ __attribute__((__always_inline__, __nodebug__, __target__("aes"), __min_vector_width__(128)))
-__m128i _mm_aesenc_si128(__m128i __V, __m128i __R) {
+MAICORD_SIMD_RUNTIME(128) __m128i _mm_aesenc_si128(__m128i __V, __m128i __R) {
     return (__m128i)__builtin_ia32_aesenc128((__v2di)__V, (__v2di)__R);
 }
-static __inline__ __attribute__((__always_inline__, __nodebug__, __target__("aes"), __min_vector_width__(128)))
-__m128i _mm_aesenclast_si128(__m128i __V, __m128i __R) {
+MAICORD_SIMD_RUNTIME(128) __m128i _mm_aesenclast_si128(__m128i __V, __m128i __R) {
     return (__m128i)__builtin_ia32_aesenclast128((__v2di)__V, (__v2di)__R);
 }
 

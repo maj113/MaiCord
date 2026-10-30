@@ -11,20 +11,17 @@ bool run() noexcept {
     constexpr u32 sizes[]{0, 64, 256, 1200, 4096, 8192};
     u8 secret[16]{}, nonce[12]{}, aad[12]{}, plain[8192]{}, cipher[8208], output[8208];
     AesGcmKey cng{};
-    AesGcm64Key accelerated{}, portable{};
-    bool ok = aes_gcm_initialize(&cng, {secret, 16}).ok() &&
-              aes_gcm64_initialize(&accelerated, {secret, 16}).ok() &&
-              aes_gcm64_initialize(&portable, {secret, 16}, Gcm64Backend::portable).ok();
+    AesGcm64Key key{};
+    bool ok = aes_gcm_initialize(&cng, {secret, 16}).ok() && aes_gcm64_initialize(&key, {secret, 16}).ok();
     LARGE_INTEGER frequency{};
     QueryPerformanceFrequency(&frequency);
-    u32 counters[3]{};
+    u32 counters[2]{};
     u64 checksum = 0;
-    const char* names[]{"aes128_cng_tag128", "aes128_gcm64_auto", "aes128_gcm64_portable"};
+    const char* names[]{"aes128_cng_tag128", "aes128_gcm64"};
     for (u32 trial = 0; trial != 5 && ok; ++trial) {
         for (u32 size : sizes) {
-            for (u32 index = 0; index != 3 && ok; ++index) {
-                const u32 backend = (index + trial) % 3;
-                auto& key = backend == 1 ? accelerated : portable;
+            for (u32 index = 0; index != 2 && ok; ++index) {
+                const u32 backend = (index + trial) % 2;
                 for (u32 decrypt = 0; decrypt != 2 && ok; ++decrypt) {
                     // Decryption uses the last valid encryption result. Repeating
                     // verification here measures only AEAD, not a replay policy.
@@ -78,8 +75,7 @@ bool run() noexcept {
         }
     }
     aes_gcm_release(&cng);
-    aes_gcm64_release(&accelerated);
-    aes_gcm64_release(&portable);
+    aes_gcm64_release(&key);
     write_text("{\"checksum\":");
     write_u64(checksum);
     write_text("}\n");

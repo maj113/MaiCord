@@ -8,7 +8,7 @@
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
-void known_answers(Check check, Gcm64Backend backend) noexcept {
+void known_answers(Check check) noexcept {
     // NIST zero-key/96-bit-IV GCM examples, with the specified MSB64 tag.
     constexpr u8 encrypted[]{0x03, 0x88, 0xda, 0xce, 0x60, 0xb6, 0xa3, 0x92,
                              0xf3, 0x28, 0xc2, 0xb9, 0x71, 0xb2, 0xfe, 0x78};
@@ -16,13 +16,9 @@ void known_answers(Check check, Gcm64Backend backend) noexcept {
     constexpr u8 empty_tag[]{0x58, 0xe2, 0xfc, 0xce, 0xfa, 0x7e, 0x30, 0x61};
     u8 secret[16]{}, nonce[12]{}, output[32];
     AesGcm64Key key{};
-    check(aes_gcm64_initialize(&key, {secret, 16}, backend).ok(), "GCM64 NIST key initialization");
+    check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "GCM64 NIST key initialization");
     if (!key.storage.data)
         return;
-    check(key.backend != Gcm64Backend::automatic &&
-              (backend != Gcm64Backend::portable || key.backend == Gcm64Backend::portable) &&
-              (key.backend == Gcm64Backend::portable) == (key.handle != nullptr),
-          "GCM64 resolves the backend; only the portable one holds a CNG key");
     check(aes_gcm64_decrypt(key, {nonce, 12}, {}, {encrypted, 16}, {full_tag, 8}, {output, 32}).ok() &&
               test_filled(output, 16, 0),
           "GCM64 decrypts published NIST zero-key block");
@@ -42,7 +38,7 @@ void known_answers(Check check, Gcm64Backend backend) noexcept {
         for (u32 i = 0; i != sizeof(aad); ++i)
             aad[i] = static_cast<u8>(k * 3 + i);
         AesGcmKey reference{};
-        const bool initialized = aes_gcm64_initialize(&key, {secret, 16}, backend).ok() &&
+        const bool initialized = aes_gcm64_initialize(&key, {secret, 16}).ok() &&
                                  aes_gcm_initialize(&reference, {secret, 16}).ok();
         check(initialized, "GCM64 varied-key initialization");
         if (initialized) {
@@ -65,7 +61,7 @@ void known_answers(Check check, Gcm64Backend backend) noexcept {
         aes_gcm_release(&reference);
     }
 }
-void matrix(Check check, Gcm64Backend backend) noexcept {
+void matrix(Check check) noexcept {
     constexpr u32 sizes[]{0,    1,    2,    7,    15,   16,   17,   31,   32,   33,   63,    64,    65,
                           127,  128,  129,  255,  256,  257,  511,  512,  513,  1007, 1008,  1009,  1023,
                           1024, 1025, 1200, 1400, 2047, 2048, 2049, 4095, 4096, 4097, 16383, 16384, 16385};
@@ -85,7 +81,7 @@ void matrix(Check check, Gcm64Backend backend) noexcept {
         aad[i] = static_cast<u8>(i * 19 + 5);
     AesGcm64Key key{};
     AesGcmKey reference{};
-    check(aes_gcm64_initialize(&key, {secret, 16}, backend).ok(), "GCM64 matrix key initialization");
+    check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "GCM64 matrix key initialization");
     check(aes_gcm_initialize(&reference, {secret, 16}).ok(), "GCM64 CNG reference key initialization");
     BCRYPT_HASH_HANDLE hash = nullptr;
     check(BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) >= 0,
@@ -97,7 +93,6 @@ void matrix(Check check, Gcm64Backend backend) noexcept {
             BCryptDestroyHash(hash);
         return;
     }
-    // Storage identity: the CNG handle exists only on the portable backend.
     const auto* retained_storage = key.storage.data;
     u32 counter = 0;
     for (u32 size : sizes) {
@@ -143,25 +138,25 @@ void matrix(Check check, Gcm64Backend backend) noexcept {
     BCryptDestroyHash(hash);
     aes_gcm64_release(&key);
     aes_gcm_release(&reference);
-    check(!key.handle && !key.storage.data && !key.storage.locked && !key.storage.capacity,
+    check(!key.storage.data && !key.storage.locked && !key.storage.capacity,
           "GCM64 release clears owner");
     aes_gcm64_release(&key);
 }
-void boundaries(Check check, Gcm64Backend backend) noexcept {
+void boundaries(Check check) noexcept {
     u8 secret[32]{}, nonce[12]{}, aad[33]{}, cipher[65]{}, tag[16]{}, output[160], original[160];
     AesGcm64Key key{};
     check(aes_gcm64_encrypt(key, {nonce, 12}, {}, {}, {}, {tag, 8}).error == AeadError::not_initialized,
           "GCM64 rejects operations without a key");
     constexpr u32 invalid_sizes[]{0, 1, 15, 17, 24, 32};
     for (u32 size : invalid_sizes)
-        check(aes_gcm64_initialize(&key, {secret, size}, backend).error == AeadError::invalid_input &&
+        check(aes_gcm64_initialize(&key, {secret, size}).error == AeadError::invalid_input &&
                   !key.storage.data,
               "GCM64 accepts only AES128 key material");
-    check(aes_gcm64_initialize(&key, {secret, 16}, backend).ok(), "GCM64 boundary key initialization");
+    check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "GCM64 boundary key initialization");
     if (!key.storage.data)
         return;
     const auto* const live_storage = key.storage.data;
-    check(aes_gcm64_initialize(&key, {secret, 16}, backend).error == AeadError::invalid_input &&
+    check(aes_gcm64_initialize(&key, {secret, 16}).error == AeadError::invalid_input &&
               key.storage.data == live_storage,
           "GCM64 cannot replace a live key owner");
     constexpr u32 sizes[]{0, 1, 15, 16, 17, 65};
@@ -313,11 +308,8 @@ void boundaries(Check check, Gcm64Backend backend) noexcept {
 }
 } // namespace
 void test_aes_gcm64(Check check) noexcept {
-    known_answers(check, Gcm64Backend::automatic);
-    known_answers(check, Gcm64Backend::portable);
-    matrix(check, Gcm64Backend::automatic);
-    matrix(check, Gcm64Backend::portable);
-    boundaries(check, Gcm64Backend::automatic);
-    boundaries(check, Gcm64Backend::portable);
+    known_answers(check);
+    matrix(check);
+    boundaries(check);
 }
 } // namespace maicord

@@ -31,7 +31,7 @@ Opened open(const DaveFrameView& view, const AesGcm64Key& key, u32 generation, D
         return {true, false, AeadError::none, 0};
     return {false, true, dave_frame_open(view, key, replay, counter.value, scratch, output), counter.value};
 }
-void fixtures(Check check, Gcm64Backend backend) noexcept {
+void fixtures(Check check) noexcept {
     u8 frame[2304], original[2304], output[2304], scratch[2304], secret[16];
     DaveClearRange ranges[kDaveMaximumClearRanges];
     for (const auto& vector : dave_crypto_vectors) {
@@ -39,9 +39,9 @@ void fixtures(Check check, Gcm64Backend backend) noexcept {
         copy_bytes(original, frame, size);
         test_unhex(vector.key, secret);
         AesGcm64Key key{}, wrong{};
-        check(aes_gcm64_initialize(&key, {secret, 16}, backend).ok(), "DAVE receive fixture key initialization");
+        check(aes_gcm64_initialize(&key, {secret, 16}).ok(), "DAVE receive fixture key initialization");
         secret[0] ^= 1;
-        check(aes_gcm64_initialize(&wrong, {secret, 16}, backend).ok(),
+        check(aes_gcm64_initialize(&wrong, {secret, 16}).ok(),
               "DAVE alternate epoch fixture key initialization");
         if (!key.storage.data || !wrong.storage.data) {
             aes_gcm64_release(&key);
@@ -112,7 +112,7 @@ void fixtures(Check check, Gcm64Backend backend) noexcept {
               "DAVE failed authentication attempts preserve source bytes");
         aes_gcm64_release(&key);
         aes_gcm64_release(&wrong);
-        check(!key.handle && !key.storage.data, "DAVE frame key release clears owner");
+        check(!key.storage.data, "DAVE frame key release clears owner");
         aes_gcm64_release(&key);
     }
 }
@@ -216,8 +216,7 @@ void guards(Check check) noexcept {
 }
 } // namespace
 void test_dave_frame_crypto(Check check) noexcept {
-    fixtures(check, Gcm64Backend::automatic);
-    fixtures(check, Gcm64Backend::portable);
+    fixtures(check);
     ordering(check);
     guards(check);
 }

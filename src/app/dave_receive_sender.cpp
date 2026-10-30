@@ -95,8 +95,7 @@ void dave_receive_sender_release(DaveReceiveSender* sender) noexcept {
 }
 DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sender,
                                                           DaveReceiveIdentity identity, u64 revision,
-                                                          ConstSlice<u8> seed, u64 now, u64 grace,
-                                                          Gcm64Backend backend) noexcept {
+                                                          ConstSlice<u8> seed, u64 now, u64 grace) noexcept {
     const auto valid = validate(sender, identity, now);
     if (valid != DaveSenderError::none)
         return {{}, 0, valid};
@@ -108,7 +107,7 @@ DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sen
         VirtualAlloc(nullptr, sizeof(DaveReceiveNode), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!node)
         return {{}, thread_last_error(), DaveSenderError::storage};
-    const auto initialized = dave_receive_epoch_initialize(&node->epoch, seed, now, backend);
+    const auto initialized = dave_receive_epoch_initialize(&node->epoch, seed, now);
     if (!initialized.ok()) {
         destroy(node);
         return {initialized, 0, DaveSenderError::epoch_initialize};
@@ -125,7 +124,7 @@ DaveSenderTransitionResult dave_receive_sender_transition(DaveReceiveSender& sen
 }
 DaveSenderTransitionResult dave_receive_sender_transition_exporter(
     DaveReceiveSender& sender, DaveReceiveIdentity identity, u64 revision, KdfSha256Workspace& workspace,
-    ConstSlice<u8> exporter_secret, u64 now, u64 grace, Gcm64Backend backend) noexcept {
+    ConstSlice<u8> exporter_secret, u64 now, u64 grace) noexcept {
     const auto valid = validate(sender, identity, now);
     if (valid != DaveSenderError::none)
         return {{}, 0, valid};
@@ -137,7 +136,7 @@ DaveSenderTransitionResult dave_receive_sender_transition_exporter(
     u8 seed[16];
     const auto exported = dave_export_media_seed(workspace, exporter_secret, identity.user_id, {seed, 16});
     auto result = exported.ok() ? dave_receive_sender_transition(sender, identity, revision, {seed, 16},
-                                                                 now, grace, backend)
+                                                                 now, grace)
                                 : DaveSenderTransitionResult{exported, 0, DaveSenderError::epoch_export};
     secure_clear_bytes(seed, sizeof(seed));
     return result;

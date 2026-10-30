@@ -91,6 +91,7 @@ target_compile_options(maicord_compile_contract INTERFACE
     # infinity guards hold.
     $<$<COMPILE_LANGUAGE:CXX>:/fp:precise>
     $<$<COMPILE_LANGUAGE:CXX>:/arch:AVX>
+    $<$<COMPILE_LANGUAGE:CXX>:-maes>
     $<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>
     $<$<COMPILE_LANGUAGE:CXX>:/Zc:inline>
     $<$<COMPILE_LANGUAGE:CXX>:/Zc:threadSafeInit->

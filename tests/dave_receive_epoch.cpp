@@ -9,11 +9,11 @@ using Check = void (*)(bool, const char*) noexcept;
 u64 age(u32 generation) noexcept {
     return ((u64{generation} * (u64{1} << 24) + 169) / 170) * 1000;
 }
-bool initialize(Check check, DaveReceiveEpoch& epoch, Gcm64Backend backend) noexcept {
+bool initialize(Check check, DaveReceiveEpoch& epoch) noexcept {
     u8 seed[16];
     for (u32 i = 0; i != 16; ++i)
         seed[i] = static_cast<u8>(i);
-    const auto result = dave_receive_epoch_initialize(&epoch, {seed, 16}, 0, backend);
+    const auto result = dave_receive_epoch_initialize(&epoch, {seed, 16}, 0);
     check(result.ok(), "DAVE sender epoch initializes protected seed");
     return result.ok();
 }
@@ -52,10 +52,10 @@ void correct(Check check, const Opened& result, const Frame& frame) noexcept {
     check(matched && test_filled(frame.output + 32, 16, 0xa5),
           "DAVE sender key owner opens independent wire fixture and preserves output tail");
 }
-void lifecycle(Check check, KdfSha256Workspace& workspace, Gcm64Backend backend) noexcept {
+void lifecycle(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveEpoch epoch{};
     Frame frame{};
-    if (!initialize(check, epoch, backend))
+    if (!initialize(check, epoch))
         return;
     prepare(check, frame, 1, 1);
     check(open(epoch, workspace, frame, age(1) - 1).error == DaveEpochError::generation_lifetime &&
@@ -90,10 +90,10 @@ void lifecycle(Check check, KdfSha256Workspace& workspace, Gcm64Backend backend)
           "DAVE epoch release retires every retained key and replay state");
     dave_receive_epoch_release(&epoch);
 }
-void reordering(Check check, KdfSha256Workspace& workspace, Gcm64Backend backend) noexcept {
+void reordering(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveEpoch epoch{};
     Frame frame{};
-    if (!initialize(check, epoch, backend))
+    if (!initialize(check, epoch))
         return;
     prepare(check, frame, 0, 0xfffffd);
     correct(check, open(epoch, workspace, frame, age(1)), frame);
@@ -111,10 +111,10 @@ void reordering(Check check, KdfSha256Workspace& workspace, Gcm64Backend backend
     correct(check, open(epoch, workspace, frame, age(1) + 10001), frame);
     dave_receive_epoch_release(&epoch);
 }
-void gaps_and_wrap(Check check, KdfSha256Workspace& workspace, Gcm64Backend backend) noexcept {
+void gaps_and_wrap(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveEpoch epoch{};
     Frame frame{};
-    if (!initialize(check, epoch, backend))
+    if (!initialize(check, epoch))
         return;
     prepare(check, frame, 251, 1);
     check(open(epoch, workspace, frame, age(257)).error == DaveEpochError::generation_gap &&
@@ -129,7 +129,7 @@ void gaps_and_wrap(Check check, KdfSha256Workspace& workspace, Gcm64Backend back
               "DAVE sequential secrets survive growth, compaction and eight-bit generation wrap");
     }
     dave_receive_epoch_release(&epoch);
-    if (!initialize(check, epoch, backend))
+    if (!initialize(check, epoch))
         return;
     // Synthetic checkpoint avoids billions of derivations while exercising the
     // real final derivation and wire generation/nonce guards.
@@ -147,10 +147,10 @@ void gaps_and_wrap(Check check, KdfSha256Workspace& workspace, Gcm64Backend back
           "DAVE refuses to wrap exhausted key generation to zero");
     dave_receive_epoch_release(&epoch);
 }
-void growth_and_retry(Check check, KdfSha256Workspace& workspace, Gcm64Backend backend) noexcept {
+void growth_and_retry(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveEpoch epoch{};
     Frame frame{};
-    if (!initialize(check, epoch, backend))
+    if (!initialize(check, epoch))
         return;
     prepare(check, frame, 0, 1);
     correct(check, open(epoch, workspace, frame, age(250)), frame);
@@ -175,9 +175,9 @@ void growth_and_retry(Check check, KdfSha256Workspace& workspace, Gcm64Backend b
 
     DaveReceiveEpoch wrong{};
     u8 wrong_seed[16]{};
-    check(dave_receive_epoch_initialize(&wrong, {wrong_seed, 16}, 0, backend).ok(),
+    check(dave_receive_epoch_initialize(&wrong, {wrong_seed, 16}, 0).ok(),
           "DAVE alternate epoch initialization");
-    if (!initialize(check, epoch, backend)) {
+    if (!initialize(check, epoch)) {
         dave_receive_epoch_release(&wrong);
         return;
     }
@@ -203,7 +203,7 @@ void growth_and_retry(Check check, KdfSha256Workspace& workspace, Gcm64Backend b
 void failures(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveEpoch epoch{};
     Frame frame{};
-    if (!initialize(check, epoch, Gcm64Backend::automatic))
+    if (!initialize(check, epoch))
         return;
     prepare(check, frame, 0, 1);
     const u32 capacity = workspace.storage.capacity;
@@ -222,13 +222,10 @@ void test_dave_receive_epoch(Check check) noexcept {
     check(kdf_sha256_initialize(&workspace).ok(), "DAVE epoch test KDF workspace");
     if (!workspace.storage.data)
         return;
-    constexpr Gcm64Backend backends[]{Gcm64Backend::automatic, Gcm64Backend::portable};
-    for (auto backend : backends) {
-        lifecycle(check, workspace, backend);
-        reordering(check, workspace, backend);
-        gaps_and_wrap(check, workspace, backend);
-        growth_and_retry(check, workspace, backend);
-    }
+    lifecycle(check, workspace);
+    reordering(check, workspace);
+    gaps_and_wrap(check, workspace);
+    growth_and_retry(check, workspace);
     failures(check, workspace);
     kdf_sha256_release(&workspace);
 }

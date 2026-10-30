@@ -72,19 +72,13 @@ bool dave_receive_epoch_aliases(const DaveReceiveEpoch& epoch, ConstSlice<u8> sp
             return true;
     return false;
 }
-KdfResult dave_receive_epoch_initialize(DaveReceiveEpoch* epoch, ConstSlice<u8> seed, u64 now,
-                                        Gcm64Backend backend) noexcept {
-    // The sender checked the seed; the backend is a caller-chosen enum.
-    if (backend != Gcm64Backend::automatic && backend != Gcm64Backend::portable &&
-        backend != Gcm64Backend::accelerated)
-        return {0, 0, KdfError::invalid_input};
+KdfResult dave_receive_epoch_initialize(DaveReceiveEpoch* epoch, ConstSlice<u8> seed, u64 now) noexcept {
     if (!grow(*epoch, 1))
         return {0, 0, KdfError::storage};
     copy_bytes(epoch->storage.data, seed.data, 16);
     epoch->seed_bytes = 16;
     epoch->created_ms = now;
     epoch->next_key_expiry_ms = never;
-    epoch->backend = backend;
     return {};
 }
 void dave_receive_epoch_release(DaveReceiveEpoch* epoch) noexcept {
@@ -133,7 +127,7 @@ DaveEpochError dave_receive_epoch_open(DaveReceiveEpoch& epoch, KdfSha256Workspa
     }
     auto& entry = data[generation - epoch.oldest_generation];
     if (!entry.key.storage.data) {
-        if (!aes_gcm64_initialize(&entry.key, {entry.material, 16}, epoch.backend).ok())
+        if (!aes_gcm64_initialize(&entry.key, {entry.material, 16}).ok())
             return DaveEpochError::key_import;
         entry.expiry_ms = generation < epoch.newest_generation ? deadline(now) : never;
         epoch.next_key_expiry_ms = minimum(epoch.next_key_expiry_ms, entry.expiry_ms);

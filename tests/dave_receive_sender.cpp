@@ -25,12 +25,10 @@ void correct(Check check, const DaveSenderOpenResult& result, u32 epoch, const u
         matched = output[i] == static_cast<u8>(i * 17 + epoch * 7 + 9);
     check(matched, "DAVE sender authenticates/reconstructs independent mixed-clear epoch fixture");
 }
-void transition(Check check, DaveReceiveSender& sender, u32 epoch, u64 revision, u64 now, u64 grace,
-                Gcm64Backend backend) noexcept {
+void transition(Check check, DaveReceiveSender& sender, u32 epoch, u64 revision, u64 now, u64 grace) noexcept {
     u8 material[16];
     seed(epoch, material);
-    check(dave_receive_sender_transition(sender, identity, revision, {material, 16}, now, grace, backend)
-              .ok(),
+    check(dave_receive_sender_transition(sender, identity, revision, {material, 16}, now, grace).ok(),
           "DAVE sender transition initializes replacement before publishing");
 }
 DaveSenderOpenResult open(Check check, DaveReceiveSender& sender, KdfSha256Workspace& workspace, u32 epoch,
@@ -47,15 +45,15 @@ DaveSenderOpenResult open(Check check, DaveReceiveSender& sender, KdfSha256Works
           "DAVE sender attempts preserve output/scratch excess capacity");
     return result;
 }
-void transitions(Check check, KdfSha256Workspace& workspace, Gcm64Backend backend) noexcept {
+void transitions(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveSender sender{};
     check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
           "DAVE sender identity initialization");
-    transition(check, sender, 0, 1, 0, 100, backend);
+    transition(check, sender, 0, 1, 0, 100);
     auto result = open(check, sender, workspace, 0, 1, 0);
     check(result.ok() && result.revision == 1 && result.epochs_tried == 1 && result.crypto_attempts == 1,
           "DAVE first sender epoch succeeds directly");
-    transition(check, sender, 1, 2, 10, 100, backend);
+    transition(check, sender, 1, 2, 10, 100);
     result = open(check, sender, workspace, 0, 2, 20);
     check(result.ok() && result.revision == 1 && result.epochs_tried == 2 && result.crypto_attempts == 2,
           "DAVE tries new epoch first then authenticates reordered older epoch frame");
@@ -66,12 +64,11 @@ void transitions(Check check, KdfSha256Workspace& workspace, Gcm64Backend backen
           "DAVE old epoch duplicate remains rejected after transition");
     u8 material[16];
     seed(2, material);
-    const auto failed = dave_receive_sender_transition(sender, identity, 3, {material, 16}, 40, 9999,
-                                                       static_cast<Gcm64Backend>(255));
-    check(failed.error == DaveSenderError::epoch_initialize && sender.count == 2 &&
+    const auto failed = dave_receive_sender_transition(sender, identity, 3, {material, 15}, 40, 9999);
+    check(failed.error == DaveSenderError::invalid_input && sender.count == 2 &&
               sender.latest_revision == 2 && sender.last_now_ms == 20 && sender.next_expiry_ms == 110,
           "DAVE failed replacement leaves old keys, grace, revision and clock unchanged");
-    transition(check, sender, 2, 3, 50, 100, backend);
+    transition(check, sender, 2, 3, 50, 100);
     check(sender.count == 3 && sender.next_expiry_ms == 150,
           "DAVE successful transition refreshes grace for all live previous epochs");
     result = open(check, sender, workspace, 0, 3, 120);
@@ -108,9 +105,9 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveSender sender{};
     check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
           "DAVE boundary sender init");
-    transition(check, sender, 0, 65535, 0, 10, Gcm64Backend::automatic);
+    transition(check, sender, 0, 65535, 0, 10);
     const auto* old_node = sender.newest;
-    transition(check, sender, 1, 65536, 1, 10, Gcm64Backend::automatic);
+    transition(check, sender, 1, 65536, 1, 10);
     u8 frame[64], output[64], scratch[64], material[16];
     wire(check, 0, 1, frame);
     seed(2, material);
@@ -158,7 +155,7 @@ void boundaries(Check check, KdfSha256Workspace& workspace) noexcept {
           "DAVE sender retries mixed-clear frame in place and preserves footer");
     check(dave_receive_sender_collect(sender, identity, 12) == DaveSenderError::none && sender.count == 1,
           "DAVE old epoch collection after guarded input operations");
-    transition(check, sender, 2, 65537, 13, 100, Gcm64Backend::automatic);
+    transition(check, sender, 2, 65537, 13, 100);
     check(sender.count == 2, "DAVE next transition does not resurrect expired/collected old epoch");
     wire(check, 0, 2, frame);
     check(
@@ -181,7 +178,7 @@ void many_epochs(Check check, KdfSha256Workspace& workspace) noexcept {
     check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
           "DAVE many-epoch sender init");
     for (u32 i = 0; i != 12; ++i)
-        transition(check, sender, i, i + 1, i, 100, Gcm64Backend::automatic);
+        transition(check, sender, i, i + 1, i, 100);
     const auto result = open(check, sender, workspace, 0, 1, 20);
     check(sender.count == 12 && result.ok() && result.revision == 1 && result.epochs_tried == 12,
           "DAVE retained epochs do not inherit a reference implementation's unrelated eight "
@@ -207,8 +204,8 @@ void guarded_retry(Check check, KdfSha256Workspace& workspace) noexcept {
     if (ready) {
         check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
               "DAVE guarded sender init");
-        transition(check, sender, 0, 1, 0, 100, Gcm64Backend::automatic);
-        transition(check, sender, 1, 2, 1, 100, Gcm64Backend::automatic);
+        transition(check, sender, 0, 1, 0, 100);
+        transition(check, sender, 1, 2, 1, 100);
         auto* input = pages[0] + info.dwPageSize - 64;
         auto* output = pages[1] + info.dwPageSize - 48;
         auto* scratch = pages[2] + info.dwPageSize - 48;
@@ -233,11 +230,11 @@ void expired_transition(Check check, KdfSha256Workspace& workspace) noexcept {
     DaveReceiveSender sender{};
     check(dave_receive_sender_initialize(&sender, identity, 0) == DaveSenderError::none,
           "DAVE no-media transition sender init");
-    transition(check, sender, 0, 1, 0, 1, Gcm64Backend::automatic);
-    transition(check, sender, 1, 2, 1, 1, Gcm64Backend::automatic);
+    transition(check, sender, 0, 1, 0, 1);
+    transition(check, sender, 1, 2, 1, 1);
     // No collect call or frame arrives before the next transition. Elapsed
     // old epochs must be removed before refreshing grace for live epochs.
-    transition(check, sender, 2, 3, 3, 10, Gcm64Backend::automatic);
+    transition(check, sender, 2, 3, 3, 10);
     check(sender.count == 2 && sender.next_expiry_ms == 13,
           "DAVE transition itself collects expired nodes before renewing grace");
     check(!open(check, sender, workspace, 0, 1, 3).ok(),
@@ -258,8 +255,7 @@ void test_dave_receive_sender(Check check) noexcept {
     check(kdf_sha256_initialize(&workspace).ok(), "DAVE sender shared KDF workspace");
     if (!workspace.storage.data)
         return;
-    transitions(check, workspace, Gcm64Backend::automatic);
-    transitions(check, workspace, Gcm64Backend::portable);
+    transitions(check, workspace);
     boundaries(check, workspace);
     many_epochs(check, workspace);
     guarded_retry(check, workspace);

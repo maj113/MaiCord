@@ -102,7 +102,7 @@ choose *Restart to update*, so the folder must stay writable.
 ### Requirements
 
 - Windows 10 or 11, 64-bit
-- A CPU with AVX
+- A CPU with AVX and AES-NI
 - A GPU with Direct3D 11 support
 
 ## Plugins and themes

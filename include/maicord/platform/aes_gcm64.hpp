@@ -5,39 +5,25 @@
 
 namespace maicord {
 
-enum class Gcm64Backend : u8 {
-    automatic,
-    accelerated,
-    portable
-};
-
-// AES128-GCM with a fixed 96-bit nonce and 64-bit tag, as required by DAVE.
-// Independent from the transport cipher: its 128-bit tag is never shortened.
-// Zero-initialize; one worker performs operations/release; never copy a live key.
-// One locked allocation holds the key: the AES-NI round keys and GHASH subkey
-// powers (accelerated), or the CNG AES-ECB key object and GHASH subkey
-// (portable, whose AES block primitive is ECB; not a wire cipher mode).
-// Initialization picks the accelerated backend (AES-NI, PCLMULQDQ and SSSE3,
-// checked with CPUID) when the CPU has it; the portable GHASH path uses
-// fixed-iteration arithmetic. A live key has storage.data set; handle is the
-// CNG key of the portable backend only.
+// AES128-GCM with a fixed 96-bit nonce and 64-bit tag, as required by DAVE, on
+// AES-NI and PCLMULQDQ. Independent from the transport cipher: its 128-bit tag
+// is never shortened. Zero-initialize; one worker performs operations/release;
+// never copy a live key. One locked allocation holds the AES round keys and
+// GHASH subkey powers; a live key has storage.data set.
 struct AesGcm64Key {
-    void* handle;
     SecureBuffer storage;
-    Gcm64Backend backend;
 };
 
-AeadResult aes_gcm64_initialize(AesGcm64Key* key, ConstSlice<u8> secret,
-                                Gcm64Backend backend = Gcm64Backend::automatic) noexcept;
+AeadResult aes_gcm64_initialize(AesGcm64Key* key, ConstSlice<u8> secret) noexcept;
 void aes_gcm64_release(AesGcm64Key* key) noexcept;
 
 // Caller guarantees per-key nonce uniqueness and enforces DAVE key lifetime,
 // replay and failed-authentication policy. Exactly 16 secret / 12 nonce / 8 tag
 // bytes; length is not negotiated by accepting an arbitrary shorter tag.
 // Same alias/capacity contract as aes_gcm; in-place payload is supported.
-// Invalid inputs leave output unchanged. Authentication/platform failures wipe
-// only the attempted payload prefix (and encryption tag). Decryption verifies
-// the complete tag before producing any plaintext. No per-frame allocation.
+// Invalid inputs leave output unchanged. Authentication failure wipes only the
+// attempted payload prefix. Decryption verifies the complete tag before
+// producing any plaintext. No per-frame allocation.
 AeadResult aes_gcm64_encrypt(const AesGcm64Key& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
                              ConstSlice<u8> plaintext, Slice<u8> ciphertext, Slice<u8> tag) noexcept;
 AeadResult aes_gcm64_decrypt(const AesGcm64Key& key, ConstSlice<u8> nonce, ConstSlice<u8> aad,
