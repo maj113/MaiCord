@@ -639,7 +639,8 @@ bool application_profile_open(u64 user, const UiRect& anchor, ProfileAnchor kind
     p->scene.reduced_motion = !animations || g_app.preferences.reduced_motion;
     p->scene.measure = &g_app.account_ui->text_measure_cache;
     p->scene.applications = {p->applications, p->application_count};
-    profile_commands_resolve(&p->commands, p->data, p->loaded_at, state.selected_channel_id);
+    profile_commands_resolve(&p->commands, p->data, p->loaded_at, state.selected_channel_id,
+                             g_app.account_ui->active_channel_id);
     p->scene.commands = profile_commands_view(p->commands);
     if (!profile_scene_open(&p->scene, &p->data, &state, &g_app.account_ui->user_store,
                             state.self_user_id, anchor, application_viewport_dips()))
@@ -697,7 +698,8 @@ void application_profile_synchronize() noexcept {
         return;
     // A landed command index changes a bot's Commands.
     if (profile_commands_resolve(&p->commands, p->data, p->loaded_at,
-                                 g_app.account_ui->chat_state.selected_channel_id)) {
+                                 g_app.account_ui->chat_state.selected_channel_id,
+                                 g_app.account_ui->active_channel_id)) {
         p->scene.commands = profile_commands_view(p->commands);
         if (profile_scene_layout(&p->scene, application_viewport_dips(), true))
             repaint(true);
@@ -1187,7 +1189,8 @@ bool application_profile_response(const RestClientResponse& response, Utf8View b
     }
     if (!p->scene.active)
         return true;
-    profile_commands_resolve(&p->commands, p->data, p->loaded_at, g_app.account_ui->chat_state.selected_channel_id);
+    profile_commands_resolve(&p->commands, p->data, p->loaded_at, g_app.account_ui->chat_state.selected_channel_id,
+                             g_app.account_ui->active_channel_id);
     p->scene.commands = profile_commands_view(p->commands);
     return profile_scene_layout(&p->scene, application_viewport_dips(), true) && repaint(true);
 }

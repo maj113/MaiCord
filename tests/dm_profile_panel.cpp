@@ -37,10 +37,14 @@
 namespace maicord::dm_profile_test {
 using namespace app_detail;
 u32 failures, reads, full_opens, menus;
+// Shell text rebuilds and the panel text runs the last one emitted.
+u32 text_builds, text_runs;
 u8 expanded_tab;
 // The command index the Commands section reads, and the last insertion.
 u32 command_revision = 1;
 u64 inserted_application, inserted_command, asked_channel;
+// The index reports itself still loading (no commands yet).
+bool commands_loading;
 char inserted_name[32];
 u32 inserted_name_bytes;
 u64 read_user, read_guild, request_id;
@@ -322,6 +326,7 @@ bool fixture_setup() noexcept {
         !chat_state_store_select_home(&state).ok() || !chat_state_store_select_channel(&state, 9998).ok())
         return false;
     state.home_selected = true;
+    ui.active_channel_id = 9998;
     constexpr auto presence = utf8_literal(
         R"({"activities":[{"type":2,"name":"Spotify","details":"Stop Making Sense","state":"Panchiko","party":{"id":"spotify:1"}}]})");
     const auto scan = json_scan_structurals_avx1(presence, {f.structurals, 512});
@@ -437,17 +442,21 @@ bool click(ProfileAction action) noexcept {
 void panel_cases() noexcept {
     auto& state = g_app.account_ui->chat_state;
     check(layout_shell(), "DM panel: shell with the profile slot");
+    const u32 first_builds = text_builds;
     application_dm_profile_synchronize();
     auto* s = application_dm_profile_scene();
     check(s && g_app.renderer.dm_profile_panel == s && s->presentation == ProfilePresentation::panel &&
               near(ui_rect_width(s->rectangle), kUiDmProfilePanelWidth - 16) && s->phase == ProfilePhase::loading &&
               g_app.dm_profile_wake_ms == 1 && application_dm_profile_pending(10),
           "DM panel: showing a stale profile queues one fetch and wakes the scheduler");
+    check(text_builds == first_builds + 1 && text_runs > 0,
+          "DM panel text: the frame that shows the panel rebuilds the shell text with its runs");
     check(application_dm_profile_submit(500, 10) && reads == 1 && read_user == 123 && !read_guild &&
               !read_operation && !application_dm_profile_pending(20) && !g_app.dm_profile_wake_ms,
           "DM panel: one GET /users/123/profile, deduped while in flight");
     application_dm_profile_synchronize();
     check(!application_dm_profile_pending(30) && reads == 1, "DM panel: the next frame does not fetch again");
+    check(text_builds == first_builds + 1, "DM panel text: an unchanged panel leaves the shell text alone");
     response(200, utf8_literal(R"({"user":{"id":"123","username":"mai","global_name":"Mai","bio":"hello"},)"
                                R"("user_profile":{"bio":"hello","pronouns":"she/her"},)"
                                R"("mutual_guilds":[{"id":"7"},{"id":"8"}],"mutual_friends":[],)"
@@ -472,20 +481,26 @@ void panel_cases() noexcept {
     // Leaving for a server and coming back within the minute reuses the cache.
     state.home_selected = false;
     layout_shell();
+    const u32 builds = text_builds;
     application_dm_profile_synchronize();
     check(!application_dm_profile_scene() && !g_app.renderer.dm_profile_panel,
           "DM panel: a server channel hides it");
+    check(text_builds == builds + 1 && text_runs == 0,
+          "DM panel text: the frame that hides the panel rebuilds the shell text without its runs");
     state.home_selected = true;
     layout_shell();
     application_dm_profile_synchronize();
     check(application_dm_profile_scene() && !application_dm_profile_pending(40) && reads == 1 &&
               application_dm_profile_scene()->phase == ProfilePhase::ready,
           "DM panel: a fresh cached profile shows again without a fetch");
+    check(text_builds == builds + 2 && text_runs > 0,
+          "DM panel text: showing it again brings its runs back in the same frame");
     // The preference hides it; the shell stops offering the slot.
     g_app.preferences.dm_profile_visible = false;
     layout_shell();
     application_dm_profile_synchronize();
-    check(!application_dm_profile_scene(), "DM panel: the remembered choice hides it");
+    check(!application_dm_profile_scene() && text_runs == 0,
+          "DM panel: the remembered choice hides it, its text in the same frame");
     g_app.preferences.dm_profile_visible = true;
     // A narrow window gives it no slot.
     g_app.renderer.width = 1100;
@@ -525,16 +540,28 @@ const ProfilePart* find_text(const ProfileScene& s, Utf8View text) noexcept {
 void bot_cases() noexcept {
     // The DM to 124, who is no friend.
     chat_state_store_select_channel(&g_app.account_ui->chat_state, 9996);
+    g_app.account_ui->active_channel_id = 9996;
     layout_shell();
     application_dm_profile_synchronize();
     const u32 before = reads;
     check(application_dm_profile_submit(510, 500) && reads == before + 1 && read_user == 124,
           "DM bot: the profile is fetched");
+    // The conversation's command index is still on its way when the profile lands.
+    commands_loading = true;
     response(200, utf8_literal(R"({"user":{"id":"124","username":"BlueprintBot","discriminator":"8797",)"
                                R"("global_name":null,"bot":true,"public_flags":65536},)"
                                R"("user_profile":{"bio":"*** NOW UPDATED FOR SOME MODS! ***"},)"
                                R"("mutual_guilds":[{"id":"7"}],"application":{"id":"55","flags":0,)"
                                R"("popular_application_command_ids":["901","902","903","904"]}})"));
+    application_dm_profile_synchronize();
+    const u32 loading_revision = application_dm_profile_scene()->revision;
+    asked_channel = 0;
+    application_dm_profile_synchronize();
+    check(asked_channel == 9996 && !application_dm_profile_scene()->commands.count &&
+              application_dm_profile_scene()->revision == loading_revision,
+          "DM bot: an index on its way is asked again each frame without laying the panel out");
+    commands_loading = false;
+    ++command_revision;
     application_dm_profile_synchronize();
     const auto* s = application_dm_profile_scene();
     check(s && s->profile->discriminator == 8797 && s->profile->application_id == 55 &&
@@ -570,6 +597,7 @@ void bot_cases() noexcept {
     check(!asked_channel, "DM bot: an unchanged index is not read again");
     application_dm_profile_release();
     chat_state_store_select_channel(&g_app.account_ui->chat_state, 9998);
+    g_app.account_ui->active_channel_id = 9998;
     // The bot's profile renamed the user; later cases know them as Ren.
     check(user_store_upsert(&g_app.account_ui->user_store, 124, utf8_literal("Ren"), utf8_literal("ren")).ok(),
           "DM bot: fixture restores the user");
@@ -664,6 +692,21 @@ void geometry_cases() noexcept {
     }
     check(outer && inner, "DM panel geometry: a themed card paints its primary border, then the overlay 2 DIPs in");
     paint_stream_release(&paint);
+    // A long bio: three lines (20 DIPs each here), no "View Full Bio", and no
+    // rule above "View Full Profile".
+    application_dm_profile_release();
+    s = show_loaded(9998, utf8_literal(R"({"user":{"id":"123","username":"mai","global_name":"Mai"},)"
+                                       R"("user_profile":{"bio":"A bio long enough to wrap onto many more than )"
+                                       R"(three lines of the panel, so that the clamp applies to it and only )"
+                                       R"(the first three lines show with an ellipsis at the end."},)"
+                                       R"("mutual_guilds":[]})"));
+    const auto* bio = s ? ui_widget_manager_layout_node(s->widgets, s->bio_widget) : nullptr;
+    bool rule = false;
+    for (u32 i = 0; s && i < s->part_count; ++i)
+        rule |= s->parts[i].look == ProfileLook::rule;
+    check(bio && near(ui_rect_height(bio->rectangle), 60) && !find_part(*s, ProfileAction::view_bio) &&
+              find_part(*s, ProfileAction::expand) && !rule,
+          "DM panel: a long bio clamps to three lines without View Full Bio; no rule above View Full Profile");
     application_dm_profile_release();
 }
 
@@ -921,7 +964,9 @@ const UiPrivateRowSource* application_private_channel_rows() noexcept {
 u32 application_commands_for_application(u64 channel, u64 application, Slice<ApplicationRootCommand> output,
                                          bool* loading) noexcept {
     asked_channel = channel;
-    *loading = false;
+    *loading = commands_loading;
+    if (commands_loading)
+        return 0;
     static const ApplicationRootCommand roots[]{
         {utf8_literal("json"), utf8_literal("Blueprint as JSON"), 902, false, false},
         {utf8_literal("mods"), {}, 904, false, true},
@@ -959,6 +1004,23 @@ bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<Pop
     return true;
 }
 } // namespace maicord::app_detail
+namespace maicord {
+// The shell text rebuild projects what the renderer would: the bound, active
+// panel's text runs (d3d11_renderer_text.cpp project_shell_member_text).
+bool renderer_rebuild_content_text(D3D11Renderer* renderer, const Theme& theme) noexcept {
+    using namespace dm_profile_test;
+    ++text_builds;
+    text_runs = 0;
+    const auto* panel = renderer->dm_profile_panel;
+    static UiTextCommand commands[256];
+    UiTextCommandStream stream{};
+    UiTextOutput output{&stream, nullptr};
+    if (panel && panel->active && ui_text_command_stream_initialize(&stream, {commands, 256}) &&
+        profile_scene_text_output(*panel, theme, &output, nullptr))
+        text_runs = stream.count;
+    return true;
+}
+} // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_dm_profile_tests_entry() noexcept {
     maicord::dm_profile_test::run();

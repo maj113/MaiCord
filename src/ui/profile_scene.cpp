@@ -1206,9 +1206,10 @@ float mutuals(ProfileScene* s, UiWidgetHandle owner, float left, float top, floa
     return 24;
 }
 
-// Biography: no heading; clamped to three lines in popouts (with "View Full
-// Bio" when it overflows), unclamped in the modal.
-float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool clamp) noexcept {
+// Biography: no heading; clamped to three lines in popouts and the DM panel
+// (the popout adds "View Full Bio" when it overflows), unclamped in the modal.
+float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool clamp,
+                bool view_bio = true) noexcept {
     const auto source = profile_display(*s->profile).bio;
     if (!source.bytes)
         return 0;
@@ -1240,16 +1241,20 @@ float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
     if (!bio.bytes)
         return 0;
     float height = maximum(18.f, size.size.height);
-    const bool overflow = clamp && height > 57.75f;
+    // The client clamps the bio to three lines (-webkit-line-clamp: 3), the
+    // third ending in an ellipsis when more follows. Without line counts
+    // (no measure cache) three text-sm lines stand in.
+    const u32 lines = size.line_count;
+    const bool overflow = clamp && (lines ? lines > 3 : height > 57.75f);
     if (overflow)
-        height = 54;
+        height = lines ? static_cast<float>(static_cast<u32>(size.size.height * 3 / lines + .999f)) : 54.f;
     // The text-sm size rides on the bio's own style spans.
     auto* text = caption(s, owner, {left, top, left + width, top + height}, bio, 0, ProfileTone::strong);
     if (!text)
         return -1;
     text->wrap = true;
     s->bio_widget = text->widget;
-    if (!overflow || !interactive(*s))
+    if (!overflow || !view_bio || !interactive(*s))
         return height;
     constexpr auto label = utf8_literal("View Full Bio");
     const float w = text_width(s, label, width, kXs) + 24;
@@ -1965,18 +1970,17 @@ bool layout_panel(ProfileScene* s, const UiRect& viewport) noexcept {
     for (u32 i = 0; i < cards; ++i)
         if (!section(activity_card(s, s->body, x0, y, x0 + content, i, order[i], activity_now(*s), ProfileAction::card)))
             return false;
-    // The bio without a heading (three lines, then "View Full Bio"), the
-    // account date, then the cards (a bot's commands).
-    if (!section(biography(s, s->body, x0, y, content, true)) ||
+    // The bio without a heading (three lines; "View Full Profile" below is the
+    // way to the rest), the account date, then the cards (a bot's commands).
+    if (!section(biography(s, s->body, x0, y, content, true, false)) ||
         !section(member_since(s, s->body, x0, y, content, ProfileTone::strong)) ||
         !section(commands_section(s, s->body, x0, y, content)))
         return false;
     if (!section(plugin_section(s, s->body, x0, y, content)))
         return false;
     const float body_content = y > 0 ? y - 20 + 16 : 16;
-    // "View Full Profile": a full-width bar under a 1 DIP rule.
-    if (!blank(s, s->panel, {0, footer_top, W, footer_top + 1}, ProfileAction::none, ProfileLook::rule) ||
-        !blank(s, s->panel, {8, footer_top + 6, W - 8, H - 6}, ProfileAction::expand, ProfileLook::row))
+    // "View Full Profile": a full-width bar, no rule above it (as the client).
+    if (!blank(s, s->panel, {8, footer_top + 6, W - 8, H - 6}, ProfileAction::expand, ProfileLook::row))
         return false;
     constexpr auto label = utf8_literal("View Full Profile");
     const float label_width = text_width(s, label, W - 32, kSm | text_style_bold) + 1;

@@ -319,6 +319,7 @@ void run() noexcept {
         R"("application":{"id":"55","popular_application_command_ids":["902","901"]}})");
     g_app.account_ui->chat_state.selected_channel_id = 900;
     p.loaded_at = 1000;
+    g_app.account_ui->active_channel_id = 900;
     const bool bot_laid = g_app.account_ui->profile_decode.decode_into(bot, 42, 7, p.data);
     application_profile_synchronize();
     u32 chips = 0;

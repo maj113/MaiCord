@@ -803,6 +803,10 @@ bool refresh_shell_text(bool force) noexcept {
                                     ui.rendered_emoji_mutations != ui.chat_state.emoji_mutations ||
                                     ui.rendered_member_revision != ui.guild_member_store.revision ||
                                     ui.rendered_navigation_revision != ui.navigation_view.revision;
+    // The DM profile panel's text goes with the shell's: settle the panel
+    // first so this build already shows (or no longer shows) it.
+    if (synchronized)
+        application_dm_profile_synchronize(true);
     if (!synchronized || (autocomplete_stale && !refresh_active_autocomplete()) ||
         !rebuild_account_text_cache()) {
         log_write(LogLevel::error, "render", "account_text_cache_rebuild_failed");

@@ -14,20 +14,28 @@ struct ProfileCommandSet {
     ProfileString<404> descriptions[kProfileCommandMaximum];
     u64 user, loaded_at, channel, application;
     u32 count, revision;
+    // The index answered for this channel: an inactive channel (a selection
+    // still settling) or an index on its way is asked again next time.
+    bool settled;
 };
 // As the official client resolves its Commands section: the profile's popular
 // command IDs, in that order, among the app's root commands loaded for the
-// active channel (the selected conversation or server channel), without NSFW
+// selected channel (the conversation or server channel), without NSFW
 // commands or commands with subcommands. Asking starts loading a missing
-// index; its landing changes the catalog revision. True when resolved again
-// (the surface lays out again). loaded_at is when the profile arrived (zero:
-// not yet).
+// index; its landing changes the catalog revision. Until the index answers
+// (it is loading, or channel is not yet the active_channel the command index
+// binds to) every call asks again. True when the list changed (the surface
+// lays out again). loaded_at is when the profile arrived (zero: not yet).
 inline bool profile_commands_resolve(ProfileCommandSet* set, const UserProfile& profile, u64 loaded_at,
-                                     u64 channel) noexcept {
+                                     u64 channel, u64 active_channel) noexcept {
     const u32 revision = application_commands_catalog_revision();
-    if (set->user == profile.user_id && set->loaded_at == loaded_at && set->channel == channel &&
-        set->revision == revision)
+    const bool same_source = set->user == profile.user_id && set->loaded_at == loaded_at && set->channel == channel;
+    if (same_source && set->settled && set->revision == revision)
         return false;
+    u64 before[kProfileCommandMaximum];
+    const u32 before_count = same_source ? set->count : ~0u;
+    for (u32 i = 0; same_source && i < set->count; ++i)
+        before[i] = set->commands[i].id;
     set->user = profile.user_id;
     set->loaded_at = loaded_at;
     set->channel = channel;
@@ -38,11 +46,11 @@ inline bool profile_commands_resolve(ProfileCommandSet* set, const UserProfile& 
     // resolve one at a time on the UI thread, so they share this scratch.
     static ApplicationRootCommand roots[128];
     bool loading = false;
-    const u32 found = loaded_at && profile.user_appearance.bot && profile.application_id &&
-                              profile.popular_command_count && channel
-                          ? application_commands_for_application(channel, profile.application_id, {roots, 128},
-                                                                 &loading)
-                          : 0;
+    const bool wanted =
+        loaded_at && profile.user_appearance.bot && profile.application_id && profile.popular_command_count && channel;
+    const u32 found =
+        wanted ? application_commands_for_application(channel, profile.application_id, {roots, 128}, &loading) : 0;
+    set->settled = !wanted || (!loading && active_channel == channel);
     for (u32 i = 0; i < profile.popular_command_count && set->count < kProfileCommandMaximum; ++i)
         for (u32 k = 0; k < found; ++k) {
             const auto& root = roots[k];
@@ -58,7 +66,12 @@ inline bool profile_commands_resolve(ProfileCommandSet* set, const UserProfile& 
             }
             break;
         }
-    return true;
+    // Only a different list lays the surface out again (an index still on its
+    // way asks each frame without moving anything).
+    bool changed = set->count != before_count;
+    for (u32 i = 0; !changed && i < set->count; ++i)
+        changed = set->commands[i].id != before[i];
+    return changed;
 }
 inline ConstSlice<ProfileCommand> profile_commands_view(const ProfileCommandSet& set) noexcept {
     return {set.commands, set.count};

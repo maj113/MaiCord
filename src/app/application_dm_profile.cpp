@@ -50,6 +50,9 @@ struct DmProfilePanel {
     ProfileCommandSet commands;
 };
 DmProfilePanel* g_panel;
+// The panel as the shell's retained text last projected it.
+const ProfileScene* g_text_scene;
+u32 g_text_revision;
 
 u64 now_ms() noexcept {
     return clock_monotonic_milliseconds();
@@ -199,7 +202,8 @@ UiRect slot_rectangle() noexcept {
 }
 // The shown profile's Commands; true when they changed (the panel lays out again).
 bool resolve_commands(const CachedProfile& entry, u64 channel) noexcept {
-    const bool changed = profile_commands_resolve(&g_panel->commands, entry.data, entry.loaded_at, channel);
+    const bool changed = profile_commands_resolve(&g_panel->commands, entry.data, entry.loaded_at, channel,
+                                                  g_app.account_ui->active_channel_id);
     g_panel->scene.commands = profile_commands_view(g_panel->commands);
     return changed;
 }
@@ -378,7 +382,7 @@ UiSidePanelInput application_side_panel_input() noexcept {
     in.channel_type = channel ? (channel->type ? channel->type : 0xFE) : kUiSidePanelNoChannel;
     return in;
 }
-void application_dm_profile_synchronize() noexcept {
+void application_dm_profile_synchronize(bool text_follows) noexcept {
     const u64 user = selected_peer();
     const UiRect slot = slot_rectangle();
     const bool shown = user && g_app.account_ui && !g_app.login.visible && !application_search_active() &&
@@ -389,7 +393,17 @@ void application_dm_profile_synchronize() noexcept {
     else if (adopt_popout_icons())
         relayout();
     update_wake();
-    tick_clock();
+    const bool ticked = tick_clock();
+    // The panel's text is part of the shell's retained text: it appears,
+    // leaves and moves with the panel in the same frame. A caller about to
+    // rebuild that text takes the panel as it stands now.
+    const auto* bound = g_app.renderer.dm_profile_panel;
+    const u32 revision = bound ? bound->revision : 0;
+    if (!text_follows && (ticked || bound != g_text_scene || revision != g_text_revision) &&
+        !renderer_rebuild_content_text(&g_app.renderer, application_theme()))
+        return;
+    g_text_scene = bound;
+    g_text_revision = revision;
 }
 void application_dm_profile_tick(u64 now) noexcept {
     // A second boundary brings no frame of its own.

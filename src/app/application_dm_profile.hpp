@@ -15,10 +15,12 @@ namespace maicord::app_detail {
 
 // The side slot's plan inputs for the selected conversation.
 UiSidePanelInput application_side_panel_input() noexcept;
-// Per frame, after the shell layout: shows, hides or lays out the panel in
-// the slot and publishes it to the renderer (renderer.dm_profile_panel, which
-// media, tooltips and wheel scrolling read).
-void application_dm_profile_synchronize() noexcept;
+// After the shell layout (each frame, and before every shell text rebuild):
+// shows, hides or lays out the panel in the slot and publishes it to the
+// renderer (renderer.dm_profile_panel, which media, tooltips and wheel
+// scrolling read). Its text is shell text: unless the caller rebuilds that
+// text next (text_follows), a change rebuilds it here, in the same frame.
+void application_dm_profile_synchronize(bool text_follows = false) noexcept;
 // Loop tick: advances shown activity timers at their second boundary.
 void application_dm_profile_tick(u64 now) noexcept;
 // The shown panel's scene, or null.

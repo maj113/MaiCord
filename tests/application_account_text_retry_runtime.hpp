@@ -7,6 +7,7 @@
 #include "../src/app/application_account_text_retry.hpp"
 #include "../src/app/application_composer_input.hpp"
 #include "../src/app/application_attachments.hpp"
+#include "../src/app/application_dm_profile.hpp"
 
 namespace maicord::account_text_retry_runtime_test {
 inline bool active{}, reject{}, settings{}, friends{}, last_force{}, pins{}, threads{};
@@ -52,6 +53,8 @@ bool synchronize_shell_widget_scenes() noexcept {
     ++account_text_retry_runtime_test::shell_syncs;
     return true;
 }
+// No DM profile panel in these fixtures.
+void application_dm_profile_synchronize(bool) noexcept {}
 bool refresh_active_autocomplete() noexcept {
     return true;
 }

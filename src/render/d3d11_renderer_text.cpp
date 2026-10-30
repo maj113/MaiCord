@@ -1975,6 +1975,15 @@ u64 shell_scene_stamp(const D3D11Renderer& renderer) noexcept {
         mix(users->appearance.revision);
     }
     mix(renderer.thread_header ? renderer.thread_header->revision : 0u);
+    // The DM profile panel's text is shell text: showing, hiding, laying out
+    // or scrolling it must not keep a retained shell.
+    mix(reinterpret_cast<usize>(renderer.dm_profile_panel));
+    if (const auto* panel = renderer.dm_profile_panel) {
+        mix(panel->active);
+        mix(panel->revision);
+        scroll(panel->scroll);
+        widgets(panel->widgets);
+    }
     return hash;
 }
 
