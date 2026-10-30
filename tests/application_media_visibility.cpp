@@ -367,22 +367,19 @@ void run_animation_owner_test(
     g_app.animations.pending_advance_count = 1;
     animation_timeline_suspend(&g_app.animations.timeline, 1100);
     bool repaint = false;
-    u32 uploads = 0;
+    u32& uploads = pump.uploads = 0;
     bool stop = false;
     const u32 before_requests = attachment_requests;
     pump.visibility_only = true;
-    const bool observed = edited && pump.request_visible_attachment(
-                                        fixture.records[1], fixture.rich_records[1].attachments[0], 64, 64,
-                                        clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000,
-                                        &uploads, &repaint, &stop);
+    const bool observed = edited && pump.pass(clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, 0, &repaint).request_visible_attachment(
+                                        fixture.records[1], fixture.rich_records[1].attachments[0], 64, 64, &stop);
     pump.visibility_only = false;
     const bool retired = observed && !animation_timeline_find(&g_app.animations.timeline, key).ok() &&
                          g_app.animations.pending_advance_count == 0 &&
                          attachment_requests == before_requests;
-    const bool reacquired = retired && pump.request_visible_attachment(
+    const bool reacquired = retired && pump.pass(clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, 0, &repaint).request_visible_attachment(
                                            fixture.records[1], fixture.rich_records[1].attachments[0], 64,
-                                           64, clock_monotonic_milliseconds(),
-                                           clock_unix_milliseconds() / 1000, &uploads, &repaint, &stop);
+                                           64, &stop);
     check(reacquired && attachment_requests == before_requests + 1 &&
               last_attachment_message == fixture.records[1].id &&
               last_attachment_revision == fixture.records[1].revision && !repaint && !uploads,
@@ -510,11 +507,11 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
         grouped[index] = fixture.rows[index].grouped;
         fixture.rows[index].grouped = true;
     }
-    u32 uploads = 0;
+    pump.uploads = 0;
     bool repaint = false, stop = false;
     const u32 before_hidden = identity_requests;
     for (u32 pass = 0; pass < 8; ++pass)
-        valid = pump.request_visible_user_avatar_value(9, hash, 1'000, 1'100, &uploads, &repaint, &stop) &&
+        valid = pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) &&
                 valid;
     check(valid && !pump.avatar_key_is_current(avatar) && identity_requests == before_hidden,
           "avatar admission: grouped authors without a visible avatar never queue discarded decodes");
@@ -537,7 +534,7 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
     for (u32 index = 0; index < g_app.message_scene.count; ++index)
         fixture.rows[index].grouped = grouped[index];
     check(pump.avatar_key_is_current(avatar) &&
-              pump.request_visible_user_avatar_value(9, hash, 1'000, 1'100, &uploads, &repaint, &stop) &&
+              pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop) &&
               identity_requests == before_hidden + 1,
           "avatar admission: matching visible author still admits its normal cold request");
     check(media_asset_key_equal(last_identity_key, avatar) &&
@@ -559,11 +556,11 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
             media_atlas_set_decoded_animation(&fixture.atlas, icon_resident.handle, false);
     const u32 before_static = identity_requests;
     for (u32 pass = 0; pass < 8; ++pass) {
-        valid = pump.request_visible_user_avatar_value(9, hash, 1'000, 1'100, &uploads, &repaint, &stop,
+        valid = pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop,
                                                        true) &&
                 valid;
         valid =
-            pump.request_visible_guild_icon(guild, 1'000, 1'100, &uploads, &repaint, &stop, true) && valid;
+            pump.pass(1'000, 1'100, 0, &repaint).request_visible_guild_icon(guild, &stop, true) && valid;
     }
     check(valid && identity_requests == before_static,
           "identity residency: decoded static avatars and icons override animated hash hints during forced "
@@ -571,8 +568,8 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
     valid =
         valid && media_atlas_set_decoded_animation(&fixture.atlas, avatar_resident.handle, true) &&
         media_atlas_set_decoded_animation(&fixture.atlas, icon_resident.handle, true) &&
-        pump.request_visible_user_avatar_value(9, hash, 1'000, 1'100, &uploads, &repaint, &stop, true) &&
-        pump.request_visible_guild_icon(guild, 1'000, 1'100, &uploads, &repaint, &stop, true);
+        pump.pass(1'000, 1'100, 0, &repaint).request_visible_user_avatar_value(9, hash, &stop, true) &&
+        pump.pass(1'000, 1'100, 0, &repaint).request_visible_guild_icon(guild, &stop, true);
     check(valid && identity_requests == before_static + 2,
           "identity residency: decoded multiframe residents still admit missing-timeline reacquisition");
 }
@@ -641,17 +638,17 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
     observe_picker_requests = true;
     picker_emoji_requests = 0;
     message_media_controller_begin_asset_scan(&g_app.message_media);
-    u32 uploads = 0;
+    u32& uploads = pump.uploads = 0;
     bool repaint = false;
     const auto animated = media_asset_custom_emoji(981, true);
     const auto flag = media_asset_regional_flag(regional_flag_sequence(utf8_literal("🇸🇮")));
     uploads = kMessageMediaUploadBudget;
     const u32 before_other_admission = attachment_requests + identity_requests + catalog_requests;
-    check(!pump.visibility_only && pump.scan_visible_media(1'000, 1'100, 1'000, uploads, &repaint) &&
+    check(!pump.visibility_only && pump.pass(1'000, 1'100, 1'000, &repaint).scan_visible_media(1'000) &&
               !picker_emoji_requests && uploads == kMessageMediaUploadBudget &&
               attachment_requests + identity_requests + catalog_requests == before_other_admission,
           "picker emoji visibility: the shared scan stops admissions at the exhausted foreground budget");
-    check(!pump.visibility_only && pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint) &&
+    check(!pump.visibility_only && pump.pass(1'000, 1'100, 1'000, &repaint).request_picker_emoji() &&
               !picker_emoji_requests && uploads == kMessageMediaUploadBudget,
           "picker emoji visibility: a real exhausted upload budget admits no missing asset requests");
     uploads = 0;
@@ -660,10 +657,10 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
     check(ui_media_picker_scene_scroll(&scene, clipped_scroll) &&
               scene.projection->cells[0].source_index == 0 &&
               ui_media_picker_scene_media(scene, 0, &clipped) && !ui_rect_has_area(clipped.clip) &&
-              pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint) &&
+              pump.pass(1'000, 1'100, 1'000, &repaint).request_picker_emoji() &&
               !picker_emoji_requests && ui_media_picker_scene_scroll(&scene, -scene.scroll_dips),
           "picker emoji visibility: an exposed cell with entirely clipped inset art queues no image");
-    const bool requested = pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint);
+    const bool requested = pump.pass(1'000, 1'100, 1'000, &repaint).request_picker_emoji();
     check(requested && picker_emoji_requests == 2 &&
               media_asset_key_equal(picker_requested_keys[0], animated) &&
               media_asset_key_equal(picker_requested_keys[1], flag),
@@ -685,7 +682,7 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
     g_app.renderer.inline_media = {inline_flags, 4, 0};
     picker_emoji_requests = 0;
     uploads = 0;
-    check(pump.request_inline_flags(1'000, 1'000, &uploads, &repaint) && picker_emoji_requests == 1 &&
+    check(pump.pass(1'000, 1'000, 0, &repaint).request_inline_flags() && picker_emoji_requests == 1 &&
               media_asset_key_equal(picker_requested_keys[0], flag) &&
               !renderer_inline_flag_current(g_app.renderer, inline_flags[2]) &&
               !renderer_inline_flag_current(g_app.renderer, inline_flags[3]),
@@ -693,20 +690,20 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
           "are rejected before dereference");
     ++inline_flags[0].owner.handle.generation;
     inline_flags[1].layer = RendererInlineMediaLayer::base;
-    check(pump.request_inline_flags(1'000, 1'000, &uploads, &repaint) && picker_emoji_requests == 1,
+    check(pump.pass(1'000, 1'000, 0, &repaint).request_inline_flags() && picker_emoji_requests == 1,
           "inline flags: stale widget generation and wrong surface layer admit no requests");
     inline_flags[0].owner.handle = cell.widget;
     inline_flags[1].layer = RendererInlineMediaLayer::gallery;
     uploads = kMessageMediaUploadBudget;
-    check(pump.request_inline_flags(1'000, 1'000, &uploads, &repaint) && picker_emoji_requests == 1,
+    check(pump.pass(1'000, 1'000, 0, &repaint).request_inline_flags() && picker_emoji_requests == 1,
           "inline flags: exhausted foreground budget cannot admit another label asset");
     uploads = 0;
     pump.visibility_only = true;
-    check(pump.request_inline_flags(1'000, 1'000, &uploads, &repaint) && picker_emoji_requests == 1,
+    check(pump.pass(1'000, 1'000, 0, &repaint).request_inline_flags() && picker_emoji_requests == 1,
           "inline flags: visibility-only pass never sends static image requests");
     pump.visibility_only = false;
     ++source.query_generation;
-    check(pump.request_inline_flags(1'000, 1'000, &uploads, &repaint) && picker_emoji_requests == 1,
+    check(pump.pass(1'000, 1'000, 0, &repaint).request_inline_flags() && picker_emoji_requests == 1,
           "inline flags: replaced borrowed source rejects old label placements before admission");
     --source.query_generation;
     g_app.renderer.inline_media = previous_inline;
@@ -714,7 +711,7 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
     picker_busy_flag_first = true;
     ++source.revision;
     check(ui_media_picker_scene_update(&scene, &source, &content, scene.viewport, scene.panel) &&
-              pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint) &&
+              pump.pass(1'000, 1'100, 1'000, &repaint).request_picker_emoji() &&
               picker_emoji_requests == 2 && media_asset_key_equal(picker_requested_keys[0], flag) &&
               media_asset_key_equal(picker_requested_keys[1], animated),
           "picker emoji visibility: a busy still-image lane cannot hide a later animation admission");
@@ -728,12 +725,12 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
                     media_atlas_set_decoded_animation(&atlas, custom_resident.handle, false);
     const u32 resident_requests = picker_emoji_requests;
     for (u32 i = 0; i < 8; ++i)
-        retained &= pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint);
+        retained &= pump.pass(1'000, 1'100, 1'000, &repaint).request_picker_emoji();
     check(retained && picker_emoji_requests == resident_requests,
           "picker emoji visibility: decoded still residents override animation hints without repeated "
           "fetches");
     check(media_atlas_set_decoded_animation(&atlas, custom_resident.handle, true) &&
-              pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint) &&
+              pump.pass(1'000, 1'100, 1'000, &repaint).request_picker_emoji() &&
               picker_emoji_requests == resident_requests + 1,
           "picker emoji visibility: decoder-confirmed animation admits missing-timeline reacquisition");
     const auto owned = animation_timeline_publish(&g_app.animations.timeline,
@@ -741,7 +738,7 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
     const u32 owned_requests = picker_emoji_requests;
     bool observed = owned.ok();
     for (u32 i = 0; i < 8; ++i)
-        observed &= pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint);
+        observed &= pump.pass(1'000, 1'100, 1'000, &repaint).request_picker_emoji();
     check(observed && picker_emoji_requests == owned_requests &&
               (g_app.animations.timeline.entries[owned.slot].flags & animation_timeline_entry_visible),
           "picker emoji visibility: owned animation stays visible through repeated pumps without transport "
@@ -749,12 +746,12 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
     const u32 before_observation = picker_emoji_requests;
     pump.visibility_only = true;
     uploads = kMessageMediaUploadBudget;
-    check(pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, nullptr) &&
+    check(pump.pass(1'000, 1'100, 1'000, nullptr).request_picker_emoji() &&
               picker_emoji_requests == before_observation && uploads == kMessageMediaUploadBudget,
           "picker emoji visibility: exhausted-budget visibility pass performs no fetches");
     pump.visibility_only = false;
     ++source.revision;
-    check(pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint) &&
+    check(pump.pass(1'000, 1'100, 1'000, &repaint).request_picker_emoji() &&
               picker_emoji_requests == before_observation,
           "picker emoji visibility: stale shared source cannot submit visible assets from the previous "
           "projection");
@@ -784,16 +781,16 @@ void run_catalog_residency_test(VisibilityFixture& fixture, ApplicationMediaPump
     animation_timeline_reset(&g_app.animations.timeline);
     const auto resident = media_atlas_allocate(&fixture.atlas, fixture_catalog_owner_key, 32, 32);
     bool valid = resident.ok() && media_atlas_set_decoded_animation(&fixture.atlas, resident.handle, false);
-    u32 uploads = 0;
+    pump.uploads = 0;
     bool repaint = false;
     const u32 before_static = catalog_requests;
     for (u32 pass = 0; pass < 8; ++pass)
-        valid = pump.request_catalog_previews(1'000, 1'100, 1'000, &uploads, &repaint) && valid;
+        valid = pump.pass(1'000, 1'100, 1'000, &repaint).request_catalog_previews() && valid;
     check(valid && (fixture_catalog_owner_key.flags & media_asset_flag_animated) &&
               catalog_requests == before_static,
           "catalog residency: decoder-proven still WebP never restarts from a provisional animation hint");
     valid = valid && media_atlas_set_decoded_animation(&fixture.atlas, resident.handle, true) &&
-            pump.request_catalog_previews(1'000, 1'100, 1'000, &uploads, &repaint);
+            pump.pass(1'000, 1'100, 1'000, &repaint).request_catalog_previews();
     check(valid && catalog_requests == before_static + 1,
           "catalog residency: decoded multiframe resident without a timeline admits cold reacquisition");
     const auto published = animation_timeline_publish(
@@ -811,7 +808,7 @@ void run_catalog_residency_test(VisibilityFixture& fixture, ApplicationMediaPump
     }
     const u32 before_owned = catalog_requests;
     for (u32 pass = 0; pass < 8; ++pass)
-        valid = pump.request_catalog_previews(1'000, 1'100, 1'000, &uploads, &repaint) && valid;
+        valid = pump.pass(1'000, 1'100, 1'000, &repaint).request_catalog_previews() && valid;
     check(valid && published.ok() && catalog_requests == before_owned &&
               (fixture.animations[published.slot].flags & animation_timeline_entry_visible),
           "catalog residency: current owned animation remains visible without another decode request");
@@ -830,7 +827,7 @@ void run_catalog_residency_test(VisibilityFixture& fixture, ApplicationMediaPump
                   ApplicationMediaPump::MediaFrameUploadResult::deferred &&
               !fixture_catalog_owner_retained && !fixture_catalog_visible &&
               !application_media_picker_preview_rejected(fixture_catalog_owner_key, 600, 20) &&
-              pump.request_catalog_previews(1'000, 1'100, 1'000, &uploads, &repaint) &&
+              pump.pass(1'000, 1'100, 1'000, &repaint).request_catalog_previews() &&
               catalog_requests == before_owned,
           "catalog rejection: a malformed current upload withdraws preview admission once and cannot "
           "request another decode");
@@ -875,17 +872,15 @@ void run_search_avatar_test(ApplicationMediaPump& pump) noexcept {
               pump.avatar_key_is_current(media.key),
           "search avatar: exact result bank owns a visible author absent from the conversation user cache");
     const u32 before = identity_requests;
-    u32 uploads = 0;
+    pump.uploads = 0;
     bool repaint = false, stop = false;
     if (valid)
-        valid = pump.request_visible_user_avatar_value(media.key.id, media.hash, 1000, 1100, &uploads,
-                                                       &repaint, &stop, true);
+        valid = pump.pass(1000, 1100, 0, &repaint).request_visible_user_avatar_value(media.key.id, media.hash, &stop, true);
     check(valid && identity_requests == before + 1 && media_asset_key_equal(last_identity_key, media.key),
           "search avatar: existing native identity lane receives the result's exact hash variant");
     scope.current = false;
     if (valid)
-        valid = pump.request_visible_user_avatar_value(media.key.id, media.hash, 1000, 1100, &uploads,
-                                                       &repaint, &stop, true);
+        valid = pump.pass(1000, 1100, 0, &repaint).request_visible_user_avatar_value(media.key.id, media.hash, &stop, true);
     check(valid && !pump.avatar_key_is_current(media.key) && identity_requests == before + 1,
           "search avatar: retired account scope rejects stale admission without draining unrelated work");
     scope.current = true;
@@ -975,9 +970,9 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     check(pump.media_key_is_current(key) && !pump.media_key_is_current(other),
           "settings avatar: opaque Settings admits exactly its account-card avatar");
     const u32 before = identity_requests;
-    u32 uploads = 0;
+    pump.uploads = 0;
     bool repaint = false;
-    check(pump.request_settings_avatars(1000, 1100, &uploads, &repaint) && identity_requests == before + 1 &&
+    check(pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() && identity_requests == before + 1 &&
               media_asset_key_equal(last_identity_key, key),
           "settings avatar: the account card requests the shared user-avatar key with its hash");
     avatars[0] = {};
@@ -985,7 +980,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     valid = ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
     cursor = 0;
     check(valid && !ui_settings_scene_next_avatar(scene, &cursor, &extra) && !pump.media_key_is_current(key) &&
-              pump.request_settings_avatars(1000, 1100, &uploads, &repaint) && identity_requests == before + 1,
+              pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() && identity_requests == before + 1,
           "settings avatar: a row without media keeps its initials and requests nothing");
     check(placeholder_paint(&placeholder, &initials) && !placeholder && initials,
           "settings avatar: a row without an avatar image keeps its initials instead of the loading placeholder");
@@ -1003,7 +998,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     check(valid && ui_settings_scene_next_avatar(scene, &cursor, &geometry) &&
               media_asset_key_equal(geometry.media->key, guild_key) && pump.media_key_is_current(guild_key),
           "settings avatar: a server identity row admits its guild icon instead of initials");
-    check(pump.request_settings_avatars(1000, 1100, &uploads, &repaint) && identity_requests == before + 2 &&
+    check(pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() && identity_requests == before + 2 &&
               media_asset_key_equal(last_identity_key, guild_key) && last_identity_size != 0,
           "settings avatar: the server identity row requests the shared guild icon key with its hash");
     // Audit log actors without an avatar hash show the default avatar,
@@ -1024,7 +1019,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     const u32 before_default = attachment_requests;
     check(valid && ui_settings_scene_next_avatar(scene, &cursor, &geometry) &&
               media_asset_key_equal(geometry.media->key, default_key) && pump.media_key_is_current(default_key) &&
-              pump.request_settings_avatars(1000, 1100, &uploads, &repaint) &&
+              pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() &&
               attachment_requests == before_default + 1 && media_asset_key_equal(last_attachment_key, default_key),
           "settings avatar: a listed user without an avatar hash requests the default avatar by path");
     // Server Settings > Emoji and Stickers: the previews stay current under
@@ -1042,7 +1037,7 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     picker_emoji_requests = 0;
     check(valid && pump.media_key_is_current(emoji_key) && pump.media_key_is_current(sticker_key) &&
               !pump.media_key_is_current(media_asset_custom_emoji(995, false)) &&
-              pump.request_settings_avatars(1000, 1100, &uploads, &repaint) && picker_emoji_requests == 2 &&
+              pump.pass(1000, 1100, 0, &repaint).request_settings_avatars() && picker_emoji_requests == 2 &&
               media_asset_key_equal(picker_requested_keys[0], emoji_key) &&
               media_asset_key_equal(picker_requested_keys[1], sticker_key),
           "settings avatar: Server Settings emoji and sticker previews stay current and request their images");
@@ -1156,12 +1151,11 @@ void run_profile_activity_art_test(ApplicationMediaPump& pump) noexcept {
     check(valid && media_asset_key_valid(art), "profile activity art: the popout card resolves its album art");
     auto* const previous = g_app.profile;
     g_app.profile = profile;
-    u32 uploads = 0;
+    pump.uploads = 0;
     bool repaint = false;
     last_profile_key = {};
     watched_profile_key = art;
-    valid = valid && pump.scan_visible_media(clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, 0,
-                                             uploads, &repaint);
+    valid = valid && pump.pass(clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, 0, &repaint).scan_visible_media(0);
     check(valid && media_asset_key_equal(last_profile_key, art) &&
               utf8_equal({last_profile_url, last_profile_url_bytes},
                          utf8_literal("https://i.scdn.co/image/ab67616d0000b2730123456789abcdef01234567")) &&
@@ -1216,10 +1210,10 @@ void run_quick_switcher_avatar_test(ApplicationMediaPump& pump) noexcept {
               !pump.avatar_key_is_current(media_asset_user_avatar(882, user.key.variant, false)),
           "quick switcher avatar: people and DM rows admit their avatars; group icons are not user avatars");
     const u32 before = identity_requests;
-    u32 uploads = 0;
+    pump.uploads = 0;
     bool repaint = false, stop = false;
     if (valid)
-        valid = pump.request_visible_user_avatar_value(user.key.id, user.hash, 1000, 1100, &uploads, &repaint,
+        valid = pump.pass(1000, 1100, 0, &repaint).request_visible_user_avatar_value(user.key.id, user.hash,
                                                        &stop, false);
     check(valid && identity_requests == before + 1 && media_asset_key_equal(last_identity_key, user.key),
           "quick switcher avatar: picker rows use the shared user-avatar request");
@@ -1287,10 +1281,10 @@ void run_forward_identity_test(AccountUiRuntime& ui, ApplicationMediaPump& pump)
               pump.avatar_key_is_current(direct.key),
           "forward identity: a DM destination admits its user avatar");
     const u32 before = identity_requests;
-    u32 uploads = 0;
+    pump.uploads = 0;
     bool repaint = false, stop = false;
     identity_requests_queue = true;
-    valid = pump.request_forward_identities(1000, 1100, &uploads, &repaint, &stop);
+    valid = pump.pass(1000, 1100, 0, &repaint).request_forward_identities(&stop);
     check(valid && !stop && identity_requests == before + 2 && media_asset_key_equal(previous_identity_key, expected) &&
               media_asset_key_equal(last_identity_key, direct.key),
           "forward identity: tiles use the rail's guild icon request and the shared avatar request");
@@ -1301,7 +1295,7 @@ void run_forward_identity_test(AccountUiRuntime& ui, ApplicationMediaPump& pump)
     const auto warm = renderer_capture_presentation_stamp(g_app.renderer, theme);
     const u32 resident_before = identity_requests;
     stop = false;
-    valid = arrived.ok() && pump.request_forward_identities(1000, 1100, &uploads, &repaint, &stop);
+    valid = arrived.ok() && pump.pass(1000, 1100, 0, &repaint).request_forward_identities(&stop);
     check(valid && cold.valid && warm.valid && !renderer_presentation_stamp_equal(cold, warm) &&
               media_atlas_peek(g_app.renderer.media_atlas, server.key).ok() &&
               identity_requests == resident_before + 1 && media_asset_key_equal(last_identity_key, direct.key),
@@ -1484,11 +1478,10 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
                   fixture_search_dimension_publications == publications + 1,
               "search media: child same-ID completion changes only exact child geometry and invalidates "
               "Search layout");
-        u32 uploads = 0;
+        pump.uploads = 0;
         bool repaint = false, stop = false;
         const u32 requests = attachment_requests;
-        check(pump.request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, 1000, 1100,
-                                              &uploads, &repaint, &stop, &rich, true) &&
+        check(pump.pass(1000, 1100, 0, &repaint).request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, &stop, &rich, true) &&
                   attachment_requests == requests,
               "search media: accepted bank cannot request media without containing channel authority");
         auto& state = ui.chat_state;
@@ -1507,8 +1500,7 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
                   !chat_state_store_find_channel(state, 99),
               "search media: real containing permissions authorize the accepted bank independently of "
               "uncached forwarding origin");
-        check(pump.request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, 1000, 1100,
-                                              &uploads, &repaint, &stop, &rich, true) &&
+        check(pump.pass(1000, 1100, 0, &repaint).request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, &stop, &rich, true) &&
                   attachment_requests == requests + 1 && last_attachment_message == 880 &&
                   last_attachment_revision == 73 && media_asset_search_snapshot(last_attachment_key),
               "search media: actual shared media lane receives exact accepted publication and child key");
@@ -1522,7 +1514,7 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
             ui_search_scene_update(&scene, &source, &content, {0, 0, 1200, 800}, {0, 0, 1200, 48}) &&
             ui_search_scene_visible_tile_count(scene) == 4 && pump.search_media_visible();
         const u32 before_policy = attachment_requests;
-        check(grid && pump.request_search_previews(1000, 1100, &uploads, &repaint, &stop) && !stop &&
+        check(grid && pump.pass(1000, 1100, 0, &repaint).request_search_previews(&stop) && !stop &&
                   attachment_requests == before_policy && policy.owner.channel_id == 88 &&
                   policy.owner.forwarded && !policy.owner.author_id &&
                   policy.owner.source_channel_id == 99 && policy.owner.source_message_id == 990,
@@ -1531,10 +1523,8 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
         policy.result = {MessageExplicitFilter::blur, false};
         ++binding.revision;
         ui_search_scene_set_media_policy(&scene, binding);
-        check(pump.request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, 1000, 1100,
-                                              &uploads, &repaint, &stop, &rich, true) &&
-                  pump.request_visible_embed_media(record[0], *snapshot, 0, 64, 64, 1000, 1100, &uploads,
-                                                   &repaint, &stop, false, &rich) &&
+        check(pump.pass(1000, 1100, 0, &repaint).request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, &stop, &rich, true) &&
+                  pump.pass(1000, 1100, 0, &repaint).request_visible_embed_media(record[0], *snapshot, 0, 64, 64, &stop, false, &rich) &&
                   attachment_requests == before_policy + 2 &&
                   media_asset_search_snapshot(last_attachment_key),
               "search preview admission: explicit blur still decodes attachment and embed previews before "
@@ -1542,8 +1532,7 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
         policy.result = {MessageExplicitFilter::show, false};
         ++binding.revision;
         ui_search_scene_set_media_policy(&scene, binding);
-        check(pump.request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, 1000, 1100,
-                                              &uploads, &repaint, &stop, &rich, true) &&
+        check(pump.pass(1000, 1100, 0, &repaint).request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, &stop, &rich, true) &&
                   attachment_requests == before_policy + 3,
               "search preview admission: spoiler previews remain fetchable");
         auto* native = ui_search_scene_message_scene(&scene);
@@ -1558,7 +1547,7 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
             output->media = ui_plugin_media_hide;
             return true;
         };
-        check(grid && native && pump.request_search_previews(1000, 1100, &uploads, &repaint, &stop) &&
+        check(grid && native && pump.pass(1000, 1100, 0, &repaint).request_search_previews(&stop) &&
                   !stop && attachment_requests == before_policy + 3,
               "search preview admission: plugin-hidden previews fetch no attachment or embed even from "
               "visible tiles");
@@ -1568,12 +1557,10 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
         const u32 before_retirement = attachment_requests;
         g_app.renderer.search_scene = nullptr;
         const bool absent =
-            pump.request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, 1000, 1100,
-                                            &uploads, &repaint, &stop, &rich, true);
+            pump.pass(1000, 1100, 0, &repaint).request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, &stop, &rich, true);
         g_app.renderer.search_scene = &scene;
         fixture_search_current = false;
-        const bool retired = pump.request_visible_embed_media(record[0], *snapshot, 0, 64, 64, 1000, 1100,
-                                                              &uploads, &repaint, &stop, false, &rich);
+        const bool retired = pump.pass(1000, 1100, 0, &repaint).request_visible_embed_media(record[0], *snapshot, 0, 64, 64, &stop, false, &rich);
         fixture_search_current = true;
         check(
             absent && retired && attachment_requests == before_retirement,
@@ -1613,7 +1600,7 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
         picker_busy_flag_first = false;
         picker_emoji_requests = 0;
         message_media_controller_begin_asset_scan(&g_app.message_media);
-        check(pump.request_search_decorations(1000, 1100, 1000000, &uploads, &repaint, &stop) &&
+        check(pump.pass(1000, 1100, 1000000, &repaint).request_search_decorations(&stop) &&
                   picker_emoji_requests == 1 && picker_requested_keys[0].id == 330,
               "search media: parsed clipped decoration ignores concealed ordinary stale and offscreen "
               "semantics and deduplicates regions");
@@ -1856,11 +1843,10 @@ void run_visibility_test() noexcept {
                   fixture.animations[visible.slot].due_at_us == deadline &&
                   g_app.animations.timeline.counters.pauses == pauses,
               "media visibility: repeated saturation keeps animation cadence and hidden pause stable");
-        u32 uploads = kMessageMediaUploadBudget;
+        u32& uploads = pump.uploads = kMessageMediaUploadBudget;
         pump.visibility_only = true;
         animation_timeline_begin_visibility(&g_app.animations.timeline);
-        valid = pump.scan_visible_media(clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, 0,
-                                        uploads, nullptr);
+        valid = pump.pass(clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, 0, nullptr).scan_visible_media(0);
         pump.visibility_only = false;
         animation_timeline_end_visibility(&g_app.animations.timeline, 0);
         check(valid && attachment_requests == 2 && uploads == kMessageMediaUploadBudget &&
@@ -1942,14 +1928,12 @@ void run_visibility_test() noexcept {
                 if (prior.ok())
                     pump.release_animation_visual(decoded_key, fixture.animations[prior.slot].generation);
                 const u32 before_static = attachment_requests;
-                u32 static_uploads = 0;
+                pump.uploads = 0;
                 bool static_stop = false;
                 check(media_atlas_set_decoded_animation(&fixture.atlas, decoded_resident.handle, false) &&
                           !media_atlas_decoded_animation(fixture.atlas, decoded_resident.handle) &&
-                          pump.request_visible_attachment(
-                              fixture.records[1], fixture.rich_records[1].attachments[0], 64, 64,
-                              clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000,
-                              &static_uploads, &repaint, &static_stop) &&
+                          pump.pass(clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, 0, &repaint).request_visible_attachment(
+                              fixture.records[1], fixture.rich_records[1].attachments[0], 64, 64, &static_stop) &&
                           attachment_requests == before_static,
                       "media visibility: accepted static replacement clears decoded classification without "
                       "reacquisition loop");

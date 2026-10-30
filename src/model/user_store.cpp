@@ -166,28 +166,31 @@ UserStoreResult user_store_upsert(UserStore* store, u64 id,
         display_name.bytes == 0) {
         return store_error(store, UserStoreError::invalid_input);
     }
+    bool found = false;
+    u32 order_index = find_order(*store, id, &found);
+    if (found) {
+        UserRecord& record = store->records[store->order[order_index]];
+        // History pages repeat their authors: names equal to the stored,
+        // already validated ones only touch LRU state and need no checks.
+        const Utf8View compared = username.bytes ? username : user_store_username(*store, record);
+        if (record.name_bytes == display_name.bytes && record.username_bytes == compared.bytes &&
+            bytes_equal(store->names + record.name_offset, display_name.data, display_name.bytes) &&
+            bytes_equal(store->names + record.name_offset + record.name_bytes, compared.data, compared.bytes)) {
+            saturating_increment(store->clock);
+            record.last_seen = store->clock;
+            return UserStoreResult{UserStoreError::none, false, false, false};
+        }
+    }
     if (display_name.bytes > kUserDisplayNameMaximumBytes || username.bytes > kUserDisplayNameMaximumBytes) {
         return store_error(store, UserStoreError::name_too_large);
     }
     if (!utf8_validate(display_name).valid || !utf8_validate(username).valid) {
         return store_error(store, UserStoreError::invalid_utf8);
     }
-    bool found = false;
-    u32 order_index = find_order(*store, id, &found);
     if (found) {
-        UserRecord& record = store->records[store->order[order_index]];
-        if (!username.bytes) username = user_store_username(*store, record);
+        if (!username.bytes) username = user_store_username(*store, store->records[store->order[order_index]]);
         if (display_name.bytes + username.bytes > store->name_bank_bytes)
             return store_error(store, UserStoreError::name_capacity);
-        // Unchanged page arrivals only touch LRU state. Compare the separate
-        // spans before staging borrowed bank bytes or scanning protected users.
-        if (record.name_bytes == display_name.bytes && record.username_bytes == username.bytes &&
-            bytes_equal(store->names + record.name_offset, display_name.data, display_name.bytes) &&
-            bytes_equal(store->names + record.name_offset + record.name_bytes, username.data, username.bytes)) {
-            saturating_increment(store->clock);
-            record.last_seen = store->clock;
-            return UserStoreResult{UserStoreError::none, false, false, false};
-        }
     }
     const u16 display_bytes = static_cast<u16>(display_name.bytes), username_bytes = static_cast<u16>(username.bytes);
     // Inputs may borrow the current byte bank. Mutations still stage both

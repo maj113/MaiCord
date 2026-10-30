@@ -57,14 +57,8 @@ bool deleted(u64 id) noexcept {
     return false;
 }
 bool readable(const ChannelRecord* channel) noexcept {
-    constexpr u32 required = channel_action_view | channel_action_read_history;
-    const auto* guild = navigation.target_guild ?
-        chat_state_store_find_guild(g_app.account_ui->chat_state, navigation.target_guild) : nullptr;
-    return channel && channel->occupied && channel->id == navigation.target_channel &&
-        channel->guild_id == navigation.target_guild && channel_is_message_capable(channel->type) &&
-        !(channel->flags & kChannelObfuscatedFlag) &&
-        (channel_is_private(channel->type) || (channel->permissions_resolved && guild && !guild->unavailable)) &&
-        (channel->actions & required) == required && application_channel_readable(g_app, channel->id);
+    return channel && channel->id == navigation.target_channel && channel->guild_id == navigation.target_guild &&
+        application_channel_record_readable(g_app.account_ui->chat_state, *channel);
 }
 
 bool current() noexcept {

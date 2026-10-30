@@ -994,14 +994,10 @@ bool channel_view_denied(const ChatStateStore& state, const ChannelRecord& c) no
            !chat_state_store_channel_visible(state, c);
 }
 bool choice_channel(const ApplicationSearch& s, const ChannelRecord& c) noexcept {
-    const auto& state = g_app.account_ui->chat_state;
-    if (!application_channel_readable(g_app, c.id) || !channel_usable(c))
+    // The record predicate already covers the guild, permissions and thread access.
+    if (!application_channel_record_readable(g_app.account_ui->chat_state, c))
         return false;
-    if (s.scope == MessageSearchScope::channel)
-        return c.id == s.scope_id;
-    const auto* guild = chat_state_store_find_guild(state, c.guild_id);
-    return c.guild_id == s.scope_id && guild && !guild->unavailable && !channel_view_denied(state, c) &&
-           (!channel_is_thread(c.type) || chat_state_store_thread_accessible(state, c));
+    return s.scope == MessageSearchScope::channel ? c.id == s.scope_id : c.guild_id && c.guild_id == s.scope_id;
 }
 bool choice_user_allowed(u64 id) noexcept {
     const auto* relationships = application_friends_relationships();

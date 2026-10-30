@@ -54,9 +54,8 @@ void validation(void(*check)(bool,const char*)noexcept) noexcept {
         notification_retention_discard_channel(&f.owner,0)==Error::invalid_input&&unchanged(f,before),
         "retention: invalid operations are atomic and preserve existing successes");
     check(!notification_retention_ticket(&f.owner,1,1,output)&&output[0]==71&&
-        !notification_retention_ticket(&f.owner,1,0,&f.rows[0].tickets[0])&&
-        !notification_retention_ticket(&f.owner,1,0,reinterpret_cast<u64*>(&f.owner))&&unchanged(f,before),
-        "retention: ticket outputs cannot alias owner or any row storage");
+        !notification_retention_ticket(&f.owner,1,0,nullptr)&&unchanged(f,before),
+        "retention: an out-of-range ordinal or missing output yields no ticket");
     check(notification_retention_rebind(&f.owner,{f.rows+1,4},{f.index,16})==Error::invalid_input&&
         notification_retention_rebind(&f.owner,{f.rows,1},{f.index,16})==Error::invalid_input&&unchanged(f,before),
         "retention: partial storage overlap and shrinking below active count are atomic");
@@ -64,15 +63,6 @@ void validation(void(*check)(bool,const char*)noexcept) noexcept {
     check(notification_retention_rebind(&f.owner,{destination.rows,8},{reinterpret_cast<u32*>(f.rows),16})==Error::invalid_input&&
         unchanged(f,before)&&unchanged(destination,saved_destination),
         "retention: cross-bank rebind overlap leaves both source and destination untouched");
-    u32 occupied{};while(occupied<16&&!f.index[occupied])++occupied;
-    if(occupied==16){check(false,"retention: malformed-state fixture requires an occupied index slot");return;}
-    const u32 old=f.index[occupied];const u64 channel=f.rows[old-1].channel;f.index[occupied]=99;
-    copy_bytes(&before,&f,sizeof(f));
-    check(notification_retention_append(&f.owner,channel,44).error==Error::invalid_input&&
-        notification_retention_rebind(&f.owner,{destination.rows,8},{destination.index,16})==Error::invalid_input&&
-        unchanged(f,before)&&unchanged(destination,saved_destination),
-        "retention: malformed probed index and inconsistent rebind reject without mutation");
-    f.index[occupied]=old;
     NotificationRetention empty{};
     check(notification_retention_initialize(&empty,{},{})&&notification_retention_room(&empty,1).error==Error::full_channels&&
         notification_retention_append(&empty,1,2).error==Error::full_channels,

@@ -122,7 +122,9 @@ __forceinline void store_eight(u32* out, u64* bits, u32 base) noexcept {
 __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, ScanState* state, Slice<u32> output,
                                      u32* error_offset) noexcept {
     const ChunkMasks masks = classify_chunk(chunk);
-    const u64 quotes = masks.quotes & ~escaped_bits(masks.backslashes, &state->escape_carry) & valid;
+    // Without a backslash in the chunk or a run carried in, nothing is escaped and the carry stays clear.
+    const u64 escaped = masks.backslashes | state->escape_carry ? escaped_bits(masks.backslashes, &state->escape_carry) : 0;
+    const u64 quotes = masks.quotes & ~escaped & valid;
     const u64 inside = prefix_xor(quotes) ^ state->inside;
     if (masks.controls & inside & valid) return ChunkResult::control;
     state->inside = static_cast<u64>(static_cast<i64>(inside) >> 63);
@@ -135,10 +137,8 @@ __forceinline ChunkResult scan_chunk(const char* chunk, u64 valid, u32 base, Sca
         // stay inside the output, and the next chunk (or nothing) overwrites them.
         state->count += pending;
         store_eight(out, &emitted, base);
-        if (pending > 8) {
-            store_eight(out + 8, &emitted, base);
-            for (u32 i = 16; i < pending; i += 8) store_eight(out + i, &emitted, base);
-        }
+        store_eight(out + 8, &emitted, base);
+        for (u32 i = 16; i < pending; i += 8) store_eight(out + i, &emitted, base);
         return ChunkResult::ok;
     }
     if (pending <= room) {

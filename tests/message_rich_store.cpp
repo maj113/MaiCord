@@ -20,9 +20,114 @@ GatewayMessageEvent sparse_message() noexcept {
     event.fields = gateway_message_field_attachments | gateway_message_field_message_snapshots;
     return event;
 }
+
+// Reaction mutations edit the resident record in place: counts, ownership,
+// membership order, capacity and text-bank pressure.
+void check_reaction_mutations(void (*check)(bool, const char*) noexcept) noexcept {
+    static MessageRichRecord records[4];
+    static u16 order[4];
+    static u8 text[192];
+    MessageRichStore store{};
+    if (!message_rich_store_initialize(&store, {records, 4}, {order, 4}, {text, sizeof(text)})) {
+        check(false, "rich reactions: the store initializes");
+        return;
+    }
+    constexpr Utf8View party = utf8_literal("\xF0\x9F\x8E\x89");
+    constexpr Utf8View heart = utf8_literal("\xE2\x9D\xA4");
+    using Kind = MessageRichReactionMutationKind;
+    const auto mutate = [&](u32 revision, u64 emoji, Utf8View name, MessageReactionType type, Kind kind, bool me,
+                            bool animated = false) noexcept {
+        return message_rich_store_mutate_reaction(&store, 70, revision, {emoji, name, type, kind, me, animated});
+    };
+    const auto normal = MessageReactionType::normal;
+    const auto burst = MessageReactionType::burst;
+
+    auto result = mutate(1, 0, party, normal, Kind::add, true);
+    const MessageRichRecord* rich = message_rich_store_find(store, 70);
+    check(result.ok() && result.inserted && rich && rich->reaction_count == 1 && rich->reactions[0].count == 1 &&
+              rich->reactions[0].normal_count == 1 && (rich->reactions[0].flags & 1u) &&
+              message_rich_store_string(store, rich->reactions[0].name).bytes == party.bytes,
+          "rich reactions: the first reaction creates the record owned by the current user");
+
+    const u32 updated = store.updated;
+    result = mutate(1, 0, party, normal, Kind::add, true);
+    check(result.ok() && result.record && store.updated == updated && rich->reactions[0].count == 1,
+          "rich reactions: adding an owned reaction again changes nothing");
+
+    result = mutate(1, 44, utf8_literal("party"), burst, Kind::add, false, true);
+    check(result.ok() && rich->reaction_count == 2 && rich->reactions[1].emoji_id == 44 &&
+              rich->reactions[1].burst_count == 1 && rich->reactions[1].count == 1 &&
+              (rich->reactions[1].flags & 4u) && !(rich->reactions[1].flags & 3u),
+          "rich reactions: a burst by another user adds an animated custom entry");
+
+    result = mutate(1, 0, party, normal, Kind::add, false);
+    check(result.ok() && rich->reaction_count == 2 && rich->reactions[0].count == 2 &&
+              rich->reactions[0].normal_count == 2 && (rich->reactions[0].flags & 1u),
+          "rich reactions: another user's reaction joins the same Unicode entry");
+
+    result = mutate(1, 0, heart, normal, Kind::add, false);
+    check(result.ok() && rich->reaction_count == 3 && rich->reactions[2].count == 1,
+          "rich reactions: a different Unicode name is a separate entry");
+
+    result = mutate(1, 0, party, normal, Kind::remove, true);
+    check(result.ok() && rich->reactions[0].count == 1 && rich->reactions[0].normal_count == 1 &&
+              !(rich->reactions[0].flags & 1u),
+          "rich reactions: removing the own reaction clears ownership only");
+    result = mutate(1, 0, party, normal, Kind::remove, true);
+    check(result.ok() && rich->reactions[0].count == 1,
+          "rich reactions: removing an unowned own reaction changes nothing");
+
+    const u32 wasted = store.text_wasted;
+    result = mutate(1, 0, party, normal, Kind::remove, false);
+    check(result.ok() && rich->reaction_count == 2 && rich->reactions[0].emoji_id == 44 &&
+              rich->reactions[1].emoji_id == 0 && store.text_wasted >= wasted + party.bytes,
+          "rich reactions: the last removal drops the entry, keeps the others in order and wastes its name");
+
+    const u32 rejected = store.rejected;
+    result = mutate(9, 44, utf8_literal("party"), burst, Kind::add, false);
+    check(!result.ok() && store.rejected == rejected + 1 && rich->reactions[0].count == 1,
+          "rich reactions: a stale revision is rejected");
+
+    result = mutate(1, 44, {}, burst, Kind::remove_emoji, false);
+    check(result.ok() && rich->reaction_count == 1 && rich->reactions[0].emoji_id == 0,
+          "rich reactions: removing an emoji drops its entry by snowflake");
+    result = mutate(1, 0, {}, normal, Kind::remove_all, false);
+    check(result.ok() && !result.record && !message_rich_store_find(store, 70) && !store.count,
+          "rich reactions: removing every reaction frees a record that holds nothing else");
+    result = mutate(1, 0, party, normal, Kind::remove, false);
+    check(result.ok() && !result.record, "rich reactions: removing from a message without a record is a no-op");
+
+    // The record keeps at most kGatewayMessageReactionMaximum entries.
+    bool filled = true;
+    for (u32 id = 1; id <= kGatewayMessageReactionMaximum; ++id)
+        filled = filled && mutate(1, id, utf8_literal("e"), normal, Kind::add, false).ok();
+    result = mutate(1, 99, utf8_literal("e"), normal, Kind::add, false);
+    rich = message_rich_store_find(store, 70);
+    check(filled && rich && rich->reaction_count == kGatewayMessageReactionMaximum &&
+              result.error == MessageRichStoreError::record_capacity,
+          "rich reactions: a full record rejects another entry");
+    mutate(1, 0, {}, normal, Kind::remove_all, false);
+
+    // Names churn through a 96-byte bank: compaction keeps every live name intact.
+    bool intact = mutate(1, 0, party, normal, Kind::add, false).ok();
+    for (u32 round = 0; round < 40 && intact; ++round) {
+        const char name[] = {'n', static_cast<char>('a' + round % 26), 'm', 'e', '_', '1', '2', '3'};
+        const Utf8View view{name, static_cast<u32>(sizeof(name))};
+        intact = mutate(1, 0, view, normal, Kind::add, false).ok();
+        rich = message_rich_store_find(store, 70);
+        const Utf8View kept = rich ? message_rich_store_string(store, rich->reactions[1].name) : Utf8View{};
+        intact = intact && rich && rich->reaction_count == 2 && kept.bytes == view.bytes &&
+                 bytes_equal(kept.data, name, view.bytes) &&
+                 message_rich_store_string(store, rich->reactions[0].name).bytes == party.bytes &&
+                 mutate(1, 0, view, normal, Kind::remove, false).ok();
+    }
+    check(intact && store.compactions != 0 && !(rich && (rich->truncations & gateway_message_rich_truncated_text)),
+          "rich reactions: text-bank pressure compacts and keeps live names");
+}
 } // namespace
 
 void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) noexcept {
+    check_reaction_mutations(check);
     StableStorage records{};
     MessageRichStore store{};
     u16 order[2]{7, 9};

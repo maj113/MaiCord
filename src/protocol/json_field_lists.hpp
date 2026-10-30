@@ -28,14 +28,21 @@ template <MemberName... Names> struct MemberNames {
     }
     static constexpr Storage data = make();
 };
-// json_name_is plus an inline compare when the lengths agree; an escaped or otherwise
-// different spelling that starts the same way still goes through the full comparison.
+// json_name_is plus an inline compare when the lengths agree. A name the reader marked as holding no backslash
+// (its has_escapes is exact) equals a listed name only byte for byte; an escaped one still goes through the
+// full comparison.
 __forceinline bool name_matches(const JsonString& name, const u8* at) noexcept {
     const char* data = name.encoded.data;
     const u32 bytes = name.encoded.bytes;
     const u32 length = at[0];
     const char* text = reinterpret_cast<const char*>(at + 1);
     if (data && bytes && length) {
+        if (!name.has_escapes) {
+            if (bytes != length || data[0] != text[0]) return false;
+            u32 k = 1;
+            while (k < length && data[k] == text[k]) ++k;
+            return k == length;
+        }
         if (data[0] != text[0]) {
             if (data[0] != '\\') return false;
         } else if (bytes == length) {
@@ -115,7 +122,7 @@ __declspec(noinline) inline u32 wide_member_index(const JsonString& name, const 
                     u32 k = 1;
                     while (k < length && data[k] == text[k]) ++k;
                     if (k == length) return i;
-                } else if (json_string_equals_ascii_bytes(data, bytes, text, length)) {
+                } else if (name.has_escapes && json_string_equals_ascii_bytes(data, bytes, text, length)) {
                     return i;
                 }
             }

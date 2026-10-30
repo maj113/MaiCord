@@ -143,9 +143,7 @@ bool relocate_string(void* opaque, MessageRichString* value) noexcept {
         value->bytes > capacity - context->cursor) {
         return false;
     }
-    for (u32 byte = 0; byte < value->bytes; ++byte) {
-        store.text[context->destination_base + context->cursor + byte] = store.text[value->offset + byte];
-    }
+    copy_bytes(store.text + context->destination_base + context->cursor, store.text + value->offset, value->bytes);
     value->offset = context->destination_base + context->cursor;
     context->cursor += value->bytes;
     return true;
@@ -182,6 +180,15 @@ SearchResult find_record(const MessageRichStore& store, u64 message_id) noexcept
         }
     }
     return SearchResult{low, 0, false};
+}
+
+// The text a string names, or empty when it lies outside the used bank.
+Utf8View stored_text(const MessageRichStore& store, MessageRichString value) noexcept {
+    const u32 base = bank_base(store);
+    if (value.bytes == 0 || !store.text || value.offset < base || value.offset > base + store.text_used ||
+        value.bytes > base + store.text_used - value.offset)
+        return Utf8View{};
+    return Utf8View{reinterpret_cast<const char*>(store.text + value.offset), value.bytes};
 }
 
 // First unoccupied slot at or after `from` (wrapping), other than `skip`; 0xFFFF when none.
@@ -734,23 +741,53 @@ void message_rich_store_release(MessageRichStore* store) noexcept {
     reset_value<MessageRichStore>(store);
 }
 
+namespace {
+// Checked in order. Suffix rules read the filename; the generic ones apply
+// only when the content type is absent or an opaque binary.
+enum class AudioRuleKind : u8 { mime, generic_suffix, suffix };
+struct AudioRule {
+    Utf8View text;
+    MediaAttachmentFormat format;
+    AudioRuleKind kind;
+};
+constexpr AudioRule kAudioRules[] = {
+    {utf8_literal("audio/ogg"), MediaAttachmentFormat::ogg_opus, AudioRuleKind::mime},
+    {utf8_literal("audio/mpeg"), MediaAttachmentFormat::mp3, AudioRuleKind::mime},
+    {utf8_literal("audio/mp3"), MediaAttachmentFormat::mp3, AudioRuleKind::mime},
+    {utf8_literal("audio/wav"), MediaAttachmentFormat::wav, AudioRuleKind::mime},
+    {utf8_literal("audio/x-wav"), MediaAttachmentFormat::wav, AudioRuleKind::mime},
+    {utf8_literal("audio/vnd.wave"), MediaAttachmentFormat::wav, AudioRuleKind::mime},
+    {utf8_literal(".mp3"), MediaAttachmentFormat::mp3, AudioRuleKind::generic_suffix},
+    {utf8_literal(".wav"), MediaAttachmentFormat::wav, AudioRuleKind::generic_suffix},
+    // MPEG-4 audio: AAC in an audio-only MP4/QuickTime container.
+    {utf8_literal("audio/mp4"), MediaAttachmentFormat::m4a, AudioRuleKind::mime},
+    {utf8_literal("audio/x-m4a"), MediaAttachmentFormat::m4a, AudioRuleKind::mime},
+    {utf8_literal("audio/m4a"), MediaAttachmentFormat::m4a, AudioRuleKind::mime},
+    {utf8_literal(".m4a"), MediaAttachmentFormat::m4a, AudioRuleKind::generic_suffix},
+    // Ogg/Opus is admitted by filename alone; the demuxer rejects non-Ogg data
+    // before any native playback resource is opened.
+    {utf8_literal(".ogg"), MediaAttachmentFormat::ogg_opus, AudioRuleKind::suffix},
+    {utf8_literal(".opus"), MediaAttachmentFormat::ogg_opus, AudioRuleKind::suffix},
+};
+
+// ASCII case-insensitive; `text` is lower case.
+bool equal_lower(Utf8View value, Utf8View text, bool tail) noexcept {
+    if (value.bytes < text.bytes || (!tail && value.bytes != text.bytes))
+        return false;
+    const char* at = value.data + (tail ? value.bytes - text.bytes : 0);
+    for (u32 index = 0; index < text.bytes; ++index) {
+        const char byte = at[index];
+        if ((byte >= 'A' && byte <= 'Z' ? byte + ('a' - 'A') : byte) != text.data[index])
+            return false;
+    }
+    return true;
+}
+} // namespace
+
 MediaAttachmentFormat message_rich_attachment_audio_format(
     const MessageRichStore& store, const MessageRichAttachment& attachment) noexcept {
-    const auto equal_case = [](Utf8View value, Utf8View suffix, bool tail) noexcept {
-        if (!value.data || value.bytes < suffix.bytes || (!tail && value.bytes != suffix.bytes))
-            return false;
-        const u32 start = tail ? value.bytes - suffix.bytes : 0;
-        for (u32 index = 0; index < suffix.bytes; ++index) {
-            char byte = value.data[start + index];
-            if (byte >= 'A' && byte <= 'Z')
-                byte += 'a' - 'A';
-            if (byte != suffix.data[index])
-                return false;
-        }
-        return true;
-    };
-    auto type = message_rich_store_string(store, attachment.content_type);
-    const auto name = message_rich_store_string(store, attachment.filename);
+    Utf8View type = message_rich_store_string(store, attachment.content_type);
+    const Utf8View name = message_rich_store_string(store, attachment.filename);
     // Parameters describe the same MIME token; display strings remain intact.
     for (u32 i = 0; i < type.bytes; ++i)
         if (type.data[i] == ';') {
@@ -759,30 +796,14 @@ MediaAttachmentFormat message_rich_attachment_audio_format(
         }
     while (type.bytes && (type.data[type.bytes - 1] == ' ' || type.data[type.bytes - 1] == '\t'))
         --type.bytes;
-    if (equal_case(type, utf8_literal("audio/ogg"), false))
-        return MediaAttachmentFormat::ogg_opus;
-    if (equal_case(type, utf8_literal("audio/mpeg"), false) ||
-        equal_case(type, utf8_literal("audio/mp3"), false))
-        return MediaAttachmentFormat::mp3;
-    if (equal_case(type, utf8_literal("audio/wav"), false) ||
-        equal_case(type, utf8_literal("audio/x-wav"), false) ||
-        equal_case(type, utf8_literal("audio/vnd.wave"), false))
-        return MediaAttachmentFormat::wav;
-    const bool generic = !type.bytes || equal_case(type, utf8_literal("application/octet-stream"), false) ||
-                         equal_case(type, utf8_literal("binary/octet-stream"), false);
-    if (generic && equal_case(name, utf8_literal(".mp3"), true))
-        return MediaAttachmentFormat::mp3;
-    if (generic && equal_case(name, utf8_literal(".wav"), true))
-        return MediaAttachmentFormat::wav;
-    // MPEG-4 audio: AAC in an audio-only MP4/QuickTime container.
-    if (equal_case(type, utf8_literal("audio/mp4"), false) || equal_case(type, utf8_literal("audio/x-m4a"), false) ||
-        equal_case(type, utf8_literal("audio/m4a"), false) ||
-        (generic && equal_case(name, utf8_literal(".m4a"), true)))
-        return MediaAttachmentFormat::m4a;
-    // Ogg/Opus is admitted by filename alone; the demuxer rejects non-Ogg data
-    // before any native playback resource is opened.
-    if (equal_case(name, utf8_literal(".ogg"), true) || equal_case(name, utf8_literal(".opus"), true))
-        return MediaAttachmentFormat::ogg_opus;
+    const bool generic = !type.bytes || equal_lower(type, utf8_literal("application/octet-stream"), false) ||
+                         equal_lower(type, utf8_literal("binary/octet-stream"), false);
+    for (const AudioRule& rule : kAudioRules) {
+        const bool mime = rule.kind == AudioRuleKind::mime;
+        if ((rule.kind != AudioRuleKind::generic_suffix || generic) &&
+            equal_lower(mime ? type : name, rule.text, !mime))
+            return rule.format;
+    }
     return MediaAttachmentFormat::unknown;
 }
 bool message_rich_attachment_audio_supported(const MessageRichStore& store,
@@ -1071,147 +1092,150 @@ MessageRichStoreResult message_rich_store_mutate_reaction(
     MessageRichStore* store, u64 message_id, u32 message_revision,
     const MessageRichReactionMutation& mutation) noexcept {
     MessageRichStoreResult result{};
+    const auto reject = [&](MessageRichStoreError error) noexcept {
+        result.error = error;
+        if (store)
+            ++store->rejected;
+        return result;
+    };
     const bool needs_emoji = mutation.kind != MessageRichReactionMutationKind::remove_all;
     if (!store || !store->records || !store->order || !store->text || message_id == 0 ||
         message_revision == 0 ||
         (needs_emoji && ((!mutation.name.data && mutation.name.bytes != 0) ||
                          (mutation.name.bytes == 0 && mutation.emoji_id == 0) ||
                          mutation.name.bytes > kMessageReactionMaximumEmojiNameBytes ||
-                         !utf8_validate(mutation.name).valid))) {
-        result.error = MessageRichStoreError::invalid_input;
-        if (store) {
-            ++store->rejected;
-        }
-        return result;
-    }
+                         !utf8_validate(mutation.name).valid)))
+        return reject(MessageRichStoreError::invalid_input);
 
     const SearchResult search = find_record(*store, message_id);
-    const MessageRichRecord* existing = search.found ? &store->records[search.slot] : nullptr;
-    if (existing && existing->message_revision != message_revision) {
-        result.error = MessageRichStoreError::invalid_input;
-        ++store->rejected;
-        return result;
-    }
-    if (!existing && mutation.kind != MessageRichReactionMutationKind::add) {
-        return result;
-    }
-
-    GatewayMessageReaction reactions[kGatewayMessageReactionMaximum]{};
-    char names[kGatewayMessageReactionMaximum][kMessageReactionMaximumEmojiNameBytes];
-    u32 reaction_count = existing ? existing->reaction_count : 0;
-    u32 name_cursor = 0;
-    u32 match = reaction_count;
-    for (u32 index = 0; index < reaction_count; ++index) {
-        const MessageRichReaction& source = existing->reactions[index];
-        const Utf8View source_name = message_rich_store_string(*store, source.name);
-        if ((!source_name.data && source_name.bytes) || (!source_name.bytes && !source.emoji_id) ||
-            source_name.bytes > kMessageReactionMaximumEmojiNameBytes) {
-            result.error = MessageRichStoreError::corrupt_state;
-            ++store->rejected;
+    if (!search.found) {
+        if (mutation.kind != MessageRichReactionMutationKind::add)
             return result;
+        // The first reaction creates the record through the ordinary path.
+        GatewayMessageReaction reaction{};
+        reaction.emoji_id = mutation.emoji_id;
+        reaction.name = mutation.name;
+        reaction.count = 1;
+        reaction.animated = mutation.animated;
+        if (mutation.type == MessageReactionType::normal) {
+            reaction.normal_count = 1;
+            reaction.me = mutation.current_user;
+        } else if (mutation.type == MessageReactionType::burst) {
+            reaction.burst_count = 1;
+            reaction.me_burst = mutation.current_user;
         }
-        copy_bytes(names[name_cursor], source_name.data, source_name.bytes);
-        GatewayMessageReaction& destination = reactions[index];
-        destination.emoji_id = source.emoji_id;
-        destination.name = Utf8View{names[name_cursor], source_name.bytes};
-        destination.count = source.count;
-        destination.normal_count = source.normal_count;
-        destination.burst_count = source.burst_count;
-        destination.me = (source.flags & 1u) != 0;
-        destination.me_burst = (source.flags & 2u) != 0;
-        destination.animated = (source.flags & 4u) != 0;
-        const bool same_id = source.emoji_id == mutation.emoji_id;
-        bool same_name = source_name.bytes == mutation.name.bytes;
-        for (u32 byte = 0; same_name && byte < source_name.bytes; ++byte) {
-            same_name = source_name.data[byte] == mutation.name.data[byte];
-        }
-        // Custom names are mutable wire metadata. Their snowflake owns
-        // identity; Unicode has no snowflake and retains exact wire bytes.
-        if (same_id && (source.emoji_id != 0 || same_name)) {
+        GatewayMessageEvent input{};
+        input.id = message_id;
+        input.fields = gateway_message_field_reactions;
+        input.reactions = ConstSlice<GatewayMessageReaction>{&reaction, 1};
+        return message_rich_store_apply(store, message_id, message_revision, input);
+    }
+    MessageRichRecord* const record = &store->records[search.slot];
+    if (record->message_revision != message_revision)
+        return reject(MessageRichStoreError::invalid_input);
+
+    // Custom names are mutable wire metadata. Their snowflake owns identity;
+    // Unicode has no snowflake and retains exact wire bytes.
+    u32 match = record->reaction_count;
+    for (u32 index = 0; index < record->reaction_count; ++index) {
+        const MessageRichReaction& item = record->reactions[index];
+        if (item.emoji_id != mutation.emoji_id)
+            continue;
+        const Utf8View name = stored_text(*store, item.name);
+        if (item.emoji_id != 0 || (name.bytes == mutation.name.bytes && bytes_equal(name.data, mutation.name.data, name.bytes)))
             match = index;
-        }
-        ++name_cursor;
     }
+    const auto drop = [&](u32 index) noexcept {
+        store->text_wasted += record->reactions[index].name.bytes;
+        for (u32 next = index + 1; next < record->reaction_count; ++next)
+            record->reactions[next - 1] = record->reactions[next];
+        --record->reaction_count;
+    };
 
+    bool truncated = false;
     if (mutation.kind == MessageRichReactionMutationKind::remove_all) {
-        reaction_count = 0;
+        while (record->reaction_count != 0)
+            drop(record->reaction_count - 1);
     } else if (mutation.kind == MessageRichReactionMutationKind::remove_emoji) {
-        if (match == reaction_count) {
-            result.record = existing;
+        if (match == record->reaction_count) {
+            result.record = record;
             return result;
         }
-        for (u32 index = match + 1; index < reaction_count; ++index) {
-            reactions[index - 1] = reactions[index];
-        }
-        --reaction_count;
+        drop(match);
     } else if (mutation.kind == MessageRichReactionMutationKind::add) {
-        if (match == reaction_count) {
-            if (reaction_count >= kGatewayMessageReactionMaximum) {
-                result.error = MessageRichStoreError::record_capacity;
-                ++store->rejected;
-                return result;
-            }
-            copy_bytes(names[name_cursor], mutation.name.data, mutation.name.bytes);
-            match = reaction_count++;
-            reactions[match].emoji_id = mutation.emoji_id;
-            reactions[match].name = Utf8View{names[name_cursor], mutation.name.bytes};
-            reactions[match].animated = mutation.animated;
+        if (match == record->reaction_count) {
+            if (record->reaction_count >= kGatewayMessageReactionMaximum)
+                return reject(MessageRichStoreError::record_capacity);
+            const u32 capacity = bank_capacity(*store);
+            if (store->text_used > capacity ||
+                (mutation.name.bytes > capacity - store->text_used &&
+                 !compact_excluding(store, search.slot, false, 0)))
+                return reject(MessageRichStoreError::corrupt_state);
+            MessageRichReaction& item = record->reactions[match];
+            reset_value<MessageRichReaction>(&item);
+            item.emoji_id = mutation.emoji_id;
+            item.name = store_string(store, mutation.name, &truncated);
+            item.flags = mutation.animated ? u8{4} : u8{0};
+            ++record->reaction_count;
         }
-        GatewayMessageReaction& item = reactions[match];
-        const bool already_owned = mutation.current_user &&
-                                   ((mutation.type == MessageReactionType::normal && item.me) ||
-                                    (mutation.type == MessageReactionType::burst && item.me_burst));
-        if (already_owned) {
-            result.record = existing;
+        MessageRichReaction& item = record->reactions[match];
+        const bool owned = mutation.current_user && ((mutation.type == MessageReactionType::normal && (item.flags & 1u)) ||
+                                                      (mutation.type == MessageReactionType::burst && (item.flags & 2u)));
+        if (owned) {
+            result.record = record;
             return result;
         }
         ++item.count;
         if (mutation.type == MessageReactionType::normal) {
             ++item.normal_count;
-            item.me = item.me || mutation.current_user;
+            if (mutation.current_user)
+                item.flags = static_cast<u8>(item.flags | 1u);
         } else if (mutation.type == MessageReactionType::burst) {
             ++item.burst_count;
-            item.me_burst = item.me_burst || mutation.current_user;
+            if (mutation.current_user)
+                item.flags = static_cast<u8>(item.flags | 2u);
         }
     } else {
-        if (match == reaction_count) {
-            result.record = existing;
+        if (match == record->reaction_count) {
+            result.record = record;
             return result;
         }
-        GatewayMessageReaction& item = reactions[match];
+        MessageRichReaction& item = record->reactions[match];
         const bool owned = !mutation.current_user ||
-                           (mutation.type == MessageReactionType::normal && item.me) ||
-                           (mutation.type == MessageReactionType::burst && item.me_burst);
+                           (mutation.type == MessageReactionType::normal && (item.flags & 1u)) ||
+                           (mutation.type == MessageReactionType::burst && (item.flags & 2u));
         const u32 vote_count = item.count - item.normal_count - item.burst_count;
         const bool has_type =
             (mutation.type == MessageReactionType::normal && item.normal_count != 0) ||
             (mutation.type == MessageReactionType::burst && item.burst_count != 0) ||
             (mutation.type == MessageReactionType::vote && vote_count != 0);
         if (!owned || !has_type || item.count == 0) {
-            result.record = existing;
+            result.record = record;
             return result;
         }
         --item.count;
         if (mutation.type == MessageReactionType::normal) {
             --item.normal_count;
-            item.me = item.me && !mutation.current_user;
+            if (mutation.current_user)
+                item.flags = static_cast<u8>(item.flags & ~1u);
         } else if (mutation.type == MessageReactionType::burst) {
             --item.burst_count;
-            item.me_burst = item.me_burst && !mutation.current_user;
+            if (mutation.current_user)
+                item.flags = static_cast<u8>(item.flags & ~2u);
         }
-        if (item.count == 0) {
-            for (u32 index = match + 1; index < reaction_count; ++index) {
-                reactions[index - 1] = reactions[index];
-            }
-            --reaction_count;
-        }
+        if (item.count == 0)
+            drop(match);
     }
 
-    GatewayMessageEvent input{};
-    input.id = message_id;
-    input.fields = gateway_message_field_reactions;
-    input.reactions = ConstSlice<GatewayMessageReaction>{reactions, reaction_count};
-    return message_rich_store_apply(store, message_id, message_revision, input);
+    record->truncations &= ~gateway_message_rich_truncated_reactions;
+    if (truncated)
+        record->truncations |= gateway_message_rich_truncated_text;
+    ++store->updated;
+    result.storage_truncated = truncated;
+    if (!record_has_content(*record))
+        return erase_slot(store, search.order_index, search.slot) ? result : reject(MessageRichStoreError::corrupt_state);
+    result.record = record;
+    return result;
 }
 
 const MessageRichRecord* message_rich_store_find(const MessageRichStore& store, u64 message_id) noexcept {
@@ -1290,15 +1314,7 @@ bool message_rich_store_set_embed_dimensions(MessageRichStore* store, u64 messag
 }
 
 Utf8View message_rich_store_string(const MessageRichStore& store, MessageRichString value) noexcept {
-    if (value.bytes == 0) {
-        return Utf8View{};
-    }
-    const u32 base = bank_base(store);
-    if (!store.text || value.offset < base || value.offset > base + store.text_used ||
-        value.bytes > base + store.text_used - value.offset) {
-        return Utf8View{};
-    }
-    const Utf8View result{reinterpret_cast<const char*>(store.text + value.offset), value.bytes};
+    const Utf8View result = stored_text(store, value);
     return utf8_validate(result).valid ? result : Utf8View{};
 }
 

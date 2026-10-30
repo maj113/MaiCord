@@ -190,7 +190,11 @@ bool parse_string(IndexedReader* reader, JsonString* output, JsonReadError expec
     }
 
     bool has_escapes = false;
-    if (!validate_string_content(reader, content_begin, closing_offset, &has_escapes)) {
+    // Most strings are short and plain: one masked 16-byte check settles them without the call.
+    const u32 length = closing_offset - content_begin;
+    const bool plain = length <= 16 && reader->input.bytes - content_begin >= 16 &&
+                       !(special_bytes(reader->input.data + content_begin) & low_bits(length));
+    if (!plain && !validate_string_content(reader, content_begin, closing_offset, &has_escapes)) {
         return false;
     }
     reader->offset = closing_offset + 1;

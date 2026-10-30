@@ -154,7 +154,7 @@ __forceinline u64 back_peek(const BackBits& r, i64 start, u32 count) noexcept {
             value |= static_cast<u64>(r.data[byte + i]) << (8 * i);
     }
     value >>= start & 7;
-    return count ? (value & (~0ull >> (64 - count))) << shift : 0;
+    return (value & ((1ull << count) - 1)) << shift;
 }
 __forceinline u64 back_read(BackBits* r, u32 count) noexcept {
     r->bits -= count;
@@ -355,9 +355,18 @@ bool build_huffman(ZstdStreamDecoder* d, u8* weights, u32 count) noexcept {
         if (!w)
             continue;
         const ZstdHuffmanEntry entry{static_cast<u8>(s), static_cast<u8>(bits + 1 - w)};
-        for (u32 k = 0, n = 1u << (w - 1); k < n; ++k)
-            d->huffman[span[w] + k] = entry;
-        span[w] += 1u << (w - 1);
+        const u32 n = 1u << (w - 1);
+        ZstdHuffmanEntry* const at = d->huffman + span[w];
+        if (n >= 8) {
+            // Eight two-byte entries per store.
+            const __m128i pair = _mm_set1_epi16(static_cast<short>(entry.symbol | entry.bits << 8));
+            for (u32 k = 0; k < n; k += 8)
+                _mm_storeu_si128(reinterpret_cast<__m128i*>(at + k), pair);
+        } else {
+            for (u32 k = 0; k < n; ++k)
+                at[k] = entry;
+        }
+        span[w] += n;
     }
     d->huffman_bits = static_cast<u8>(bits);
     return true;
@@ -620,16 +629,28 @@ bool decode_sequences(ZstdStreamDecoder* d, const u8* source, u32 size, Literals
         for (u32 i = 0; i < count; ++i) {
             const ZstdFseEntry ll_entry = ll_table[ll_state], of_entry = of_table[of_state],
                                ml_entry = ml_table[ml_state];
+            // A window holds at most 2^23 bytes: a code past 23 names an offset no match can reach. That keeps
+            // the extra bits of one sequence (offset, match length, literal length) within one 56-bit load.
             const u32 of_code = of_entry.symbol;
-            u32 offset_value = (1u << of_code) + static_cast<u32>(back_read(&r, of_code));
-            const u32 match_length =
-                kMatchLengthBase[ml_entry.symbol] + static_cast<u32>(back_read(&r, kMatchLengthBits[ml_entry.symbol]));
-            const u32 literal_length = kLiteralLengthBase[ll_entry.symbol] +
-                                       static_cast<u32>(back_read(&r, kLiteralLengthBits[ll_entry.symbol]));
+            if (of_code > 23)
+                return false;
+            const u32 ml_bits = kMatchLengthBits[ml_entry.symbol], ll_bits = kLiteralLengthBits[ll_entry.symbol];
+            r.bits -= of_code + ml_bits + ll_bits;
+            const u64 extra = back_peek(r, r.bits, of_code + ml_bits + ll_bits);
+            const u32 literal_length =
+                kLiteralLengthBase[ll_entry.symbol] + static_cast<u32>(extra & ((1ull << ll_bits) - 1));
+            const u32 match_length = kMatchLengthBase[ml_entry.symbol] +
+                                     static_cast<u32>((extra >> ll_bits) & ((1ull << ml_bits) - 1));
+            const u32 offset_value = (1u << of_code) + static_cast<u32>(extra >> (ll_bits + ml_bits));
             if (i + 1 != count) {
-                ll_state = ll_entry.baseline + static_cast<u32>(back_read(&r, ll_entry.bits));
-                ml_state = ml_entry.baseline + static_cast<u32>(back_read(&r, ml_entry.bits));
-                of_state = of_entry.baseline + static_cast<u32>(back_read(&r, of_entry.bits));
+                // The three next states: offset lowest in the stream, then match length, then literal length.
+                const u32 state_bits = ll_entry.bits + ml_entry.bits + of_entry.bits;
+                r.bits -= state_bits;
+                const u64 states = back_peek(r, r.bits, state_bits);
+                of_state = of_entry.baseline + static_cast<u32>(states & ((1ull << of_entry.bits) - 1));
+                ml_state = ml_entry.baseline +
+                           static_cast<u32>((states >> of_entry.bits) & ((1ull << ml_entry.bits) - 1));
+                ll_state = ll_entry.baseline + static_cast<u32>(states >> (of_entry.bits + ml_entry.bits));
             }
             u32 offset;
             if (offset_value > 3) {

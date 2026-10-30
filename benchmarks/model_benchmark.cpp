@@ -3,6 +3,8 @@
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/model/read_state.hpp"
+#include "maicord/model/user_store.hpp"
+#include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/permission_bits.hpp"
 #include "benchmark_output.hpp"
 
@@ -29,6 +31,11 @@ inline constexpr u32 kActivityIterations = 2'000'000;
 inline constexpr u32 kRichItems = 256;
 inline constexpr u32 kRichTextCapacity = 256 * 1024;
 inline constexpr u32 kRichUpdateIterations = 500'000;
+inline constexpr u32 kRichReactionIterations = 1'000'000;
+inline constexpr u32 kUserCount = 256;
+inline constexpr u32 kUserUpsertIterations = 2'000'000;
+inline constexpr u32 kMemberCount = 400;
+inline constexpr u32 kMemberIterations = 200'000;
 inline constexpr u32 kRichLookupIterations = 5'000'000;
 
 MessageRecord g_records[kMessageItems];
@@ -49,6 +56,11 @@ u8 g_permission_names[32 * 1024];
 MessageRichRecord g_rich_records[kRichItems];
 u16 g_rich_order[kRichItems];
 u8 g_rich_text[kRichTextCapacity];
+UserRecord g_users[kUserCount];
+u32 g_user_order[kUserCount];
+u8 g_user_names[32 * 1024];
+GuildMemberRecord g_members[512];
+u32 g_member_order[512];
 volatile u64 g_model_checksum = 0;
 
 int run() noexcept {
@@ -359,10 +371,82 @@ int run() noexcept {
     const u64 rich_lookup_us =
         clock_microseconds(clock, begin, clock_now());
 
+    // The update loop left the record at revision kRichUpdateIterations + 1.
+    const MessageRichReactionMutation reaction_mutations[4] = {
+        {44, utf8_literal("party"), MessageReactionType::normal, MessageRichReactionMutationKind::add, false, false},
+        {44, utf8_literal("party"), MessageReactionType::normal, MessageRichReactionMutationKind::remove, false, false},
+        {0, utf8_literal("\xF0\x9F\x8E\x89"), MessageReactionType::normal, MessageRichReactionMutationKind::add,
+         false, false},
+        {0, utf8_literal("\xF0\x9F\x8E\x89"), MessageReactionType::normal, MessageRichReactionMutationKind::remove,
+         false, false},
+    };
+    begin = clock_now();
+    for (u32 iteration = 0; iteration < kRichReactionIterations; ++iteration) {
+        const MessageRichStoreResult mutated = message_rich_store_mutate_reaction(
+            &rich_store, first_id, kRichUpdateIterations + 1, reaction_mutations[iteration & 3u]);
+        if (!mutated.ok() || !mutated.record) {
+            return 12;
+        }
+        checksum += mutated.record->reaction_count;
+    }
+    const u64 rich_reaction_us = clock_microseconds(clock, begin, clock_now());
+    UserStore users{};
+    if (!user_store_initialize(&users, Slice<UserRecord>{g_users, kUserCount}, Slice<u32>{g_user_order, kUserCount},
+                               Slice<u8>{g_user_names, sizeof(g_user_names)})) {
+        return 14;
+    }
+    for (u32 index = 0; index < kUserCount; ++index) {
+        if (!user_store_upsert(&users, 1'000'000'000'000ull + index, utf8_literal("Display Name"),
+                               utf8_literal("username"))
+                 .ok()) {
+            return 14;
+        }
+    }
+    begin = clock_now();
+    for (u32 iteration = 0; iteration < kUserUpsertIterations; ++iteration) {
+        const UserStoreResult upserted = user_store_upsert(
+            &users, 1'000'000'000'000ull + ((iteration * 2'981u) & (kUserCount - 1)), utf8_literal("Display Name"),
+            utf8_literal("username"));
+        if (!upserted.ok() || upserted.name_changed) {
+            return 14;
+        }
+        checksum += users.clock;
+    }
+    const u64 user_unchanged_us = clock_microseconds(clock, begin, clock_now());
+    begin = clock_now();
+    for (u32 iteration = 0; iteration < kUserUpsertIterations / 4; ++iteration) {
+        const UserStoreResult upserted = user_store_upsert(
+            &users, 1'000'000'000'000ull + ((iteration * 2'981u) & (kUserCount - 1)),
+            ((iteration >> 8) & 1u) ? utf8_literal("Other Name") : utf8_literal("Display Name Longer"),
+            utf8_literal("username"));
+        if (!upserted.ok() || !upserted.name_changed) {
+            return 14;
+        }
+        checksum += users.compactions;
+    }
+    const u64 user_changed_us = clock_microseconds(clock, begin, clock_now());
+    GuildMemberStore members{};
+    if (!guild_member_store_initialize(&members, Slice<GuildMemberRecord>{g_members, 512},
+                                       Slice<u32>{g_member_order, 512})) {
+        return 15;
+    }
+    begin = clock_now();
+    for (u32 iteration = 0; iteration < kMemberIterations; ++iteration) {
+        const u32 index = iteration % kMemberCount;
+        const GuildMemberStoreResult upserted = guild_member_store_upsert(
+            &members, state, 500, 9'000 + index, utf8_literal("nick"), {}, false, GuildMemberStatus::online, index,
+            77);
+        if (!upserted.ok()) {
+            return 15;
+        }
+        checksum += members.clock;
+    }
+    const u64 member_upsert_us = clock_microseconds(clock, begin, clock_now());
     g_model_checksum = checksum;
     if (append_us == 0 || lookup_us == 0 || ordered_us == 0 || update_us == 0 || state_append_us == 0 ||
         state_lookup_us == 0 || state_update_us == 0 || permission_us == 0 ||
-        activity_us == 0 || rich_update_us == 0 || rich_lookup_us == 0 ||
+        activity_us == 0 || rich_update_us == 0 || rich_lookup_us == 0 || rich_reaction_us == 0 ||
+        user_unchanged_us == 0 || user_changed_us == 0 || member_upsert_us == 0 ||
         g_model_checksum == 0) {
         return 13;
     }
@@ -377,6 +461,10 @@ int run() noexcept {
     write_ops("activity_mutation", per_second(activity_operations, activity_us));
     write_ops("message_rich_full_update", per_second(kRichUpdateIterations, rich_update_us));
     write_ops("message_rich_find", per_second(kRichLookupIterations, rich_lookup_us));
+    write_ops("message_rich_reaction_mutation", per_second(kRichReactionIterations, rich_reaction_us));
+    write_ops("user_upsert_unchanged", per_second(kUserUpsertIterations, user_unchanged_us));
+    write_ops("user_upsert_changed", per_second(kUserUpsertIterations / 4, user_changed_us));
+    write_ops("member_upsert_listed", per_second(kMemberIterations, member_upsert_us));
     return 0;
 }
 

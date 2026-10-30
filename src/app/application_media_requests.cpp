@@ -143,11 +143,11 @@ __declspec(noinline) FrameTake take_ready_frame(ApplicationMediaPump& pump, cons
                                                                               : FrameTake::uploaded;
 }
 
-__declspec(noinline) void note_frame_uploaded(ApplicationMediaPump& pump, u32* uploads, bool* repaint) noexcept {
-    ++*uploads;
+__declspec(noinline) void note_frame_uploaded(ApplicationMediaPump& pump) noexcept {
+    ++pump.uploads;
     pump.record_media_frame_uploaded();
-    if (repaint)
-        *repaint = true;
+    if (pump.repaint)
+        *pump.repaint = true;
 }
 
 // True when a resident preview needs no request. A resident static image (or any resident image while
@@ -178,17 +178,15 @@ enum class ScanStep : u8 { next, stopped, failed };
 // One avatar of a scene's visible list: skips a resident animation, stops at the upload budget and
 // otherwise requests it.
 __declspec(noinline) ScanStep request_scene_avatar(ApplicationMediaPump& pump, const MediaAssetKey& key,
-                                                   Utf8View hash,
-                                                   u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
-                                                   bool* repaint, bool* stop) noexcept {
+                                                   Utf8View hash, bool* stop) noexcept {
     bool force = false;
-    if ((key.flags & media_asset_flag_animated) && pump.animation_resident(key, now_us, &force))
+    if ((key.flags & media_asset_flag_animated) && pump.animation_resident(key, &force))
         return ScanStep::next;
-    if (!pump.visibility_only && *uploads >= kMessageMediaUploadBudget) {
+    if (!pump.visibility_only && pump.uploads >= kMessageMediaUploadBudget) {
         *stop = true;
         return ScanStep::stopped;
     }
-    if (!pump.request_visible_user_avatar_value(key.id, hash, now_ms, now_seconds, uploads, repaint, stop, force))
+    if (!pump.request_visible_user_avatar_value(key.id, hash, stop, force))
         return ScanStep::failed;
     return *stop ? ScanStep::stopped : ScanStep::next;
 }
@@ -223,8 +221,7 @@ bool ApplicationMediaPump::search_media_visible() const noexcept {
            !(renderer.message_forward_scene && renderer.message_forward_scene->active) &&
            !d3d11_renderer_pinned_messages_visible(renderer);
 }
-bool ApplicationMediaPump::request_picker_emoji(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
-                                                bool* repaint) noexcept {
+bool ApplicationMediaPump::request_picker_emoji() noexcept {
     if (!catalog_media_visible())
         return true;
     const auto& picker = *application.renderer.media_picker_scene;
@@ -254,15 +251,15 @@ bool ApplicationMediaPump::request_picker_emoji(u64 now_ms, u64 now_seconds, u64
                 continue;
             force = !observed;
         }
-        if (*uploads >= kMessageMediaUploadBudget)
+        if (uploads >= kMessageMediaUploadBudget)
             continue;
         bool stop = false;
-        if (!request_visible_static_media(key, now_ms, now_seconds, uploads, repaint, &stop, force, true))
+        if (!request_visible_static_media(key, &stop, force, true))
             return false;
         if (stop)
             return true;
     }
-    for (u32 i = 0; i < picker.rail_count && *uploads < kMessageMediaUploadBudget; ++i) {
+    for (u32 i = 0; i < picker.rail_count && uploads < kMessageMediaUploadBudget; ++i) {
         UiMediaPickerRailMediaSlot slot{};
         if (!ui_media_picker_scene_rail_media(picker, i, &slot) || !ui_rect_has_area(slot.clip) ||
             !application.account_ui)
@@ -274,16 +271,15 @@ bool ApplicationMediaPump::request_picker_emoji(u64 now_ms, u64 now_seconds, u64
             continue;
         const auto key = media_asset_guild_icon(slot.guild_id, slot.variant, slot.animated);
         bool force = false;
-        if (slot.animated && animation_resident(key, now_us, &force))
+        if (slot.animated && animation_resident(key, &force))
             continue;
         bool stop = false;
-        if (!request_visible_guild_icon(*guild, now_ms, now_seconds, uploads, repaint, &stop, force))
+        if (!request_visible_guild_icon(*guild, &stop, force))
             return false;
     }
     return true;
 }
-bool ApplicationMediaPump::request_inline_flags(u64 now_ms, u64 now_seconds, u32* uploads,
-                                                bool* repaint) noexcept {
+bool ApplicationMediaPump::request_inline_flags() noexcept {
     if (application.login.visible || visibility_only || !application.renderer.inline_media.flags)
         return true;
     const auto& renderer = application.renderer;
@@ -291,7 +287,7 @@ bool ApplicationMediaPump::request_inline_flags(u64 now_ms, u64 now_seconds, u32
     // Multiple foreground labels may borrow the same static country asset.
     // Identity is a bounded Unicode sequence, not a URL or widget hash.
     u8 seen[(680 + 7) / 8]{};
-    for (u32 i = 0; i < count && *uploads < kMessageMediaUploadBudget; ++i) {
+    for (u32 i = 0; i < count && uploads < kMessageMediaUploadBudget; ++i) {
         const auto& flag = renderer.inline_media.flags[i];
         if (!renderer_inline_flag_current(renderer, flag) || flag.flag >= 680)
             continue;
@@ -300,16 +296,14 @@ bool ApplicationMediaPump::request_inline_flags(u64 now_ms, u64 now_seconds, u32
             continue;
         seen[flag.flag >> 3] |= bit;
         bool stop = false;
-        if (!request_visible_static_media(media_asset_regional_flag(flag.flag), now_ms, now_seconds,
-                                          uploads, repaint, &stop, false, true))
+        if (!request_visible_static_media(media_asset_regional_flag(flag.flag), &stop, false, true))
             return false;
         if (stop)
             break;
     }
     return true;
 }
-bool ApplicationMediaPump::request_catalog_previews(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
-                                                    bool* repaint) noexcept {
+bool ApplicationMediaPump::request_catalog_previews() noexcept {
     if (!catalog_media_visible() || !application.account.api.catalog_preview_request)
         return true;
     const auto& scene = *application.renderer.media_picker_scene;
@@ -334,7 +328,7 @@ bool ApplicationMediaPump::request_catalog_previews(u64 now_ms, u64 now_seconds,
             continue;
         if (visibility_only)
             continue;
-        if (*uploads >= kMessageMediaUploadBudget ||
+        if (uploads >= kMessageMediaUploadBudget ||
             !message_media_controller_preview_ready(&application.message_media, now_ms))
             return true;
         // A VIDEO favourite's tile decodes on the presenting device.
@@ -353,7 +347,7 @@ bool ApplicationMediaPump::request_catalog_previews(u64 now_ms, u64 now_seconds,
                 return false;
             if (taken != FrameTake::uploaded)
                 continue;
-            note_frame_uploaded(*this, uploads, repaint);
+            note_frame_uploaded(*this);
             animation_timeline_observe_visible(&application.animations.timeline, request.key, now_us);
         }
         message_media_controller_observe_retry(&application.message_media, requested.retry_at_ms);
@@ -498,7 +492,7 @@ bool ApplicationMediaPump::media_key_is_current(const MediaAssetKey& key) noexce
     }
     return false;
 }
-bool ApplicationMediaPump::animation_resident(const MediaAssetKey& key, u64 now_us, bool* force_request,
+bool ApplicationMediaPump::animation_resident(const MediaAssetKey& key, bool* force_request,
                                               bool play) noexcept {
     auto& timeline = application.animations.timeline;
     const bool observed = play ? animation_timeline_observe_visible(&timeline, key, now_us)
@@ -515,13 +509,12 @@ bool ApplicationMediaPump::settings_avatar_is_current(const MediaAssetKey& key) 
             return true;
     return false;
 }
-bool ApplicationMediaPump::request_settings_avatars(u64 now_ms, u64 now_seconds, u32* uploads,
-                                                    bool* repaint) noexcept {
+bool ApplicationMediaPump::request_settings_avatars() noexcept {
     if (!renderer_settings_page_visible(application.renderer))
         return true;
     UiSettingsAvatarGeometry avatar{};
     for (u32 cursor = 0; ui_settings_scene_next_avatar(*application.renderer.settings_scene, &cursor, &avatar);) {
-        if (message_media_controller_upload_budget_reached(&application.message_media, *uploads))
+        if (message_media_controller_upload_budget_reached(&application.message_media, uploads))
             return true;
         bool stop = false;
         // The request validates the hash and skips a resident key. Server
@@ -530,7 +523,7 @@ bool ApplicationMediaPump::request_settings_avatars(u64 now_ms, u64 now_seconds,
         // Server Settings emoji and sticker previews, by their CDN identity.
         if (avatar.media->key.kind == MediaAssetKind::custom_emoji ||
             avatar.media->key.kind == MediaAssetKind::sticker) {
-            if (!request_visible_static_media(avatar.media->key, now_ms, now_seconds, uploads, repaint, &stop, false,
+            if (!request_visible_static_media(avatar.media->key, &stop, false,
                                               true))
                 return false;
             if (stop)
@@ -546,7 +539,7 @@ bool ApplicationMediaPump::request_settings_avatars(u64 now_ms, u64 now_seconds,
             copy_bytes(media.url.data, host.data, host.bytes);
             copy_bytes(media.url.data + host.bytes, hash.data, hash.bytes);
             media.url.bytes = static_cast<u16>(host.bytes + hash.bytes);
-            if (!request_profile_media(media, now_ms, now_seconds, now_ms * 1000, uploads, repaint, &stop, false,
+            if (!request_profile_media(media, &stop, false,
                                        nullptr))
                 return false;
             if (stop)
@@ -554,18 +547,16 @@ bool ApplicationMediaPump::request_settings_avatars(u64 now_ms, u64 now_seconds,
             continue;
         }
         if (!(avatar.media->key.kind == MediaAssetKind::guild_icon
-                  ? request_visible_hashed_identity(avatar.media->key, hash, now_ms, now_seconds, uploads, repaint,
+                  ? request_visible_hashed_identity(avatar.media->key, hash,
                                                     &stop, false)
-                  : request_visible_user_avatar_value(avatar.media->key.id, hash, now_ms, now_seconds, uploads,
-                                                      repaint, &stop, false)))
+                  : request_visible_user_avatar_value(avatar.media->key.id, hash, &stop, false)))
             return false;
         if (stop)
             return true;
     }
     return true;
 }
-bool ApplicationMediaPump::request_forward_identities(u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint,
-                                                      bool* stop) noexcept {
+bool ApplicationMediaPump::request_forward_identities(bool* stop) noexcept {
     if (!application.account_ui || !d3d11_renderer_message_forward_visible(application.renderer))
         return true;
     const auto& forward = *application.renderer.message_forward_scene;
@@ -574,7 +565,7 @@ bool ApplicationMediaPump::request_forward_identities(u64 now_ms, u64 now_second
         UiMessageForwardMedia media{};
         if (!ui_message_forward_scene_media(forward, slot, &state, &media))
             continue;
-        if (!visibility_only && *uploads >= kMessageMediaUploadBudget) {
+        if (!visibility_only && uploads >= kMessageMediaUploadBudget) {
             *stop = true;
             return true;
         }
@@ -583,8 +574,8 @@ bool ApplicationMediaPump::request_forward_identities(u64 now_ms, u64 now_second
         const auto* guild =
             media.key.kind == MediaAssetKind::guild_icon ? chat_state_store_find_guild(state, media.key.id) : nullptr;
         if (media.key.kind == MediaAssetKind::guild_icon
-                ? guild && !request_visible_guild_icon(*guild, now_ms, now_seconds, uploads, repaint, stop, false, false)
-                : !request_visible_user_avatar_value(media.key.id, media.hash, now_ms, now_seconds, uploads, repaint,
+                ? guild && !request_visible_guild_icon(*guild, stop, false, false)
+                : !request_visible_user_avatar_value(media.key.id, media.hash,
                                                      stop, false))
             return false;
         if (*stop)
@@ -768,9 +759,7 @@ bool ApplicationMediaPump::channel_icon_key_is_current(const MediaAssetKey& key)
         }
     return false;
 }
-bool ApplicationMediaPump::request_pinned_messages_avatars(u64 now_ms, u64 now_seconds, u64 now_us,
-                                                           u32* uploads, bool* repaint,
-                                                           bool* stop) noexcept {
+bool ApplicationMediaPump::request_pinned_messages_avatars(bool* stop) noexcept {
     *stop = false;
     if (!d3d11_renderer_pinned_messages_visible(application.renderer))
         return true;
@@ -779,8 +768,7 @@ bool ApplicationMediaPump::request_pinned_messages_avatars(u64 now_ms, u64 now_s
         PinnedMessagesAvatarMedia media{};
         if (!pinned_messages_avatar_media_resolve(scene, slot, &media))
             continue;
-        const ScanStep step = request_scene_avatar(*this, media.key, media.hash, now_ms, now_seconds, now_us,
-                                                   uploads, repaint, stop);
+        const ScanStep step = request_scene_avatar(*this, media.key, media.hash, stop);
         if (step != ScanStep::next)
             return step == ScanStep::stopped;
     }
@@ -788,8 +776,7 @@ bool ApplicationMediaPump::request_pinned_messages_avatars(u64 now_ms, u64 now_s
 }
 // Forum post cards borrow author hashes from the visible page (starter author
 // or user cache), like pins, including authors absent from the timeline.
-bool ApplicationMediaPump::request_forum_avatars(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
-                                                 bool* repaint, bool* stop) noexcept {
+bool ApplicationMediaPump::request_forum_avatars(bool* stop) noexcept {
     *stop = false;
     if (!d3d11_renderer_thread_browser_visible(application.renderer) ||
         !application.renderer.thread_browser_scene->forum)
@@ -799,8 +786,7 @@ bool ApplicationMediaPump::request_forum_avatars(u64 now_ms, u64 now_seconds, u6
         ForumChannelAvatarMedia media{};
         if (!forum_channel_avatar_media_resolve(scene, slot, &media))
             continue;
-        const ScanStep step = request_scene_avatar(*this, media.key, media.hash, now_ms, now_seconds, now_us,
-                                                   uploads, repaint, stop);
+        const ScanStep step = request_scene_avatar(*this, media.key, media.hash, stop);
         if (step != ScanStep::next)
             return step == ScanStep::stopped;
     }
@@ -808,8 +794,7 @@ bool ApplicationMediaPump::request_forum_avatars(u64 now_ms, u64 now_seconds, u6
 }
 // Starter-image thumbnails of visible forum post cards. The signed URL comes
 // from the accepted post page; an expired one goes through the shared refresher.
-bool ApplicationMediaPump::request_forum_thumbnails(u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint,
-                                                    bool* stop) noexcept {
+bool ApplicationMediaPump::request_forum_thumbnails(bool* stop) noexcept {
     *stop = false;
     if (visibility_only || !d3d11_renderer_thread_browser_visible(application.renderer) ||
         !application.renderer.thread_browser_scene->forum || !application.renderer.preview_media_atlas ||
@@ -821,7 +806,7 @@ bool ApplicationMediaPump::request_forum_thumbnails(u64 now_ms, u64 now_seconds,
         if (!forum_channel_thumbnail_resolve(scene, slot, application.renderer.dpi, &media) ||
             media_atlas_find(application.renderer.preview_media_atlas, media.key).ok())
             continue;
-        if (message_media_controller_upload_budget_reached(&application.message_media, *uploads) ||
+        if (message_media_controller_upload_budget_reached(&application.message_media, uploads) ||
             !message_media_controller_preview_ready(&application.message_media, now_ms)) {
             *stop = true;
             return true;
@@ -848,7 +833,7 @@ bool ApplicationMediaPump::request_forum_thumbnails(u64 now_ms, u64 now_seconds,
                 return true;
             }
             if (taken == FrameTake::uploaded)
-                note_frame_uploaded(*this, uploads, repaint);
+                note_frame_uploaded(*this);
         } else if (requested.state == AccountMediaRequestState::busy) {
             *stop = true;
             return true;
@@ -859,8 +844,7 @@ bool ApplicationMediaPump::request_forum_thumbnails(u64 now_ms, u64 now_seconds,
     }
     return true;
 }
-bool ApplicationMediaPump::request_friends_avatars(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
-                                                   bool* repaint, bool* stop) noexcept {
+bool ApplicationMediaPump::request_friends_avatars(bool* stop) noexcept {
     *stop = false;
     if (!application.account_ui)
         return true;
@@ -868,33 +852,24 @@ bool ApplicationMediaPump::request_friends_avatars(u64 now_ms, u64 now_seconds, 
     const auto* scene = requests && requests->active ? requests : application.renderer.friends_scene;
     if (!scene)
         return true;
-    struct Context {
-        ApplicationMediaPump* owner;
-        u64 now_ms, now_seconds, now_us;
-        u32* uploads;
-        bool* repaint;
-    } context{this, now_ms, now_seconds, now_us, uploads, repaint};
     const FriendsAvatarMediaCallbacks callbacks{
-        &context,
+        this,
         +[](void* opaque, MediaAssetKey key) noexcept {
-            return media_atlas_find(static_cast<Context*>(opaque)->owner->application.renderer.media_atlas,
+            return media_atlas_find(static_cast<ApplicationMediaPump*>(opaque)->application.renderer.media_atlas,
                                     key)
                 .ok();
         },
         +[](void* opaque, MediaAssetKey key) noexcept {
-            auto& c = *static_cast<Context*>(opaque);
-            return animation_timeline_observe_visible(&c.owner->application.animations.timeline, key,
-                                                      c.now_us);
+            auto& pump = *static_cast<ApplicationMediaPump*>(opaque);
+            return animation_timeline_observe_visible(&pump.application.animations.timeline, key, pump.now_us);
         },
         +[](void* opaque, const FriendsAvatarMedia& media, bool force, bool* stopped) noexcept {
-            auto& c = *static_cast<Context*>(opaque);
-            if (message_media_controller_upload_budget_reached(&c.owner->application.message_media,
-                                                               *c.uploads)) {
+            auto& pump = *static_cast<ApplicationMediaPump*>(opaque);
+            if (message_media_controller_upload_budget_reached(&pump.application.message_media, pump.uploads)) {
                 *stopped = true;
                 return true;
             }
-            return c.owner->request_visible_user_avatar_value(
-                media.key.id, media.hash, c.now_ms, c.now_seconds, c.uploads, c.repaint, stopped, force);
+            return pump.request_visible_user_avatar_value(media.key.id, media.hash, stopped, force);
         }};
     // The dimmed main list uses resident cache entries while this modal owns
     // avatar requests and animation visibility. No hidden rows are fetched.
@@ -904,8 +879,7 @@ bool ApplicationMediaPump::request_friends_avatars(u64 now_ms, u64 now_seconds, 
     return visited.ok;
 }
 
-bool ApplicationMediaPump::request_stream_previews(u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint,
-                                                   bool* stop) noexcept {
+bool ApplicationMediaPump::request_stream_previews(bool* stop) noexcept {
     *stop = false;
     StreamPreviewMedia previews[4];
     const u32 count = application_stream_preview_media(previews, 4);
@@ -938,8 +912,8 @@ bool ApplicationMediaPump::request_stream_previews(u64 now_ms, u64 now_seconds, 
                 *stop = true;
                 return true;
             }
-            note_frame_uploaded(*this, uploads, repaint);
-            *stop = message_media_controller_upload_budget_reached(&application.message_media, *uploads);
+            note_frame_uploaded(*this);
+            *stop = message_media_controller_upload_budget_reached(&application.message_media, uploads);
         }
         message_media_controller_observe_retry(&application.message_media, requested.retry_at_ms);
     }
@@ -954,7 +928,7 @@ bool ApplicationMediaPump::request_stream_previews(u64 now_ms, u64 now_seconds, 
         media.url.bytes = static_cast<u16>(bytes);
         AccountMediaRequestResult failure{};
         failure.state = AccountMediaRequestState::ready; // a resident image makes no request
-        if (!request_profile_media(media, now_ms, now_seconds, now_ms * 1000, uploads, repaint, stop, false, &failure))
+        if (!request_profile_media(media, stop, false, &failure))
             return false;
         application_guild_card_media_failed(cards[i].key, failure);
     }
@@ -962,15 +936,14 @@ bool ApplicationMediaPump::request_stream_previews(u64 now_ms, u64 now_seconds, 
     MediaAssetKey expressions[1 + kUiExpressionCardPreviews];
     const u32 expression_count = application_expression_card_media(expressions, 1 + kUiExpressionCardPreviews);
     for (u32 i = 0; i < expression_count && !*stop; ++i)
-        if (!request_visible_static_media(expressions[i], now_ms, now_seconds, uploads, repaint, stop, false, true))
+        if (!request_visible_static_media(expressions[i], stop, false, true))
             return false;
     if (const auto* guild = application_expression_card_guild(); guild && !*stop)
-        return request_visible_guild_icon(*guild, now_ms, now_seconds, uploads, repaint, stop, false);
+        return request_visible_guild_icon(*guild, stop, false);
     return true;
 }
 
-bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, u64 now_ms, u64 now_seconds,
-                                                 u64 now_us, u32* uploads, bool* repaint, bool* stop,
+bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, bool* stop,
                                                  bool play, AccountMediaRequestResult* failure) noexcept {
     *stop = false;
     const auto key = media.key;
@@ -1018,17 +991,17 @@ bool ApplicationMediaPump::request_profile_media(const ProfileMedia& media, u64 
             *stop = true;
             return true;
         }
-        note_frame_uploaded(*this, uploads, repaint);
+        note_frame_uploaded(*this);
         if (play)
             animation_timeline_observe_visible(&application.animations.timeline, key, now_us);
-        *stop = message_media_controller_upload_budget_reached(&application.message_media, *uploads);
+        *stop = message_media_controller_upload_budget_reached(&application.message_media, uploads);
     }
     message_media_controller_observe_retry(&application.message_media, requested.retry_at_ms);
     return true;
 }
 
 __declspec(noinline) bool ApplicationMediaPump::request_visible_static_media(
-    const MediaAssetKey& key, u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint, bool* stop_scan,
+    const MediaAssetKey& key, bool* stop_scan,
     bool force_request, bool continue_on_busy) noexcept {
     *stop_scan = false;
     if (visibility_only)
@@ -1037,12 +1010,11 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_static_media(
         return true;
     }
     return settle_media_request(
-        application.account.api.media_request(application.account.instance, key, now_ms, now_seconds), key,
-        uploads, repaint, stop_scan, !continue_on_busy);
+        application.account.api.media_request(application.account.instance, key, now_ms, now_seconds), key, stop_scan, !continue_on_busy);
 }
 
 __declspec(noinline) bool ApplicationMediaPump::settle_media_request(
-    const AccountMediaRequestResult& requested, const MediaAssetKey& key, u32* uploads, bool* repaint,
+    const AccountMediaRequestResult& requested, const MediaAssetKey& key,
     bool* stop_scan, bool stop_on_busy) noexcept {
     if (requested.state == AccountMediaRequestState::queued) {
         record_media_request_queued();
@@ -1055,8 +1027,8 @@ __declspec(noinline) bool ApplicationMediaPump::settle_media_request(
             *stop_scan = true;
             return true;
         }
-        note_frame_uploaded(*this, uploads, repaint);
-        if (message_media_controller_upload_budget_reached(&application.message_media, *uploads)) {
+        note_frame_uploaded(*this);
+        if (message_media_controller_upload_budget_reached(&application.message_media, uploads)) {
             *stop_scan = true;
         }
         return true;
@@ -1074,8 +1046,6 @@ __declspec(noinline) bool ApplicationMediaPump::settle_media_request(
 }
 
 __declspec(noinline) bool ApplicationMediaPump::request_visible_guild_icon(const GuildRecord& guild,
-                                                                           u64 now_ms, u64 now_seconds,
-                                                                           u32* uploads, bool* repaint,
                                                                            bool* stop_scan,
                                                                            bool force_request,
                                                                            bool animate) noexcept {
@@ -1099,19 +1069,18 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_guild_icon(const
     const AccountMediaGuildIconRequest request{icon_hash, key, {0, 0}};
     return settle_media_request(application.account.api.media_guild_icon_request(
                                     application.account.instance, &request, now_ms, now_seconds),
-                                key, uploads, repaint, stop_scan, true);
+                                key, stop_scan, true);
 }
 
 __declspec(noinline) bool ApplicationMediaPump::request_visible_user_avatar_value(
-    u64 user_id, const Utf8View& avatar_hash, u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint,
+    u64 user_id, const Utf8View& avatar_hash,
     bool* stop_scan, bool force_request) noexcept {
     *stop_scan = false;
     const u32 variant = user_avatar_variant(avatar_hash);
     if (user_id == 0 || avatar_hash.bytes == 0 || variant == 0)
         return application.account_ui && application.account.api.media_guild_icon_request;
     return request_visible_hashed_identity(
-        media_asset_user_avatar(user_id, variant, asset_hash_animated(avatar_hash)), avatar_hash, now_ms,
-        now_seconds, uploads, repaint, stop_scan, force_request);
+        media_asset_user_avatar(user_id, variant, asset_hash_animated(avatar_hash)), avatar_hash, stop_scan, force_request);
 }
 
 u32 ApplicationMediaPump::identity_cdn_size() const noexcept {
@@ -1119,7 +1088,7 @@ u32 ApplicationMediaPump::identity_cdn_size() const noexcept {
 }
 
 __declspec(noinline) bool ApplicationMediaPump::request_visible_hashed_identity(
-    const MediaAssetKey& key, const Utf8View& hash, u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint,
+    const MediaAssetKey& key, const Utf8View& hash,
     bool* stop_scan, bool force_request) noexcept {
     if (!application.account_ui || !application.account.api.media_guild_icon_request) {
         return false;
@@ -1143,16 +1112,13 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_hashed_identity(
     const AccountMediaGuildIconRequest request{hash, key, {identity_cdn_size(), 0}};
     return settle_media_request(application.account.api.media_guild_icon_request(
                                     application.account.instance, &request, now_ms, now_seconds),
-                                key, uploads, repaint, stop_scan, true);
+                                key, stop_scan, true);
 }
 
 __declspec(noinline) bool ApplicationMediaPump::request_visible_user_avatar(const UserRecord& user,
-                                                                            u64 now_ms, u64 now_seconds,
-                                                                            u32* uploads, bool* repaint,
                                                                             bool* stop_scan,
                                                                             bool force_request) noexcept {
-    return request_visible_user_avatar_value(user.id, user_store_avatar_hash(user), now_ms,
-                                             now_seconds, uploads, repaint, stop_scan, force_request);
+    return request_visible_user_avatar_value(user.id, user_store_avatar_hash(user), stop_scan, force_request);
 }
 
 __declspec(noinline) void ApplicationMediaPump::log_message_media_failure(
@@ -1413,7 +1379,7 @@ __declspec(noinline) bool ApplicationMediaPump::update_media_display_dimensions(
 }
 __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
     const MessageRecord& message, const MessageRichAttachment& attachment, float preview_width,
-    float preview_height, u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint, bool* stop_scan,
+    float preview_height, bool* stop_scan,
     const MessageRichStore* search_store, bool search_snapshot) noexcept {
     if (!application.account_ui || !application.account.api.media_attachment_request) {
         return false;
@@ -1509,12 +1475,11 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
         *stop_scan = true;
         return true;
     }
-    return settle_message_media(requested, key, message.id, uploads, repaint, stop_scan);
+    return settle_message_media(requested, key, message.id, stop_scan);
 }
 
 __declspec(noinline) bool ApplicationMediaPump::settle_message_media(
-    const AccountMediaRequestResult& requested, const MediaAssetKey& key, u64 message_id, u32* uploads,
-    bool* repaint, bool* stop_scan) noexcept {
+    const AccountMediaRequestResult& requested, const MediaAssetKey& key, u64 message_id, bool* stop_scan) noexcept {
     if (application.image_viewer.scene.active &&
         (requested.state == AccountMediaRequestState::unsupported ||
          (requested.state == AccountMediaRequestState::failed && requested.error != AccountMediaError::target)))
@@ -1542,8 +1507,8 @@ __declspec(noinline) bool ApplicationMediaPump::settle_message_media(
         }
         if (!prefetch_only)
             observe_message_animation(application, key, message_id);
-        note_frame_uploaded(*this, uploads, repaint);
-        if (message_media_controller_upload_budget_reached(&application.message_media, *uploads)) {
+        note_frame_uploaded(*this);
+        if (message_media_controller_upload_budget_reached(&application.message_media, uploads)) {
             *stop_scan = true;
         }
         if (geometry_changed) {
@@ -1566,7 +1531,7 @@ __declspec(noinline) bool ApplicationMediaPump::settle_message_media(
 
 __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
     const MessageRecord& message, const MessageRichRecord& rich, u32 embed_index, float preview_width,
-    float preview_height, u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint, bool* stop_scan,
+    float preview_height, bool* stop_scan,
     bool thumbnail, const MessageRichStore* search_store) noexcept {
     if (!application.account_ui || !application.account.api.media_attachment_request ||
         embed_index >= rich.embed_count) {
@@ -1639,11 +1604,10 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
     const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
         application.account.instance, &request, now_ms, now_seconds);
     log_message_media_failure("embed_media_request_failed", requested, key);
-    return settle_message_media(requested, key, message.id, uploads, repaint, stop_scan);
+    return settle_message_media(requested, key, message.id, stop_scan);
 }
 
-bool ApplicationMediaPump::request_search_previews(u64 now_ms, u64 now_seconds, u32* uploads, bool* repaint,
-                                                   bool* stop_scan) noexcept {
+bool ApplicationMediaPump::request_search_previews(bool* stop_scan) noexcept {
     *stop_scan = false;
     if (!search_media_visible() || prefetch_only)
         return true;
@@ -1664,13 +1628,11 @@ bool ApplicationMediaPump::request_search_previews(u64 now_ms, u64 now_seconds, 
         if (target.rich_kind == MessageSceneRichItemKind::attachment) {
             if (target.rich_index < source.rich->attachment_count &&
                 !request_visible_attachment(*source.message, source.rich->attachments[target.rich_index],
-                                            ui_rect_width(rectangle), ui_rect_height(rectangle), now_ms,
-                                            now_seconds, uploads, repaint, &stop, source.rich_store,
+                                            ui_rect_width(rectangle), ui_rect_height(rectangle), &stop, source.rich_store,
                                             target.snapshot))
                 return false;
         } else if (!request_visible_embed_media(*source.message, *source.rich, target.rich_index,
-                                                ui_rect_width(rectangle), ui_rect_height(rectangle), now_ms,
-                                                now_seconds, uploads, repaint, &stop,
+                                                ui_rect_width(rectangle), ui_rect_height(rectangle), &stop,
                                                 target.resource == MediaEmbedResource::thumbnail,
                                                 source.rich_store))
             return false;
@@ -1729,12 +1691,11 @@ bool ApplicationMediaPump::request_search_previews(u64 now_ms, u64 now_seconds, 
                         if (!kind) {
                             if (!request_visible_attachment(
                                     *source.message, source.rich->attachments[index],
-                                    ui_rect_width(rectangle), ui_rect_height(rectangle), now_ms,
-                                    now_seconds, uploads, repaint, &stop, source.rich_store, scope != 0))
+                                    ui_rect_width(rectangle), ui_rect_height(rectangle), &stop, source.rich_store, scope != 0))
                                 return false;
                         } else if (!request_visible_embed_media(
                                        *source.message, *source.rich, index, ui_rect_width(rectangle),
-                                       ui_rect_height(rectangle), now_ms, now_seconds, uploads, repaint,
+                                       ui_rect_height(rectangle),
                                        &stop, resource_index != 0, source.rich_store))
                             return false;
                         if (stop) {
@@ -1749,15 +1710,13 @@ bool ApplicationMediaPump::request_search_previews(u64 now_ms, u64 now_seconds, 
     return true;
 }
 
-bool ApplicationMediaPump::request_search_decorations(u64 now_ms, u64 now_seconds, u64 now_us, u32* uploads,
-                                                      bool* repaint, bool* stop_scan) noexcept {
+bool ApplicationMediaPump::request_search_decorations(bool* stop_scan) noexcept {
     *stop_scan = false;
     if (!search_media_visible() || prefetch_only)
         return true;
     const auto& search = *application.renderer.search_scene;
-    MessageMediaPumpContext context{this, now_ms, now_seconds, uploads, repaint};
     MessageMediaControllerCallbacks callbacks{};
-    callbacks.context = &context;
+    callbacks.context = this;
     callbacks.asset = request_controller_asset;
     const auto visit = [&](MediaAssetKey key, bool animated) noexcept {
         const auto asset_result = message_media_controller_visit_asset(
@@ -1837,8 +1796,7 @@ bool ApplicationMediaPump::request_search_decorations(u64 now_ms, u64 now_second
     return true;
 }
 
-bool ApplicationMediaPump::request_chip_guild_icons(bool search, u64 now_ms, u64 now_seconds, u32* uploads,
-                                                    bool* repaint, bool* stop_scan) noexcept {
+bool ApplicationMediaPump::request_chip_guild_icons(bool search, bool* stop_scan) noexcept {
     *stop_scan = false;
     const auto* text = application.renderer.content_text;
     const auto* state = application.account_ui ? &application.account_ui->chat_state : nullptr;
@@ -1857,7 +1815,7 @@ bool ApplicationMediaPump::request_chip_guild_icons(bool search, u64 now_ms, u64
                                      : ui_rect_intersection(application.message_scene.viewport, cell)))
             continue;
         const GuildRecord* guild = chat_state_store_find_guild(*state, semantic.target);
-        if (!guild || !request_visible_guild_icon(*guild, now_ms, now_seconds, uploads, repaint, stop_scan, false,
+        if (!guild || !request_visible_guild_icon(*guild, stop_scan, false,
                                                   false))
             continue;
         if (*stop_scan)
@@ -1870,49 +1828,42 @@ bool ApplicationMediaPump::request_controller_attachment(void* context, const Me
                                                          const MessageRichAttachment& attachment,
                                                          float preview_width, float preview_height,
                                                          bool* stop_scan) noexcept {
-    auto* pump = static_cast<MessageMediaPumpContext*>(context);
-    return pump && pump->owner &&
-           pump->owner->request_visible_attachment(message, attachment, preview_width, preview_height,
-                                                   pump->now_ms, pump->now_seconds, pump->uploads,
-                                                   pump->repaint, stop_scan);
+    auto* pump = static_cast<ApplicationMediaPump*>(context);
+    return pump &&
+           pump->request_visible_attachment(message, attachment, preview_width, preview_height, stop_scan);
 }
 
 bool ApplicationMediaPump::request_controller_embed(void* context, const MessageRecord& message,
                                                     const MessageRichRecord& rich, u32 embed_index,
                                                     float preview_width, float preview_height,
                                                     bool* stop_scan) noexcept {
-    auto* pump = static_cast<MessageMediaPumpContext*>(context);
-    if (!pump || !pump->owner ||
-        !pump->owner->request_visible_embed_media(message, rich, embed_index, preview_width, preview_height,
-                                                  pump->now_ms, pump->now_seconds, pump->uploads,
-                                                  pump->repaint, stop_scan))
+    auto* pump = static_cast<ApplicationMediaPump*>(context);
+    if (!pump ||
+        !pump->request_visible_embed_media(message, rich, embed_index, preview_width, preview_height, stop_scan))
         return false;
     if (*stop_scan)
         return true;
     float width = 0, height = 0;
-    const auto& store = pump->owner->application.account_ui->message_rich_store;
+    const auto& store = pump->application.account_ui->message_rich_store;
     // A merged gallery image's own corner thumbnail is never drawn.
     return message_rich_embed_merge_host(store, rich, embed_index) != embed_index ||
            !message_rich_embed_thumbnail_extent(store, rich.embeds[embed_index], 80, &width, &height) ||
-           pump->owner->request_visible_embed_media(message, rich, embed_index, width, height, pump->now_ms,
-                                                    pump->now_seconds, pump->uploads, pump->repaint,
+           pump->request_visible_embed_media(message, rich, embed_index, width, height,
                                                     stop_scan, true);
 }
 
 bool ApplicationMediaPump::request_controller_avatar(void* context, const UserRecord& user,
                                                      bool force_request, bool* stop_scan) noexcept {
-    auto* pump = static_cast<MessageMediaPumpContext*>(context);
-    return pump && pump->owner &&
-           pump->owner->request_visible_user_avatar(user, pump->now_ms, pump->now_seconds, pump->uploads,
-                                                    pump->repaint, stop_scan, force_request);
+    auto* pump = static_cast<ApplicationMediaPump*>(context);
+    return pump &&
+           pump->request_visible_user_avatar(user, stop_scan, force_request);
 }
 
 bool ApplicationMediaPump::request_controller_asset(void* context, MediaAssetKey key, bool force_request,
                                                     bool* stop_scan) noexcept {
-    auto* pump = static_cast<MessageMediaPumpContext*>(context);
-    return pump && pump->owner &&
-           pump->owner->request_visible_static_media(key, pump->now_ms, pump->now_seconds, pump->uploads,
-                                                     pump->repaint, stop_scan, force_request);
+    auto* pump = static_cast<ApplicationMediaPump*>(context);
+    return pump &&
+           pump->request_visible_static_media(key, stop_scan, force_request);
 }
 
 namespace {

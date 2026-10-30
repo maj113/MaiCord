@@ -115,6 +115,8 @@ PollWriteResult write_poll_request(const PollRequest& request,
     } else {
         okay=okay && route_append(&route,utf8_literal("/answers/@me")) &&
             protocol_writer_append_literal(&payload,"{\"answer_ids\":[");
+        // The web client votes with String(answer_id) values (its selection set holds the string ids and
+        // parseInt()s them only for analytics), so the body carries decimal strings.
         for (u32 i=0;okay && i<request.answer_count;++i)
             okay=(!i || protocol_writer_append_byte(&payload,',')) &&
                 protocol_writer_append_byte(&payload,'"') &&

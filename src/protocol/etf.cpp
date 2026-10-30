@@ -442,9 +442,8 @@ Quoting key_quoting(const u8* s, u32 n) noexcept {
 
 struct Frame {
     u32 remaining;
-    u8 kind; // 0 list (a tail follows), 1 tuple, 2 map
+    u8 kind; // 0 list (a tail follows), 1 tuple, 2 map (remaining counts pairs)
     bool first;
-    bool key_next;
     Quoting quoting; // a map's current key, or the list's own
 };
 
@@ -618,7 +617,7 @@ EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output,
     for (;;) {
         if (depth) {
             Frame& f = stack[depth - 1];
-            if (!f.remaining && (f.kind != 2 || f.key_next)) {
+            if (!f.remaining) {
                 if (f.kind == 0) {
                     if (!r.has(1))
                         return failed(EtfError::truncated);
@@ -632,17 +631,15 @@ EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output,
                     break;
                 continue;
             }
-            if (!f.first && (f.kind != 2 || f.key_next) && !w.byte(','))
+            if (!f.first && !w.byte(','))
                 return failed(EtfError::output_capacity);
             f.first = false;
-            if (f.kind == 2 && f.key_next) {
+            // A map pair is its key and then its value, in this iteration.
+            if (f.kind == 2) {
                 EtfError error = EtfError::none;
                 if (!write_key(&r, &w, &error, &f.quoting))
                     return failed(error);
-                f.key_next = false;
-                continue;
             }
-            f.key_next = true;
             --f.remaining;
             quoting = f.quoting;
         } else if (started) {
@@ -766,7 +763,7 @@ EtfResult etf_to_json(ConstSlice<u8> etf, Slice<u8>* output, u32 maximum_output,
                 return failed(EtfError::depth_limit);
             // A list under a *_ids key quotes its integers.
             const Quoting own = tag != kMap && depth && stack[depth - 1].kind == 2 ? quoting : Quoting::none;
-            stack[depth++] = {n, static_cast<u8>(tag == kList ? 0 : tag == kMap ? 2 : 1), true, true, own};
+            stack[depth++] = {n, static_cast<u8>(tag == kList ? 0 : tag == kMap ? 2 : 1), true, own};
             ok = w.byte(tag == kMap ? '{' : '[');
             break;
         }

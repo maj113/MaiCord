@@ -45,7 +45,11 @@ TextInputResult replace(const TextInputTarget& t, u32 a, u32 b, ConstSlice<u16> 
         !utf8_byte_offset_for_utf16_position(message_composer_text(*c), b, &last)) return TextInputResult::invalid_utf16;
     const u32 available = c->capacity - (c->bytes - (last - first));
     if (input.count > available) return TextInputResult::capacity;
-    char converted[kMessageComposerMaximumBytes];
+    // Typed and IME input is a few units; only a large paste needs the full-size
+    // scratch (UI thread only). A unit encodes to at most three bytes.
+    char small[256];
+    static char large[kMessageComposerMaximumBytes];
+    char* const converted = input.count <= sizeof(small) / 3 ? small : large;
     u32 bytes = 0; TextInputResult converted_result = TextInputResult::unchanged;
     for (u32 i = 0; i < input.count; ++i) {
         u32 scalar = input[i];
@@ -58,7 +62,7 @@ TextInputResult replace(const TextInputTarget& t, u32 a, u32 b, ConstSlice<u16> 
         copy_bytes(converted + bytes, encoded, count); bytes += count;
     }
     if (converted_result == TextInputResult::unchanged) converted_result = result(message_composer_replace_range(c, first, last, {converted, bytes}));
-    secure_clear_bytes(converted, sizeof(converted));
+    secure_clear_bytes(converted, bytes);
     if (converted_result == TextInputResult::changed || converted_result == TextInputResult::unchanged) *change = {a, b, a + input.count};
     return converted_result;
 }

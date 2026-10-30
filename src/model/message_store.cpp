@@ -175,8 +175,8 @@ bool message_store_initialize_growing(MessageStore* store, Slice<MessageRecord> 
     return true;
 }
 
-MessageStoreError message_store_validate_input(const MessageStore* store,
-                                               const MessageInput& input) noexcept {
+// Everything but the content's encoding.
+static MessageStoreError validate_fields(const MessageStore* store, const MessageInput& input) noexcept {
     if (!store || !store->records || !store->order || !store->text || input.id == 0 ||
         input.channel_id == 0 || input.author_id == 0 ||
         (!input.content.data && input.content.bytes != 0) ||
@@ -185,11 +185,19 @@ MessageStoreError message_store_validate_input(const MessageStore* store,
         (input.presentation_flags & ~kMessagePresentationKnownFlags) != 0) {
         return MessageStoreError::invalid_input;
     }
+    return MessageStoreError::none;
+}
+
+MessageStoreError message_store_validate_input(const MessageStore* store,
+                                               const MessageInput& input) noexcept {
+    const MessageStoreError fields = validate_fields(store, input);
+    if (fields != MessageStoreError::none)
+        return fields;
     return utf8_validate(input.content).valid ? MessageStoreError::none : MessageStoreError::invalid_utf8;
 }
 
 MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput& input) noexcept {
-    const MessageStoreError validation = message_store_validate_input(store, input);
+    const MessageStoreError validation = validate_fields(store, input);
     if (validation != MessageStoreError::none) {
         if (store) {
             ++store->rejected;
@@ -198,10 +206,17 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
     }
     bool found = false;
     const u32 order_index = find_order_index(*store, input.id, &found);
+    const bool unchanged =
+        found && content_equal(*store, store->records[store->order[order_index]], input.content);
+    // Content equal to the stored, already validated text needs no re-check.
+    if (!unchanged && !utf8_validate(input.content).valid) {
+        ++store->rejected;
+        return store_error(MessageStoreError::invalid_utf8);
+    }
     if (found) {
         const u32 slot = store->order[order_index];
         MessageRecord& record = store->records[slot];
-        if (!content_equal(*store, record, input.content)) {
+        if (!unchanged) {
             if (input.content.bytes <= record.content_bytes) {
                 copy_bytes(store->text + record.content_offset,
                            reinterpret_cast<const u8*>(input.content.data), input.content.bytes);
