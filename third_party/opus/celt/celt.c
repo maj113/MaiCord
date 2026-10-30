@@ -81,49 +81,13 @@ int resampling_factor(opus_int32 rate)
 }
 
 
-#if !defined(OVERRIDE_COMB_FILTER_CONST) || defined(NON_STATIC_COMB_FILTER_CONST_C)
-/* This version should be faster on ARM */
-#ifndef NON_STATIC_COMB_FILTER_CONST_C
-static
-#endif
-void comb_filter_const_c(opus_val32 *y, opus_val32 *x, int T, int N,
-      celt_coef g10, celt_coef g11, celt_coef g12)
-{
-   opus_val32 x0, x1, x2, x3, x4;
-   int i;
-   x4 = x[-T-2];
-   x3 = x[-T-1];
-   x2 = x[-T];
-   x1 = x[-T+1];
-   for (i=0;i<N;i++)
-   {
-      x0=x[i-T+2];
-      y[i] = x[i]
-               + MULT_COEF_32(g10,x2)
-               + MULT_COEF_32(g11,ADD32(x1,x3))
-               + MULT_COEF_32(g12,ADD32(x0,x4));
-      /* A bit of bias seems to help here. */
-      y[i] = SUB32(y[i], 1);
-      y[i] = SATURATE(y[i], SIG_SAT);
-      x4=x3;
-      x3=x2;
-      x2=x1;
-      x1=x0;
-   }
-
-}
-#endif
-
-
 #ifndef OVERRIDE_comb_filter
 void comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N,
       opus_val16 g0, opus_val16 g1, int tapset0, int tapset1,
       const celt_coef *window, int overlap, int arch)
 {
-   int i;
    /* printf ("%d %d %f %f\n", T0, T1, g0, g1); */
    celt_coef g00, g01, g02, g10, g11, g12;
-   opus_val32 x0, x1, x2, x3, x4;
    static const opus_val16 gains[3][3] = {
          {QCONST16(0.3066406250f, 15), QCONST16(0.2170410156f, 15), QCONST16(0.1296386719f, 15)},
          {QCONST16(0.4638671875f, 15), QCONST16(0.2680664062f, 15), QCONST16(0.f, 15)},
@@ -145,34 +109,11 @@ void comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N,
    g10 = MULT_COEF_TAPS(g1, gains[tapset1][0]);
    g11 = MULT_COEF_TAPS(g1, gains[tapset1][1]);
    g12 = MULT_COEF_TAPS(g1, gains[tapset1][2]);
-   x1 = x[-T1+1];
-   x2 = x[-T1  ];
-   x3 = x[-T1-1];
-   x4 = x[-T1-2];
    /* If the filter didn't change, we don't need the overlap */
    if (g0==g1 && T0==T1 && tapset0==tapset1)
       overlap=0;
-   for (i=0;i<overlap;i++)
-   {
-      celt_coef f;
-      x0=x[i-T1+2];
-      f = MULT_COEF(window[i],window[i]);
-      y[i] = x[i]
-               + MULT_COEF_32(MULT_COEF((COEF_ONE-f),g00),x[i-T0])
-               + MULT_COEF_32(MULT_COEF((COEF_ONE-f),g01),ADD32(x[i-T0+1],x[i-T0-1]))
-               + MULT_COEF_32(MULT_COEF((COEF_ONE-f),g02),ADD32(x[i-T0+2],x[i-T0-2]))
-               + MULT_COEF_32(MULT_COEF(f,g10),x2)
-               + MULT_COEF_32(MULT_COEF(f,g11),ADD32(x1,x3))
-               + MULT_COEF_32(MULT_COEF(f,g12),ADD32(x0,x4));
-      /* A bit of bias seems to help here. */
-      y[i] = SUB32(y[i], 3);
-      y[i] = SATURATE(y[i], SIG_SAT);
-      x4=x3;
-      x3=x2;
-      x2=x1;
-      x1=x0;
-
-   }
+   /* maiopus: SSE4.1, four outputs at a time; overlap is the mode's 120 or 0. */
+   comb_filter_overlap_sse4_1(y, x, T0, T1, overlap, g00, g01, g02, g10, g11, g12, window);
    if (g1==0)
    {
       /* OPT: Happens to work without the OPUS_MOVE(), but only because the current encoder already copies x to y */
@@ -182,7 +123,7 @@ void comb_filter(opus_val32 *y, opus_val32 *x, int T0, int T1, int N,
    }
 
    /* Compute the part with the constant filter. */
-   comb_filter_const(y+i, x+i, T1, N-i, g10, g11, g12, arch);
+   comb_filter_const(y+overlap, x+overlap, T1, N-overlap, g10, g11, g12, arch);
 }
 #endif /* OVERRIDE_comb_filter */
 

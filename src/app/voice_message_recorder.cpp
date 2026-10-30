@@ -6,16 +6,18 @@
 
 namespace maicord {
 namespace {
+// The block holds the encode scratch, the encoder, frame levels and the stream.
 struct Layout {
     u32 levels, stream, total;
 };
+constexpr u32 kEncoderOffset = sizeof(OpusScratch);
 constexpr u32 align(u32 value, u32 alignment) noexcept {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 Layout layout() noexcept {
     Layout l{};
     const u32 encoder = opus_encoder_storage_bytes(1);
-    l.levels = align(encoder, 64);
+    l.levels = align(kEncoderOffset + encoder, 64);
     l.stream = align(l.levels + kVoiceMessageMaximumFrames + kVoiceMessagePaddingFrames, 64);
     const u64 stream = ogg_opus_writer_capacity(kVoiceMessageMaximumFrames + kVoiceMessagePaddingFrames,
                                                 kVoiceMessagePacketBudget, kVoiceMessageVendor.bytes);
@@ -30,7 +32,7 @@ VoiceMessageRecorderError fail(VoiceMessageRecorder* r, VoiceMessageRecorderErro
 VoiceMessageRecorderError encode(VoiceMessageRecorder* r, bool audible) noexcept {
     u8 packet[kOpusEncoderMaximumPacketBytes];
     const auto encoded = opus_encoder_encode(&r->encoder, {r->frame, kVoiceMessageFrameSamples},
-                                             {packet, sizeof(packet)});
+                                             {packet, sizeof(packet)}, reinterpret_cast<OpusScratch*>(r->block));
     if (!encoded.ok())
         return fail(r, VoiceMessageRecorderError::encoder);
     // Audible frames leave room for the delay padding that finish appends.
@@ -80,7 +82,7 @@ VoiceMessageRecorderError voice_message_recorder_begin(VoiceMessageRecorder* r, 
     r->frame_levels = r->block + l.levels;
     r->gain_q16 = (minimum<u32>(gain_percent, 200) << 16) / 100;
     u32 lookahead = 0;
-    if (!opus_encoder_initialize(&r->encoder, {r->block, l.levels}, 1).ok() ||
+    if (!opus_encoder_initialize(&r->encoder, {r->block + kEncoderOffset, l.levels - kEncoderOffset}, 1).ok() ||
         !opus_encoder_bitrate(&r->encoder, kVoiceMessageBitrate).ok() ||
         !opus_encoder_vbr_constraint(&r->encoder, true).ok() || !opus_encoder_inband_fec(&r->encoder, false).ok() ||
         !opus_encoder_packet_loss(&r->encoder, 0).ok() || !opus_encoder_complexity(&r->encoder, 10).ok() ||

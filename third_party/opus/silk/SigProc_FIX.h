@@ -39,8 +39,8 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "macros.h"
 #include "cpu_support.h"
 
-#if defined(OPUS_X86_MAY_HAVE_SSE4_1)
-#include "x86/SigProc_FIX_sse.h"
+#if !defined(OPUS_X86_PRESUME_SSE4_1)
+#error "maiopus: SILK needs the x86 SSE4.1 kernels (MAIOPUS_SSE4_1)"
 #endif
 
 
@@ -65,7 +65,8 @@ opus_int silk_resampler(
     silk_resampler_state_struct *S,                 /* I/O  Resampler state                                             */
     opus_int16                  out[],              /* O    Output signal                                               */
     const opus_int16            in[],               /* I    Input signal                                                */
-    opus_int32                  inLen               /* I    Number of input samples                                     */
+    opus_int32                  inLen,              /* I    Number of input samples                                     */
+    char                        *scratch            /* I    Scratch arena                                               */
 );
 
 /*!
@@ -85,7 +86,8 @@ void silk_resampler_down2_3(
     opus_int32                  *S,                 /* I/O  State vector [ 6 ]                                          */
     opus_int16                  *out,               /* O    Output signal [ floor(2*inLen/3) ]                          */
     const opus_int16            *in,                /* I    Input signal [ inLen ]                                      */
-    opus_int32                  inLen               /* I    Number of input samples                                     */
+    opus_int32                  inLen,              /* I    Number of input samples                                     */
+    char                        *scratch            /* I    Scratch arena                                               */
 );
 
 /*!
@@ -240,7 +242,8 @@ void silk_autocorr(
     const opus_int16            *inputData,         /* I    Input data to correlate                                     */
     const opus_int              inputDataSize,      /* I    Length of input                                             */
     const opus_int              correlationCount,   /* I    Number of correlation taps to compute                       */
-    int                         arch                /* I    Run-time architecture                                       */
+    int                         arch,               /* I    Run-time architecture                                       */
+    char                        *scratch            /* I    Scratch arena                                               */
 );
 
 void silk_decode_pitch(
@@ -263,8 +266,12 @@ opus_int silk_pitch_analysis_core(                  /* O    Voicing estimate: 0 
     const opus_int              Fs_kHz,             /* I    Sample frequency (kHz)                                      */
     const opus_int              complexity,         /* I    Complexity setting, 0-2, where 2 is highest                 */
     const opus_int              nb_subfr,           /* I    number of 5 ms subframes                                    */
-    int                         arch                /* I    Run-time architecture                                       */
+    int                         arch,               /* I    Run-time architecture                                       */
+    char                        *scratch            /* I    Scratch arena                                               */
 );
+
+/* Scratch bytes silk_pitch_analysis_core allocates at most (proved there) */
+#define SILK_PITCH_SCRATCH_BYTES  9280
 
 /* Compute Normalized Line Spectral Frequencies (NLSFs) from whitening filter coefficients      */
 /* If not all roots are found, the a_Q16 coefficients are bandwidth expanded until convergence. */
@@ -325,7 +332,7 @@ void silk_NLSF_VQ_weights_laroia(
 );
 
 /* Compute reflection coefficients from input signal */
-void silk_burg_modified_c(
+void silk_burg_modified(
     opus_int32                  *res_nrg,           /* O    Residual energy                                             */
     opus_int                    *res_nrg_Q,         /* O    Residual energy Q value                                     */
     opus_int32                  A_Q16[],            /* O    Prediction coefficients (length order)                      */
@@ -366,7 +373,7 @@ opus_int32 silk_inner_prod_aligned_scale(
     const opus_int              len                 /*    I vector lengths                                              */
 );
 
-opus_int64 silk_inner_prod16_c(
+opus_int64 silk_inner_prod16(
     const opus_int16            *inVec1,            /*    I input vector 1                                              */
     const opus_int16            *inVec2,            /*    I input vector 2                                              */
     const opus_int              len                 /*    I vector lengths                                              */
@@ -591,16 +598,6 @@ static OPUS_INLINE opus_int64 silk_max_64(opus_int64 a, opus_int64 b)
 /*#define silk_SMMUL(a32, b32)                (opus_int32)silk_RSHIFT(silk_SMLAL(silk_SMULWB((a32), (b32)), (a32), silk_RSHIFT_ROUND((b32), 16)), 16)*/
 /* the following seems faster on x86 */
 #define silk_SMMUL(a32, b32)                (opus_int32)silk_RSHIFT64(silk_SMULL((a32), (b32)), 32)
-
-#if !defined(OVERRIDE_silk_burg_modified)
-#define silk_burg_modified(res_nrg, res_nrg_Q, A_Q16, x, minInvGain_Q30, subfr_length, nb_subfr, D, arch) \
-    ((void)(arch), silk_burg_modified_c(res_nrg, res_nrg_Q, A_Q16, x, minInvGain_Q30, subfr_length, nb_subfr, D, arch))
-#endif
-
-#if !defined(OVERRIDE_silk_inner_prod16)
-#define silk_inner_prod16(inVec1, inVec2, len, arch) \
-    ((void)(arch),silk_inner_prod16_c(inVec1, inVec2, len))
-#endif
 
 #include "Inlines.h"
 #include "MacroCount.h"

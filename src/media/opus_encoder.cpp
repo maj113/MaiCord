@@ -6,6 +6,7 @@
 namespace maicord {
 namespace {
 static_assert(sizeof(i16) == sizeof(opus_int16));
+static_assert(kOpusScratchBytes == OPUS_SCRATCH_BYTES && alignof(OpusScratch) >= 16);
 OpusEncodeResult result(OpusEncodeError error, i32 native = OPUS_OK, u32 bytes = 0) noexcept {
     return {error, native, bytes};
 }
@@ -89,7 +90,8 @@ OpusEncodeResult opus_encoder_lookahead(OpusEncoder* encoder, u32* samples) noex
     *samples = static_cast<u32>(value);
     return result(OpusEncodeError::none);
 }
-OpusEncodeResult opus_encoder_encode(OpusEncoder* encoder, ConstSlice<i16> pcm, Slice<u8> packet) noexcept {
+OpusEncodeResult opus_encoder_encode(OpusEncoder* encoder, ConstSlice<i16> pcm, Slice<u8> packet,
+                                     OpusScratch* scratch) noexcept {
     if (!current(encoder))
         return result(OpusEncodeError::invalid_state, OPUS_INVALID_STATE);
     const usize pcm_bytes = static_cast<usize>(pcm.count) * sizeof(i16);
@@ -98,12 +100,17 @@ OpusEncodeResult opus_encoder_encode(OpusEncoder* encoder, ConstSlice<i16> pcm, 
         byte_ranges_overlap(encoder->state, encoder->state_bytes, pcm.data, pcm_bytes) ||
         byte_ranges_overlap(encoder->state, encoder->state_bytes, packet.data, packet.count) ||
         byte_ranges_overlap(pcm.data, pcm_bytes, packet.data, packet.count) ||
-        byte_ranges_overlap(encoder, sizeof(*encoder), packet.data, packet.count))
+        byte_ranges_overlap(encoder, sizeof(*encoder), packet.data, packet.count) || !scratch ||
+        byte_ranges_overlap(scratch, sizeof(*scratch), encoder->state, encoder->state_bytes) ||
+        byte_ranges_overlap(scratch, sizeof(*scratch), encoder, sizeof(*encoder)) ||
+        byte_ranges_overlap(scratch, sizeof(*scratch), pcm.data, pcm_bytes) ||
+        byte_ranges_overlap(scratch, sizeof(*scratch), packet.data, packet.count))
         return result(OpusEncodeError::invalid_input, OPUS_BAD_ARG);
     if (packet.count < kOpusEncoderMaximumPacketBytes)
         return result(OpusEncodeError::capacity, OPUS_BUFFER_TOO_SMALL);
     const opus_int32 bytes = ::opus_encode(native_state(encoder), pcm.data, static_cast<int>(kOpusEncoderFrameSamples),
-                                           packet.data, static_cast<opus_int32>(kOpusEncoderMaximumPacketBytes));
+                                           packet.data, static_cast<opus_int32>(kOpusEncoderMaximumPacketBytes),
+                                           scratch->bytes);
     if (bytes <= 0 || bytes > static_cast<opus_int32>(kOpusEncoderMaximumPacketBytes))
         return result(OpusEncodeError::encoder, bytes < 0 ? bytes : OPUS_INTERNAL_ERROR);
     return result(OpusEncodeError::none, OPUS_OK, static_cast<u32>(bytes));

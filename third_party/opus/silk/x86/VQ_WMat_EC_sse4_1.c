@@ -33,7 +33,7 @@
 #include "celt/x86/x86cpu.h"
 
 /* Entropy constrained matrix-weighted VQ, hard-coded to 5-element vectors, for a single input data vector */
-void silk_VQ_WMat_EC_sse4_1(
+void silk_VQ_WMat_EC(
     opus_int8                   *ind,                           /* O    index of best codebook vector               */
     opus_int32                  *res_nrg_Q15,                   /* O    best residual energy                        */
     opus_int32                  *rate_dist_Q8,                  /* O    best total bitrate                          */

@@ -47,7 +47,7 @@ void quant_coarse_energy(const CELTMode *m, int start, int end, int effEnd,
       const celt_glog *eBands, celt_glog *oldEBands, opus_uint32 budget,
       celt_glog *error, ec_enc *enc, int C, int LM,
       int nbAvailableBytes, int force_intra, opus_val32 *delayedIntra,
-      int two_pass, int loss_rate);
+      int two_pass, int loss_rate, char *scratch);
 
 void quant_fine_energy(const CELTMode *m, int start, int end, celt_glog *oldEBands, celt_glog *error, int *fine_quant, int *extra_quant, ec_enc *enc, int C);
 

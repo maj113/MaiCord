@@ -35,35 +35,16 @@
 #include "opus_types.h"
 #include "opus_defines.h"
 
+#include <stddef.h>
 
-# ifdef _WIN32
-#  include <malloc.h>
-# else
-#  ifdef HAVE_ALLOCA_H
-#   include <alloca.h>
-#  else
-#   include <stdlib.h>
-#  endif
-# endif
-
-/**
- * @def ALIGN(stack, size)
- *
- * Aligns the stack to a 'size' boundary
- *
- * @param stack Stack
- * @param size  New size boundary
- */
-
-/**
- * @def PUSH(stack, size, type)
- *
- * Allocates 'size' elements of type 'type' on the stack
- *
- * @param stack Stack
- * @param size  Number of elements
- * @param type  Type of element
- */
+/* maiopus: no alloca, so no stack probes and no dynamic frames. Scratch is a
+   bump arena in decoder or encoder state memory. A function that allocates
+   scratch receives the arena's free pointer as its `char *scratch` parameter
+   and passes its current value to the callees that allocate; ALLOC carves
+   from that local copy, so the space returns to the caller when the function
+   returns. Allocations are 16-byte aligned, as alloca's were; a zero size
+   (ALLOC_NONE) takes nothing. The arena size is a static bound: the sum of
+   the largest allocations along the deepest call path. */
 
 /**
  * @def VARDECL(var)
@@ -76,7 +57,7 @@
 /**
  * @def ALLOC(var, size, type)
  *
- * Allocate 'size' elements of 'type' on stack
+ * Allocate 'size' elements of 'type' from the scratch arena
  *
  * @param var  Name of variable to allocate
  * @param size Number of elements
@@ -86,11 +67,8 @@
 
 #define VARDECL(type, var) type *var
 
-# ifdef _WIN32
-#  define ALLOC(var, size, type) var = ((type*)_alloca(sizeof(type)*(size)))
-# else
-#  define ALLOC(var, size, type) var = ((type*)alloca(sizeof(type)*(size)))
-# endif
+#define SCRATCH_BYTES(size, type) ((sizeof(type)*(size_t)(size)+15)&~(size_t)15)
+#define ALLOC(var, size, type) ((var) = (type*)scratch, scratch += SCRATCH_BYTES(size, type))
 
 #define SAVE_STACK
 #define RESTORE_STACK

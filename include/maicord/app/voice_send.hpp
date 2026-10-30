@@ -29,7 +29,7 @@ struct VoiceSendControl {
     bool automatic, send;
 };
 struct VoiceSendStatusCells {
-    volatile LONG level, threshold, transmitting, key_down, announced, round_trip;
+    volatile LONG level, threshold, transmitting, announced, round_trip;
 };
 struct VoiceSendShared;
 // Lives in the account worker runtime. UI-thread entry points: configure and

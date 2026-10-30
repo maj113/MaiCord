@@ -19,6 +19,10 @@ bool ring_valid(const MediaAudioRing& r) noexcept {
     return r.consumed<=r.submitted&&r.submitted<=r.written&&r.written-r.consumed<=r.samples.count/r.channels;
 }
 MediaAudioResult fail(Error e,u32 native=0) noexcept {return {e,native};}
+void scale_clip(float* out,const float* in,u32 count,float gain) noexcept {
+#pragma clang loop vectorize(disable) unroll(disable)
+    for(u32 i=0;i<count;++i){const float value=in[i]*gain;out[i]=value>1?1:value< -1? -1:value;}
+}
 }
 bool media_audio_gain_valid(float gain) noexcept {return is_finite(gain)&&gain>=0&&gain<=1;}
 bool media_audio_ring_initialize(MediaAudioRing* r,Slice<float> samples,u32 rate,u32 channels,u64 epoch) noexcept {
@@ -36,11 +40,9 @@ MediaAudioResult media_audio_ring_write(MediaAudioRing* r,u64 epoch,ConstSlice<f
     const u32 frames=pcm.count/r->channels;if(frames>media_audio_ring_free(*r))return fail(Error::capacity);
     if(r->written>~u64{0}-frames)return fail(Error::timeline);
     for(u32 i=0;i<pcm.count;++i)if(!is_finite(pcm[i]))return fail(Error::invalid_input);
-    const u32 capacity=r->samples.count/r->channels;
-    u32 frame_index=static_cast<u32>(r->written%capacity);
-    for(u32 i=0;i<frames;++i){const u32 index=frame_index*r->channels;
-        for(u32 c=0;c<r->channels;++c)r->samples[index+c]=pcm[i*r->channels+c];
-        if(++frame_index==capacity)frame_index=0;}
+    // The ring wraps at its sample count, a whole number of frames: at most two contiguous copies.
+    const u32 start=static_cast<u32>(r->written%(r->samples.count/r->channels))*r->channels,first=minimum(pcm.count,r->samples.count-start);
+    copy_bytes(r->samples.data+start,pcm.data,first*4);copy_bytes(r->samples.data,pcm.data+first,(pcm.count-first)*4);
     r->written+=frames;return {};
 }
 u32 media_audio_ring_render(MediaAudioRing* r,Slice<float> output,float gain) noexcept {
@@ -48,10 +50,8 @@ u32 media_audio_ring_render(MediaAudioRing* r,Slice<float> output,float gain) no
         output.count/r->channels>kMediaAudioMaximumWriteFrames||(reinterpret_cast<usize>(output.data)&3)||
         !disjoint(r,sizeof(*r),output.data,output.count*4)||!disjoint(r->samples.data,r->samples.count*4,output.data,output.count*4))return 0;
     const u32 count=static_cast<u32>(minimum<u64>(output.count/r->channels,r->written-r->submitted)),capacity=r->samples.count/r->channels;
-    u32 frame_index=static_cast<u32>(r->submitted%capacity);
-    for(u32 i=0;i<count;++i){const u32 index=frame_index*r->channels;
-        for(u32 c=0;c<r->channels;++c){const float value=r->samples[index+c]*gain;output[i*r->channels+c]=value>1?1:value< -1? -1:value;}
-        if(++frame_index==capacity)frame_index=0;}
+    const u32 total=count*r->channels,start=static_cast<u32>(r->submitted%capacity)*r->channels,first=minimum(total,r->samples.count-start);
+    scale_clip(output.data,r->samples.data+start,first,gain);scale_clip(output.data+first,r->samples.data,total-first,gain);
     r->submitted+=count;return count;
 }
 bool media_audio_ring_native_queue_empty(const MediaAudioRing& r,u32 padding) noexcept {

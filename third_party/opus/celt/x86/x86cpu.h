@@ -102,4 +102,25 @@ static inline __m128i WORKAROUND_mm_loadu_si32(void const* mem_addr) {
 
 # endif
 
+# if defined(OPUS_X86_MAY_HAVE_SSE4_1) && defined(FIXED_POINT)
+#  include <smmintrin.h>
+/* maiopus: MULT16_32_Q15() on four lanes, the 32-bit lanes of x times the
+   sign-extended 16-bit lanes of g: the low 32 bits of each 48-bit product
+   shifted right by 15, exactly as the scalar macro. */
+static OPUS_INLINE __m128i mult16_32_q15_sse4_1(__m128i x, __m128i g)
+{
+   __m128i even = _mm_srli_epi64(_mm_mul_epi32(x, g), 15);
+   __m128i odd = _mm_slli_epi64(_mm_mul_epi32(_mm_srli_epi64(x, 32), _mm_srli_epi64(g, 32)), 17);
+   return _mm_blend_epi16(even, odd, 0xCC);
+}
+
+/* maiopus: MULT16_32_Q16() on four lanes (see mult16_32_q15_sse4_1()). */
+static OPUS_INLINE __m128i mult16_32_q16_sse4_1(__m128i x, __m128i g)
+{
+   __m128i even = _mm_srli_epi64(_mm_mul_epi32(x, g), 16);
+   __m128i odd = _mm_slli_epi64(_mm_mul_epi32(_mm_srli_epi64(x, 32), _mm_srli_epi64(g, 32)), 16);
+   return _mm_blend_epi16(even, odd, 0xCC);
+}
+# endif
+
 #endif

@@ -130,7 +130,8 @@ SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded, SoundboardDecod
     const usize pcm_offset = align_up(kSoundboardProbeScratchBytes, 64);
     const usize state_offset = pcm_offset + align_up(usize{kOpusDecoderMaximumFrames} * 2 * sizeof(i16), 64);
     const u32 state_bytes = static_cast<u32>(align_up(opus_decoder_storage_bytes(2), 64));
-    auto* work = static_cast<u8*>(reserve(state_offset + state_bytes));
+    const usize opus_scratch_offset = state_offset + state_bytes;
+    auto* work = static_cast<u8*>(reserve(opus_scratch_offset + sizeof(OpusScratch)));
     if (!work) {
         *status = SoundboardDecodeStatus::memory;
         return nullptr;
@@ -165,7 +166,8 @@ SoundboardClip* decode_ogg(u64 sound_id, ConstSlice<u8> encoded, SoundboardDecod
             ok = false;
             break;
         }
-        const auto decoded = opus_decoder_decode(&decoder, packet.bytes, {pcm, kOpusDecoderMaximumFrames * 2});
+        const auto decoded = opus_decoder_decode(&decoder, packet.bytes, {pcm, kOpusDecoderMaximumFrames * 2},
+                                                 reinterpret_cast<OpusScratch*>(work + opus_scratch_offset));
         if (!decoded.ok() || decoded.frames != packet.duration_frames) {
             ok = false;
             break;
@@ -405,14 +407,17 @@ u32 soundboard_mixer_render(SoundboardMixer* mixer, Slice<i32> mix, u32 frames, 
         return active;
     }
     const u32 board = static_cast<u32>(100 + mixer->volume_delta);
+    i32* out = mix.data; // Local: the slice would be reloaded after every store.
     for (u32 v = 0; v < mixer->count;) {
         auto& voice = mixer->voices[v];
         const u64 gain = u64{voice.gain_q16} * board * minimum(output_percent, 200u) / 10000;
         const u32 take = minimum(frames, voice.clip->frames - voice.position);
         const i16* source = voice.clip->pcm + usize{voice.position} * 2;
-        if (gain)
+        if (gain) {
+#pragma clang loop vectorize(disable) unroll(disable)
             for (u32 i = 0; i < take * 2; ++i)
-                mix[i] += static_cast<i32>((static_cast<i64>(source[i]) * static_cast<i64>(gain)) >> 16);
+                out[i] += static_cast<i32>((static_cast<i64>(source[i]) * static_cast<i64>(gain)) >> 16);
+        }
         voice.position += take;
         if (voice.position >= voice.clip->frames) {
             finished[finished_count++] = voice.clip;

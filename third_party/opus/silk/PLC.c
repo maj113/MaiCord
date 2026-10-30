@@ -45,7 +45,8 @@ static OPUS_INLINE void silk_PLC_conceal(
     silk_decoder_state                  *psDec,             /* I/O Decoder state        */
     silk_decoder_control                *psDecCtrl,         /* I/O Decoder control      */
     opus_int16                          frame[],            /* O LPC residual signal    */
-    int                                 arch                /* I  Run-time architecture */
+    int                                 arch,               /* I  Run-time architecture */
+    char                                *scratch            /* I  Scratch arena         */
 );
 
 
@@ -65,7 +66,8 @@ void silk_PLC(
     silk_decoder_control                *psDecCtrl,         /* I/O Decoder control      */
     opus_int16                          frame[],            /* I/O  signal              */
     opus_int                            lost,               /* I Loss flag              */
-    int                                 arch                /* I Run-time architecture  */
+    int                                 arch,               /* I Run-time architecture  */
+    char                                *scratch            /* I Scratch arena          */
 )
 {
     /* PLC control function */
@@ -78,8 +80,7 @@ void silk_PLC(
         /****************************/
         /* Generate Signal          */
         /****************************/
-        silk_PLC_conceal( psDec, psDecCtrl, frame,
-            arch );
+        silk_PLC_conceal( psDec, psDecCtrl, frame, arch, scratch );
 
         psDec->lossCnt++;
     } else {
@@ -170,10 +171,8 @@ static OPUS_INLINE void silk_PLC_energy(opus_int32 *energy1, opus_int *shift1, o
       const opus_int32 *exc_Q14, const opus_int32 *prevGain_Q10, int subfr_length, int nb_subfr)
 {
     int i, k;
-    VARDECL( opus_int16, exc_buf );
+    opus_int16 exc_buf[ 2 * MAX_SUB_FRAME_LENGTH ];
     opus_int16 *exc_buf_ptr;
-    SAVE_STACK;
-    ALLOC( exc_buf, 2*subfr_length, opus_int16 );
     /* Find random noise component */
     /* Scale previous excitation signal */
     exc_buf_ptr = exc_buf;
@@ -187,14 +186,14 @@ static OPUS_INLINE void silk_PLC_energy(opus_int32 *energy1, opus_int *shift1, o
     /* Find the subframe with lowest energy of the last two and use that as random noise generator */
     silk_sum_sqr_shift( energy1, shift1, exc_buf,                  subfr_length );
     silk_sum_sqr_shift( energy2, shift2, &exc_buf[ subfr_length ], subfr_length );
-    RESTORE_STACK;
 }
 
 static OPUS_INLINE void silk_PLC_conceal(
     silk_decoder_state                  *psDec,             /* I/O Decoder state        */
     silk_decoder_control                *psDecCtrl,         /* I/O Decoder control      */
     opus_int16                          frame[],            /* O LPC residual signal    */
-    int                                 arch                /* I Run-time architecture  */
+    int                                 arch,               /* I Run-time architecture  */
+    char                                *scratch            /* I Scratch arena          */
 )
 {
     opus_int   i, j, k;

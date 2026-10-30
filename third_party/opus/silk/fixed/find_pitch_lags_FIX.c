@@ -27,7 +27,6 @@ POSSIBILITY OF SUCH DAMAGE.
 
 
 #include "main_FIX.h"
-#include "stack_alloc.h"
 #include "tuning_parameters.h"
 
 /* Find pitch lags */
@@ -36,19 +35,19 @@ void silk_find_pitch_lags_FIX(
     silk_encoder_control_FIX        *psEncCtrl,                             /* I/O  encoder control                                                             */
     opus_int16                      res[],                                  /* O    residual                                                                    */
     const opus_int16                x[],                                    /* I    Speech signal                                                               */
-    int                             arch                                    /* I    Run-time architecture                                                       */
+    int                             arch,                                   /* I    Run-time architecture                                                       */
+    char                            *scratch                                /* I    Scratch arena                                                               */
 )
 {
     opus_int   buf_len, i, scale;
     opus_int32 thrhld_Q13, res_nrg;
     const opus_int16 *x_ptr;
-    VARDECL( opus_int16, Wsig );
+    opus_int16 Wsig[ FIND_PITCH_LPC_WIN_MAX ];
     opus_int16 *Wsig_ptr;
     opus_int32 auto_corr[ MAX_FIND_PITCH_LPC_ORDER + 1 ];
     opus_int16 rc_Q15[    MAX_FIND_PITCH_LPC_ORDER ];
     opus_int32 A_Q24[     MAX_FIND_PITCH_LPC_ORDER ];
     opus_int16 A_Q12[     MAX_FIND_PITCH_LPC_ORDER ];
-    SAVE_STACK;
 
     /******************************************/
     /* Set up buffer lengths etc based on Fs  */
@@ -63,8 +62,6 @@ void silk_find_pitch_lags_FIX(
     /*************************************/
 
     /* Calculate windowed signal */
-
-    ALLOC( Wsig, psEnc->sCmn.pitch_LPC_win_length, opus_int16 );
 
     /* First LA_LTP samples */
     x_ptr = x + buf_len - psEnc->sCmn.pitch_LPC_win_length;
@@ -82,7 +79,7 @@ void silk_find_pitch_lags_FIX(
     silk_apply_sine_window( Wsig_ptr, x_ptr, 2, psEnc->sCmn.la_pitch );
 
     /* Calculate autocorrelation sequence */
-    silk_autocorr( auto_corr, &scale, Wsig, psEnc->sCmn.pitch_LPC_win_length, psEnc->sCmn.pitchEstimationLPCOrder + 1, arch );
+    silk_autocorr( auto_corr, &scale, Wsig, psEnc->sCmn.pitch_LPC_win_length, psEnc->sCmn.pitchEstimationLPCOrder + 1, arch, scratch );
 
     /* Add white noise, as fraction of energy */
     auto_corr[ 0 ] = silk_SMLAWB( auto_corr[ 0 ], auto_corr[ 0 ], SILK_FIX_CONST( FIND_PITCH_WHITE_NOISE_FRACTION, 16 ) ) + 1;
@@ -124,7 +121,7 @@ void silk_find_pitch_lags_FIX(
         if( silk_pitch_analysis_core( res, psEncCtrl->pitchL, &psEnc->sCmn.indices.lagIndex, &psEnc->sCmn.indices.contourIndex,
                 &psEnc->LTPCorr_Q15, psEnc->sCmn.prevLag, psEnc->sCmn.pitchEstimationThreshold_Q16,
                 (opus_int)thrhld_Q13, psEnc->sCmn.fs_kHz, psEnc->sCmn.pitchEstimationComplexity, psEnc->sCmn.nb_subfr,
-                psEnc->sCmn.arch) == 0 )
+                psEnc->sCmn.arch, scratch) == 0 )
         {
             psEnc->sCmn.indices.signalType = TYPE_VOICED;
         } else {
@@ -136,5 +133,4 @@ void silk_find_pitch_lags_FIX(
         psEnc->sCmn.indices.contourIndex = 0;
         psEnc->LTPCorr_Q15 = 0;
     }
-    RESTORE_STACK;
 }

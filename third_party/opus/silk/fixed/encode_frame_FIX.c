@@ -36,7 +36,9 @@ static OPUS_INLINE void silk_LBRR_encode_FIX(
     silk_encoder_state_FIX          *psEnc,                                 /* I/O  Pointer to Silk FIX encoder state                                           */
     silk_encoder_control_FIX        *psEncCtrl,                             /* I/O  Pointer to Silk FIX encoder control struct                                  */
     const opus_int16                x16[],                                  /* I    Input signal                                                                */
-    opus_int                        condCoding                              /* I    The type of conditional coding used so far for this frame                   */
+    opus_int                        condCoding,                             /* I    The type of conditional coding used so far for this frame                   */
+    silk_nsq_state                  *sNSQ_LBRR,                             /* O    Scratch NSQ state                                                           */
+    char                            *scratch                                /* I    Scratch arena                                                               */
 );
 
 void silk_encode_do_VAD_FIX(
@@ -49,7 +51,7 @@ void silk_encode_do_VAD_FIX(
     /****************************/
     /* Voice Activity Detection */
     /****************************/
-    silk_VAD_GetSA_Q8( &psEnc->sCmn, psEnc->sCmn.inputBuf + 1, psEnc->sCmn.arch );
+    silk_VAD_GetSA_Q8( &psEnc->sCmn, psEnc->sCmn.inputBuf + 1 );
     /* If Opus VAD is inactive and Silk VAD is active: lower Silk VAD to just under the threshold */
     if( activity == VAD_NO_ACTIVITY && psEnc->sCmn.speech_activity_Q8 >= activity_threshold ) {
         psEnc->sCmn.speech_activity_Q8 = activity_threshold - 1;
@@ -85,7 +87,8 @@ opus_int silk_encode_frame_FIX(
     ec_enc                          *psRangeEnc,                            /* I/O  compressor data structure                                                   */
     opus_int                        condCoding,                             /* I    The type of conditional coding to use                                       */
     opus_int                        maxBits,                                /* I    If > 0: maximum number of output bits                                       */
-    opus_int                        useCBR                                  /* I    Flag to force constant-bitrate operation                                    */
+    opus_int                        useCBR,                                 /* I    Flag to force constant-bitrate operation                                    */
+    char                            *scratch                                /* I    Scratch arena                                                               */
 )
 {
     silk_encoder_control_FIX sEncCtrl;
@@ -146,12 +149,12 @@ opus_int silk_encode_frame_FIX(
         /*****************************************/
         /* Find pitch lags, initial LPC analysis */
         /*****************************************/
-        silk_find_pitch_lags_FIX( psEnc, &sEncCtrl, res_pitch, x_frame - psEnc->sCmn.ltp_mem_length, psEnc->sCmn.arch );
+        silk_find_pitch_lags_FIX( psEnc, &sEncCtrl, res_pitch, x_frame - psEnc->sCmn.ltp_mem_length, psEnc->sCmn.arch, scratch );
 
         /************************/
         /* Noise shape analysis */
         /************************/
-        silk_noise_shape_analysis_FIX( psEnc, &sEncCtrl, res_pitch_frame, x_frame, psEnc->sCmn.arch );
+        silk_noise_shape_analysis_FIX( psEnc, &sEncCtrl, res_pitch_frame, x_frame, psEnc->sCmn.arch, scratch );
 
         /***************************************************/
         /* Find linear prediction coefficients (LPC + LTP) */
@@ -166,7 +169,7 @@ opus_int silk_encode_frame_FIX(
         /****************************************/
         /* Low Bitrate Redundant Encoding       */
         /****************************************/
-        silk_LBRR_encode_FIX( psEnc, &sEncCtrl, x_frame, condCoding );
+        silk_LBRR_encode_FIX( psEnc, &sEncCtrl, x_frame, condCoding, &sNSQ_copy[ 0 ], scratch );
 
         /* Loop over quantizer and entropy coding to control bitrate */
         maxIter = 6;
@@ -205,12 +208,12 @@ opus_int silk_encode_frame_FIX(
                     silk_NSQ_del_dec( &psEnc->sCmn, &psEnc->sCmn.sNSQ, &psEnc->sCmn.indices, x_frame, psEnc->sCmn.pulses,
                            sEncCtrl.PredCoef_Q12[ 0 ], sEncCtrl.LTPCoef_Q14, sEncCtrl.AR_Q13, sEncCtrl.HarmShapeGain_Q14,
                            sEncCtrl.Tilt_Q14, sEncCtrl.LF_shp_Q14, sEncCtrl.Gains_Q16, sEncCtrl.pitchL, sEncCtrl.Lambda_Q10, sEncCtrl.LTP_scale_Q14,
-                           psEnc->sCmn.arch );
+                           scratch );
                 } else {
                     silk_NSQ( &psEnc->sCmn, &psEnc->sCmn.sNSQ, &psEnc->sCmn.indices, x_frame, psEnc->sCmn.pulses,
                             sEncCtrl.PredCoef_Q12[ 0 ], sEncCtrl.LTPCoef_Q14, sEncCtrl.AR_Q13, sEncCtrl.HarmShapeGain_Q14,
                             sEncCtrl.Tilt_Q14, sEncCtrl.LF_shp_Q14, sEncCtrl.Gains_Q16, sEncCtrl.pitchL, sEncCtrl.Lambda_Q10, sEncCtrl.LTP_scale_Q14,
-                            psEnc->sCmn.arch);
+                            scratch );
                 }
 
                 if ( iter == maxIter && !found_lower ) {
@@ -390,22 +393,19 @@ static OPUS_INLINE void silk_LBRR_encode_FIX(
     silk_encoder_state_FIX          *psEnc,                                 /* I/O  Pointer to Silk FIX encoder state                                           */
     silk_encoder_control_FIX        *psEncCtrl,                             /* I/O  Pointer to Silk FIX encoder control struct                                  */
     const opus_int16                x16[],                                  /* I    Input signal                                                                */
-    opus_int                        condCoding                              /* I    The type of conditional coding used so far for this frame                   */
+    opus_int                        condCoding,                             /* I    The type of conditional coding used so far for this frame                   */
+    silk_nsq_state                  *sNSQ_LBRR,                             /* O    Scratch NSQ state                                                           */
+    char                            *scratch                                /* I    Scratch arena                                                               */
 )
 {
     opus_int32   TempGains_Q16[ MAX_NB_SUBFR ];
     SideInfoIndices *psIndices_LBRR = &psEnc->sCmn.indices_LBRR[ psEnc->sCmn.nFramesEncoded ];
-    VARDECL(silk_nsq_state, sNSQ_LBRR);
-    SAVE_STACK;
 
     /*******************************************/
     /* Control use of inband LBRR              */
     /*******************************************/
     if( psEnc->sCmn.LBRR_enabled && psEnc->sCmn.speech_activity_Q8 > SILK_FIX_CONST( LBRR_SPEECH_ACTIVITY_THRES, 8 ) ) {
-        /* Using ALLOC() instead of a regular stack allocation to minimize real stack use when using the pseudostack.
-           This is useful on some embedded systems. */
-        ALLOC(sNSQ_LBRR, 1, silk_nsq_state);
-
+        /* sNSQ_LBRR aliases the rate loop's first NSQ state copy, which is filled only after this call */
         psEnc->sCmn.LBRR_flags[ psEnc->sCmn.nFramesEncoded ] = 1;
 
         /* Copy noise shaping quantizer state and quantization indices from regular encoding */
@@ -436,16 +436,15 @@ static OPUS_INLINE void silk_LBRR_encode_FIX(
             silk_NSQ_del_dec( &psEnc->sCmn, &sNSQ_LBRR[0], psIndices_LBRR, x16,
                 psEnc->sCmn.pulses_LBRR[ psEnc->sCmn.nFramesEncoded ], psEncCtrl->PredCoef_Q12[ 0 ], psEncCtrl->LTPCoef_Q14,
                 psEncCtrl->AR_Q13, psEncCtrl->HarmShapeGain_Q14, psEncCtrl->Tilt_Q14, psEncCtrl->LF_shp_Q14,
-                psEncCtrl->Gains_Q16, psEncCtrl->pitchL, psEncCtrl->Lambda_Q10, psEncCtrl->LTP_scale_Q14, psEnc->sCmn.arch );
+                psEncCtrl->Gains_Q16, psEncCtrl->pitchL, psEncCtrl->Lambda_Q10, psEncCtrl->LTP_scale_Q14, scratch );
         } else {
             silk_NSQ( &psEnc->sCmn, &sNSQ_LBRR[0], psIndices_LBRR, x16,
                 psEnc->sCmn.pulses_LBRR[ psEnc->sCmn.nFramesEncoded ], psEncCtrl->PredCoef_Q12[ 0 ], psEncCtrl->LTPCoef_Q14,
                 psEncCtrl->AR_Q13, psEncCtrl->HarmShapeGain_Q14, psEncCtrl->Tilt_Q14, psEncCtrl->LF_shp_Q14,
-                psEncCtrl->Gains_Q16, psEncCtrl->pitchL, psEncCtrl->Lambda_Q10, psEncCtrl->LTP_scale_Q14, psEnc->sCmn.arch );
+                psEncCtrl->Gains_Q16, psEncCtrl->pitchL, psEncCtrl->Lambda_Q10, psEncCtrl->LTP_scale_Q14, scratch );
         }
 
         /* Restore original gains */
         silk_memcpy( psEncCtrl->Gains_Q16, TempGains_Q16, psEnc->sCmn.nb_subfr * sizeof( opus_int32 ) );
     }
-    RESTORE_STACK;
 }

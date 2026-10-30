@@ -37,6 +37,11 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #define SILK_MAX_FRAMES_PER_PACKET  3
 
+/* Scratch arena bytes needed by one silk_Decode / silk_Encode call (the largest sum of simultaneously live
+   ALLOCs along any call path; dec_API.c and enc_API.c prove them with compile-time checks). */
+#define SILK_DECODER_SCRATCH_BYTES  5200
+#define SILK_ENCODER_SCRATCH_BYTES  20848
+
 /* Struct for TOC (Table of Contents) */
 typedef struct {
     opus_int    VADFlag;                                /* Voice activity for packet                            */
@@ -79,7 +84,8 @@ opus_int silk_Encode(                                   /* O    Returns error co
     ec_enc                          *psRangeEnc,        /* I/O  Compressor data structure                       */
     opus_int32                      *nBytesOut,         /* I/O  Number of bytes in payload (input: Max bytes)   */
     const opus_int                  prefillFlag,        /* I    Flag to indicate prefilling buffers no coding   */
-    int                             activity            /* I    Decision of Opus voice activity detector        */
+    int                             activity,           /* I    Decision of Opus voice activity detector        */
+    char                            *scratch            /* I    Scratch arena                                   */
 );
 
 /****************************************/
@@ -125,7 +131,8 @@ opus_int silk_Decode(                                   /* O    Returns error co
     ec_dec                          *psRangeDec,        /* I/O  Compressor data structure                       */
     opus_res                        *samplesOut,        /* O    Decoded output speech vector                    */
     opus_int32                      *nSamplesOut,       /* O    Number of samples decoded                       */
-    int                             arch                /* I    Run-time architecture                           */
+    int                             arch,               /* I    Run-time architecture                           */
+    char                            *scratch            /* I    Scratch arena                                   */
 );
 
 

@@ -57,7 +57,10 @@ NotificationAudioResult notification_audio_mixer_add(NotificationAudioMixer* m,u
     m->voices[m->count++]={clip,position+clip.silence_frames,gain};return {};
 }
 u32 notification_audio_mixer_voices_rate(const NotificationAudioMixer& m,u32 rate) noexcept {
-    if(!rate_valid(rate))return 0;u32 count{};for(u32 i=0;i<m.count;++i)if(m.voices[i].clip.sample_rate==rate)++count;return count;
+    if(!rate_valid(rate))return 0;u32 count{};
+#pragma clang loop vectorize(disable) unroll(disable)
+    for(u32 i=0;i<m.count;++i)if(m.voices[i].clip.sample_rate==rate)++count;
+    return count;
 }
 u32 notification_audio_mixer_needed_rate(const NotificationAudioMixer& m,u32 rate) noexcept {
     if(!rate_valid(rate))return 0;const u64 position=submitted(m,rate);u64 end=position;

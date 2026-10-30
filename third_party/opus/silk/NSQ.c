@@ -30,6 +30,10 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "stack_alloc.h"
 #include "NSQ.h"
 
+_Static_assert( SILK_NSQ_SCRATCH_BYTES >=
+    SCRATCH_BYTES( LTP_MEM_LENGTH_MS * MAX_FS_KHZ + MAX_FRAME_LENGTH, opus_int32 ) +
+    SCRATCH_BYTES( LTP_MEM_LENGTH_MS * MAX_FS_KHZ + MAX_FRAME_LENGTH, opus_int16 ) +
+    SCRATCH_BYTES( MAX_SUB_FRAME_LENGTH, opus_int32 ), "silk_NSQ scratch" );
 
 static OPUS_INLINE void silk_nsq_scale_states(
     const silk_encoder_state *psEncC,           /* I    Encoder State                   */
@@ -45,7 +49,6 @@ static OPUS_INLINE void silk_nsq_scale_states(
     const opus_int      signal_type             /* I    Signal type                     */
 );
 
-#if !defined(OPUS_X86_MAY_HAVE_SSE4_1)
 static OPUS_INLINE void silk_noise_shape_quantizer(
     silk_nsq_state      *NSQ,                   /* I/O  NSQ state                       */
     opus_int            signalType,             /* I    Signal type                     */
@@ -68,9 +71,8 @@ static OPUS_INLINE void silk_noise_shape_quantizer(
     opus_int            predictLPCOrder,        /* I    Prediction filter order         */
     int                 arch                    /* I    Architecture                    */
 );
-#endif
 
-void silk_NSQ_c
+void silk_NSQ
 (
     const silk_encoder_state    *psEncC,                                      /* I    Encoder State                   */
     silk_nsq_state              *NSQ,                                         /* I/O  NSQ state                       */
@@ -86,7 +88,8 @@ void silk_NSQ_c
     const opus_int32            Gains_Q16[ MAX_NB_SUBFR ],                    /* I    Quantization step sizes         */
     const opus_int              pitchL[ MAX_NB_SUBFR ],                       /* I    Pitch lags                      */
     const opus_int              Lambda_Q10,                                   /* I    Rate/distortion tradeoff        */
-    const opus_int              LTP_scale_Q14                                 /* I    LTP state scaling               */
+    const opus_int              LTP_scale_Q14,                                /* I    LTP state scaling               */
+    char                        *scratch                                      /* I    Scratch arena                   */
 )
 {
     opus_int            k, lag, start_idx, LSF_interpolation_flag;
@@ -174,10 +177,7 @@ void silk_NSQ_c
 /* silk_noise_shape_quantizer */
 /******************************/
 
-#if !defined(OPUS_X86_MAY_HAVE_SSE4_1)
-static OPUS_INLINE
-#endif
-void silk_noise_shape_quantizer(
+static OPUS_INLINE void silk_noise_shape_quantizer(
     silk_nsq_state      *NSQ,                   /* I/O  NSQ state                       */
     opus_int            signalType,             /* I    Signal type                     */
     const opus_int32    x_sc_Q10[],             /* I                                    */

@@ -49,6 +49,12 @@ typedef struct {
     opus_int32 RD_Q10;
 } NSQ_del_dec_struct;
 
+_Static_assert( SILK_NSQ_SCRATCH_BYTES >=
+    SCRATCH_BYTES( MAX_DEL_DEC_STATES, NSQ_del_dec_struct ) +
+    SCRATCH_BYTES( LTP_MEM_LENGTH_MS * MAX_FS_KHZ + MAX_FRAME_LENGTH, opus_int32 ) +
+    SCRATCH_BYTES( LTP_MEM_LENGTH_MS * MAX_FS_KHZ + MAX_FRAME_LENGTH, opus_int16 ) +
+    SCRATCH_BYTES( MAX_SUB_FRAME_LENGTH, opus_int32 ) + SCRATCH_BYTES( DECISION_DELAY, opus_int32 ), "silk_NSQ_del_dec_sse4_1 scratch" );
+
 typedef struct {
     opus_int32 Q_Q10;
     opus_int32 RD_Q10;
@@ -77,6 +83,43 @@ static OPUS_INLINE void silk_nsq_del_dec_scale_states_sse4_1(
     const opus_int      signal_type,                /* I    Signal type                         */
     const opus_int      decisionDelay               /* I    Decision delay                      */
 );
+
+/* The two quantization levels around a residual with q1_Q0 = floor( ( r - offset ) / 1024 ) and their rate
+   terms, for q1_Q0 = -32 .. 31 (index q1_Q0 + 32): q1_Q10, q2_Q10, rd1_Q10, rd2_Q10 */
+static OPUS_INLINE void silk_nsq_candidate_table( opus_int32 table[ 64 ][ 4 ], opus_int32 offset_Q10, opus_int32 Lambda_Q10 )
+{
+    opus_int i;
+    for( i = -32; i < 32; i++ ) {
+        opus_int32 q1_Q10, q2_Q10, rd1_Q10, rd2_Q10;
+        if( i > 0 ) {
+            q1_Q10  = silk_SUB32( silk_LSHIFT( i, 10 ), QUANT_LEVEL_ADJUST_Q10 );
+            q1_Q10  = silk_ADD32( q1_Q10, offset_Q10 );
+            q2_Q10  = silk_ADD32( q1_Q10, 1024 );
+            rd1_Q10 = silk_SMULBB( q1_Q10, Lambda_Q10 );
+            rd2_Q10 = silk_SMULBB( q2_Q10, Lambda_Q10 );
+        } else if( i == 0 ) {
+            q1_Q10  = offset_Q10;
+            q2_Q10  = silk_ADD32( q1_Q10, 1024 - QUANT_LEVEL_ADJUST_Q10 );
+            rd1_Q10 = silk_SMULBB( q1_Q10, Lambda_Q10 );
+            rd2_Q10 = silk_SMULBB( q2_Q10, Lambda_Q10 );
+        } else if( i == -1 ) {
+            q2_Q10  = offset_Q10;
+            q1_Q10  = silk_SUB32( q2_Q10, 1024 - QUANT_LEVEL_ADJUST_Q10 );
+            rd1_Q10 = silk_SMULBB( -q1_Q10, Lambda_Q10 );
+            rd2_Q10 = silk_SMULBB(  q2_Q10, Lambda_Q10 );
+        } else {
+            q1_Q10  = silk_ADD32( silk_LSHIFT( i, 10 ), QUANT_LEVEL_ADJUST_Q10 );
+            q1_Q10  = silk_ADD32( q1_Q10, offset_Q10 );
+            q2_Q10  = silk_ADD32( q1_Q10, 1024 );
+            rd1_Q10 = silk_SMULBB( -q1_Q10, Lambda_Q10 );
+            rd2_Q10 = silk_SMULBB( -q2_Q10, Lambda_Q10 );
+        }
+        table[ i + 32 ][ 0 ] = q1_Q10;
+        table[ i + 32 ][ 1 ] = q2_Q10;
+        table[ i + 32 ][ 2 ] = rd1_Q10;
+        table[ i + 32 ][ 3 ] = rd2_Q10;
+    }
+}
 
 /******************************************/
 /* Noise shape quantizer for one subframe */
@@ -107,10 +150,11 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
     opus_int            warping_Q16,            /* I                                        */
     opus_int            nStatesDelayedDecision, /* I    Number of states in decision tree   */
     opus_int            *smpl_buf_idx,          /* I/O  Index to newest samples in buffers  */
-    opus_int            decisionDelay           /* I                                        */
+    opus_int            decisionDelay,          /* I                                        */
+    const opus_int32    table[][ 4 ]            /* I    Quantization candidates by q1_Q0    */
 );
 
-void silk_NSQ_del_dec_sse4_1(
+void silk_NSQ_del_dec(
     const silk_encoder_state    *psEncC,                                      /* I    Encoder State                   */
     silk_nsq_state              *NSQ,                                         /* I/O  NSQ state                       */
     SideInfoIndices             *psIndices,                                   /* I/O  Quantization Indices            */
@@ -125,7 +169,8 @@ void silk_NSQ_del_dec_sse4_1(
     const opus_int32            Gains_Q16[ MAX_NB_SUBFR ],                    /* I    Quantization step sizes         */
     const opus_int              pitchL[ MAX_NB_SUBFR ],                       /* I    Pitch lags                      */
     const opus_int              Lambda_Q10,                                   /* I    Rate/distortion tradeoff        */
-    const opus_int              LTP_scale_Q14                                 /* I    LTP state scaling               */
+    const opus_int              LTP_scale_Q14,                                /* I    LTP state scaling               */
+    char                        *scratch                                      /* I    Scratch arena                   */
 )
 {
     opus_int            i, k, lag, start_idx, LSF_interpolation_flag, Winner_ind, subfr;
@@ -136,6 +181,7 @@ void silk_NSQ_del_dec_sse4_1(
     VARDECL( opus_int16, sLTP );
     opus_int32          HarmShapeFIRPacked_Q14;
     opus_int            offset_Q10;
+    opus_int32          table[ 64 ][ 4 ];
     opus_int32          RDmin_Q10, Gain_Q10;
     VARDECL( opus_int32, x_sc_Q10 );
     VARDECL( opus_int32, delayedGain_Q10 );
@@ -195,6 +241,7 @@ void silk_NSQ_del_dec_sse4_1(
     NSQ->sLTP_shp_buf_idx = psEncC->ltp_mem_length;
     NSQ->sLTP_buf_idx     = psEncC->ltp_mem_length;
     subfr = 0;
+    silk_nsq_candidate_table( table, offset_Q10, Lambda_Q10 );
     for( k = 0; k < psEncC->nb_subfr; k++ ) {
         A_Q12      = &PredCoef_Q12[ ( ( k >> 1 ) | ( 1 - LSF_interpolation_flag ) ) * MAX_LPC_ORDER ];
         B_Q14      = &LTPCoef_Q14[ k * LTP_ORDER           ];
@@ -263,7 +310,7 @@ void silk_NSQ_del_dec_sse4_1(
         silk_noise_shape_quantizer_del_dec_sse4_1( NSQ, psDelDec, psIndices->signalType, x_sc_Q10, pulses, pxq, sLTP_Q15,
             delayedGain_Q10, A_Q12, B_Q14, AR_shp_Q13, lag, HarmShapeFIRPacked_Q14, Tilt_Q14[ k ], LF_shp_Q14[ k ],
             Gains_Q16[ k ], Lambda_Q10, offset_Q10, psEncC->subfr_length, subfr++, psEncC->shapingLPCOrder,
-            psEncC->predictLPCOrder, psEncC->warping_Q16, psEncC->nStatesDelayedDecision, &smpl_buf_idx, decisionDelay );
+            psEncC->predictLPCOrder, psEncC->warping_Q16, psEncC->nStatesDelayedDecision, &smpl_buf_idx, decisionDelay, &table[ 32 ] );
 
         x16    += psEncC->subfr_length;
         pulses += psEncC->subfr_length;
@@ -310,6 +357,65 @@ void silk_NSQ_del_dec_sse4_1(
     RESTORE_STACK;
 }
 
+/* The warped noise shaping filter (a chain of allpass sections) of every delayed-decision state. The sections of
+   one state depend on each other in sequence, the states are independent: running them side by side overlaps
+   the latencies. The outputs of the sections are the new state, and n_AR is the sum of silk_SMLAWB( state, coef )
+   over them: one vector dot product per state instead of a multiply-add in every section. AR_Q13 holds the
+   coefficients as int32 lanes, zero past the order. Returns n_AR_Q14 (Q14) per state. */
+static OPUS_INLINE void silk_nsq_warped_shaping_sse4_1(
+    NSQ_del_dec_struct  psDelDec[],
+    const opus_int      ns,
+    const __m128i       AR_Q13[],
+    const opus_int      order,
+    const opus_int      warping_Q16,
+    const opus_int      Tilt_Q14,
+    opus_int32          n_AR_Q14[]
+)
+{
+    opus_int32 tmp1[ MAX_DEL_DEC_STATES ];
+    opus_int   j, k;
+
+    for( k = 0; k < ns; k++ ) {
+        NSQ_del_dec_struct *psDD = &psDelDec[ k ];
+        /* Output of lowpass section */
+        const opus_int32 tmp2 = silk_SMLAWB( psDD->Diff_Q14, psDD->sAR2_Q14[ 0 ], warping_Q16 );
+        /* Output of allpass section */
+        tmp1[ k ] = silk_SMLAWB( psDD->sAR2_Q14[ 0 ], silk_SUB32_ovflw( psDD->sAR2_Q14[ 1 ], tmp2 ), warping_Q16 );
+        psDD->sAR2_Q14[ 0 ] = tmp2;
+    }
+    /* Loop over allpass sections */
+    for( j = 2; j < order; j += 2 ) {
+        for( k = 0; k < ns; k++ ) {
+            NSQ_del_dec_struct *psDD = &psDelDec[ k ];
+            const opus_int32 t1 = tmp1[ k ];
+            /* Output of allpass section */
+            const opus_int32 t2 = silk_SMLAWB( psDD->sAR2_Q14[ j - 1 ], silk_SUB32_ovflw( psDD->sAR2_Q14[ j + 0 ], t1 ), warping_Q16 );
+            psDD->sAR2_Q14[ j - 1 ] = t1;
+            /* Output of allpass section */
+            tmp1[ k ] = silk_SMLAWB( psDD->sAR2_Q14[ j + 0 ], silk_SUB32_ovflw( psDD->sAR2_Q14[ j + 1 ], t2 ), warping_Q16 );
+            psDD->sAR2_Q14[ j + 0 ] = t2;
+        }
+    }
+    for( k = 0; k < ns; k++ ) {
+        NSQ_del_dec_struct *psDD = &psDelDec[ k ];
+        __m128i acc = _mm_setzero_si128();
+        opus_int32 n;
+        psDD->sAR2_Q14[ order - 1 ] = tmp1[ k ];
+        for( j = 0; j < order; j += 4 ) {
+            const __m128i v = _mm_loadu_si128( (const __m128i *)(const void *)&psDD->sAR2_Q14[ j ] );
+            const __m128i c = AR_Q13[ j >> 2 ];
+            acc = _mm_add_epi32( acc, _mm_srli_epi64( _mm_mul_epi32( v, c ), 16 ) );
+            acc = _mm_add_epi32( acc, _mm_srli_epi64( _mm_mul_epi32( _mm_srli_epi64( v, 32 ), _mm_srli_epi64( c, 32 ) ), 16 ) );
+        }
+        acc = _mm_add_epi32( acc, _mm_shuffle_epi32( acc, 0x4E ) );
+        n = silk_ADD32_ovflw( silk_RSHIFT( order, 1 ), _mm_cvtsi128_si32( acc ) );
+
+        n = silk_LSHIFT( n, 1 );                                                /* Q11 -> Q12 */
+        n = silk_SMLAWB( n, psDD->LF_AR_Q14, Tilt_Q14 );                        /* Q12 */
+        n_AR_Q14[ k ] = silk_LSHIFT( n, 2 );                                    /* Q12 -> Q14 */
+    }
+}
+
 /******************************************/
 /* Noise shape quantizer for one subframe */
 /******************************************/
@@ -339,7 +445,8 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
     opus_int            warping_Q16,            /* I                                        */
     opus_int            nStatesDelayedDecision, /* I    Number of states in decision tree   */
     opus_int            *smpl_buf_idx,          /* I/O  Index to newest samples in buffers  */
-    opus_int            decisionDelay           /* I                                        */
+    opus_int            decisionDelay,          /* I                                        */
+    const opus_int32    table[][ 4 ]            /* I    Quantization candidates by q1_Q0    */
 )
 {
     opus_int     i, j, k, Winner_ind, RDmin_ind, RDmax_ind, last_smple_idx;
@@ -347,20 +454,20 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
     opus_int32   LTP_pred_Q14, LPC_pred_Q14, n_AR_Q14, n_LTP_Q14;
     opus_int32   n_LF_Q14, r_Q10, rr_Q10, rd1_Q10, rd2_Q10, RDmin_Q10, RDmax_Q10;
     opus_int32   q1_Q0, q1_Q10, q2_Q10, exc_Q14, LPC_exc_Q14, xq_Q14, Gain_Q10;
-    opus_int32   tmp1, tmp2, sLF_AR_shp_Q14;
+    opus_int32   tmp1, tmp2, sLF_AR_shp_Q14, dither_mask, swap_mask;
     opus_int32   *pred_lag_ptr, *shp_lag_ptr, *psLPC_Q14;
     int rdo_offset;
+    __m128i ar_Q13[ MAX_SHAPE_LPC_ORDER / 4 ];
+    opus_int16 ar_pad[ MAX_SHAPE_LPC_ORDER ];
 
-    VARDECL( NSQ_sample_pair, psSampleState );
+    NSQ_sample_pair psSampleState[ MAX_DEL_DEC_STATES ];
     NSQ_del_dec_struct *psDD;
     NSQ_sample_struct  *psSS;
 
     __m128i a_Q12_0123, a_Q12_4567, a_Q12_89AB, a_Q12_CDEF;
     __m128i b_Q12_0123, b_sr_Q12_0123;
-    SAVE_STACK;
 
     celt_assert( nStatesDelayedDecision > 0 );
-    ALLOC( psSampleState, nStatesDelayedDecision, NSQ_sample_pair );
 
     rdo_offset = (Lambda_Q10 >> 1) - 512;
 
@@ -374,6 +481,13 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
     if( opus_likely( predictLPCOrder == 16 ) ) {
         a_Q12_89AB = OP_CVTEPI16_EPI32_M64( a_Q12 + 8 );
         a_Q12_CDEF = OP_CVTEPI16_EPI32_M64( a_Q12 + 12 );
+    }
+
+    /* The noise shaping coefficients as int32 lanes, zero past the order */
+    silk_memcpy( ar_pad, AR_shp_Q13, shapingLPCOrder * sizeof( opus_int16 ) );
+    silk_memset( &ar_pad[ shapingLPCOrder ], 0, ( MAX_SHAPE_LPC_ORDER - shapingLPCOrder ) * sizeof( opus_int16 ) );
+    for( j = 0; j < MAX_SHAPE_LPC_ORDER; j += 4 ) {
+        ar_Q13[ j >> 2 ] = OP_CVTEPI16_EPI32_M64( ar_pad + j );
     }
 
     if( signalType == TYPE_VOICED ){
@@ -424,13 +538,11 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
         }
         {
             __m128i tmpa, tmpb, psLPC_Q14_tmp, a_Q12_tmp;
+            opus_int32 LPC_pred_Q14_k[ MAX_DEL_DEC_STATES ], n_AR_Q14_k[ MAX_DEL_DEC_STATES ];
 
             for( k = 0; k < nStatesDelayedDecision; k++ ) {
                 /* Delayed decision state */
                 psDD = &psDelDec[ k ];
-
-                /* Sample state */
-                psSS = psSampleState[ k ];
 
                 /* Generate dither */
                 psDD->Seed = silk_RAND( psDD->Seed );
@@ -516,34 +628,21 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
                     LPC_pred_Q14 = silk_SMLAWB( LPC_pred_Q14, psLPC_Q14[ -9 ], a_Q12[ 9 ] );
                 }
 
-                LPC_pred_Q14 = silk_LSHIFT( LPC_pred_Q14, 4 ); /* Q10 -> Q14 */
+                LPC_pred_Q14_k[ k ] = silk_LSHIFT( LPC_pred_Q14, 4 );                      /* Q10 -> Q14 */
+            }
 
-                /* Noise shape feedback */
-                celt_assert( ( shapingLPCOrder & 1 ) == 0 );   /* check that order is even */
-                /* Output of lowpass section */
-                tmp2 = silk_SMLAWB( psDD->Diff_Q14, psDD->sAR2_Q14[ 0 ], warping_Q16 );
-                /* Output of allpass section */
-                tmp1 = silk_SMLAWB( psDD->sAR2_Q14[ 0 ], silk_SUB32_ovflw(psDD->sAR2_Q14[ 1 ], tmp2), warping_Q16 );
-                psDD->sAR2_Q14[ 0 ] = tmp2;
-                n_AR_Q14 = silk_RSHIFT( shapingLPCOrder, 1 );
-                n_AR_Q14 = silk_SMLAWB( n_AR_Q14, tmp2, AR_shp_Q13[ 0 ] );
-                /* Loop over allpass sections */
-                for( j = 2; j < shapingLPCOrder; j += 2 ) {
-                    /* Output of allpass section */
-                    tmp2 = silk_SMLAWB( psDD->sAR2_Q14[ j - 1 ], silk_SUB32_ovflw(psDD->sAR2_Q14[ j + 0 ], tmp1), warping_Q16 );
-                    psDD->sAR2_Q14[ j - 1 ] = tmp1;
-                    n_AR_Q14 = silk_SMLAWB( n_AR_Q14, tmp1, AR_shp_Q13[ j - 1 ] );
-                    /* Output of allpass section */
-                    tmp1 = silk_SMLAWB( psDD->sAR2_Q14[ j + 0 ], silk_SUB32_ovflw(psDD->sAR2_Q14[ j + 1 ], tmp2), warping_Q16 );
-                    psDD->sAR2_Q14[ j + 0 ] = tmp2;
-                    n_AR_Q14 = silk_SMLAWB( n_AR_Q14, tmp2, AR_shp_Q13[ j ] );
-                }
-                psDD->sAR2_Q14[ shapingLPCOrder - 1 ] = tmp1;
-                n_AR_Q14 = silk_SMLAWB( n_AR_Q14, tmp1, AR_shp_Q13[ shapingLPCOrder - 1 ] );
+            /* Noise shape feedback of every state */
+            celt_assert( ( shapingLPCOrder & 1 ) == 0 );   /* check that order is even */
+            silk_nsq_warped_shaping_sse4_1( psDelDec, nStatesDelayedDecision, ar_Q13, shapingLPCOrder, warping_Q16, Tilt_Q14, n_AR_Q14_k );
 
-                n_AR_Q14 = silk_LSHIFT( n_AR_Q14, 1 );                                      /* Q11 -> Q12 */
-                n_AR_Q14 = silk_SMLAWB( n_AR_Q14, psDD->LF_AR_Q14, Tilt_Q14 );              /* Q12 */
-                n_AR_Q14 = silk_LSHIFT( n_AR_Q14, 2 );                                      /* Q12 -> Q14 */
+            for( k = 0; k < nStatesDelayedDecision; k++ ) {
+                /* Delayed decision state */
+                psDD = &psDelDec[ k ];
+
+                /* Sample state */
+                psSS = psSampleState[ k ];
+                LPC_pred_Q14 = LPC_pred_Q14_k[ k ];
+                n_AR_Q14 = n_AR_Q14_k[ k ];
 
                 n_LF_Q14 = silk_SMULWB( psDD->Shape_Q14[ *smpl_buf_idx ], LF_shp_Q14 );     /* Q12 */
                 n_LF_Q14 = silk_SMLAWT( n_LF_Q14, psDD->LF_AR_Q14, LF_shp_Q14 );            /* Q12 */
@@ -559,9 +658,8 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
                 r_Q10 = silk_SUB32( x_Q10[ i ], tmp1 );                                     /* residual error Q10 */
 
                 /* Flip sign depending on dither */
-                if ( psDD->Seed < 0 ) {
-                    r_Q10 = -r_Q10;
-                }
+                dither_mask = psDD->Seed >> 31;
+                r_Q10 = ( r_Q10 ^ dither_mask ) - dither_mask;
                 r_Q10 = silk_LIMIT_32( r_Q10, -(31 << 10), 30 << 10 );
 
                 /* Find two quantization level candidates and measure their rate-distortion */
@@ -569,63 +667,31 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
                 q1_Q0 = silk_RSHIFT( q1_Q10, 10 );
                 if (Lambda_Q10 > 2048) {
                     /* For aggressive RDO, the bias becomes more than one pulse. */
-                    if (q1_Q10 > rdo_offset) {
-                        q1_Q0 = silk_RSHIFT( q1_Q10 - rdo_offset, 10 );
-                    } else if (q1_Q10 < -rdo_offset) {
-                        q1_Q0 = silk_RSHIFT( q1_Q10 + rdo_offset, 10 );
-                    } else if (q1_Q10 < 0) {
-                        q1_Q0 = -1;
-                    } else {
-                        q1_Q0 = 0;
-                    }
+                    q1_Q0 = q1_Q10 > rdo_offset ? q1_Q10 - rdo_offset :
+                            q1_Q10 < -rdo_offset ? q1_Q10 + rdo_offset : q1_Q10 < 0 ? -1024 : 0;
+                    q1_Q0 = silk_RSHIFT( q1_Q0, 10 );
                 }
-                if( q1_Q0 > 0 ) {
-                    q1_Q10  = silk_SUB32( silk_LSHIFT( q1_Q0, 10 ), QUANT_LEVEL_ADJUST_Q10 );
-                    q1_Q10  = silk_ADD32( q1_Q10, offset_Q10 );
-                    q2_Q10  = silk_ADD32( q1_Q10, 1024 );
-                    rd1_Q10 = silk_SMULBB( q1_Q10, Lambda_Q10 );
-                    rd2_Q10 = silk_SMULBB( q2_Q10, Lambda_Q10 );
-                } else if( q1_Q0 == 0 ) {
-                    q1_Q10  = offset_Q10;
-                    q2_Q10  = silk_ADD32( q1_Q10, 1024 - QUANT_LEVEL_ADJUST_Q10 );
-                    rd1_Q10 = silk_SMULBB( q1_Q10, Lambda_Q10 );
-                    rd2_Q10 = silk_SMULBB( q2_Q10, Lambda_Q10 );
-                } else if( q1_Q0 == -1 ) {
-                    q2_Q10  = offset_Q10;
-                    q1_Q10  = silk_SUB32( q2_Q10, 1024 - QUANT_LEVEL_ADJUST_Q10 );
-                    rd1_Q10 = silk_SMULBB( -q1_Q10, Lambda_Q10 );
-                    rd2_Q10 = silk_SMULBB(  q2_Q10, Lambda_Q10 );
-                } else {            /* q1_Q0 < -1 */
-                    q1_Q10  = silk_ADD32( silk_LSHIFT( q1_Q0, 10 ), QUANT_LEVEL_ADJUST_Q10 );
-                    q1_Q10  = silk_ADD32( q1_Q10, offset_Q10 );
-                    q2_Q10  = silk_ADD32( q1_Q10, 1024 );
-                    rd1_Q10 = silk_SMULBB( -q1_Q10, Lambda_Q10 );
-                    rd2_Q10 = silk_SMULBB( -q2_Q10, Lambda_Q10 );
-                }
+                q1_Q10  = table[ q1_Q0 ][ 0 ];
+                q2_Q10  = table[ q1_Q0 ][ 1 ];
+                rd1_Q10 = table[ q1_Q0 ][ 2 ];
+                rd2_Q10 = table[ q1_Q0 ][ 3 ];
                 rr_Q10  = silk_SUB32( r_Q10, q1_Q10 );
                 rd1_Q10 = silk_RSHIFT( silk_SMLABB( rd1_Q10, rr_Q10, rr_Q10 ), 10 );
                 rr_Q10  = silk_SUB32( r_Q10, q2_Q10 );
                 rd2_Q10 = silk_RSHIFT( silk_SMLABB( rd2_Q10, rr_Q10, rr_Q10 ), 10 );
 
-                if( rd1_Q10 < rd2_Q10 ) {
-                    psSS[ 0 ].RD_Q10 = silk_ADD32( psDD->RD_Q10, rd1_Q10 );
-                    psSS[ 1 ].RD_Q10 = silk_ADD32( psDD->RD_Q10, rd2_Q10 );
-                    psSS[ 0 ].Q_Q10  = q1_Q10;
-                    psSS[ 1 ].Q_Q10  = q2_Q10;
-                } else {
-                    psSS[ 0 ].RD_Q10 = silk_ADD32( psDD->RD_Q10, rd2_Q10 );
-                    psSS[ 1 ].RD_Q10 = silk_ADD32( psDD->RD_Q10, rd1_Q10 );
-                    psSS[ 0 ].Q_Q10  = q2_Q10;
-                    psSS[ 1 ].Q_Q10  = q1_Q10;
-                }
+                /* The better candidate first; on a tie the second one wins */
+                swap_mask = -( rd1_Q10 < rd2_Q10 );
+                psSS[ 0 ].RD_Q10 = silk_ADD32( psDD->RD_Q10, silk_min_32( rd1_Q10, rd2_Q10 ) );
+                psSS[ 1 ].RD_Q10 = silk_ADD32( psDD->RD_Q10, silk_max_32( rd1_Q10, rd2_Q10 ) );
+                psSS[ 0 ].Q_Q10  = q2_Q10 ^ ( ( q1_Q10 ^ q2_Q10 ) & swap_mask );
+                psSS[ 1 ].Q_Q10  = q1_Q10 ^ ( ( q1_Q10 ^ q2_Q10 ) & swap_mask );
 
                 /* Update states for best quantization */
 
                 /* Quantized excitation */
                 exc_Q14 = silk_LSHIFT32( psSS[ 0 ].Q_Q10, 4 );
-                if ( psDD->Seed < 0 ) {
-                    exc_Q14 = -exc_Q14;
-                }
+                exc_Q14 = ( exc_Q14 ^ dither_mask ) - dither_mask;
 
                 /* Add predictions */
                 LPC_exc_Q14 = silk_ADD32( exc_Q14, LTP_pred_Q14 );
@@ -643,9 +709,7 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
 
                 /* Quantized excitation */
                 exc_Q14 = silk_LSHIFT32( psSS[ 1 ].Q_Q10, 4 );
-                if ( psDD->Seed < 0 ) {
-                    exc_Q14 = -exc_Q14;
-                }
+                exc_Q14 = ( exc_Q14 ^ dither_mask ) - dither_mask;
 
                 /* Add predictions */
                 LPC_exc_Q14 = silk_ADD32( exc_Q14, LTP_pred_Q14 );
@@ -743,7 +807,6 @@ static OPUS_INLINE void silk_noise_shape_quantizer_del_dec_sse4_1(
         psDD = &psDelDec[ k ];
         silk_memcpy( psDD->sLPC_Q14, &psDD->sLPC_Q14[ length ], NSQ_LPC_BUF_LENGTH * sizeof( opus_int32 ) );
     }
-    RESTORE_STACK;
 }
 
 static OPUS_INLINE void silk_nsq_del_dec_scale_states_sse4_1(

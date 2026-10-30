@@ -99,7 +99,17 @@ static OPUS_INLINE opus_int32 bitrate_to_bits(opus_int32 bitrate, opus_int32 Fs,
 
 int celt_encoder_get_size(int channels);
 
-int celt_encode_with_ec(OpusCustomEncoder * OPUS_RESTRICT st, const opus_res * pcm, int frame_size, unsigned char *compressed, int nbCompressedBytes, ec_enc *enc);
+int celt_encode_with_ec(OpusCustomEncoder * OPUS_RESTRICT st, const opus_res * pcm, int frame_size, unsigned char *compressed, int nbCompressedBytes, ec_enc *enc, char *scratch);
+
+/* Scratch arena bytes (stack_alloc.h, 16-byte rounded allocations) for frames
+   of up to 960 samples, two channels and the 21-band mode.
+   Encoder: celt_encode_with_ec keeps in (2*1080*4), freq and X (2*960*4 each),
+   five 2-channel band arrays, eight band arrays and the collapse masks (25520),
+   then quant_all_bands with theta RDO takes the band norms (2*800*4), six
+   last-band saves (6*176*4), the byte save (1275) and alg_quant's leaf
+   (179*4 + 2*176*4): 14032. Every earlier callee (prefilter 21280, MDCT
+   7680, ...) needs less at its call point. */
+#define CELT_ENCODER_SCRATCH_BYTES 39552
 
 int celt_encoder_init(CELTEncoder *st, int channels, int arch);
 
@@ -112,7 +122,15 @@ int celt_decoder_get_size(int channels);
 int celt_decoder_init(CELTDecoder *st, opus_int32 sampling_rate, int channels);
 
 int celt_decode_with_ec(OpusCustomDecoder * OPUS_RESTRICT st, const unsigned char *data,
-      int len, opus_res * OPUS_RESTRICT pcm, int frame_size, ec_dec *dec, int accum);
+      int len, opus_res * OPUS_RESTRICT pcm, int frame_size, ec_dec *dec, int accum, char *scratch);
+
+/* Decoder: celt_decode_with_ec keeps X (2*960*4), six band arrays and the
+   collapse masks (8304), then quant_all_bands takes the band norms (2*800*4)
+   and one band leaf (176*4): 15408. Synthesis and deemphasis (960*4) need
+   less; concealment runs before any allocation and peaks at X plus synthesis
+   (11520). The coded channel count C comes from the packet, so a mono
+   decoder needs the same bound. */
+#define CELT_DECODER_SCRATCH_BYTES 15408
 
 #define celt_encoder_ctl opus_custom_encoder_ctl
 #define celt_decoder_ctl opus_custom_decoder_ctl

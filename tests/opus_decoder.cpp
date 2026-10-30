@@ -13,8 +13,9 @@ void test_opus_decoder(void (*check)(bool, const char*) noexcept) noexcept {
               opus_decoder_storage_bytes(1) && opus_decoder_storage_bytes(2),
           "Opus storage: official dynamic mono/stereo sizes and invalid channel refusal");
     OpusDecoder absent{};
+    static OpusScratch scratch;
     i16 output[kOpusDecoderMaximumFrames * 2 + 2], first[1920];
-    check(opus_decoder_decode(&absent, {silence, 3}, {output, 1920}).error == OpusDecodeError::invalid_state &&
+    check(opus_decoder_decode(&absent, {silence, 3}, {output, 1920}, &scratch).error == OpusDecodeError::invalid_state &&
               opus_decoder_reset(&absent).error == OpusDecodeError::invalid_state &&
               opus_decoder_gain(&absent, 0).error == OpusDecodeError::invalid_state &&
               opus_decoder_initialize(nullptr, {}, 1).error == OpusDecodeError::invalid_input,
@@ -43,35 +44,42 @@ void test_opus_decoder(void (*check)(bool, const char*) noexcept) noexcept {
         copy_bytes(saved, storage, bytes);
         for (auto& sample : output) sample = 12345;
         check(opus_decoder_initialize(&decoder, {storage, bytes}, channels).error == OpusDecodeError::busy &&
-                  opus_decoder_decode(&decoder, {silence, 3}, {output, 960 * channels - 1}).error == OpusDecodeError::capacity &&
-                  opus_decoder_decode(&decoder, {}, {output, 11520}).error == OpusDecodeError::invalid_input &&
-                  opus_decoder_decode(&decoder, {silence, kOpusDecoderMaximumPacketBytes + 1}, {output, 11520}).error == OpusDecodeError::invalid_input &&
-                  opus_decoder_decode(&decoder, {storage, 3}, {output, 11520}).error == OpusDecodeError::invalid_input &&
-                  opus_decoder_decode(&decoder, {reinterpret_cast<const u8*>(output), 3}, {output, 11520}).error == OpusDecodeError::invalid_input &&
-                  opus_decoder_decode(&decoder, {silence, 3}, {reinterpret_cast<i16*>(storage), bytes / 2}).error == OpusDecodeError::invalid_input &&
+                  opus_decoder_decode(&decoder, {silence, 3}, {output, 960 * channels - 1}, &scratch).error == OpusDecodeError::capacity &&
+                  opus_decoder_decode(&decoder, {}, {output, 11520}, &scratch).error == OpusDecodeError::invalid_input &&
+                  opus_decoder_decode(&decoder, {silence, kOpusDecoderMaximumPacketBytes + 1}, {output, 11520}, &scratch).error == OpusDecodeError::invalid_input &&
+                  opus_decoder_decode(&decoder, {storage, 3}, {output, 11520}, &scratch).error == OpusDecodeError::invalid_input &&
+                  opus_decoder_decode(&decoder, {reinterpret_cast<const u8*>(output), 3}, {output, 11520}, &scratch).error == OpusDecodeError::invalid_input &&
+                  opus_decoder_decode(&decoder, {silence, 3}, {reinterpret_cast<i16*>(storage), bytes / 2}, &scratch).error == OpusDecodeError::invalid_input &&
                   bytes_equal(saved, storage, bytes) && output[0] == 12345 && output[11521] == 12345,
               "Opus preflight: busy/capacity/empty/oversized/aliased inputs leave real state and PCM unchanged");
-        check(opus_decoder_decode(&decoder, {missing_count, 1}, {output, 11520}).error == OpusDecodeError::packet &&
-                  opus_decoder_decode(&decoder, {over_duration, 2}, {output, 11520}).error == OpusDecodeError::packet &&
+        check(opus_decoder_decode(&decoder, {silence, 3}, {output, 11520}, nullptr).error == OpusDecodeError::invalid_input &&
+                  opus_decoder_decode(&decoder, {silence, 3}, {output, 11520}, reinterpret_cast<OpusScratch*>(storage)).error == OpusDecodeError::invalid_input &&
+                  opus_decoder_decode(&decoder, {silence, 3}, {output, 11520}, reinterpret_cast<OpusScratch*>(output)).error == OpusDecodeError::invalid_input &&
+                  opus_decoder_decode(&decoder, {scratch.bytes, 3}, {output, 11520}, &scratch).error == OpusDecodeError::invalid_input &&
+                  opus_decoder_conceal(&decoder, 960, {output, 11520}, nullptr).error == OpusDecodeError::invalid_input &&
+                  bytes_equal(saved, storage, bytes) && output[0] == 12345,
+              "Opus scratch: a missing scratch or one overlapping state, packet or PCM is refused before decode");
+        check(opus_decoder_decode(&decoder, {missing_count, 1}, {output, 11520}, &scratch).error == OpusDecodeError::packet &&
+                  opus_decoder_decode(&decoder, {over_duration, 2}, {output, 11520}, &scratch).error == OpusDecodeError::packet &&
                   bytes_equal(saved, storage, bytes),
               "Opus packets: missing frame count and greater-than120ms duration refuse before decode");
-        const auto decoded = opus_decoder_decode(&decoder, {silence, 3}, {output, 960 * channels});
+        const auto decoded = opus_decoder_decode(&decoder, {silence, 3}, {output, 960 * channels}, &scratch);
         bool silent = decoded.ok() && decoded.frames == 960;
         for (u32 i = 0; i < 960 * channels; ++i) silent = silent && output[i] == 0;
         check(silent && output[960 * channels] == 12345,
               "Opus PCM: real mono/stereo20ms silence decodes exact frames and preserves trailing sentinel");
         copy_bytes(first, output, 960 * channels * static_cast<u32>(sizeof(i16)));
         check(opus_decoder_reset(&decoder).ok(), "Opus reset: real OPUS_RESET_STATE succeeds without replacing caller storage");
-        const auto repeated = opus_decoder_decode(&decoder, {silence, 3}, {output, 960 * channels});
+        const auto repeated = opus_decoder_decode(&decoder, {silence, 3}, {output, 960 * channels}, &scratch);
         check(repeated.ok() && repeated.frames == 960 && bytes_equal(first, output, 960 * channels * static_cast<u32>(sizeof(i16))),
               "Opus reset: first packet reproduces exact PCM after decoder history is reset");
         for (auto& sample : output) sample = 12345;
-        const auto maximum = opus_decoder_decode(&decoder, {longest, sizeof(longest)}, {output, kOpusDecoderMaximumFrames * channels});
+        const auto maximum = opus_decoder_decode(&decoder, {longest, sizeof(longest)}, {output, kOpusDecoderMaximumFrames * channels}, &scratch);
         silent = maximum.ok() && maximum.frames == kOpusDecoderMaximumFrames;
         for (u32 i = 0; i < kOpusDecoderMaximumFrames * channels; ++i) silent = silent && output[i] == 0;
         check(silent && output[kOpusDecoderMaximumFrames * channels] == 12345,
               "Opus boundary: six-frame120ms packet decodes all5760 frames per channel without output overflow");
-        check(opus_decoder_decode(&decoder, {bad_lengths, 2}, {output, 11520}).error == OpusDecodeError::packet &&
+        check(opus_decoder_decode(&decoder, {bad_lengths, 2}, {output, 11520}, &scratch).error == OpusDecodeError::packet &&
                   opus_decoder_reset(&decoder).ok(),
               "Opus native error: malformed VBR frame lengths reach native packet rejection and reset remains usable");
         const i16 gains[]{-32768, -1536, 1536, 32767};
@@ -87,7 +95,7 @@ void test_opus_decoder(void (*check)(bool, const char*) noexcept) noexcept {
         copy_bytes(saved, storage, bytes);
         opus_decoder_release(&decoder);
         check(!decoder.state && !decoder.initialized && !decoder.state_bytes && !decoder.channels && bytes_equal(saved, storage, bytes) &&
-                  opus_decoder_decode(&decoder, {silence, 3}, {output, 11520}).error == OpusDecodeError::invalid_state,
+                  opus_decoder_decode(&decoder, {silence, 3}, {output, 11520}, &scratch).error == OpusDecodeError::invalid_state,
               "Opus release: detach clears only wrapper metadata and never destroys or frees caller state");
     }
     opus_decoder_release(nullptr);

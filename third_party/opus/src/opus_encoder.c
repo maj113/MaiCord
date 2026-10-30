@@ -133,6 +133,15 @@ static const opus_int32 fec_thresholds[] = {
         22000, 1000, /* FB */
 };
 
+/* maiopus: opus_encode() scratch. opus_encode_frame_native keeps the delayed
+   PCM frame and the 2.5 ms prefill copy of stereo input, then runs SILK or
+   CELT. */
+#define OPUS_ENCODE_FRAME_SCRATCH_BYTES \
+    (SCRATCH_BYTES((DELAY_COMPENSATION+VOICE_FRAME_SIZE)*2, opus_res)+SCRATCH_BYTES(2*VOICE_FS/400, opus_res))
+_Static_assert(OPUS_ENCODE_FRAME_SCRATCH_BYTES+CELT_ENCODER_SCRATCH_BYTES <= OPUS_SCRATCH_BYTES &&
+               OPUS_ENCODE_FRAME_SCRATCH_BYTES+SILK_ENCODER_SCRATCH_BYTES <= OPUS_SCRATCH_BYTES,
+               "the encoder's worst-case scratch exceeds OPUS_SCRATCH_BYTES");
+
 int opus_encoder_get_size(int channels)
 {
     int ret;
@@ -623,7 +632,7 @@ static int compute_redundancy_bytes(opus_int32 max_data_bytes, opus_int32 bitrat
 static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
                 unsigned char *data, opus_int32 orig_max_data_bytes,
                 int is_silence, int redundancy, int celt_to_silk, int prefill,
-                opus_int32 equiv_rate, int to_celt)
+                opus_int32 equiv_rate, int to_celt, char *scratch)
 {
     void *silk_enc;
     CELTEncoder *celt_enc;
@@ -797,13 +806,13 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
                   0, Q15ONE, celt_mode->overlap, VOICE_FS/400, st->channels, celt_mode->window);
             OPUS_CLEAR(st->delay_buffer, prefill_offset);
             pcm_silk = st->delay_buffer;
-            silk_Encode( silk_enc, &st->silk_mode, pcm_silk, MAX_ENCODER_BUFFER, NULL, &zero, prefill, activity );
+            silk_Encode( silk_enc, &st->silk_mode, pcm_silk, MAX_ENCODER_BUFFER, NULL, &zero, prefill, activity, scratch );
             /* Prevent a second switch in the real encode call. */
             st->silk_mode.opusCanSwitch = 0;
         }
 
         pcm_silk = pcm_buf+DELAY_COMPENSATION*st->channels;
-        ret = silk_Encode( silk_enc, &st->silk_mode, pcm_silk, VOICE_FRAME_SIZE, &enc, &nBytes, 0, activity );
+        ret = silk_Encode( silk_enc, &st->silk_mode, pcm_silk, VOICE_FRAME_SIZE, &enc, &nBytes, 0, activity, scratch );
         if( ret ) {
            RESTORE_STACK;
            return OPUS_INTERNAL_ERROR;
@@ -971,7 +980,7 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
         celt_encoder_ctl(celt_enc, CELT_SET_START_BAND(0));
         celt_encoder_ctl(celt_enc, OPUS_SET_VBR(0));
         celt_encoder_ctl(celt_enc, OPUS_SET_BITRATE(OPUS_BITRATE_MAX));
-        err = celt_encode_with_ec(celt_enc, pcm_buf, VOICE_FS/200, data+nb_compr_bytes, redundancy_bytes, NULL);
+        err = celt_encode_with_ec(celt_enc, pcm_buf, VOICE_FS/200, data+nb_compr_bytes, redundancy_bytes, NULL, scratch);
         if (err < 0)
         {
            RESTORE_STACK;
@@ -1001,13 +1010,13 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
            celt_encoder_ctl(celt_enc, OPUS_RESET_STATE);
 
            /* Prefilling */
-           celt_encode_with_ec(celt_enc, tmp_prefill, VOICE_FS/400, dummy, 2, NULL);
+           celt_encode_with_ec(celt_enc, tmp_prefill, VOICE_FS/400, dummy, 2, NULL, scratch);
            celt_encoder_ctl(celt_enc, CELT_SET_PREDICTION(0));
         }
         /* If false, we already busted the budget and we'll end up with a "PLC frame" */
         if (ec_tell(&enc) <= 8*nb_compr_bytes)
         {
-           ret = celt_encode_with_ec(celt_enc, pcm_buf, VOICE_FRAME_SIZE, NULL, nb_compr_bytes, &enc);
+           ret = celt_encode_with_ec(celt_enc, pcm_buf, VOICE_FRAME_SIZE, NULL, nb_compr_bytes, &enc, scratch);
            if (ret < 0)
            {
               RESTORE_STACK;
@@ -1047,9 +1056,9 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
            ec_enc_shrink(&enc, nb_compr_bytes);
         }
         /* NOTE: We could speed this up slightly (at the expense of code size) by just adding a function that prefills the buffer */
-        celt_encode_with_ec(celt_enc, pcm_buf+st->channels*(VOICE_FRAME_SIZE-N2-N4), N4, dummy, 2, NULL);
+        celt_encode_with_ec(celt_enc, pcm_buf+st->channels*(VOICE_FRAME_SIZE-N2-N4), N4, dummy, 2, NULL, scratch);
 
-        err = celt_encode_with_ec(celt_enc, pcm_buf+st->channels*(VOICE_FRAME_SIZE-N2), N2, data+nb_compr_bytes, redundancy_bytes, NULL);
+        err = celt_encode_with_ec(celt_enc, pcm_buf+st->channels*(VOICE_FRAME_SIZE-N2), N2, data+nb_compr_bytes, redundancy_bytes, NULL, scratch);
         if (err < 0)
         {
            RESTORE_STACK;
@@ -1116,7 +1125,7 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
 }
 
 static opus_int32 opus_encode_native(OpusEncoder *st, const opus_res *pcm, int frame_size,
-                unsigned char *data, opus_int32 out_data_bytes)
+                unsigned char *data, opus_int32 out_data_bytes, char *scratch)
 {
     void *silk_enc;
     int i;
@@ -1322,13 +1331,13 @@ static opus_int32 opus_encode_native(OpusEncoder *st, const opus_res *pcm, int f
         st->mode = MODE_SILK_ONLY;
 
     return opus_encode_frame_native(st, pcm, data, max_data_bytes,
-          is_silence, redundancy, celt_to_silk, prefill, equiv_rate, to_celt);
+          is_silence, redundancy, celt_to_silk, prefill, equiv_rate, to_celt, scratch);
 }
 
 opus_int32 opus_encode(OpusEncoder *st, const opus_int16 *pcm, int analysis_frame_size,
-                unsigned char *data, opus_int32 max_data_bytes)
+                unsigned char *data, opus_int32 max_data_bytes, void *scratch)
 {
-   return opus_encode_native(st, pcm, analysis_frame_size, data, max_data_bytes);
+   return opus_encode_native(st, pcm, analysis_frame_size, data, max_data_bytes, (char*)scratch);
 }
 
 int opus_encoder_ctl(OpusEncoder *st, int request, ...)

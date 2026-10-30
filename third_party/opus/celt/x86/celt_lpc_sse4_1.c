@@ -41,7 +41,8 @@ void celt_fir_sse4_1(const opus_val16 *x,
          opus_val16 *y,
          int N,
          int ord,
-         int arch)
+         int arch,
+         char *scratch)
 {
     int i,j;
     VARDECL(opus_val16, rnum);

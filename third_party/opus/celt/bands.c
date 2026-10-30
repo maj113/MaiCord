@@ -489,7 +489,7 @@ static const int ordery_table[] = {
       15,  0,  8,  7, 12,  3, 11,  4, 14,  1,  9,  6, 13,  2, 10,  5,
 };
 
-static void deinterleave_hadamard(celt_norm *X, int N0, int stride, int hadamard)
+static void deinterleave_hadamard(celt_norm *X, int N0, int stride, int hadamard, char *scratch)
 {
    int i,j;
    VARDECL(celt_norm, tmp);
@@ -515,7 +515,7 @@ static void deinterleave_hadamard(celt_norm *X, int N0, int stride, int hadamard
    RESTORE_STACK;
 }
 
-static void interleave_hadamard(celt_norm *X, int N0, int stride, int hadamard)
+static void interleave_hadamard(celt_norm *X, int N0, int stride, int hadamard, char *scratch)
 {
    int i,j;
    VARDECL(celt_norm, tmp);
@@ -592,6 +592,7 @@ struct band_ctx {
    const celt_ener *bandE;
    opus_uint32 seed;
    int arch;
+   char *scratch;
    int theta_round;
    int disable_inv;
    int avoid_split_noise;
@@ -964,9 +965,9 @@ static unsigned quant_partition(struct band_ctx *ctx, celt_norm *X,
          {
             cm = alg_quant(X, N, K, spread, B, ec, gain, ctx->resynth
 ,
-                           ctx->arch);
+                           ctx->arch, ctx->scratch);
          } else {
-            cm = alg_unquant(X, N, K, spread, B, ec, gain);
+            cm = alg_unquant(X, N, K, spread, B, ec, gain, ctx->scratch);
          }
       } else {
          /* If there's no pulse, fill the band anyway */
@@ -1089,9 +1090,9 @@ static unsigned quant_band(struct band_ctx *ctx, celt_norm *X,
    if (B0>1)
    {
       if (encode)
-         deinterleave_hadamard(X, N_B>>recombine, B0<<recombine, longBlocks);
+         deinterleave_hadamard(X, N_B>>recombine, B0<<recombine, longBlocks, ctx->scratch);
       if (lowband)
-         deinterleave_hadamard(lowband, N_B>>recombine, B0<<recombine, longBlocks);
+         deinterleave_hadamard(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx->scratch);
    }
 
    {
@@ -1103,7 +1104,7 @@ static unsigned quant_band(struct band_ctx *ctx, celt_norm *X,
    {
       /* Undo the sample reorganization going from time order to frequency order */
       if (B0>1)
-         interleave_hadamard(X, N_B>>recombine, B0<<recombine, longBlocks);
+         interleave_hadamard(X, N_B>>recombine, B0<<recombine, longBlocks, ctx->scratch);
 
       /* Undo time-freq changes that we did earlier */
       N_B = N_B0;
@@ -1311,7 +1312,7 @@ void quant_all_bands(int encode, const CELTMode *m, int start, int end,
       const celt_ener *bandE, int *pulses, int shortBlocks, int spread,
       int dual_stereo, int intensity, int *tf_res, opus_int32 total_bits,
       opus_int32 balance, ec_ctx *ec, int LM, int codedBands,
-      opus_uint32 *seed, int complexity, int arch, int disable_inv)
+      opus_uint32 *seed, int complexity, int arch, int disable_inv, char *scratch)
 {
    int i;
    opus_int32 remaining_bits;
@@ -1378,6 +1379,7 @@ void quant_all_bands(int encode, const CELTMode *m, int start, int end,
    ctx.resynth = resynth;
    ctx.theta_round = 0;
    ALLOC(bytes_save, theta_rdo ? 1275 : ALLOC_NONE, unsigned char);
+   ctx.scratch = scratch;
 
    /* Avoid injecting noise in the first band on transients. */
    ctx.avoid_split_noise = B > 1;

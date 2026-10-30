@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/slice.hpp"
+#include "maicord/media/opus_scratch.hpp"
 
 namespace maicord {
 inline constexpr u32 kOpusDecoderSampleRate = 48000;
@@ -40,15 +41,17 @@ OpusDecodeResult opus_decoder_gain(OpusDecoder*, i16 gain_q8) noexcept;
 // Complete packets only: empty input is an error, never implicit concealment.
 // Capacity/argument rejection precedes state mutation. Native packet failure
 // is explicit; the playback owner decides whether to reset or end the stream.
-OpusDecodeResult opus_decoder_decode(OpusDecoder*, ConstSlice<u8> packet, Slice<i16> pcm) noexcept;
+// `scratch` is the calling thread's (see opus_scratch.hpp); it must not overlap
+// the state, packet or PCM.
+OpusDecodeResult opus_decoder_decode(OpusDecoder*, ConstSlice<u8> packet, Slice<i16> pcm, OpusScratch* scratch) noexcept;
 // Packet-loss concealment for one missing packet: synthesizes `frames` (a
 // 2.5 ms multiple, at most 120 ms) from decoder history. Same preflight rules.
-OpusDecodeResult opus_decoder_conceal(OpusDecoder*, u32 frames, Slice<i16> pcm) noexcept;
+OpusDecodeResult opus_decoder_conceal(OpusDecoder*, u32 frames, Slice<i16> pcm, OpusScratch* scratch) noexcept;
 // Recovers the packet lost immediately before `next` from next's in-band FEC
 // (SILK LBRR); without LBRR libopus conceals instead. The caller still decodes
 // `next` normally afterwards.
 OpusDecodeResult opus_decoder_decode_fec(OpusDecoder*, ConstSlice<u8> next, u32 frames,
-                                         Slice<i16> pcm) noexcept;
+                                         Slice<i16> pcm, OpusScratch* scratch) noexcept;
 bool opus_packet_has_fec(ConstSlice<u8> packet) noexcept;
 void opus_decoder_release(OpusDecoder*) noexcept;
 } // namespace maicord

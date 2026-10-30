@@ -175,7 +175,7 @@ int celt_encoder_init(CELTEncoder *st, int channels, int arch)
 
 static int transient_analysis(const opus_val32 * OPUS_RESTRICT in, int len, int C,
                               opus_val16 *tf_estimate, int *tf_chan, int allow_weak_transients,
-                              int *weak_transient, opus_val16 tone_freq, opus_val32 toneishness)
+                              int *weak_transient, opus_val16 tone_freq, opus_val32 toneishness, char *scratch)
 {
    int i;
    VARDECL(opus_val16, tmp);
@@ -371,7 +371,7 @@ static int patch_transient_decision(celt_glog *newE, celt_glog *oldE, int nbEBan
 /** Apply window and compute the MDCT for all sub-frames and
     all channels in a frame */
 static void compute_mdcts(const CELTMode *mode, int shortBlocks, celt_sig * OPUS_RESTRICT in,
-                          celt_sig * OPUS_RESTRICT out, int C, int CC, int LM, int arch)
+                          celt_sig * OPUS_RESTRICT out, int C, int CC, int LM, int arch, char *scratch)
 {
    const int overlap = mode->overlap;
    int N;
@@ -394,7 +394,7 @@ static void compute_mdcts(const CELTMode *mode, int shortBlocks, celt_sig * OPUS
          /* Interleaving the sub-frames while doing the MDCTs */
          clt_mdct_forward(&mode->mdct, in+c*(B*N+overlap)+b*N,
                           &out[b+c*N*B], mode->window, overlap, shift, B,
-                          arch);
+                          arch, scratch);
       }
    } while (++c<CC);
    if (CC==2&&C==1)
@@ -442,7 +442,7 @@ static opus_val32 l1_metric(const celt_norm *tmp, int N, int LM, opus_val16 bias
 
 static int tf_analysis(const CELTMode *m, int len, int isTransient,
       int *tf_res, int lambda, celt_norm *X, int N0, int LM,
-      opus_val16 tf_estimate, int tf_chan, int *importance)
+      opus_val16 tf_estimate, int tf_chan, int *importance, char *scratch)
 {
    int i;
    VARDECL(int, metric);
@@ -805,7 +805,7 @@ static celt_glog dynalloc_analysis(const celt_glog *bandLogE, const celt_glog *b
       int nbEBands, int start, int end, int C, int *offsets, const opus_int16 *logN,
       int isTransient, int vbr, int constrained_vbr, const opus_int16 *eBands, int LM,
       int effectiveBytes, opus_int32 *tot_boost_,
-      int *importance, int *spread_weight, opus_val16 tone_freq, opus_val32 toneishness)
+      int *importance, int *spread_weight, opus_val16 tone_freq, opus_val32 toneishness, char *scratch)
 {
    int i, c;
    opus_int32 tot_boost=0;
@@ -1084,7 +1084,7 @@ static int tone_lpc(const opus_val16 *x, int len, int delay, opus_val32 *lpc) {
 }
 
 /* Detects pure of nearly pure tones so we can prevent them from causing problems with the encoder. */
-static opus_val16 tone_detect(const celt_sig *in, int CC, int N, opus_val32 *toneishness, opus_int32 Fs) {
+static opus_val16 tone_detect(const celt_sig *in, int CC, int N, opus_val32 *toneishness, opus_int32 Fs, char *scratch) {
    int i;
    int delay = 1;
    int fail;
@@ -1122,7 +1122,7 @@ static opus_val16 tone_detect(const celt_sig *in, int CC, int N, opus_val32 *ton
 
 static int run_prefilter(CELTEncoder *st, celt_sig *in, celt_sig *prefilter_mem, int CC, int N,
       int prefilter_tapset, int *pitch, opus_val16 *gain, int *qgain, int enabled, int complexity, opus_val16 tf_estimate,
-      int nbAvailableBytes, opus_val16 tone_freq, opus_val32 toneishness)
+      int nbAvailableBytes, opus_val16 tone_freq, opus_val32 toneishness, char *scratch)
 {
    int c;
    VARDECL(celt_sig, _pre);
@@ -1177,16 +1177,16 @@ static int run_prefilter(CELTEncoder *st, celt_sig *in, celt_sig *prefilter_mem,
       VARDECL(opus_val16, pitch_buf);
       ALLOC(pitch_buf, (max_period+N)>>1, opus_val16);
 
-      pitch_downsample(pre, pitch_buf, (max_period+N)>>1, CC, 2, st->arch);
+      pitch_downsample(pre, pitch_buf, (max_period+N)>>1, CC, 2, st->arch, scratch);
       /* Don't search for the fir last 1.5 octave of the range because
          there's too many false-positives due to short-term correlation */
       pitch_search(pitch_buf+(max_period>>1), pitch_buf, N,
             max_period-3*min_period, &pitch_index,
-            st->arch);
+            st->arch, scratch);
       pitch_index = max_period-pitch_index;
 
       gain1 = remove_doubling(pitch_buf, max_period, min_period,
-            N, &pitch_index, st->prefilter_period, st->prefilter_gain, st->arch);
+            N, &pitch_index, st->prefilter_period, st->prefilter_gain, st->arch, scratch);
       if (pitch_index > max_period-2)
          pitch_index = max_period-2;
       gain1 = MULT16_16_Q15(QCONST16(.7f,15),gain1);
@@ -1381,7 +1381,7 @@ static int compute_vbr(const CELTMode *mode, opus_int32 base_target,
 }
 
 
-int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, int frame_size, unsigned char *compressed, int nbCompressedBytes, ec_enc *enc)
+int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, int frame_size, unsigned char *compressed, int nbCompressedBytes, ec_enc *enc, char *scratch)
 {
    int i, c, N;
    opus_int32 bits;
@@ -1594,7 +1594,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
    } while (++c<CC);
 
 
-   tone_freq = tone_detect(in, CC, N+overlap, &toneishness, mode->Fs);
+   tone_freq = tone_detect(in, CC, N+overlap, &toneishness, mode->Fs, scratch);
    isTransient = 0;
    shortBlocks = 0;
    if (st->complexity >= 1)
@@ -1604,7 +1604,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
          though (small SILK quantization offset value). */
       int allow_weak_transients = hybrid && effectiveBytes<15 && st->silk_info.signalType != 2;
       isTransient = transient_analysis(in, N+overlap, CC,
-            &tf_estimate, &tf_chan, allow_weak_transients, &weak_transient, tone_freq, toneishness);
+            &tf_estimate, &tf_chan, allow_weak_transients, &weak_transient, tone_freq, toneishness, scratch);
    }
    toneishness = MIN32(toneishness, QCONST32(1.f, 29)-SHL32(tf_estimate, 15));
    /* Find pitch period and gain */
@@ -1614,7 +1614,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
       enabled = nbAvailableBytes>12*C && !hybrid && !silence && tell+16<=total_bits && !st->disable_pf;
 
       prefilter_tapset = st->tapset_decision;
-      pf_on = run_prefilter(st, in, prefilter_mem, CC, N, prefilter_tapset, &pitch_index, &gain1, &qg, enabled, st->complexity, tf_estimate, nbAvailableBytes, tone_freq, toneishness);
+      pf_on = run_prefilter(st, in, prefilter_mem, CC, N, prefilter_tapset, &pitch_index, &gain1, &qg, enabled, st->complexity, tf_estimate, nbAvailableBytes, tone_freq, toneishness, scratch);
       if (pf_on==0)
       {
          if(!hybrid && tell+16<=total_bits)
@@ -1650,7 +1650,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
    ALLOC(bandLogE2, C*nbEBands, celt_glog);
    if (secondMdct)
    {
-      compute_mdcts(mode, 0, in, freq, C, CC, LM, st->arch);
+      compute_mdcts(mode, 0, in, freq, C, CC, LM, st->arch, scratch);
       compute_band_energies(mode, freq, bandE, effEnd, C, LM, st->arch);
       amp2Log2(mode, effEnd, end, bandE, bandLogE2, C);
       for (c=0;c<C;c++)
@@ -1660,7 +1660,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
       }
    }
 
-   compute_mdcts(mode, shortBlocks, in, freq, C, CC, LM, st->arch);
+   compute_mdcts(mode, shortBlocks, in, freq, C, CC, LM, st->arch, scratch);
    /* This should catch any NaN in the CELT input. Since we're not supposed to see any (they're filtered
       at the Opus layer), just abort. */
    celt_assert(!celt_isnan(freq[0]) && (C==1 || !celt_isnan(freq[N])));
@@ -1704,7 +1704,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
       {
          isTransient = 1;
          shortBlocks = M;
-         compute_mdcts(mode, shortBlocks, in, freq, C, CC, LM, st->arch);
+         compute_mdcts(mode, shortBlocks, in, freq, C, CC, LM, st->arch, scratch);
          compute_band_energies(mode, freq, bandE, effEnd, C, LM, st->arch);
          amp2Log2(mode, effEnd, end, bandE, bandLogE, C);
          /* Compensate for the scaling of short vs long mdcts */
@@ -1733,7 +1733,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
 
    maxDepth = dynalloc_analysis(bandLogE, bandLogE2, oldBandE, nbEBands, start, end, C, offsets,
          mode->logN, isTransient, st->vbr, st->constrained_vbr,
-         eBands, LM, effectiveBytes, &tot_boost, importance, spread_weight, tone_freq, toneishness);
+         eBands, LM, effectiveBytes, &tot_boost, importance, spread_weight, tone_freq, toneishness, scratch);
 
    ALLOC(tf_res, nbEBands, int);
    /* Disable variable tf resolution for hybrid and at very low bitrate */
@@ -1741,7 +1741,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
    {
       int lambda;
       lambda = IMAX(80, 20480/effectiveBytes + 2);
-      tf_select = tf_analysis(mode, effEnd, isTransient, tf_res, lambda, X, N, LM, tf_estimate, tf_chan, importance);
+      tf_select = tf_analysis(mode, effEnd, isTransient, tf_res, lambda, X, N, LM, tf_estimate, tf_chan, importance, scratch);
       for (i=effEnd;i<end;i++)
          tf_res[i] = tf_res[effEnd-1];
    } else if (hybrid && weak_transient)
@@ -1781,7 +1781,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
    quant_coarse_energy(mode, start, end, effEnd, bandLogE,
          oldBandE, total_bits, error, enc,
          C, LM, nbAvailableBytes, st->force_intra,
-         &st->delayedIntra, st->complexity >= 4, st->loss_rate);
+         &st->delayedIntra, st->complexity >= 4, st->loss_rate, scratch);
 
    tf_encode(start, end, isTransient, tf_res, LM, tf_select, enc);
 
@@ -2010,7 +2010,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
    signalBandwidth = end-1;
    codedBands = clt_compute_allocation(mode, start, end, offsets, cap,
          alloc_trim, &st->intensity, &dual_stereo, bits, &balance, pulses,
-         fine_quant, fine_priority, C, LM, enc, 1, st->lastCodedBands, signalBandwidth);
+         fine_quant, fine_priority, C, LM, enc, 1, st->lastCodedBands, signalBandwidth, scratch);
    if (st->lastCodedBands)
       st->lastCodedBands = IMIN(st->lastCodedBands+1,IMAX(st->lastCodedBands-1,codedBands));
    else
@@ -2024,7 +2024,7 @@ int celt_encode_with_ec(CELTEncoder * OPUS_RESTRICT st, const opus_res * pcm, in
    quant_all_bands(1, mode, start, end, X, C==2 ? X+N : NULL, collapse_masks,
          bandE, pulses, shortBlocks, st->spread_decision,
          dual_stereo, st->intensity, tf_res, nbCompressedBytes*(8<<BITRES)-anti_collapse_rsv,
-         balance, enc, LM, codedBands, &st->rng, st->complexity, st->arch, 0);
+         balance, enc, LM, codedBands, &st->rng, st->complexity, st->arch, 0, scratch);
 
 
    if (anti_collapse_rsv > 0)

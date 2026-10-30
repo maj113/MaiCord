@@ -7,16 +7,13 @@ namespace maicord {
 void voice_message_waveform(ConstSlice<u8> levels, u8 (&waveform)[kVoiceMessageWaveformSamples]) noexcept {
     const u32 frames = levels.data ? levels.count : 0;
     for (u32 i = 0; i < kVoiceMessageWaveformSamples; ++i) {
-        if (!frames) {
-            waveform[i] = 0;
-            continue;
-        }
-        u32 first = static_cast<u32>(u64{i} * frames / kVoiceMessageWaveformSamples);
+        // Short recordings repeat frames; no frames leave an empty bucket (peak 0).
+        const u32 first = static_cast<u32>(u64{i} * frames / kVoiceMessageWaveformSamples);
         u32 last = static_cast<u32>(u64{i + 1} * frames / kVoiceMessageWaveformSamples);
-        if (last <= first)
-            last = first + 1;
+        last = minimum(last > first ? last : first + 1, frames);
         u8 peak = 0;
-        for (u32 f = first; f < last && f < frames; ++f)
+#pragma clang loop vectorize(disable) unroll(disable)
+        for (u32 f = first; f < last; ++f)
             peak = levels[f] > peak ? levels[f] : peak;
         waveform[i] = peak;
     }

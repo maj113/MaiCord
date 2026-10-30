@@ -246,7 +246,7 @@ void test_pipeline(Check check) noexcept {
     key.down = true;
     feed(send, t, &now, 4, 0);
     voice_send_flush(&send, transport);
-    const bool transmits_when_down = rec.count == 5 && rec.order[0] == 1001 && send.cells.key_down;
+    const bool transmits_when_down = rec.count == 5 && rec.order[0] == 1001;
     key.down = false;
     feed(send, t, &now, 8, 0);
     voice_send_flush(&send, transport);

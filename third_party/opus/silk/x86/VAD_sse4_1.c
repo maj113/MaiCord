@@ -31,7 +31,6 @@
 #include <smmintrin.h>
 
 #include "main.h"
-#include "stack_alloc.h"
 
 /* Weighting factors for tilt measure */
 static const opus_int32 tiltWeights[ VAD_N_BANDS ] = { 30000, 6000, -12000, -12000 };
@@ -39,7 +38,7 @@ static const opus_int32 tiltWeights[ VAD_N_BANDS ] = { 30000, 6000, -12000, -120
 /***************************************/
 /* Get the speech activity level in Q8 */
 /***************************************/
-opus_int silk_VAD_GetSA_Q8_sse4_1(                  /* O    Return value, 0 if success                  */
+opus_int silk_VAD_GetSA_Q8(                                     /* O    Return value, 0 if success                  */
     silk_encoder_state          *psEncC,            /* I/O  Encoder state                               */
     const opus_int16            pIn[]               /* I    PCM input                                   */
 )
@@ -50,17 +49,13 @@ opus_int silk_VAD_GetSA_Q8_sse4_1(                  /* O    Return value, 0 if s
     opus_int   dec_subframe_length, dec_subframe_offset, SNR_Q7, i, b, s;
     opus_int32 sumSquared, smooth_coef_Q16;
     opus_int16 HPstateTmp;
-    VARDECL( opus_int16, X );
+    opus_int16 X[ MAX_FRAME_LENGTH + MAX_FRAME_LENGTH / 4 ];
     opus_int32 Xnrg[ VAD_N_BANDS ];
     opus_int32 NrgToNoiseRatio_Q8[ VAD_N_BANDS ];
     opus_int32 speech_nrg, x_tmp;
     opus_int   X_offset[ VAD_N_BANDS ];
     opus_int   ret = 0;
     silk_VAD_state *psSilk_VAD = &psEncC->sVAD;
-
-    SAVE_STACK;
-
-
     /* Safety checks */
     silk_assert( VAD_N_BANDS == 4 );
     celt_assert( MAX_FRAME_LENGTH >= psEncC->frame_length );
@@ -86,7 +81,6 @@ opus_int silk_VAD_GetSA_Q8_sse4_1(                  /* O    Return value, 0 if s
     X_offset[ 1 ] = decimated_framelength + decimated_framelength2;
     X_offset[ 2 ] = X_offset[ 1 ] + decimated_framelength;
     X_offset[ 3 ] = X_offset[ 2 ] + decimated_framelength2;
-    ALLOC( X, X_offset[ 3 ] + decimated_framelength1, opus_int16 );
 
     /* 0-8 kHz to 0-4 kHz and 4-8 kHz */
     silk_ana_filt_bank_1( pIn, &psSilk_VAD->AnaState[  0 ],
@@ -269,7 +263,5 @@ opus_int silk_VAD_GetSA_Q8_sse4_1(                  /* O    Return value, 0 if s
         psEncC->input_quality_bands_Q15[ b ] = silk_sigm_Q15( silk_RSHIFT( SNR_Q7 - 16 * 128, 4 ) );
     }
 
-
-    RESTORE_STACK;
     return( ret );
 }

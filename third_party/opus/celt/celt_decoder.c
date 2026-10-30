@@ -203,13 +203,13 @@ static void deemphasis_stereo_simple(celt_sig *in[], opus_res *pcm, int N, const
 
 static
 void deemphasis(celt_sig *in[], opus_res *pcm, int N, int C, int downsample, const opus_val16 *coef,
-      celt_sig *mem, int accum)
+      celt_sig *mem, int accum, char *scratch)
 {
    int c;
    int Nd;
    int apply_downsampling=0;
    opus_val16 coef0;
-   VARDECL(celt_sig, scratch);
+   VARDECL(celt_sig, buf);
    SAVE_STACK;
    /* Short version for common case. */
    if (downsample == 1 && C == 2 && !accum)
@@ -217,7 +217,7 @@ void deemphasis(celt_sig *in[], opus_res *pcm, int N, int C, int downsample, con
       deemphasis_stereo_simple(in, pcm, N, coef[0], mem);
       return;
    }
-   ALLOC(scratch, N, celt_sig);
+   ALLOC(buf, N, celt_sig);
    coef0 = coef[0];
    Nd = N/downsample;
    c=0; do {
@@ -234,7 +234,7 @@ void deemphasis(celt_sig *in[], opus_res *pcm, int N, int C, int downsample, con
          {
             celt_sig tmp = SATURATE(x[j] + VERY_SMALL + m, SIG_SAT);
             m = MULT16_32_Q15(coef0, tmp);
-            scratch[j] = tmp;
+            buf[j] = tmp;
          }
          apply_downsampling=1;
       } else {
@@ -265,11 +265,11 @@ void deemphasis(celt_sig *in[], opus_res *pcm, int N, int C, int downsample, con
          if (accum)
          {
             for (j=0;j<Nd;j++)
-               y[j*C] = ADD_RES(y[j*C], SIG2RES(scratch[j*downsample]));
+               y[j*C] = ADD_RES(y[j*C], SIG2RES(buf[j*downsample]));
          } else
          {
             for (j=0;j<Nd;j++)
-               y[j*C] = SIG2RES(scratch[j*downsample]);
+               y[j*C] = SIG2RES(buf[j*downsample]);
          }
       }
    } while (++c<C);
@@ -280,7 +280,7 @@ static
 void celt_synthesis(const CELTMode *mode, celt_norm *X, celt_sig * out_syn[],
                     celt_glog *oldBandE, int start, int effEnd, int C, int CC,
                     int isTransient, int LM, int downsample,
-                    int silence, int arch)
+                    int silence, int arch, char *scratch)
 {
    int c, i;
    int M;
@@ -394,7 +394,7 @@ static void tf_decode(int start, int end, int isTransient, int *tf_res, int LM, 
    }
 }
 
-static int celt_plc_pitch_search(CELTDecoder *st, celt_sig *decode_mem[2], int C, int arch)
+static int celt_plc_pitch_search(CELTDecoder *st, celt_sig *decode_mem[2], int C, int arch, char *scratch)
 {
    int pitch_index;
    VARDECL( opus_val16, lp_pitch_buf );
@@ -402,16 +402,16 @@ static int celt_plc_pitch_search(CELTDecoder *st, celt_sig *decode_mem[2], int C
    (void)st;
    ALLOC( lp_pitch_buf, DECODE_BUFFER_SIZE>>1, opus_val16 );
    pitch_downsample(decode_mem, lp_pitch_buf,
-         DECODE_BUFFER_SIZE>>1, C, 2, arch);
+         DECODE_BUFFER_SIZE>>1, C, 2, arch, scratch);
    pitch_search(lp_pitch_buf+(PLC_PITCH_LAG_MAX>>1), lp_pitch_buf,
          DECODE_BUFFER_SIZE-PLC_PITCH_LAG_MAX,
-         PLC_PITCH_LAG_MAX-PLC_PITCH_LAG_MIN, &pitch_index, arch);
+         PLC_PITCH_LAG_MAX-PLC_PITCH_LAG_MIN, &pitch_index, arch, scratch);
    pitch_index = PLC_PITCH_LAG_MAX-pitch_index;
    RESTORE_STACK;
    return pitch_index;
 }
 
-static void prefilter_and_fold(CELTDecoder * OPUS_RESTRICT st, int N)
+static void prefilter_and_fold(CELTDecoder * OPUS_RESTRICT st, int N, char *scratch)
 {
    int c;
    int CC;
@@ -453,8 +453,7 @@ static void prefilter_and_fold(CELTDecoder * OPUS_RESTRICT st, int N)
 }
 
 
-static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM
-      )
+static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM, char *scratch)
 {
    int c;
    int i;
@@ -514,7 +513,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM
       } while (++c<C);
 
       if (st->prefilter_and_fold) {
-         prefilter_and_fold(st, N);
+         prefilter_and_fold(st, N, scratch);
       }
 
       /* Energy decay */
@@ -544,7 +543,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM
       }
       st->rng = seed;
 
-      celt_synthesis(mode, X, out_syn, oldBandE, start, effEnd, C, C, 0, LM, st->downsample, 0, st->arch);
+      celt_synthesis(mode, X, out_syn, oldBandE, start, effEnd, C, C, 0, LM, st->downsample, 0, st->arch, scratch);
 
       /* Run the postfilter with the last parameters. */
       c=0; do {
@@ -578,7 +577,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM
 
       if (st->last_frame_type != FRAME_PLC_PERIODIC)
       {
-         st->last_pitch_index = pitch_index = celt_plc_pitch_search(st, decode_mem, C, st->arch);
+         st->last_pitch_index = pitch_index = celt_plc_pitch_search(st, decode_mem, C, st->arch, scratch);
       } else {
          pitch_index = st->last_pitch_index;
          fade = QCONST16(.8f,15);
@@ -611,7 +610,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM
             /* Compute LPC coefficients for the last MAX_PERIOD samples before
                the first loss so we can work in the excitation-filter domain. */
             _celt_autocorr(exc, ac, window, overlap,
-                   CELT_LPC_ORDER, max_period, st->arch);
+                   CELT_LPC_ORDER, max_period, st->arch, scratch);
             /* Add a noise floor of -40 dB. */
             ac[0] += SHR32(ac[0],13);
             /* Use lag windowing to stabilize the Levinson-Durbin recursion. */
@@ -643,7 +642,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM
             /* Compute the excitation for exc_length samples before the loss. We need the copy
                because celt_fir() cannot filter in-place. */
             celt_fir(exc+max_period-exc_length, lpc+c*CELT_LPC_ORDER,
-                  fir_tmp, exc_length, CELT_LPC_ORDER, st->arch);
+                  fir_tmp, exc_length, CELT_LPC_ORDER, st->arch, scratch);
             OPUS_COPY(exc+max_period-exc_length, fir_tmp, exc_length);
          }
 
@@ -708,7 +707,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM
                the signal domain. */
             celt_iir(buf+decode_buffer_size-N, lpc+c*CELT_LPC_ORDER,
                   buf+decode_buffer_size-N, extrapolation_len, CELT_LPC_ORDER,
-                  lpc_mem, st->arch);
+                  lpc_mem, st->arch, scratch);
             for (i=0; i < extrapolation_len; i++)
                buf[decode_buffer_size-N+i] = SATURATE(buf[decode_buffer_size-N+i], SIG_SAT);
          }
@@ -760,7 +759,7 @@ static void celt_decode_lost(CELTDecoder * OPUS_RESTRICT st, int N, int LM
 
 
 int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *data,
-      int len, opus_res * OPUS_RESTRICT pcm, int frame_size, ec_dec *dec, int accum)
+      int len, opus_res * OPUS_RESTRICT pcm, int frame_size, ec_dec *dec, int accum, char *scratch)
 {
    int c, i, N;
    int spread_decision;
@@ -848,9 +847,8 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
 
    if (data == NULL || len<=1)
    {
-      celt_decode_lost(st, N, LM
-                      );
-      deemphasis(out_syn, pcm, N, CC, st->downsample, mode->preemph, st->preemph_memD, accum);
+      celt_decode_lost(st, N, LM, scratch);
+      deemphasis(out_syn, pcm, N, CC, st->downsample, mode->preemph, st->preemph_memD, accum, scratch);
       RESTORE_STACK;
       return frame_size/st->downsample;
    }
@@ -1013,7 +1011,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
 
    codedBands = clt_compute_allocation(mode, start, end, offsets, cap,
          alloc_trim, &intensity, &dual_stereo, bits, &balance, pulses,
-         fine_quant, fine_priority, C, LM, dec, 0, 0, 0);
+         fine_quant, fine_priority, C, LM, dec, 0, 0, 0, scratch);
 
    unquant_fine_energy(mode, start, end, oldBandE, NULL, fine_quant, dec, C);
 
@@ -1030,7 +1028,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
    quant_all_bands(0, mode, start, end, X, C==2 ? X+N : NULL, collapse_masks,
          NULL, pulses, shortBlocks, spread_decision, dual_stereo, intensity, tf_res,
          len*(8<<BITRES)-anti_collapse_rsv, balance, dec, LM, codedBands, &st->rng, 0,
-         st->arch, st->disable_inv);
+         st->arch, st->disable_inv, scratch);
 
 
    if (anti_collapse_rsv > 0)
@@ -1049,10 +1047,10 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
          oldBandE[i] = -GCONST(28.f);
    }
    if (st->prefilter_and_fold) {
-      prefilter_and_fold(st, N);
+      prefilter_and_fold(st, N, scratch);
    }
    celt_synthesis(mode, X, out_syn, oldBandE, start, effEnd,
-                  C, CC, isTransient, LM, st->downsample, silence, st->arch);
+                  C, CC, isTransient, LM, st->downsample, silence, st->arch, scratch);
 
    c=0; do {
       st->postfilter_period=IMAX(st->postfilter_period, COMBFILTER_MINPERIOD);
@@ -1112,7 +1110,7 @@ int celt_decode_with_ec(CELTDecoder * OPUS_RESTRICT st, const unsigned char *dat
    } while (++c<2);
    st->rng = dec->rng;
 
-   deemphasis(out_syn, pcm, N, CC, st->downsample, mode->preemph, st->preemph_memD, accum);
+   deemphasis(out_syn, pcm, N, CC, st->downsample, mode->preemph, st->preemph_memD, accum, scratch);
    st->loss_duration = 0;
    st->plc_duration = 0;
    st->last_frame_type = FRAME_NORMAL;

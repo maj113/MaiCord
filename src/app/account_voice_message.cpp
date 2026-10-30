@@ -18,6 +18,13 @@ VoiceAudioCaptureStatus wasapi_status(void* self) noexcept {
     return voice_audio_capture_status(*static_cast<const VoiceAudioCapture*>(self));
 }
 constexpr VoiceMessageCaptureOps kWasapi{wasapi_start, wasapi_stop, wasapi_status};
+// The decoder state and then the preview thread's decode scratch follow the
+// preview in the same block.
+constexpr usize kPreviewStateOffset = (sizeof(VoiceMessagePreview) + kOpusDecoderStateAlignment - 1) &
+                                      ~usize{kOpusDecoderStateAlignment - 1};
+usize preview_scratch_offset(u32 state_bytes) noexcept {
+    return (kPreviewStateOffset + state_bytes + alignof(OpusScratch) - 1) & ~usize{alignof(OpusScratch) - 1};
+}
 
 u64 no_wake(void*, u64) noexcept {
     return 0;
@@ -93,18 +100,15 @@ bool finish(AccountVoiceMessage* v) noexcept {
     bool preview = false;
     if (finished) {
         v->state = VoiceMessageState::finished;
+        const u32 state_bytes = opus_decoder_storage_bytes(1);
         v->preview_state = static_cast<VoiceMessagePreview*>(
-            VirtualAlloc(nullptr, sizeof(VoiceMessagePreview), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            VirtualAlloc(nullptr, preview_scratch_offset(state_bytes) + sizeof(OpusScratch), MEM_RESERVE | MEM_COMMIT,
+                         PAGE_READWRITE));
         auto* p = v->preview_state;
-        preview = p &&
+        preview = p && state_bytes &&
                   ogg_opus_demux_initialize(&p->demux, voice_message_recorder_stream(v->recorder), {}) ==
                       OggOpusError::none &&
-                  opus_decoder_initialize(&p->decoder,
-                                          {reinterpret_cast<u8*>((reinterpret_cast<usize>(p->decoder_storage) +
-                                                                  kOpusDecoderStateAlignment - 1) &
-                                                                 ~usize{kOpusDecoderStateAlignment - 1}),
-                                           32768},
-                                          1)
+                  opus_decoder_initialize(&p->decoder, {reinterpret_cast<u8*>(p) + kPreviewStateOffset, state_bytes}, 1)
                       .ok();
         if (!preview)
             free_preview(v); // The recording still sends; it just cannot play.
@@ -138,7 +142,10 @@ bool decode_next(VoiceMessagePreview* p) noexcept {
         const auto packet = ogg_opus_demux_next(&p->demux, {});
         if (!packet.ok())
             return false;
-        const auto decoded = opus_decoder_decode(&p->decoder, packet.bytes, {p->decoded, kOpusDecoderMaximumFrames});
+        auto* scratch = reinterpret_cast<OpusScratch*>(reinterpret_cast<u8*>(p) +
+                                                      preview_scratch_offset(p->decoder.state_bytes));
+        const auto decoded = opus_decoder_decode(&p->decoder, packet.bytes, {p->decoded, kOpusDecoderMaximumFrames},
+                                                 scratch);
         if (!decoded.ok())
             return false;
         const u32 end = decoded.frames > packet.trim_back_frames ? decoded.frames - packet.trim_back_frames : 0;

@@ -70,6 +70,7 @@ struct Buffers {
     float* pcm_float;
     u8* audio_state;
     u8* ogg_scratch;
+    OpusScratch* opus_scratch;
 };
 Buffers g{};
 // MAICORD_DECODE_STAGES=1: lossy WebP items also report the minimum TSC
@@ -391,7 +392,7 @@ Outcome decode_ogg_opus(ConstSlice<u8> encoded, bool verify) noexcept {
             break;
         }
         const auto decoded = opus_decoder_decode(&decoder, packet.bytes,
-                                                 {g.pcm, kOpusDecoderMaximumFrames * demuxer.channels});
+                                                 {g.pcm, kOpusDecoderMaximumFrames * demuxer.channels}, g.opus_scratch);
         if (!decoded.ok()) {
             outcome.ok = false;
             break;
@@ -534,8 +535,9 @@ int run() noexcept {
     g.pcm_float = reinterpret_cast<float*>(reserve(kMp3MaximumFrames * 2u * sizeof(float)));
     g.audio_state = reserve(1u << 20);
     g.ogg_scratch = reserve(kOggOpusMaximumPacketBytes);
+    g.opus_scratch = reinterpret_cast<OpusScratch*>(reserve(sizeof(OpusScratch)));
     if (!g.scanlines || !g.scratch || !g.row || !g.jpeg || !g.lossy || !g.lossless || !g.apng || !g.gif ||
-        !g.animated || !g.pcm || !g.pcm_float || !g.audio_state || !g.ogg_scratch)
+        !g.animated || !g.pcm || !g.pcm_float || !g.audio_state || !g.ogg_scratch || !g.opus_scratch)
         return 6;
     // Touch every buffer once so first-run page faults do not land in an item.
     for (usize i = 0; i < g.scanline_bytes; i += 4096)

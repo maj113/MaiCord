@@ -229,7 +229,7 @@ static int quant_coarse_energy_impl(const CELTMode *m, int start, int end,
 void quant_coarse_energy(const CELTMode *m, int start, int end, int effEnd,
       const celt_glog *eBands, celt_glog *oldEBands, opus_uint32 budget,
       celt_glog *error, ec_enc *enc, int C, int LM, int nbAvailableBytes,
-      int force_intra, opus_val32 *delayedIntra, int two_pass, int loss_rate)
+      int force_intra, opus_val32 *delayedIntra, int two_pass, int loss_rate, char *scratch)
 {
    int intra;
    celt_glog max_decay;

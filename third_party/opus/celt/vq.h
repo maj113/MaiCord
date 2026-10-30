@@ -47,11 +47,11 @@ void norm_scaledown(celt_norm *X, int N, int shift);
 
 void exp_rotation(celt_norm *X, int len, int dir, int stride, int K, int spread);
 
-opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch);
+opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch, char *scratch);
 
 #if !defined(OVERRIDE_OP_PVQ_SEARCH)
-#define op_pvq_search(x, iy, K, N, arch) \
-    (op_pvq_search_c(x, iy, K, N, arch))
+#define op_pvq_search(x, iy, K, N, arch, scratch) \
+    (op_pvq_search_c(x, iy, K, N, arch, scratch))
 #endif
 
 /** Algebraic pulse-vector quantiser. The signal x is replaced by the sum of
@@ -65,7 +65,7 @@ opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch);
 */
 unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
       opus_val32 gain, int resynth
-, int arch);
+, int arch, char *scratch);
 
 /** Algebraic pulse decoder
  * @param X Decoded normalised spectrum (returned)
@@ -75,7 +75,7 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
  * @ret A mask indicating which blocks in the band received pulses
  */
 unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
-      ec_dec *dec, opus_val32 gain);
+      ec_dec *dec, opus_val32 gain, char *scratch);
 
 void renormalise_vector(celt_norm *X, int N, opus_val32 gain, int arch);
 

@@ -27,7 +27,6 @@ POSSIBILITY OF SUCH DAMAGE.
 
 
 #include "main_FIX.h"
-#include "stack_alloc.h"
 
 void silk_find_pred_coefs_FIX(
     silk_encoder_state_FIX          *psEnc,                                 /* I/O  encoder state                                                               */
@@ -43,9 +42,8 @@ void silk_find_pred_coefs_FIX(
     opus_int16       NLSF_Q15[ MAX_LPC_ORDER ]={0};
     const opus_int16 *x_ptr;
     opus_int16       *x_pre_ptr;
-    VARDECL( opus_int16, LPC_in_pre );
+    opus_int16       LPC_in_pre[ MAX_NB_SUBFR * MAX_LPC_ORDER + MAX_FRAME_LENGTH ];
     opus_int32       min_gain_Q16, minInvGain_Q30;
-    SAVE_STACK;
 
     /* weighting for weighted least squares */
     min_gain_Q16 = silk_int32_MAX >> 6;
@@ -68,20 +66,14 @@ void silk_find_pred_coefs_FIX(
         local_gains[ i ] = silk_DIV32( ( (opus_int32)1 << 16 ), invGains_Q16[ i ] );
     }
 
-    ALLOC( LPC_in_pre,
-           psEnc->sCmn.nb_subfr * psEnc->sCmn.predictLPCOrder
-               + psEnc->sCmn.frame_length, opus_int16 );
     if( psEnc->sCmn.indices.signalType == TYPE_VOICED ) {
-        VARDECL( opus_int32, xXLTP_Q17 );
-        VARDECL( opus_int32, XXLTP_Q17 );
+        opus_int32 xXLTP_Q17[ MAX_NB_SUBFR * LTP_ORDER ];
+        opus_int32 XXLTP_Q17[ MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER ];
 
         /**********/
         /* VOICED */
         /**********/
         celt_assert( psEnc->sCmn.ltp_mem_length - psEnc->sCmn.predictLPCOrder >= psEncCtrl->pitchL[ 0 ] + LTP_ORDER / 2 );
-
-        ALLOC( xXLTP_Q17, psEnc->sCmn.nb_subfr * LTP_ORDER, opus_int32 );
-        ALLOC( XXLTP_Q17, psEnc->sCmn.nb_subfr * LTP_ORDER * LTP_ORDER, opus_int32 );
 
         /* LTP analysis */
         silk_find_LTP_FIX( XXLTP_Q17, xXLTP_Q17, res_pitch,
@@ -140,5 +132,4 @@ void silk_find_pred_coefs_FIX(
 
     /* Copy to prediction struct for use in next frame for interpolation */
     silk_memcpy( psEnc->sCmn.prev_NLSFq_Q15, NLSF_Q15, sizeof( psEnc->sCmn.prev_NLSFq_Q15 ) );
-    RESTORE_STACK;
 }

@@ -19,10 +19,11 @@ struct Runtime {
     VoiceAudioCaptureSink sink;
     VoiceAudioCaptureTick tick;
     void* context;
-    HANDLE thread, stop, wake, notify, poke, timer;
-    volatile LONG state, opens, native_error;
+    HANDLE thread, stop, wake, notify, timer;
+    volatile LONG state, native_error;
     wchar_t device[kVoiceDeviceIdCharacters];
     bool processing;
+    i16 silence[480]; // Zero (VirtualAlloc): fed in place of buffers the engine flags silent.
 };
 struct Engine {
     IMMDeviceEnumerator* enumerator;
@@ -42,7 +43,6 @@ void close_stream(Engine& e) noexcept {
     com_release(e.client);
 }
 HRESULT drain(Runtime& r, Engine& e) noexcept {
-    i16 silence[480]{};
     for (;;) {
         u32 frames = 0;
         HRESULT h = e.capture->GetNextPacketSize(&frames);
@@ -56,7 +56,7 @@ HRESULT drain(Runtime& r, Engine& e) noexcept {
         const u64 now = now_us();
         if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
             for (u32 at = 0; at < frames; at += 480)
-                r.sink(r.context, {silence, minimum(480u, frames - at)}, now);
+                r.sink(r.context, {r.silence, minimum(480u, frames - at)}, now);
         } else if (frames)
             r.sink(r.context, {reinterpret_cast<const i16*>(data), frames}, now);
         h = e.capture->ReleaseBuffer(frames);
@@ -121,7 +121,6 @@ HRESULT open_stream(Runtime& r, Engine& e) noexcept {
         close_stream(e);
         return h;
     }
-    InterlockedIncrement(&r.opens);
     return h;
 }
 HRESULT watch(Runtime& r, Engine& e) noexcept {
@@ -154,8 +153,8 @@ DWORD WINAPI capture_thread(void* parameter) noexcept {
             } else
                 publish(r, VoiceCaptureState::capturing);
         }
-        HANDLE events[]{r.stop, r.notify, r.wake, r.poke, r.timer};
-        const DWORD waited = WaitForMultipleObjects(r.timer ? 5 : 4, events, FALSE, e.client ? 200 : 250);
+        HANDLE events[]{r.stop, r.notify, r.wake, r.timer};
+        const DWORD waited = WaitForMultipleObjects(r.timer ? 4 : 3, events, FALSE, e.client ? 200 : 250);
         if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED)
             break;
         if (InterlockedExchange(&e.notify->dirty, 0) & kAudioEndpointDefaultChanged)
@@ -179,7 +178,7 @@ DWORD WINAPI capture_thread(void* parameter) noexcept {
     return 0;
 }
 void free_runtime(Runtime* r) noexcept {
-    const HANDLE handles[]{r->thread, r->stop, r->wake, r->notify, r->poke, r->timer};
+    const HANDLE handles[]{r->thread, r->stop, r->wake, r->notify, r->timer};
     for (HANDLE handle : handles)
         if (handle)
             CloseHandle(handle);
@@ -203,13 +202,12 @@ bool voice_audio_capture_start(VoiceAudioCapture* capture, const wchar_t* device
     r->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     r->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     r->notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    r->poke = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     // High resolution keeps 20 ms pacing wakes within about a millisecond.
     r->timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
     if (!r->timer)
         r->timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
     r->state = static_cast<LONG>(VoiceCaptureState::opening);
-    if (r->stop && r->wake && r->notify && r->poke)
+    if (r->stop && r->wake && r->notify)
         r->thread =
             CreateThread(nullptr, 256 * 1024, capture_thread, r, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (!r->thread) {
@@ -240,7 +238,6 @@ VoiceAudioCaptureStatus voice_audio_capture_status(const VoiceAudioCapture& capt
     VoiceAudioCaptureStatus status{};
     if (const auto* r = static_cast<const Runtime*>(capture.runtime)) {
         status.state = static_cast<VoiceCaptureState>(ReadAcquire(&r->state));
-        status.opens = static_cast<u32>(ReadAcquire(&r->opens));
         status.native_error = static_cast<u32>(ReadAcquire(&r->native_error));
     }
     return status;

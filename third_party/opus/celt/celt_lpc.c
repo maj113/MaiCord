@@ -125,51 +125,14 @@ int          p
 }
 
 
-void celt_fir_c(
-         const opus_val16 *x,
-         const opus_val16 *num,
-         opus_val16 *y,
-         int N,
-         int ord,
-         int arch)
-{
-   int i,j;
-   VARDECL(opus_val16, rnum);
-   SAVE_STACK;
-   celt_assert(x != y);
-   ALLOC(rnum, ord, opus_val16);
-   for(i=0;i<ord;i++)
-      rnum[i] = num[ord-i-1];
-   for (i=0;i<N-3;i+=4)
-   {
-      opus_val32 sum[4];
-      sum[0] = SHL32(EXTEND32(x[i  ]), SIG_SHIFT);
-      sum[1] = SHL32(EXTEND32(x[i+1]), SIG_SHIFT);
-      sum[2] = SHL32(EXTEND32(x[i+2]), SIG_SHIFT);
-      sum[3] = SHL32(EXTEND32(x[i+3]), SIG_SHIFT);
-         xcorr_kernel(rnum, x+i-ord, sum, ord, arch);
-      y[i  ] = SROUND16(sum[0], SIG_SHIFT);
-      y[i+1] = SROUND16(sum[1], SIG_SHIFT);
-      y[i+2] = SROUND16(sum[2], SIG_SHIFT);
-      y[i+3] = SROUND16(sum[3], SIG_SHIFT);
-   }
-   for (;i<N;i++)
-   {
-      opus_val32 sum = SHL32(EXTEND32(x[i]), SIG_SHIFT);
-      for (j=0;j<ord;j++)
-         sum = MAC16_16(sum,rnum[j],x[i+j-ord]);
-      y[i] = SROUND16(sum, SIG_SHIFT);
-   }
-   RESTORE_STACK;
-}
-
 void celt_iir(const opus_val32 *_x,
          const opus_val16 *den,
          opus_val32 *_y,
          int N,
          int ord,
          opus_val16 *mem,
-         int arch)
+         int arch,
+         char *scratch)
 {
    int i,j;
    VARDECL(opus_val16, rden);
@@ -231,7 +194,8 @@ int _celt_autocorr(
                    int          overlap,
                    int          lag,
                    int          n,
-                   int          arch
+                   int          arch,
+                   char        *scratch
                   )
 {
    opus_val32 d;

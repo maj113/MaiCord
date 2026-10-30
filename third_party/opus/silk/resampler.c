@@ -175,7 +175,8 @@ opus_int silk_resampler(
     silk_resampler_state_struct *S,                 /* I/O  Resampler state                                             */
     opus_int16                  out[],              /* O    Output signal                                               */
     const opus_int16            in[],               /* I    Input signal                                                */
-    opus_int32                  inLen               /* I    Number of input samples                                     */
+    opus_int32                  inLen,              /* I    Number of input samples                                     */
+    char                        *scratch            /* I    Scratch arena                                               */
 )
 {
     opus_int nSamples;
@@ -196,12 +197,12 @@ opus_int silk_resampler(
             silk_resampler_private_up2_HQ_wrapper( S, &out[ S->Fs_out_kHz ], &in[ nSamples ], inLen - S->Fs_in_kHz );
             break;
         case USE_silk_resampler_private_IIR_FIR:
-            silk_resampler_private_IIR_FIR( S, out, S->delayBuf, S->Fs_in_kHz );
-            silk_resampler_private_IIR_FIR( S, &out[ S->Fs_out_kHz ], &in[ nSamples ], inLen - S->Fs_in_kHz );
+            silk_resampler_private_IIR_FIR( S, out, S->delayBuf, S->Fs_in_kHz, scratch );
+            silk_resampler_private_IIR_FIR( S, &out[ S->Fs_out_kHz ], &in[ nSamples ], inLen - S->Fs_in_kHz, scratch );
             break;
         case USE_silk_resampler_private_down_FIR:
-            silk_resampler_private_down_FIR( S, out, S->delayBuf, S->Fs_in_kHz );
-            silk_resampler_private_down_FIR( S, &out[ S->Fs_out_kHz ], &in[ nSamples ], inLen - S->Fs_in_kHz );
+            silk_resampler_private_down_FIR( S, out, S->delayBuf, S->Fs_in_kHz, scratch );
+            silk_resampler_private_down_FIR( S, &out[ S->Fs_out_kHz ], &in[ nSamples ], inLen - S->Fs_in_kHz, scratch );
             break;
         default:
             silk_memcpy( out, S->delayBuf, S->Fs_in_kHz * sizeof( opus_int16 ) );

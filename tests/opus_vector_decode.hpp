@@ -21,9 +21,10 @@ inline constexpr u32 kOpusVectorMaximumPacket = 1500, kOpusVectorMaximumFrame = 
 inline u32 opus_vector_big_endian(const u8* p) noexcept {
     return static_cast<u32>(p[0]) << 24 | static_cast<u32>(p[1]) << 16 | static_cast<u32>(p[2]) << 8 | p[3];
 }
-// `frame` holds kOpusVectorMaximumFrame * channels samples; `pcm` may be null to only hash.
-inline OpusVectorDecode opus_vector_decode(::OpusDecoder* decoder, u32 channels, const u8* bitstream, usize bytes,
-                                           i16* frame, i16* pcm, usize capacity) noexcept {
+// `frame` holds kOpusVectorMaximumFrame * channels samples; `pcm` may be null to
+// only hash; `scratch` is OPUS_SCRATCH_BYTES of 16-byte aligned memory.
+inline OpusVectorDecode opus_vector_decode(::OpusDecoder* decoder, void* scratch, u32 channels, const u8* bitstream,
+                                           usize bytes, i16* frame, i16* pcm, usize capacity) noexcept {
     OpusVectorDecode result{};
     u64 hash = 0xcbf29ce484222325ull;
     u32 lost_count = 0, last_duration = 0;
@@ -46,12 +47,13 @@ inline OpusVectorDecode opus_vector_decode(::OpusDecoder* decoder, u32 channels,
             int samples;
             if (run + 1 == lost_count && opus_packet_has_lbrr(data, static_cast<opus_int32>(length)) > 0) {
                 ++result.recovered;
-                samples = opus_decode(decoder, data, static_cast<opus_int32>(length), frame, static_cast<int>(last_duration), 1);
+                samples = opus_decode(decoder, data, static_cast<opus_int32>(length), frame, static_cast<int>(last_duration), 1,
+                                      scratch);
             } else if (run < lost_count)
-                samples = opus_decode(decoder, nullptr, 0, frame, static_cast<int>(last_duration), 0);
+                samples = opus_decode(decoder, nullptr, 0, frame, static_cast<int>(last_duration), 0, scratch);
             else
                 samples = opus_decode(decoder, data, static_cast<opus_int32>(length), frame,
-                                      static_cast<int>(kOpusVectorMaximumFrame), 0);
+                                      static_cast<int>(kOpusVectorMaximumFrame), 0, scratch);
             if (samples <= 0) {
                 ++result.decode_errors;
                 continue;

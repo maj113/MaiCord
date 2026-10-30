@@ -189,10 +189,11 @@ void run_job(Job* job) noexcept {
     auto* frame = static_cast<i16*>(VirtualAlloc(nullptr, kOpusVectorMaximumFrame * 2 * 2, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
     auto* decoder = static_cast<OpusDecoder*>(VirtualAlloc(nullptr, static_cast<usize>(opus_decoder_get_size(static_cast<int>(channels))),
                                                             MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    if (!pcm || !frame || !decoder || opus_decoder_init(decoder, 48000, static_cast<int>(channels)) != OPUS_OK)
+    void* scratch = VirtualAlloc(nullptr, OPUS_SCRATCH_BYTES, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!pcm || !frame || !decoder || !scratch || opus_decoder_init(decoder, 48000, static_cast<int>(channels)) != OPUS_OK)
         return;
     const OpusVectorDecode decoded =
-        opus_vector_decode(decoder, channels, job->bitstream.data, job->bitstream.bytes, frame, pcm, capacity);
+        opus_vector_decode(decoder, scratch, channels, job->bitstream.data, job->bitstream.bytes, frame, pcm, capacity);
     job->packets = decoded.packets, job->lost = decoded.lost;
     job->range_errors = decoded.range_errors, job->decode_errors = decoded.decode_errors;
     job->digest = decoded.digest;
@@ -222,6 +223,7 @@ void run_job(Job* job) noexcept {
     VirtualFree(pcm, 0, MEM_RELEASE);
     VirtualFree(frame, 0, MEM_RELEASE);
     VirtualFree(decoder, 0, MEM_RELEASE);
+    VirtualFree(scratch, 0, MEM_RELEASE);
 }
 
 DWORD WINAPI job_thread(void*) noexcept {

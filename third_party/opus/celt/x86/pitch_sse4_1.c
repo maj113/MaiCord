@@ -224,4 +224,90 @@ void xcorr_kernel_sse4_1(const opus_val16 * x, const opus_val16 * y, opus_val32 
     _mm_storeu_si128((__m128i *)(void*)sum, initSum);
 
 }
+
+/* maiopus: the constant-gain part of comb_filter() (upstream's
+   comb_filter_const_c()) four outputs at a time. In place (y == x)
+   the filter is recursive, but every tap is at least T-2 >= 13 samples back,
+   so a block of four only reads outputs written before it. */
+void comb_filter_const_sse4_1(opus_val32 *y, opus_val32 *x, int T, int N,
+      celt_coef g10, celt_coef g11, celt_coef g12)
+{
+    int i;
+    const __m128i vg10 = _mm_set1_epi32(g10);
+    const __m128i vg11 = _mm_set1_epi32(g11);
+    const __m128i vg12 = _mm_set1_epi32(g12);
+    const __m128i one = _mm_set1_epi32(1);
+    const __m128i high = _mm_set1_epi32(SIG_SAT);
+    const __m128i low = _mm_set1_epi32(-SIG_SAT);
+    for (i=0;i<N-3;i+=4)
+    {
+        __m128i sum = _mm_loadu_si128((__m128i *)(void*)&x[i]);
+        __m128i x0 = _mm_loadu_si128((__m128i *)(void*)&x[i-T+2]);
+        __m128i x1 = _mm_loadu_si128((__m128i *)(void*)&x[i-T+1]);
+        __m128i x2 = _mm_loadu_si128((__m128i *)(void*)&x[i-T]);
+        __m128i x3 = _mm_loadu_si128((__m128i *)(void*)&x[i-T-1]);
+        __m128i x4 = _mm_loadu_si128((__m128i *)(void*)&x[i-T-2]);
+        sum = _mm_add_epi32(sum, mult16_32_q15_sse4_1(x2, vg10));
+        sum = _mm_add_epi32(sum, mult16_32_q15_sse4_1(_mm_add_epi32(x1, x3), vg11));
+        sum = _mm_add_epi32(sum, mult16_32_q15_sse4_1(_mm_add_epi32(x0, x4), vg12));
+        /* A bit of bias seems to help here. */
+        sum = _mm_sub_epi32(sum, one);
+        sum = _mm_max_epi32(_mm_min_epi32(sum, high), low);
+        _mm_storeu_si128((__m128i *)(void*)&y[i], sum);
+    }
+    for (;i<N;i++)
+    {
+        opus_val32 sum = x[i]
+                 + MULT_COEF_32(g10,x[i-T])
+                 + MULT_COEF_32(g11,ADD32(x[i-T+1],x[i-T-1]))
+                 + MULT_COEF_32(g12,ADD32(x[i-T+2],x[i-T-2]));
+        sum = SUB32(sum, 1);
+        y[i] = SATURATE(sum, SIG_SAT);
+    }
+}
+
+/* maiopus: the crossfade at the start of comb_filter(), four outputs at a
+   time (see comb_filter_const_sse4_1() for the in-place reads). overlap is
+   the mode's 120 or 0, a multiple of four. */
+void comb_filter_overlap_sse4_1(opus_val32 *y, opus_val32 *x, int T0, int T1, int overlap,
+      celt_coef g00, celt_coef g01, celt_coef g02, celt_coef g10, celt_coef g11, celt_coef g12,
+      const celt_coef *window)
+{
+    int i;
+    const __m128i vg00 = _mm_set1_epi32(g00), vg01 = _mm_set1_epi32(g01), vg02 = _mm_set1_epi32(g02);
+    const __m128i vg10 = _mm_set1_epi32(g10), vg11 = _mm_set1_epi32(g11), vg12 = _mm_set1_epi32(g12);
+    const __m128i coef_one = _mm_set1_epi32(COEF_ONE);
+    const __m128i three = _mm_set1_epi32(3);
+    const __m128i high = _mm_set1_epi32(SIG_SAT);
+    const __m128i low = _mm_set1_epi32(-SIG_SAT);
+    for (i=0;i<overlap;i+=4)
+    {
+        /* MULT_COEF() is MULT16_16_Q15(): the 16-bit operands' product fits 32 bits. */
+        __m128i w = OP_CVTEPI16_EPI32_M64(&window[i]);
+        __m128i f = _mm_srai_epi32(_mm_mullo_epi32(w, w), 15);
+        __m128i nf = _mm_sub_epi32(coef_one, f);
+        __m128i sum = _mm_loadu_si128((__m128i *)(void*)&x[i]);
+        __m128i a, b;
+        a = _mm_loadu_si128((__m128i *)(void*)&x[i-T0]);
+        sum = _mm_add_epi32(sum, mult16_32_q15_sse4_1(a, _mm_srai_epi32(_mm_mullo_epi32(nf, vg00), 15)));
+        a = _mm_loadu_si128((__m128i *)(void*)&x[i-T0+1]);
+        b = _mm_loadu_si128((__m128i *)(void*)&x[i-T0-1]);
+        sum = _mm_add_epi32(sum, mult16_32_q15_sse4_1(_mm_add_epi32(a, b), _mm_srai_epi32(_mm_mullo_epi32(nf, vg01), 15)));
+        a = _mm_loadu_si128((__m128i *)(void*)&x[i-T0+2]);
+        b = _mm_loadu_si128((__m128i *)(void*)&x[i-T0-2]);
+        sum = _mm_add_epi32(sum, mult16_32_q15_sse4_1(_mm_add_epi32(a, b), _mm_srai_epi32(_mm_mullo_epi32(nf, vg02), 15)));
+        a = _mm_loadu_si128((__m128i *)(void*)&x[i-T1]);
+        sum = _mm_add_epi32(sum, mult16_32_q15_sse4_1(a, _mm_srai_epi32(_mm_mullo_epi32(f, vg10), 15)));
+        a = _mm_loadu_si128((__m128i *)(void*)&x[i-T1+1]);
+        b = _mm_loadu_si128((__m128i *)(void*)&x[i-T1-1]);
+        sum = _mm_add_epi32(sum, mult16_32_q15_sse4_1(_mm_add_epi32(a, b), _mm_srai_epi32(_mm_mullo_epi32(f, vg11), 15)));
+        a = _mm_loadu_si128((__m128i *)(void*)&x[i-T1+2]);
+        b = _mm_loadu_si128((__m128i *)(void*)&x[i-T1-2]);
+        sum = _mm_add_epi32(sum, mult16_32_q15_sse4_1(_mm_add_epi32(a, b), _mm_srai_epi32(_mm_mullo_epi32(f, vg12), 15)));
+        /* A bit of bias seems to help here. */
+        sum = _mm_sub_epi32(sum, three);
+        sum = _mm_max_epi32(_mm_min_epi32(sum, high), low);
+        _mm_storeu_si128((__m128i *)(void*)&y[i], sum);
+    }
+}
 #endif

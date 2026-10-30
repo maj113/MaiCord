@@ -68,26 +68,28 @@ bool equal(const i16* a, const i16* b, u32 count) noexcept {
 void test_concealment(Check check) noexcept {
     static DecoderPair pair;
     static i16 pcm[5760 * 2], fec[5760 * 2], plc[5760 * 2];
+    static OpusScratch scratch; // One per thread, shared by both decoders.
+    OpusScratch* const s = &scratch;
     const u32 bytes = opus_decoder_storage_bytes(2);
     auto& d = pair.first;
     check(bytes && bytes <= sizeof(pair.a) && opus_decoder_initialize(&d, {pair.a, bytes}, 2).ok(),
           "Opus PLC: stereo decoder initializes in caller storage");
-    check(opus_decoder_conceal(&d, 960, {pcm, 1920}).ok() &&
-              opus_decoder_conceal(&d, 961, {pcm, 1920}).error == OpusDecodeError::invalid_input &&
-              opus_decoder_conceal(&d, 0, {pcm, 1920}).error == OpusDecodeError::invalid_input &&
-              opus_decoder_conceal(&d, 5761, {pcm, 11520}).error == OpusDecodeError::invalid_input &&
-              opus_decoder_conceal(&d, 960, {pcm, 1919}).error == OpusDecodeError::capacity &&
-              opus_decoder_decode_fec(&d, {}, 960, {pcm, 1920}).error == OpusDecodeError::invalid_input &&
-              opus_decoder_conceal(&d, 960, {reinterpret_cast<i16*>(pair.a), 1920}).error ==
+    check(opus_decoder_conceal(&d, 960, {pcm, 1920}, s).ok() &&
+              opus_decoder_conceal(&d, 961, {pcm, 1920}, s).error == OpusDecodeError::invalid_input &&
+              opus_decoder_conceal(&d, 0, {pcm, 1920}, s).error == OpusDecodeError::invalid_input &&
+              opus_decoder_conceal(&d, 5761, {pcm, 11520}, s).error == OpusDecodeError::invalid_input &&
+              opus_decoder_conceal(&d, 960, {pcm, 1919}, s).error == OpusDecodeError::capacity &&
+              opus_decoder_decode_fec(&d, {}, 960, {pcm, 1920}, s).error == OpusDecodeError::invalid_input &&
+              opus_decoder_conceal(&d, 960, {reinterpret_cast<i16*>(pair.a), 1920}, s).error ==
                   OpusDecodeError::invalid_input,
           "Opus PLC: frame counts must be 2.5 ms multiples up to 120 ms with capacity and alias checks");
     u8 celt[200], silk[200], next[200];
     const u32 celt_bytes = make_packet(Kind::celt, 1, celt);
-    const auto decoded = opus_decoder_decode(&d, {celt, celt_bytes}, {pcm, 1920});
+    const auto decoded = opus_decoder_decode(&d, {celt, celt_bytes}, {pcm, 1920}, s);
     i32 energy = 0;
     for (u32 i = 0; i < 1920; ++i)
         energy |= pcm[i];
-    const auto concealed = opus_decoder_conceal(&d, 960, {plc, 1920});
+    const auto concealed = opus_decoder_conceal(&d, 960, {plc, 1920}, s);
     i32 concealed_energy = 0;
     for (u32 i = 0; i < 1920; ++i)
         concealed_energy |= plc[i];
@@ -97,18 +99,18 @@ void test_concealment(Check check) noexcept {
     const u32 silk_bytes = make_packet(Kind::silk_fec, 2, silk);
     const u32 next_bytes = make_packet(Kind::silk_fec, 3, next);
     check(opus_packet_has_fec({next, next_bytes}) && !opus_packet_has_fec({celt, celt_bytes}) &&
-              !opus_packet_has_fec({}) && opus_decoder_decode(&d, {silk, silk_bytes}, {pcm, 1920}).ok(),
+              !opus_packet_has_fec({}) && opus_decoder_decode(&d, {silk, silk_bytes}, {pcm, 1920}, s).ok(),
           "Opus FEC: LBRR presence is detected from the following packet");
     // Clone the decoder so FEC and plain concealment start from the same history.
     copy_bytes(pair.b, pair.a, bytes);
     pair.second = {pair.b, bytes, 2, true};
-    const auto recovered = opus_decoder_decode_fec(&d, {next, next_bytes}, 960, {fec, 1920});
-    const auto guessed = opus_decoder_conceal(&pair.second, 960, {plc, 1920});
+    const auto recovered = opus_decoder_decode_fec(&d, {next, next_bytes}, 960, {fec, 1920}, s);
+    const auto guessed = opus_decoder_conceal(&pair.second, 960, {plc, 1920}, s);
     check(recovered.ok() && recovered.frames == 960 && guessed.ok() && !equal(fec, plc, 1920),
           "Opus FEC: one lost frame is rebuilt from the next packet's LBRR, not merely concealed");
     copy_bytes(pair.b, pair.a, bytes);
-    const auto celt_fec = opus_decoder_decode_fec(&d, {celt, celt_bytes}, 960, {fec, 1920});
-    const auto celt_plc = opus_decoder_conceal(&pair.second, 960, {plc, 1920});
+    const auto celt_fec = opus_decoder_decode_fec(&d, {celt, celt_bytes}, 960, {fec, 1920}, s);
+    const auto celt_plc = opus_decoder_conceal(&pair.second, 960, {plc, 1920}, s);
     check(celt_fec.ok() && celt_plc.ok() && equal(fec, plc, 1920),
           "Opus FEC: without LBRR the FEC path falls back to identical concealment");
     opus_decoder_release(&pair.first);

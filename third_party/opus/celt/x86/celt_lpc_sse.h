@@ -29,22 +29,16 @@
 #define CELT_LPC_SSE_H
 
 
-#if defined(OPUS_X86_MAY_HAVE_SSE4_1) && defined(FIXED_POINT)
-
+/* maiopus: SSE4.1 is required, so this is the only implementation. */
 void celt_fir_sse4_1(
          const opus_val16 *x,
          const opus_val16 *num,
          opus_val16 *y,
          int N,
          int ord,
-         int arch);
-
-#if defined(OPUS_X86_PRESUME_SSE4_1)
-#define OVERRIDE_CELT_FIR
-#define celt_fir(x, num, y, N, ord, arch) \
-    ((void)arch, celt_fir_sse4_1(x, num, y, N, ord, arch))
-
-#endif
-#endif
+         int arch,
+         char *scratch);
+#define celt_fir(x, num, y, N, ord, arch, scratch) \
+    ((void)arch, celt_fir_sse4_1(x, num, y, N, ord, arch, scratch))
 
 #endif

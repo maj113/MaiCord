@@ -126,7 +126,7 @@ static void celt_fir5(opus_val16 *x,
 
 
 void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
-      int len, int C, int factor, int arch)
+      int len, int C, int factor, int arch, char *scratch)
 {
    int i;
    opus_val32 ac[5];
@@ -161,7 +161,7 @@ void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x
       x_lp[0] += SHR32(x[1][offset], shift+2) + SHR32(x[1][0], shift+1);
    }
    _celt_autocorr(x_lp, ac, NULL, 0,
-                  4, len, arch);
+                  4, len, arch, scratch);
 
    /* Noise floor -40 dB */
    ac[0] += SHR32(ac[0],13);
@@ -225,7 +225,7 @@ celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
 }
 
 void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
-                  int len, int max_pitch, int *pitch, int arch)
+                  int len, int max_pitch, int *pitch, int arch, char *scratch)
 {
    int i, j;
    int lag;
@@ -347,7 +347,7 @@ static opus_val16 compute_pitch_gain(opus_val32 xy, opus_val32 xx, opus_val32 yy
 
 static const int second_check[16] = {0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2};
 opus_val16 remove_doubling(opus_val16 *x, int maxperiod, int minperiod,
-      int N, int *T0_, int prev_period, opus_val16 prev_gain, int arch)
+      int N, int *T0_, int prev_period, opus_val16 prev_gain, int arch, char *scratch)
 {
    int k, i, T, T0;
    opus_val16 g, g0;

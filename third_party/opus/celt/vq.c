@@ -181,7 +181,7 @@ static unsigned extract_collapse_mask(int *iy, int N, int B)
    return collapse_mask;
 }
 
-opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch)
+opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch, char *scratch)
 {
    VARDECL(celt_norm, y);
    VARDECL(int, signx);
@@ -331,7 +331,7 @@ opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch)
 
 unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
       opus_val32 gain, int resynth
-, int arch)
+, int arch, char *scratch)
 {
    VARDECL(int, iy);
    opus_val32 yy;
@@ -347,7 +347,7 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
    exp_rotation(X, N, 1, B, K, spread);
 
    {
-      yy = op_pvq_search(X, iy, K, N, arch);
+      yy = op_pvq_search(X, iy, K, N, arch, scratch);
       collapse_mask = extract_collapse_mask(iy, N, B);
       encode_pulses(iy, N, K, enc);
       if (resynth)
@@ -364,7 +364,7 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
 /** Decode pulse vector and combine the result with the pitch vector to produce
     the final normalised signal in the current band. */
 unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
-      ec_dec *dec, opus_val32 gain)
+      ec_dec *dec, opus_val32 gain, char *scratch)
 {
    opus_val32 Ryy;
    unsigned collapse_mask;

@@ -46,8 +46,6 @@ void silk_scale_copy_vector16(
     }
 }
 
-/* Multiply a vector by a constant */
-
 /* sum = for(i=0;i<len;i++)inVec1[i]*inVec2[i];      ---        inner product   */
 /* Note for ARM asm:                                                            */
 /*        * inVec1 and inVec2 should be at least 2 byte aligned.                */
@@ -61,18 +59,4 @@ opus_int32 silk_inner_prod_aligned(
 )
 {
    return celt_inner_prod(inVec1, inVec2, len, arch);
-}
-
-opus_int64 silk_inner_prod16_c(
-    const opus_int16            *inVec1,            /*    I input vector 1                                              */
-    const opus_int16            *inVec2,            /*    I input vector 2                                              */
-    const opus_int              len                 /*    I vector lengths                                              */
-)
-{
-    opus_int   i;
-    opus_int64 sum = 0;
-    for( i = 0; i < len; i++ ) {
-        sum = silk_SMLALBB( sum, inVec1[ i ], inVec2[ i ] );
-    }
-    return sum;
 }

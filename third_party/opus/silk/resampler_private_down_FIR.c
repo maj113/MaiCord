@@ -143,7 +143,8 @@ void silk_resampler_private_down_FIR(
     void                            *SS,            /* I/O  Resampler state             */
     opus_int16                      out[],          /* O    Output signal               */
     const opus_int16                in[],           /* I    Input signal                */
-    opus_int32                      inLen           /* I    Number of input samples     */
+    opus_int32                      inLen,          /* I    Number of input samples     */
+    char                            *scratch        /* I    Scratch arena               */
 )
 {
     silk_resampler_state_struct *S = (silk_resampler_state_struct *)SS;

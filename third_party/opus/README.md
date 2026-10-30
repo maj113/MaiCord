@@ -10,16 +10,21 @@ the changes and added files use the same terms):
   20 ms VBR frame per packet. Bitrate, complexity, in-band FEC, packet loss, DTX
   and the VBR constraint are adjustable. For these settings the packets are
   bit-identical to upstream libopus.
-- **Fixed point, no heap, no C runtime.** States live in caller memory
-  (`opus_*_get_size()`/`opus_*_init()`); scratch uses per-call `alloca`.
+- **Fixed point, no heap, no alloca, no C runtime.** States live in caller memory
+  (`opus_*_get_size()`/`opus_*_init()`); `opus_encode()` and `opus_decode()`
+  work in caller scratch of `OPUS_SCRATCH_BYTES` that holds nothing between
+  calls, so one block per thread serves every stream (`celt/stack_alloc.h`).
   Decoder checks on values derived from packet bits that bound a memory access
   or the range decoder end the process with an inline `__fastfail(7)`
   (`celt_packet_check` in `celt/arch.h`); the other upstream assertions
   (encoder, caller and configuration input, decoder state validation, algorithm
   invariants) compile to nothing.
-- **x86 SIMD by compile-time selection** (`MAIOPUS_SSE4_1`, `MAIOPUS_ARCH`), no
-  runtime CPU dispatch. The fixed-point SSE4.1 kernels are bit-exact with the C
-  code; the AVX2 kernel needs an AVX2 baseline and is not included.
+- **x86-64 SSE4.1 only** (`MAIOPUS_SSE4_1`, required, and `MAIOPUS_ARCH`), selected
+  at compile time with no runtime CPU dispatch and no C fallbacks for the kernels:
+  the SILK LPC analysis and synthesis filters, resampler interpolation, delayed
+  decision quantizer, VAD, Burg and VQ, and the CELT pitch, comb filter, MDCT
+  rotation and FFT butterfly kernels. They are bit-exact with upstream's C code; the
+  AVX2 kernel needs an AVX2 baseline and is not included.
 
 Upstream: <https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz>,
 SHA-256 `6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1`.

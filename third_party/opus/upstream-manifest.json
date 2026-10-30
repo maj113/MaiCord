@@ -33,21 +33,28 @@
       "status": "modified",
       "upstream_sha256": "fc7ddcc7a46135c2cd89016025e4b96d30e9b514565610115467405d78d63ec6",
       "changes": [
-        "The stride, compute_qn() and decoded itheta checks use celt_packet_check()."
+        "The stride, compute_qn() and decoded itheta checks use celt_packet_check().",
+        "Scratch comes from the caller's arena (stack_alloc.h): quant_all_bands() takes it as its last argument and passes it to the band leaves through band_ctx; deinterleave_hadamard() and interleave_hadamard() take it too."
       ],
-      "sha256": "36c82f620f0225c38782a376193d48685c3248bb0c293ef836b2125bfbbf68d0"
+      "sha256": "6cc7305f529fff9c9fd4de5fe9a32f72853417182b55477b74c782fe63934d16"
     },
     {
       "path": "celt/bands.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "2167a3fcca0789942d46cdc2f870d77d66d09ec1840ee1db8a508ae16126fad8",
-      "sha256": "89320b87d694a556f9e098dc28b241640cbf7cfe2bf0629c8f95464d2899dc87"
+      "changes": [
+        "quant_all_bands() takes the scratch arena (stack_alloc.h) as its last argument."
+      ],
+      "sha256": "5564658df4f1f3755f0d711e7bbaab232de86d6281b32958a7ee33f0fee309fd"
     },
     {
       "path": "celt/celt.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "d3c1b484c4d895bceda7c543534fc607bf4c6e2b1ca4b080dee8a5b8433a95d9",
-      "sha256": "713f5dc815702071aeaf036267ccb1d1cfb4f6a3735d077b454f24fd8379e30f"
+      "changes": [
+        "SSE4.1 only: comb_filter_const_c() is removed and comb_filter() runs its crossfade (the mode's 120-sample overlap or none) with comb_filter_overlap_sse4_1() and the rest with comb_filter_const_sse4_1()."
+      ],
+      "sha256": "57da3378d8b50dd05abbe108527a23be6553cbcd510778de34d1c26565567b42"
     },
     {
       "path": "celt/celt.h",
@@ -55,9 +62,10 @@
       "upstream_sha256": "1c2b136abe5af480d3a579742ebf099ea345622645c1852c151ca2817c92eb53",
       "changes": [
         "Removed the analysis (AnalysisInfo), LFE, energy mask, signalling, tonality, input clipping and error query requests and the DRED decode entry point.",
-        "celt_encoder_init() takes no sampling rate (48 kHz only); celt_preemphasis() is private to the encoder."
+        "celt_encoder_init() takes no sampling rate (48 kHz only); celt_preemphasis() is private to the encoder.",
+        "celt_encode_with_ec() and celt_decode_with_ec() take the scratch arena (stack_alloc.h) as their last argument; CELT_ENCODER_SCRATCH_BYTES and CELT_DECODER_SCRATCH_BYTES state its worst case."
       ],
-      "sha256": "a78bdb2e3f1cddbcad6cec66dbfbb4b597179497cdd82449afbad7e2eda63f20"
+      "sha256": "b12a104e9a42fb350fe9eee48ae0c44b3e6d38665e0cedc34d814bf3a5b7ca3b"
     },
     {
       "path": "celt/celt_decoder.c",
@@ -65,9 +73,10 @@
       "upstream_sha256": "a53393c70ae917d39229f34bce2c16ada535807e095cad00a4580aee48c9bfdb",
       "changes": [
         "No custom signalling, decoder complexity (deep PLC only) or error flag; the ctl keeps start/end band, channels, mode, final range and reset.",
-        "celt_decode_with_ec_dred() is celt_decode_with_ec(); the QEXT payload remnant and the neural PLC frame types are removed."
+        "celt_decode_with_ec_dred() is celt_decode_with_ec(); the QEXT payload remnant and the neural PLC frame types are removed.",
+        "Scratch comes from the caller's arena (stack_alloc.h): celt_decode_with_ec(), celt_decode_lost(), celt_plc_pitch_search(), prefilter_and_fold(), celt_synthesis() and deemphasis() take it as their last argument; deemphasis()'s local buffer is renamed buf."
       ],
-      "sha256": "0f87a45d3c9841d39cf6db5671550ccf89b3174283ac2608a392cffdd41523a3"
+      "sha256": "534fdfb897ac209be36273674a45f8da18e0af9f33b5d321e7163a59191fb977"
     },
     {
       "path": "celt/celt_encoder.c",
@@ -76,20 +85,30 @@
       "changes": [
         "Fixed to 48 kHz input (no upsampling) without custom signalling, LFE, surround energy mask or tonality analysis input; 16-bit input depth and enabled phase inversion are constants.",
         "Pre-emphasis keeps only the fixed-point path; dynalloc, trim, VBR and prefilter analysis lose their analysis and surround arguments; the unused pitch change estimate is removed.",
-        "The ctl drops the LSB depth, phase inversion, signalling, analysis, LFE and energy mask requests; coarse energy quantization is called without the LFE flag."
+        "The ctl drops the LSB depth, phase inversion, signalling, analysis, LFE and energy mask requests; coarse energy quantization is called without the LFE flag.",
+        "Scratch comes from the caller's arena (stack_alloc.h): celt_encode_with_ec(), transient_analysis(), compute_mdcts(), tf_analysis(), dynalloc_analysis(), tone_detect() and run_prefilter() take it as their last argument."
       ],
-      "sha256": "dccda9226cd6ed90029e22db924f6d51787b09259215c15575fdcadc8d5c5a30"
+      "sha256": "18b81a99ef627861116582352c9b6813323f90650ff336cf84009518b992c44a"
     },
     {
       "path": "celt/celt_lpc.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "8c6eb20b52aa9d52a83453fd3e33372f2faf1791ea6cfcd8d9d294b005cd0801",
-      "sha256": "b2435b2a044b1585b576eb4deeacd22a5601c6ad961e190a36e06ac2f53ac0d0"
+      "changes": [
+        "celt_iir() and _celt_autocorr() take the scratch arena (stack_alloc.h) as their last argument.",
+        "celt_fir_c() is removed: SSE4.1 is required and celt_fir_sse4_1() is the implementation."
+      ],
+      "sha256": "4c24057333888d451f516b27fe83067053c23fe4681f767302922db6eb33ceca"
     },
     {
       "path": "celt/celt_lpc.h",
-      "status": "unchanged",
-      "upstream_sha256": "e10b2e2e610b16a2003d00599467dfed45d300726eb28d0934857ebe2dc822cf"
+      "status": "modified",
+      "upstream_sha256": "e10b2e2e610b16a2003d00599467dfed45d300726eb28d0934857ebe2dc822cf",
+      "changes": [
+        "celt_iir() and _celt_autocorr() take the scratch arena (stack_alloc.h) as their last argument.",
+        "celt_fir_c() and its default celt_fir() are removed (x86/celt_lpc_sse.h defines celt_fir())."
+      ],
+      "sha256": "5ddb5ee1646f82ff4b985530abde68b6c5dfc26c83e2f031f8fd9564f83f7165"
     },
     {
       "path": "celt/cpu_support.h",
@@ -172,9 +191,10 @@
       "status": "modified",
       "upstream_sha256": "0ff3c57ce9dededbf9925338808223ee8e164b5847f2b320da49b11bac4024d0",
       "changes": [
-        "opus_fft_c() and opus_ifft_c() (tonality analysis only) removed; the MDCT calls opus_fft_impl()."
+        "opus_fft_c() and opus_ifft_c() (tonality analysis only) removed; the MDCT calls opus_fft_impl().",
+        "SSE4.1 only: kf_bfly2(), kf_bfly3(), kf_bfly4() and kf_bfly5() run two complex values per vector (four-lane MULT16_32_Q15 from x86cpu.h, wrapping sums), bit-exact with the scalar butterflies they replace; the 48 kHz mode's FFT factors make every m > 1 even, so no scalar remainder is kept."
       ],
-      "sha256": "fd6d822ae939534bc122cddfa5fe18206092e23027348ba8b11e38a61e9a0671"
+      "sha256": "4c47f8744489c59a349f7a63184611403726859b7e37f29824c0085e75247d4b"
     },
     {
       "path": "celt/kiss_fft.h",
@@ -224,15 +244,22 @@
     },
     {
       "path": "celt/mdct.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "8a21116be9b1332926586f8f44af0e1afd9bb7e8a65614683f972654a0668dcb",
-      "sha256": "1bc7baab6a79b9897aa5848335e2a81106e0f45881e6acc4f43272f88c4be548"
+      "changes": [
+        "clt_mdct_forward_c() takes the scratch arena (stack_alloc.h) as its last argument.",
+        "SSE4.1 only, bit-exact with the scalar loops: clt_mdct_backward_c() scans the input, pre-rotates (inputs gathered for short blocks), post-rotates and mirrors four values at a time with no scalar remainder (N2, N4 and overlap/2 are multiples of four); clt_mdct_forward_c() pre-rotates four values at a time and post-rotates four from each end (unit stride), finishing short blocks and the remainder in C."
+      ],
+      "sha256": "b26f6cc778e0d88b878c12b5e441e0c2b76e2c6f4c9bf2d440074d5e2fb2794a"
     },
     {
       "path": "celt/mdct.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "fe4d55da1aa03159403379a1cf9d6373da7b27ed0f1de63f8f726e9d9cffd41a",
-      "sha256": "775ae2041ae0bd181a15fa6faa2e2c12f4dda3da955df04af1dd2b6447810d12"
+      "changes": [
+        "clt_mdct_forward_c() and clt_mdct_forward() take the scratch arena (stack_alloc.h) as their last argument."
+      ],
+      "sha256": "9b672974cc9d97468952badb25c7bb9917c5ea693097cd575a4574ccd250f79e"
     },
     {
       "path": "celt/mfrngcod.h",
@@ -259,32 +286,41 @@
     },
     {
       "path": "celt/pitch.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "ad93368ae01b6fcadd28905e6ed5a55ad165ae5031654540af77d1ffe55acfd5",
-      "sha256": "ea746cdb46e580e5605596e8fd44eac8474acdd1aae36b91a680dcc74401efbc"
+      "changes": [
+        "pitch_downsample(), pitch_search() and remove_doubling() take the scratch arena (stack_alloc.h) as their last argument."
+      ],
+      "sha256": "5cb4c2a4aaf1bd20123f6eb07a8d63083f933a735de75ecd79f0e51435798835"
     },
     {
       "path": "celt/pitch.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "546220cfc7b32796a1f18b37ce75864e94b0016ea8a5eaace1f06c70aa8e20e2",
-      "sha256": "777dcba6f2a733503954fb2a3a28596705ffc7009f99541c2aecaf1df819bbb4"
+      "changes": [
+        "pitch_downsample(), pitch_search() and remove_doubling() take the scratch arena (stack_alloc.h) as their last argument.",
+        "SSE4.1 only: the C xcorr_kernel_c() and celt_inner_prod_c() and the default xcorr_kernel(), celt_inner_prod() and comb_filter_const() mappings are removed (x86/pitch_sse.h defines them)."
+      ],
+      "sha256": "d5125e53d049a4aae36b2c3435da88070a336e7db05c8e2bec3466cf671239eb"
     },
     {
       "path": "celt/quant_bands.c",
       "status": "modified",
       "upstream_sha256": "bec6e7ac19ff02b83480c6ca6a01c084566781856a1e3442b7468bf25a4b937b",
-      "sha256": "90fcd14b1defc5c3e7a0ba859a674d5ca0308012449012bfbd43bc4fe10553a7",
+      "sha256": "25c6cddbec37a30b9c03957b2c6a5e4c7c78d628fb0e74b646b7672066892f04",
       "changes": [
-        "quant_coarse_energy() loses the LFE argument (LFE coding is not supported)."
+        "quant_coarse_energy() loses the LFE argument (LFE coding is not supported).",
+        "quant_coarse_energy() takes the scratch arena (stack_alloc.h) as its last argument."
       ]
     },
     {
       "path": "celt/quant_bands.h",
       "status": "modified",
       "upstream_sha256": "ea86cddfd98268902f37662cbe67d168fb8c1d5d23ad6e6a82b8f6f511048874",
-      "sha256": "3d2ddfa30c2d0b9ae1327b574a8c34d8575f1f574450f1d67d7dbf672b0ec32c",
+      "sha256": "68f321c0f9f656ced8259f763382d496db08f4daa2fea8f3fcafdadc490cbc7c",
       "changes": [
-        "quant_coarse_energy() loses the LFE argument (LFE coding is not supported)."
+        "quant_coarse_energy() loses the LFE argument (LFE coding is not supported).",
+        "quant_coarse_energy() takes the scratch arena (stack_alloc.h) as its last argument."
       ]
     },
     {
@@ -292,20 +328,28 @@
       "status": "modified",
       "upstream_sha256": "f288c8b88882e6500ee5fbb9036eef1ee572e0301d28cd686061c815747a7b9e",
       "changes": [
-        "interp_bits2pulses()'s coded band and bit count checks use celt_packet_check()."
+        "interp_bits2pulses()'s coded band and bit count checks use celt_packet_check().",
+        "clt_compute_allocation() takes the scratch arena (stack_alloc.h) as its last argument."
       ],
-      "sha256": "53c5c566a2fd03980219d72a2fd42093f77afcdc73ee08c0ae2a3f743316c64e"
+      "sha256": "f5326384dccf80c8762151209eee2306ccadd5cfa74624cd9cb2e80fdb4efde2"
     },
     {
       "path": "celt/rate.h",
-      "status": "unchanged",
-      "upstream_sha256": "7bc335949f2e6e7d4e28c23681c4fc6f3c99733848deb7d1a24e908431f0d8a6"
+      "status": "modified",
+      "upstream_sha256": "7bc335949f2e6e7d4e28c23681c4fc6f3c99733848deb7d1a24e908431f0d8a6",
+      "changes": [
+        "clt_compute_allocation() takes the scratch arena (stack_alloc.h) as its last argument."
+      ],
+      "sha256": "67329c5b26772da207c43daeefde54ae30ed290e9d7cbc9b74d52bd4798186ed"
     },
     {
       "path": "celt/stack_alloc.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "791a3ed2f579d0031213dd2e59446b2160f887c2df158f00b254bb08e66a739f",
-      "sha256": "f81cb78d9532e7b08ef27b30efde55b266939afd7875259967f68ff1a7c35ac3"
+      "changes": [
+        "ALLOC() bump-allocates 16-byte rounded blocks from a caller-owned scratch arena held in each allocating function's `char *scratch` parameter (no alloca, so no stack probes or dynamic frames); SCRATCH_BYTES() gives a block's size; the ALIGN/PUSH documentation of the removed pseudostack is gone."
+      ],
+      "sha256": "88d721ca4805aa6916112d5d3a231a920842882d1dc3af2a5a31f0ad5ceeb785"
     },
     {
       "path": "celt/static_modes_fixed.h",
@@ -318,45 +362,65 @@
       "status": "modified",
       "upstream_sha256": "7f488e7ced4080d267e4ff44cb512861a47a49d45891277f4e898fe680dad0e5",
       "changes": [
-        "alg_unquant()'s pulse count and dimension checks use celt_packet_check()."
+        "alg_unquant()'s pulse count and dimension checks use celt_packet_check().",
+        "op_pvq_search_c(), alg_quant() and alg_unquant() take the scratch arena (stack_alloc.h) as their last argument."
       ],
-      "sha256": "111cbba4d5f208bda313ed9d0c2c049cdb8332c4f9d6080b16d448abcf6f9c86"
+      "sha256": "dfdd431d4f25c01f8e797a49d6916c6e2028c559894ef4993034274a30b1b6e7"
     },
     {
       "path": "celt/vq.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "b6c4c1ff9eb7aeb71cef86fe18d33446c9b9a71b4e82f002840d7f13028195f5",
-      "sha256": "2b93856d4615523e76b5c70f4d788cf279552cbd442bd7fc97552686f0eae584"
+      "changes": [
+        "op_pvq_search_c(), op_pvq_search(), alg_quant() and alg_unquant() take the scratch arena (stack_alloc.h) as their last argument."
+      ],
+      "sha256": "48effb3ba2b3ccf43b2ea5525600a404a4134288b6a5b5c8682774fa55302e3b"
     },
     {
       "path": "celt/x86/celt_lpc_sse.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "ed9c69b4f64a234a15374a8a7c0bed584c316b2f9ddc583f06efc129ecc37e9c",
-      "sha256": "26b9cddc00d75b08ec4f885d4c7695cdbf6e11944c691e86bf8e01a39cfe7613"
+      "changes": [
+        "celt_fir_sse4_1() and celt_fir() take the scratch arena (stack_alloc.h) as their last argument.",
+        "SSE4.1 only: celt_fir() maps to celt_fir_sse4_1() unconditionally (no override switch)."
+      ],
+      "sha256": "10d8528073cdc41b2cf9c5d26d2c56e03964e4c3adbd4f35f963246e6e70911f"
     },
     {
       "path": "celt/x86/celt_lpc_sse4_1.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "14029aa815d785b457ae277cc986d310635263c7950ab2fdeca8931170d208a9",
-      "sha256": "9afe3d3bdda82421f52d5c89b7adba78a522a0dd7091086aa3842932d5f0786e"
+      "changes": [
+        "celt_fir_sse4_1() takes the scratch arena (stack_alloc.h) as its last argument."
+      ],
+      "sha256": "d64ee3e8ec01d1b07cd6f9b37ddee7917bdd884006386e374976ca8481518a5a"
     },
     {
       "path": "celt/x86/pitch_sse.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "610c078ff00a4c841def50cac60092d72adcc6fc88c735f14c87b7ed4df83de2",
-      "sha256": "4cb5bed5139224d5203ba7b0415c2499f99ebc0e0efde9ff17f4be95d93c421f"
+      "changes": [
+        "SSE4.1 only: declares the fixed-point xcorr_kernel_sse4_1(), celt_inner_prod_sse4_1(), comb_filter_const_sse4_1() and comb_filter_overlap_sse4_1() and maps xcorr_kernel(), celt_inner_prod() and comb_filter_const() to them unconditionally; the SSE2 inner product and the override switches are removed."
+      ],
+      "sha256": "5d80dad7a504b81ddeac68a2a87af649809fec5c5144a92672a478ccace1f06a"
     },
     {
       "path": "celt/x86/pitch_sse4_1.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "18b391a66b6d11ae55d92588f87cc9fcf7a19d6188568c107351583c91c9f89c",
-      "sha256": "cbc84e18ee89d0e218ad0eb2db4d11b020aaeb8ea4dcfc597c2ce42d66c803f4"
+      "changes": [
+        "Adds fixed-point comb_filter_const_sse4_1() and comb_filter_overlap_sse4_1() (the whole 120-sample crossfade), bit-exact with the C loops (four 16x32 Q15 products per two pmuldq, mult16_32_q15_sse4_1() in x86cpu.h)."
+      ],
+      "sha256": "d8274d7c9d5a2c6c7d693198b3c30ae47cef4d1130329fc61dacd22aef073821"
     },
     {
       "path": "celt/x86/x86cpu.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "82297f62289e349b30f6d0d01e07a3dce2b162d1b8c2754c5751bcc459134f52",
-      "sha256": "3cab8d8b7d68b84c63a53a254c04558499be5fb14033e3b4a54e0912b6bac2d3"
+      "changes": [
+        "Adds mult16_32_q15_sse4_1() and mult16_32_q16_sse4_1(): MULT16_32_Q15() and MULT16_32_Q16() on four lanes from two pmuldq."
+      ],
+      "sha256": "723780d1fdfff4297f99d7a3efa78d7732442b7c85dad0ee47524be57f94032d"
     },
     {
       "path": "include/opus.h",
@@ -364,9 +428,10 @@
       "upstream_sha256": "036f6a6e83a20e943505743e113e90d6278cbe8240f7d5bb90b3f86261e783e3",
       "changes": [
         "Declares only the implemented API: no create/destroy (no heap), float or 24-bit entry points, DRED, soft clipping, repacketizer, packet padding or opus_decoder_get_nb_samples().",
-        "The encoder documentation describes the voice profile."
+        "The encoder documentation describes the voice profile.",
+        "opus_encode() and opus_decode() take caller scratch memory of OPUS_SCRATCH_BYTES as their last argument; the library never uses alloca."
       ],
-      "sha256": "3fb71264e1e556b5c08c197d1ee15ebc5964b47c0a2786c7aee72fa590ece9e3"
+      "sha256": "72130dae4125cd3c0be5792cfb6e8571b859a92e89b44f04f9fb19088d0429c3"
     },
     {
       "path": "include/opus_custom.h",
@@ -391,15 +456,21 @@
     },
     {
       "path": "silk/API.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "00d2a2ff0d5228b2eeac4e1645531185537a07982cad2d2231cce287b8171acf",
-      "sha256": "3293ddd1d124457b18e7d238ca3a050d9aa431df930bb2d29b16a5825c6c5ef7"
+      "changes": [
+        "SILK_DECODER_SCRATCH_BYTES and SILK_ENCODER_SCRATCH_BYTES, the sizes of the caller-owned scratch arena (proved by _Static_asserts in dec_API.c and enc_API.c); silk_Decode() and silk_Encode() take the arena as a trailing argument."
+      ],
+      "sha256": "c264f3e1fde7f0d9ed8da40eea1ac537ef13c0dd9454f9a803998634012fe708"
     },
     {
       "path": "silk/CNG.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "e3741a6e4f23f941c1dc4589a7254d5d21f12ae01002376ec36270992daa8b52",
-      "sha256": "d19d3952f14f89ad162d63c2b8867bc253d7c7ddd2ae6f93bde63f9db3770dcb"
+      "changes": [
+        "The comfort noise buffer is a fixed local array of MAX_FRAME_LENGTH + MAX_LPC_ORDER samples instead of an ALLOC (length is at most MAX_FRAME_LENGTH)."
+      ],
+      "sha256": "c6f10beaeea716a0a1d6d228ab046abfa074c398be6fd36c8e51a4689685c327"
     },
     {
       "path": "silk/HP_variable_cutoff.c",
@@ -414,9 +485,13 @@
     },
     {
       "path": "silk/LPC_analysis_filter.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "5cd8edb8558515d477f7c65c4f597d15c68d65b6d90cc303965d317666821c23",
-      "sha256": "8f48c94925daa27d2f9f0350f6f93bab08410a323f5bb1040c12774b466b3285"
+      "changes": [
+        "Eight outputs per step with pmaddwd on sample pairs; the 32-bit sums wrap modulo 2^32 exactly like the scalar silk_SMLABB chain, the last block overlaps the previous one (every output depends on the input only) and the scalar loop covers len - d < 8.",
+        "The unused USE_CELT_FIR path is removed."
+      ],
+      "sha256": "f999fff2470a9103ee1ef0543afda1bf30b98001601c6563d6141ac2df3adcee"
     },
     {
       "path": "silk/LPC_fit.c",
@@ -480,9 +555,12 @@
     },
     {
       "path": "silk/NLSF_encode.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "e0bb31a1fe04f30fa2f10a06ee31179293198702b2ddf9bb3bdbde449e119121",
-      "sha256": "e95ed70d8f81d189f215baa4141c650e4ea553121001f5a695e06d006ec1f289"
+      "changes": [
+        "err_Q24, RD_Q25, tempIndices1 and tempIndices2 are fixed local arrays sized by NLSF_VQ_MAX_VECTORS and NLSF_MSVQ_MAX_SURVIVORS (define.h) instead of ALLOCs."
+      ],
+      "sha256": "f3a548c85a4f8ca794a232cde009672df9d30bcaaf8af03ec03c5926f4ed57bc"
     },
     {
       "path": "silk/NLSF_stabilize.c",
@@ -498,9 +576,12 @@
     },
     {
       "path": "silk/NSQ.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "bce8cb89be691137a0ca9d92e4d5998aad67fb77f6eebbedf67246e8fd12cf8a",
-      "sha256": "9bc23a8438d6a18354964243de68d330f9db3b19c785e4c8b571cf0468f348de"
+      "changes": [
+        "silk_NSQ_c() is renamed silk_NSQ() and takes the scratch arena. The SSE4.1 wrapper x86/NSQ_sse4_1.c is deleted: its only kernel handles shapingLPCOrder == 10, which silk_control_encoder() never sets (12, 14, 16, 20 or 24), so it never ran."
+      ],
+      "sha256": "a033238599c0b5e2267e89689cf6767983cc028bf82a454f4d2de46dd95285c2"
     },
     {
       "path": "silk/NSQ.h",
@@ -509,46 +590,43 @@
       "sha256": "26b08dc4d5c66e333f2c0deff4ba1fd25f03fde6b64acc36a5e64bda1a96edd2"
     },
     {
-      "path": "silk/NSQ_del_dec.c",
-      "status": "derived",
-      "upstream_sha256": "5b7cc8f24a00f5d7094f8c632b517d034f39628147918c4f89c72327bc773b63",
-      "sha256": "7ae5a12183d21f5930bb0817b422780a6f8ede69f765728a46fe05a2446b3f7d"
-    },
-    {
       "path": "silk/PLC.c",
       "status": "modified",
       "upstream_sha256": "914eb9ce1f7bd3cf68cbe5f8e91f5411c872006a99a6665409e66f307af01427",
       "changes": [
+        "silk_PLC() and silk_PLC_conceal() take the scratch arena; exc_buf is a fixed local array of 2 * MAX_SUB_FRAME_LENGTH samples instead of an ALLOC.",
         "The LTP rewhitening index check uses celt_packet_check()."
       ],
-      "sha256": "80a50c5c44c7198695b7d56cee3be127c9d535527d98888f88e87f8845347fc6"
+      "sha256": "c1a768188ed10d284632bc785dc7f6fbef854aefb7fed907d9915eab5fef1613"
     },
     {
       "path": "silk/PLC.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "013f9159a95bf705df435a11cbe0b1ec39d207db8bac9a7180585657f130db32",
-      "sha256": "0bfa1866118319aad51c1043d0c183c52abd54c0b833bacf575653b15c382a23"
+      "changes": [
+        "silk_PLC() takes the scratch arena."
+      ],
+      "sha256": "eb289d634b6ed4cba8ca3166dec456343ac4ae720691d42f10149701f109cffa"
     },
     {
       "path": "silk/SigProc_FIX.h",
       "status": "modified",
       "upstream_sha256": "37942e211d5ba6443a8da5841f374023f5bba4899d25134fe2dca62c4cac5cf9",
       "changes": [
+        "No x86/SigProc_FIX_sse.h (deleted): the build requires OPUS_X86_PRESUME_SSE4_1 (#error otherwise), and silk_burg_modified() and silk_inner_prod16() are the SSE4.1 kernels without dispatch macros.",
+        "silk_autocorr() and silk_resampler_down2_3() take the scratch arena; SILK_PITCH_SCRATCH_BYTES is the size silk_pitch_analysis_core() needs.",
         "silk_scale_vector32_Q26_lshift_18() (unused) removed."
       ],
-      "sha256": "fa1a5e6f601ac08cf8cabdce40dde23a6722f7808946a151f384a18a2f695150"
+      "sha256": "43ce8f0befa387d56e1b16795e6005f2f155533115139d29379cd1bedba656a9"
     },
     {
       "path": "silk/VAD.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "710ca80daa272b7a3d2965caf335ab165bb1cc7c8260ef89d79ccf386c587ff4",
-      "sha256": "636f915c11041ad8a08c6d9ab0b97c3754ef6d8abbef2224d6526b38e9c9822f"
-    },
-    {
-      "path": "silk/VQ_WMat_EC.c",
-      "status": "derived",
-      "upstream_sha256": "0cf17b00ece99000bc536ddb479a619362194b228e2563223b211453359412b4",
-      "sha256": "33092bd1c2c12ee621201fffbe2eb9734e595dc313d130e38385ef30a9c2aac3"
+      "changes": [
+        "silk_VAD_GetSA_Q8_c() is removed: x86/VAD_sse4_1.c is the only implementation (the build requires SSE4.1). silk_VAD_GetNoiseLevels() is no longer static, because that file shares it."
+      ],
+      "sha256": "3936f7bbb1787ef25003cf5b34af5246e7cea150a3111cb968baf23f5746611e"
     },
     {
       "path": "silk/ana_filt_bank_1.c",
@@ -609,9 +687,12 @@
     },
     {
       "path": "silk/control_codec.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "9c84153924c2033d1c539b97d1bb358d6c63a451883971745c6c9a550de2053b",
-      "sha256": "289d4e552ba203d5841755e2331eec4b2b867e0960e14b44c0b43586629de581"
+      "changes": [
+        "silk_control_encoder() and silk_setup_resamplers() take the scratch arena for the temporary resampler and its buffers."
+      ],
+      "sha256": "8a36ff7fed32a1e47bc0d7ea07946851254a0abcc16319219744d2f24f9d30c4"
     },
     {
       "path": "silk/debug.h",
@@ -623,10 +704,11 @@
       "status": "modified",
       "upstream_sha256": "0f94c4c985851051d3cdf40a2ebf9b96c616ee1f49b8a2ad4477a6880ff01d1b",
       "changes": [
+        "silk_Decode() takes the scratch arena (SILK_DECODER_SCRATCH_BYTES, proved by two _Static_asserts: the channel buffer plus silk_decode_core, or plus the resampler buffers).",
         "No deep PLC flag and no previous pitch lag export.",
         "The internal channel count check uses celt_packet_check()."
       ],
-      "sha256": "9fdfa6708f9d8a95b0e4d56ac92631dca2456711a38c55eb178ad3272d69b6b5"
+      "sha256": "745c31542e177624395a68d4f7ff1a8a4047deeaaef78f006e4e4932ba69d98d"
     },
     {
       "path": "silk/decode_core.c",
@@ -634,15 +716,19 @@
       "upstream_sha256": "9bec65a48d32f0b4843eaaa02cd6b49b0e853186f47695ce3f3c178d4bd3452f",
       "changes": [
         "The LTP rewhitening index check uses celt_packet_check().",
-        "The LPC synthesis prediction calls silk_noise_shape_quantizer_short_prediction_c() (NSQ.h), the same sum with the taps addressed from one pointer: SILK decode 36,376 -> 33,612 cycles per frame."
+        "silk_decode_core() takes the scratch arena (SILK_DECODER_SCRATCH_BYTES, proved by _Static_asserts in dec_API.c).",
+        "The LPC synthesis is silk_LPC_synthesis(): taps 0 and 1 scalar, taps 2..15 a vector dot product over a sliding history of the samples split into signed high and low 16-bit halves. Exact, because (x * a) >> 16 = hi * a + ((lo * a) >> 16) with lo unsigned; sums wrap in 32 bits like the scalar silk_SMLAWB chain. SILK decode 30,872 -> 25,168 cycles per frame."
       ],
-      "sha256": "81ca2320340ad324be2470aeee40997978ee58080ddaf3fc350f4c28d92eb58a"
+      "sha256": "c7939f6c0dfac03aa6fe84918026f0c27a80b0f777b348bf2bb9585472cf0bc5"
     },
     {
       "path": "silk/decode_frame.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "d76755eb49d7e2ee5106945948c4613d6fbaceeec90d41f5ddc51956e185716d",
-      "sha256": "a16d24e82bc986a36e662275e08a23800908a79b25e3f7da9c08495f446f2785"
+      "changes": [
+        "silk_decoder_control and the pulses buffer (MAX_FRAME_LENGTH samples, the largest padded frame) are fixed locals instead of ALLOCs; the scratch arena goes to silk_decode_core() and silk_PLC()."
+      ],
+      "sha256": "bcd942e0e98fca94225e2478b474358f53e130c15a7bbded0c0928d728615df3"
     },
     {
       "path": "silk/decode_indices.c",
@@ -679,19 +765,23 @@
     },
     {
       "path": "silk/define.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "4c580873f3eaa1f9ecebeb2cf890e3bc6d24937673a0fd3e5da8eb1ea46843b1",
-      "sha256": "1703a1647be8c13828b6a6f584c8af262ec29f8773577cb07589bdf24c0b491f"
+      "changes": [
+        "NLSF_MSVQ_MAX_SURVIVORS (16), the largest survivor count silk_setup_complexity() sets."
+      ],
+      "sha256": "8d1c3dbc8a8dcad4b7a9ee3c17cf024e96d9cffd1c944d0689080a6258b46939"
     },
     {
       "path": "silk/enc_API.c",
       "status": "modified",
       "upstream_sha256": "3eb171190e2ad0488ef77d00eb7b20eaa1ebc3a2afde7274f8a4f7681e9f261d",
       "changes": [
+        "silk_Encode() takes the scratch arena (SILK_ENCODER_SCRATCH_BYTES, proved by _Static_asserts over the four call paths); the per-frame scratch overlaps the input buffer, which is dead once the frame is resampled into the encoder state.",
         "One frame per call (20 ms, or 10 ms for the prefill): multi-frame LBRR flags, per-block bit shaping and the in-packet bit balance are removed.",
         "No reduced-dependency mode."
       ],
-      "sha256": "26d6b56752d7136398394ff3d72df1c93553a3d9d8ea54d032e834d0f7c89211"
+      "sha256": "cff669d08b8b2496e1e281e2e3f41ceb01c107a434bc814ff9a2bf17a19bc3c2"
     },
     {
       "path": "silk/encode_indices.c",
@@ -701,9 +791,12 @@
     },
     {
       "path": "silk/encode_pulses.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "892ebd497ff473050344fbe5c9e03e3395fd6cbe07f33ee2770887ddd1b3f06f",
-      "sha256": "f99edab15bcb3fdbbb5fa675a4fee80c816506c6135f269e65ec263540457f5f"
+      "changes": [
+        "abs_pulses, sum_pulses and nRshifts are fixed local arrays sized for MAX_FRAME_LENGTH samples instead of ALLOCs (a frame has at most MAX_FRAME_LENGTH samples, so iter * SHELL_CODEC_FRAME_LENGTH fits)."
+      ],
+      "sha256": "ae8b810c2f4614cbfc76103f340c49dd7f9b81fd47ac6c222aef64854c558f1e"
     },
     {
       "path": "silk/errors.h",
@@ -730,15 +823,12 @@
     },
     {
       "path": "silk/fixed/autocorr_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "16aceb2d3d8a896a350e43ebd142cfcc1b4413212c637634b9611998c15dc271",
-      "sha256": "ed6329552743f140f9397e880254e504bdd014adbd41367be8a35ca0e93a1526"
-    },
-    {
-      "path": "silk/fixed/burg_modified_FIX.c",
-      "status": "derived",
-      "upstream_sha256": "9d4fdc704d9f7f12e985ed74f804f94ddf4d206b1d4c69710e013711d4da8b34",
-      "sha256": "3fccef7c8230bdabfeb59b863de91f1c8cbf936ceedaaf9244f566bc92639540"
+      "changes": [
+        "silk_autocorr() takes the scratch arena and passes it to _celt_autocorr()."
+      ],
+      "sha256": "c16c1e030f114536b7743a2de0919d4badddec14dd11287a7cf2f90d3438048b"
     },
     {
       "path": "silk/fixed/corrMatrix_FIX.c",
@@ -748,15 +838,22 @@
     },
     {
       "path": "silk/fixed/encode_frame_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "4f2b91ba2cf8f000108028e796d1eb02d4aaee075865bb99317f4e73ba64daed",
-      "sha256": "6ad3932a355eec255f0e0ea564ba3a12ff995f7c6ac9f20e5a2da9d1e3e29140"
+      "changes": [
+        "silk_encode_frame_FIX() and silk_LBRR_encode_FIX() take the scratch arena. The LBRR pass uses the rate loop's first NSQ state copy as its scratch NSQ state instead of an ALLOC: that copy is filled only after the LBRR call.",
+        "silk_VAD_GetSA_Q8(), silk_NSQ() and silk_NSQ_del_dec() are called without the arch argument."
+      ],
+      "sha256": "1cc3fe695ba4c2417c368f5b46d708b2e18877aa2c325f642a2c1b155fbb6702"
     },
     {
       "path": "silk/fixed/find_LPC_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "9a805cb8cce47685da520f1237f8dc6f7040431e38a5c556c53306ac8bfb7a8e",
-      "sha256": "027e15f982b7be5f3370585514750e440d624d0b7810e9b452b48b93c555c536"
+      "changes": [
+        "LPC_res is a fixed local array of 2 * (MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER) samples instead of an ALLOC."
+      ],
+      "sha256": "76dcff0ebc60d27ba0c9cbc393b8f7bdb17638fe52ff9d474a9c9c6362061595"
     },
     {
       "path": "silk/fixed/find_LTP_FIX.c",
@@ -766,15 +863,21 @@
     },
     {
       "path": "silk/fixed/find_pitch_lags_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "72089cf92638ffc1371bf7631dc36d974f14258cb0ae1f21ac8c7ab9e6975bd2",
-      "sha256": "c14fe5fd7cde426d034139d938c6189cec454b9bdcf515b383464d722a629630"
+      "changes": [
+        "Wsig is a fixed local array of FIND_PITCH_LPC_WIN_MAX samples instead of an ALLOC; the scratch arena goes to silk_autocorr() and silk_pitch_analysis_core()."
+      ],
+      "sha256": "1a34acc935b3adec0b7a2c50790f80e207c30357b5a586c95ac7ba273e75eb39"
     },
     {
       "path": "silk/fixed/find_pred_coefs_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "7bd3ecb58c545780c26d841e084d284a8a5b0174e32b637322b5900b852775eb",
-      "sha256": "0917faa947f81e88b356004f958cabacd6af49f0e559fee07fa2567310f456d2"
+      "changes": [
+        "LPC_in_pre, xXLTP_Q17 and XXLTP_Q17 are fixed local arrays sized for the largest subframe count and LPC order instead of ALLOCs; the scratch arena is passed on."
+      ],
+      "sha256": "d74202a7829e90a32dc35027706571524fd581238e89fed1deb02869c32b0892"
     },
     {
       "path": "silk/fixed/k2a_FIX.c",
@@ -790,21 +893,31 @@
     },
     {
       "path": "silk/fixed/main_FIX.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "eccf1f7527162d410df79c7d42e6c2d8e62b67959ae533ac053eadf8da443f88",
-      "sha256": "440b5600e0c66e45019ddda2d54394c7bd00e609ce268d6db590ec8b88b067af"
+      "changes": [
+        "The prototypes of the encoder functions take the scratch arena."
+      ],
+      "sha256": "c1c67726e2fa01e1816f732dcf29c51dc451b607a37663e9783081e6fd27b9a5"
     },
     {
       "path": "silk/fixed/noise_shape_analysis_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "a3ba363cd3d3c1225cedf433b7d304540aea6acb8eda758aaed1acbdc7cd23fb",
-      "sha256": "1875ecdccaa42bda70c9636bc5d546812fe3e00df95b6d92f42cda39f4ccded3"
+      "changes": [
+        "x_windowed is a fixed local array of SHAPE_LPC_WIN_MAX samples instead of an ALLOC; the scratch arena goes to silk_autocorr()."
+      ],
+      "sha256": "955a63824925988cc038d111a1e4db70075cdbd3ab29ac816be5763a43f8c749"
     },
     {
       "path": "silk/fixed/pitch_analysis_core_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "709cfe2b80127d7544e174631df8f7d975af26598d9a64aa65fea3bc3d570c2f",
-      "sha256": "2295d8433242eb3a6837ce40b6fac0abe4d4cffcf8f781da11e4d39fc8312340"
+      "changes": [
+        "silk_pitch_analysis_core() takes the scratch arena (SILK_PITCH_SCRATCH_BYTES, proved by a _Static_assert); the stage helpers' scratch_mem buffer is a fixed local array.",
+        "silk_resampler_down2_3() receives the scratch arena."
+      ],
+      "sha256": "bba531a83f046837f049f7dbf1d90e96f38d8a8e53eec1fed11eca01c7450069"
     },
     {
       "path": "silk/fixed/process_gains_FIX.c",
@@ -814,9 +927,12 @@
     },
     {
       "path": "silk/fixed/residual_energy_FIX.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "637a8f4489ff09808ec1b614fe0748719a4220f63b42f001e853449107e113f2",
-      "sha256": "36c3853f469bc8662feb10a68e23d822c997db16687659d14b0c67aae2cd9a0a"
+      "changes": [
+        "LPC_res is a fixed local array of (MAX_NB_SUBFR / 2) * (MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER) samples instead of an ALLOC."
+      ],
+      "sha256": "93739e4e5d348cb0fbfca4708656e0d770bb51ff2357d66825f91d7eadbbfc1a"
     },
     {
       "path": "silk/fixed/schur64_FIX.c",
@@ -840,9 +956,10 @@
       "status": "modified",
       "upstream_sha256": "db8173d0b313bd066bbbec9ad807f521a874140c69dc883c522d4de3f23e8cdc",
       "changes": [
+        "silk_inner_prod16_c() removed: silk_inner_prod16() is the SSE4.1 kernel of x86/vector_ops_FIX_sse4_1.c.",
         "silk_scale_vector32_Q26_lshift_18() (unused) removed."
       ],
-      "sha256": "8474568f4bc3344bade635aec033b55dfe7d6a4263ed36e0b9d87c1968a5aed6"
+      "sha256": "34acc7c883f7fda2bb6bd38828b361a9f8ce59173d4fe4ce322f522866ca31fe"
     },
     {
       "path": "silk/fixed/warped_autocorrelation_FIX.c",
@@ -852,15 +969,21 @@
     },
     {
       "path": "silk/fixed/x86/burg_modified_FIX_sse4_1.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "195fa6898178f79b232a980840101a943a89e9a921c6ea951b09e4b78f7add80",
-      "sha256": "8db8e3f83cfe200f8c0ec9583da03f745fe5c5680888df4fc3d5d47634dce7e1"
+      "changes": [
+        "silk_burg_modified_sse4_1() is renamed silk_burg_modified(); its C twin burg_modified_FIX.c is deleted (the build requires SSE4.1, so it never ran). silk_inner_prod16() loses the arch argument."
+      ],
+      "sha256": "504e9ee14409c2b86523e0a01dcec4cc085bb66017cbdccd3ef34b8c8c755353"
     },
     {
       "path": "silk/fixed/x86/vector_ops_FIX_sse4_1.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "4331ecf29e02932477e4b380246d2821ad410774ed38089132e53e3e46b6d4a9",
-      "sha256": "5233af9662b2e328da9837e079b8891d6653a4cedb5012f4392fcb264be72d64"
+      "changes": [
+        "silk_inner_prod16_sse4_1() is renamed silk_inner_prod16()."
+      ],
+      "sha256": "d00311d03537ae1886518d91c9e7b38b61d977367b728cfb450dff0de0664bae"
     },
     {
       "path": "silk/gain_quant.c",
@@ -912,9 +1035,13 @@
     },
     {
       "path": "silk/main.h",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "5ea6800f56e83fc6f15f7b7c8b189c4686a1f81b1cc75e18f580e305d5f455f2",
-      "sha256": "aaeefc32fc19d606889482e98deda0a7635f725c0d0edfa3a715932f1714ee19"
+      "changes": [
+        "No x86/main_sse.h (deleted): the build requires OPUS_X86_PRESUME_SSE4_1 (#error otherwise), and silk_NSQ(), silk_NSQ_del_dec(), silk_VQ_WMat_EC(), silk_VAD_GetSA_Q8() and silk_VAD_GetNoiseLevels() are declared directly, without the _c names, arch dispatch macros and OVERRIDE_ layers.",
+        "silk_NSQ(), silk_NSQ_del_dec() and silk_stereo_LR_to_MS() take the scratch arena; SILK_NSQ_SCRATCH_BYTES is the size they need (proved by _Static_asserts in NSQ.c, NSQ_del_dec_sse4_1.c and enc_API.c)."
+      ],
+      "sha256": "71df2b84ad82cbd107f0c22fd778ce6b7b97830053650dac636f392ea0c35e48"
     },
     {
       "path": "silk/pitch_est_defines.h",
@@ -935,18 +1062,22 @@
     },
     {
       "path": "silk/quant_LTP_gains.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "81b85acad8242d5e423377999300c15ab4ec789c52615fa3ff7ac59aa1d0c7fd",
-      "sha256": "bffbb9e50d0e3207381476d618e1b298daaa1a991fc3ddbaf9e2e72f94d974fd"
+      "changes": [
+        "silk_VQ_WMat_EC() is called without the arch argument."
+      ],
+      "sha256": "76fb4132fad684e146eae0880a987a750d84a6c1dacae412c685343f8c9aff38"
     },
     {
       "path": "silk/resampler.c",
       "status": "modified",
       "upstream_sha256": "b75329b716a429b50e937bf7975aedd200543d8a7e4e1c77a4572b2975740ba3",
       "changes": [
+        "silk_resampler() takes the scratch arena and passes it to the resampler kernels.",
         "silk_resampler()'s input length check uses celt_packet_check()."
       ],
-      "sha256": "51f0e4083209e0d4d988d227823ad601a8d4fd0e2cd592b6c1cf7bcab0da7c13"
+      "sha256": "6ae4332877eea5ede07958ca613916f12485e022a80f09ce933b92d2984ab23e"
     },
     {
       "path": "silk/resampler_down2.c",
@@ -956,14 +1087,21 @@
     },
     {
       "path": "silk/resampler_down2_3.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "2ab8318bf4bc64de8491ac0272cdf19c79bf036725b17f21fc870e280b1ebc72",
-      "sha256": "695a424f7348d17fba63c806d806f78c7f8a3006b7c1dd09c630e0cdd19f843f"
+      "changes": [
+        "silk_resampler_down2_3() takes the scratch arena that its ALLOC draws from; the file is built into the encoder only, because only the pitch analysis uses it."
+      ],
+      "sha256": "df2ba07f589df54c5e3295a486bf6cdc33838a3e551e61260300c0e56e9d366f"
     },
     {
       "path": "silk/resampler_private.h",
-      "status": "unchanged",
-      "upstream_sha256": "b8985c3e4b2d1a7db5ef0585d57bbe5106804d5c04648ab7a400c2d89f589e67"
+      "status": "modified",
+      "upstream_sha256": "b8985c3e4b2d1a7db5ef0585d57bbe5106804d5c04648ab7a400c2d89f589e67",
+      "changes": [
+        "silk_resampler_private_IIR_FIR() and silk_resampler_private_down_FIR() take the scratch arena."
+      ],
+      "sha256": "723fab62895f6093db3757a0136f3c458fed656745869d2f957bb6e85cd0f530"
     },
     {
       "path": "silk/resampler_private_AR2.c",
@@ -973,15 +1111,22 @@
     },
     {
       "path": "silk/resampler_private_IIR_FIR.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "584c7b2afbcb56ba03016401408d8eecb1393640eee947d0bae78fc141f425be",
-      "sha256": "3920fe3f0ec31aba11d0a9a4e8be2d1b1ee6087e50d54562d604021fd11f048b"
+      "changes": [
+        "The interpolation computes four outputs per step: one pmaddwd of the eight samples with the eight taps of the position, then _mm_hadd_epi32; exact, because the taps of a position sum to 32768 or less, so no 32-bit overflow. The scalar loop finishes the remainder.",
+        "silk_resampler_private_IIR_FIR() takes the scratch arena that its ALLOC draws from."
+      ],
+      "sha256": "dc29d29d775b20d5ac12fe38889323b8a1bcb8bb46d97002e7cb4c2c4aa8afea"
     },
     {
       "path": "silk/resampler_private_down_FIR.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "175b7b6863fecff32d9e36e497bbc666e7083ceb35dcca7d40502de58eb4fabd",
-      "sha256": "c902f6df68d3f5b26757c7f4a3972ab204d269d592fb52fc48afddd7312894c1"
+      "changes": [
+        "silk_resampler_private_down_FIR() takes the scratch arena that its ALLOC draws from."
+      ],
+      "sha256": "e8d4b69f793d9bb2544d147d964c0c1811888bffec185d3851f223d7440ffc0c"
     },
     {
       "path": "silk/resampler_private_up2_HQ.c",
@@ -991,14 +1136,21 @@
     },
     {
       "path": "silk/resampler_rom.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "ec3ba5c620ee504d0a902290ae54bc8b434754e57e294a501a82757b9c9d6ddd",
-      "sha256": "1e29a9ffb02112cb6ab41215ff7a5fb18ac17037c91e252cf7018f077e21387b"
+      "changes": [
+        "silk_resampler_frac_FIR_12 is [ 12 ][ 8 ]: row t holds the four taps of fraction t followed by those of fraction 11 - t in reverse order, which are the same values upstream reads from two table rows, so one vector load replaces the indexed reads."
+      ],
+      "sha256": "c7d79d3d01515b51fc39f463deb9d1de92e5d7f5f3085dbef9cd0ba32848eaa8"
     },
     {
       "path": "silk/resampler_rom.h",
-      "status": "unchanged",
-      "upstream_sha256": "68bfa7fc24650e0af574ee853764e40849952eb58e84e26739d0ac2cedf49942"
+      "status": "modified",
+      "upstream_sha256": "68bfa7fc24650e0af574ee853764e40849952eb58e84e26739d0ac2cedf49942",
+      "changes": [
+        "silk_resampler_frac_FIR_12 is declared [ 12 ][ RESAMPLER_ORDER_FIR_12 ] (eight taps per fractional position, see resampler_rom.c)."
+      ],
+      "sha256": "6db136a05ff4c13259d7e298f5f2334e76319cb2b5e47e865b1c7148d89a2a21"
     },
     {
       "path": "silk/resampler_structs.h",
@@ -1025,9 +1177,12 @@
     },
     {
       "path": "silk/stereo_LR_to_MS.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "36f67d3eff5c77522733bbc9d2c19c2ae3ae96e5b6ee4b4da84734edafe305e9",
-      "sha256": "c2591dd4332838c6062922f8a08ebf305c5a2f0d7da14a95a3ce3a9654bcc2a0"
+      "changes": [
+        "silk_stereo_LR_to_MS() takes the scratch arena that its ALLOCs draw from."
+      ],
+      "sha256": "e317a8ca6cda8f557d9732f5ff7c56c977da49d59b67fc6a48acedc5ebd24329"
     },
     {
       "path": "silk/stereo_MS_to_LR.c",
@@ -1140,39 +1295,33 @@
     },
     {
       "path": "silk/x86/NSQ_del_dec_sse4_1.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "6946c7df19162b5d1fc048583e732736d53978a9de6a34df8cabf22ec8e20091",
-      "sha256": "a0818fd626c5e58a8c20a885b46fe278712dbc3667578935b380136e8034b305"
-    },
-    {
-      "path": "silk/x86/NSQ_sse4_1.c",
-      "status": "derived",
-      "upstream_sha256": "36a7281d0dc9493ffd1dab3176b9d4b44bf8b42312fd34df61dc1e7c2477644f",
-      "sha256": "59c688ce009ac3e8c847c5dab2ac01112abe33c83d2c51f7fcd6528ade4e2872"
-    },
-    {
-      "path": "silk/x86/SigProc_FIX_sse.h",
-      "status": "derived",
-      "upstream_sha256": "2534456f00468ed99a32b61d29d94f6ad12976f77b7fa60b160932211c9a4580",
-      "sha256": "788829cee2fffd7db629cc3116022e3bc183e91a2b4e6ba772e85f5b624d5118"
+      "changes": [
+        "silk_NSQ_del_dec_sse4_1() is renamed silk_NSQ_del_dec() and takes the scratch arena; the C twin NSQ_del_dec.c is deleted (the build requires SSE4.1, so it never ran).",
+        "The quantizer decision is branchless: a per-frame table (silk_nsq_candidate_table) holds the q1, q2 and rate-distortion terms by q1_Q0, and dither and swap masks replace the sign and rd1 < rd2 branches; all values are the ones the upstream branches select.",
+        "The warped shaping filter keeps its states side by side and sums the noise feedback as one vector dot product (AR coefficients zero past the order): same additions, reordered exactly within 32-bit wraparound.",
+        "The per-sample sample-state array is a fixed local array instead of an ALLOC."
+      ],
+      "sha256": "1a17c6080dd83cb3cf3ba91cd286bd7f5c4ab820eded35df859f6e2b3761bb15"
     },
     {
       "path": "silk/x86/VAD_sse4_1.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "1147c6602371ae0eaaf8fb7c960fc74b8340a12dd06c0a731b439e3ce0e4d60a",
-      "sha256": "e5ea23da1e267cf1434357614c8c746aa0ff70b21ea66dbcf75f39e715a24059"
+      "changes": [
+        "silk_VAD_GetSA_Q8_sse4_1() is renamed silk_VAD_GetSA_Q8() and loses the arch argument; the band buffer X is a fixed local array of MAX_FRAME_LENGTH + MAX_FRAME_LENGTH / 4 samples instead of an ALLOC."
+      ],
+      "sha256": "f79ad259482dbf94b3622323ed4be9e00e627b2fa9fad8f38b0a9303bd1349da"
     },
     {
       "path": "silk/x86/VQ_WMat_EC_sse4_1.c",
-      "status": "derived",
+      "status": "modified",
       "upstream_sha256": "e3c21cd270f6a9bf6ace216c77c5c21175e551e6212c3c2b15f5ed8b0c240203",
-      "sha256": "1f29ee4e68a6d97ff1731e8484acba4a5812f4347568deb861a1f82f2499f62c"
-    },
-    {
-      "path": "silk/x86/main_sse.h",
-      "status": "derived",
-      "upstream_sha256": "26199bfd27e6e448170428aa898b40dca9acf5fc58ea2daa2a6923d34431d3b8",
-      "sha256": "0f5f0de697bc748122bbc00426e6d03f53ffd04411955dbff48e92e86db39a29"
+      "changes": [
+        "silk_VQ_WMat_EC_sse4_1() is renamed silk_VQ_WMat_EC() and loses the arch argument; its C twin VQ_WMat_EC.c is deleted, because the build requires SSE4.1 and the C version never ran."
+      ],
+      "sha256": "ab7b704da50bdd728dd4d6f85b0639e102ae441a773e16a2de571cc04d15ccd5"
     },
     {
       "path": "src/opus.c",
@@ -1190,9 +1339,10 @@
       "changes": [
         "Requests limited to reset, gain and final range; the complexity (deep PLC), bandwidth, sample rate, pitch, last packet duration, phase inversion and extension requests are removed.",
         "No create/destroy, opus_decode24(), DRED or packet extension parsing; opus_decode_native() is private.",
-        "The decoded frame size checks use celt_packet_check(); the unreachable bandwidth fallback checks are removed (the TOC byte yields only NB/MB/WB for SILK-only and one of the five bandwidths otherwise)."
+        "The decoded frame size checks use celt_packet_check(); the unreachable bandwidth fallback checks are removed (the TOC byte yields only NB/MB/WB for SILK-only and one of the five bandwidths otherwise).",
+        "opus_decode() takes the caller's scratch (OPUS_SCRATCH_BYTES) and passes it through opus_decode_native() and opus_decode_frame() to SILK and CELT; a static assertion checks the decoder's worst case against OPUS_SCRATCH_BYTES."
       ],
-      "sha256": "6656bbb1310b02310a8511e790b6322ec39ca4a233cf5d7b1511b0598941206e"
+      "sha256": "20615f56b123fb022c5aa82f1048e655303e4c9dc95d3b6690885700e3d7b614"
     },
     {
       "path": "src/opus_encoder.c",
@@ -1201,9 +1351,10 @@
       "changes": [
         "Reduced to the voice profile: 48 kHz, VOIP, one 20 ms VBR frame per packet, 16-bit input. Packets are bit-identical to upstream for these settings.",
         "Removed: multi-frame repacketizing, CBR padding, the AUDIO and restricted applications, forced mode, bandwidth and channels, signal and voice ratio hints, LFE, surround masking, tonality analysis, float and 24-bit input, create/destroy.",
-        "Requests: bitrate, complexity, in-band FEC (0 or 1), packet loss, DTX, VBR constraint, lookahead, final range and reset."
+        "Requests: bitrate, complexity, in-band FEC (0 or 1), packet loss, DTX, VBR constraint, lookahead, final range and reset.",
+        "opus_encode() takes the caller's scratch (OPUS_SCRATCH_BYTES) and passes it through opus_encode_native() and opus_encode_frame_native() to SILK and CELT; a static assertion checks the encoder's worst case against OPUS_SCRATCH_BYTES."
       ],
-      "sha256": "89c324e642b3e2693582bf411dd6bfcc1cd68a95236d4e201173951276c54032"
+      "sha256": "cad03b9d33a03faf89d4cbef7a9418b9f72649a4d59c7ffd605ed4d02db6d588"
     },
     {
       "path": "src/opus_private.h",

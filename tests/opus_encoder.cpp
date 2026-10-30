@@ -22,6 +22,7 @@ constexpr Scenario kScenarios[]{
     {2, 128000, 8, 1, 20, 1, 1, 25, 0, 0, 0x9ccfd7e830b5ebfbull},
 };
 alignas(16) u8 encoder_storage[32768], decoder_storage[32768], saved[32768];
+OpusScratch scratch;
 i16 input[2 * kFrame * kMaximumFrames], output[2 * kFrame * kMaximumFrames + 2];
 u8 packets[kMaximumFrames][kOpusEncoderMaximumPacketBytes + 1];
 u32 sizes[kMaximumFrames];
@@ -58,7 +59,7 @@ bool encode_all(OpusEncoder* encoder, const Scenario& s, u64* digest) noexcept {
             (!opus_encoder_bitrate(encoder, s.bitrate2).ok() || !opus_encoder_complexity(encoder, s.complexity2).ok()))
             return false;
         const auto encoded = opus_encoder_encode(encoder, {input + f * kFrame * s.channels, kFrame * s.channels},
-                                                 {packets[f], kOpusEncoderMaximumPacketBytes});
+                                                 {packets[f], kOpusEncoderMaximumPacketBytes}, &scratch);
         if (!encoded.ok()) return false;
         sizes[f] = encoded.bytes;
         ::opus_encoder_ctl(reinterpret_cast<::OpusEncoder*>(encoder->state), OPUS_GET_FINAL_RANGE(&ranges[f]));
@@ -80,7 +81,7 @@ bool decode_all(u32 channels, u32 frames) noexcept {
     OpusDecoder decoder;
     if (!decoder_open(&decoder, channels)) return false;
     for (u32 f = 0; f < frames; ++f) {
-        const auto decoded = opus_decoder_decode(&decoder, {packets[f], sizes[f]}, {output + f * kFrame * channels, kFrame * channels});
+        const auto decoded = opus_decoder_decode(&decoder, {packets[f], sizes[f]}, {output + f * kFrame * channels, kFrame * channels}, &scratch);
         opus_uint32 range = 0;
         ::opus_decoder_ctl(reinterpret_cast<::OpusDecoder*>(decoder_storage), OPUS_GET_FINAL_RANGE(&range));
         if (!decoded.ok() || decoded.frames != kFrame || range != ranges[f]) return false;
@@ -136,7 +137,7 @@ void test_opus_encoder(Check check) noexcept {
               opus_encoder_storage_bytes(2) > opus_encoder_storage_bytes(1) && opus_encoder_storage_bytes(2) <= sizeof(encoder_storage),
           "Opus encoder storage: native mono/stereo sizes fit caller storage; other channel counts refused");
     OpusEncoder absent{};
-    check(opus_encoder_encode(&absent, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_state &&
+    check(opus_encoder_encode(&absent, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_state &&
               opus_encoder_bitrate(&absent, 64000).error == OpusEncodeError::invalid_state &&
               opus_encoder_bitrate(nullptr, 1).error == OpusEncodeError::invalid_state &&
               opus_encoder_initialize(nullptr, {encoder_storage, sizeof(encoder_storage)}, 1).error == OpusEncodeError::invalid_input,
@@ -166,7 +167,7 @@ void test_opus_encoder(Check check) noexcept {
               ::opus_encoder_ctl(native, OPUS_GET_APPLICATION(&application)) == OPUS_UNIMPLEMENTED &&
               ::opus_encoder_ctl(native, OPUS_SET_VBR(0)) == OPUS_UNIMPLEMENTED &&
               ::opus_encoder_ctl(native, OPUS_SET_INBAND_FEC(2)) == OPUS_BAD_ARG &&
-              ::opus_encode(native, input, static_cast<int>(kFrame / 2), packets[0], kOpusEncoderMaximumPacketBytes) == OPUS_BAD_ARG &&
+              ::opus_encode(native, input, static_cast<int>(kFrame / 2), packets[0], kOpusEncoderMaximumPacketBytes, scratch.bytes) == OPUS_BAD_ARG &&
               ::opus_encoder_init(reinterpret_cast<::OpusEncoder*>(saved), 24000, 1, OPUS_APPLICATION_VOIP) == OPUS_BAD_ARG &&
               ::opus_encoder_init(reinterpret_cast<::OpusEncoder*>(saved), 48000, 1, OPUS_APPLICATION_AUDIO) == OPUS_BAD_ARG,
           "Opus encoder profile: 48 kHz VOIP, VBR and 20 ms frames are fixed; other settings are refused");
@@ -179,16 +180,24 @@ void test_opus_encoder(Check check) noexcept {
           "Opus encoder settings: out-of-range bitrate, complexity and loss are refused without state change");
     for (u32 i = 0; i < kFrame * 2; ++i) input[i] = static_cast<i16>(i * 37);
     for (auto& byte : packets[0]) byte = 0xa5;
-    check(opus_encoder_encode(&encoder, {input, kFrame - 1}, {packets[0], kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {input, kFrame * 2}, {packets[0], kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {nullptr, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes - 1}).error == OpusEncodeError::capacity &&
-              opus_encoder_encode(&encoder, {input, kFrame}, {reinterpret_cast<u8*>(input) + 2, kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {reinterpret_cast<const i16*>(encoder_storage), kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_input &&
-              opus_encoder_encode(&encoder, {input, kFrame}, {encoder_storage + 64, kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_input &&
+    check(opus_encoder_encode(&encoder, {input, kFrame - 1}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
+              opus_encoder_encode(&encoder, {input, kFrame * 2}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
+              opus_encoder_encode(&encoder, {nullptr, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
+              opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes - 1}, &scratch).error == OpusEncodeError::capacity &&
+              opus_encoder_encode(&encoder, {input, kFrame}, {reinterpret_cast<u8*>(input) + 2, kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
+              opus_encoder_encode(&encoder, {reinterpret_cast<const i16*>(encoder_storage), kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
+              opus_encoder_encode(&encoder, {input, kFrame}, {encoder_storage + 64, kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
               bytes_equal(saved, encoder_storage, mono) && packets[0][0] == 0xa5,
           "Opus encoder preflight: frame size, capacity and aliasing are refused before native encoding");
-    const auto first = opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes + 1});
+    check(opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes}, nullptr).error == OpusEncodeError::invalid_input &&
+              opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes},
+                                  reinterpret_cast<OpusScratch*>(encoder_storage)).error == OpusEncodeError::invalid_input &&
+              opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes},
+                                  reinterpret_cast<OpusScratch*>(input)).error == OpusEncodeError::invalid_input &&
+              opus_encoder_encode(&encoder, {input, kFrame}, {scratch.bytes + 64, kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_input &&
+              bytes_equal(saved, encoder_storage, mono) && packets[0][0] == 0xa5,
+          "Opus encoder scratch: a missing scratch or one overlapping state, PCM or packet is refused");
+    const auto first = opus_encoder_encode(&encoder, {input, kFrame}, {packets[0], kOpusEncoderMaximumPacketBytes + 1}, &scratch);
     check(first.ok() && first.bytes > 2 && first.bytes <= kOpusEncoderMaximumPacketBytes &&
               packets[0][kOpusEncoderMaximumPacketBytes] == 0xa5,
           "Opus encoder bound: larger packet buffers are capped at the single-frame maximum");
@@ -269,11 +278,12 @@ void test_opus_encoder(Check check) noexcept {
             OpusDecoder decoder;
             ok = decoder_open(&decoder, 1);
             for (u32 f = 0; ok && f < lost; ++f)
-                ok = opus_decoder_decode(&decoder, {packets[f], sizes[f]}, {prefix, kFrame}).ok();
+                ok = opus_decoder_decode(&decoder, {packets[f], sizes[f]}, {prefix, kFrame}, &scratch).ok();
             auto* state = reinterpret_cast<::OpusDecoder*>(decoder_storage);
             i16* target = pass ? concealed : recovered;
-            const int frames = pass ? ::opus_decode(state, nullptr, 0, target, static_cast<int>(kFrame), 0)
-                                    : ::opus_decode(state, packets[lost + 1], static_cast<opus_int32>(sizes[lost + 1]), target, static_cast<int>(kFrame), 1);
+            const int frames = pass ? ::opus_decode(state, nullptr, 0, target, static_cast<int>(kFrame), 0, scratch.bytes)
+                                    : ::opus_decode(state, packets[lost + 1], static_cast<opus_int32>(sizes[lost + 1]), target,
+                                                    static_cast<int>(kFrame), 1, scratch.bytes);
             ok = ok && frames == static_cast<int>(kFrame);
             opus_decoder_release(&decoder);
         }
@@ -291,24 +301,25 @@ void test_opus_encoder(Check check) noexcept {
         const u32 bytes = encoder.state_bytes;
         opus_encoder_release(&encoder);
         check(ok && !encoder.state && !encoder.initialized && bytes_equal(saved, encoder_storage, bytes) &&
-                  opus_encoder_encode(&encoder, {input, kFrame * 2}, {packets[0], kOpusEncoderMaximumPacketBytes}).error == OpusEncodeError::invalid_state,
+                  opus_encoder_encode(&encoder, {input, kFrame * 2}, {packets[0], kOpusEncoderMaximumPacketBytes}, &scratch).error == OpusEncodeError::invalid_state,
               "Opus encoder release: detach clears only wrapper metadata");
     }
 
-    // The documented stack reserve covers the heaviest stereo complexity-10 paths.
+    // Scratch is caller memory, so the heaviest stereo complexity-10 paths fit
+    // the smallest thread stack Windows reserves (one 64 KB allocation unit).
     {
         fill(kStackScenario);
         encoder = {};
         DWORD code = 1;
         HANDLE thread = opus_encoder_initialize(&encoder, {encoder_storage, sizeof(encoder_storage)}, 2).ok()
-                            ? CreateThread(nullptr, kOpusEncoderStackReserve, stack_worker, &encoder, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)
+                            ? CreateThread(nullptr, 64u * 1024u, stack_worker, &encoder, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr)
                             : nullptr;
         if (thread) {
             WaitForSingleObject(thread, INFINITE);
             GetExitCodeThread(thread, &code);
             CloseHandle(thread);
         }
-        check(code == 0, "Opus encoder stack: stereo complexity 10 encodes within kOpusEncoderStackReserve");
+        check(code == 0, "Opus encoder stack: stereo complexity 10 encodes on a 64 KB thread stack");
         opus_encoder_release(&encoder);
     }
     opus_encoder_release(nullptr);

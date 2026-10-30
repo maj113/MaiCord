@@ -217,13 +217,14 @@ void test_recorder() noexcept {
     alignas(16) static u8 decoder_storage[32768];
     OpusDecoder decoder{};
     static i16 pcm[kOpusDecoderMaximumFrames];
+    static OpusScratch opus_scratch;
     u64 loud = 0, quiet = 0, decoded = 0;
     bool decodes = opus_decoder_initialize(&decoder, {decoder_storage, sizeof(decoder_storage)}, 1).ok();
     for (;;) {
         const auto packet = ogg_opus_demux_next(&demux, {scratch, sizeof(scratch)});
         if (!packet.ok())
             break;
-        const auto result = opus_decoder_decode(&decoder, packet.bytes, {pcm, kOpusDecoderMaximumFrames});
+        const auto result = opus_decoder_decode(&decoder, packet.bytes, {pcm, kOpusDecoderMaximumFrames}, &opus_scratch);
         decodes = decodes && result.ok();
         for (u32 i = packet.trim_front_frames; result.ok() && i + packet.trim_back_frames < result.frames; ++i) {
             const u64 energy = static_cast<u64>(static_cast<i64>(pcm[i]) * pcm[i]);
@@ -547,7 +548,7 @@ bool fake_start(void* self, const wchar_t* device, bool processing, VoiceAudioCa
     c->running = true;
     c->processing = processing;
     copy_bytes(c->device, device, sizeof(c->device));
-    c->status = {VoiceCaptureState::capturing, 1, 0};
+    c->status = {VoiceCaptureState::capturing, 0};
     return true;
 }
 void fake_stop(void* self) noexcept {
@@ -634,13 +635,13 @@ void test_module_flow() noexcept {
           "module: a microphone that cannot start fails");
     capture.refuse = false;
     check(run(VoiceMessageOperation::start) && status.state == VoiceMessageState::recording, "module: restart");
-    capture.status = {VoiceCaptureState::waiting, 0, 0x80070005u};
+    capture.status = {VoiceCaptureState::waiting, 0x80070005u};
     check(run(VoiceMessageOperation::status) && status.state == VoiceMessageState::failed &&
               status.failure == VoiceMessageFailure::microphone_access && status.native_error == 0x80070005u &&
               !capture.running,
           "module: blocked microphone access is reported");
     // Finishing before any audio arrives is a microphone failure, not a stream.
-    capture.status = {VoiceCaptureState::capturing, 1, 0};
+    capture.status = {VoiceCaptureState::capturing, 0};
     check(run(VoiceMessageOperation::start) && run(VoiceMessageOperation::finish) &&
               status.state == VoiceMessageState::failed && status.failure == VoiceMessageFailure::microphone,
           "module: silence from the device fails");

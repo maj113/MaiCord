@@ -27,7 +27,10 @@ POSSIBILITY OF SUCH DAMAGE.
 
 
 #include "SigProc_FIX.h"
-#include "celt_lpc.h"
+
+#include <xmmintrin.h>
+#include <emmintrin.h>
+#include <smmintrin.h>
 
 /*******************************************/
 /* LPC analysis filter                     */
@@ -35,13 +38,6 @@ POSSIBILITY OF SUCH DAMAGE.
 /* filter always starts with zero state    */
 /* first d output samples are set to zero  */
 /*******************************************/
-
-/* OPT: Using celt_fir() for this function should be faster, but it may cause
-   integer overflows in intermediate values (not final results), which the
-   current implementation silences by casting to unsigned. Enabling
-   this should be safe in pretty much all cases, even though it is not technically
-   C89-compliant. */
-#define USE_CELT_FIR 0
 
 void silk_LPC_analysis_filter(
     opus_int16                  *out,               /* O    Output signal                                               */
@@ -53,30 +49,45 @@ void silk_LPC_analysis_filter(
 )
 {
     opus_int   j;
-#if defined(FIXED_POINT) && USE_CELT_FIR
-    opus_int16 num[SILK_MAX_ORDER_LPC];
-#else
     int ix;
     opus_int32       out32_Q12, out32;
     const opus_int16 *in_ptr;
-#endif
 
     celt_assert( d >= 6 );
     celt_assert( (d & 1) == 0 );
     celt_assert( d <= len );
 
-#if defined(FIXED_POINT) && USE_CELT_FIR
-    celt_assert( d <= SILK_MAX_ORDER_LPC );
-    for ( j = 0; j < d; j++ ) {
-        num[ j ] = -B[ j ];
-    }
-    celt_fir( in + d, num, out + d, len - d, d, arch );
-    for ( j = 0; j < d; j++ ) {
-        out[ j ] = 0;
-    }
-#else
     (void)arch;
-    for( ix = d; ix < len; ix++ ) {
+    ix = d;
+    if( len - d >= 8 ) {
+        /* Eight outputs per block. A madd of the sample pair (in[n-1-j], in[n-2-j]) with the tap pair
+           (B[j], B[j+1]) sums two taps exactly; sums wrap in 32 bits like silk_SMLABB_ovflw does.
+           The last block overlaps the previous one: every output is a function of the input only. */
+        __m128i tap[ SILK_MAX_ORDER_LPC / 2 ];
+        for( j = 0; j < d; j += 2 ) {
+            tap[ j >> 1 ] = _mm_set1_epi32( (opus_int32)( (opus_uint16)B[ j ] | ( (opus_uint32)(opus_uint16)B[ j + 1 ] << 16 ) ) );
+        }
+        for( ; ix < len; ix += 8 ) {
+            const opus_int   n = ix <= len - 8 ? ix : len - 8;
+            const opus_int16 *p = in + n - 1;
+            __m128i acc_lo = _mm_setzero_si128(), acc_hi = _mm_setzero_si128(), x, lo, hi;
+            for( j = 0; j < d; j += 2 ) {
+                const __m128i x0 = _mm_loadu_si128( (const __m128i *)(const void *)( p - j ) );
+                const __m128i x1 = _mm_loadu_si128( (const __m128i *)(const void *)( p - j - 1 ) );
+                acc_lo = _mm_add_epi32( acc_lo, _mm_madd_epi16( _mm_unpacklo_epi16( x0, x1 ), tap[ j >> 1 ] ) );
+                acc_hi = _mm_add_epi32( acc_hi, _mm_madd_epi16( _mm_unpackhi_epi16( x0, x1 ), tap[ j >> 1 ] ) );
+            }
+            /* (in[n] << 12) - prediction, rounded to Q0 and saturated */
+            x  = _mm_loadu_si128( (const __m128i *)(const void *)( in + n ) );
+            lo = _mm_sub_epi32( _mm_slli_epi32( _mm_cvtepi16_epi32( x ), 12 ), acc_lo );
+            hi = _mm_sub_epi32( _mm_slli_epi32( _mm_cvtepi16_epi32( _mm_srli_si128( x, 8 ) ), 12 ), acc_hi );
+            lo = _mm_srai_epi32( _mm_add_epi32( _mm_srai_epi32( lo, 11 ), _mm_set1_epi32( 1 ) ), 1 );
+            hi = _mm_srai_epi32( _mm_add_epi32( _mm_srai_epi32( hi, 11 ), _mm_set1_epi32( 1 ) ), 1 );
+            _mm_storeu_si128( (__m128i *)(void *)( out + n ), _mm_packs_epi32( lo, hi ) );
+        }
+        ix = len;
+    }
+    for( ; ix < len; ix++ ) {
         in_ptr = &in[ ix - 1 ];
 
         out32_Q12 = silk_SMULBB( in_ptr[  0 ], B[ 0 ] );
@@ -104,5 +115,4 @@ void silk_LPC_analysis_filter(
 
     /* Set first d output samples to zero */
     silk_memset( out, 0, d * sizeof( opus_int16 ) );
-#endif
 }

@@ -5,13 +5,13 @@
 namespace maicord {
 // Receives 48 kHz mono PCM16 on the capture thread; must not block.
 using VoiceAudioCaptureSink = void (*)(void* context, ConstSlice<i16> mono, u64 now_us) noexcept;
-// Runs after every wake (audio, timer or voice_audio_capture_wake) and
-// returns the absolute time (voice_playback_now_us clock) of the next wanted
-// wake, or 0 for none. The sink and tick never run concurrently.
+// Runs after every wake (audio or timer) and returns the absolute time
+// (voice_playback_now_us clock) of the next wanted wake, or 0 for none. The
+// sink and tick never run concurrently.
 using VoiceAudioCaptureTick = u64 (*)(void* context, u64 now_us) noexcept;
 struct VoiceAudioCaptureStatus {
     VoiceCaptureState state;
-    u32 opens, native_error;
+    u32 native_error;
 };
 // Shared-mode WASAPI on the given endpoint (empty: default communications
 // capture device), event driven on a dedicated thread with a 256 KiB stack

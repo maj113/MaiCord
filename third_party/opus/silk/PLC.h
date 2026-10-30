@@ -49,7 +49,8 @@ void silk_PLC(
     silk_decoder_control                *psDecCtrl,         /* I/O Decoder control      */
     opus_int16                          frame[],            /* I/O  signal              */
     opus_int                            lost,               /* I Loss flag              */
-    int                                 arch                /* I Run-time architecture  */
+    int                                 arch,               /* I Run-time architecture  */
+    char                                *scratch            /* I Scratch arena          */
 );
 
 void silk_PLC_glue_frames(

@@ -38,9 +38,12 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "entenc.h"
 #include "entdec.h"
 
-#if defined(OPUS_X86_MAY_HAVE_SSE4_1)
-#include "x86/main_sse.h"
+#if !defined(OPUS_X86_PRESUME_SSE4_1)
+#error "maiopus: SILK needs the x86 SSE4.1 kernels (MAIOPUS_SSE4_1)"
 #endif
+
+/* Scratch bytes silk_NSQ and silk_NSQ_del_dec allocate at most (proved where they allocate) */
+#define SILK_NSQ_SCRATCH_BYTES  9520
 
 
 /* Convert Left/Right stereo signal to adaptive Mid/Side representation */
@@ -55,7 +58,8 @@ void silk_stereo_LR_to_MS(
     opus_int                    prev_speech_act_Q8,             /* I    Speech activity level in previous frame     */
     opus_int                    toMono,                         /* I    Last frame before a stereo->mono transition */
     opus_int                    fs_kHz,                         /* I    Sample rate (kHz)                           */
-    opus_int                    frame_length                    /* I    Number of samples                           */
+    opus_int                    frame_length,                   /* I    Number of samples                           */
+    char                        *scratch                        /* I    Scratch arena                               */
 );
 
 /* Convert adaptive Mid/Side representation to Left/Right stereo signal */
@@ -219,7 +223,7 @@ void silk_quant_LTP_gains(
 );
 
 /* Entropy constrained matrix-weighted VQ, for a single input data vector */
-void silk_VQ_WMat_EC_c(
+void silk_VQ_WMat_EC(
     opus_int8                   *ind,                           /* O    index of best codebook vector               */
     opus_int32                  *res_nrg_Q15,                   /* O    best residual energy                        */
     opus_int32                  *rate_dist_Q8,                  /* O    best total bitrate                          */
@@ -234,16 +238,11 @@ void silk_VQ_WMat_EC_c(
     const opus_int              L                               /* I    number of vectors in codebook               */
 );
 
-#if !defined(OVERRIDE_silk_VQ_WMat_EC)
-#define silk_VQ_WMat_EC(ind, res_nrg_Q15, rate_dist_Q8, gain_Q7, XX_Q17, xX_Q17, cb_Q7, cb_gain_Q7, cl_Q5, subfr_len, max_gain_Q7, L, arch) \
-    ((void)(arch),silk_VQ_WMat_EC_c(ind, res_nrg_Q15, rate_dist_Q8, gain_Q7, XX_Q17, xX_Q17, cb_Q7, cb_gain_Q7, cl_Q5, subfr_len, max_gain_Q7, L))
-#endif
-
 /************************************/
 /* Noise shaping quantization (NSQ) */
 /************************************/
 
-void silk_NSQ_c(
+void silk_NSQ(
     const silk_encoder_state    *psEncC,                                      /* I    Encoder State                   */
     silk_nsq_state              *NSQ,                                         /* I/O  NSQ state                       */
     SideInfoIndices             *psIndices,                                   /* I/O  Quantization Indices            */
@@ -258,18 +257,12 @@ void silk_NSQ_c(
     const opus_int32            Gains_Q16[ MAX_NB_SUBFR ],                    /* I    Quantization step sizes         */
     const opus_int              pitchL[ MAX_NB_SUBFR ],                       /* I    Pitch lags                      */
     const opus_int              Lambda_Q10,                                   /* I    Rate/distortion tradeoff        */
-    const opus_int              LTP_scale_Q14                                 /* I    LTP state scaling               */
+    const opus_int              LTP_scale_Q14,                                /* I    LTP state scaling               */
+    char                        *scratch                                      /* I    Scratch arena                   */
 );
-
-#if !defined(OVERRIDE_silk_NSQ)
-#define silk_NSQ(psEncC, NSQ, psIndices, x16, pulses, PredCoef_Q12, LTPCoef_Q14, AR_Q13, \
-                   HarmShapeGain_Q14, Tilt_Q14, LF_shp_Q14, Gains_Q16, pitchL, Lambda_Q10, LTP_scale_Q14, arch) \
-    ((void)(arch),silk_NSQ_c(psEncC, NSQ, psIndices, x16, pulses, PredCoef_Q12, LTPCoef_Q14, AR_Q13, \
-                   HarmShapeGain_Q14, Tilt_Q14, LF_shp_Q14, Gains_Q16, pitchL, Lambda_Q10, LTP_scale_Q14))
-#endif
 
 /* Noise shaping using delayed decision */
-void silk_NSQ_del_dec_c(
+void silk_NSQ_del_dec(
     const silk_encoder_state    *psEncC,                                      /* I    Encoder State                   */
     silk_nsq_state              *NSQ,                                         /* I/O  NSQ state                       */
     SideInfoIndices             *psIndices,                                   /* I/O  Quantization Indices            */
@@ -284,15 +277,9 @@ void silk_NSQ_del_dec_c(
     const opus_int32            Gains_Q16[ MAX_NB_SUBFR ],                    /* I    Quantization step sizes         */
     const opus_int              pitchL[ MAX_NB_SUBFR ],                       /* I    Pitch lags                      */
     const opus_int              Lambda_Q10,                                   /* I    Rate/distortion tradeoff        */
-    const opus_int              LTP_scale_Q14                                 /* I    LTP state scaling               */
+    const opus_int              LTP_scale_Q14,                                /* I    LTP state scaling               */
+    char                        *scratch                                      /* I    Scratch arena                   */
 );
-
-#if !defined(OVERRIDE_silk_NSQ_del_dec)
-#define silk_NSQ_del_dec(psEncC, NSQ, psIndices, x16, pulses, PredCoef_Q12, LTPCoef_Q14, AR_Q13, \
-                           HarmShapeGain_Q14, Tilt_Q14, LF_shp_Q14, Gains_Q16, pitchL, Lambda_Q10, LTP_scale_Q14, arch) \
-    ((void)(arch),silk_NSQ_del_dec_c(psEncC, NSQ, psIndices, x16, pulses, PredCoef_Q12, LTPCoef_Q14, AR_Q13, \
-                           HarmShapeGain_Q14, Tilt_Q14, LF_shp_Q14, Gains_Q16, pitchL, Lambda_Q10, LTP_scale_Q14))
-#endif
 
 /************/
 /* Silk VAD */
@@ -303,14 +290,16 @@ opus_int silk_VAD_Init(                                         /* O    Return v
 );
 
 /* Get speech activity level in Q8 */
-opus_int silk_VAD_GetSA_Q8_c(                                   /* O    Return value, 0 if success                  */
+opus_int silk_VAD_GetSA_Q8(                                     /* O    Return value, 0 if success                  */
     silk_encoder_state          *psEncC,                        /* I/O  Encoder state                               */
     const opus_int16            pIn[]                           /* I    PCM input                                   */
 );
 
-#if !defined(OVERRIDE_silk_VAD_GetSA_Q8)
-#define silk_VAD_GetSA_Q8(psEnC, pIn, arch) ((void)(arch),silk_VAD_GetSA_Q8_c(psEnC, pIn))
-#endif
+/* Noise level estimation from the subband energies */
+void silk_VAD_GetNoiseLevels(
+    const opus_int32            pX[ VAD_N_BANDS ],              /* I    subband energies                            */
+    silk_VAD_state              *psSilk_VAD                     /* I/O  Pointer to Silk VAD state                   */
+);
 
 /* Low-pass filter with variable cutoff frequency based on  */
 /* piece-wise linear interpolation between elliptic filters */
@@ -411,7 +400,8 @@ opus_int silk_decode_frame(
     opus_int32                  *pN,                            /* O    Pointer to size of output frame             */
     opus_int                    lostFlag,                       /* I    0: no loss, 1 loss, 2 decode fec            */
     opus_int                    condCoding,                     /* I    The type of conditional coding to use       */
-    int                         arch                            /* I    Run-time architecture                       */
+    int                         arch,                           /* I    Run-time architecture                       */
+    char                        *scratch                        /* I    Scratch arena                               */
 );
 
 /* Decode indices from bitstream */
@@ -436,7 +426,8 @@ void silk_decode_core(
     silk_decoder_control        *psDecCtrl,                     /* I    Decoder control                             */
     opus_int16                  xq[],                           /* O    Decoded speech                              */
     const opus_int16            pulses[ MAX_FRAME_LENGTH ],     /* I    Pulse signal                                */
-    int                         arch                            /* I    Run-time architecture                       */
+    int                         arch,                           /* I    Run-time architecture                       */
+    char                        *scratch                        /* I    Scratch arena                               */
 );
 
 /* Decode quantization indices of excitation (Shell coding) */

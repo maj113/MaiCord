@@ -18,12 +18,12 @@ struct VoiceMessageCaptureOps {
     VoiceAudioCaptureStatus (*status)(void* self) noexcept;
 };
 
-// Preview decode state, committed only while a finished recording exists.
+// Preview decode state, committed only while a finished recording exists; the
+// decoder's state follows it in the same block.
 struct VoiceMessagePreview {
     OggOpusDemuxer demux;
     OpusDecoder decoder;
     i16 decoded[kOpusDecoderMaximumFrames];
-    u8 decoder_storage[32768 + kOpusDecoderStateAlignment]; // Aligned in use.
     u32 decoded_frames, decoded_offset;
 };
 // Account-module owner of one recording at a time: capture, encode, preview.

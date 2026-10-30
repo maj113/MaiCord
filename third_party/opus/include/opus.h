@@ -40,6 +40,11 @@
 extern "C" {
 #endif
 
+/** Bytes of caller scratch memory that opus_encode() and opus_decode() take:
+  * the larger of the encoder's (44640) and the decoder's (19248) worst-case
+  * working sets, asserted in src/opus_encoder.c and src/opus_decoder.c. */
+#define OPUS_SCRATCH_BYTES 44640
+
 /**
  * @mainpage Opus
  *
@@ -55,9 +60,10 @@ extern "C" {
  * maiopus is a fixed-point build of libopus with a complete decoder (every
  * mode, bandwidth, frame size, FEC and PLC, output at 8 to 48 kHz) and an
  * encoder reduced to one voice profile: 48 kHz mono or stereo input, VOIP
- * tuning, one 20 ms VBR frame per packet. The library never allocates; states
- * live in caller memory sized by opus_encoder_get_size() and
- * opus_decoder_get_size().
+ * tuning, one 20 ms VBR frame per packet. The library never allocates and
+ * never uses alloca: states live in caller memory sized by
+ * opus_encoder_get_size() and opus_decoder_get_size(), and opus_encode() and
+ * opus_decode() work in a caller-owned scratch block of #OPUS_SCRATCH_BYTES.
  *
  * Documentation sections:
  * @li @ref opus_encoder
@@ -137,6 +143,12 @@ OPUS_EXPORT int opus_encoder_init(
   *                                                 not be used as the only bitrate
   *                                                 control. Use #OPUS_SET_BITRATE to
   *                                                 control the bitrate.
+  * @param [in] scratch <tt>void*</tt>: Caller-owned scratch memory of
+  *                                     #OPUS_SCRATCH_BYTES, 16-byte aligned,
+  *                                     not overlapping any other argument.
+  *                                     It holds nothing between calls, so one
+  *                                     block serves every encoder and decoder
+  *                                     a thread runs.
   * @returns The length of the encoded packet (in bytes) on success or a
   *          negative error code (see @ref opus_errorcodes) on failure.
   */
@@ -145,8 +157,9 @@ OPUS_EXPORT OPUS_WARN_UNUSED_RESULT opus_int32 opus_encode(
     const opus_int16 *pcm,
     int frame_size,
     unsigned char *data,
-    opus_int32 max_data_bytes
-) OPUS_ARG_NONNULL(1) OPUS_ARG_NONNULL(2) OPUS_ARG_NONNULL(4);
+    opus_int32 max_data_bytes,
+    void *scratch
+) OPUS_ARG_NONNULL(1) OPUS_ARG_NONNULL(2) OPUS_ARG_NONNULL(4) OPUS_ARG_NONNULL(6);
 
 /** Perform a CTL function on an Opus encoder.
   *
@@ -249,6 +262,9 @@ OPUS_EXPORT int opus_decoder_init(
   *  FEC cases, frame_size <b>must</b> be a multiple of 2.5 ms.
   * @param [in] decode_fec <tt>int</tt>: Flag (0 or 1) to request that any in-band forward error correction data be
   *  decoded. If no such data is available, the frame is decoded as if it were lost.
+  * @param [in] scratch <tt>void*</tt>: Caller-owned scratch memory of
+  *  #OPUS_SCRATCH_BYTES, 16-byte aligned, not overlapping any other argument
+  *  (see opus_encode()).
   * @returns Number of decoded samples per channel or @ref opus_errorcodes
   */
 OPUS_EXPORT OPUS_WARN_UNUSED_RESULT int opus_decode(
@@ -257,8 +273,9 @@ OPUS_EXPORT OPUS_WARN_UNUSED_RESULT int opus_decode(
     opus_int32 len,
     opus_int16 *pcm,
     int frame_size,
-    int decode_fec
-) OPUS_ARG_NONNULL(1) OPUS_ARG_NONNULL(4);
+    int decode_fec,
+    void *scratch
+) OPUS_ARG_NONNULL(1) OPUS_ARG_NONNULL(4) OPUS_ARG_NONNULL(7);
 
 /** Perform a CTL function on an Opus decoder.
   *

@@ -118,12 +118,16 @@ RestClientSubmitResult account_soundboard_submit(RestClient* rest, const Soundbo
 namespace {
 void render_preview(void* context, Slice<i16> pcm, u64 now_us) noexcept {
     auto* engine = static_cast<AccountSoundboard*>(context);
-    i32 mix[kVoiceRenderMaximumFrames * 2];
+    constexpr u32 kChunkFrames = 256; // A small accumulator keeps the audio thread's stack frame probe-free.
+    i32 mix[kChunkFrames * 2];
     const u32 frames = minimum(pcm.count / 2, kVoiceRenderMaximumFrames);
     clear_bytes(pcm.data, pcm.count * static_cast<u32>(sizeof(i16)));
-    clear_bytes(mix, frames * 2 * static_cast<u32>(sizeof(i32)));
-    soundboard_mixer_render(&engine->mixer, {mix, frames * 2}, frames, engine->output_gain_percent, false, now_us);
-    voice_mixer_finish({mix, frames * 2}, {pcm.data, frames * 2});
+    for (u32 at = 0; at < frames; at += kChunkFrames) {
+        const u32 chunk = minimum(kChunkFrames, frames - at);
+        clear_bytes(mix, chunk * 2 * static_cast<u32>(sizeof(i32)));
+        soundboard_mixer_render(&engine->mixer, {mix, chunk * 2}, chunk, engine->output_gain_percent, false, now_us);
+        voice_mixer_finish({mix, chunk * 2}, {pcm.data + at * 2, chunk * 2});
+    }
 }
 
 bool start_cdn(AccountSoundboard* s) noexcept {

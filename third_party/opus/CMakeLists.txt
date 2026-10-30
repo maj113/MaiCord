@@ -5,7 +5,7 @@
 #   MAIOPUS_LINK_CONTRACT  an INTERFACE target linked privately (link options)
 #   MAIOPUS_LTCG           compile for whole-program optimization with
 #                          MAIOPUS_LTCG_OPTION (default -flto)
-#   MAIOPUS_SSE4_1         use the x86 SSE4.1 kernels (compile-time selection,
+#   MAIOPUS_SSE4_1         required: the x86 SSE4.1 kernels (compile-time selection,
 #                          no runtime CPU dispatch)
 #   MAIOPUS_ARCH           extra code generation option, e.g. /arch:AVX
 if(NOT DEFINED MAIOPUS_DECODER_TARGET)
@@ -30,15 +30,14 @@ endif()
 if(MAIOPUS_ARCH)
     list(APPEND maiopus_options ${MAIOPUS_ARCH})
 endif()
-set(maiopus_decoder_simd)
-set(maiopus_encoder_simd)
-if(MAIOPUS_SSE4_1)
-    list(APPEND maiopus_definitions
-        OPUS_X86_MAY_HAVE_SSE2 OPUS_X86_PRESUME_SSE2 OPUS_X86_MAY_HAVE_SSE4_1 OPUS_X86_PRESUME_SSE4_1)
-    set(maiopus_decoder_simd celt/x86/celt_lpc_sse4_1.c celt/x86/pitch_sse4_1.c)
-    set(maiopus_encoder_simd silk/x86/NSQ_sse4_1.c silk/x86/NSQ_del_dec_sse4_1.c silk/x86/VAD_sse4_1.c
-        silk/x86/VQ_WMat_EC_sse4_1.c silk/fixed/x86/burg_modified_FIX_sse4_1.c silk/fixed/x86/vector_ops_FIX_sse4_1.c)
+if(NOT MAIOPUS_SSE4_1)
+    message(FATAL_ERROR "maiopus is x86-64 SSE4.1 code: set MAIOPUS_SSE4_1")
 endif()
+list(APPEND maiopus_definitions
+    OPUS_X86_MAY_HAVE_SSE2 OPUS_X86_PRESUME_SSE2 OPUS_X86_MAY_HAVE_SSE4_1 OPUS_X86_PRESUME_SSE4_1)
+set(maiopus_decoder_simd celt/x86/celt_lpc_sse4_1.c celt/x86/pitch_sse4_1.c)
+set(maiopus_encoder_simd silk/x86/NSQ_del_dec_sse4_1.c silk/x86/VAD_sse4_1.c
+    silk/x86/VQ_WMat_EC_sse4_1.c silk/fixed/x86/burg_modified_FIX_sse4_1.c silk/fixed/x86/vector_ops_FIX_sse4_1.c)
 
 add_library(${MAIOPUS_DECODER_TARGET} STATIC
     celt/bands.c
@@ -86,7 +85,6 @@ add_library(${MAIOPUS_DECODER_TARGET} STATIC
     silk/pitch_est_tables.c
     silk/resampler.c
     silk/resampler_down2.c
-    silk/resampler_down2_3.c
     silk/resampler_private_AR2.c
     silk/resampler_private_IIR_FIR.c
     silk/resampler_private_down_FIR.c
@@ -130,9 +128,7 @@ add_library(${MAIOPUS_ENCODER_TARGET} STATIC
     silk/NLSF_del_dec_quant.c
     silk/NLSF_encode.c
     silk/NSQ.c
-    silk/NSQ_del_dec.c
     silk/VAD.c
-    silk/VQ_WMat_EC.c
     silk/ana_filt_bank_1.c
     silk/biquad_alt.c
     silk/check_control_input.c
@@ -146,6 +142,7 @@ add_library(${MAIOPUS_ENCODER_TARGET} STATIC
     silk/interpolate.c
     silk/process_NLSFs.c
     silk/quant_LTP_gains.c
+    silk/resampler_down2_3.c
     silk/sigm_Q15.c
     silk/stereo_LR_to_MS.c
     silk/stereo_encode_pred.c
@@ -155,7 +152,6 @@ add_library(${MAIOPUS_ENCODER_TARGET} STATIC
     silk/fixed/LTP_scale_ctrl_FIX.c
     silk/fixed/apply_sine_window_FIX.c
     silk/fixed/autocorr_FIX.c
-    silk/fixed/burg_modified_FIX.c
     silk/fixed/corrMatrix_FIX.c
     silk/fixed/encode_frame_FIX.c
     silk/fixed/find_LPC_FIX.c
@@ -181,9 +177,10 @@ target_compile_definitions(${MAIOPUS_ENCODER_TARGET} PRIVATE ${maiopus_definitio
 # encode time; the CELT analysis unit stays /O2, where /O1 cost about 6%.
 target_compile_options(${MAIOPUS_ENCODER_TARGET} PRIVATE ${maiopus_options})
 get_target_property(maiopus_encoder_sources ${MAIOPUS_ENCODER_TARGET} SOURCES)
-list(REMOVE_ITEM maiopus_encoder_sources celt/celt_encoder.c)
+set(maiopus_encoder_hot celt/celt_encoder.c silk/fixed/warped_autocorrelation_FIX.c)
+list(REMOVE_ITEM maiopus_encoder_sources ${maiopus_encoder_hot})
 set_source_files_properties(${maiopus_encoder_sources} PROPERTIES COMPILE_OPTIONS /O1)
-set_source_files_properties(celt/celt_encoder.c PROPERTIES COMPILE_OPTIONS "/O2;/Ob1")
+set_source_files_properties(${maiopus_encoder_hot} PROPERTIES COMPILE_OPTIONS "/O2;/Ob1")
 target_link_libraries(${MAIOPUS_ENCODER_TARGET} PUBLIC ${MAIOPUS_DECODER_TARGET})
 set_target_properties(${MAIOPUS_ENCODER_TARGET} PROPERTIES
     C_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")

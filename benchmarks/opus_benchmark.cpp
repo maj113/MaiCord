@@ -71,6 +71,7 @@ bool configure(OpusEncoder* encoder, const Settings& s) noexcept {
 struct Worker {
     u8 encoder_storage[32768]; // First members of page-aligned VirtualAlloc storage.
     u8 decoder_storage[32768];
+    OpusScratch scratch;
     i16 input[2 * kFrame * kFrames];
     i16 output[2 * kFrame];
     u8 packets[kFrames][kMaximumPacket];
@@ -88,10 +89,10 @@ bool decode_digest(Worker* w, u32 channels, u32 frames, u32 loss_period, u64* di
         OpusDecodeResult r;
         if (loss_period && f % loss_period == loss_period - 1 && f + 1 < frames) {
             const ConstSlice<u8> next{w->packets[f + 1], w->sizes[f + 1]};
-            r = opus_packet_has_fec(next) ? opus_decoder_decode_fec(&decoder, next, kFrame, {w->output, kFrame * channels})
-                                          : opus_decoder_conceal(&decoder, kFrame, {w->output, kFrame * channels});
+            r = opus_packet_has_fec(next) ? opus_decoder_decode_fec(&decoder, next, kFrame, {w->output, kFrame * channels}, &w->scratch)
+                                          : opus_decoder_conceal(&decoder, kFrame, {w->output, kFrame * channels}, &w->scratch);
         } else {
-            r = opus_decoder_decode(&decoder, {w->packets[f], w->sizes[f]}, {w->output, kFrame * channels});
+            r = opus_decoder_decode(&decoder, {w->packets[f], w->sizes[f]}, {w->output, kFrame * channels}, &w->scratch);
         }
         if (!r.ok() || r.frames != kFrame) return false;
         hash = fnv(hash, w->output, kFrame * channels * sizeof(i16));
@@ -118,7 +119,7 @@ void run_row(Worker* w, Row* row) noexcept {
     u64 hash = kFnvBasis;
     for (u32 f = 0; row->ok && f < row->frames; ++f) {
         const auto r = opus_encoder_encode(&encoder, {w->input + f * kFrame * s.channels, kFrame * s.channels},
-                                           {w->packets[f], kMaximumPacket});
+                                           {w->packets[f], kMaximumPacket}, &w->scratch);
         row->ok = r.ok();
         w->sizes[f] = r.bytes;
         hash = fnv(fnv(hash, &r.bytes, 2), w->packets[f], r.bytes);
@@ -149,7 +150,7 @@ void run_switching(Worker* w, Row* row, u32 seed) noexcept {
             row->ok = configure(&encoder, s);
         }
         const auto r = opus_encoder_encode(&encoder, {w->input + f * kFrame * base.channels, kFrame * base.channels},
-                                           {w->packets[f], kMaximumPacket});
+                                           {w->packets[f], kMaximumPacket}, &w->scratch);
         row->ok = row->ok && r.ok();
         w->sizes[f] = r.bytes;
         hash = fnv(fnv(hash, &r.bytes, 2), w->packets[f], r.bytes);
@@ -314,7 +315,7 @@ bool timing() noexcept {
             i64 begin = now();
             for (u32 f = 0; f < kFrames; ++f) {
                 const auto r = opus_encoder_encode(&encoder, {w->input + f * kFrame * s.channels, kFrame * s.channels},
-                                                   {w->packets[f], kMaximumPacket});
+                                                   {w->packets[f], kMaximumPacket}, &w->scratch);
                 if (!r.ok()) return false;
                 w->sizes[f] = r.bytes;
             }
@@ -331,8 +332,9 @@ bool timing() noexcept {
             begin = now();
             for (u32 f = 0; f < kFrames; ++f) {
                 const bool lost = c.loss_period && f % c.loss_period == c.loss_period - 1;
-                const auto r = lost ? opus_decoder_conceal(&decoder, kFrame, {w->output, kFrame * s.channels})
-                                    : opus_decoder_decode(&decoder, {w->packets[f], w->sizes[f]}, {w->output, kFrame * s.channels});
+                const auto r = lost ? opus_decoder_conceal(&decoder, kFrame, {w->output, kFrame * s.channels}, &w->scratch)
+                                    : opus_decoder_decode(&decoder, {w->packets[f], w->sizes[f]}, {w->output, kFrame * s.channels},
+                                                          &w->scratch);
                 if (!r.ok()) return false;
                 if (pass == 0) hash = fnv(hash, w->output, kFrame * s.channels * sizeof(i16));
             }

@@ -14,7 +14,7 @@ u32 failures;
 void check(bool passed, const char* message) noexcept {
     test_check(&failures, passed, message);
 }
-alignas(16) u8 decoder_storage[65536];
+alignas(16) u8 decoder_storage[65536], scratch[OPUS_SCRATCH_BYTES];
 i16 frame[kOpusVectorMaximumFrame * 2];
 
 void test_opus_decoder_vectors() noexcept {
@@ -32,7 +32,8 @@ void test_opus_decoder_vectors() noexcept {
             auto* decoder = reinterpret_cast<::OpusDecoder*>(decoder_storage);
             const bool ready = opus_decoder_get_size(static_cast<int>(channels)) <= static_cast<int>(sizeof(decoder_storage)) &&
                                opus_decoder_init(decoder, 48000, static_cast<int>(channels)) == OPUS_OK;
-            const OpusVectorDecode decoded = opus_vector_decode(decoder, channels, vector.data, vector.bytes, frame, nullptr, 0);
+            const OpusVectorDecode decoded =
+                opus_vector_decode(decoder, scratch, channels, vector.data, vector.bytes, frame, nullptr, 0);
             const bool ok = ready && decoded.packets == vector.packets && decoded.lost == vector.lost &&
                             decoded.recovered == vector.recovered && !decoded.range_errors && !decoded.decode_errors &&
                             decoded.digest == vector.digest[channels - 1];

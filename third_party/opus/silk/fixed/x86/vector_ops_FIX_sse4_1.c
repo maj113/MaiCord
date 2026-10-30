@@ -35,7 +35,7 @@
 #include "pitch.h"
 #include "celt/x86/x86cpu.h"
 
-opus_int64 silk_inner_prod16_sse4_1(
+opus_int64 silk_inner_prod16(
     const opus_int16            *inVec1,            /*    I input vector 1                                              */
     const opus_int16            *inVec2,            /*    I input vector 2                                              */
     const opus_int              len                 /*    I vector lengths                                              */

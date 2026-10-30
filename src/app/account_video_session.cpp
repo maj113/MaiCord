@@ -297,6 +297,12 @@ bool start_audio(AccountVideoSession& s, MediaAudio* audio, float* ring, u32 cha
         terminal(s, AccountVideoError::audio, started.native_error);
     return started.ok();
 }
+// The decoder state and then the decode scratch follow the workspace.
+constexpr u32 kOpusStateOffset =
+    (sizeof(OpusWorkspace) + kOpusDecoderStateAlignment - 1) & ~(kOpusDecoderStateAlignment - 1);
+usize opus_scratch_offset(u32 state_bytes) noexcept {
+    return (kOpusStateOffset + state_bytes + alignof(OpusScratch) - 1) & ~usize{alignof(OpusScratch) - 1};
+}
 bool opus_workspace(AccountVideoSession& s) noexcept {
     const auto* source = opus_source(s);
     const u32 state_bytes = opus_decoder_storage_bytes(source->channels);
@@ -304,17 +310,15 @@ bool opus_workspace(AccountVideoSession& s) noexcept {
         terminal(s, AccountVideoError::decoder);
         return false;
     }
-    constexpr u32 offset =
-        (sizeof(OpusWorkspace) + kOpusDecoderStateAlignment - 1) & ~(kOpusDecoderStateAlignment - 1);
-    auto* w = static_cast<OpusWorkspace*>(
-        VirtualAlloc(nullptr, offset + state_bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    const usize bytes = opus_scratch_offset(state_bytes) + sizeof(OpusScratch);
+    auto* w = static_cast<OpusWorkspace*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!w) {
         terminal(s, AccountVideoError::memory, GetLastError());
         return false;
     }
     s.workspace = w;
-    w->allocation_bytes = offset + state_bytes;
-    auto decoded = opus_decoder_initialize(&w->decoder, {reinterpret_cast<u8*>(w) + offset, state_bytes},
+    w->allocation_bytes = static_cast<u32>(bytes);
+    auto decoded = opus_decoder_initialize(&w->decoder, {reinterpret_cast<u8*>(w) + kOpusStateOffset, state_bytes},
                                            source->channels);
     if (decoded.ok())
         decoded = opus_decoder_gain(&w->decoder, source->output_gain_q8);
@@ -1011,7 +1015,9 @@ bool opus_service(AccountVideoSession& s, bool (*cancelled)(void*) noexcept, voi
             return true;
         }
         const auto decoded =
-            opus_decoder_decode(&w.decoder, packet.bytes, {w.pcm16, kOpusDecoderMaximumFrames * 2});
+            opus_decoder_decode(&w.decoder, packet.bytes, {w.pcm16, kOpusDecoderMaximumFrames * 2},
+                                reinterpret_cast<OpusScratch*>(reinterpret_cast<u8*>(&w) +
+                                                               opus_scratch_offset(w.decoder.state_bytes)));
         ++packets;
         if (!decoded.ok() || decoded.frames != packet.duration_frames) {
             terminal(s, AccountVideoError::decoder, static_cast<u32>(decoded.native_status));

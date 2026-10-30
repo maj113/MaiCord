@@ -28,7 +28,87 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "main.h"
 #include "stack_alloc.h"
-#include "NSQ.h"
+
+#include <xmmintrin.h>
+#include <emmintrin.h>
+#include <smmintrin.h>
+
+/* LPC synthesis of one subframe: x[ i ] = res[ i ] + 16 * pred( x[ i - 1 ] ... x[ i - 16 ] ), with the
+   silk_SMLAWB tap sum computed exactly. Taps 0 and 1 (the previous two samples) stay scalar. Taps 2..15 depend only
+   on samples at least three behind, so a vector dot product over a sliding history, started when its newest
+   sample appears, finishes while the next two samples are being computed; the serial dependency per sample
+   shrinks to one tap, an add and the saturations. Each history sample is split into its signed high and
+   low halves: (x * a) >> 16 = hi * a + ((lo * a) >> 16) with lo unsigned, and the second term is
+   pmulhw( lo, a ) + ( lo < 0 ? a : 0 ) for the low half read as signed. Sums wrap in 32 bits like the scalar code. */
+typedef struct {
+    __m128i hi_a, hi_b, lo_a, lo_b;   /* lane m of a (b) holds the sample m (8 + m) before the newest one pushed */
+} silk_lpc_history;
+
+static OPUS_INLINE void silk_lpc_history_push( silk_lpc_history *g, opus_int32 x )
+{
+    const __m128i v = _mm_cvtsi32_si128( x );   /* 16-bit lanes: low half, high half */
+    g->lo_b = _mm_alignr_epi8( g->lo_b, g->lo_a, 14 );
+    g->hi_b = _mm_alignr_epi8( g->hi_b, g->hi_a, 14 );
+    g->lo_a = _mm_blend_epi16( _mm_slli_si128( g->lo_a, 2 ), v, 0x01 );
+    g->hi_a = _mm_blend_epi16( _mm_slli_si128( g->hi_a, 2 ), _mm_srli_si128( v, 2 ), 0x01 );
+}
+
+static OPUS_INLINE opus_int32 silk_lpc_history_dot( const silk_lpc_history *g, __m128i ca, __m128i cb )
+{
+    const __m128i ones = _mm_set1_epi16( 1 );
+    __m128i s, la, lb;
+    s  = _mm_add_epi32( _mm_madd_epi16( g->hi_a, ca ), _mm_madd_epi16( g->hi_b, cb ) );
+    la = _mm_add_epi16( _mm_mulhi_epi16( g->lo_a, ca ), _mm_and_si128( _mm_srai_epi16( g->lo_a, 15 ), ca ) );
+    lb = _mm_add_epi16( _mm_mulhi_epi16( g->lo_b, cb ), _mm_and_si128( _mm_srai_epi16( g->lo_b, 15 ), cb ) );
+    s  = _mm_add_epi32( s, _mm_add_epi32( _mm_madd_epi16( la, ones ), _mm_madd_epi16( lb, ones ) ) );
+    s  = _mm_add_epi32( s, _mm_shuffle_epi32( s, 0x4E ) );
+    s  = _mm_add_epi32( s, _mm_shuffle_epi32( s, 0xB1 ) );
+    return _mm_cvtsi128_si32( s );
+}
+
+/* x[ 0 .. n - 1 ] are the outputs, x[ -16 .. -1 ] the state; A[ 0 .. 17 ] the coefficients, zero from the order up */
+static OPUS_INLINE void silk_LPC_synthesis(
+    opus_int32          *x,
+    const opus_int32    *res,
+    opus_int16          *xq,
+    const opus_int16    *A,
+    opus_int            order,
+    opus_int32          Gain_Q10,
+    opus_int            n
+)
+{
+    /* History for the first output: lane m holds x[ -3 - m ], lanes 14 and 15 (older than the state) zero */
+    const __m128i lanes = _mm_setr_epi8( 12, 13, 8, 9, 4, 5, 0, 1, 14, 15, 10, 11, 6, 7, 2, 3 );
+    const __m128i lane_d = _mm_setr_epi8( 4, 5, 0, 1, -128, -128, -128, -128, 6, 7, 2, 3, -128, -128, -128, -128 );
+    const __m128i s_a = _mm_shuffle_epi8( _mm_loadu_si128( (const __m128i *)(const void *)( x - 6 ) ), lanes );
+    const __m128i s_b = _mm_shuffle_epi8( _mm_loadu_si128( (const __m128i *)(const void *)( x - 10 ) ), lanes );
+    const __m128i s_c = _mm_shuffle_epi8( _mm_loadu_si128( (const __m128i *)(const void *)( x - 14 ) ), lanes );
+    const __m128i s_d = _mm_shuffle_epi8( _mm_loadu_si128( (const __m128i *)(const void *)( x - 16 ) ), lane_d );
+    const __m128i ca = _mm_loadu_si128( (const __m128i *)(const void *)( A + 2 ) );
+    const __m128i cb = _mm_loadu_si128( (const __m128i *)(const void *)( A + 10 ) );
+    const opus_int32 a0 = A[ 0 ], a1 = A[ 1 ], bias = silk_RSHIFT( order, 1 );
+    silk_lpc_history g;
+    opus_int32 R, x1 = x[ -1 ], x2 = x[ -2 ];
+    opus_int   i;
+
+    g.lo_a = _mm_unpacklo_epi64( s_a, s_b );
+    g.hi_a = _mm_unpackhi_epi64( s_a, s_b );
+    g.lo_b = _mm_unpacklo_epi64( s_c, s_d );
+    g.hi_b = _mm_unpackhi_epi64( s_c, s_d );
+    R = silk_ADD32_ovflw( bias, silk_lpc_history_dot( &g, ca, cb ) );
+    for( i = 0; i < n; i++ ) {
+        opus_int32 pred, xi, R_next;
+        silk_lpc_history_push( &g, x2 );
+        R_next = silk_ADD32_ovflw( bias, silk_lpc_history_dot( &g, ca, cb ) );
+        pred = silk_ADD32_ovflw( silk_ADD32_ovflw( R, silk_SMULWB( x1, a0 ) ), silk_SMULWB( x2, a1 ) );
+        xi = silk_ADD_SAT32( res[ i ], silk_LSHIFT_SAT32( pred, 4 ) );
+        x[ i ] = xi;
+        xq[ i ] = (opus_int16)silk_SAT16( silk_RSHIFT_ROUND( silk_SMULWW( xi, Gain_Q10 ), 8 ) );
+        R = R_next;
+        x2 = x1;
+        x1 = xi;
+    }
+}
 
 /**********************************************************/
 /* Core decoder. Performs inverse NSQ operation LTP + LPC */
@@ -38,14 +118,16 @@ void silk_decode_core(
     silk_decoder_control        *psDecCtrl,                     /* I    Decoder control                             */
     opus_int16                  xq[],                           /* O    Decoded speech                              */
     const opus_int16            pulses[ MAX_FRAME_LENGTH ],     /* I    Pulse signal                                */
-    int                         arch                            /* I    Run-time architecture                       */
+    int                         arch,                           /* I    Run-time architecture                       */
+    char                        *scratch                        /* I    Scratch arena                               */
 )
 {
     opus_int   i, k, lag = 0, start_idx, sLTP_buf_idx, NLSF_interpolation_flag, signalType;
-    opus_int16 *A_Q12, *B_Q14, *pxq, A_Q12_tmp[ MAX_LPC_ORDER ];
+    opus_int16 *A_Q12, *B_Q14, *pxq, A_Q12_tmp[ MAX_LPC_ORDER + 2 ];
     VARDECL( opus_int16, sLTP );
     VARDECL( opus_int32, sLTP_Q15 );
-    opus_int32 LTP_pred_Q13, LPC_pred_Q10, Gain_Q10, inv_gain_Q31, gain_adj_Q16, rand_seed, offset_Q10;
+    opus_int32 LTP_pred_Q13, Gain_Q10, inv_gain_Q31, gain_adj_Q16, rand_seed, offset_Q10;
+    const opus_int frame_length = psDec->frame_length, subfr_length = psDec->subfr_length;
     opus_int32 *pred_lag_ptr, *pexc_Q14, *pres_Q14;
     VARDECL( opus_int32, res_Q14 );
     VARDECL( opus_int32, sLPC_Q14 );
@@ -70,19 +152,21 @@ void silk_decode_core(
 
     /* Decode excitation */
     rand_seed = psDec->indices.Seed;
-    for( i = 0; i < psDec->frame_length; i++ ) {
+    for( i = 0; i < frame_length; i++ ) {
+        opus_int32 exc;
         rand_seed = silk_RAND( rand_seed );
-        psDec->exc_Q14[ i ] = silk_LSHIFT( (opus_int32)pulses[ i ], 14 );
-        if( psDec->exc_Q14[ i ] > 0 ) {
-            psDec->exc_Q14[ i ] -= QUANT_LEVEL_ADJUST_Q10 << 4;
+        exc = silk_LSHIFT( (opus_int32)pulses[ i ], 14 );
+        if( exc > 0 ) {
+            exc -= QUANT_LEVEL_ADJUST_Q10 << 4;
         } else
-        if( psDec->exc_Q14[ i ] < 0 ) {
-            psDec->exc_Q14[ i ] += QUANT_LEVEL_ADJUST_Q10 << 4;
+        if( exc < 0 ) {
+            exc += QUANT_LEVEL_ADJUST_Q10 << 4;
         }
-        psDec->exc_Q14[ i ] += offset_Q10 << 4;
+        exc += offset_Q10 << 4;
         if( rand_seed < 0 ) {
-           psDec->exc_Q14[ i ] = -psDec->exc_Q14[ i ];
+           exc = -exc;
         }
+        psDec->exc_Q14[ i ] = exc;
 
         rand_seed = silk_ADD32_ovflw( rand_seed, pulses[ i ] );
     }
@@ -100,6 +184,7 @@ void silk_decode_core(
 
         /* Preload LPC coefficients to array on stack. Gives small performance gain */
         silk_memcpy( A_Q12_tmp, A_Q12, psDec->LPC_order * sizeof( opus_int16 ) );
+        silk_memset( &A_Q12_tmp[ psDec->LPC_order ], 0, ( MAX_LPC_ORDER + 2 - psDec->LPC_order ) * sizeof( opus_int16 ) );
         B_Q14        = &psDecCtrl->LTPCoef_Q14[ k * LTP_ORDER ];
         signalType   = psDec->indices.signalType;
 
@@ -172,7 +257,7 @@ void silk_decode_core(
         if( signalType == TYPE_VOICED ) {
             /* Set up pointer */
             pred_lag_ptr = &sLTP_Q15[ sLTP_buf_idx - lag + LTP_ORDER / 2 ];
-            for( i = 0; i < psDec->subfr_length; i++ ) {
+            for( i = 0; i < subfr_length; i++ ) {
                 /* Unrolled loop */
                 /* Avoids introducing a bias because silk_SMLAWB() always rounds to -inf */
                 LTP_pred_Q13 = 2;
@@ -194,21 +279,12 @@ void silk_decode_core(
             pres_Q14 = pexc_Q14;
         }
 
-        for( i = 0; i < psDec->subfr_length; i++ ) {
-            /* Short-term prediction */
-            LPC_pred_Q10 = silk_noise_shape_quantizer_short_prediction_c( &sLPC_Q14[ MAX_LPC_ORDER + i - 1 ], A_Q12_tmp, psDec->LPC_order );
-
-            /* Add prediction to LPC excitation */
-            sLPC_Q14[ MAX_LPC_ORDER + i ] = silk_ADD_SAT32( pres_Q14[ i ], silk_LSHIFT_SAT32( LPC_pred_Q10, 4 ) );
-
-            /* Scale with gain */
-            pxq[ i ] = (opus_int16)silk_SAT16( silk_RSHIFT_ROUND( silk_SMULWW( sLPC_Q14[ MAX_LPC_ORDER + i ], Gain_Q10 ), 8 ) );
-        }
+        silk_LPC_synthesis( &sLPC_Q14[ MAX_LPC_ORDER ], pres_Q14, pxq, A_Q12_tmp, psDec->LPC_order, Gain_Q10, subfr_length );
 
         /* Update LPC filter state */
-        silk_memcpy( sLPC_Q14, &sLPC_Q14[ psDec->subfr_length ], MAX_LPC_ORDER * sizeof( opus_int32 ) );
-        pexc_Q14 += psDec->subfr_length;
-        pxq      += psDec->subfr_length;
+        silk_memcpy( sLPC_Q14, &sLPC_Q14[ subfr_length ], MAX_LPC_ORDER * sizeof( opus_int32 ) );
+        pexc_Q14 += subfr_length;
+        pxq      += subfr_length;
     }
 
     /* Save LPC state */

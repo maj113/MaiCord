@@ -18,6 +18,11 @@ usize decoder_offset() noexcept {
 usize mix_offset(u32 decoder_bytes) noexcept {
     return align_up(decoder_offset() + usize{decoder_bytes} * kVoicePlaybackStreams, 64);
 }
+constexpr usize kMixBytes = usize{kVoiceRenderMaximumFrames} * kVoiceChannels * sizeof(i32);
+// One Opus scratch after the mix serves every stream: render decodes under the lock.
+OpusScratch* decode_scratch(const VoicePlayback& playback) noexcept {
+    return reinterpret_cast<OpusScratch*>(playback.block + mix_offset(playback.decoder_bytes) + align_up(kMixBytes, 64));
+}
 bool silence(ConstSlice<u8> opus) noexcept {
     // DTX (TOC only) and the 0xF8 0xFF 0xFE comfort frame carry no speech.
     return opus.count <= 2 || (opus.count == 3 && opus[0] == 0xf8 && opus[1] == 0xff && opus[2] == 0xfe);
@@ -81,7 +86,7 @@ VoicePlaybackStream* stream_for(VoicePlayback& playback, u32 ssrc, u64 user_id, 
 }
 OpusDecodeResult conceal(VoicePlayback& playback, VoicePlaybackStream& stream, Slice<i16> pcm) noexcept {
     if (stream.decoded) {
-        const auto result = opus_decoder_conceal(&stream.decoder, stream.last_frames, pcm);
+        const auto result = opus_decoder_conceal(&stream.decoder, stream.last_frames, pcm, decode_scratch(playback));
         if (result.ok()) {
             ++playback.stats.concealed;
             return result;
@@ -98,7 +103,7 @@ bool refill(VoicePlayback& playback, VoicePlaybackStream& stream, u64 now_us) no
     const Slice<i16> pcm{stream.pcm, kOpusDecoderMaximumFrames * kVoiceChannels};
     OpusDecodeResult result{OpusDecodeError::packet};
     if (frame.kind == VoiceJitterPop::packet) {
-        result = opus_decoder_decode(&stream.decoder, frame.packet, pcm);
+        result = opus_decoder_decode(&stream.decoder, frame.packet, pcm, decode_scratch(playback));
         if (result.ok()) {
             ++playback.stats.decoded;
             stream.decoded = true;
@@ -108,7 +113,7 @@ bool refill(VoicePlayback& playback, VoicePlaybackStream& stream, u64 now_us) no
         }
     } else if (frame.next.count && stream.decoded && opus_packet_has_fec(frame.next)) {
         // One packet lost and its successor carries LBRR: recover it in band.
-        result = opus_decoder_decode_fec(&stream.decoder, frame.next, stream.last_frames, pcm);
+        result = opus_decoder_decode_fec(&stream.decoder, frame.next, stream.last_frames, pcm, decode_scratch(playback));
         if (result.ok())
             ++playback.stats.recovered;
     }
@@ -130,13 +135,14 @@ bool voice_playback_initialize(VoicePlayback* playback) noexcept {
     const u32 decoder_bytes = static_cast<u32>(align_up(opus_decoder_storage_bytes(kVoiceChannels), 16));
     if (!decoder_bytes)
         return false;
-    const usize mix_bytes = usize{kVoiceRenderMaximumFrames} * kVoiceChannels * sizeof(i32);
-    const usize bytes = mix_offset(decoder_bytes) + mix_bytes;
-    // Streams and decoders commit per speaker (commit_stream); only the mix is committed now.
+    const usize committed = align_up(kMixBytes, 64) + sizeof(OpusScratch);
+    const usize bytes = mix_offset(decoder_bytes) + committed;
+    // Streams and decoders commit per speaker (commit_stream); only the mix and
+    // the decode scratch are committed now.
     auto* block = static_cast<u8*>(VirtualAlloc(nullptr, bytes, MEM_RESERVE, PAGE_READWRITE));
     if (!block)
         return false;
-    if (!VirtualAlloc(block + mix_offset(decoder_bytes), mix_bytes, MEM_COMMIT, PAGE_READWRITE)) {
+    if (!VirtualAlloc(block + mix_offset(decoder_bytes), committed, MEM_COMMIT, PAGE_READWRITE)) {
         VirtualFree(block, 0, MEM_RELEASE);
         return false;
     }

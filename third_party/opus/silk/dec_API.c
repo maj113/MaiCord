@@ -29,7 +29,21 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "main.h"
 #include "stack_alloc.h"
 #include "os_support.h"
+#include "resampler_private.h"
 
+/* One silk_Decode call decodes one frame of at most 20 ms from an internal rate of at most 16 kHz. Scratch is
+   live along two paths: the channel buffer plus silk_decode_core (silk_PLC_conceal allocates a subset of its
+   buffers), or the channel buffer plus the resampler's output buffer and batch buffer. */
+#define SILK_DEC_CHANNEL_BUF_BYTES  SCRATCH_BYTES( DECODER_NUM_CHANNELS * ( MAX_FRAME_LENGTH + 2 ), opus_int16 )
+_Static_assert( SILK_DECODER_SCRATCH_BYTES >= SILK_DEC_CHANNEL_BUF_BYTES +
+    SCRATCH_BYTES( LTP_MEM_LENGTH_MS * MAX_FS_KHZ, opus_int16 ) +
+    SCRATCH_BYTES( LTP_MEM_LENGTH_MS * MAX_FS_KHZ + MAX_FRAME_LENGTH, opus_int32 ) +
+    SCRATCH_BYTES( MAX_SUB_FRAME_LENGTH, opus_int32 ) + SCRATCH_BYTES( MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER, opus_int32 ),
+    "silk_decode_core scratch" );
+_Static_assert( SILK_DECODER_SCRATCH_BYTES >= SILK_DEC_CHANNEL_BUF_BYTES +
+    SCRATCH_BYTES( MAX_API_FS_KHZ * MAX_FRAME_LENGTH_MS, opus_int16 ) +
+    SCRATCH_BYTES( MAX_FS_KHZ * RESAMPLER_MAX_BATCH_SIZE_MS + SILK_RESAMPLER_MAX_FIR_ORDER, opus_int32 ),
+    "silk_resampler scratch (silk_resampler_private_IIR_FIR needs less)" );
 
 /************************/
 /* Decoder Super Struct */
@@ -113,7 +127,8 @@ opus_int silk_Decode(                                   /* O    Returns error co
     ec_dec                          *psRangeDec,        /* I/O  Compressor data structure                       */
     opus_res                        *samplesOut,        /* O    Decoded output speech vector                    */
     opus_int32                      *nSamplesOut,       /* O    Number of samples decoded                       */
-    int                             arch                /* I    Run-time architecture                           */
+    int                             arch,               /* I    Run-time architecture                           */
+    char                            *scratch            /* I    Scratch arena                                   */
 )
 {
     opus_int   i, n, decode_only_middle = 0, ret = SILK_NO_ERROR;
@@ -314,7 +329,7 @@ opus_int silk_Decode(                                   /* O    Returns error co
                 condCoding = CODE_CONDITIONALLY;
             }
             ret += silk_decode_frame( &channel_state[ n ], psRangeDec, &samplesOut1_tmp[ n ][ 2 ], &nSamplesOutDec, lostFlag, condCoding,
-                arch);
+                arch, scratch );
         } else {
             silk_memset( &samplesOut1_tmp[ n ][ 2 ], 0, nSamplesOutDec * sizeof( opus_int16 ) );
         }
@@ -341,7 +356,7 @@ opus_int silk_Decode(                                   /* O    Returns error co
     for( n = 0; n < silk_min( decControl->nChannelsAPI, decControl->nChannelsInternal ); n++ ) {
 
         /* Resample decoded signal to API_sampleRate */
-        ret += silk_resampler( &channel_state[ n ].resampler_state, resample_out_ptr, &samplesOut1_tmp[ n ][ 1 ], nSamplesOutDec );
+        ret += silk_resampler( &channel_state[ n ].resampler_state, resample_out_ptr, &samplesOut1_tmp[ n ][ 1 ], nSamplesOutDec, scratch );
         /* Interleave if stereo output and stereo stream */
         if( decControl->nChannelsAPI == 2 ) {
             for( i = 0; i < *nSamplesOut; i++ ) {
@@ -360,7 +375,7 @@ opus_int silk_Decode(                                   /* O    Returns error co
         if ( stereo_to_mono ){
             /* Resample right channel for newly collapsed stereo just in case
                we weren't doing collapsing when switching to mono */
-            ret += silk_resampler( &channel_state[ 1 ].resampler_state, resample_out_ptr, &samplesOut1_tmp[ 0 ][ 1 ], nSamplesOutDec );
+            ret += silk_resampler( &channel_state[ 1 ].resampler_state, resample_out_ptr, &samplesOut1_tmp[ 0 ][ 1 ], nSamplesOutDec, scratch );
 
             for( i = 0; i < *nSamplesOut; i++ ) {
                 samplesOut[ 1 + 2 * i ] = INT16TORES(resample_out_ptr[ i ]);

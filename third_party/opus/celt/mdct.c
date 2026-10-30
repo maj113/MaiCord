@@ -47,6 +47,7 @@
 #include "os_support.h"
 #include "mathops.h"
 #include "stack_alloc.h"
+#include "x86/x86cpu.h"
 
 
 #ifndef M_PI
@@ -57,7 +58,7 @@
 /* Forward MDCT trashes the input array */
 #ifndef OVERRIDE_clt_mdct_forward
 void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scalar * OPUS_RESTRICT out,
-      const celt_coef *window, int overlap, int shift, int stride, int arch)
+      const celt_coef *window, int overlap, int shift, int stride, int arch, char *scratch)
 {
    int i;
    int N, N2, N4;
@@ -127,29 +128,38 @@ void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scal
          wp2-=2;
       }
    }
-   /* Pre-rotation */
+   /* Pre-rotation. maiopus: SSE4.1, four rotations at a time (N4 is 480,
+      240, 120 or 60), each stored as one 64-bit pair in bit-reversed order. */
    {
       kiss_fft_scalar * OPUS_RESTRICT yp = f;
       const kiss_twiddle_scalar *t = &trig[0];
-      opus_val32 maxval=1;
-      for(i=0;i<N4;i++)
+      const __m128i vscale = _mm_set1_epi32(scale);
+      __m128i vmax = _mm_set1_epi32(1);
+      opus_val32 maxval;
+      for(i=0;i<N4;i+=4)
       {
-         kiss_fft_cpx yc;
-         kiss_twiddle_scalar t0, t1;
-         kiss_fft_scalar re, im, yr, yi;
-         t0 = t[i];
-         t1 = t[N4+i];
-         re = *yp++;
-         im = *yp++;
-         yr = S_MUL(re,t0)  -  S_MUL(im,t1);
-         yi = S_MUL(im,t0)  +  S_MUL(re,t1);
+         __m128 a = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)yp));
+         __m128 b = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)(yp+4)));
+         __m128i re = _mm_castps_si128(_mm_shuffle_ps(a, b, _MM_SHUFFLE(2,0,2,0)));
+         __m128i im = _mm_castps_si128(_mm_shuffle_ps(a, b, _MM_SHUFFLE(3,1,3,1)));
+         __m128i t0 = OP_CVTEPI16_EPI32_M64(&t[i]);
+         __m128i t1 = OP_CVTEPI16_EPI32_M64(&t[N4+i]);
          /* For QEXT, it's best to scale before the FFT, but otherwise it's best to scale after.
             For floating-point it doesn't matter. */
-         yc.r = S_MUL2(yr, scale);
-         yc.i = S_MUL2(yi, scale);
-         maxval = MAX32(maxval, MAX32(ABS32(yc.r), ABS32(yc.i)));
-         f2[st->bitrev[i]] = yc;
+         __m128i yr = mult16_32_q16_sse4_1(_mm_sub_epi32(mult16_32_q15_sse4_1(re, t0), mult16_32_q15_sse4_1(im, t1)), vscale);
+         __m128i yi = mult16_32_q16_sse4_1(_mm_add_epi32(mult16_32_q15_sse4_1(im, t0), mult16_32_q15_sse4_1(re, t1)), vscale);
+         __m128i lo = _mm_unpacklo_epi32(yr, yi);
+         __m128i hi = _mm_unpackhi_epi32(yr, yi);
+         vmax = _mm_max_epi32(vmax, _mm_max_epi32(_mm_abs_epi32(yr), _mm_abs_epi32(yi)));
+         _mm_storel_epi64((__m128i *)(void*)&f2[st->bitrev[i]], lo);
+         _mm_storel_epi64((__m128i *)(void*)&f2[st->bitrev[i+1]], _mm_srli_si128(lo, 8));
+         _mm_storel_epi64((__m128i *)(void*)&f2[st->bitrev[i+2]], hi);
+         _mm_storel_epi64((__m128i *)(void*)&f2[st->bitrev[i+3]], _mm_srli_si128(hi, 8));
+         yp += 8;
       }
+      vmax = _mm_max_epi32(vmax, _mm_shuffle_epi32(vmax, _MM_SHUFFLE(1,0,3,2)));
+      vmax = _mm_max_epi32(vmax, _mm_shuffle_epi32(vmax, _MM_SHUFFLE(2,3,0,1)));
+      maxval = _mm_cvtsi128_si32(vmax);
       headroom = IMAX(0, IMIN(scale_shift, 28-celt_ilog2(maxval)));
    }
 
@@ -163,8 +173,47 @@ void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scal
       kiss_fft_scalar * OPUS_RESTRICT yp1 = out;
       kiss_fft_scalar * OPUS_RESTRICT yp2 = out+stride*(N2-1);
       const kiss_twiddle_scalar *t = &trig[0];
-      /* Temp pointers to make it really clear to the compiler what we're doing */
-      for(i=0;i<N4;i++)
+      int end = N4;
+      i=0;
+      /* maiopus: four rotations from the front and four from the back at a
+         time: their outputs interleave into one block at each end. */
+      if (stride == 1)
+      {
+         const __m128i hshift = _mm_cvtsi32_si128(headroom);
+         const __m128i round = _mm_set1_epi32(EXTEND32(1)<<headroom>>1);
+         for(;2*i+7<N4;i+=4)
+         {
+            const int j = N4-4-i;
+            __m128 fa = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)&f2[i]));
+            __m128 fb = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)&f2[i+2]));
+            __m128 ba = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)&f2[j]));
+            __m128 bb = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)&f2[j+2]));
+            __m128i fr = _mm_castps_si128(_mm_shuffle_ps(fa, fb, _MM_SHUFFLE(2,0,2,0)));
+            __m128i fi = _mm_castps_si128(_mm_shuffle_ps(fa, fb, _MM_SHUFFLE(3,1,3,1)));
+            __m128i br = _mm_castps_si128(_mm_shuffle_ps(ba, bb, _MM_SHUFFLE(2,0,2,0)));
+            __m128i bi = _mm_castps_si128(_mm_shuffle_ps(ba, bb, _MM_SHUFFLE(3,1,3,1)));
+            __m128i ft0 = OP_CVTEPI16_EPI32_M64(&t[i]), ft1 = OP_CVTEPI16_EPI32_M64(&t[N4+i]);
+            __m128i bt0 = OP_CVTEPI16_EPI32_M64(&t[j]), bt1 = OP_CVTEPI16_EPI32_M64(&t[N4+j]);
+            __m128i fyr = _mm_sra_epi32(_mm_add_epi32(_mm_sub_epi32(mult16_32_q15_sse4_1(fi, ft1), mult16_32_q15_sse4_1(fr, ft0)), round), hshift);
+            __m128i fyi = _mm_sra_epi32(_mm_add_epi32(_mm_add_epi32(mult16_32_q15_sse4_1(fr, ft1), mult16_32_q15_sse4_1(fi, ft0)), round), hshift);
+            __m128i byr = _mm_sra_epi32(_mm_add_epi32(_mm_sub_epi32(mult16_32_q15_sse4_1(bi, bt1), mult16_32_q15_sse4_1(br, bt0)), round), hshift);
+            __m128i byi = _mm_sra_epi32(_mm_add_epi32(_mm_add_epi32(mult16_32_q15_sse4_1(br, bt1), mult16_32_q15_sse4_1(bi, bt0)), round), hshift);
+            /* Front i+k writes out[2i+2k] and out[N2-1-2i-2k]; back j+k writes
+               out[2j+2k] and out[N2-1-2j-2k], so the odd slots of each block
+               take the other end's imaginary parts in reverse. */
+            byi = _mm_shuffle_epi32(byi, _MM_SHUFFLE(0,1,2,3));
+            fyi = _mm_shuffle_epi32(fyi, _MM_SHUFFLE(0,1,2,3));
+            _mm_storeu_si128((__m128i *)(void*)&out[2*i], _mm_unpacklo_epi32(fyr, byi));
+            _mm_storeu_si128((__m128i *)(void*)&out[2*i+4], _mm_unpackhi_epi32(fyr, byi));
+            _mm_storeu_si128((__m128i *)(void*)&out[2*j], _mm_unpacklo_epi32(byr, fyi));
+            _mm_storeu_si128((__m128i *)(void*)&out[2*j+4], _mm_unpackhi_epi32(byr, fyi));
+         }
+         end = N4-i;
+         fp += i;
+         yp1 += 2*i;
+         yp2 -= 2*i;
+      }
+      for(;i<end;i++)
       {
          kiss_fft_scalar yr, yi;
          kiss_fft_scalar t0, t1;
@@ -203,20 +252,36 @@ void clt_mdct_backward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_sca
    N2 = N>>1;
    N4 = N>>2;
 
+   /* maiopus: SSE4.1, four values per step in every pass below: N2 (960,
+      480, 240 or 120), N4 and overlap/2 (60) are multiples of four and N4/2
+      is even. The lanes' sums and products wrap and truncate exactly as the
+      scalar macros. */
    {
-      opus_val32 sumval=N2;
-      opus_val32 maxval=0;
-      for (i=0;i<N2;i++) {
-         maxval = MAX32(maxval, ABS32(in[i*stride]));
-         sumval = ADD32_ovflw(sumval, ABS32(SHR32(in[i*stride],11)));
+      __m128i vmax = _mm_setzero_si128();
+      __m128i vsum = _mm_setzero_si128();
+      for (i=0;i<N2;i+=4) {
+         /* Gathered for short blocks. */
+         __m128i v = stride == 1 ? _mm_loadu_si128((__m128i *)(void*)&in[i])
+               : _mm_set_epi32(in[(i+3)*stride], in[(i+2)*stride], in[(i+1)*stride], in[i*stride]);
+         vmax = _mm_max_epi32(vmax, _mm_abs_epi32(v));
+         vsum = _mm_add_epi32(vsum, _mm_abs_epi32(_mm_srai_epi32(v, 11)));
       }
-      pre_shift = IMAX(0, 29-celt_zlog2(1+maxval));
-      /* Worst-case where all the energy goes to a single sample. */
-      post_shift = IMAX(0, 19-celt_ilog2(ABS32(sumval)));
-      post_shift = IMIN(post_shift, pre_shift);
-      fft_shift = pre_shift - post_shift;
+      vmax = _mm_max_epi32(vmax, _mm_shuffle_epi32(vmax, _MM_SHUFFLE(1,0,3,2)));
+      vmax = _mm_max_epi32(vmax, _mm_shuffle_epi32(vmax, _MM_SHUFFLE(2,3,0,1)));
+      vsum = _mm_add_epi32(vsum, _mm_shuffle_epi32(vsum, _MM_SHUFFLE(1,0,3,2)));
+      vsum = _mm_add_epi32(vsum, _mm_shuffle_epi32(vsum, _MM_SHUFFLE(2,3,0,1)));
+      {
+         opus_val32 maxval = _mm_cvtsi128_si32(vmax);
+         opus_val32 sumval = ADD32_ovflw(N2, _mm_cvtsi128_si32(vsum));
+         pre_shift = IMAX(0, 29-celt_zlog2(1+maxval));
+         /* Worst-case where all the energy goes to a single sample. */
+         post_shift = IMAX(0, 19-celt_ilog2(ABS32(sumval)));
+         post_shift = IMIN(post_shift, pre_shift);
+         fft_shift = pre_shift - post_shift;
+      }
    }
-   /* Pre-rotate */
+   /* Pre-rotate, each result pair stored with one 64-bit store directly in
+      bit-reversed order */
    {
       /* Temp pointers to make it really clear to the compiler what we're doing */
       const kiss_fft_scalar * OPUS_RESTRICT xp1 = in;
@@ -224,81 +289,98 @@ void clt_mdct_backward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_sca
       kiss_fft_scalar * OPUS_RESTRICT yp = out+(overlap>>1);
       const kiss_twiddle_scalar * OPUS_RESTRICT t = &trig[0];
       const opus_int16 * OPUS_RESTRICT bitrev = l->kfft[shift]->bitrev;
-      for(i=0;i<N4;i++)
+      const __m128i pre = _mm_cvtsi32_si128(pre_shift);
+      const int step = 2*stride;
+      for (i=0;i<N4;i+=4)
       {
-         int rev;
-         kiss_fft_scalar yr, yi;
-         opus_val32 x1, x2;
-         rev = *bitrev++;
-         x1 = SHL32_ovflw(*xp1, pre_shift);
-         x2 = SHL32_ovflw(*xp2, pre_shift);
-         yr = ADD32_ovflw(S_MUL(x2, t[i]), S_MUL(x1, t[N4+i]));
-         yi = SUB32_ovflw(S_MUL(x1, t[i]), S_MUL(x2, t[N4+i]));
+         __m128i x1, x2, t0, t1, yr, yi, lo, hi;
+         if (stride == 1)
+         {
+            __m128 a = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)xp1));
+            __m128 b = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)(xp1+4)));
+            __m128 c = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)(xp2-7)));
+            __m128 d = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)(xp2-3)));
+            x1 = _mm_castps_si128(_mm_shuffle_ps(a, b, _MM_SHUFFLE(2,0,2,0)));
+            x2 = _mm_castps_si128(_mm_shuffle_ps(d, c, _MM_SHUFFLE(1,3,1,3)));
+         } else {
+            x1 = _mm_set_epi32(xp1[3*step], xp1[2*step], xp1[step], xp1[0]);
+            x2 = _mm_set_epi32(xp2[-3*step], xp2[-2*step], xp2[-step], xp2[0]);
+         }
+         x1 = _mm_sll_epi32(x1, pre);
+         x2 = _mm_sll_epi32(x2, pre);
+         t0 = OP_CVTEPI16_EPI32_M64(&t[i]);
+         t1 = OP_CVTEPI16_EPI32_M64(&t[N4+i]);
+         yr = _mm_add_epi32(mult16_32_q15_sse4_1(x2, t0), mult16_32_q15_sse4_1(x1, t1));
+         yi = _mm_sub_epi32(mult16_32_q15_sse4_1(x1, t0), mult16_32_q15_sse4_1(x2, t1));
          /* We swap real and imag because we use an FFT instead of an IFFT. */
-         yp[2*rev+1] = yr;
-         yp[2*rev] = yi;
-         /* Storing the pre-rotation directly in the bitrev order. */
-         xp1+=2*stride;
-         xp2-=2*stride;
+         lo = _mm_unpacklo_epi32(yi, yr);
+         hi = _mm_unpackhi_epi32(yi, yr);
+         _mm_storel_epi64((__m128i *)(void*)&yp[2*bitrev[0]], lo);
+         _mm_storel_epi64((__m128i *)(void*)&yp[2*bitrev[1]], _mm_srli_si128(lo, 8));
+         _mm_storel_epi64((__m128i *)(void*)&yp[2*bitrev[2]], hi);
+         _mm_storel_epi64((__m128i *)(void*)&yp[2*bitrev[3]], _mm_srli_si128(hi, 8));
+         bitrev += 4;
+         xp1 += 4*step;
+         xp2 -= 4*step;
       }
    }
 
    opus_fft_impl(l->kfft[shift], (kiss_fft_cpx*)(out+(overlap>>1)), fft_shift);
 
    /* Post-rotate and de-shuffle from both ends of the buffer at once to make
-      it in-place. */
+      it in-place: two steps at a time, so four rotations, the front pair and
+      the back pair, whose blocks never meet. */
    {
       kiss_fft_scalar * yp0 = out+(overlap>>1);
       kiss_fft_scalar * yp1 = out+(overlap>>1)+N2-2;
       const kiss_twiddle_scalar *t = &trig[0];
-      /* Loop to (N4+1)>>1 to handle odd N4. When N4 is odd, the
-         middle pair will be computed twice. */
-      for(i=0;i<(N4+1)>>1;i++)
+      const __m128i post = _mm_cvtsi32_si128(post_shift);
+      const __m128i round = _mm_set1_epi32(EXTEND32(1)<<post_shift>>1);
+      for(i=0;i<N4>>1;i+=2)
       {
-         kiss_fft_scalar re, im, yr, yi;
-         kiss_twiddle_scalar t0, t1;
          /* We swap real and imag because we're using an FFT instead of an IFFT. */
-         re = yp0[1];
-         im = yp0[0];
-         t0 = t[i];
-         t1 = t[N4+i];
+         __m128 front = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)yp0));
+         __m128 back = _mm_castsi128_ps(_mm_loadu_si128((__m128i *)(void*)(yp1-2)));
+         __m128i re = _mm_castps_si128(_mm_shuffle_ps(front, back, _MM_SHUFFLE(1,3,3,1)));
+         __m128i im = _mm_castps_si128(_mm_shuffle_ps(front, back, _MM_SHUFFLE(0,2,2,0)));
+         __m128i t0 = _mm_set_epi32(t[N4-i-2], t[N4-i-1], t[i+1], t[i]);
+         __m128i t1 = _mm_set_epi32(t[N2-i-2], t[N2-i-1], t[N4+i+1], t[N4+i]);
          /* We'd scale up by 2 here, but instead it's done when mixing the windows */
-         yr = PSHR32_ovflw(ADD32_ovflw(S_MUL(re,t0), S_MUL(im,t1)), post_shift);
-         yi = PSHR32_ovflw(SUB32_ovflw(S_MUL(re,t1), S_MUL(im,t0)), post_shift);
-         /* We swap real and imag because we're using an FFT instead of an IFFT. */
-         re = yp1[1];
-         im = yp1[0];
-         yp0[0] = yr;
-         yp1[1] = yi;
-
-         t0 = t[(N4-i-1)];
-         t1 = t[(N2-i-1)];
-         /* We'd scale up by 2 here, but instead it's done when mixing the windows */
-         yr = PSHR32_ovflw(ADD32_ovflw(S_MUL(re,t0), S_MUL(im,t1)), post_shift);
-         yi = PSHR32_ovflw(SUB32_ovflw(S_MUL(re,t1), S_MUL(im,t0)), post_shift);
-         yp1[0] = yr;
-         yp0[1] = yi;
-         yp0 += 2;
-         yp1 -= 2;
+         __m128i yr = _mm_add_epi32(mult16_32_q15_sse4_1(re, t0), mult16_32_q15_sse4_1(im, t1));
+         __m128i yi = _mm_sub_epi32(mult16_32_q15_sse4_1(re, t1), mult16_32_q15_sse4_1(im, t0));
+         yr = _mm_sra_epi32(_mm_add_epi32(yr, round), post);
+         yi = _mm_sra_epi32(_mm_add_epi32(yi, round), post);
+         _mm_storeu_si128((__m128i *)(void*)yp0,
+               _mm_unpacklo_epi32(yr, _mm_shuffle_epi32(yi, _MM_SHUFFLE(1,0,3,2))));
+         _mm_storeu_si128((__m128i *)(void*)(yp1-2),
+               _mm_unpacklo_epi32(_mm_shuffle_epi32(yr, _MM_SHUFFLE(0,1,2,3)),
+                                  _mm_shuffle_epi32(yi, _MM_SHUFFLE(2,3,0,1))));
+         yp0 += 4;
+         yp1 -= 4;
       }
    }
 
-   /* Mirror on both sides for TDAC */
+   /* Mirror on both sides for TDAC, four pairs at a time from both ends */
    {
       kiss_fft_scalar * OPUS_RESTRICT xp1 = out+overlap-1;
       kiss_fft_scalar * OPUS_RESTRICT yp1 = out;
       const celt_coef * OPUS_RESTRICT wp1 = window;
       const celt_coef * OPUS_RESTRICT wp2 = window+overlap-1;
 
-      for(i = 0; i < overlap/2; i++)
+      for(i = 0; i < overlap/2; i+=4)
       {
-         kiss_fft_scalar x1, x2;
-         x1 = *xp1;
-         x2 = *yp1;
-         *yp1++ = SUB32_ovflw(S_MUL(x2, *wp2), S_MUL(x1, *wp1));
-         *xp1-- = ADD32_ovflw(S_MUL(x2, *wp1), S_MUL(x1, *wp2));
-         wp1++;
-         wp2--;
+         __m128i x2 = _mm_loadu_si128((__m128i *)(void*)yp1);
+         __m128i x1 = _mm_shuffle_epi32(_mm_loadu_si128((__m128i *)(void*)(xp1-3)), _MM_SHUFFLE(0,1,2,3));
+         __m128i w1 = OP_CVTEPI16_EPI32_M64(wp1);
+         __m128i w2 = _mm_shuffle_epi32(OP_CVTEPI16_EPI32_M64(wp2-3), _MM_SHUFFLE(0,1,2,3));
+         __m128i y = _mm_sub_epi32(mult16_32_q15_sse4_1(x2, w2), mult16_32_q15_sse4_1(x1, w1));
+         __m128i x = _mm_add_epi32(mult16_32_q15_sse4_1(x2, w1), mult16_32_q15_sse4_1(x1, w2));
+         _mm_storeu_si128((__m128i *)(void*)yp1, y);
+         _mm_storeu_si128((__m128i *)(void*)(xp1-3), _mm_shuffle_epi32(x, _MM_SHUFFLE(0,1,2,3)));
+         yp1 += 4;
+         xp1 -= 4;
+         wp1 += 4;
+         wp2 -= 4;
       }
    }
 }

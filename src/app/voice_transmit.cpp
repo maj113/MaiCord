@@ -51,9 +51,12 @@ void voice_apply_gain(Slice<i16> pcm, u32 gain_percent) noexcept {
     if (!pcm.data || gain_percent == 100)
         return;
     const i32 gain = static_cast<i32>(minimum(gain_percent, 200u));
-    for (u32 i = 0; i < pcm.count; ++i) {
-        const i32 scaled = pcm[i] * gain / 100;
-        pcm[i] = static_cast<i16>(scaled > 32767 ? 32767 : scaled < -32768 ? -32768 : scaled);
+    i16* samples = pcm.data; // Locals, not the slice: its members would be reloaded after every store.
+    const u32 count = pcm.count;
+#pragma clang loop vectorize(disable) unroll(disable)
+    for (u32 i = 0; i < count; ++i) {
+        const i32 scaled = samples[i] * gain / 100;
+        samples[i] = static_cast<i16>(scaled > 32767 ? 32767 : scaled < -32768 ? -32768 : scaled);
     }
 }
 
@@ -90,8 +93,8 @@ bool voice_framer_pop(VoiceFramer* framer, u64 now_us, Slice<i16> frame, u64* in
             *wake_us = framer->next_due_us;
         return false;
     }
-    for (u32 i = 0; i < kVoiceFrameSamples; ++i)
-        frame[i] = framer->samples[(framer->read + i) % kFramerSamples];
+    // Frames sit on 960-sample boundaries of the ring (read only ever advances by one frame), so one never wraps.
+    copy_bytes(frame.data, framer->samples + framer->read, kVoiceFrameSamples * static_cast<u32>(sizeof(i16)));
     framer->read = (framer->read + kVoiceFrameSamples) % kFramerSamples;
     framer->count -= kVoiceFrameSamples;
     if (index)

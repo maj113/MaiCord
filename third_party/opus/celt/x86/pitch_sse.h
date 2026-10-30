@@ -34,48 +34,29 @@
 #define PITCH_SSE_H
 
 
-#if defined(OPUS_X86_MAY_HAVE_SSE4_1) && defined(FIXED_POINT)
+/* maiopus: SSE4.1 is required, so these are the only implementations. */
 void xcorr_kernel_sse4_1(
                     const opus_int16 *x,
                     const opus_int16 *y,
                     opus_val32       sum[4],
                     int              len);
-#endif
-
-
-#if defined(OPUS_X86_PRESUME_SSE4_1) && defined(FIXED_POINT)
-#define OVERRIDE_XCORR_KERNEL
 #define xcorr_kernel(x, y, sum, len, arch) \
     ((void)arch, xcorr_kernel_sse4_1(x, y, sum, len))
 
-#endif
-
-#if defined(OPUS_X86_MAY_HAVE_SSE4_1) && defined(FIXED_POINT)
 opus_val32 celt_inner_prod_sse4_1(
     const opus_int16 *x,
     const opus_int16 *y,
     int               N);
-#endif
-
-#if defined(OPUS_X86_MAY_HAVE_SSE2) && defined(FIXED_POINT)
-opus_val32 celt_inner_prod_sse2(
-    const opus_int16 *x,
-    const opus_int16 *y,
-    int               N);
-#endif
-
-
-#if defined(OPUS_X86_PRESUME_SSE4_1) && defined(FIXED_POINT)
-#define OVERRIDE_CELT_INNER_PROD
 #define celt_inner_prod(x, y, N, arch) \
     ((void)arch, celt_inner_prod_sse4_1(x, y, N))
 
-#elif defined(OPUS_X86_PRESUME_SSE2) && defined(FIXED_POINT) && !defined(OPUS_X86_MAY_HAVE_SSE4_1)
-#define OVERRIDE_CELT_INNER_PROD
-#define celt_inner_prod(x, y, N, arch) \
-    ((void)arch, celt_inner_prod_sse2(x, y, N))
-
-#endif
+void comb_filter_const_sse4_1(opus_val32 *y, opus_val32 *x, int T, int N,
+      celt_coef g10, celt_coef g11, celt_coef g12);
+void comb_filter_overlap_sse4_1(opus_val32 *y, opus_val32 *x, int T0, int T1, int overlap,
+      celt_coef g00, celt_coef g01, celt_coef g02, celt_coef g10, celt_coef g11, celt_coef g12,
+      const celt_coef *window);
+#define comb_filter_const(y, x, T, N, g10, g11, g12, arch) \
+    ((void)arch, comb_filter_const_sse4_1(y, x, T, N, g10, g11, g12))
 
 
 #endif

@@ -22,6 +22,7 @@ struct VoiceSendShared {
     VoiceTransmitter transmitter;
     u64 wake_us;
     i16 frame[kVoiceFrameSamples];
+    OpusScratch scratch; // Capture thread's encode scratch.
 };
 namespace {
 constexpr usize kEncoderOffset = (sizeof(VoiceSendShared) + 63) & ~usize{63};
@@ -41,11 +42,14 @@ void wake_worker(const VoiceSend& send) noexcept {
 // state machine and (for voice) the encoder, then into the queue.
 void process(VoiceSend& send, u64 now_us) noexcept {
     auto& s = *send.shared;
+    if (s.framer.count < kVoiceFrameSamples) { // Most wakes buffer no whole frame: skip the lock and the key probe.
+        s.wake_us = 0;                         // As voice_framer_pop: wait for audio.
+        return;
+    }
     AcquireSRWLockShared(s.control_lock.native());
     const VoiceSendControl c = s.control;
     ReleaseSRWLockShared(s.control_lock.native());
     const bool down = c.mode == VoiceInputMode::push_to_talk && key_down(s, c.key);
-    write_release(&send.cells.key_down, down);
     bool queued = false;
     u64 index = 0;
     while (voice_framer_pop(&s.framer, now_us, {s.frame, kVoiceFrameSamples}, &index, &s.wake_us)) {
@@ -76,7 +80,7 @@ void process(VoiceSend& send, u64 now_us) noexcept {
         packet.bytes = 0;
         if (action == VoiceTransmitAction::start || action == VoiceTransmitAction::voice) {
             const auto encoded = opus_encoder_encode(&s.encoder, {s.frame, kVoiceFrameSamples},
-                                                     {packet.opus, kOpusEncoderMaximumPacketBytes});
+                                                     {packet.opus, kOpusEncoderMaximumPacketBytes}, &s.scratch);
             if (encoded.ok() && encoded.bytes)
                 packet.bytes = static_cast<u16>(encoded.bytes);
         }
@@ -162,7 +166,6 @@ void voice_send_close(VoiceSend* send) noexcept {
     InterlockedExchange(&send->cells.level, 0);
     InterlockedExchange(&send->cells.transmitting, 0);
     InterlockedExchange(&send->cells.announced, 0);
-    InterlockedExchange(&send->cells.key_down, 0);
 }
 
 void voice_send_set_control(VoiceSend* send, const VoiceSendControl& control) noexcept {

@@ -66,7 +66,8 @@ opus_int silk_encode_frame_FIX(
     ec_enc                          *psRangeEnc,                            /* I/O  compressor data structure                                                   */
     opus_int                        condCoding,                             /* I    The type of conditional coding to use                                       */
     opus_int                        maxBits,                                /* I    If > 0: maximum number of output bits                                       */
-    opus_int                        useCBR                                  /* I    Flag to force constant-bitrate operation                                    */
+    opus_int                        useCBR,                                 /* I    Flag to force constant-bitrate operation                                    */
+    char                            *scratch                                /* I    Scratch arena                                                               */
 );
 
 /* Initializes the Silk encoder state */
@@ -81,7 +82,8 @@ opus_int silk_control_encoder(
     silk_EncControlStruct           *encControl,                            /* I    Control structure                                                           */
     const opus_int                  allow_bw_switch,                        /* I    Flag to allow switching audio bandwidth                                     */
     const opus_int                  channelNb,                              /* I    Channel number                                                              */
-    const opus_int                  force_fs_kHz
+    const opus_int                  force_fs_kHz,
+    char                            *scratch                                /* I    Scratch arena                                                               */
 );
 
 /**************************/
@@ -93,7 +95,8 @@ void silk_noise_shape_analysis_FIX(
     silk_encoder_control_FIX        *psEncCtrl,                             /* I/O  Encoder control FIX                                                         */
     const opus_int16                *pitch_res,                             /* I    LPC residual from pitch analysis                                            */
     const opus_int16                *x,                                     /* I    Input signal [ frame_length + la_shape ]                                    */
-    int                              arch                                   /* I    Run-time architecture                                                       */
+    int                              arch,                                  /* I    Run-time architecture                                                       */
+    char                            *scratch                                /* I    Scratch arena                                                               */
 );
 
 /* Autocorrelations for a warped frequency axis */
@@ -127,7 +130,8 @@ void silk_find_pitch_lags_FIX(
     silk_encoder_control_FIX        *psEncCtrl,                             /* I/O  encoder control                                                             */
     opus_int16                      res[],                                  /* O    residual                                                                    */
     const opus_int16                x[],                                    /* I    Speech signal                                                               */
-    int                             arch                                    /* I    Run-time architecture                                                       */
+    int                             arch,                                   /* I    Run-time architecture                                                       */
+    char                            *scratch                                /* I    Scratch arena                                                               */
 );
 
 /* Find LPC and LTP coefficients */

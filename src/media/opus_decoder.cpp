@@ -17,6 +17,15 @@ bool current(const OpusDecoder* decoder) noexcept {
 ::OpusDecoder* native_state(OpusDecoder* decoder) noexcept {
     return reinterpret_cast<::OpusDecoder*>(decoder->state);
 }
+static_assert(kOpusScratchBytes == OPUS_SCRATCH_BYTES && alignof(OpusScratch) >= 16);
+// The scratch overlaps nothing the call reads or writes.
+bool scratch_usable(const OpusScratch* scratch, const OpusDecoder* decoder, ConstSlice<u8> packet,
+                    const void* pcm, usize pcm_bytes) noexcept {
+    return scratch && !byte_ranges_overlap(scratch, sizeof(*scratch), decoder->state, decoder->state_bytes) &&
+           !byte_ranges_overlap(scratch, sizeof(*scratch), decoder, sizeof(*decoder)) &&
+           !byte_ranges_overlap(scratch, sizeof(*scratch), pcm, pcm_bytes) &&
+           (!packet.data || !byte_ranges_overlap(scratch, sizeof(*scratch), packet.data, packet.count));
+}
 } // namespace
 
 u32 opus_decoder_storage_bytes(u32 channels) noexcept {
@@ -57,7 +66,8 @@ OpusDecodeResult opus_decoder_gain(OpusDecoder* decoder, i16 gain_q8) noexcept {
     const int status = ::opus_decoder_ctl(native_state(decoder), OPUS_SET_GAIN(static_cast<int>(gain_q8)));
     return result(status == OPUS_OK ? OpusDecodeError::none : OpusDecodeError::decoder, status);
 }
-OpusDecodeResult opus_decoder_decode(OpusDecoder* decoder, ConstSlice<u8> packet, Slice<i16> pcm) noexcept {
+OpusDecodeResult opus_decoder_decode(OpusDecoder* decoder, ConstSlice<u8> packet, Slice<i16> pcm,
+                                     OpusScratch* scratch) noexcept {
     if (!current(decoder))
         return result(OpusDecodeError::invalid_state, OPUS_INVALID_STATE);
     const usize pcm_bytes = static_cast<usize>(pcm.count) * sizeof(i16);
@@ -66,7 +76,8 @@ OpusDecodeResult opus_decoder_decode(OpusDecoder* decoder, ConstSlice<u8> packet
         byte_ranges_overlap(decoder->state, decoder->state_bytes, packet.data, packet.count) ||
         byte_ranges_overlap(decoder->state, decoder->state_bytes, pcm.data, pcm_bytes) ||
         byte_ranges_overlap(packet.data, packet.count, pcm.data, pcm_bytes) ||
-        byte_ranges_overlap(decoder, sizeof(*decoder), pcm.data, pcm_bytes))
+        byte_ranges_overlap(decoder, sizeof(*decoder), pcm.data, pcm_bytes) ||
+        !scratch_usable(scratch, decoder, packet, pcm.data, pcm_bytes))
         return result(OpusDecodeError::invalid_input, OPUS_BAD_ARG);
     const int frames = ::opus_packet_get_nb_samples(packet.data, static_cast<opus_int32>(packet.count),
                                                     static_cast<opus_int32>(kOpusDecoderSampleRate));
@@ -75,7 +86,7 @@ OpusDecodeResult opus_decoder_decode(OpusDecoder* decoder, ConstSlice<u8> packet
     if (pcm.count / decoder->channels < static_cast<u32>(frames))
         return result(OpusDecodeError::capacity, OPUS_BUFFER_TOO_SMALL);
     const int decoded = ::opus_decode(native_state(decoder), packet.data,
-                                      static_cast<opus_int32>(packet.count), pcm.data, frames, 0);
+                                      static_cast<opus_int32>(packet.count), pcm.data, frames, 0, scratch->bytes);
     if (decoded < 0)
         return result(decoded == OPUS_INVALID_PACKET ? OpusDecodeError::packet : OpusDecodeError::decoder,
                       decoded);
@@ -85,7 +96,8 @@ OpusDecodeResult opus_decoder_decode(OpusDecoder* decoder, ConstSlice<u8> packet
 }
 namespace {
 // Shared by concealment (no packet) and FEC (the following packet).
-OpusDecodeResult recover(OpusDecoder* decoder, ConstSlice<u8> next, u32 frames, Slice<i16> pcm) noexcept {
+OpusDecodeResult recover(OpusDecoder* decoder, ConstSlice<u8> next, u32 frames, Slice<i16> pcm,
+                         OpusScratch* scratch) noexcept {
     if (!current(decoder))
         return result(OpusDecodeError::invalid_state, OPUS_INVALID_STATE);
     const usize pcm_bytes = static_cast<usize>(pcm.count) * sizeof(i16);
@@ -95,14 +107,15 @@ OpusDecodeResult recover(OpusDecoder* decoder, ConstSlice<u8> next, u32 frames, 
         byte_ranges_overlap(decoder, sizeof(*decoder), pcm.data, pcm_bytes) ||
         (next.data && (next.count > kOpusDecoderMaximumPacketBytes ||
                        byte_ranges_overlap(decoder->state, decoder->state_bytes, next.data, next.count) ||
-                       byte_ranges_overlap(next.data, next.count, pcm.data, pcm_bytes))))
+                       byte_ranges_overlap(next.data, next.count, pcm.data, pcm_bytes))) ||
+        !scratch_usable(scratch, decoder, next, pcm.data, pcm_bytes))
         return result(OpusDecodeError::invalid_input, OPUS_BAD_ARG);
     if (pcm.count / decoder->channels < frames)
         return result(OpusDecodeError::capacity, OPUS_BUFFER_TOO_SMALL);
     const bool fec = next.data && next.count;
     const int decoded = ::opus_decode(native_state(decoder), fec ? next.data : nullptr,
                                       fec ? static_cast<opus_int32>(next.count) : 0, pcm.data,
-                                      static_cast<int>(frames), fec ? 1 : 0);
+                                      static_cast<int>(frames), fec ? 1 : 0, scratch->bytes);
     if (decoded < 0)
         return result(decoded == OPUS_INVALID_PACKET ? OpusDecodeError::packet : OpusDecodeError::decoder,
                       decoded);
@@ -111,14 +124,14 @@ OpusDecodeResult recover(OpusDecoder* decoder, ConstSlice<u8> next, u32 frames, 
     return result(OpusDecodeError::none, OPUS_OK, frames);
 }
 } // namespace
-OpusDecodeResult opus_decoder_conceal(OpusDecoder* decoder, u32 frames, Slice<i16> pcm) noexcept {
-    return recover(decoder, {}, frames, pcm);
+OpusDecodeResult opus_decoder_conceal(OpusDecoder* decoder, u32 frames, Slice<i16> pcm, OpusScratch* scratch) noexcept {
+    return recover(decoder, {}, frames, pcm, scratch);
 }
 OpusDecodeResult opus_decoder_decode_fec(OpusDecoder* decoder, ConstSlice<u8> next, u32 frames,
-                                         Slice<i16> pcm) noexcept {
+                                         Slice<i16> pcm, OpusScratch* scratch) noexcept {
     if (!next.data || !next.count)
         return result(OpusDecodeError::invalid_input, OPUS_BAD_ARG);
-    return recover(decoder, next, frames, pcm);
+    return recover(decoder, next, frames, pcm, scratch);
 }
 bool opus_packet_has_fec(ConstSlice<u8> packet) noexcept {
     return packet.data && packet.count && packet.count <= kOpusDecoderMaximumPacketBytes &&
