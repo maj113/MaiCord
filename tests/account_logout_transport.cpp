@@ -26,7 +26,6 @@ void admission() noexcept {
         {99, 0, RestMethod::post, RestMajorParameter::none},
         99,
         10'000,
-        false,
         false};
     check(rest_client_submit(&p.client, ordinary).error == RestClientSubmitError::invalid_input &&
               p.client.request_state == request_state_empty,
@@ -73,9 +72,6 @@ void admission() noexcept {
     wrong = original;
     wrong.json_body = false;
     check(!account_logout_request_valid(wrong), "logout: JSON framing fence");
-    wrong = original;
-    wrong.identity_response = true;
-    check(!account_logout_request_valid(wrong), "logout: canonical response mode fence");
     wrong = original;
     wrong.request_id = 0;
     check(!account_logout_request_valid(wrong), "logout: nonzero request ticket fence");
@@ -179,7 +175,6 @@ void preemption() noexcept {
                                {0x4C4F474F55545445ull, 0, RestMethod::get, RestMajorParameter::none},
                                501,
                                30'000,
-                               false,
                                false};
     RestClientProbe p;
     if (!p.initialize()) {

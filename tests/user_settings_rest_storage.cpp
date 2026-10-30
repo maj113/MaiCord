@@ -22,7 +22,7 @@ struct Probe : RestClientProbe {
         static constexpr char target[] = "/api/v10/users/@me/settings-proto/2";
         return {{reinterpret_cast<const u8*>(target), sizeof(target) - 1}, body,
             {kRestUserSettingsRouteId, 0, method, RestMajorParameter::none}, id, 0,
-            method == RestMethod::patch, true};
+            method == RestMethod::patch};
     }
     bool begin_commits() noexcept {
         if (!signal()) return false;
@@ -204,7 +204,7 @@ u32 user_settings_rest_storage_fixture() noexcept {
                                 {payload, sizeof(payload)},
                                 {0x4741535345540000ull, 10, RestMethod::patch,
                                  RestMajorParameter::guild},
-                                5001, 120'000, true, false};
+                                5001, 120'000, true};
         check(rest_client_submit(&probe.client, large).error == RestClientSubmitError::body_capacity &&
                   !r->extended_body,
               "ordinary submit keeps the 64 KiB ceiling for the same body");

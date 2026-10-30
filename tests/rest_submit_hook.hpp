@@ -31,7 +31,7 @@ struct RestCapture {
 };
 // Submissions record into capture and answer capture.error. A cancellation
 // claims active_id unless published, which a request already answered keeps.
-// A request that breaks the ordinary shape (identity response, other timeout,
+// A request that breaks the ordinary shape (other timeout,
 // a body without JSON, oversize) clears capture.safe and is refused.
 void rest_install_capture(RestCapture& capture) noexcept;
 

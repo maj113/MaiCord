@@ -51,7 +51,6 @@ __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
                              request_id,
                              large ? kLargeTimeoutMs : kRestClientDefaultTimeoutMs,
                              true,
-                             false,
                              reason};
     submit.send_empty_audit_reason = empty_reason;
     u8 headers[256];
@@ -85,7 +84,6 @@ RestClientSubmitResult account_guild_admin_submit(RestClient* rest, const GuildA
                                guild_admin_route(*request),
                                request_id,
                                kRestClientDefaultTimeoutMs,
-                               false,
                                false,
                                {reason, encoded.bytes}};
     bodyless.send_empty_audit_reason = empty_reason;

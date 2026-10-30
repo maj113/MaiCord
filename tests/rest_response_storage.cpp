@@ -1,5 +1,6 @@
 // Exercise the shipping private owner, including publication and transport close.
 #include "../src/app/rest_client.cpp"
+#include "maicord/sys/process_info.hpp"
 #include "fixtures/rest_gzip_fixtures.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/thread_browser.hpp"
@@ -317,10 +318,11 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
             bool floor;
             bool action = false;
             u32 retry_ms = 1250;
+            u32 hold_ms = 1251;
         } responses[]{
             {503, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 1.25"), false, true},
-            {503, utf8_literal("{}"), {}, false, false},
-            {503, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 0"), false, false, false, 0},
+            {503, utf8_literal("{}"), {}, false, true, false, 1250, 5001},
+            {503, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 0"), false, true, false, 0, 5001},
             {200, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 1.25"), false, false},
             {403, utf8_literal(R"({"code":50001})"), utf8_literal("\r\nRetry-After: 1.25"), false, false},
             {503,
@@ -365,7 +367,7 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
                 valid = valid &&
                         acquired.kind ==
                             (response.floor ? EndpointGateKind::waiting : EndpointGateKind::acquired) &&
-                        (!response.floor || acquired.wait_until_ms == 1251);
+                        (!response.floor || acquired.wait_until_ms == response.hold_ms);
                 if (!response.floor)
                     valid = valid && endpoint_gate_release(probe.runtime->endpoint_gate,
                                                            &probe.runtime->endpoint_lease, 2);
@@ -942,6 +944,101 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         valid = valid && !r->transport_ready && !r->connection_request_count &&
                 r->transport.state == TlsStreamState::closed;
         check(valid, "rest_idle_connection_is_retired_before_the_edge_closes_it");
+    }
+    {
+        // A retired connection leaves its buffer pages decommitted, not rewritten and resident.
+        u8* const block = static_cast<u8*>(VirtualAlloc(nullptr, 512 * 1024, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        bool valid = block != nullptr;
+        const auto resident = [](const u8* data, u32 bytes) noexcept {
+            u32 pages = 0;
+            const usize first = (reinterpret_cast<usize>(data) + 4095) & ~usize{4095};
+            const usize last = (reinterpret_cast<usize>(data) + bytes) & ~usize{4095};
+            for (usize page = first; page < last; page += 4096) {
+                PSAPI_WORKING_SET_EX_INFORMATION info{};
+                info.VirtualAddress = reinterpret_cast<void*>(page);
+                pages += QueryWorkingSetEx(GetCurrentProcess(), &info, sizeof(info)) && info.VirtualAttributes.Valid;
+            }
+            return pages;
+        };
+        u32 resident_before = 0, resident_after = 0, resident_wiped = 0;
+        for (u32 release = 0; valid && release < 2; ++release) {
+            u8* const encrypted = block + 100;
+            u8* const handshake = block + 140'000;
+            u8* const record = block + 210'000;
+            TlsStream stream{};
+            valid = tls_stream_initialize(&stream, L"discord.com",
+                                          {{encrypted, 131'072}, {handshake, 65'536}, {record, 40'000}, release != 0});
+            memset(block, 0xA5, 512 * 1024);
+            const u32 before = resident(encrypted, 131'072) + resident(handshake, 65'536) + resident(record, 40'000);
+            stream.state = TlsStreamState::ready;
+            tls_stream_close(&stream);
+            const u32 after = resident(encrypted, 131'072) + resident(handshake, 65'536) + resident(record, 40'000);
+            valid = valid && stream.state == TlsStreamState::closed && stream.buffers_released == (release != 0);
+            if (release) {
+                MEMORY_BASIC_INFORMATION info{};
+                valid = valid && VirtualQuery(encrypted + 8192, &info, sizeof(info)) && info.State == MEM_RESERVE &&
+                        encrypted[0] == 0 && encrypted[3995] == 0 && encrypted[131'071] == 0 && record[0] == 0 &&
+                        tls_stream_restore_buffers(&stream) && !stream.buffers_released &&
+                        encrypted[8192] == 0 && handshake[65'535] == 0 && record[39'999] == 0;
+                resident_before = before;
+                resident_after = after;
+            } else {
+                resident_wiped = after;
+                valid = valid && encrypted[8192] == 0 && handshake[100] == 0;
+            }
+        }
+        check(valid && resident_after == 0 && resident_wiped == resident_before,
+              "tls_stream_close_releases_buffer_pages_instead_of_wiping_them_resident");
+        if (block)
+            VirtualFree(block, 0, MEM_RELEASE);
+    }
+    {
+        // A bodyless GET on the client's retry list is replayed after a backoff instead of being published.
+        RestStorageProbe probe;
+        bool valid = probe.initialize(4096) && probe.begin_request(true);
+        auto* r = probe.runtime;
+        r->command.retries_left = 2;
+        valid = valid && probe.respond(502, utf8_literal("{}"), {}, 1000) &&
+                probe.client.request_state == request_state_active && r->command.retries_left == 1 &&
+                r->command.failed_requests == 1 && r->rate_wait_until_ms == 2000 &&
+                r->command.retry_not_before_ms == 2000 && r->transaction.phase == RestTransactionPhase::idle &&
+                !r->transaction.lease.active && !r->endpoint_lease.generation && !r->response.http.body_bytes &&
+                probe.client.phase == static_cast<LONG>(RestClientPhase::rate_wait) && !probe.client.responses;
+        // A wake before the backoff ends keeps waiting for its end.
+        valid = valid && acquire_request(&probe.client, r, nullptr, 1500) && r->rate_wait_until_ms == 2000 &&
+                r->transaction.phase == RestTransactionPhase::idle && !r->transaction.lease.active;
+        check(valid, "rest_retry_status_replays_a_get_after_backoff_and_wakes_do_not_cut_it_short");
+
+        RestStorageProbe spent;
+        RestStorageProbe other;
+        valid = spent.initialize(4096) && spent.begin_request(true) &&
+                spent.respond(502, utf8_literal("{}"), {}, 1000) &&
+                spent.client.request_state == request_state_ready && spent.runtime->completed.status_code == 502 &&
+                other.initialize(4096) && other.begin_request(true);
+        if (valid) {
+            other.runtime->command.retries_left = 3;
+            valid = other.respond(500, utf8_literal("{}"), {}, 1000) && other.client.request_state == request_state_ready &&
+                    other.runtime->command.failed_requests == 0;
+        }
+        check(valid, "rest_retry_needs_budget_and_a_listed_status");
+
+        RestStorageProbe lost;
+        valid = lost.initialize(4096) && lost.begin_request(true);
+        if (valid) {
+            auto* l = lost.runtime;
+            l->command.retries_left = 1;
+            begin_drain(&lost.client, l, RestClientError::receive, 0, false);
+            const auto step = finish_drain(&lost.client, l);
+            valid = !step.exit && lost.client.request_state == request_state_active &&
+                    l->command.failed_requests == 1 && l->rate_wait_until_ms != 0 && !l->draining &&
+                    l->transaction.phase == RestTransactionPhase::idle && !l->endpoint_lease.generation &&
+                    !l->transaction.lease.active && !lost.client.responses &&
+                    retryable_transport_error(RestClientError::resolve) &&
+                    !retryable_transport_error(RestClientError::cancelled) &&
+                    !retryable_transport_error(RestClientError::timeout) &&
+                    !retryable_transport_error(RestClientError::account_restricted);
+        }
+        check(valid, "rest_transport_failure_replays_a_get_and_never_a_cancellation");
     }
 }
 } // namespace maicord

@@ -460,7 +460,10 @@ RestAuditReasonResult rest_encode_audit_reason(const Utf8View& reason_view, cons
     const Utf8View reason = reason_view;
     const Slice<u8> output = output_view;
     if ((!reason.data && reason.bytes) || (!output.data && output.count) ||
-        reason.bytes > kRestAuditReasonMaximumBytes || !utf8_validate(reason).valid)
+        reason.bytes > kRestAuditReasonMaximumBytes)
+        return {0, false};
+    const auto text = utf8_validate(reason);
+    if (!text.valid || text.codepoints > kRestAuditReasonMaximumCodepoints)
         return {0, false};
     u32 required = 0;
     for (u32 i = 0; i < reason.bytes; ++i) {
@@ -562,6 +565,46 @@ u32 rest_append_extra_header(Slice<u8> output, u32 used, Utf8View name, ConstSli
     return used + bytes;
 }
 
+u8 rest_retry_budget(RestMethod method, ConstSlice<u8> target) noexcept {
+    if (method != RestMethod::get || !target.data)
+        return 0;
+    // The path segments after /api/v<n>, up to the query.
+    ConstSlice<u8> segments[4]{};
+    u32 count = 0, at = 0;
+    while (at < target.count && target[at] == '/' && count < 6) {
+        const u32 begin = ++at;
+        while (at < target.count && target[at] != '/' && target[at] != '?')
+            ++at;
+        const ConstSlice<u8> segment{target.data + begin, at - begin};
+        if (count >= 2)
+            segments[count - 2] = segment;
+        else if (!(count == 0 ? http_ascii_equal_case_insensitive(segment, "api")
+                              : segment.count > 1 && segment[0] == 'v'))
+            return 0;
+        ++count;
+    }
+    if (count < 5 || (at < target.count && target[at] != '?'))
+        return 0;
+    const auto is = [&](u32 index, const char* literal) noexcept {
+        return http_ascii_equal_case_insensitive(segments[index], literal);
+    };
+    const auto snowflake = [&](u32 index) noexcept {
+        const ConstSlice<u8> value = segments[index];
+        for (u32 i = 0; i < value.count; ++i)
+            if (value[i] < '0' || value[i] > '9')
+                return false;
+        return value.count != 0;
+    };
+    const u32 depth = count - 2;
+    if (depth == 3 && is(0, "users") && is(1, "@me"))
+        return is(2, "mentions") ? 2 : 0;
+    if (depth < 3 || depth > 4 || !is(0, "channels") || !snowflake(1))
+        return 0;
+    if (depth == 3)
+        return is(2, "messages") || is(2, "pins") ? 2 : is(2, "invites") ? 3 : 0;
+    return (is(2, "messages") && is(3, "pins")) || (is(2, "threads") && is(3, "search")) ? 2 : 0;
+}
+
 bool rest_multipart_boundary_valid(const ConstSlice<u8>& boundary) noexcept {
     if (!boundary.data || !boundary.count || boundary.count > kRestMultipartBoundaryMaximumBytes)
         return false;
@@ -626,6 +669,11 @@ u32 emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
         writer.literal("\r\n");
     }
     writer.bytes(request.extra_headers);
+    if (request.failed_requests) {
+        writer.literal("X-Failed-Requests: ");
+        writer.number(request.failed_requests);
+        writer.literal("\r\n");
+    }
     const u32 extra_headers_end = static_cast<u32>(writer.at);
     writer.literal("User-Agent: ");
     writer.literal(kClientUserAgent);

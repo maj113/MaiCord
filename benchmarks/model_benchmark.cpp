@@ -359,10 +359,17 @@ int run() noexcept {
     }
     const u64 rich_update_us =
         clock_microseconds(clock, begin, clock_now());
+    constexpr u32 kRichResident = 64;
+    for (u32 index = 1; index < kRichResident; ++index) {
+        rich_message.id = first_id + index;
+        if (!message_rich_store_apply(&rich_store, first_id + index, 1, rich_message).ok()) {
+            return 12;
+        }
+    }
     begin = clock_now();
     for (u32 iteration = 0; iteration < kRichLookupIterations; ++iteration) {
         const MessageRichRecord* rich =
-            message_rich_store_find(rich_store, first_id);
+            message_rich_store_find(rich_store, first_id + ((iteration * 37u) & (kRichResident - 1)));
         if (!rich) {
             return 12;
         }

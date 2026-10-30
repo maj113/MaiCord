@@ -1,6 +1,7 @@
 #include "maicord/platform/tls_stream.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 #include "maicord/sys/winsock.hpp"
 
@@ -64,6 +65,40 @@ bool ranges_overlap(Slice<u8> left, Slice<u8> right) noexcept {
 void wipe(Slice<u8> bytes) noexcept {
     if (bytes.data)
         SecureZeroMemory(bytes.data, bytes.count);
+}
+
+struct PageRange {
+    u8* first;
+    usize bytes;
+};
+
+// The whole pages inside a buffer; bytes is 0 when it holds none.
+PageRange interior_pages(Slice<u8> bytes) noexcept {
+    const usize begin = reinterpret_cast<usize>(bytes.data);
+    const usize first = (begin + 4095) & ~usize{4095};
+    const usize last = (begin + bytes.count) & ~usize{4095};
+    return last > first ? PageRange{reinterpret_cast<u8*>(first), last - first} : PageRange{nullptr, 0};
+}
+
+// Erases a closed stream's buffer. With release_pages its whole pages are decommitted instead
+// of written, so a retired connection leaves no resident plaintext and no new resident pages.
+void retire_buffer(TlsStream* stream, Slice<u8> bytes) noexcept {
+    if (!bytes.data)
+        return;
+    const PageRange pages = stream->buffers.release_pages ? interior_pages(bytes) : PageRange{nullptr, 0};
+    if (pages.bytes == 0 || !VirtualFree(pages.first, pages.bytes, MEM_DECOMMIT)) {
+        wipe(bytes);
+        return;
+    }
+    wipe({bytes.data, static_cast<u32>(pages.first - bytes.data)});
+    u8* const tail = pages.first + pages.bytes;
+    wipe({tail, static_cast<u32>(bytes.data + bytes.count - tail)});
+    stream->buffers_released = true;
+}
+
+bool commit_buffer(Slice<u8> bytes) noexcept {
+    const PageRange pages = interior_pages(bytes);
+    return pages.bytes == 0 || VirtualAlloc(pages.first, pages.bytes, MEM_COMMIT, PAGE_READWRITE) != nullptr;
 }
 
 TlsStreamEvent event(TlsStreamEventKind kind) noexcept {
@@ -370,10 +405,10 @@ TlsStreamEvent finish_close(TlsStream* stream) noexcept {
     }
     // A cancelled receive may have written bytes that were never committed to
     // the queue. Erase its full storage, only after the last completion drains.
-    wipe(stream->buffers.encrypted_input);
+    retire_buffer(stream, stream->buffers.encrypted_input);
     byte_queue_clear(&stream->encrypted_input, false);
-    wipe(stream->buffers.handshake_output);
-    wipe(stream->buffers.record_output);
+    retire_buffer(stream, stream->buffers.handshake_output);
+    retire_buffer(stream, stream->buffers.record_output);
     stream->state = TlsStreamState::closed;
     return event(TlsStreamEventKind::drained);
 }
@@ -397,6 +432,9 @@ bool tls_stream_initialize_endpoint(TlsStream* stream, const wchar_t* server_nam
         ranges_overlap(buffers.handshake_output, buffers.record_output)) {
         return false;
     }
+    if (!tls_stream_restore_buffers(stream)) {
+        return false;
+    }
     reset_value<TlsStream>(stream);
     stream->connection.socket = INVALID_SOCKET;
     stream->server_name = server_name;
@@ -414,6 +452,9 @@ TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) no
         (stream->state != TlsStreamState::empty && stream->state != TlsStreamState::closed) ||
         stream->outstanding_operations != 0 || stream->resolver.pending) {
         return invalid_event();
+    }
+    if (!tls_stream_restore_buffers(stream)) {
+        return failure(stream, TlsStreamError::capacity);
     }
     byte_queue_clear(&stream->encrypted_input, true);
     // Keep the initialized endpoint, buffers and state; reset everything else.
@@ -667,6 +708,16 @@ bool tls_stream_drained(TlsStream* stream) noexcept {
     }
     return stream->state == TlsStreamState::closed ||
            finish_close(stream).kind == TlsStreamEventKind::drained;
+}
+
+bool tls_stream_restore_buffers(TlsStream* stream) noexcept {
+    if (!stream || !stream->buffers_released)
+        return true;
+    if (!commit_buffer(stream->buffers.encrypted_input) || !commit_buffer(stream->buffers.handshake_output) ||
+        !commit_buffer(stream->buffers.record_output))
+        return false;
+    stream->buffers_released = false;
+    return true;
 }
 
 } // namespace maicord

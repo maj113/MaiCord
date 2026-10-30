@@ -11306,6 +11306,7 @@ void test_cdn_http_policy() noexcept {
     expect(unconditional.ok() && bytes_equal(ConstSlice<u8>{request, unconditional.bytes},
                                              byte_literal("GET /stickers/88.png HTTP/1.1\r\n"
                                                           "Host: cdn.discordapp.com\r\n"
+                                                          "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                                                           "Accept: image/png\r\n"
                                                           "Accept-Encoding: identity\r\n"
                                                           "Connection: keep-alive\r\n\r\n")),
@@ -11316,6 +11317,7 @@ void test_cdn_http_policy() noexcept {
     expect(conditional.ok() && bytes_equal(ConstSlice<u8>{request, conditional.bytes},
                                            byte_literal("GET /stickers/90.png HTTP/1.1\r\n"
                                                         "Host: media.discordapp.net\r\n"
+                                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                                                         "Accept: image/png\r\n"
                                                         "Accept-Encoding: identity\r\n"
                                                         "Connection: keep-alive\r\n"
@@ -11328,6 +11330,7 @@ void test_cdn_http_policy() noexcept {
     expect(webp_request.ok() && bytes_equal(ConstSlice<u8>{request, webp_request.bytes},
                                             byte_literal("GET /emojis/45.webp?size=64 HTTP/1.1\r\n"
                                                          "Host: cdn.discordapp.com\r\n"
+                                                         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                                                          "Accept: image/webp\r\n"
                                                          "Accept-Encoding: identity\r\n"
                                                          "Connection: keep-alive\r\n\r\n")),
@@ -11339,6 +11342,7 @@ void test_cdn_http_policy() noexcept {
     expect(gif_request.ok() && bytes_equal(ConstSlice<u8>{request, gif_request.bytes},
                                            byte_literal("GET /stickers/90.gif HTTP/1.1\r\n"
                                                         "Host: media.discordapp.net\r\n"
+                                                        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                                                         "Accept: image/gif\r\n"
                                                         "Accept-Encoding: identity\r\n"
                                                         "Connection: keep-alive\r\n\r\n")),
@@ -11356,6 +11360,7 @@ void test_cdn_http_policy() noexcept {
                 byte_literal("GET /attachments/123/456/a.jpg?ex=2&is=1&hm="
                              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\n"
                              "Host: cdn.discordapp.com\r\n"
+                             "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                              "Accept: image/jpeg\r\n"
                              "Accept-Encoding: identity\r\n"
                              "Connection: keep-alive\r\n\r\n")),
@@ -11372,6 +11377,7 @@ void test_cdn_http_policy() noexcept {
                    byte_literal(
                        "GET /external/hash/https/media.tenor.com/clip.mp4 HTTP/1.1\r\n"
                        "Host: images-ext-1.discordapp.net\r\n"
+                       "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\n"
                        "Accept: video/mp4\r\n"
                        "Accept-Encoding: identity\r\n"
                        "Connection: keep-alive\r\n\r\n")),
@@ -23577,6 +23583,35 @@ void test_rest() noexcept {
                                             "Accept-Language: en-US,en;q=0.9\r\n"
                                             "Cookie: __dcfduid=visitor; _cfuvid=session\r\n\r\n")),
                "rest_page_get_request_head");
+        page.failed_requests = 2;
+        page_written = write_rest_request_head(page, Slice<u8>{page_output, sizeof(page_output)});
+        constexpr char counted[] = "Europe/Ljubljana\r\nX-Failed-Requests: 2\r\nUser-Agent: ";
+        bool counted_before_user_agent = false;
+        for (u32 at = 0; page_written.ok() && at + sizeof(counted) - 1 <= page_written.bytes; ++at)
+            counted_before_user_agent |= maicord::bytes_equal(page_output + at, counted, sizeof(counted) - 1);
+        page.failed_requests = 0;
+        expect(counted_before_user_agent, "rest_retried_request_counts_its_failed_tries");
+        const auto budget = [](RestMethod method, const char* target) noexcept {
+            return rest_retry_budget(method, {reinterpret_cast<const u8*>(target), c_string_length(target)});
+        };
+        expect(budget(RestMethod::get, "/api/v9/channels/7/messages?limit=50&before=9") == 2 &&
+                   budget(RestMethod::get, "/api/v10/channels/7/messages/pins?limit=25") == 2 &&
+                   budget(RestMethod::get, "/api/v9/channels/7/pins") == 2 &&
+                   budget(RestMethod::get, "/api/v9/users/@me/mentions?limit=25") == 2 &&
+                   budget(RestMethod::get, "/api/v9/channels/7/invites") == 3 &&
+                   budget(RestMethod::get, "/api/v9/channels/7/threads/search?archived=true") == 2 &&
+                   budget(RestMethod::post, "/api/v9/channels/7/messages") == 0 &&
+                   budget(RestMethod::get, "/api/v9/channels/7/messages/9") == 0 &&
+                   budget(RestMethod::get, "/api/v9/channels/x/messages") == 0 &&
+                   budget(RestMethod::get, "/api/v9/users/@me") == 0 &&
+                   budget(RestMethod::get, "/api/v9/channels/7/messages/pins/extra/path") == 0 &&
+                   budget(RestMethod::get, "/channels/7/messages") == 0,
+               "rest_retries_only_the_clients_opt_in_gets");
+        expect(rest_retryable_status(502) && rest_retryable_status(504) && rest_retryable_status(507) &&
+                   rest_retryable_status(522) && rest_retryable_status(524) && rest_retryable_status(598) &&
+                   rest_retryable_status(599) && !rest_retryable_status(500) && !rest_retryable_status(503) &&
+                   !rest_retryable_status(429) && !rest_retryable_status(521) && !rest_retryable_status(404),
+               "rest_retries_the_clients_status_list");
         page.target = byte_literal("/api/v9/channels/7/messages");
         page.method = RestMethod::post;
         page.json_body = true;

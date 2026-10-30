@@ -57,7 +57,8 @@ inline constexpr u32 kGuildAdminNicknameCodepoints = 32;
 inline constexpr u32 kGuildAdminPronounsCodepoints = 40;
 inline constexpr u32 kGuildAdminBioCodepoints = 190;
 inline constexpr u32 kGuildAdminTopicCodepoints = 1'024;
-inline constexpr u32 kGuildAdminReasonBytes = kRestAuditReasonMaximumBytes;
+// Room kept for a reason the server returns (ban list, audit entries); longer ones are cut.
+inline constexpr u32 kGuildAdminReasonBytes = 512;
 inline constexpr u32 kGuildAdminHashBytes = 34;
 inline constexpr u32 kGuildAdminEmojiBytes = 32;
 inline constexpr u32 kGuildAdminUsernameBytes = 128;

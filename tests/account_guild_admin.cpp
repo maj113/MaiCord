@@ -20,7 +20,7 @@ struct Capture {
     u8 headers[512];
     u32 header_bytes;
     // send_empty_audit_reason: an empty X-Audit-Log-Reason header.
-    bool json, identity, copied, empty_reason;
+    bool json, copied, empty_reason;
     RestClientSubmitError result;
 } capture;
 
@@ -39,7 +39,7 @@ bool captured(RestMethod method, RestMajorParameter major, u64 major_key, GuildA
            capture.route.major_key == major_key &&
            capture.route.route_id == kGuildAdminRouteBase + static_cast<u64>(op) &&
            capture.timeout_ms == kRestClientDefaultTimeoutMs && capture.json == (body.bytes != 0) &&
-           !capture.identity && same(capture.target, capture.target_bytes, target) &&
+           same(capture.target, capture.target_bytes, target) &&
            same(capture.body, capture.body_bytes, body) && same(capture.reason, capture.reason_bytes, reason);
 }
 
@@ -249,28 +249,31 @@ void test_transport() noexcept {
                        utf8_literal("/api/v10/guilds/10/members/20?reason=spam%20%26%20ads%20(again)!"),
                        {}),
           "guild admin account: a kick's reason travels as the encodeURIComponent query, never the header");
-    // The longest reason, every byte escaped, still fits the target bound.
-    static char worst[kGuildAdminReasonBytes];
-    for (u32 i = 0; i + 2 < kGuildAdminReasonBytes; i += 3) {
-        worst[i] = static_cast<char>(0xE6);
-        worst[i + 1] = static_cast<char>(0x97);
-        worst[i + 2] = static_cast<char>(0xA5);
+    // The longest reason, 512 four-byte characters with every byte escaped, still fits the target bound.
+    static char worst[kRestAuditReasonMaximumBytes];
+    for (u32 i = 0; i < sizeof(worst); i += 4) {
+        worst[i] = static_cast<char>(0xF0);
+        worst[i + 1] = static_cast<char>(0x9F);
+        worst[i + 2] = static_cast<char>(0x98);
+        worst[i + 3] = static_cast<char>(0x80);
     }
-    request.reason = {worst, kGuildAdminReasonBytes - kGuildAdminReasonBytes % 3};
+    request.reason = {worst, sizeof(worst)};
     // "/api/v10/guilds/10/members/20?reason=" is 37 bytes.
     const bool multibyte = account_guild_admin_submit(&details, &request, 108).ok() &&
                            capture.target_bytes == 37 + 3 * request.reason.bytes && !capture.reason_bytes &&
-                           same(capture.target + capture.target_bytes - 9, 9, utf8_literal("%E6%97%A5"));
-    static char spaces[kGuildAdminReasonBytes];
+                           same(capture.target + capture.target_bytes - 12, 12, utf8_literal("%F0%9F%98%80"));
+    static char spaces[kRestAuditReasonMaximumCodepoints + 1];
     for (auto& c : spaces)
         c = ' ';
     request.guild_id = request.target_id = ~0ull;
-    request.reason = {spaces, kGuildAdminReasonBytes};
-    check(multibyte && account_guild_admin_submit(&details, &request, 109).ok() &&
-              capture.target_bytes == 16 + 20 + 9 + 20 + 8 + kRestAuditReasonMaximumEncodedBytes &&
-              capture.target_bytes <= kGuildAdminMaximumTargetBytes && !capture.reason_bytes,
-          "guild admin account: a kick reason at the byte bound, fully escaped, fits the target with "
-          "20-digit IDs");
+    request.reason = {spaces, kRestAuditReasonMaximumCodepoints};
+    const bool at_limit = account_guild_admin_submit(&details, &request, 109).ok() &&
+                          capture.target_bytes == 16 + 20 + 9 + 20 + 8 + 3 * kRestAuditReasonMaximumCodepoints &&
+                          capture.target_bytes <= kGuildAdminMaximumTargetBytes && !capture.reason_bytes;
+    request.reason = {spaces, kRestAuditReasonMaximumCodepoints + 1};
+    check(multibyte && at_limit && !account_guild_admin_submit(&details, &request, 110).ok(),
+          "guild admin account: a kick reason of 512 characters, fully escaped, fits the target with 20-digit "
+          "IDs; a 513th character is refused");
 
     request = guild_request(GuildAdminOperation::ban_add, 20);
     request.delete_message_seconds = 86'400;
@@ -667,16 +670,26 @@ void test_reason_and_head() noexcept {
               same(encoded, emoji.bytes, utf8_literal("(%F0%9F%98%80)")),
           "audit reason: the encoding matches encodeURIComponent for marks, reserved bytes and 2-4 byte "
           "UTF-8");
-    char longest[kRestAuditReasonMaximumBytes + 1];
+    char longest[kRestAuditReasonMaximumCodepoints + 1];
     for (auto& byte : longest)
         byte = '\x7E' - 1; // '}' needs escaping
-    const auto maximum =
-        rest_encode_audit_reason({longest, kRestAuditReasonMaximumBytes}, {encoded, sizeof(encoded)});
+    static char emoji_longest[kRestAuditReasonMaximumBytes];
+    for (u32 i = 0; i < sizeof(emoji_longest); i += 4) {
+        emoji_longest[i] = static_cast<char>(0xF0);
+        emoji_longest[i + 1] = static_cast<char>(0x9F);
+        emoji_longest[i + 2] = static_cast<char>(0x98);
+        emoji_longest[i + 3] = static_cast<char>(0x80);
+    }
+    const auto maximum = rest_encode_audit_reason({emoji_longest, sizeof(emoji_longest)}, {encoded, sizeof(encoded)});
+    const auto ascii_maximum =
+        rest_encode_audit_reason({longest, kRestAuditReasonMaximumCodepoints}, {encoded, sizeof(encoded)});
     const auto over = rest_encode_audit_reason({longest, sizeof(longest)}, {encoded, sizeof(encoded)});
     const auto small = rest_encode_audit_reason(utf8_literal("a b"), {encoded, 4});
-    check(maximum.ok && maximum.bytes == kRestAuditReasonMaximumEncodedBytes && !over.ok && !small.ok &&
+    check(maximum.ok && maximum.bytes == kRestAuditReasonMaximumEncodedBytes && ascii_maximum.ok &&
+              ascii_maximum.bytes == 3 * kRestAuditReasonMaximumCodepoints && !over.ok && !small.ok &&
               small.bytes == 5 && !rest_encode_audit_reason(utf8_literal("a\tb"), {encoded, 8}).ok,
-          "audit reason: the byte bound always fits the encoded bound; short output and controls are refused");
+          "audit reason: 512 characters of any width fit the encoded bound, the 513th is refused; short output "
+          "and controls are refused");
     check(rest_audit_reason_valid({encoded, 0}) &&
               rest_audit_reason_valid({reinterpret_cast<const u8*>("a%2F"), 4}) &&
               !rest_audit_reason_valid({reinterpret_cast<const u8*>("a%2f"), 4}) &&
@@ -1032,7 +1045,6 @@ static RestClientSubmitResult submit_stub(RestClient* client,
     c.id = request.request_id;
     c.timeout_ms = request.timeout_ms;
     c.json = request.json_body;
-    c.identity = request.identity_response;
     c.empty_reason = request.send_empty_audit_reason;
     c.copied = request.target.count <= sizeof(c.target) && request.body.count <= sizeof(c.body) &&
                request.audit_reason.count <= sizeof(c.reason);

@@ -18,7 +18,7 @@ bool equal(ConstSlice<u8> bytes, const char* text, u32 count) noexcept {
 bool account_logout_request_valid(const RestClientRequest& request) noexcept {
     return request.request_id && request.route.route_id == kAccountLogoutRouteId &&
            request.route.method == RestMethod::post && request.route.major == RestMajorParameter::none &&
-           !request.route.major_key && request.json_body && !request.identity_response &&
+           !request.route.major_key && request.json_body &&
            equal(request.target, kTarget, sizeof(kTarget) - 1) &&
            equal(request.body, kBody, sizeof(kBody) - 1);
 }
@@ -38,8 +38,7 @@ AccountLogoutResult account_logout(RestClient* primary, AccountLogoutOperation o
             {kAccountLogoutRouteId, 0, RestMethod::post, RestMajorParameter::none},
             request_id,
             10'000,
-            true,
-            false};
+            true};
         return {rest_client_submit(primary, request).error, false, false};
     }
     case AccountLogoutOperation::cancel: {

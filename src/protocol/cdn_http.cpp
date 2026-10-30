@@ -6,6 +6,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/http1.hpp"
 #include "maicord/protocol/embed_player.hpp"
+#include "maicord/protocol/client_user_agent.hpp"
 
 namespace maicord {
 bool catalog_provider_request_valid(CdnHost host, CdnImageType type,
@@ -259,6 +260,8 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
         protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") &&
         protocol_writer_append_bytes(
             &writer, ConstSlice<u8>{reinterpret_cast<const u8*>(host_name.data), host_name.bytes}) &&
+        protocol_writer_append_literal(&writer, "\r\nUser-Agent: ") &&
+        protocol_writer_append_literal(&writer, kClientUserAgent) &&
         protocol_writer_append_literal(&writer, "\r\nAccept: ") &&
         (image_type == CdnImageType::png    ? protocol_writer_append_literal(&writer, "image/png")
          : image_type == CdnImageType::webp ? protocol_writer_append_literal(&writer, "image/webp")

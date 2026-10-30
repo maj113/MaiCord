@@ -36,7 +36,6 @@ RestClientSubmitResult account_guild_moderation_submit(RestClient* rest, const G
                                  request_id,
                                  kRestClientDefaultTimeoutMs,
                                  written.bytes != 0,
-                                 false,
                                  {reason, encoded.bytes}};
         // "" sends an empty X-Audit-Log-Reason; null sends none.
         submit.send_empty_audit_reason = !encoded.bytes && guild_moderation_reason_header(*request);

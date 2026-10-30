@@ -16,9 +16,10 @@ inline constexpr u32 kRestUserSuperPropertiesMaximumBytes = 2 * 1024;
 inline constexpr u32 kRestUserLocaleMaximumBytes = 32;
 inline constexpr u32 kRestUserTimezoneMaximumBytes = 64;
 inline constexpr u32 kRestUserAcceptLanguageMaximumBytes = 256;
-// Moderation reason recorded in the guild audit log. Bounded in UTF-8 bytes so
-// the percent-encoded header always fits; the service limit is 512 characters.
-inline constexpr u32 kRestAuditReasonMaximumBytes = 512;
+// Moderation reason recorded in the guild audit log: at most 512 characters (the service limit), each
+// up to four UTF-8 bytes, so the percent-encoded header is bounded by three times that.
+inline constexpr u32 kRestAuditReasonMaximumCodepoints = 512;
+inline constexpr u32 kRestAuditReasonMaximumBytes = kRestAuditReasonMaximumCodepoints * 4;
 inline constexpr u32 kRestAuditReasonMaximumEncodedBytes = kRestAuditReasonMaximumBytes * 3;
 // Preformatted "Name: value\r\n" lines for per-request headers: CAPTCHA
 // retries (X-Captcha-Key/-Rqtoken/-Session-Id), X-Context-Properties and
@@ -77,6 +78,8 @@ struct RestRequestHead {
     // The Cookie header value (cookie_jar_header); empty sends none. Only on
     // requests with user_headers.
     ConstSlice<u8> cookie{};
+    // Sent as X-Failed-Requests when nonzero: the failed tries so far of a retried request.
+    u8 failed_requests = 0;
 };
 
 // RFC 2046 boundary restricted to [A-Za-z0-9_-], 1..70 bytes.
@@ -110,7 +113,7 @@ struct RestAuditReasonResult {
 // Percent-encodes a UTF-8 reason exactly as encodeURIComponent does (letters,
 // digits and -_.!~*'() pass through), for the X-Audit-Log-Reason header or a
 // reason query parameter. Empty input yields zero bytes. Rejects invalid
-// UTF-8, control characters and reasons over the byte bound; output is
+// UTF-8, control characters and reasons over 512 characters; output is
 // untouched on failure.
 RestAuditReasonResult rest_encode_audit_reason(const Utf8View& reason, const Slice<u8>& output) noexcept;
 // Accepts only output shaped like rest_encode_audit_reason's.
@@ -120,6 +123,16 @@ bool rest_extra_headers_valid(const ConstSlice<u8>& headers) noexcept;
 // Appends one allowlisted header line; returns the new length, or ~0u when it
 // does not fit or the value is invalid. The output is unchanged on failure.
 u32 rest_append_extra_header(Slice<u8> output, u32 used, Utf8View name, ConstSlice<u8> value) noexcept;
+
+// How many times the client retries a GET on a transport failure or a 502, 504, 507, 598, 599, 522,
+// 523 or 524 (its `retries` option, backed off, with X-Failed-Requests counting the failed tries):
+// message history, pins, recent mentions, a channel's invites and thread search. 0 for anything else.
+u8 rest_retry_budget(RestMethod method, ConstSlice<u8> target) noexcept;
+// The statuses the client retries.
+constexpr bool rest_retryable_status(u16 status) noexcept {
+    return status == 502 || status == 504 || status == 507 || status == 598 || status == 599 ||
+           (status >= 522 && status <= 524);
+}
 
 // Writes one complete Discord HTTP/1.1 request head for discord.com, in
 // Chromium's field order. Requests with user_headers are the https://discord.com

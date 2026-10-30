@@ -84,10 +84,9 @@ void write_encoded(u8* output, u32* offset, const EncodedString& string) noexcep
 }
 
 bool audit_reason_encodes(const Utf8View& reason) noexcept {
-    u8 scratch[kRestAuditReasonMaximumEncodedBytes];
-    const bool ok = rest_encode_audit_reason(reason, {scratch, sizeof(scratch)}).ok;
-    secure_clear_bytes(scratch, sizeof(scratch));
-    return ok;
+    // Without room the encoder reports the length a valid reason needs and nothing for an invalid one.
+    const RestAuditReasonResult measured = rest_encode_audit_reason(reason, {nullptr, 0});
+    return measured.ok || measured.bytes != 0;
 }
 
 } // namespace maicord::protocol_detail

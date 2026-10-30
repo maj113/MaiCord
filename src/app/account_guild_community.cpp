@@ -36,7 +36,6 @@ RestClientSubmitResult account_guild_community_submit(RestClient* rest,
                                      request_id,
                                      kRestClientDefaultTimeoutMs,
                                      body.count != 0,
-                                     false,
                                      {},
                                      {context, context_bytes}});
 }

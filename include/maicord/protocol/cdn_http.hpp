@@ -5,7 +5,7 @@
 
 namespace maicord {
 
-inline constexpr u32 kCdnMaximumRequestHeadBytes = kCdnMaximumTargetBytes + 512;
+inline constexpr u32 kCdnMaximumRequestHeadBytes = kCdnMaximumTargetBytes + 768;
 inline constexpr u32 kCdnMaximumResponseHeaderBytes = 16u * 1024u;
 inline constexpr u32 kCdnMaximumResponseFields = 32;
 inline constexpr u32 kCdnMaximumEncodedBodyBytes = 16u * 1024u * 1024u;

@@ -40,7 +40,6 @@ struct Probe : RestClientProbe {
                                             id,
                                             kRestClientDefaultTimeoutMs,
                                             true,
-                                            false,
                                             {},
                                             extra});
     }

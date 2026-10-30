@@ -17,6 +17,8 @@ enum class JsonValueKind : u8 {
 struct JsonString {
     Utf8View encoded;
     u32 source_offset;
+    // Exact for strings the reader produced (member names and json_value_as_string); the comparison and decode
+    // functions below never rely on it, but member-name lists skip the escape-aware comparison for a plain name.
     bool has_escapes;
 };
 

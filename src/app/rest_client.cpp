@@ -47,6 +47,8 @@ inline constexpr u32 kCancelSignalValue = 0x43414E43u;
 inline constexpr u32 kRateSignalValue = 0x52415445u;
 inline constexpr u32 kMaximumRequestTimeoutMs = 10 * 60 * 1000;
 inline constexpr u32 kMaximumCredentialBytes = 2 * 1024;
+// How long the client holds an endpoint after a 503 that names no usable Retry-After.
+inline constexpr u64 kServiceUnavailableHoldMs = 5000;
 
 struct RestEndpointKey {
     u64 key_low, key_high;
@@ -169,11 +171,13 @@ struct RestClientCommand {
     u32 head_bytes;
     u32 timeout_ms;
     bool json_body;
-    bool identity_response;
     u32 audit_reason_bytes;
     u32 extra_headers_bytes;
     u32 multipart_boundary_bytes;
     bool send_empty_audit_reason;
+    // A GET the client retries: tries left, failed tries so far, and when the next may be admitted.
+    u8 retries_left, failed_requests;
+    u64 retry_not_before_ms;
 };
 
 struct RestLocalRates {
@@ -871,6 +875,29 @@ void begin_drain(RestClient* client, RestClientRuntime* runtime, RestClientError
     close_transport(runtime);
 }
 
+// Retries a bodyless GET the way the client's `retries` option does: after 1 s, 2 s, 4 s, then 5 s (the mean of its
+// jittered backoff from 500 ms capped at 5 s), counting the failed tries in X-Failed-Requests.
+bool schedule_retry(RestClient* client, RestClientRuntime* runtime, u64 now_ms) noexcept {
+    if (!runtime->command.retries_left || runtime->stopping)
+        return false;
+    --runtime->command.retries_left;
+    ++runtime->command.failed_requests;
+    erase_response_storage(runtime);
+    reset_value<RestTransaction>(&runtime->transaction);
+    runtime->waiting_for_peer = false;
+    const u32 delay_ms = minimum(5000u, 500u << runtime->command.failed_requests);
+    runtime->command.retry_not_before_ms = deadline_after(now_ms, delay_ms);
+    runtime->rate_wait_until_ms = runtime->command.retry_not_before_ms;
+    publish_worker_phase(client, runtime, RestClientPhase::rate_wait);
+    return true;
+}
+
+// The failures the client retries: any but a cancellation, its own timeout or a local refusal.
+bool retryable_transport_error(RestClientError error) noexcept {
+    return error == RestClientError::resolve || error == RestClientError::connect || error == RestClientError::tls ||
+           error == RestClientError::send || error == RestClientError::receive || error == RestClientError::response;
+}
+
 NetworkWorkerStep finish_drain(RestClient* client, RestClientRuntime* runtime) noexcept {
     if (!drained(runtime)) {
         return NetworkWorkerStep{INFINITE, false};
@@ -883,6 +910,9 @@ NetworkWorkerStep finish_drain(RestClient* client, RestClientRuntime* runtime) n
     runtime->pending_error = RestClientError::none;
     runtime->pending_native_error = 0;
     runtime->draining = false;
+    const u64 now_ms = clock_monotonic_milliseconds();
+    if (retryable_transport_error(error) && schedule_retry(client, runtime, now_ms))
+        return NetworkWorkerStep{next_wait(runtime, now_ms), false};
     publish_request_error(client, runtime, error, native_error);
     return NetworkWorkerStep{INFINITE, false};
 }
@@ -939,7 +969,6 @@ bool reject_restricted_request(RestClient* client, RestClientRuntime* runtime) n
                                     runtime->command.request_id,
                                     runtime->command.timeout_ms,
                                     runtime->command.json_body,
-                                    runtime->command.identity_response,
                                     {runtime->audit_reason, runtime->command.audit_reason_bytes},
                                     {runtime->extra_headers, runtime->command.extra_headers_bytes}};
     const bool logout = runtime->authorization == RestAuthorization::normal_user &&
@@ -1007,12 +1036,12 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
                             token, runtime->command.body_bytes, runtime->command.route.method,
                             runtime->authorization, runtime->command.json_body,
                             normal_user ? &user_headers : nullptr,
-                            !runtime->command.identity_response,
+                            true,
                             {runtime->audit_reason, runtime->command.audit_reason_bytes},
                             {runtime->extra_headers, runtime->command.extra_headers_bytes},
                             {runtime->multipart_boundary, runtime->command.multipart_boundary_bytes},
                             runtime->command.send_empty_audit_reason,
-                            {runtime->cookie_header, cookie_bytes}},
+                            {runtime->cookie_header, cookie_bytes}, runtime->command.failed_requests},
             Slice<u8>{runtime->request_head, runtime->request_head_capacity});
         secure_clear_bytes(runtime->cookie_header, cookie_bytes);
         if (!written.ok()) {
@@ -1068,13 +1097,15 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
         return false;
     }
     const auto& head = runtime->response.parsed_head;
-    if (head.head.status_code == 503 && (head.rate.fields & rate_limit_field_retry_after) &&
-        head.rate.retry_after_ms) {
+    if (head.head.status_code == 503) {
+        // The client holds the endpoint for the Retry-After seconds, or five seconds without a usable one.
+        const u64 hold_ms = (head.rate.fields & rate_limit_field_retry_after) && head.rate.retry_after_ms
+                                ? head.rate.retry_after_ms
+                                : kServiceUnavailableHoldMs;
         // A trusted delay remains authoritative even when decoding its body
         // fails. Terminal cleanup releases the reservation and wakes peers.
         RateLock guard(runtime);
-        if (!endpoint_gate_observe(runtime->endpoint_gate, runtime->endpoint_lease,
-                                   deadline_after(now_ms, head.rate.retry_after_ms)))
+        if (!endpoint_gate_observe(runtime->endpoint_gate, runtime->endpoint_lease, deadline_after(now_ms, hold_ms)))
             return false;
     }
     struct SessionRejection {
@@ -1203,6 +1234,8 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
     if (!runtime->response.http.connection_reusable) {
         close_transport(runtime);
     }
+    if (rest_retryable_status(completed.status_code) && schedule_retry(client, runtime, now_ms))
+        return true;
     publish_completed(client, runtime, completed);
     return true;
 }
@@ -1307,6 +1340,12 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
                      u64 now_ms) noexcept {
     if (reject_restricted_request(client, runtime))
         return true;
+    // A retry backs off before it is admitted again, whatever wakes the worker meanwhile.
+    if (runtime->command.retry_not_before_ms > now_ms) {
+        runtime->waiting_for_peer = false;
+        runtime->rate_wait_until_ms = runtime->command.retry_not_before_ms;
+        return true;
+    }
     RestRateAcquireResult acquired{};
     bool endpoint_wait = false;
     {
@@ -1549,10 +1588,20 @@ void destroy_client_storage(RestClient* client, SecureBuffer* restore) noexcept 
         secure_buffer_release(&runtime->credential);
     }
     secure_buffer_release(&runtime->secret_storage);
+    const bool restored = tls_stream_restore_buffers(&runtime->transport);
+    if (!restored && runtime->decompression == runtime->handshake_output)
+        runtime->decompression = nullptr;
     release_extended_body(runtime);
     release_decompression(runtime);
     const u32 bytes = runtime->allocation_bytes;
-    secure_clear_bytes(runtime, bytes);
+    if (restored) {
+        secure_clear_bytes(runtime, bytes);
+    } else {
+        // Out of commit: the closed stream's decommitted pages hold nothing, so clear the rest around them.
+        secure_clear_bytes(runtime, static_cast<u32>(runtime->encrypted_storage - reinterpret_cast<u8*>(runtime)));
+        secure_clear_bytes(runtime->record_output + kRecordOutputBytes,
+                           static_cast<u32>(runtime->handshake_output - runtime->record_output - kRecordOutputBytes));
+    }
     VirtualFree(runtime, 0, MEM_RELEASE);
     client->runtime = nullptr;
 }
@@ -1630,7 +1679,8 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
                                                                        : kEncryptedInputBytes},
                              Slice<u8>{runtime->handshake_output, kHandshakeOutputBytes},
                              Slice<u8>{runtime->record_output, user_auth_mode ? kUserAuthRecordOutputBytes
-                                                                              : kRecordOutputBytes}})) {
+                                                                              : kRecordOutputBytes},
+                             !user_auth_mode})) {
         destroy_client_storage(client, nullptr);
         return invalid_result();
     }
@@ -1842,9 +1892,9 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
     runtime->command.timeout_ms =
         request.timeout_ms == 0 ? kRestClientDefaultTimeoutMs : request.timeout_ms;
     runtime->command.json_body = request.json_body;
-    runtime->command.identity_response = request.identity_response;
     runtime->command.audit_reason_bytes = request.audit_reason.count;
     runtime->command.send_empty_audit_reason = request.send_empty_audit_reason;
+    runtime->command.retries_left = request.body.count ? 0 : rest_retry_budget(request.route.method, request.target);
     runtime->command.multipart_boundary_bytes = request.multipart_boundary.count;
     const bool armed = runtime->armed_request_id && runtime->armed_request_id == request.request_id;
     const u32 armed_bytes = armed ? runtime->armed_headers_bytes : 0;

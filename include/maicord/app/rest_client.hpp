@@ -135,7 +135,6 @@ struct RestClientRequest {
     u64 request_id;
     u32 timeout_ms;
     bool json_body;
-    bool identity_response;
     // Percent-encoded X-Audit-Log-Reason value, copied at submit; empty omits it.
     ConstSlice<u8> audit_reason;
     // rest_extra_headers_valid lines, copied at submit; may hold secrets.
@@ -361,15 +360,15 @@ void rest_client_set_required_action(RestClient* client,
                                      AccountRequirement action) noexcept;
 RestClientSubmitResult rest_client_submit(RestClient* client,
                                           const RestClientRequest& request) noexcept;
-// The common request shape: default timeout, no identity response, audit
-// reason, extra headers or multipart boundary.
+// The common request shape: default timeout, no audit reason, extra headers or
+// multipart boundary.
 __declspec(noinline) inline RestClientSubmitResult rest_client_submit(RestClient* client,
                                                                       ConstSlice<u8> target,
                                                                       ConstSlice<u8> body,
                                                                       RestRouteKey route, u64 request_id,
                                                                       bool json_body) noexcept {
     return rest_client_submit(
-        client, {target, body, route, request_id, kRestClientDefaultTimeoutMs, json_body, false});
+        client, {target, body, route, request_id, kRestClientDefaultTimeoutMs, json_body});
 }
 // Same contract with a body up to kRestClientMaximumLargeRequestBodyBytes.
 // Bodies above the ordinary ceiling are copied into a bank allocated for this

@@ -18,7 +18,7 @@ void test_attachment_download(void (*check)(bool, const char*) noexcept) noexcep
     u8 request[2304]{};
     const auto url = utf8_literal("https://cdn.discordapp.com/attachments/77/42/report%20final.zip?ex=ffffffff&is=1&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
     const auto result = attachment_download_write_request(url, 77, 42, 2, {request, sizeof(request)});
-    const auto expected = utf8_literal("GET /attachments/77/42/report%20final.zip?ex=ffffffff&is=1&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef HTTP/1.1\r\nHost: cdn.discordapp.com\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n");
+    const auto expected = utf8_literal("GET /attachments/77/42/report%20final.zip?ex=ffffffff&is=1&hm=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef HTTP/1.1\r\nHost: cdn.discordapp.com\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n");
     check(result.ok() && result.host == CdnHost::cdn && result.request_bytes == expected.bytes &&
         bytes_equal(request, expected.data, expected.bytes),
         "attachment GET preserves signed target byte-for-byte and contains no credentials or range/preview transform");
@@ -54,7 +54,7 @@ void test_attachment_download(void (*check)(bool, const char*) noexcept) noexcep
         {request, sizeof(request)});
     const auto media_get = utf8_literal(
         "GET /external/AbCdEf/https/media.tenor.com/abc/tenor.mp4 HTTP/1.1\r\nHost: "
-        "media.discordapp.net\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n");
+        "media.discordapp.net\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9266 Chrome/152.0.7977.167 Electron/44.9.3 Safari/537.36\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n");
     check(media.ok() && media.host == CdnHost::media && media.request_bytes == media_get.bytes &&
               bytes_equal(request, media_get.data, media_get.bytes) &&
               attachment_download_write_media_request(

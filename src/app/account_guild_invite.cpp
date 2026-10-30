@@ -20,7 +20,6 @@ RestClientSubmitResult account_guild_invite_submit(RestClient* rest, const Guild
                                      request_id,
                                      kRestClientDefaultTimeoutMs,
                                      written.body_bytes != 0,
-                                     false,
                                      {},
                                      {context, context_bytes}});
 }

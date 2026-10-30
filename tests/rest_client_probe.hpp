@@ -72,8 +72,7 @@ struct RestClientProbe {
                 runtime->command.route,
                 runtime->command.request_id,
                 runtime->command.timeout_ms,
-                runtime->command.json_body,
-                runtime->command.identity_response};
+                runtime->command.json_body};
     }
     bool receive(u16 status, Utf8View body, bool rate = false) noexcept {
         if (!signal() || reject_restricted_request(&client, runtime))

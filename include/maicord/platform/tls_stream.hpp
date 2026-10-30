@@ -63,6 +63,8 @@ struct TlsStreamBuffers {
     Slice<u8> encrypted_input;
     Slice<u8> handshake_output;
     Slice<u8> record_output;
+    // Owner storage in VirtualAlloc pages: whole pages of a closed stream are decommitted, not wiped.
+    bool release_pages = false;
 };
 
 enum class TlsStreamReadAction : u8 {
@@ -109,6 +111,7 @@ struct TlsStream {
     bool duplex;
     bool paused_peer_closed;
     bool read_completed;
+    bool buffers_released;
 };
 
 // Zero-initialize before first use. All API calls belong to one worker; socket
@@ -145,5 +148,9 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
 // drained event or tls_stream_drained() is true.
 void tls_stream_close(TlsStream* stream) noexcept;
 bool tls_stream_drained(TlsStream* stream) noexcept;
+// A closed stream's buffers are decommitted instead of wiped when buffers.release_pages is set and the
+// owner's buffers live in VirtualAlloc pages; begin_connect and initialize recommit them (zeroed). Call
+// this before the owner touches the buffers of a closed stream or frees their allocation.
+bool tls_stream_restore_buffers(TlsStream* stream) noexcept;
 
 } // namespace maicord

@@ -25,8 +25,7 @@ RestClientSubmitResult account_poll_create_submit(RestClient* rest, u64 channel_
                    {kMessageCreateRouteId, channel_id, RestMethod::post, RestMajorParameter::channel},
                    request_id,
                    kRestClientDefaultTimeoutMs,
-                   true,
-                   false});
+                   true});
         secure_clear_bytes(body, written.bytes);
     }
     VirtualFree(body, 0, MEM_RELEASE);

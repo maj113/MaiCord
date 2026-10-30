@@ -52,7 +52,6 @@ __declspec(noinline) RestClientSubmitResult submit_create(RestClient* rest,
                                        request_id,
                                        large ? kSoundboardLargeTimeoutMs : kRestClientDefaultTimeoutMs,
                                        true,
-                                       false,
                                        reason};
         result = large ? rest_client_submit_large(rest, submit) : rest_client_submit(rest, submit);
     }
@@ -107,7 +106,6 @@ RestClientSubmitResult account_soundboard_submit(RestClient* rest, const Soundbo
                                            request_id,
                                            kRestClientDefaultTimeoutMs,
                                            written.bytes != 0,
-                                           false,
                                            {reason, encoded.bytes}});
         secure_clear_bytes(body, written.bytes);
     }

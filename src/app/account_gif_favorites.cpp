@@ -30,8 +30,7 @@ RestClientSubmitResult settings_proto(RestClient* rest, AccountGifFavoritesOpera
           RestMajorParameter::none},
          request,
          kRestClientDefaultTimeoutMs,
-         update,
-         false},
+         update},
         kRestClientMaximumResponseBytes);
 }
 Utf8View text(ConstSlice<u8> patch) noexcept {

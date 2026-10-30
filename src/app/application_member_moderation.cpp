@@ -43,7 +43,7 @@ struct Moderation {
     Step step;
     bool self_nickname;
     Utf8View status;
-    char text[kGuildAdminReasonBytes];
+    char text[kRestAuditReasonMaximumBytes];
     // Bulk ban: the selected members.
     u64 users[kGuildBulkBanMaximumUsers];
     u32 user_count;
@@ -198,8 +198,9 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
         return false;
     const auto validation = utf8_validate(text);
     const bool nickname = moderation.kind == Kind::nickname;
-    if (!validation.valid || text.bytes > (nickname ? kNicknameCodepoints * 4 : kGuildAdminReasonBytes) ||
-        (nickname && validation.codepoints > kNicknameCodepoints))
+    if (!validation.valid ||
+        text.bytes > (nickname ? kNicknameCodepoints * 4 : kRestAuditReasonMaximumBytes) ||
+        validation.codepoints > (nickname ? kNicknameCodepoints : kRestAuditReasonMaximumCodepoints))
         return reject(utf8_literal("This text is too long."));
     for (u32 i = 0; i < text.bytes; ++i)
         if (static_cast<u8>(text.data[i]) < 0x20)
@@ -245,7 +246,9 @@ bool ban_save(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 s
     if (bulk && choice >= kModerationBanReasonCount)
         return reject(utf8_literal("Ban reason must be provided"));
     const Utf8View reason = moderation_ban_reason(choice, typed, text);
-    if (!utf8_validate(reason).valid || reason.bytes > kGuildAdminReasonBytes)
+    const auto checked = utf8_validate(reason);
+    if (!checked.valid || reason.bytes > kRestAuditReasonMaximumBytes ||
+        checked.codepoints > kRestAuditReasonMaximumCodepoints)
         return reject(utf8_literal("This text is too long."));
     if (!still_allowed())
         return reject(bulk ? utf8_literal("You can't ban these members anymore.")
@@ -275,8 +278,8 @@ bool open_ban_form() noexcept {
     request.accept = utf8_literal("Ban");
     request.owner = form_owner();
     request.valid = owner_current;
-    request.maximum_codepoints = kGuildAdminReasonBytes;
-    request.maximum_bytes = kGuildAdminReasonBytes;
+    request.maximum_codepoints = kRestAuditReasonMaximumCodepoints;
+    request.maximum_bytes = kRestAuditReasonMaximumBytes;
     request.progress = form_progress;
     request.closed = form_closed;
     request.danger = true;
@@ -299,7 +302,7 @@ bool open_form() noexcept {
     Utf8View label = utf8_literal("Reason (optional)");
     Utf8View accept{};
     Utf8View initial{};
-    u32 maximum = kGuildAdminReasonBytes;
+    u32 maximum = kRestAuditReasonMaximumCodepoints;
     switch (moderation.kind) {
     case Kind::nickname: {
         title.add("Edit nickname");
@@ -355,7 +358,7 @@ bool open_form() noexcept {
     request.valid = owner_current;
     request.save = form_save;
     request.maximum_codepoints = maximum;
-    request.maximum_bytes = moderation.kind == Kind::nickname ? kNicknameCodepoints * 4 : kGuildAdminReasonBytes;
+    request.maximum_bytes = moderation.kind == Kind::nickname ? kNicknameCodepoints * 4 : kRestAuditReasonMaximumBytes;
     request.single_line = true;
     request.progress = form_progress;
     request.closed = form_closed;

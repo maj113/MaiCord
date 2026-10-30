@@ -14,7 +14,7 @@ struct Submission {
     RestRouteKey route;
     u64 request_id;
     u32 timeout_ms, target_bytes, body_bytes, calls;
-    bool json_body, identity_response, copied;
+    bool json_body, copied;
     u8 target[128], body[256];
     RestClientSubmitError result;
 } submitted{};
@@ -41,7 +41,6 @@ bool captured(RestClient* client, Utf8View target, Utf8View body, RestMethod met
            submitted.route.route_id == kRelationshipsRouteId && submitted.route.major_key == 0 &&
            submitted.route.major == RestMajorParameter::none && submitted.route.method == method &&
            submitted.timeout_ms == kRestClientDefaultTimeoutMs && submitted.json_body == json &&
-           !submitted.identity_response &&
            utf8_equal({reinterpret_cast<const char*>(submitted.target), submitted.target_bytes}, target) &&
            utf8_equal({reinterpret_cast<const char*>(submitted.body), submitted.body_bytes}, body);
 }
@@ -262,7 +261,6 @@ static void test_message_ack_transport() noexcept {
               submitted.route.major == RestMajorParameter::channel &&
               submitted.route.method == RestMethod::post &&
               submitted.timeout_ms == kRestClientDefaultTimeoutMs && submitted.json_body &&
-              !submitted.identity_response &&
               utf8_equal({reinterpret_cast<const char*>(submitted.target), submitted.target_bytes},
                          utf8_literal("/api/v10/channels/7/messages/99/ack")) &&
               utf8_equal({reinterpret_cast<const char*>(submitted.body), submitted.body_bytes},
@@ -297,7 +295,6 @@ static void test_message_ack_transport() noexcept {
               submitted.route.major == RestMajorParameter::channel &&
               submitted.route.method == RestMethod::post &&
               submitted.timeout_ms == kRestClientDefaultTimeoutMs && submitted.json_body &&
-              !submitted.identity_response &&
               utf8_equal({reinterpret_cast<const char*>(submitted.target), submitted.target_bytes},
                          utf8_literal("/api/v10/channels/7/messages/0/ack")) &&
               utf8_equal({reinterpret_cast<const char*>(submitted.body), submitted.body_bytes},
@@ -338,7 +335,6 @@ static RestClientSubmitResult submit_stub(RestClient* client,
     capture.target_bytes = request.target.count;
     capture.body_bytes = request.body.count;
     capture.json_body = request.json_body;
-    capture.identity_response = request.identity_response;
     capture.copied =
         request.target.count <= sizeof(capture.target) && request.body.count <= sizeof(capture.body) &&
         (!request.target.count || request.target.data) && (!request.body.count || request.body.data);

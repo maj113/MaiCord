@@ -2,6 +2,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/protocol/cdn_url.hpp"
+#include "maicord/protocol/client_user_agent.hpp"
 #include "maicord/protocol/http_response_stream.hpp"
 
 namespace maicord { namespace {
@@ -70,13 +71,15 @@ u32 prefix_bytes(Utf8View text, u32 maximum_units, u32 maximum_bytes) noexcept {
 // The credential-free GET for an origin-form target on a Discord host.
 AttachmentDownloadRequestResult write_get(ConstSlice<u8> target, CdnHost cdn_host,
                                           Slice<u8> output) noexcept {
-    u8 request[kCdnMaximumTargetBytes + 192];
+    u8 request[kCdnMaximumTargetBytes + 384];
     ProtocolWriter writer{{request, sizeof(request)}, 0};
     const auto host = cdn_host_name(cdn_host);
     if (!protocol_writer_append_literal(&writer, "GET ") ||
         !protocol_writer_append_bytes(&writer, target) ||
         !protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") ||
         !protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(host.data), host.bytes) ||
+        !protocol_writer_append_literal(&writer, "\r\nUser-Agent: ") ||
+        !protocol_writer_append_literal(&writer, kClientUserAgent) ||
         !protocol_writer_append_literal(
             &writer, "\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n") ||
         writer.used > output.count)

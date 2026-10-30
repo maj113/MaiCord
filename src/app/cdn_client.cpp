@@ -438,7 +438,7 @@ bool initialize_transport(CdnClientRuntime* runtime, CdnHost host) noexcept {
     if (!tls_stream_initialize(&runtime->transport, server_name,
                                TlsStreamBuffers{Slice<u8>{runtime->encrypted_storage, kEncryptedInputBytes},
                                                 Slice<u8>{runtime->handshake_output, kHandshakeOutputBytes},
-                                                Slice<u8>{runtime->record_output, kRecordOutputBytes}})) {
+                                                Slice<u8>{runtime->record_output, kRecordOutputBytes}, true})) {
         return false;
     }
     runtime->transport_initialized = true;
@@ -723,7 +723,15 @@ void destroy_client_storage(CdnClient* client) noexcept {
     }
     auto* runtime = static_cast<CdnClientRuntime*>(client->runtime);
     const u32 bytes = runtime->storage_committed_bytes;
-    secure_clear_bytes(runtime, bytes);
+    if (tls_stream_restore_buffers(&runtime->transport)) {
+        secure_clear_bytes(runtime, bytes);
+    } else {
+        // Out of commit: the closed stream's decommitted pages hold nothing, so clear the rest around them.
+        u8* const end = reinterpret_cast<u8*>(runtime) + bytes;
+        secure_clear_bytes(runtime, static_cast<u32>(runtime->encrypted_storage - reinterpret_cast<u8*>(runtime)));
+        secure_clear_bytes(runtime->record_output + kRecordOutputBytes,
+                           static_cast<u32>(end - runtime->record_output - kRecordOutputBytes));
+    }
     VirtualFree(runtime, 0, MEM_RELEASE);
     client->runtime = nullptr;
 }

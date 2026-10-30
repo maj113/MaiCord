@@ -17,7 +17,7 @@ RestClientSubmitResult capture_submit(RestClient* client, const RestClientReques
     c.body_bytes = request.body.count;
     c.json = request.json_body;
     c.safe = request.target.data && c.target_bytes <= sizeof(c.target) && c.body_bytes <= sizeof(c.body) &&
-             (!c.body_bytes || request.body.data) && !request.identity_response &&
+             (!c.body_bytes || request.body.data) &&
              request.timeout_ms == kRestClientDefaultTimeoutMs &&
              (request.json_body || !c.body_bytes);
     if (!c.safe)

@@ -13,7 +13,7 @@ RestClientSubmitResult account_message_poll_submit(RestClient* rest,
     const auto submitted=rest_client_submit(rest,
         {{target,written.target_bytes},{body,written.body_bytes},
          {written.route_id,request->channel_id,written.method,RestMajorParameter::channel},
-         request_id,kRestClientDefaultTimeoutMs,written.body_bytes!=0,false});
+         request_id,kRestClientDefaultTimeoutMs,written.body_bytes!=0});
     secure_clear_bytes(body,sizeof(body));
     return submitted;
 }

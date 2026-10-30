@@ -117,9 +117,6 @@ struct GuildMemberStore {
     GuildMemberRecord* records;
     u32* order;
     u32 capacity;
-    // Every occupied slot lies below this high-water mark, so scans stop here
-    // and never touch (or fault in) the unused tail of a zeroed record array.
-    u32 slot_extent;
     u32 count;
     u32 clock;
     u32 revision;
@@ -138,6 +135,9 @@ struct GuildMemberStore {
     MemberListPinnedRange visible;
     GuildMemberRoleOverflow role_overflow;
     MemberListPositionTable positions;
+    // Every occupied slot lies below this high-water mark, so scans stop here
+    // and never touch (or fault in) the unused tail of a zeroed record array.
+    u32 slot_extent;
 };
 
 enum class GuildMemberStoreError : u8 {

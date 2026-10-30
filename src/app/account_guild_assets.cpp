@@ -52,7 +52,6 @@ __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
                                  request_id,
                                  large ? kGuildAssetLargeTimeoutMs : kRestClientDefaultTimeoutMs,
                                  true,
-                                 false,
                                  reason};
         submit.multipart_boundary = chosen;
         result = large ? rest_client_submit_large_owned(rest, submit, &body)
@@ -92,7 +91,6 @@ RestClientSubmitResult account_guild_assets_submit(RestClient* rest, const Guild
                                                guild_asset_route(*request),
                                                request_id,
                                                kRestClientDefaultTimeoutMs,
-                                               false,
                                                false,
                                                {reason, encoded.bytes}});
     }

@@ -27,7 +27,7 @@ void admission() noexcept {
         retained.route.route_id == kBulkMessageAckRouteId && !retained.route.major_key &&
             retained.route.major == RestMajorParameter::none &&
             retained.route.method == RestMethod::post && retained.json_body &&
-            !retained.identity_response && retained.request_id == 501 &&
+            retained.request_id == 501 &&
             utf8_equal({reinterpret_cast<const char*>(retained.target.data), retained.target.count},
                        utf8_literal("/api/v10/read-states/ack-bulk")) &&
             utf8_equal(
